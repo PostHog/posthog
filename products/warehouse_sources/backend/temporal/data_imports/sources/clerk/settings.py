@@ -192,3 +192,17 @@ RETIRED_ENDPOINTS: dict[str, str] = {
 }
 
 ENDPOINTS = tuple(CLERK_ENDPOINTS.keys())
+
+# Clerk delivers webhooks through Svix. A table qualifies for webhook sync only when its events
+# carry the full object on create and update. Delete events are not stored: `user.deleted` and
+# `organization.deleted` carry only the object id, and the merge also matches on the `created_at`
+# partition key, so a tombstone row could not replace the stored row. A deleted record stays in the
+# table until the next full resync.
+WEBHOOK_EVENTS_BY_SCHEMA: dict[str, tuple[str, ...]] = {
+    "users": ("user.created", "user.updated"),
+    "organizations": ("organization.created", "organization.updated"),
+    "organization_memberships": ("organizationMembership.created", "organizationMembership.updated"),
+}
+
+WEBHOOK_EVENT_TO_SCHEMA = {event: schema for schema, events in WEBHOOK_EVENTS_BY_SCHEMA.items() for event in events}
+WEBHOOK_SCHEMA_NAMES = frozenset(WEBHOOK_EVENTS_BY_SCHEMA)

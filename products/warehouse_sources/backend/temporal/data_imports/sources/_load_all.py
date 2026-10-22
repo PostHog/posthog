@@ -280,6 +280,7 @@ from .close.source import CloseSource
 from .cloudability.source import CloudabilitySource
 from .cloudbeds.source import CloudbedsSource
 from .cloudflare.source import CloudflareSource
+from .cloudflare_r2.source import CloudflareR2Source
 from .cloudinary.source import CloudinarySource
 from .cloudsmith.source import CloudsmithSource
 from .cloudzero.source import CloudzeroSource
@@ -922,6 +923,7 @@ from .pandadoc.source import PandaDocSource
 from .paperform.source import PaperformSource
 from .papersign.source import PapersignSource
 from .pardot.source import PardotSource
+from .particle.source import ParticleSource
 from .partnerize.source import PartnerizeSource
 from .partnerstack.source import PartnerStackSource
 from .patreon.source import PatreonSource
@@ -1042,6 +1044,7 @@ from .resend.source import ResendSource
 from .retail_express.source import RetailExpressSource
 from .retell_ai.source import RetellAISource
 from .retently.source import RetentlySource
+from .retreaver.source import RetreaverSource
 from .revenuecat.source import RevenueCatSource
 from .reverb.source import ReverbSource
 from .revolut_merchant.source import RevolutMerchantSource

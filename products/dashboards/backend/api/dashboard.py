@@ -143,7 +143,6 @@ from products.dashboards.backend.constants import (
     RUN_INSIGHTS_MIN_TILE_CHARS,
 )
 from products.dashboards.backend.facade.api import DashboardTileBasicSerializer, tile_ids_prefetch
-from products.dashboards.backend.feature_flags import dashboard_widgets_enabled
 from products.dashboards.backend.models.dashboard import (
     DASHBOARD_GRID_COMPACTION_MODES,
     DASHBOARD_GRID_SPACING_GAPS,
@@ -166,7 +165,7 @@ from products.dashboards.backend.widget_access import (
     get_widget_product_access_error,
 )
 from products.dashboards.backend.widget_availability import get_widget_feature_enabled
-from products.dashboards.backend.widget_catalog import get_widget_catalog_entries
+from products.dashboards.backend.widget_catalog import get_widget_catalog_entries, parse_widget_type_filter
 from products.dashboards.backend.widget_create import create_widget_tile, prepare_widget_tile_create
 from products.dashboards.backend.widget_layouts import collect_dashboard_sm_layouts_for_dashboard
 from products.dashboards.backend.widget_query_throttle import get_dashboard_widget_query_throttle_error
@@ -2608,9 +2607,6 @@ class DashboardSerializer(DashboardMetadataSerializer):
             widget_json: dict = tile_data.get("widget", {})
             widget_data = DashboardSerializer._validated_patch_widget_payload(widget_json)
 
-            if not dashboard_widgets_enabled(team=instance.team, user=user):
-                raise serializers.ValidationError({"widget": "Dashboard widgets are not enabled for this project."})
-
             user_access_control = UserAccessControl(user=user, team=instance.team)
             existing_widget_id = widget_data.get("id")
 
@@ -3336,8 +3332,6 @@ class DashboardsViewSet(
         self.check_object_permissions(request, to_dashboard_obj)
         if tile.widget_id is not None:
             request_user = cast(User, request.user)
-            if not dashboard_widgets_enabled(team=self.team, user=request_user):
-                raise exceptions.ValidationError("Dashboard widgets are not enabled for this project.")
             user_access_control = UserAccessControl(user=request_user, team=self.team)
             if tile.widget is None:
                 raise exceptions.ValidationError("Widget tile is missing its widget.")
@@ -3395,8 +3389,6 @@ class DashboardsViewSet(
         )
 
         if tile.widget_id is not None:
-            if not dashboard_widgets_enabled(team=self.team, user=cast(User, request.user)):
-                raise exceptions.ValidationError("Dashboard widgets are not enabled for this project.")
             if tile.widget is None:
                 raise exceptions.ValidationError("Widget tile is missing its widget.")
             DashboardSerializer._check_widget_tile_product_access(tile.widget, user_access_control)
@@ -3765,9 +3757,6 @@ class DashboardsViewSet(
     )
     @action(methods=["GET"], detail=True, required_scopes=["dashboard:read"])
     def run_widgets(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        if not dashboard_widgets_enabled(team=self.team, user=cast(User, request.user)):
-            raise exceptions.PermissionDenied("Dashboard widgets are not enabled for this project.")
-
         tile_ids = parse_tile_ids(request.query_params.get("tile_ids"))
         if not tile_ids:
             raise exceptions.ValidationError("tile_ids is required.")
@@ -3882,11 +3871,26 @@ class DashboardsViewSet(
 
         return Response({"results": results})
 
-    @extend_schema(responses={200: WidgetCatalogResponseSerializer})
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="widget_type",
+                type=str,
+                enum=sorted(EXPECTED_WIDGET_TYPES),
+                many=True,
+                style="form",
+                explode=False,
+                required=False,
+                description="Widget types to return. Omit to return every registered widget type.",
+            ),
+        ],
+        responses={200: WidgetCatalogResponseSerializer},
+    )
     @action(methods=["GET"], detail=False, required_scopes=["dashboard:read"])
     def widget_catalog(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """List registered dashboard widget types and per-type config_schema documentation for agents."""
-        return Response({"results": get_widget_catalog_entries()})
+        widget_types = parse_widget_type_filter(request.query_params.getlist("widget_type"))
+        return Response({"results": get_widget_catalog_entries(widget_types)})
 
     @extend_schema(
         request=AddDashboardWidgetsBatchRequestOpenApiSerializer,
@@ -3895,9 +3899,6 @@ class DashboardsViewSet(
     @action(methods=["POST"], detail=True, url_path="widgets/batch", required_scopes=["dashboard:write"])
     def widgets_batch(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Add multiple widget tiles to a dashboard in one atomic request."""
-        if not dashboard_widgets_enabled(team=self.team, user=cast(User, request.user)):
-            raise exceptions.ValidationError("Dashboard widgets are not enabled for this project.")
-
         dashboard = self.get_object()
         if dashboard.deleted:
             raise exceptions.NotFound()
@@ -3979,9 +3980,6 @@ class DashboardsViewSet(
         that. All updates succeed or fail together. To add new widgets, use the widgets/batch POST endpoint; to
         remove one, use delete_tile.
         """
-        if not dashboard_widgets_enabled(team=self.team, user=cast(User, request.user)):
-            raise exceptions.ValidationError("Dashboard widgets are not enabled for this project.")
-
         dashboard = self.get_object()
         if dashboard.deleted:
             raise exceptions.NotFound()

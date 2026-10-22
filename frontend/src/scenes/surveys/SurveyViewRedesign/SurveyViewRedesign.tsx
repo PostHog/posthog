@@ -28,6 +28,7 @@ import { SurveyQuestionVisualization } from 'scenes/surveys/components/question-
 import { SurveyFeedbackButton } from 'scenes/surveys/components/SurveyFeedbackButton'
 import { SurveyFollowUpWorkflowButton } from 'scenes/surveys/components/SurveyFollowUpWorkflowButton'
 import { SurveyNotifications } from 'scenes/surveys/components/SurveyNotifications'
+import { SurveyRespondentsBroadcastButton } from 'scenes/surveys/components/SurveyRespondentsBroadcastButton'
 import { DuplicateToProjectModal } from 'scenes/surveys/DuplicateToProjectModal'
 import { useSurveyResponseColumns } from 'scenes/surveys/hooks/useSurveyResponseColumns'
 import {
@@ -649,6 +650,13 @@ function SurveySummaryContent({ onViewResponses }: { onViewResponses: () => void
         />
     )
 
+    const resultsActions = (
+        <>
+            {survey.id !== 'new' && <SurveyRespondentsBroadcastButton surveyId={survey.id} />}
+            {exportButton}
+        </>
+    )
+
     if (!isRefreshingResults && !atLeastOneResponse) {
         return (
             <div className="px-4 pb-4">
@@ -673,7 +681,7 @@ function SurveySummaryContent({ onViewResponses }: { onViewResponses: () => void
     return (
         <div className="px-4 pb-4">
             <div className="mx-auto w-full max-w-[1200px] space-y-6">
-                <SurveyResultsFiltersBar actions={exportButton} />
+                <SurveyResultsFiltersBar actions={resultsActions} />
                 <SurveyResultsRefreshStatus visible={isRefreshingResults} />
                 <div
                     aria-busy={isRefreshingResults}
@@ -743,7 +751,9 @@ function SurveyResponsesContent(): JSX.Element {
 
     return (
         <div className="px-4 pb-4 space-y-6">
-            <SurveyResultsFiltersBar />
+            <SurveyResultsFiltersBar
+                actions={survey.id !== 'new' ? <SurveyRespondentsBroadcastButton surveyId={survey.id} /> : undefined}
+            />
             <SurveyResultsRefreshStatus visible={isRefreshingResults} />
             {isInitialSurveyLoad ? (
                 <LemonSkeleton />

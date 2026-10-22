@@ -2373,15 +2373,19 @@ class TestTimeSensitivePermissions(APIBaseTest):
             res = self.client.patch("/api/users/@me", payload, format="json")
             assert res.status_code != 403, f"Field update should not require re-authentication, got: {res.json()}"
 
-    def test_user_can_update_hedgehog_config_without_recent_authentication(self):
+    @parameterized.expand(
+        [
+            ("hedgehog_config", "patch", "/api/users/@me/hedgehog_config", {"enabled": True, "color": "red"}, 200),
+            ("credentials_review_complete", "post", "/api/users/@me/credentials_review_complete/", {}, 204),
+        ]
+    )
+    def test_user_actions_allowed_without_recent_authentication(
+        self, _name: str, method: str, url: str, payload: dict[str, object], expected_status: int
+    ):
         now = datetime.now()
         with time_machine.travel(now + timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE + 10), tick=False):
-            res = self.client.patch(
-                "/api/users/@me/hedgehog_config",
-                {"enabled": True, "color": "red"},
-                format="json",
-            )
-            assert res.status_code == 200
+            res = getattr(self.client, method)(url, payload, format="json")
+            assert res.status_code == expected_status, res.content
 
     def test_user_can_update_scene_personalisation_without_recent_authentication(self):
         from products.dashboards.backend.models.dashboard import Dashboard

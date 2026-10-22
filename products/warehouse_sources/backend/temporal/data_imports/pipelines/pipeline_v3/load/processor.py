@@ -97,7 +97,12 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     DELTA_WRITE_DURATION_SECONDS,
     IDEMPOTENCY_HIT_TOTAL,
     INCOMPLETE_RUN_COMPLETIONS_REFUSED_TOTAL,
+    LOADED_PREFIX_PROMOTION_TOTAL,
     PARQUET_READ_DURATION_SECONDS,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.replace_rows import (
+    apply_replace_scope,
+    replace_scope_applies,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.table_handles import (
     GROUP_TABLE_HANDLES,
@@ -106,6 +111,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     ExportSignalMessage,
     SyncTypeLiteral,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.replace_scope import ReplaceScopeRun
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.s3 import (
     read_parquet,
     read_parquet_first_values,
@@ -874,6 +880,78 @@ def _promote_staged_cursor(export_signal: ExportSignalMessage) -> None:
         )
 
 
+def _promote_loaded_prefixes(
+    signals: list[ExportSignalMessage], finals: list[ExportSignalMessage], schema: ExternalDataSchema
+) -> None:
+    """Move the watermark over the loaded prefix of each run in this write that does not complete here.
+
+    A run that completes here promotes its full staged cursor in its completion instead. A failed
+    promotion only leaves the watermark lower, so it never fails the batch, which already landed.
+    """
+    if not settings.DATA_WAREHOUSE_IMPORT_PREFIX_WATERMARK_ENABLED:
+        return
+    completed = {signal.run_uuid for signal in finals}
+    signals_by_run: dict[str, list[ExportSignalMessage]] = {}
+    for signal in signals:
+        if signal.sync_type == "incremental" and signal.cdc_write_mode is None and not signal.is_first_ever_sync:
+            signals_by_run.setdefault(signal.run_uuid, []).append(signal)
+    for run_uuid, run_signals in signals_by_run.items():
+        if run_uuid in completed:
+            continue
+        try:
+            outcome = _promote_loaded_prefix(run_signals, schema)
+        except Exception as e:
+            outcome = "error"
+            capture_exception(e)
+            logger.warning(
+                "loaded_prefix_promotion_failed",
+                team_id=run_signals[0].team_id,
+                external_data_schema_id=run_signals[0].schema_id,
+                run_uuid=run_uuid,
+                exc_info=True,
+            )
+        if outcome is not None:
+            LOADED_PREFIX_PROMOTION_TOTAL.labels(outcome=outcome).inc()
+
+
+def _promote_loaded_prefix(run_signals: list[ExportSignalMessage], schema: ExternalDataSchema) -> str | None:
+    """Promote the watermark that the last batch of this write recorded, when every earlier batch is loaded.
+
+    Returns the metric outcome, or None for a batch that recorded no watermark.
+    """
+    head = run_signals[0]
+    prefix = BatchQueue.get_loaded_prefix_sync(
+        settings.WAREHOUSE_SOURCES_DATABASE_URL,
+        team_id=head.team_id,
+        schema_id=head.schema_id,
+        run_uuid=head.run_uuid,
+        first_batch_index=min(signal.batch_index for signal in run_signals),
+        last_batch_index=max(signal.batch_index for signal in run_signals),
+    )
+    cursor = prefix.cursor
+    if not isinstance(cursor, dict):
+        return None
+    field, value, job_rows_synced = cursor.get("field"), cursor.get("value"), cursor.get("job_rows_synced")
+    if not isinstance(field, str) or value is None or not isinstance(job_rows_synced, int):
+        return None
+    if not prefix.is_complete:
+        return "incomplete"
+    moved = schema.promote_loaded_prefix_value(
+        run_uuid=head.run_uuid, job_id=head.job_id, field=field, value=value, job_rows_synced=job_rows_synced
+    )
+    if not moved:
+        return "kept"
+    logger.info(
+        "loaded_prefix_cursor_promoted",
+        team_id=head.team_id,
+        external_data_schema_id=head.schema_id,
+        external_data_job_id=head.job_id,
+        run_uuid=head.run_uuid,
+        last_batch_index=max(signal.batch_index for signal in run_signals),
+    )
+    return "promoted"
+
+
 def _mark_job_failed(export_signal: ExportSignalMessage, error: Exception) -> None:
     # Short-circuit if the job is already FAILED: redelivered DLQ'd messages
     # (the retry state stays in Redis until its 72h TTL) would otherwise spam
@@ -1246,7 +1324,8 @@ def _process_message_reported(
 
         if export_signal.sync_type == "incremental" and export_signal.cdc_write_mode is None:
             rebuild = TableRebuildRun(schema.sync_type_config)
-            if any(rebuild.replaces(run_uuid) for run_uuid, _ in members):
+            replace_run = ReplaceScopeRun(schema.sync_type_config)
+            if any(rebuild.replaces(run_uuid) or replace_run.replaces(run_uuid) for run_uuid, _ in members):
                 if constituents is not None:
                     raise CoalescingDeclined("a batch belongs to an attempt that a later attempt replaced")
                 logger.info(
@@ -1328,6 +1407,14 @@ def _process_message_reported(
                 verify_ownership()
             append_runs.start_run(export_signal)
 
+        if replace_scope_applies(export_signal):
+            # Before the table is read, so the batch is fitted to the table that the deletes leave.
+            if verify_ownership is not None:
+                verify_ownership()
+            report_phase("replace_rows")
+            with timer.step("replace_rows"):
+                apply_replace_scope(export_signal, schema, delta_table_ref, verify_ownership)
+
         logger.debug(
             "message_received",
             team_id=export_signal.team_id,
@@ -1370,8 +1457,19 @@ def _process_message_reported(
             with timer.step("table_open"):
                 existing_delta_table = async_to_sync(delta_table_ref.get_delta_table)()
 
-        with timer.step("partition"):
-            pa_table = _apply_partitioning(export_signal, pa_table, existing_delta_table, schema)
+        # A run whose source read no rows sends one empty batch only to carry its replace scope.
+        is_scope_carrier = export_signal.replace_scope is not None and pa_table.num_rows == 0
+        if is_scope_carrier and existing_delta_table is None:
+            # Writing the carrier would create a table that holds only the scope column.
+            raise ValueError(
+                f"The Delta table of schema {export_signal.schema_id} is missing, so the empty batch of "
+                f"run {export_signal.run_uuid} cannot apply its replace scope"
+            )
+        skips_write = is_scope_carrier
+
+        if not skips_write:
+            with timer.step("partition"):
+                pa_table = _apply_partitioning(export_signal, pa_table, existing_delta_table, schema)
 
         # Capture file URIs before write for partial data loading. The listing is O(files in
         # table), so skip it entirely when no consumer wants it — during a long first sync the
@@ -1462,8 +1560,16 @@ def _process_message_reported(
                     primary_keys=primary_keys or [],
                     commit_metadata=commit_metadata,
                 )
+        elif skips_write and existing_delta_table is not None:
+            delta_table = existing_delta_table
         else:
-            write_type = _get_write_type(export_signal.sync_type)
+            # The scope already removed every row this run brings again, so its batches only add rows.
+            # A first sync or a reset keeps the incremental load, whose batch 0 overwrites the table.
+            write_type: Literal["incremental", "full_refresh", "append"] = (
+                "append"
+                if export_signal.replace_scope is not None and not export_signal.is_first_ever_sync
+                else _get_write_type(export_signal.sync_type)
+            )
 
             # First batch should overwrite the table, but only if not resuming
             should_overwrite_table = export_signal.batch_index == 0 and not export_signal.is_resume
@@ -1562,6 +1668,7 @@ def _process_message_reported(
             finals = [export_signal] if export_signal.is_final_batch else []
         if not finals and _rebuild_compaction_due(export_signal, schema, members):
             _compact_during_rebuild(delta_table_ref, verify_ownership, timer)
+        _promote_loaded_prefixes(constituents if constituents is not None else [export_signal], finals, schema)
         for run_signal in finals:
             run_job = job if run_signal.job_id == export_signal.job_id else _load_job(run_signal.job_id)
             run_schema = run_job.schema

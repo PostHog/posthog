@@ -1846,6 +1846,8 @@ const llmaOfflineExperimentList = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/ai_observability/offline_experiments/`,
             query: {
                 application_version: params.application_version,
+                created_by: params.created_by,
+                created_by_is_null: params.created_by_is_null,
                 cursor: params.cursor,
                 dataset_identifier: params.dataset_identifier,
                 dataset_revision_identifier: params.dataset_revision_identifier,
@@ -2076,6 +2078,8 @@ const llmaOfflineScorerHistory = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/ai_observability/offline_scorers/${encodeURIComponent(String(params.id))}/history/`,
             query: {
                 application_version: params.application_version,
+                created_by: params.created_by,
+                created_by_is_null: params.created_by_is_null,
                 cursor: params.cursor,
                 dataset_identifier: params.dataset_identifier,
                 dataset_revision_identifier: params.dataset_revision_identifier,
@@ -2717,6 +2721,7 @@ const llmaScoreDefinitionList = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/llm_analytics/score_definitions/`,
             query: {
                 archived: params.archived,
+                created_by: params.created_by,
                 kind: params.kind,
                 limit: params.limit,
                 offset: params.offset,

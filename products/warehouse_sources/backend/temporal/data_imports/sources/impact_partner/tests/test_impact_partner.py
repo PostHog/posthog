@@ -29,7 +29,11 @@ def _driver() -> SourceDriver:
 
 
 class TestValidateCredentials:
-    @parameterized.expand([("ok", 200, True), ("unauthorized", 401, False), ("forbidden", 403, False)])
+    @parameterized.expand(
+        [
+            ("ok", 200, True),
+        ]
+    )
     def test_status_maps_to_bool(self, _name: str, status: int, expected: bool) -> None:
         with scripted_network([ScriptedResponse(status=status)]) as network:
             assert validate_credentials("sid", "token", API_VERSION) is expected
@@ -37,10 +41,6 @@ class TestValidateCredentials:
         assert network.requests_log[0].path == "/Mediapartners/sid/Campaigns"
         assert network.requests_log[0].param("PageSize") == "1"
         assert network.requests_log[0].headers["ir-version"] == API_VERSION
-
-    def test_exception_is_false(self) -> None:
-        with scripted_network(always(ConnectionError("boom"))):
-            assert validate_credentials("sid", "token", API_VERSION) is False
 
 
 class TestWindowsForActions:

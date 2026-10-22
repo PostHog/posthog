@@ -258,6 +258,11 @@ export interface ExecToolOptions {
      */
     builtInSkillHint?: BuiltInSkillHint
     oauthClientId?: string | undefined
+    /**
+     * The tools a scout run with a picked tool list holds. A catalog tool outside this set is
+     * refused as `tool_not_granted`, so the agent does not search for another way to reach it.
+     */
+    heldTools?: ReadonlySet<string>
 }
 
 const CALL_USAGE = 'Usage: call [--json] [--confirm] <tool_name> [json_input]'
@@ -1676,6 +1681,7 @@ function findTool(
     flagGatedTools: FlagGatedTool[],
     name: string,
     context: Context | undefined,
+    heldTools: ReadonlySet<string> | undefined,
     oauthClientId: string | undefined
 ): Tool<ZodObjectAny> {
     const tool = tools.find((t) => t.name === name)
@@ -1693,6 +1699,12 @@ function findTool(
             throw new ExecCommandError(
                 `Tool "${name}" exists, but this MCP connection is missing the required scope(s): ${scopeGatedTool.missingScopes.join(', ')}. ${missingScopeRecovery(context, oauthClientId)} Logging in to PostHog in a browser does not update MCP permissions.`,
                 'missing_scope'
+            )
+        }
+        if (heldTools && !heldTools.has(name) && getToolDefinitions()[name] !== undefined) {
+            throw new ExecCommandError(
+                `Tool "${name}" exists, but the owner of this run did not grant it. This refusal is final. Do not retry it, and do not reach the same data or action another way.`,
+                'tool_not_granted'
             )
         }
         throw new ExecCommandError(
@@ -1900,6 +1912,7 @@ export function createExecTool(
                         flagGatedTools,
                         infoArgs,
                         context,
+                        options.heldTools,
                         options.oauthClientId
                     )
                     // `io: 'input'` mirrors the advertised `tools/list` schema and the executor's
@@ -1952,6 +1965,7 @@ export function createExecTool(
                         flagGatedTools,
                         schemaToolName,
                         context,
+                        options.heldTools,
                         options.oauthClientId
                     )
                     // See the `info` command: `io: 'input'` keeps this in sync with the advertised
@@ -2016,6 +2030,7 @@ export function createExecTool(
                         flagGatedTools,
                         toolName,
                         context,
+                        options.heldTools,
                         options.oauthClientId
                     )
                     if (options.requireDestructiveConfirmation && tool.annotations.destructiveHint && !confirmed) {
@@ -2127,7 +2142,7 @@ export function createExecTool(
                     }
                     const durationMs = Date.now() - startedAt
                     // The text path below builds no payload, so emptiness is reported from here.
-                    const resultShape = isEmptyToolResult(result) ? { result_empty: true } : {}
+                    const resultShape = isEmptyToolResult(result, tool.name) ? { result_empty: true } : {}
                     const formattedOverride =
                         result !== null && typeof result === 'object'
                             ? (result as Record<string, unknown>)[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]

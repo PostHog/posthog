@@ -1,0 +1,917 @@
+import {
+    actions,
+    afterMount,
+    connect,
+    isBreakpoint,
+    kea,
+    key,
+    listeners,
+    MakeLogicType,
+    path,
+    props,
+    reducers,
+    selectors,
+} from 'kea'
+import { loaders } from 'kea-loaders'
+import { subscriptions } from 'kea-subscriptions'
+import posthog from 'posthog-js'
+import type { DragEvent } from 'react'
+
+import { loadAppMetricsTotals } from 'lib/components/AppMetrics/appMetricsLogic'
+import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { objectsEqual } from 'lib/utils/objects'
+import { teamLogic } from 'scenes/teamLogic'
+
+import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
+import { HogFunctionTemplateType, TeamPublicType, TeamType } from '~/types'
+
+import { WorkflowLogicProps, workflowLogic } from '../../../workflowLogic'
+import { getEdgeId } from '../../edgeId'
+import {
+    actionMetricsFromTotals,
+    CreateActionType,
+    HogFlowEditorActionMetrics,
+    HogFlowEditorMode,
+    hogFlowEditorLogic,
+} from '../../hogFlowEditorLogic'
+import type { DropzoneNode, HogFlow, HogFlowActionNode, HogFlowEdge } from '../../types'
+import { destinationSteps, workflowStepSections } from '../../workflowStepCatalog'
+import {
+    CanvasLayout,
+    frameEntryX,
+    frameId,
+    layoutTileCanvas,
+    NodeSize,
+    PathFrameSpec,
+    pathFrameSpecs,
+    tileEntry,
+} from './tileCanvasLayout'
+import {
+    CanvasMotion,
+    collapsedPathStacks,
+    computePathGroups,
+    computeVisibleGraph,
+    countableStepMetrics,
+    PaletteSection,
+    PathGroup,
+    PathPlace,
+    Point,
+    stepCount,
+    stepCountsRequest,
+    VisibleEdge,
+    VisibleGraph,
+} from './tileCanvasModel'
+import { withLeavingStacks } from './tileCanvasNodes'
+
+export type TileCanvasPanelMode = HogFlowEditorMode | 'history'
+
+export type StepAddSource = 'palette' | 'command bar' | 'quick add'
+export type StepCountOf = (actionId: string) => number | undefined
+export type TemplateNameOf = (templateId: string) => string | undefined
+
+const PATH_LEAVE_MS = 260
+const PATH_MOTION_MS = 1100
+
+export interface PendingPathFocus {
+    groupId: string
+    shows: 'frame' | 'stack'
+    /** Where the path was before it opened or collapsed. Absent for a path opened from elsewhere, such as a link. */
+    anchor: PathPlace | null
+}
+
+export interface ViewportFocus {
+    place: PathPlace
+    anchor: PathPlace | null
+    request: number
+}
+
+function stackPlace(
+    layout: CanvasLayout | null,
+    sizes: Record<string, NodeSize> | null,
+    groupId: string
+): PathPlace | null {
+    const position = layout?.positions[groupId]
+    const size = sizes?.[groupId]
+    return position && size
+        ? { ...position, width: size.width, height: size.height, entry: tileEntry(position, size) }
+        : null
+}
+
+function framePlace(layout: CanvasLayout | null, group: PathGroup, edges: VisibleEdge[]): PathPlace | null {
+    const box = layout?.frames[frameId(group)]
+    return layout && box ? { ...box, entry: { x: frameEntryX(group, box, layout, edges), y: box.y } } : null
+}
+
+/** Where steps fly out of when a path opens: the middle of the stack's tile. */
+function stackOrigin(layout: CanvasLayout | null, sizes: Record<string, NodeSize> | null, groupId: string): Point {
+    const position = layout?.positions[groupId]
+    const size = sizes?.[groupId]
+    return position
+        ? { x: position.x + (size?.anchor?.x ?? (size?.width ?? 0) / 2), y: position.y + (size?.anchor?.y ?? 0) }
+        : { x: 0, y: 0 }
+}
+
+/** Where steps fly back to when a path collapses: the top of its open frame, where the stack will be. */
+function frameOrigin(layout: CanvasLayout | null, group: PathGroup): Point {
+    const box = layout?.frames[frameId(group)]
+    return box ? { x: box.x + box.width / 2, y: box.y + 40 } : { x: 0, y: 0 }
+}
+
+function captureStepAdded(source: StepAddSource, stepType: string): void {
+    posthog.capture('workflows tile canvas step added', { source, step_type: stepType })
+}
+
+const SURFACES_WITH_THEIR_OWN_KEYS = [
+    'input',
+    'textarea',
+    'select',
+    '[contenteditable="true"]',
+    '.LemonModal',
+    '[role="dialog"]',
+    '.Popover',
+].join(', ')
+
+function belongsToAnotherSurface(event: KeyboardEvent): boolean {
+    return (
+        event.defaultPrevented ||
+        (event.target instanceof HTMLElement && !!event.target.closest(SURFACES_WITH_THEIR_OWN_KEYS))
+    )
+}
+
+const isPrintableKey = (event: KeyboardEvent): boolean =>
+    !event.metaKey && !event.ctrlKey && !event.altKey && event.key.length === 1 && /\S/.test(event.key)
+
+const CANVAS_SELECTOR = '.TileCanvas__flow'
+
+/** Typing starts a search on the canvas, or on the page or scene around it, never on the panel, bar or tabs. */
+function isTypedOnCanvas(event: KeyboardEvent): boolean {
+    const target = event.target
+    return (
+        target instanceof HTMLElement && (!!target.closest(CANVAS_SELECTOR) || !!target.querySelector(CANVAS_SELECTOR))
+    )
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface tileCanvasLogicValues {
+    featureFlags: FeatureFlagsSet // featureFlagLogic
+    dropzoneNodes: DropzoneNode[] // hogFlowEditorLogic
+    isCopyingNode: boolean // hogFlowEditorLogic
+    isMovingNode: boolean // hogFlowEditorLogic
+    mode: HogFlowEditorMode // hogFlowEditorLogic
+    nodeToBeAdded: CreateActionType | HogFlowActionNode | null // hogFlowEditorLogic
+    selectedNode: HogFlowActionNode | null // hogFlowEditorLogic
+    selectedNodeCanBeCopiedOrMoved: boolean // hogFlowEditorLogic
+    selectedNodeCanBeDeleted: boolean // hogFlowEditorLogic
+    selectedNodeId: string | null // hogFlowEditorLogic
+    sceneTakeoverActive: boolean // sceneLayoutLogic
+    currentTeam: TeamPublicType | TeamType | null // teamLogic
+    hasUnsavedChanges: boolean // workflowLogic
+    hogFunctionTemplatesById: Record<string, HogFunctionTemplateType> // workflowLogic
+    isRowScopedTrigger: boolean // workflowLogic
+    originalWorkflow: HogFlow | null // workflowLogic
+    workflow: HogFlow // workflowLogic
+    allPathsCollapsed: boolean
+    commandPaletteQuery: string | null
+    countOf: StepCountOf
+    drawnGraph: VisibleGraph
+    fitRequest: number
+    fitsNextLayout: boolean
+    frameSpecs: PathFrameSpec[]
+    isHistoryOpen: boolean
+    isPanelOpen: boolean
+    isPlacing: boolean
+    isSavedWorkflow: boolean
+    laidOutGraph: VisibleGraph | null
+    layout: CanvasLayout | null
+    layoutError: string | null
+    measuredSizes: Record<string, NodeSize> | null
+    motion: CanvasMotion | null
+    openPathIds: string[]
+    paletteSections: PaletteSection[]
+    panelMode: TileCanvasPanelMode | null
+    pathGroups: PathGroup[]
+    pendingPathFocus: PendingPathFocus | null
+    placingSource: StepAddSource
+    quickAddEdgeKey: string | null
+    selectedStepId: string | null
+    stepCounts: Record<string, HogFlowEditorActionMetrics> | null
+    stepCountsLoading: boolean
+    stepMenuActionId: string | null
+    stepMenuFromKeyboard: boolean
+    stepMetrics: Record<string, HogFlowEditorActionMetrics> | null
+    templateNameOf: TemplateNameOf
+    viewportFocus: ViewportFocus | null
+    visibleGraph: VisibleGraph
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface tileCanvasLogicActions {
+    copyNodeToHighlightedDropzone: () => {
+        value: true
+    } // hogFlowEditorLogic
+    handlePaneClick: () => {
+        value: true
+    } // hogFlowEditorLogic
+    moveNodeToHighlightedDropzone: () => {
+        value: true
+    } // hogFlowEditorLogic
+    onDrop: (
+        event?: DragEvent<Element> | undefined,
+        targetEdge?: HogFlowEdge | undefined,
+        joinEdges?: HogFlowEdge[] | undefined
+    ) => {
+        event: DragEvent<Element> | undefined
+        joinEdges: HogFlowEdge[] | undefined
+        targetEdge: HogFlowEdge | undefined
+    } // hogFlowEditorLogic
+    onNodesDelete: (deleted: HogFlowActionNode[]) => {
+        deleted: HogFlowActionNode[]
+    } // hogFlowEditorLogic
+    setHighlightedDropzoneNodeId: (highlightedDropzoneNodeId: string | null) => {
+        highlightedDropzoneNodeId: string | null
+    } // hogFlowEditorLogic
+    setMode: (mode: 'build' | 'logs' | 'metrics' | 'test' | 'variables') => {
+        mode: 'build' | 'logs' | 'metrics' | 'test' | 'variables'
+    } // hogFlowEditorLogic
+    setNodeToBeAdded: (nodeToBeAdded: CreateActionType | HogFlowActionNode | null) => {
+        nodeToBeAdded: CreateActionType | HogFlowActionNode | null
+    } // hogFlowEditorLogic
+    setSelectedNodeId: (selectedNodeId: string | null) => {
+        selectedNodeId: string | null
+    } // hogFlowEditorLogic
+    startCopyingNode: (node: HogFlowActionNode) => {
+        node: HogFlowActionNode
+    } // hogFlowEditorLogic
+    startMovingNode: (node: HogFlowActionNode) => {
+        node: HogFlowActionNode
+    } // hogFlowEditorLogic
+    stopCopyingNode: () => {
+        value: true
+    } // hogFlowEditorLogic
+    stopMovingNode: () => {
+        value: true
+    } // hogFlowEditorLogic
+    discardChanges: () => {
+        value: true
+    } // workflowLogic
+    activateNode: (nodeId: string) => {
+        nodeId: string
+    }
+    addStepAt: (
+        step: CreateActionType,
+        edge: HogFlowEdge
+    ) => {
+        edge: HogFlowEdge
+        step: CreateActionType
+    }
+    cancel: () => {
+        value: true
+    }
+    closeCommandPalette: () => {
+        value: true
+    }
+    closePanel: () => {
+        value: true
+    }
+    closeQuickAdd: () => {
+        value: true
+    }
+    closeStepMenu: () => {
+        value: true
+    }
+    collapsePath: (groupId: string) => {
+        groupId: string
+    }
+    fitNextLayout: () => {
+        value: true
+    }
+    focusPath: (
+        place: PathPlace,
+        anchor?: PathPlace | null
+    ) => {
+        anchor: PathPlace | null
+        place: PathPlace
+    }
+    focusPathAfterLayout: (groupId: string) => {
+        groupId: string
+    }
+    loadStepCounts: () => {
+        value: true
+    }
+    loadStepCountsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadStepCountsSuccess: (
+        stepCounts: Record<string, HogFlowEditorActionMetrics> | null,
+        payload?: {
+            value: true
+        }
+    ) => {
+        stepCounts: Record<string, HogFlowEditorActionMetrics> | null
+        payload?: {
+            value: true
+        }
+    }
+    openCommandPalette: (query?: string) => {
+        query: string
+    }
+    openPanel: (mode: TileCanvasPanelMode) => {
+        mode: TileCanvasPanelMode
+    }
+    openPath: (groupId: string) => {
+        groupId: string
+    }
+    openQuickAdd: (edgeKey: string) => {
+        edgeKey: string
+    }
+    openStepMenu: (
+        actionId: string,
+        fromKeyboard?: any
+    ) => {
+        actionId: string
+        fromKeyboard: any
+    }
+    placeAt: (edge: HogFlowEdge) => {
+        edge: HogFlowEdge
+    }
+    requestFit: () => {
+        value: true
+    }
+    revealStep: (
+        actionId: string,
+        openPanel?: boolean
+    ) => {
+        actionId: string
+        openPanel: boolean
+    }
+    selectStep: (actionId: string) => {
+        actionId: string
+    }
+    setLayout: (
+        layout: CanvasLayout,
+        laidOutGraph?: VisibleGraph | null
+    ) => {
+        laidOutGraph: VisibleGraph | null
+        layout: CanvasLayout
+    }
+    setLayoutError: (message: string) => {
+        message: string
+    }
+    setMeasuredSizes: (sizes: Record<string, NodeSize>) => {
+        sizes: Record<string, NodeSize>
+    }
+    setMotion: (motion: CanvasMotion | null) => {
+        motion: CanvasMotion | null
+    }
+    setOpenPathIds: (openPathIds: string[]) => {
+        openPathIds: string[]
+    }
+    setPendingPathFocus: (pendingPathFocus: PendingPathFocus | null) => {
+        pendingPathFocus: PendingPathFocus | null
+    }
+    startPlacing: (step: CreateActionType) => {
+        step: CreateActionType
+    }
+    toggleAllPaths: () => {
+        value: true
+    }
+    togglePanel: (mode: TileCanvasPanelMode) => {
+        mode: TileCanvasPanelMode
+    }
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface tileCanvasLogicMeta {
+    key: string
+    __keaTypeGenInternalSelectorTypes: {
+        pathGroups: (workflow: HogFlow) => PathGroup[]
+        stepMetrics: (
+            workflow: HogFlow,
+            stepCounts: Record<string, HogFlowEditorActionMetrics> | null
+        ) => Record<string, HogFlowEditorActionMetrics> | null
+        countOf: (stepMetrics: Record<string, HogFlowEditorActionMetrics> | null) => StepCountOf
+        templateNameOf: (hogFunctionTemplatesById: Record<string, HogFunctionTemplateType>) => TemplateNameOf
+        selectedStepId: (isPanelOpen: boolean, selectedNodeId: string | null) => string | null
+        visibleGraph: (workflow: HogFlow, pathGroups: PathGroup[], openPathIds: string[]) => VisibleGraph
+        frameSpecs: (pathGroups: PathGroup[], openPathIds: string[], visibleGraph: VisibleGraph) => PathFrameSpec[]
+        drawnGraph: (visibleGraph: VisibleGraph, laidOutGraph: VisibleGraph | null) => VisibleGraph
+        allPathsCollapsed: (pathGroups: PathGroup[], openPathIds: string[]) => boolean
+        isSavedWorkflow: (workflow: HogFlow) => boolean
+        panelMode: (
+            isPanelOpen: boolean,
+            isHistoryOpen: boolean,
+            mode: 'build' | 'logs' | 'metrics' | 'test' | 'variables'
+        ) => TileCanvasPanelMode | null
+        isPlacing: (
+            nodeToBeAdded: CreateActionType | HogFlowActionNode | null,
+            isMovingNode: boolean,
+            isCopyingNode: boolean
+        ) => boolean
+        paletteSections: (
+            featureFlags: FeatureFlagsSet,
+            currentTeam: TeamPublicType | TeamType | null,
+            isRowScopedTrigger: boolean,
+            hogFunctionTemplatesById: Record<string, HogFunctionTemplateType>
+        ) => PaletteSection[]
+    }
+}
+
+export type tileCanvasLogicType = MakeLogicType<
+    tileCanvasLogicValues,
+    tileCanvasLogicActions,
+    WorkflowLogicProps,
+    tileCanvasLogicMeta
+>
+
+export const tileCanvasLogic = kea<tileCanvasLogicType>([
+    props({} as WorkflowLogicProps),
+    key((props) => `tile-canvas-${props.id}-${props.templateId || 'default'}-${props.editTemplateId || 'default'}`),
+    path((key) => ['products', 'workflows', 'tileCanvasLogic', key]),
+    connect(() => ({
+        values: [
+            workflowLogic,
+            ['workflow', 'originalWorkflow', 'hasUnsavedChanges', 'isRowScopedTrigger', 'hogFunctionTemplatesById'],
+            hogFlowEditorLogic,
+            [
+                'nodeToBeAdded',
+                'isMovingNode',
+                'isCopyingNode',
+                'dropzoneNodes',
+                'selectedNodeId',
+                'selectedNode',
+                'selectedNodeCanBeDeleted',
+                'selectedNodeCanBeCopiedOrMoved',
+                'mode',
+            ],
+            featureFlagLogic,
+            ['featureFlags'],
+            sceneLayoutLogic,
+            ['sceneTakeoverActive'],
+            teamLogic,
+            ['currentTeam'],
+        ],
+        actions: [
+            workflowLogic,
+            ['discardChanges'],
+            hogFlowEditorLogic,
+            [
+                'setSelectedNodeId',
+                'setMode',
+                'setNodeToBeAdded',
+                'onDrop',
+                'stopMovingNode',
+                'stopCopyingNode',
+                'setHighlightedDropzoneNodeId',
+                'moveNodeToHighlightedDropzone',
+                'copyNodeToHighlightedDropzone',
+                'handlePaneClick',
+                'startCopyingNode',
+                'startMovingNode',
+                'onNodesDelete',
+            ],
+        ],
+    })),
+    actions({
+        activateNode: (nodeId: string) => ({ nodeId }),
+        openPath: (groupId: string) => ({ groupId }),
+        focusPath: (place: PathPlace, anchor: PathPlace | null = null) => ({ place, anchor }),
+        focusPathAfterLayout: (groupId: string) => ({ groupId }),
+        setPendingPathFocus: (pendingPathFocus: PendingPathFocus | null) => ({ pendingPathFocus }),
+        collapsePath: (groupId: string) => ({ groupId }),
+        toggleAllPaths: true,
+        setOpenPathIds: (openPathIds: string[]) => ({ openPathIds }),
+        setMotion: (motion: CanvasMotion | null) => ({ motion }),
+        openCommandPalette: (query: string = '') => ({ query }),
+        closeCommandPalette: true,
+        openQuickAdd: (edgeKey: string) => ({ edgeKey }),
+        closeQuickAdd: true,
+        openStepMenu: (actionId: string, fromKeyboard = false) => ({ actionId, fromKeyboard }),
+        closeStepMenu: true,
+        startPlacing: (step: CreateActionType) => ({ step }),
+        addStepAt: (step: CreateActionType, edge: HogFlowEdge) => ({ step, edge }),
+        placeAt: (edge: HogFlowEdge) => ({ edge }),
+        selectStep: (actionId: string) => ({ actionId }),
+        revealStep: (actionId: string, openPanel: boolean = true) => ({ actionId, openPanel }),
+        openPanel: (mode: TileCanvasPanelMode) => ({ mode }),
+        togglePanel: (mode: TileCanvasPanelMode) => ({ mode }),
+        closePanel: true,
+        cancel: true,
+        setMeasuredSizes: (sizes: Record<string, NodeSize>) => ({ sizes }),
+        setLayout: (layout: CanvasLayout, laidOutGraph: VisibleGraph | null = null) => ({ layout, laidOutGraph }),
+        setLayoutError: (message: string) => ({ message }),
+        requestFit: true,
+        fitNextLayout: true,
+        loadStepCounts: true,
+    }),
+    reducers({
+        openPathIds: [[] as string[], { setOpenPathIds: (_, { openPathIds }) => openPathIds }],
+        pendingPathFocus: [
+            null as PendingPathFocus | null,
+            {
+                setPendingPathFocus: (_, { pendingPathFocus }) => pendingPathFocus,
+                focusPathAfterLayout: (_, { groupId }) => ({ groupId, shows: 'frame', anchor: null }),
+                focusPath: () => null,
+                toggleAllPaths: () => null,
+            },
+        ],
+        viewportFocus: [
+            null as ViewportFocus | null,
+            { focusPath: (state, { place, anchor }) => ({ place, anchor, request: (state?.request ?? 0) + 1 }) },
+        ],
+        motion: [null as CanvasMotion | null, { setMotion: (_, { motion }) => motion }],
+        placingSource: [
+            'command bar' as StepAddSource,
+            { openCommandPalette: (_, { query }) => (query ? 'palette' : 'command bar') },
+        ],
+        commandPaletteQuery: [
+            null as string | null,
+            {
+                openCommandPalette: (_, { query }) => query,
+                closeCommandPalette: () => null,
+                openQuickAdd: () => null,
+                cancel: () => null,
+            },
+        ],
+        quickAddEdgeKey: [
+            null as string | null,
+            {
+                openQuickAdd: (_, { edgeKey }) => edgeKey,
+                closeQuickAdd: () => null,
+                openCommandPalette: () => null,
+                cancel: () => null,
+            },
+        ],
+        isPanelOpen: [
+            false,
+            {
+                openPanel: () => true,
+                closePanel: () => false,
+                cancel: () => false,
+                revealStep: (state, { openPanel }) => openPanel || state,
+            },
+        ],
+        isHistoryOpen: [
+            false,
+            {
+                openPanel: (_, { mode }) => mode === 'history',
+                selectStep: () => false,
+                closePanel: () => false,
+                cancel: () => false,
+                setSelectedNodeId: (state, { selectedNodeId }) => (selectedNodeId ? false : state),
+            },
+        ],
+        stepMenuFromKeyboard: [
+            false,
+            { openStepMenu: (_, { fromKeyboard }) => fromKeyboard, closeStepMenu: () => false, cancel: () => false },
+        ],
+        stepMenuActionId: [
+            null as string | null,
+            {
+                openStepMenu: (_, { actionId }) => actionId,
+                closeStepMenu: () => null,
+                cancel: () => null,
+                setSelectedNodeId: (state, { selectedNodeId }) => (selectedNodeId === state ? state : null),
+            },
+        ],
+        measuredSizes: [null as Record<string, NodeSize> | null, { setMeasuredSizes: (_, { sizes }) => sizes }],
+        layout: [null as CanvasLayout | null, { setLayout: (_, { layout }) => layout }],
+        laidOutGraph: [null as VisibleGraph | null, { setLayout: (_, { laidOutGraph }) => laidOutGraph }],
+        layoutError: [null as string | null, { setLayoutError: (_, { message }) => message, setLayout: () => null }],
+        fitRequest: [0, { requestFit: (count) => count + 1 }],
+        fitsNextLayout: [true, { fitNextLayout: () => true, requestFit: () => false, focusPath: () => false }],
+    }),
+    loaders(({ values }) => ({
+        stepCounts: [
+            null as Record<string, HogFlowEditorActionMetrics> | null,
+            {
+                loadStepCounts: async (_, breakpoint) => {
+                    const request = stepCountsRequest(values.workflow, new Date())
+                    if (!request) {
+                        return null
+                    }
+                    await breakpoint(10)
+                    const response = await loadAppMetricsTotals(request, values.currentTeam?.timezone ?? 'UTC')
+                    breakpoint()
+                    return actionMetricsFromTotals(response)
+                },
+            },
+        ],
+    })),
+    selectors({
+        pathGroups: [(s) => [s.workflow], (workflow: HogFlow): PathGroup[] => computePathGroups(workflow)],
+        stepMetrics: [
+            (s) => [s.workflow, s.stepCounts],
+            (
+                workflow: HogFlow,
+                stepCounts: Record<string, HogFlowEditorActionMetrics> | null
+            ): Record<string, HogFlowEditorActionMetrics> | null => countableStepMetrics(workflow, stepCounts),
+        ],
+        countOf: [
+            (s) => [s.stepMetrics],
+            (stepMetrics: Record<string, HogFlowEditorActionMetrics> | null): StepCountOf =>
+                (actionId) =>
+                    stepCount(stepMetrics, actionId),
+        ],
+        templateNameOf: [
+            (s) => [s.hogFunctionTemplatesById],
+            (templates: Record<string, HogFunctionTemplateType>): TemplateNameOf =>
+                (templateId) =>
+                    templates[templateId]?.name,
+        ],
+        selectedStepId: [
+            (s) => [s.isPanelOpen, s.selectedNodeId],
+            (isPanelOpen: boolean, selectedNodeId: string | null): string | null =>
+                isPanelOpen ? selectedNodeId : null,
+        ],
+        visibleGraph: [
+            (s) => [s.workflow, s.pathGroups, s.openPathIds],
+            (workflow: HogFlow, groups: PathGroup[], openPathIds: string[]): VisibleGraph =>
+                computeVisibleGraph(workflow, groups, openPathIds),
+        ],
+        frameSpecs: [
+            (s) => [s.pathGroups, s.openPathIds, s.visibleGraph],
+            (groups: PathGroup[], openPathIds: string[], graph: VisibleGraph): PathFrameSpec[] =>
+                pathFrameSpecs(groups, openPathIds, graph.nodes),
+        ],
+        drawnGraph: [
+            (s) => [s.visibleGraph, s.laidOutGraph],
+            (graph: VisibleGraph, laidOutGraph: VisibleGraph | null): VisibleGraph =>
+                withLeavingStacks(graph, laidOutGraph),
+        ],
+        allPathsCollapsed: [
+            (s) => [s.pathGroups, s.openPathIds],
+            (groups: PathGroup[], openPathIds: string[]): boolean =>
+                groups.length > 0 && groups.every((group) => !openPathIds.includes(group.id)),
+        ],
+        isSavedWorkflow: [(s) => [s.workflow], (workflow: HogFlow): boolean => !!workflow.id && workflow.id !== 'new'],
+        panelMode: [
+            (s) => [s.isPanelOpen, s.isHistoryOpen, s.mode],
+            (isPanelOpen: boolean, isHistoryOpen: boolean, mode: HogFlowEditorMode): TileCanvasPanelMode | null =>
+                isPanelOpen ? (isHistoryOpen ? 'history' : mode) : null,
+        ],
+        isPlacing: [
+            (s) => [s.nodeToBeAdded, s.isMovingNode, s.isCopyingNode],
+            (
+                nodeToBeAdded: CreateActionType | HogFlowActionNode | null,
+                isMovingNode: boolean,
+                isCopyingNode: boolean
+            ): boolean => !!nodeToBeAdded || isMovingNode || isCopyingNode,
+        ],
+        paletteSections: [
+            (s) => [s.featureFlags, s.currentTeam, s.isRowScopedTrigger, s.hogFunctionTemplatesById],
+            (
+                featureFlags: FeatureFlagsSet,
+                currentTeam: TeamPublicType | TeamType | null,
+                isRowScopedTrigger: boolean,
+                hogFunctionTemplatesById: Record<string, HogFunctionTemplateType>
+            ): PaletteSection[] => {
+                const destinations = destinationSteps(Object.values(hogFunctionTemplatesById))
+                return [
+                    ...workflowStepSections({ featureFlags, currentTeam, isRowScopedTrigger }),
+                    ...(destinations.length ? [{ title: 'More destinations', steps: destinations }] : []),
+                ]
+            },
+        ],
+    }),
+    listeners(({ actions, values, cache }) => {
+        const beginPathMotion = (motion: CanvasMotion): void => {
+            actions.setMotion(motion)
+            cache.disposables.add(() => {
+                const timer = window.setTimeout(() => actions.setMotion(null), PATH_MOTION_MS)
+                return () => window.clearTimeout(timer)
+            }, 'motion')
+        }
+        const capturePathToggled = (change: 'opened' | 'collapsed', groupId: string): void => {
+            const depth = values.pathGroups.find((group) => group.id === groupId)?.depth ?? 0
+            posthog.capture(`workflows tile canvas path ${change}`, { depth })
+        }
+        const dropPendingMoveOrCopy = (): void => {
+            if (values.isMovingNode) {
+                actions.stopMovingNode()
+            }
+            if (values.isCopyingNode) {
+                actions.stopCopyingNode()
+            }
+        }
+        /** A step that was just added or picked elsewhere must not stay hidden inside a stack. */
+        const revealContainingPaths = (actionId: string): void => {
+            const isHidden = collapsedPathStacks(values.pathGroups, values.openPathIds).some((group) =>
+                group.members.has(actionId)
+            )
+            if (!isHidden) {
+                return
+            }
+            const containing = values.pathGroups.filter((group) => group.members.has(actionId))
+            const innermost = containing.reduce((deepest, group) => (group.depth > deepest.depth ? group : deepest))
+            actions.setOpenPathIds([...new Set([...values.openPathIds, ...containing.map((group) => group.id)])])
+            actions.focusPathAfterLayout(innermost.id)
+        }
+        const placeExistingStep = (edge: HogFlowEdge): void => {
+            const dropzone = values.dropzoneNodes.find((zone) => zone.data.edge.id === getEdgeId(edge))
+            if (!dropzone) {
+                return
+            }
+            actions.setHighlightedDropzoneNodeId(dropzone.id)
+            if (values.isMovingNode) {
+                actions.moveNodeToHighlightedDropzone()
+            } else {
+                actions.copyNodeToHighlightedDropzone()
+            }
+        }
+        const placeNewStep = (edge: HogFlowEdge, step: CreateActionType | HogFlowActionNode): void => {
+            actions.onDrop(undefined, edge)
+            captureStepAdded(values.placingSource, 'data' in step ? step.data.type : step.type)
+        }
+        return {
+            activateNode: ({ nodeId }) => {
+                const node = values.visibleGraph.nodes.find((candidate) => candidate.id === nodeId)
+                if (node?.kind === 'step') {
+                    actions.selectStep(nodeId)
+                } else if (node?.kind === 'stack') {
+                    actions.openPath(nodeId)
+                }
+            },
+            openPath: ({ groupId }) => {
+                capturePathToggled('opened', groupId)
+                actions.setPendingPathFocus({
+                    groupId,
+                    shows: 'frame',
+                    anchor: stackPlace(values.layout, values.measuredSizes, groupId),
+                })
+                beginPathMotion({
+                    kind: 'expand',
+                    groupId,
+                    origin: stackOrigin(values.layout, values.measuredSizes, groupId),
+                })
+                actions.setOpenPathIds([...values.openPathIds, groupId])
+            },
+            collapsePath: ({ groupId }) => {
+                const group = values.pathGroups.find((candidate) => candidate.id === groupId)
+                if (!group) {
+                    return
+                }
+                const origin = frameOrigin(values.layout, group)
+                capturePathToggled('collapsed', groupId)
+                actions.setPendingPathFocus({
+                    groupId,
+                    shows: 'stack',
+                    anchor: framePlace(values.layout, group, values.visibleGraph.edges),
+                })
+                beginPathMotion({ kind: 'collapse', groupId, origin })
+                cache.disposables.add(() => {
+                    const timer = window.setTimeout(() => {
+                        actions.setOpenPathIds(values.openPathIds.filter((id) => id !== groupId))
+                        beginPathMotion({ kind: 'settle', groupId, origin })
+                    }, PATH_LEAVE_MS)
+                    return () => window.clearTimeout(timer)
+                }, `collapse:${groupId}`)
+            },
+            toggleAllPaths: () => {
+                actions.fitNextLayout()
+                actions.setOpenPathIds(values.allPathsCollapsed ? values.pathGroups.map((group) => group.id) : [])
+            },
+            setSelectedNodeId: ({ selectedNodeId }) => {
+                if (selectedNodeId) {
+                    actions.revealStep(selectedNodeId, values.stepMenuActionId !== selectedNodeId)
+                }
+            },
+            revealStep: ({ actionId }) => revealContainingPaths(actionId),
+            startPlacing: ({ step }) => {
+                dropPendingMoveOrCopy()
+                actions.setNodeToBeAdded(step)
+            },
+            addStepAt: ({ step, edge }) => {
+                dropPendingMoveOrCopy()
+                actions.setNodeToBeAdded(step)
+                actions.onDrop(undefined, edge)
+                captureStepAdded('quick add', step.type)
+            },
+            placeAt: ({ edge }) => {
+                if (values.isMovingNode || values.isCopyingNode) {
+                    placeExistingStep(edge)
+                } else if (values.nodeToBeAdded) {
+                    placeNewStep(edge, values.nodeToBeAdded)
+                }
+            },
+            openStepMenu: ({ actionId }) => {
+                // The copy, move and delete rules read the selected step, so the step under the menu must be the selected one.
+                actions.setSelectedNodeId(actionId)
+            },
+            closeStepMenu: () => {
+                // The menu picked the step only for its own rules, so the next panel must not open scoped to it.
+                if (!values.isPanelOpen) {
+                    actions.setSelectedNodeId(null)
+                }
+            },
+            selectStep: ({ actionId }) => {
+                actions.setMode('build')
+                actions.setSelectedNodeId(actionId)
+            },
+            openPanel: ({ mode }) => {
+                if (mode === 'history') {
+                    actions.setSelectedNodeId(null)
+                } else {
+                    actions.setMode(mode)
+                }
+            },
+            togglePanel: ({ mode }) => {
+                posthog.capture('workflows tile canvas panel toggled', { mode, open: values.panelMode !== mode })
+                if (values.panelMode === mode) {
+                    actions.closePanel()
+                } else {
+                    actions.openPanel(mode)
+                }
+            },
+            closePanel: () => {
+                actions.setSelectedNodeId(null)
+            },
+            handlePaneClick: () => {
+                actions.closePanel()
+                // The editor stops copying on a pane click but keeps the copied step, which would make the next + place it.
+                actions.setNodeToBeAdded(null)
+            },
+            cancel: () => {
+                actions.setSelectedNodeId(null)
+                actions.setNodeToBeAdded(null)
+                dropPendingMoveOrCopy()
+            },
+            setMeasuredSizes: async ({ sizes }, breakpoint) => {
+                await breakpoint(10)
+                const graph = values.visibleGraph
+                const input = { sizes, edges: graph.edges, frames: values.frameSpecs }
+                // Measuring again after fonts load or a re-render often finds nothing new, and a fresh layout would restart the motion.
+                if (objectsEqual(input, cache.layoutInput)) {
+                    return
+                }
+                try {
+                    const layout = await layoutTileCanvas(sizes, input.edges, input.frames)
+                    breakpoint()
+                    cache.layoutInput = input
+                    actions.setLayout(layout, graph)
+                } catch (error) {
+                    if (isBreakpoint(error as Error)) {
+                        throw error
+                    }
+                    breakpoint()
+                    cache.layoutInput = input
+                    actions.setLayoutError(error instanceof Error ? error.message : String(error))
+                }
+            },
+            setLayout: ({ layout }) => {
+                const focus = values.pendingPathFocus
+                const group = focus && values.pathGroups.find((candidate) => candidate.id === focus.groupId)
+                const place =
+                    group &&
+                    (focus.shows === 'frame'
+                        ? framePlace(layout, group, values.visibleGraph.edges)
+                        : stackPlace(layout, values.measuredSizes, group.id))
+                if (focus && place) {
+                    actions.focusPath(place, focus.anchor)
+                } else if (values.fitsNextLayout) {
+                    actions.requestFit()
+                }
+            },
+        }
+    }),
+    subscriptions(({ actions, values }) => ({
+        originalWorkflow: (workflow: HogFlow | null, previous: HogFlow | null | undefined): void => {
+            if (workflow && !previous) {
+                posthog.capture('workflows tile canvas opened', {
+                    step_count: workflow.actions.length,
+                    path_count: values.pathGroups.length,
+                })
+            }
+        },
+        workflow: (workflow: HogFlow, previous: HogFlow | undefined): void => {
+            if (workflow.id !== previous?.id || workflow.trigger?.type !== previous?.trigger?.type) {
+                actions.loadStepCounts()
+            }
+        },
+    })),
+    afterMount(({ actions, values, cache }) => {
+        // The step can be picked before the canvas mounts, from the tree view or a link to the step.
+        if (values.selectedNodeId) {
+            actions.revealStep(values.selectedNodeId)
+        }
+        cache.disposables.add(() => {
+            const onKeyDown = (event: KeyboardEvent): void => {
+                // A takeover such as the email editor covers the canvas, and Escape there must not close the panel it lives in.
+                if (values.sceneTakeoverActive || belongsToAnotherSurface(event)) {
+                    return
+                }
+                if (event.key === 'Escape') {
+                    actions.cancel()
+                } else if (isPrintableKey(event) && isTypedOnCanvas(event) && values.commandPaletteQuery === null) {
+                    event.preventDefault()
+                    actions.openCommandPalette(event.key)
+                }
+            }
+            window.addEventListener('keydown', onKeyDown)
+            return () => window.removeEventListener('keydown', onKeyDown)
+        })
+    }),
+])
