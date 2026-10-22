@@ -5,8 +5,9 @@ use serde_json::{json, Value};
 
 use super::{config, person_property_cases, read, result};
 use feature_flags::flags::config_v2::{
-    ParseError, CONFIG_FIELDS, MAX_PREDICATES, MAX_RULES, MAX_SEED_LENGTH,
-    PERCENTAGE_ROLLOUT_FIELDS, PROPERTY_FIELDS, TARGETED_RELEASE_FIELDS, TARGETING_FIELDS,
+    ParseError, CONFIG_FIELDS, EXPERIMENT_FIELDS, HOLDOUT_FIELDS, MAX_PREDICATES, MAX_RULES,
+    MAX_SEED_LENGTH, MAX_VARIANTS, MIN_VARIANTS, PERCENTAGE_ROLLOUT_FIELDS, PROPERTY_FIELDS,
+    TARGETED_RELEASE_FIELDS, TARGETING_FIELDS, VARIANT_FIELDS,
 };
 use feature_flags::flags::flag_models::FeatureFlag;
 
@@ -26,6 +27,7 @@ fn released_config_cases_distinguish_schema_expectations_from_supported_families
         supported: usize,
         valid_but_unsupported: usize,
         malformed: usize,
+        limit_exceeded: usize,
         unsupported: usize,
         rejected_before_parsing: usize,
     }
@@ -40,11 +42,13 @@ fn released_config_cases_distinguish_schema_expectations_from_supported_families
         let parsed = flag.filters.non_v1.as_ref().unwrap().parsed_v2.as_ref();
         if fixture["expected"] == "valid" {
             if [
+                "boolean_all_rule_types.json",
                 "version_float_literal.json",
                 "boolean_targeted_and_percentage_rollout.json",
                 "reserved_number_value.json",
                 "reserved_object_value.json",
                 "object_value_max_depth.json",
+                "experiment_rule_local_holdout.json",
             ]
             .iter()
             .any(|name| path.ends_with(name))
@@ -72,17 +76,20 @@ fn released_config_cases_distinguish_schema_expectations_from_supported_families
                 "{path}"
             );
             match expected {
-                Some(ParseError::Malformed(_)) => {
-                    totals.malformed += 1;
-                    let repaired = repair_supported_fixture(&name, document.clone());
-                    assert!(
-                        result(&read(repaired)).is_ok(),
-                        "repair must make {path} supported"
-                    );
-                }
+                Some(ParseError::Malformed(_)) => totals.malformed += 1,
+                Some(ParseError::LimitExceeded(_)) => totals.limit_exceeded += 1,
                 Some(ParseError::Unsupported(_)) => totals.unsupported += 1,
                 None => totals.rejected_before_parsing += 1,
-                other => panic!("unexpected fixture classification: {other:?}"),
+            }
+            if matches!(
+                expected,
+                Some(ParseError::Malformed(_) | ParseError::LimitExceeded(_))
+            ) {
+                let repaired = repair_supported_fixture(&name, document.clone());
+                assert!(
+                    result(&read(repaired)).is_ok(),
+                    "repair must make {path} supported"
+                );
             }
         }
         assert_eq!(
@@ -94,31 +101,40 @@ fn released_config_cases_distinguish_schema_expectations_from_supported_families
     assert_eq!(
         totals,
         Totals {
-            supported: 5,
-            valid_but_unsupported: 3,
-            malformed: 20,
-            unsupported: 9,
+            supported: 7,
+            valid_but_unsupported: 2,
+            malformed: 27,
+            limit_exceeded: 1,
+            unsupported: 2,
             rejected_before_parsing: 3,
         }
     );
 }
 
 fn invalid_fixture_error(name: &str) -> Option<ParseError> {
-    use ParseError::{Malformed, Unsupported};
+    use ParseError::{LimitExceeded, Malformed, Unsupported};
     Some(match name {
         "assign_by_not_person" => Malformed("assign_by"),
         "default_value_type_mismatch" => Malformed("default_value"),
-        "empty_seed" | "missing_rollout_seed" => Malformed("seed"),
+        "empty_seed" | "missing_rollout_seed" | "seed_too_long" => Malformed("seed"),
         "missing_on_rollout_miss" => Malformed("on_rollout_miss"),
+        "missing_experiment_paused" => Malformed("paused"),
         "non_uuid_rule_id" => Malformed("rule.id"),
         "null_rule_value"
         | "return_value_type_mismatch"
         | "empty_string_value"
-        | "object_value_too_deep" => Malformed("value"),
+        | "object_value_too_deep"
+        | "variant_value_type_mismatch" => Malformed("value"),
         "rollout_percentage_above_maximum" | "rollout_percentage_below_minimum" => {
             Malformed("rollout_percentage")
         }
-        "targeted_release_with_rollout_fields" | "unknown_rule_field" => Malformed("rule"),
+        "targeted_release_with_rollout_fields"
+        | "unknown_rule_field"
+        | "experiment_rule_with_experiment_id" => Malformed("rule"),
+        "holdout_with_id" => Malformed("holdout"),
+        "too_few_variants" => Malformed("variants"),
+        "too_many_variants" => LimitExceeded("variants"),
+        "variant_key_invalid_characters" => Malformed("variant.key"),
         "unknown_assignment_algorithm" => Malformed("assignment_algorithm"),
         "unknown_config_field" => Malformed("filters"),
         "unknown_property_field" => Malformed("property"),
@@ -128,13 +144,6 @@ fn invalid_fixture_error(name: &str) -> Option<ParseError> {
         "group_experiment_with_assign_by" | "group_percentage_rollout_with_assign_by" => {
             Unsupported("aggregation_group_type_index")
         }
-        "missing_experiment_paused"
-        | "null_experiment_id"
-        | "seed_too_long"
-        | "too_few_variants"
-        | "too_many_variants"
-        | "variant_key_invalid_characters"
-        | "variant_value_type_mismatch" => Unsupported("rule_type"),
         "unknown_config_version" | "version_boolean" | "version_string" => return None,
         _ => panic!("unclassified released fixture: {name}"),
     })
@@ -144,8 +153,35 @@ fn repair_supported_fixture(name: &str, mut document: Value) -> Value {
     match name {
         "assign_by_not_person" => document["rules"][0]["assign_by"] = json!("person"),
         "default_value_type_mismatch" => document["default_value"] = json!(false),
-        "empty_seed" | "missing_rollout_seed" => {
+        "empty_seed" | "missing_rollout_seed" | "seed_too_long" => {
             document["rules"][0]["seed"] = json!("example-seed")
+        }
+        "missing_experiment_paused" => document["rules"][0]["paused"] = json!(false),
+        "variant_value_type_mismatch" => {
+            document["rules"][0]["variants"][0]["value"] = json!(false)
+        }
+        "variant_key_invalid_characters" => {
+            document["rules"][0]["variants"][0]["key"] = json!("control")
+        }
+        "too_few_variants" => document["rules"][0]["variants"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({"key": "test", "weight": 0, "value": true})),
+        "too_many_variants" => document["rules"][0]["variants"]
+            .as_array_mut()
+            .unwrap()
+            .truncate(MAX_VARIANTS),
+        "experiment_rule_with_experiment_id" => {
+            document["rules"][0]
+                .as_object_mut()
+                .unwrap()
+                .remove("experiment_id");
+        }
+        "holdout_with_id" => {
+            document["rules"][0]["holdout"]
+                .as_object_mut()
+                .unwrap()
+                .remove("id");
         }
         "missing_on_rollout_miss" | "unknown_rollout_miss_policy" => {
             document["rules"][0]["on_rollout_miss"] = json!("continue")
@@ -230,10 +266,7 @@ fn definitions_filters_use_the_same_parser_without_replacing_the_service_envelop
         if case["expected"] == "valid" {
             let flag = decoded.unwrap();
             if case["template"] == "v2" {
-                assert!(matches!(
-                    result(&flag),
-                    Err(ParseError::Unsupported("rule_type"))
-                ))
+                assert!(result(&flag).is_ok(), "{}", case["id"]);
             } else {
                 assert!(flag.filters.non_v1.is_none());
             }
@@ -312,6 +345,9 @@ fn released_schema_and_registry_match_the_parser_contract() {
             "/$defs/percentageRolloutRule/properties",
             PERCENTAGE_ROLLOUT_FIELDS,
         ),
+        ("/$defs/experimentRule/properties", EXPERIMENT_FIELDS),
+        ("/$defs/variant/properties", VARIANT_FIELDS),
+        ("/$defs/holdout/properties", HOLDOUT_FIELDS),
         ("/$defs/targeting/properties", TARGETING_FIELDS),
         ("/$defs/propertyFilter/properties", PROPERTY_FIELDS),
     ] {
@@ -342,6 +378,14 @@ fn released_schema_and_registry_match_the_parser_contract() {
     assert_eq!(
         MAX_SEED_LENGTH,
         schema["$defs"]["seed"]["maxLength"].as_u64().unwrap() as usize
+    );
+    let variants = &schema["$defs"]["experimentRule"]["properties"]["variants"];
+    assert_eq!(
+        (MIN_VARIANTS, MAX_VARIANTS),
+        (
+            variants["minItems"].as_u64().unwrap() as usize,
+            variants["maxItems"].as_u64().unwrap() as usize
+        )
     );
 
     let entries = load("schemas/definitions_entry.schema.json");
@@ -380,20 +424,22 @@ fn released_schema_and_registry_match_the_parser_contract() {
     for entry in registry["rule_types"].as_array().unwrap() {
         let mut document = config();
         document["rules"][0]["rule_type"] = entry["value"].clone();
-        if entry["value"] == "targeted_release" {
-            document["rules"][0]
-                .as_object_mut()
-                .unwrap()
-                .retain(|key, _| TARGETED_RELEASE_FIELDS.contains(&key.as_str()));
-        }
-        let flag = read(document);
+        let rule = document["rules"][0].as_object_mut().unwrap();
         match entry["value"].as_str().unwrap() {
-            "targeted_release" | "percentage_rollout" => assert!(result(&flag).is_ok()),
-            _ => assert_eq!(
-                result(&flag).as_ref().unwrap_err(),
-                &ParseError::Unsupported("rule_type")
-            ),
+            "targeted_release" => {
+                rule.retain(|key, _| TARGETED_RELEASE_FIELDS.contains(&key.as_str()))
+            }
+            "experiment" => {
+                rule.remove("value");
+                rule.insert("paused".to_owned(), json!(false));
+                rule.insert(
+                    "variants".to_owned(),
+                    json!([{"key": "control", "weight": 50, "value": false}, {"key": "test", "weight": 50, "value": true}]),
+                );
+            }
+            _ => {}
         }
+        assert!(result(&read(document)).is_ok(), "{entry}");
     }
     for (registry_field, rule_field) in [
         ("assignment_algorithms", "assignment_algorithm"),

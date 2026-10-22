@@ -463,6 +463,52 @@ class TestReplaceScopeHandOff:
         assert "other" not in result.column_names
 
 
+class TestPreWriteMaintenanceBeforeAnAppendRestore:
+    @pytest.mark.parametrize(
+        "loader_restores, expected_maintained",
+        [(True, False), (False, True)],
+        ids=["restore_pending", "no_restore"],
+    )
+    @pytest.mark.asyncio
+    async def test_the_pre_write_pass_is_skipped_when_the_first_batch_restores_the_table(
+        self, loader_restores: bool, expected_maintained: bool
+    ) -> None:
+        pipeline = _make_pipeline()
+        pipeline._attempt = 2
+        pipeline._run_uuid = "run-abc-a2"
+        pipeline._schema.table = MagicMock()
+        pipeline._schema.sync_type_config = {}
+        pipeline._delta_table_ref = MagicMock(is_first_sync=False)
+        pipeline._pg_producer = MagicMock(sync_type="append", is_first_ever_sync=False)
+        pipeline._resource.items = MagicMock(return_value=iter([]))
+        pipeline._batcher.should_yield.return_value = False  # type: ignore[attr-defined]
+
+        with ExitStack() as stack:
+            for name in (
+                "reset_rows_synced_if_needed",
+                "setup_row_tracking_with_billing_check",
+                "persist_primary_keys",
+                "handle_reset_or_full_refresh",
+                "handle_corrupted_delta_log",
+            ):
+                stack.enter_context(patch(f"{_PIPELINE}.{name}", new_callable=AsyncMock))
+            stack.enter_context(patch(f"{_PIPELINE}.validate_incremental_sync"))
+            maintenance = stack.enter_context(patch(f"{_PIPELINE}.DeltaMaintenance"))
+            maintenance.return_value.run_scheduled = AsyncMock()
+            append_runs = stack.enter_context(
+                patch(
+                    "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.append_rollback.UnfinishedAppendRuns"
+                )
+            )
+            append_runs.return_value.restores_before_first_batch.return_value = loader_restores
+            stack.enter_context(patch(f"{_PIPELINE}.activity")).in_activity.return_value = False
+
+            await pipeline.run()
+
+        append_runs.return_value.restores_before_first_batch.assert_called_once_with("run-abc-a2")
+        assert maintenance.return_value.run_scheduled.called is expected_maintained
+
+
 class TestExtractionFailureDoesNotCleanupS3:
     @pytest.mark.asyncio
     async def test_s3_files_preserved_when_extraction_fails(self) -> None:
@@ -1007,6 +1053,22 @@ class TestLaneFanOut:
         assert [len(writer.batch_results) for writer in writers] == [1, 1]
         for writer in writers:
             cast(MagicMock, writer.pg_producer.hold_batch).assert_called_once()
+
+    async def test_a_column_selection_keeps_the_replace_scope_column(self) -> None:
+        writer = _lane_writer("orders")
+        pipeline = self._pipeline([writer])
+        pipeline._uses_delta_write_column_selection = True
+        cast(MagicMock, pipeline._schema).configure_mock(enabled_columns=["name"])
+        pipeline._resource.primary_keys = None
+        pipeline._resource.replace_scope = ReplaceScope(
+            column="_file_name", replaced=frozenset({"a.csv"}), retained=frozenset({"a.csv"})
+        )
+
+        await self._process(pipeline, pa.table({"id": [1], "name": ["x"], "_file_name": ["a.csv"]}))
+
+        [written] = [call.args[0] for call in cast(MagicMock, writer.s3_batch_writer.write_batch).call_args_list]
+        assert {"name", "_file_name"} <= set(written.column_names)
+        assert "id" not in written.column_names
 
     async def test_only_the_billable_lane_counts_towards_usage(self) -> None:
         # One read of a change stream is one sync however many tables it keeps.
@@ -1846,19 +1908,38 @@ class TestResumeCursorCommit:
         assert cast(AsyncMock, pipeline._process_batch).await_count == 2
         assert [json.loads(call.args[1])["id"] for call in redis.set.call_args_list] == expected_committed
 
-    @pytest.mark.parametrize("wrapped", [False, True], ids=["rest_resource", "wrapped_rest_resource"])
+    @pytest.mark.parametrize(
+        "chunk_size,page_count,wrapped,expected_written,expected_committed",
+        [
+            pytest.param(1, 3, False, [1], [{"page": 1}], id="rest_resource"),
+            pytest.param(1, 3, True, [1], [], id="wrapped_rest_resource"),
+            # The first page is still buffered at the hand-off. The framework staged its next-page state
+            # before the yield, so the page is written and the cursor commits; a wrapper applies the
+            # state only when it asks for the next page, so its rows stay unwritten and are read again.
+            pytest.param(100, 3, False, [1], [{"page": 1}], id="rest_resource_with_buffered_rows"),
+            pytest.param(100, 3, True, [], [], id="wrapped_rest_resource_with_buffered_rows"),
+            # The last page has no next-page state, so the cursor still names it: writing it would make
+            # the next attempt load it twice wherever the loader appends.
+            pytest.param(100, 1, False, [], [], id="rest_resource_last_page_buffered"),
+        ],
+    )
     @pytest.mark.asyncio
     async def test_a_rest_source_handed_off_after_its_first_batch_resumes_without_losing_rows(
-        self, wrapped: bool
+        self,
+        chunk_size: int,
+        page_count: int,
+        wrapped: bool,
+        expected_written: list[int],
+        expected_committed: list[dict],
     ) -> None:
         redis = MagicMock()
         inputs = cast(SourceInputs, SimpleNamespace(team_id=1, job_id="job-1", logger=MagicMock()))
         manager = ResumableSourceManager[_PageCursor](inputs, _PageCursor)
-        pages = {"/items": [[{"id": 1}], [{"id": 2}], [{"id": 3}]]}
+        pages = {"/items": [[{"id": row_id}] for row_id in range(1, page_count + 1)]}
 
         def rest_items(state: dict | None):
             resource = rest_api_resource(
-                paged_config(pages, ["items"]),
+                paged_config(pages, ["items"], total_pages=page_count - 1),
                 1,
                 "job-1",
                 None,
@@ -1868,7 +1949,8 @@ class TestResumeCursorCommit:
             return (lambda: (page for page in resource)) if wrapped else (lambda: resource)
 
         pipeline = _runnable_pipeline(cast(ResumableSourceManager[_Cursor], manager), rest_items(None))
-        pipeline._batcher = Batcher(MagicMock(), chunk_size=1, primary_keys=["id"])
+        pipeline._batcher = Batcher(MagicMock(), chunk_size=chunk_size, primary_keys=["id"])
+        cast(MagicMock, pipeline._shutdown_monitor).is_worker_shutdown.return_value = True
         cast(MagicMock, pipeline._shutdown_monitor).raise_if_is_worker_shutdown.side_effect = WorkerShuttingDownError(
             "id", "type", "queue", 1, "workflow", "workflow_type"
         )
@@ -1883,12 +1965,9 @@ class TestResumeCursorCommit:
         committed = [json.loads(call.args[1]) for call in redis.set.call_args_list]
         resumed = [row["id"] for page in rest_items(committed[-1] if committed else None)() for row in page]
 
-        assert written == [1]
-        if wrapped:
-            assert set(written + resumed) == {1, 2, 3}
-        else:
-            assert committed == [{"page": 1}]
-            assert written + resumed == [1, 2, 3]
+        assert (written, committed) == (expected_written, expected_committed)
+        # A wrapped resource re-reads its last written page; the merge on the primary key absorbs it.
+        assert sorted(set(written + resumed)) == list(range(1, page_count + 1))
 
     @pytest.mark.asyncio
     async def test_cursor_not_persisted_for_rows_the_batcher_still_holds(self) -> None:

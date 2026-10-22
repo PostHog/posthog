@@ -21,7 +21,7 @@ There is no dedicated single-tile create or per-tile `PATCH .../widgets/:tile_id
 
 ## Typical agent flow
 
-1. `dashboard-widget-catalog-list` — pick `widget_type`, build `config` from `config_schema` (same shape as batch-add / PATCH OpenAPI; includes `widgetFilters` when supported)
+1. `dashboard-widget-catalog-list` — pick `widget_type`, build `config` from `config_schema` (the batch tool schemas do not list config keys, so read them here; includes `widgetFilters` when supported)
 2. `dashboard-widgets-batch-add` — add one or more tiles (up to 10 per request)
 3. `dashboard-get` — confirm tile ID(s), widget row `id`, and layout
 4. `dashboard-widgets-run` — fetch live widget data for `tile_ids` (private dashboards only — public/shared views do not call `run_widgets`)
@@ -55,3 +55,4 @@ UI multi-select add uses `POST .../widgets/batch/` (not PATCH dashboard `tiles[]
 1. Regenerate OpenAPI (`hogli build:openapi`) — updates MCP tool schemas that embed supported type lists
 2. Run `hogli test services/mcp/tests/tools/dashboards.integration.test.ts`
 3. Update unit schema snapshots if batch-add help text lists types: `hogli test services/mcp/tests/unit/tool-schema-snapshots.test.ts`
+4. To check that agents can configure the new type, add a case to `products/dashboards/evals/eval_dashboard_widgets.py` and run `hogli evals eval_dashboard_widgets` (see the `writing-evals` skill)

@@ -168,6 +168,20 @@ const ROOTS = [
         ],
     },
     {
+        root: [
+            AUTHENTICATED_SHELL,
+            'src/scenes/project-homepage/ProjectHomepage.tsx',
+            'src/scenes/project-homepage/ai-first/AiFirstHomepage.tsx',
+        ],
+        label: 'AI-first home path',
+        budgetBytes: 9_400_000,
+        forbidden: [
+            'products/posthog_ai/frontend/components/tool/widgets/VisualizationWidget.tsx',
+            'products/posthog_ai/frontend/components/tool/widgets/RecordingsWidget.tsx',
+            'src/queries/Query/Query.tsx',
+        ],
+    },
+    {
         root: 'src/scenes/activity/explore/EventsScene.tsx',
         label: 'events scene',
         // 2026-10-11: 8.92 MiB (3373 files), stable CSS included. ~10% headroom.

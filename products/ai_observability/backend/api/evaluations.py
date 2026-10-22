@@ -169,6 +169,13 @@ class _EvaluationConfigField(serializers.JSONField):
                 "Set it to true for detector-style evaluations, so a true "
                 "result is counted and labeled as a fail.",
             },
+            "decision_threshold": {
+                "type": "number",
+                "nullable": True,
+                "minimum": 0,
+                "maximum": 1,
+                "description": "Boolean decision-model judges only. Minimum probability of true required for a true result, inclusive. Omit or set null to use 0.5. Applies to new runs; historical results are unchanged.",
+            },
             "min": {
                 "type": "number",
                 "nullable": True,
@@ -425,6 +432,7 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
         help_text=(
             "Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and "
             "{true_is_failure} to declare that a true result means the evaluation found a problem. "
+            "For boolean decision-model judges, decision_threshold is a probability from 0 to 1 (default 0.5). "
             "For 'numeric': only min/max/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. "
             "For 'categorical': options [{key, label}], selection_mode (single or multiple), allows_na, and optional passing_rule {categories: [key]}. Do not send true_is_failure for numeric or categorical output. For 'sentiment': {}."
         ),
