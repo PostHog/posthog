@@ -14,6 +14,7 @@ import { ApiError } from 'lib/api'
 import { EditModeEdge, useResizeHandleScrollbarPassThrough } from 'lib/components/Cards/InsightCard/EditModeEdgeOverlay'
 import { TileDecorations } from 'lib/components/TileDecorations/TileDecorations'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { objectsEqual } from 'lib/utils/objects'
 import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
@@ -34,13 +35,18 @@ import { getBestSurveyOpportunityFunnel } from 'scenes/surveys/utils/opportunity
 import { urls } from 'scenes/urls'
 
 import { getCurrentExporterData, isSharedView } from '~/exporter/exporterViewLogic'
-import { DashboardLayoutSize, DashboardPlacement, DashboardType } from '~/types'
+import { DashboardLayoutSize, DashboardPlacement, DashboardTile, DashboardType } from '~/types'
 
 import { DashboardGridBackground } from 'products/dashboards/frontend/components/DashboardGridBackground'
 import { DashboardInsightTile } from 'products/dashboards/frontend/components/DashboardInsightTile'
 import { DashboardTextItem } from 'products/dashboards/frontend/components/DashboardTextItem/DashboardTextItem'
+import {
+    DashboardTileGroup,
+    getTileGroupContentWidth,
+} from 'products/dashboards/frontend/components/DashboardTileGroup/DashboardTileGroup'
 import { getDashboardTileSpacingGap } from 'products/dashboards/frontend/dashboardCustomization'
 import { getGroupTitlesByTileId, hasTileDecorations } from 'products/dashboards/frontend/dashboardTileGroups'
+import type { DashboardSection } from 'products/dashboards/frontend/dashboardTileSections'
 import { useDashboardContainerWidth } from 'products/dashboards/frontend/useDashboardContainerWidth'
 
 import { DashboardButtonTileItem } from './items/DashboardButtonTileItem'
@@ -105,6 +111,10 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         widgetRefreshStatus,
         scrollToBottomSignal,
         sizeKey,
+        tileGroupSectionsEnabled,
+        tileGroupSections,
+        tileGroupSectionLayouts,
+        collapsedTileGroupKeys,
     } = useValues(dashboardLogic)
     const { layoutZoom = 1 } = useValues(dashboardLogic)
     const {
@@ -120,6 +130,8 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         moveToDashboard,
         copyToDashboard,
         setDashboardEditing,
+        toggleTileGroup,
+        updateTileGroupSectionLayout,
     } = useActions(dashboardLogic)
     const { updateWidgetTile } = useAsyncActions(dashboardLogic)
     const { reportDashboardTileRepositioned } = useActions(eventUsageLogic)
@@ -193,11 +205,13 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
     })
 
     const { width: gridWidth, containerRef } = useDashboardContainerWidth()
+    const showBands = tileGroupSections.length > 0
     const { gridCompactor, handleLayoutChange, interactionInProgress, startInteraction, finishInteraction } =
         useDashboardLayoutInteraction({
             layoutEditMode,
             layoutCompaction: dashboard?.customization?.layout_compaction,
-            updateLayouts: stageLayouts,
+            // Each band grid reports only its own tiles.
+            updateLayouts: showBands ? updateTileGroupSectionLayout : stageLayouts,
         })
 
     useEffect(() => {
@@ -256,11 +270,19 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                 tiles: tiles || [],
                 layout: layouts[activeBreakpoint],
                 activeBreakpoint,
-                groups: dashboard?.customization?.groups,
+                groups: tileGroupSectionsEnabled ? undefined : dashboard?.customization?.groups,
                 compactor: gridCompactor,
                 widgetTilesShown,
             }),
-        [tiles, layouts, activeBreakpoint, dashboard?.customization?.groups, gridCompactor, widgetTilesShown]
+        [
+            tiles,
+            layouts,
+            activeBreakpoint,
+            tileGroupSectionsEnabled,
+            dashboard?.customization?.groups,
+            gridCompactor,
+            widgetTilesShown,
+        ]
     )
     const decorationsByTileId = useMemo(
         () =>
@@ -427,6 +449,14 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         [updateContainerWidth]
     )
 
+    // Band grids are narrower than the dashboard, so the dashboard width picks one breakpoint for all of them.
+    const bandBreakpoint: DashboardLayoutSize = gridWidth > BREAKPOINTS.sm ? 'sm' : 'xs'
+    useEffect(() => {
+        if (showBands && gridWidth > 0) {
+            updateContainerWidth(gridWidth, BREAKPOINT_COLUMN_COUNTS[bandBreakpoint])
+        }
+    }, [showBands, gridWidth, bandBreakpoint, updateContainerWidth])
+
     const handleResizeStart = useCallback(
         (
             layout: Layout,
@@ -526,6 +556,251 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         }
     }, [dashboard?.id, reportDashboardTileRepositioned, effectiveZoom, flushPendingLayouts])
 
+    const renderTile = (tile: DashboardTile): JSX.Element | undefined => {
+        const { insight, text, button_tile, widget } = tile
+        const tileActions = tileActionsById.get(tile.id)!
+        const smLayout = layouts['sm']?.find((l) => {
+            return l.i == tile.id.toString()
+        })
+
+        const decorations = decorationsByTileId.get(tile.id)
+
+        const commonTileProps = {
+            dashboardId: dashboard?.id,
+            canEditDashboard,
+            showResizeHandles,
+            canEnterEditModeFromEdge,
+            onEnterEditModeFromEdge,
+            onDragHandleMouseDown,
+            showEditingControls,
+            moveToDashboard: tileActions.moveToDashboard,
+            copyToDashboard: tileActions.copyToDashboard,
+            removeFromDashboard: tileActions.removeFromDashboard,
+        }
+
+        if (tile.error && !insight) {
+            return (
+                <MemoizedDashboardErrorTileItem
+                    key={tile.id}
+                    tile={tile}
+                    onRetry={retryFailedDashboardTile}
+                    retryLoading={dashboardLoading}
+                    placement={placement}
+                    onRemove={commonTileProps.removeFromDashboard}
+                    showResizeHandles={showResizeHandles}
+                    canEnterEditModeFromEdge={canEnterEditModeFromEdge}
+                    onEnterEditModeFromEdge={onEnterEditModeFromEdge}
+                    onDragHandleMouseDown={onDragHandleMouseDown}
+                    showEditingControls={showEditingControls}
+                >
+                    {decorations}
+                </MemoizedDashboardErrorTileItem>
+            )
+        }
+
+        if (insight) {
+            // Check if this insight has an error from the server
+            const isErrorTile = !!tile.error
+            const queryError = getInsightQueryError(insight)
+            const apiErrored = isErrorTile || !!queryError || refreshStatus[insight.short_id]?.errored || false
+            const refreshError = refreshStatus[insight.short_id]?.error
+            const apiError = isErrorTile
+                ? new ApiError(undefined, 500, undefined, {
+                      detail: tile.error!.message,
+                      code: 'dashboard_tile_error',
+                  })
+                : refreshError || queryError || undefined
+            const loadingQueued = isErrorTile ? false : isRefreshingQueued(insight.short_id)
+            const loading = isErrorTile ? false : isRefreshing(insight.short_id)
+
+            return (
+                <DashboardInsightTile
+                    key={tile.id}
+                    tile={tile}
+                    insight={insight}
+                    loadingQueued={loadingQueued}
+                    loading={loading}
+                    apiErrored={apiErrored}
+                    apiError={apiError}
+                    queryId={insight.query_status?.id}
+                    highlighted={highlightedInsightId && insight.short_id === highlightedInsightId}
+                    ribbonColor={tile.color}
+                    showDetailsControls={showDetailsControls}
+                    placement={placement}
+                    loadPriority={smLayout ? smLayout.y * 1000 + smLayout.x : undefined}
+                    filtersOverride={effectiveEditBarFilters}
+                    variablesOverride={currentDashboardVariables}
+                    // :HACKY: The two props below aren't actually used in the component, but are needed to trigger a re-render
+                    breakdownColorOverride={effectiveBreakdownColors}
+                    dataColorThemeId={dataColorThemeId}
+                    surveyOpportunity={tile.id === bestSurveyOpportunityFunnel?.id}
+                    showCreateAnomalyAlertButton={showCreateAnomalyAlertButton}
+                    decorations={decorations}
+                    {...commonTileProps}
+                />
+            )
+        }
+
+        if (text) {
+            return (
+                <MemoizedDashboardTextItem
+                    key={tile.id}
+                    tile={tile}
+                    placement={placement}
+                    dashboardId={dashboard?.id}
+                    onEdit={tileActions.edit}
+                    onMoveToDashboard={commonTileProps.moveToDashboard}
+                    onCopyToDashboard={commonTileProps.copyToDashboard}
+                    onDuplicate={tileActions.duplicate}
+                    onRemove={commonTileProps.removeFromDashboard}
+                    showResizeHandles={commonTileProps.showResizeHandles}
+                    showEditingControls={commonTileProps.showEditingControls}
+                    canEnterEditModeFromEdge={commonTileProps.canEnterEditModeFromEdge}
+                    onEnterEditModeFromEdge={commonTileProps.onEnterEditModeFromEdge}
+                    onDragHandleMouseDown={commonTileProps.onDragHandleMouseDown}
+                >
+                    {decorations}
+                </MemoizedDashboardTextItem>
+            )
+        }
+
+        if (button_tile) {
+            return (
+                <MemoizedDashboardButtonTileItem
+                    key={tile.id}
+                    tile={tile}
+                    placement={placement}
+                    dashboardId={dashboard?.id}
+                    isDraggingRef={isDragging}
+                    onEdit={tileActions.edit}
+                    onMoveToDashboard={commonTileProps.moveToDashboard}
+                    onDuplicate={tileActions.duplicate}
+                    onRemove={commonTileProps.removeFromDashboard}
+                    showResizeHandles={commonTileProps.showResizeHandles}
+                    showEditingControls={commonTileProps.showEditingControls}
+                    canEnterEditModeFromEdge={commonTileProps.canEnterEditModeFromEdge}
+                    onEnterEditModeFromEdge={commonTileProps.onEnterEditModeFromEdge}
+                    onDragHandleMouseDown={commonTileProps.onDragHandleMouseDown}
+                >
+                    {decorations}
+                </MemoizedDashboardButtonTileItem>
+            )
+        }
+
+        if (widget && widgetTilesShown) {
+            const runResult = widgetResultsByTileId[tile.id]
+            const refreshState = widgetRefreshStatus[tile.id]
+
+            return (
+                <MemoizedDashboardWidgetItem
+                    key={tile.id}
+                    tile={tile}
+                    placement={placement}
+                    dashboardId={dashboard?.id}
+                    canEditDashboard={canEditDashboard}
+                    isDashboardEditMode={layoutEditMode}
+                    result={runResult?.result}
+                    error={getDashboardWidgetFetchDisplayError(runResult?.error ?? refreshState?.error)}
+                    loading={!!refreshState?.loading}
+                    lastFetchedAt={refreshState?.fetchedAt}
+                    onRefresh={tileActions.refreshWidget}
+                    onRefreshWidgetData={scheduleRefreshDashboardWidgets}
+                    onApplyWidgetIssueMetadataChange={onWidgetIssueMetadataChange}
+                    onUpdateWidgetTile={tileActions.updateWidget}
+                    onConfigPublished={onWidgetConfigPublished}
+                    toggleShowDescription={tileActions.toggleDescription}
+                    onDuplicate={tileActions.duplicate}
+                    onRemove={commonTileProps.removeFromDashboard}
+                    onMoveToDashboard={commonTileProps.moveToDashboard}
+                    onCopyToDashboard={commonTileProps.copyToDashboard}
+                    showResizeHandles={commonTileProps.showResizeHandles}
+                    showEditingControls={commonTileProps.showEditingControls}
+                    canEnterEditModeFromEdge={commonTileProps.canEnterEditModeFromEdge}
+                    onEnterEditModeFromEdge={commonTileProps.onEnterEditModeFromEdge}
+                    onDragHandleMouseDown={commonTileProps.onDragHandleMouseDown}
+                >
+                    {decorations}
+                </MemoizedDashboardWidgetItem>
+            )
+        }
+    }
+
+    const gridProps = {
+        dragConfig,
+        resizeConfig,
+        compactor: gridCompactor,
+        rowHeight,
+        margin,
+        containerPadding: CONTAINER_PADDING,
+        onLayoutChange: handleLayoutChange,
+        breakpoints: BREAKPOINTS,
+        cols: BREAKPOINT_COLUMN_COUNTS,
+        onResizeStart: handleResizeStart,
+        onResizeStop: handleResizeStop,
+        onDragStart: handleDragStart,
+        onDrag: handleDrag,
+        onDragStop: handleDragStop,
+    }
+
+    const renderSection = (section: DashboardSection, index: number): JSX.Element => {
+        const sectionWidth = section.kind === 'group' ? getTileGroupContentWidth(section.group, gridWidth) : gridWidth
+        const sectionLayouts = tileGroupSectionLayouts[index]
+        // One empty row below the tiles gives a dragged tile somewhere to land.
+        const sectionRows = Math.max(0, ...(sectionLayouts.sm ?? []).map((item) => item.y + item.h)) + 1
+        const grid = (
+            <div className="relative">
+                {layoutEditMode && !isMobileView && (
+                    <DashboardGridBackground
+                        width={sectionWidth}
+                        cols={BREAKPOINT_COLUMN_COUNTS.sm}
+                        rowHeight={rowHeight}
+                        margin={margin}
+                        height={sectionRows * (rowHeight + margin[1]) - margin[1]}
+                    />
+                )}
+                <ReactGridLayout
+                    {...gridProps}
+                    // A grid keeps its own layout state and gives a tile it has not seen a 1x1 default,
+                    // so a band remounts its grid when a tile moves in or out, but not when tiles reorder.
+                    key={section.tiles
+                        .map((tile) => tile.id)
+                        .sort((a, b) => a - b)
+                        .join('-')}
+                    width={sectionWidth}
+                    className={clsx(
+                        layoutEditMode ? 'dashboard-edit-mode box-content' : 'dashboard-view-mode',
+                        layoutEditMode && (index === tileGroupSections.length - 1 ? 'pb-[40vh]' : 'pb-24')
+                    )}
+                    breakpoint={bandBreakpoint}
+                    layouts={sectionLayouts}
+                >
+                    {section.tiles.map(renderTile)}
+                </ReactGridLayout>
+            </div>
+        )
+
+        if (section.kind === 'tiles') {
+            return (
+                <div key={section.key}>
+                    {/* Without a line, viewers read loose tiles under a closed group as part of that group. */}
+                    {index > 0 && <LemonDivider className="mb-4" />}
+                    {grid}
+                </div>
+            )
+        }
+        return (
+            <DashboardTileGroup
+                key={section.key}
+                group={section.group}
+                tileCount={section.tiles.length}
+                collapsed={collapsedTileGroupKeys.includes(section.groupKey)}
+                onToggle={() => toggleTileGroup(section.groupKey)}
+            >
+                {grid}
+            </DashboardTileGroup>
+        )
+    }
+
     return (
         <div className="dashboard-items-wrapper" ref={containerRef as RefObject<HTMLDivElement>}>
             {layoutEditMode && isMobileView && (
@@ -534,7 +809,12 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                     resize tiles.
                 </LemonBanner>
             )}
-            {gridWidth > 0 && (
+            {gridWidth > 0 && showBands && (
+                <div className={clsx('flex flex-col gap-4', showDecorationSpace && 'mt-10', !layoutEditMode && 'mb-8')}>
+                    {tileGroupSections.map(renderSection)}
+                </div>
+            )}
+            {gridWidth > 0 && !showBands && (
                 <div className={clsx('relative', showDecorationSpace && 'mt-10')}>
                     {layoutEditMode && !isMobileView && (
                         <DashboardGridBackground
@@ -547,197 +827,14 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                     )}
 
                     <ReactGridLayout
+                        {...gridProps}
                         width={gridWidth}
                         style={{ width: gridWidth }}
                         className={className}
-                        dragConfig={dragConfig}
-                        resizeConfig={resizeConfig}
                         layouts={layouts as Partial<Record<DashboardLayoutSize, Layout>>}
-                        compactor={gridCompactor}
-                        rowHeight={rowHeight}
-                        margin={margin}
-                        containerPadding={CONTAINER_PADDING}
-                        onLayoutChange={handleLayoutChange}
                         onWidthChange={handleWidthChange}
-                        breakpoints={BREAKPOINTS}
-                        cols={BREAKPOINT_COLUMN_COUNTS}
-                        onResizeStart={handleResizeStart}
-                        onResizeStop={handleResizeStop}
-                        onDragStart={handleDragStart}
-                        onDrag={handleDrag}
-                        onDragStop={handleDragStop}
                     >
-                        {tiles?.map((tile) => {
-                            const { insight, text, button_tile, widget } = tile
-                            const tileActions = tileActionsById.get(tile.id)!
-                            const smLayout = layouts['sm']?.find((l) => {
-                                return l.i == tile.id.toString()
-                            })
-
-                            const decorations = decorationsByTileId.get(tile.id)
-
-                            const commonTileProps = {
-                                dashboardId: dashboard?.id,
-                                canEditDashboard,
-                                showResizeHandles,
-                                canEnterEditModeFromEdge,
-                                onEnterEditModeFromEdge,
-                                onDragHandleMouseDown,
-                                showEditingControls,
-                                moveToDashboard: tileActions.moveToDashboard,
-                                copyToDashboard: tileActions.copyToDashboard,
-                                removeFromDashboard: tileActions.removeFromDashboard,
-                            }
-
-                            if (tile.error && !insight) {
-                                return (
-                                    <MemoizedDashboardErrorTileItem
-                                        key={tile.id}
-                                        tile={tile}
-                                        onRetry={retryFailedDashboardTile}
-                                        retryLoading={dashboardLoading}
-                                        placement={placement}
-                                        onRemove={commonTileProps.removeFromDashboard}
-                                        showResizeHandles={showResizeHandles}
-                                        canEnterEditModeFromEdge={canEnterEditModeFromEdge}
-                                        onEnterEditModeFromEdge={onEnterEditModeFromEdge}
-                                        onDragHandleMouseDown={onDragHandleMouseDown}
-                                        showEditingControls={showEditingControls}
-                                    >
-                                        {decorations}
-                                    </MemoizedDashboardErrorTileItem>
-                                )
-                            }
-
-                            if (insight) {
-                                // Check if this insight has an error from the server
-                                const isErrorTile = !!tile.error
-                                const queryError = getInsightQueryError(insight)
-                                const apiErrored =
-                                    isErrorTile || !!queryError || refreshStatus[insight.short_id]?.errored || false
-                                const refreshError = refreshStatus[insight.short_id]?.error
-                                const apiError = isErrorTile
-                                    ? new ApiError(undefined, 500, undefined, {
-                                          detail: tile.error!.message,
-                                          code: 'dashboard_tile_error',
-                                      })
-                                    : refreshError || queryError || undefined
-                                const loadingQueued = isErrorTile ? false : isRefreshingQueued(insight.short_id)
-                                const loading = isErrorTile ? false : isRefreshing(insight.short_id)
-
-                                return (
-                                    <DashboardInsightTile
-                                        key={tile.id}
-                                        tile={tile}
-                                        insight={insight}
-                                        loadingQueued={loadingQueued}
-                                        loading={loading}
-                                        apiErrored={apiErrored}
-                                        apiError={apiError}
-                                        queryId={insight.query_status?.id}
-                                        highlighted={highlightedInsightId && insight.short_id === highlightedInsightId}
-                                        ribbonColor={tile.color}
-                                        showDetailsControls={showDetailsControls}
-                                        placement={placement}
-                                        loadPriority={smLayout ? smLayout.y * 1000 + smLayout.x : undefined}
-                                        filtersOverride={effectiveEditBarFilters}
-                                        variablesOverride={currentDashboardVariables}
-                                        // :HACKY: The two props below aren't actually used in the component, but are needed to trigger a re-render
-                                        breakdownColorOverride={effectiveBreakdownColors}
-                                        dataColorThemeId={dataColorThemeId}
-                                        surveyOpportunity={tile.id === bestSurveyOpportunityFunnel?.id}
-                                        showCreateAnomalyAlertButton={showCreateAnomalyAlertButton}
-                                        decorations={decorations}
-                                        {...commonTileProps}
-                                    />
-                                )
-                            }
-
-                            if (text) {
-                                return (
-                                    <MemoizedDashboardTextItem
-                                        key={tile.id}
-                                        tile={tile}
-                                        placement={placement}
-                                        dashboardId={dashboard?.id}
-                                        onEdit={tileActions.edit}
-                                        onMoveToDashboard={commonTileProps.moveToDashboard}
-                                        onCopyToDashboard={commonTileProps.copyToDashboard}
-                                        onDuplicate={tileActions.duplicate}
-                                        onRemove={commonTileProps.removeFromDashboard}
-                                        showResizeHandles={commonTileProps.showResizeHandles}
-                                        showEditingControls={commonTileProps.showEditingControls}
-                                        canEnterEditModeFromEdge={commonTileProps.canEnterEditModeFromEdge}
-                                        onEnterEditModeFromEdge={commonTileProps.onEnterEditModeFromEdge}
-                                        onDragHandleMouseDown={commonTileProps.onDragHandleMouseDown}
-                                    >
-                                        {decorations}
-                                    </MemoizedDashboardTextItem>
-                                )
-                            }
-
-                            if (button_tile) {
-                                return (
-                                    <MemoizedDashboardButtonTileItem
-                                        key={tile.id}
-                                        tile={tile}
-                                        placement={placement}
-                                        dashboardId={dashboard?.id}
-                                        isDraggingRef={isDragging}
-                                        onEdit={tileActions.edit}
-                                        onMoveToDashboard={commonTileProps.moveToDashboard}
-                                        onDuplicate={tileActions.duplicate}
-                                        onRemove={commonTileProps.removeFromDashboard}
-                                        showResizeHandles={commonTileProps.showResizeHandles}
-                                        showEditingControls={commonTileProps.showEditingControls}
-                                        canEnterEditModeFromEdge={commonTileProps.canEnterEditModeFromEdge}
-                                        onEnterEditModeFromEdge={commonTileProps.onEnterEditModeFromEdge}
-                                        onDragHandleMouseDown={commonTileProps.onDragHandleMouseDown}
-                                    >
-                                        {decorations}
-                                    </MemoizedDashboardButtonTileItem>
-                                )
-                            }
-
-                            if (widget && widgetTilesShown) {
-                                const runResult = widgetResultsByTileId[tile.id]
-                                const refreshState = widgetRefreshStatus[tile.id]
-
-                                return (
-                                    <MemoizedDashboardWidgetItem
-                                        key={tile.id}
-                                        tile={tile}
-                                        placement={placement}
-                                        dashboardId={dashboard?.id}
-                                        canEditDashboard={canEditDashboard}
-                                        isDashboardEditMode={layoutEditMode}
-                                        result={runResult?.result}
-                                        error={getDashboardWidgetFetchDisplayError(
-                                            runResult?.error ?? refreshState?.error
-                                        )}
-                                        loading={!!refreshState?.loading}
-                                        lastFetchedAt={refreshState?.fetchedAt}
-                                        onRefresh={tileActions.refreshWidget}
-                                        onRefreshWidgetData={scheduleRefreshDashboardWidgets}
-                                        onApplyWidgetIssueMetadataChange={onWidgetIssueMetadataChange}
-                                        onUpdateWidgetTile={tileActions.updateWidget}
-                                        onConfigPublished={onWidgetConfigPublished}
-                                        toggleShowDescription={tileActions.toggleDescription}
-                                        onDuplicate={tileActions.duplicate}
-                                        onRemove={commonTileProps.removeFromDashboard}
-                                        onMoveToDashboard={commonTileProps.moveToDashboard}
-                                        onCopyToDashboard={commonTileProps.copyToDashboard}
-                                        showResizeHandles={commonTileProps.showResizeHandles}
-                                        showEditingControls={commonTileProps.showEditingControls}
-                                        canEnterEditModeFromEdge={commonTileProps.canEnterEditModeFromEdge}
-                                        onEnterEditModeFromEdge={commonTileProps.onEnterEditModeFromEdge}
-                                        onDragHandleMouseDown={commonTileProps.onDragHandleMouseDown}
-                                    >
-                                        {decorations}
-                                    </MemoizedDashboardWidgetItem>
-                                )
-                            }
-                        })}
+                        {tiles?.map(renderTile)}
                     </ReactGridLayout>
                 </div>
             )}
