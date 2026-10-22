@@ -7,11 +7,13 @@ import {
     createCohortFormData,
     criteriaToHumanSentence,
     determineFilterType,
+    isMadeOnlyOfOtherCohorts,
     validateGroup,
 } from 'scenes/cohorts/cohortUtils'
 
 import {
     AnyCohortCriteriaType,
+    BehavioralCohortType,
     BehavioralEventType,
     CohortCriteriaGroupFilter,
     CohortType,
@@ -265,6 +267,36 @@ describe('cohortBroadcastDisabledReason', () => {
         ['a deleted cohort', cohort([], { deleted: true }), 'Restore the cohort first'],
     ])('for %s', (_, input, expected) => {
         expect(cohortBroadcastDisabledReason(input)).toEqual(expected)
+    })
+})
+
+describe('isMadeOnlyOfOtherCohorts', () => {
+    const reference = { type: BehavioralFilterKey.Cohort, value: BehavioralCohortType.InCohort, value_property: 2 }
+    const person = { type: BehavioralFilterKey.Person, key: 'email', value: 'is_set' }
+    const cohort = (groups: AnyCohortCriteriaType[][], overrides: Partial<CohortType> = {}): CohortType => ({
+        id: 1,
+        groups: [],
+        filters: {
+            properties: {
+                type: FilterLogicalOperator.Or,
+                values: groups.map((values) => ({ type: FilterLogicalOperator.And, values })),
+            },
+        },
+        ...overrides,
+    })
+
+    it.each([
+        ['only cohort references', cohort([[reference, reference] as AnyCohortCriteriaType[]]), true],
+        ['a reference plus a condition of its own', cohort([[reference, person] as AnyCohortCriteriaType[]]), false],
+        [
+            'a condition of its own in another group',
+            cohort([[reference] as AnyCohortCriteriaType[], [person] as AnyCohortCriteriaType[]]),
+            false,
+        ],
+        ['a static cohort', cohort([[reference] as AnyCohortCriteriaType[]], { is_static: true }), false],
+        ['no conditions yet', cohort([[]]), false],
+    ])('for %s', (_, input, expected) => {
+        expect(isMadeOnlyOfOtherCohorts(input)).toEqual(expected)
     })
 })
 

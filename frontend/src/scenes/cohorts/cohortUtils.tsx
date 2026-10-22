@@ -710,6 +710,22 @@ function hasBehavioralCriteria(group: CohortCriteriaGroupFilter | AnyCohortCrite
     return group.type === BehavioralFilterKey.Behavioral
 }
 
+function criteriaTypes(group: CohortCriteriaGroupFilter | AnyCohortCriteriaType): (string | undefined)[] {
+    if ('values' in group && Array.isArray(group.values)) {
+        return (group.values as (CohortCriteriaGroupFilter | AnyCohortCriteriaType)[]).flatMap(criteriaTypes)
+    }
+    return [group.type]
+}
+
+/** A dynamic cohort whose every condition is another cohort. The server never backfills one, so it never becomes ready for workflows. */
+export function isMadeOnlyOfOtherCohorts(cohort: Pick<CohortType, 'is_static' | 'filters'>): boolean {
+    if (cohort.is_static || !cohort.filters?.properties) {
+        return false
+    }
+    const types = criteriaTypes(cohort.filters.properties)
+    return types.length > 0 && types.every((type) => type === BehavioralFilterKey.Cohort)
+}
+
 /** Why a broadcast can't send to this cohort, mirroring the batch audience check on the server. */
 export function cohortBroadcastDisabledReason(cohort: CohortType): string | null {
     if (typeof cohort.id !== 'number') {
