@@ -62,6 +62,13 @@ impl KafkaEmitter {
 
 #[async_trait]
 impl Emitter for KafkaEmitter {
+    fn set_send_rate(&mut self, send_rate: u64) {
+        if send_rate != self.send_rate {
+            info!(old = self.send_rate, new = send_rate, "send rate changed");
+            self.send_rate = send_rate;
+        }
+    }
+
     async fn begin_write<'a>(&'a mut self) -> Result<Box<dyn Transaction<'a> + 'a>, Error> {
         let txn = self.producer.begin()?;
         Ok(Box::new(KafkaEmitterTransaction {
