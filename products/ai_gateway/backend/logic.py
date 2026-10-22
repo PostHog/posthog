@@ -138,6 +138,10 @@ def _gateway_post(path: str, body: dict) -> requests.Response:
     )
 
 
+class _UnreadableMint(DevTokenRefused):
+    """The gateway answered 201, so it may have minted a token PostHog can't read."""
+
+
 def _call_mint(user: User, cap: Decimal) -> dict:
     body = {
         "cap_usd": str(cap),
@@ -156,9 +160,9 @@ def _call_mint(user: User, cap: Decimal) -> dict:
     try:
         minted = response.json()
     except ValueError as e:
-        raise DevTokenRefused("mint_failed", "The AI gateway sent a response PostHog couldn't read.", 503) from e
+        raise _UnreadableMint("mint_failed", "The AI gateway sent a response PostHog couldn't read.", 503) from e
     if not isinstance(minted, dict) or not minted.get("token") or not minted.get("expires_at"):
-        raise DevTokenRefused("mint_failed", "The AI gateway sent a response without a token.", 503)
+        raise _UnreadableMint("mint_failed", "The AI gateway sent a response without a token.", 503)
     return minted
 
 
@@ -195,6 +199,9 @@ def mint(user: User, client: DevTokenClient) -> MintedDevToken:
             if _never_sent(e):
                 row.delete()
             raise DevTokenRefused("mint_failed", "Couldn't reach the AI gateway. Try again in a minute.", 503) from e
+        except _UnreadableMint:
+            logger.warning("ai_gateway_dev_mint_unreadable", token_id=str(row.id))
+            raise
         except Exception:
             row.delete()
             raise
@@ -267,6 +274,16 @@ def revoke(user: User, token_id: str | None) -> int:
                 f"The AI gateway rejected the revoke (HTTP {response.status_code}). Try again in a minute.",
                 503,
             )
+        try:
+            revoked_count = int(response.json().get("revoked_count", 0))
+        except (ValueError, AttributeError, TypeError):
+            revoked_count = 0
+        # The gateway fails the whole request if any hash fails, so a short count means some tokens
+        # were already gone (expired or revoked elsewhere) and every target is dead either way.
+        if revoked_count != len(targets):
+            logger.warning(
+                "ai_gateway_dev_revoke_count_mismatch", user_id=user.pk, sent=len(targets), revoked=revoked_count
+            )
         revoked_at = timezone.now()
         DevGatewayToken.objects.filter(
             user_id=user.pk, team_id=settings.DEV_GATEWAY_TEAM_ID, id__in=[row.id for row in targets]
@@ -280,10 +297,7 @@ def revoke(user: User, token_id: str | None) -> int:
                 [Change(type="DevGatewayToken", action="changed", field="revoked_at", after=revoked_at.isoformat())],
             )
     logger.info("ai_gateway_dev_tokens_revoked", user_id=user.pk, count=len(targets))
-    try:
-        return int(response.json().get("revoked_count", 0))
-    except (ValueError, AttributeError, TypeError):
-        return 0
+    return revoked_count
 
 
 def _s256(verifier: str) -> str:
