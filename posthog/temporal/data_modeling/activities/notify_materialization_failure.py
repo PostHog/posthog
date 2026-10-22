@@ -192,7 +192,9 @@ def notify_node_suspended(job: DataModelingJob, saved_query: DataWarehouseSavedQ
             resource_id=str(saved_query.id),
             source_url=f"/project/{team_id}/sql?open_view={saved_query.id}",
             source_id=str(job.id),
-            idempotency_key=f"matview-suspended-{job.id}",
+            # Shares the failure notification's key, so a retry that no longer sees the transition
+            # cannot add a "failed" notification for the same run.
+            idempotency_key=_dedupe_key([_FailedView(job=job, saved_query=saved_query)]),
             resolver=_SavedQueryViewers(saved_query),
         )
     )

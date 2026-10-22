@@ -62,6 +62,7 @@ from products.customer_analytics.backend.facade.temporal import stage_warehouse_
 from products.customer_analytics.backend.facade.temporal_contracts import StageAccountPropertySyncInput
 from products.data_modeling.backend.facade.api import (
     TRINO_INCREMENTAL_SCOPE,
+    clear_node_suspension,
     compute_enrichment_hash,
     definition_fingerprint,
     get_incremental_config,
@@ -426,14 +427,38 @@ class TestFailMaterializationActivity:
         ):
             await activity_environment.run(fail_materialization_activity, inputs)
 
+            await database_sync_to_async(anode.refresh_from_db)()
+            assert is_node_suspended(anode, DataModelingJobEngine.CLICKHOUSE) is True
+            mock_email.delay.assert_called_once_with(
+                ateam.pk, str(asaved_query.id), str(current_job.id), suspended=True
+            )
+            mock_create.assert_called_once()
+            data = mock_create.call_args.args[0]
+            assert "suspended" in data.title
+            assert data.target_type == TargetType.TEAM
+
+            # A retry no longer sees the transition. Any notification it creates must collide with
+            # the one already sent, and it must not email again.
+            await activity_environment.run(fail_materialization_activity, inputs)
+            assert mock_email.delay.call_count == 1
+            assert {call.args[0].idempotency_key for call in mock_create.call_args_list} == {data.idempotency_key}
+
+            # Resuming and failing the full streak again is a new suspension, so it notifies again.
+            await database_sync_to_async(clear_node_suspension)(
+                anode, engine=DataModelingJobEngine.CLICKHOUSE, by="api"
+            )
+            await database_sync_to_async(anode.save)()
+            for _ in range(4):
+                await _make_job(ateam, asaved_query, DataModelingJob.Status.FAILED, error=previous_error)
+            next_job = await _make_job(ateam, asaved_query, DataModelingJob.Status.RUNNING)
+            await activity_environment.run(fail_materialization_activity, replace(inputs, job_id=str(next_job.id)))
+
         await database_sync_to_async(anode.refresh_from_db)()
         assert is_node_suspended(anode, DataModelingJobEngine.CLICKHOUSE) is True
-        mock_email.delay.assert_called_once_with(ateam.pk, str(asaved_query.id), str(current_job.id), suspended=True)
-        mock_create.assert_called_once()
-        data = mock_create.call_args.args[0]
-        assert "suspended" in data.title
-        assert data.target_type == TargetType.TEAM
-        assert data.idempotency_key == f"matview-suspended-{current_job.id}"
+        assert mock_email.delay.call_args_list[-1] == unittest.mock.call(
+            ateam.pk, str(asaved_query.id), str(next_job.id), suspended=True
+        )
+        assert mock_email.delay.call_count == 2
 
     @pytest.mark.parametrize(
         "previous_status,parent_workflow_id,with_runner,expect_email,expect_in_app",
