@@ -443,7 +443,8 @@ def run_agent_check(check: SignalReportCheck, *, now: datetime | None = None) ->
     # this module reaches only when a check is actually due (see the same deferral in
     # `scout_harness/views.py`).
     from products.signals.backend.report_check_authoring import cancel_check  # noqa: PLC0415
-    from products.signals.backend.report_check_execution import CheckVerdict, record_check_verdict  # noqa: PLC0415
+    from products.signals.backend.report_check_evaluation import CheckVerdict  # noqa: PLC0415
+    from products.signals.backend.report_check_execution import record_check_verdict  # noqa: PLC0415
     from products.signals.backend.temporal.agentic.scout_scheduler import start_check_signals_scout_run  # noqa: PLC0415
 
     now = now or timezone.now()

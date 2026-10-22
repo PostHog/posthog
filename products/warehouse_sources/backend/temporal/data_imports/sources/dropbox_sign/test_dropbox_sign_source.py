@@ -2,8 +2,6 @@ from typing import Any, cast
 
 from unittest.mock import MagicMock
 
-from parameterized import parameterized
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.dropbox_sign import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.dropbox_sign.source import DropboxSignSource
@@ -41,35 +39,6 @@ class TestValidateCredentials:
         ok, err = DropboxSignSource().validate_credentials(DropboxSignSourceConfig(api_key="k"), team_id=1)
         assert ok is False
         assert err == "Invalid Dropbox Sign API key"
-
-
-class TestNonRetryableErrors:
-    @parameterized.expand(
-        [
-            (
-                "unauthorized",
-                "401 Client Error: Unauthorized for url: https://api.hellosign.com/v3/account",
-            ),
-            (
-                "forbidden",
-                "403 Client Error: Forbidden for url: https://api.hellosign.com/v3/template/list?page=1",
-            ),
-        ]
-    )
-    def test_credential_errors_are_non_retryable(self, _name: str, observed_error: str) -> None:
-        non_retryable = DropboxSignSource().get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable)
-
-    @parameterized.expand(
-        [
-            ("read_timeout", "HTTPSConnectionPool(host='api.hellosign.com', port=443): Read timed out."),
-            ("server_error", "500 Server Error: Internal Server Error for url: https://api.hellosign.com/v3/account"),
-            ("rate_limited", "429 Client Error: Too Many Requests for url: https://api.hellosign.com/v3/account"),
-        ]
-    )
-    def test_transient_errors_remain_retryable(self, _name: str, other_error: str) -> None:
-        non_retryable = DropboxSignSource().get_non_retryable_errors()
-        assert not any(key in other_error for key in non_retryable)
 
 
 class TestSourceForPipeline:

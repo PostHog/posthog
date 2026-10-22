@@ -12,7 +12,9 @@ from datetime import datetime
 from uuid import UUID
 
 from products.alerts_platform.backend.facade.contracts import (
+    DestinationSend,
     HandbackRefusal,
+    NewAlertDestination,
     PlatformAlertCheckInput,
     PlatformAlertConfigurationEdit,
     PlatformAlertConfigurationPage,
@@ -20,13 +22,23 @@ from products.alerts_platform.backend.facade.contracts import (
     PlatformAlertHistory,
     PlatformAlertOutcome,
     PlatformAlertRuntime,
+    PlatformAlertSnapshot,
     PlatformAlertUpsert,
     PlatformCheckEventPage,
+    PlatformCheckPage,
     PlatformHandback,
+    PlatformLastCheck,
     PlatformOwnershipHandover,
     SourceKind,
+    StoredAlertDestination,
 )
-from products.alerts_platform.backend.logic import platform_lifecycle, platform_reads, platform_writes
+from products.alerts_platform.backend.logic import (
+    alert_destinations,
+    destination_sends,
+    platform_lifecycle,
+    platform_reads,
+    platform_writes,
+)
 
 
 def due_checks(
@@ -77,11 +89,14 @@ def take_ownership(handover: PlatformOwnershipHandover) -> bool:
 
 
 def give_back_ownership(
-    *, team_id: int, legacy_configuration_id: UUID, at: datetime
+    *, team_id: int, legacy_configuration_id: UUID, at: datetime, source_runs_calendar_schedules: bool = False
 ) -> PlatformHandback | HandbackRefusal:
     """Hands a copied alert back to its source, or says why the platform keeps it."""
     return platform_lifecycle.give_back_ownership(
-        team_id=team_id, legacy_configuration_id=legacy_configuration_id, at=at
+        team_id=team_id,
+        legacy_configuration_id=legacy_configuration_id,
+        at=at,
+        source_runs_calendar_schedules=source_runs_calendar_schedules,
     )
 
 
@@ -100,10 +115,22 @@ def disable_configurations(
 
 
 def list_configurations(
-    *, team_id: int, source_kinds: Sequence[str], limit: int, offset: int
+    *,
+    team_id: int,
+    source_kinds: Sequence[str],
+    limit: int,
+    offset: int,
+    legacy_configuration_id: UUID | None = None,
 ) -> PlatformAlertConfigurationPage:
-    """One page of configurations a caller may read, with the total behind it."""
-    return platform_reads.list_configurations(team_id=team_id, source_kinds=source_kinds, limit=limit, offset=offset)
+    """One page of configurations a caller may read, with the total behind it. With a
+    `legacy_configuration_id`, only the copy of that source row."""
+    return platform_reads.list_configurations(
+        team_id=team_id,
+        source_kinds=source_kinds,
+        limit=limit,
+        offset=offset,
+        legacy_configuration_id=legacy_configuration_id,
+    )
 
 
 def get_configuration(
@@ -122,6 +149,23 @@ def runtime_by_legacy_id(
     return platform_reads.runtime_by_legacy_id(team_id=team_id, legacy_configuration_ids=legacy_configuration_ids)
 
 
+def check_page_by_legacy_id(
+    *, team_id: int, legacy_configuration_id: UUID, since: datetime, until: datetime, limit: int, offset: int
+) -> PlatformCheckPage | None:
+    """A page of one owned alert's checks in a window, newest first, or None when the platform does not own it.
+
+    Raises when ClickHouse fails, so a caller can fall back to what it shows without the platform.
+    """
+    return platform_reads.check_page_by_legacy_id(
+        team_id=team_id,
+        legacy_configuration_id=legacy_configuration_id,
+        since=since,
+        until=until,
+        limit=limit,
+        offset=offset,
+    )
+
+
 def history_by_legacy_id(
     *, team_id: int, legacy_configuration_ids: Collection[UUID], since: datetime, until: datetime
 ) -> dict[UUID, PlatformAlertHistory]:
@@ -132,6 +176,16 @@ def history_by_legacy_id(
     return platform_reads.history_by_legacy_id(
         team_id=team_id, legacy_configuration_ids=legacy_configuration_ids, since=since, until=until
     )
+
+
+def last_check_by_legacy_id(
+    *, team_id: int, legacy_configuration_ids: Collection[UUID]
+) -> dict[UUID, PlatformLastCheck]:
+    """The newest check of each named alert the platform owns, keyed by the source's id.
+
+    Raises when ClickHouse fails, so a caller can fall back to what it shows without the platform.
+    """
+    return platform_reads.last_check_by_legacy_id(team_id=team_id, legacy_configuration_ids=legacy_configuration_ids)
 
 
 def notable_checks_by_legacy_id(
@@ -164,6 +218,43 @@ def update_configuration(
     )
 
 
+def create_configuration(
+    *, team_id: int, source_kind: SourceKind, edit: PlatformAlertConfigurationEdit, created_by_id: int | None
+) -> PlatformAlertConfigurationView:
+    """Creates an alert the platform owns, with its source's own row when the source keeps one.
+
+    Raises `PlatformAlertNotEditable` for a kind the API cannot create, `InvalidPlatformAlertEdit` for
+    settings its source kind rejects, and `PlatformAlertCreateRefused` when the source refuses.
+    """
+    return platform_writes.create_configuration(
+        team_id=team_id, source_kind=source_kind, edit=edit, created_by_id=created_by_id
+    )
+
+
+def snooze_group(
+    *,
+    team_id: int,
+    source_kinds: Sequence[str],
+    configuration_id: UUID,
+    grouping_key: str,
+    snooze_until: datetime | None,
+) -> PlatformAlertSnapshot | None:
+    """Mutes one group of a configuration the platform owns until `snooze_until`, or clears the mute
+    when it is None. Returns the group, or None when the caller cannot read the configuration.
+
+    Raises `PlatformAlertNotEditable` for a configuration its source owns, `UnknownPlatformAlertGroup`
+    for a key with no instance, and `InvalidPlatformAlertEdit` for a time not in the future or an
+    alert that is not grouped.
+    """
+    return platform_writes.snooze_group(
+        team_id=team_id,
+        source_kinds=source_kinds,
+        configuration_id=configuration_id,
+        grouping_key=grouping_key,
+        snooze_until=snooze_until,
+    )
+
+
 def update_owned_copy(
     *,
     team_id: int,
@@ -185,6 +276,17 @@ def update_owned_copy(
     )
 
 
+def delete_configuration(*, team_id: int, source_kinds: Sequence[str], configuration_id: UUID) -> bool:
+    """Deletes a configuration the platform owns, with its source's own row. False when the caller
+    cannot read it.
+
+    Raises `PlatformAlertNotEditable` for a configuration its source owns, or of a kind the API cannot delete.
+    """
+    return platform_writes.delete_configuration(
+        team_id=team_id, source_kinds=source_kinds, configuration_id=configuration_id
+    )
+
+
 def delete_owned_copy(*, team_id: int, legacy_configuration_id: UUID) -> None:
     platform_writes.delete_owned_copy(team_id=team_id, legacy_configuration_id=legacy_configuration_id)
 
@@ -193,3 +295,30 @@ def close_owned_firings_now(*, team_id: int, legacy_configuration_id: UUID) -> N
     """Ends the firings of a copy the platform owns and sends their incident resolves before returning,
     for a delete that is about to remove the destinations."""
     platform_writes.close_owned_firings_now(team_id=team_id, legacy_configuration_id=legacy_configuration_id)
+
+
+def create_alert_destinations(
+    *, team_id: int, configuration_id: UUID, destinations: Sequence[NewAlertDestination]
+) -> tuple[StoredAlertDestination, ...]:
+    """Adds destinations to one alert, all or none. Raises `AlertDestinationValidationError` on a refused one."""
+    return alert_destinations.create_alert_destinations(
+        team_id=team_id, configuration_id=configuration_id, destinations=destinations
+    )
+
+
+def list_alert_destinations(*, team_id: int, configuration_id: UUID) -> tuple[StoredAlertDestination, ...]:
+    return alert_destinations.list_alert_destinations(team_id=team_id, configuration_id=configuration_id)
+
+
+def delete_alert_destinations(*, team_id: int, configuration_id: UUID, destination_ids: Collection[UUID]) -> int:
+    """Deletes the named destinations of one alert. An id of another alert is left alone."""
+    return alert_destinations.delete_alert_destinations(
+        team_id=team_id, configuration_id=configuration_id, destination_ids=destination_ids
+    )
+
+
+def recent_destination_sends(
+    *, team_id: int, destination_ids: Collection[str], limit: int
+) -> tuple[DestinationSend, ...]:
+    """The newest sends to the named destination HogFunctions, on both delivery paths, newest first."""
+    return destination_sends.recent_destination_sends(team_id=team_id, destination_ids=destination_ids, limit=limit)
