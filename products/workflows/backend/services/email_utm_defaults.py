@@ -144,6 +144,8 @@ def apply_defaults_to_email_config(
 
     enabled = config.get("utm_tags_enabled") is True
     turn_on = enable_where_off and not enabled
+    if not enabled and not turn_on:
+        return None
 
     if updated == current and not turn_on:
         return None

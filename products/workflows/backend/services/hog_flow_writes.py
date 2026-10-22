@@ -37,6 +37,7 @@ from products.workflows.backend.services.hog_flow_content import DRAFT_CONTENT_F
 from products.workflows.backend.services.hog_flow_reads import to_edit_state
 from products.workflows.backend.services.hog_flow_secrets import (
     TemplateCache,
+    rehydrate_flow_secrets,
     strip_content_secrets,
     strip_secrets_from_content,
 )
@@ -544,7 +545,9 @@ def apply_email_utm_defaults(
             locked.save(update_fields=["draft", "draft_updated_at"])
             unstage_workflow_proposals(team_id=team_id, hog_flow_id=locked.pk)
         if plan.actions is not None:
-            validated_data = validate_live(to_edit_state(locked), plan.actions)
+            # Stored actions carry no secrets, and a lenient validation would save them without any.
+            actions = rehydrate_flow_secrets(plan.actions, locked.encrypted_inputs or {})
+            validated_data = validate_live(to_edit_state(locked), actions)
             bump = _stage_revision_bump(locked, before_update, validated_data, template_cache)
             _save_live(locked, validated_data, template_cache)
             if bump:

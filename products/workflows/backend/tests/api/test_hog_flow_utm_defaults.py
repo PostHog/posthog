@@ -200,9 +200,9 @@ class TestHogFlowUtmDefaults(APIBaseTest):
 
         assert preview.status_code == 200, preview.json()
         assert preview.json() == {
-            "emails_updated": 2,
-            "workflows_updated": 2,
-            "active_workflows_updated": 1,
+            "emails_updated": 0,
+            "workflows_updated": 0,
+            "active_workflows_updated": 0,
             "emails_turned_on": 0,
             "emails_off": 2,
             "workflows_failed": 0,
@@ -263,8 +263,8 @@ class TestHogFlowUtmDefaults(APIBaseTest):
         self.organization.save()
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
-        editable = self._flow("Editable", HogFlow.State.DRAFT)
-        restricted = self._flow("Restricted", HogFlow.State.DRAFT)
+        editable = self._flow("Editable", HogFlow.State.DRAFT, utm_tags_enabled=True)
+        restricted = self._flow("Restricted", HogFlow.State.DRAFT, utm_tags_enabled=True)
         AccessControl.objects.create(
             team=self.team, resource="hog_flow", resource_id=str(restricted.id), access_level="viewer"
         )
@@ -314,6 +314,34 @@ class TestHogFlowUtmDefaults(APIBaseTest):
         assert flow.draft["actions"][1]["config"]["utm_params"] == {"utm_source": "newsletter"}
         stored = WorkflowProposal.objects.for_team(self.team.id).get(id=proposal.id)
         assert stored.status == WorkflowProposal.Status.SUGGESTED
+
+    def test_apply_utm_defaults_keeps_the_secrets_of_a_draft_whose_other_inputs_are_incomplete(self) -> None:
+        sync_template_to_db(_secret_input_template())
+        webhook = {
+            "id": "webhook_1",
+            "name": "Notify",
+            "type": "function",
+            "config": {"template_id": _SECRET_TEMPLATE_ID, "inputs": {}},
+        }
+        flow = HogFlow.objects.create(
+            team=self.team,
+            name="Half-built draft",
+            status=HogFlow.State.DRAFT,
+            actions=[TRIGGER, _email_action(), webhook],
+            encrypted_inputs={"webhook_1": {"api_key": {"value": "live-secret"}}},
+        )
+
+        applied = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/apply_utm_defaults",
+            {"dry_run": False, "enable_where_off": True},
+            format="json",
+        )
+
+        assert applied.status_code == 200, applied.json()
+        assert applied.json()["workflows_updated"] == 1
+        flow.refresh_from_db()
+        assert self._email_config(flow)["utm_params"] == {"utm_source": "newsletter"}
+        assert flow.encrypted_inputs["webhook_1"]["api_key"]["value"] == "live-secret"
 
     def test_apply_utm_defaults_keeps_live_and_staged_secrets_apart(self) -> None:
         sync_template_to_db(_secret_input_template())
@@ -400,7 +428,7 @@ class TestHogFlowUtmDefaults(APIBaseTest):
     def test_apply_utm_defaults_reloads_workers_and_signals_editors_once_for_the_whole_apply(
         self, _name: str, reload_side_effect: Any, expected_reload_calls: int
     ) -> None:
-        flows = [self._flow(f"Flow {i}", HogFlow.State.ACTIVE) for i in range(3)]
+        flows = [self._flow(f"Flow {i}", HogFlow.State.ACTIVE, utm_tags_enabled=True) for i in range(3)]
 
         with (
             patch(

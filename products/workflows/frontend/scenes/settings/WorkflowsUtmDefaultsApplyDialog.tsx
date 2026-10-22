@@ -52,7 +52,9 @@ export function WorkflowsUtmDefaultsApplyDialog(): JSX.Element {
                 <div className="flex flex-col gap-3">
                     <p className="m-0">
                         {nothingToUpdate
-                            ? 'Every email already uses these values.'
+                            ? preview.emails_off > 0
+                                ? 'The emails left to update have UTM tags off.'
+                                : 'Every email already uses these values.'
                             : `${pluralize(preview.emails_updated, 'email')} in ${pluralize(preview.workflows_updated, 'broadcast or workflow', 'broadcasts and workflows')} will use the new values.`}
                         {preview.active_workflows_updated > 0 &&
                             ` ${preview.active_workflows_updated} of them ${preview.active_workflows_updated === 1 ? 'is' : 'are'} live, so the next send uses the new values.`}
