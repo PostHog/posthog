@@ -19,6 +19,7 @@ from bson.codec_options import CodecOptions
 from bson.max_key import MaxKey
 from bson.min_key import MinKey
 from parameterized import parameterized
+from pymongo import DESCENDING
 from pymongo.errors import CursorNotFound, ExecutionTimeout, OperationFailure, ServerSelectionTimeoutError
 from pymongo.hello import Hello
 from pymongo.server_description import ServerDescription
@@ -51,6 +52,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.mo
     _make_safe_server_selector,
     _process_doc_with_field_logging,
     _process_nested_value,
+    _read_upper_bound,
     connection_timeouts,
     decode_resume_id,
     encode_resume_id,
@@ -714,6 +716,28 @@ class TestProbesFailFastOnUnreachableCluster(SimpleTestCase):
         with pytest.raises(type(error)):
             _get_avg_document_size(coll, MagicMock())
 
+    @parameterized.expand(
+        [
+            ("server_selection_timeout", ServerSelectionTimeoutError("No servers found yet, Topology Description: .")),
+            ("host_not_allowed", HostNotAllowedError(f"{DATABASE_HOST_NOT_ALLOWED_ERROR}: internal IP")),
+        ]
+    )
+    def test_upper_bound_probe_propagates(self, _name, error):
+        coll = MagicMock()
+        coll.index_information.side_effect = error
+
+        with pytest.raises(type(error)):
+            _read_upper_bound(coll, {}, "updated_at", MagicMock())
+
+
+class TestReadUpperBound(SimpleTestCase):
+    def test_a_lookup_that_fails_leaves_the_read_uncapped(self):
+        coll = MagicMock()
+        coll.index_information.return_value = {"updated_at_1": {"key": [("updated_at", 1)]}}
+        coll.find_one.side_effect = ExecutionTimeout("operation exceeded time limit")
+
+        assert _read_upper_bound(coll, {}, "updated_at", MagicMock()) is None
+
 
 class TestListImportableCollectionNames(SimpleTestCase):
     def test_excludes_reserved_system_collections(self):
@@ -803,6 +827,18 @@ class _FakeCollection:
         self.last_cursor: _FakeCursor | None = None
         self.database = MagicMock()
         self.database.command.return_value = {"avgObjSize": None}
+        self.indexes: dict[str, Any] = {"_id_": {"key": [("_id", 1)]}}
+        self.newest: dict[str, Any] | None = None
+        self.find_one_calls: list[dict[str, Any]] = []
+        self.find_one_sorts: list[Any] = []
+
+    def index_information(self) -> dict[str, Any]:
+        return self.indexes
+
+    def find_one(self, query: dict[str, Any], *args: Any, **kwargs: Any) -> dict[str, Any] | None:
+        self.find_one_calls.append(query)
+        self.find_one_sorts.append(kwargs.get("sort"))
+        return self.newest
 
     def find(self, query: dict[str, Any], **kwargs: Any) -> _FakeCursor:
         self.find_kwargs = kwargs
@@ -833,6 +869,7 @@ def _read_rows(
     *,
     resumable_source_manager: Any = None,
     should_use_incremental_field: bool = False,
+    db_incremental_field_last_value: Any = None,
     on_row: Callable[[dict[str, Any]], None] | None = None,
 ) -> tuple[Any, list[dict[str, Any]]]:
     @contextlib.contextmanager
@@ -852,7 +889,7 @@ def _read_rows(
             logger=MagicMock(),
             team_id=1,
             should_use_incremental_field=should_use_incremental_field,
-            db_incremental_field_last_value=None,
+            db_incremental_field_last_value=db_incremental_field_last_value,
             incremental_field="_id" if should_use_incremental_field else None,
             incremental_field_type=IncrementalFieldType.ObjectID if should_use_incremental_field else None,
             resumable_source_manager=resumable_source_manager,
@@ -1129,17 +1166,87 @@ class TestMongoSourceResume(SimpleTestCase):
         assert [row["_id"] for row in rows] == [str(doc["_id"]) for doc in docs]
         assert collection.find_queries[1] == {"$and": [_id_seek_filter(saved_id), {"_id": {"$gt": docs[1]["_id"]}}]}
 
-    def test_incremental_run_does_not_resume(self) -> None:
+    def test_incremental_run_with_a_watermark_does_not_resume(self) -> None:
         collection = _FakeCollection([{"_id": ObjectId("65f1c2a4e4b0a1b2c3d4e5f6")}])
         manager = _FakeResumeManager(_saved_state(ObjectId("65f1c2a4e4b0a1b2c3d4e5f0")))
 
-        response, rows = _read_rows(collection, resumable_source_manager=manager, should_use_incremental_field=True)
+        response, rows = _read_rows(
+            collection,
+            resumable_source_manager=manager,
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=ObjectId("65f1c2a4e4b0a1b2c3d4e5e0"),
+        )
 
         assert len(rows) == 1
         assert response.supports_resume is False
         assert response.sort_mode is None
         assert "$or" not in collection.find_queries[0]
         assert (manager.load_calls, manager.staged, manager.clear_calls) == (0, [], 0)
+
+    @parameterized.expand([("capped", ObjectId("65f1c2a4e4b0a1b2c3d4e5f9")), ("uncapped", None)])
+    def test_first_incremental_sync_resumes_inside_the_filter_of_its_first_attempt(
+        self, _name: str, saved_bound: ObjectId | None
+    ) -> None:
+        saved_id = ObjectId("65f1c2a4e4b0a1b2c3d4e5f0")
+        next_id = ObjectId("65f1c2a4e4b0a1b2c3d4e5f6")
+        collection = _FakeCollection([{"_id": next_id}])
+        collection.newest = {"_id": ObjectId("65f1c2a4e4b0a1b2c3d4e5ff")}
+        bound = None if saved_bound is None else encode_resume_id(saved_bound)
+        manager = _FakeResumeManager(MongoResumeConfig(last_id=_saved_state(saved_id).last_id, upper_bound=bound))
+
+        response, rows = _read_rows(collection, resumable_source_manager=manager, should_use_incremental_field=True)
+
+        assert [row["_id"] for row in rows] == [str(next_id)]
+        assert response.supports_resume is True
+        incremental_filter, seek = collection.find_queries[0]["$and"]
+        assert incremental_filter == _build_query(True, "_id", IncrementalFieldType.ObjectID, None, saved_bound)
+        assert seek == _id_seek_filter(saved_id)
+        assert collection.find_one_calls == []
+        assert [(decode_resume_id(s.last_id), s.upper_bound) for s in manager.staged] == [(next_id, bound)]
+
+    @parameterized.expand(
+        [
+            ("ascending_index", {"_id_": {"key": [("_id", 1)]}}, True),
+            ("descending_index", {"_id_-1": {"key": [("_id", -1)]}}, True),
+            ("hashed_index", {"_id_hashed": {"key": [("_id", "hashed")]}}, False),
+            (
+                "partial_index",
+                {"_id_1": {"key": [("_id", 1)], "partialFilterExpression": {"active": True}}},
+                False,
+            ),
+            ("hidden_index", {"_id_1": {"key": [("_id", 1)], "hidden": True}}, False),
+            ("compound_index_on_another_field_first", {"other_1__id_1": {"key": [("other", 1), ("_id", 1)]}}, False),
+            ("not_indexed", {}, False),
+        ]
+    )
+    def test_first_incremental_sync_caps_its_read_at_the_newest_value_when_it_starts(
+        self, _name: str, indexes: dict[str, Any], capped: bool
+    ) -> None:
+        newest = ObjectId("65f1c2a4e4b0a1b2c3d4e5f9")
+        doc_id = ObjectId("65f1c2a4e4b0a1b2c3d4e5f6")
+        collection = _FakeCollection([{"_id": doc_id}])
+        collection.newest = {"_id": newest}
+        collection.indexes = indexes
+        manager = _FakeResumeManager()
+
+        _read_rows(collection, resumable_source_manager=manager, should_use_incremental_field=True)
+
+        bound = newest if capped else None
+        assert collection.find_queries[0] == _build_query(True, "_id", IncrementalFieldType.ObjectID, None, bound)
+        assert [s.upper_bound for s in manager.staged] == [encode_resume_id(bound) if capped else None]
+        probes = [_build_query(True, "_id", IncrementalFieldType.ObjectID, None)] if capped else []
+        assert collection.find_one_calls == probes
+        assert collection.find_one_sorts == ([[("_id", DESCENDING)]] if capped else [])
+
+    def test_incremental_read_with_nothing_to_read_at_its_start_reads_nothing(self) -> None:
+        collection = _FakeCollection([{"_id": ObjectId("65f1c2a4e4b0a1b2c3d4e5f6")}])
+        collection.newest = None
+
+        _read_rows(collection, resumable_source_manager=_FakeResumeManager(), should_use_incremental_field=True)
+
+        lower_bound = _build_query(True, "_id", IncrementalFieldType.ObjectID, None)["_id"]["$gt"]
+        expected = _build_query(True, "_id", IncrementalFieldType.ObjectID, None, lower_bound)
+        assert collection.find_queries[0] == expected
 
     def test_id_without_a_checkpoint_clears_the_state_once_per_run_of_such_ids(self) -> None:
         collection = _FakeCollection([{"_id": None}, {"_id": float("nan")}, {"_id": 1}, {"_id": MaxKey()}])

@@ -76,7 +76,9 @@ the row lists both.
 | alguna                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | alpha_vantage                    | HTTP                        | requests                                                        | ✅                          |
 | amazon_ads                       | HTTP                        | requests                                                        | ✅                          |
+| amazon_cloudwatch                | HTTP                        | requests + botocore (SigV4 signing, model-driven serializer)    | ✅                          |
 | amazon_s3                        | HTTP (vendor SDK)           | boto3 (listing), s3fs (reads), deltalake (Delta tables)         | ⚠️                          |
+| amazon_selling_partner           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | amplemarket                      | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | amplitude                        | HTTP                        | requests                                                        | ✅                          |
 | anthropic                        | HTTP                        | requests                                                        | ✅                          |
@@ -111,11 +113,13 @@ the row lists both.
 | aviationstack                    | HTTP                        | requests                                                        | ✅                          |
 | aviator                          | HTTP                        | requests                                                        | ✅                          |
 | awin                             | HTTP                        | requests                                                        | ✅                          |
+| aws_athena                       | HTTP                        | requests + botocore (SigV4 signing, model-driven serializer)    | ✅                          |
 | aws_batch                        | HTTP                        | requests                                                        | ✅                          |
 | aws_budgets                      | HTTP                        | requests                                                        | ✅                          |
 | aws_cloudtrail                   | HTTP                        | requests                                                        | ✅                          |
 | aws_compute_optimizer            | HTTP                        | requests                                                        | ✅                          |
 | aws_config                       | HTTP                        | requests                                                        | ✅                          |
+| aws_cost_and_usage_report        | HTTP                        | requests + botocore (S3 SigV4) + pyarrow                        | ✅                          |
 | aws_cost_anomaly_detection       | HTTP                        | requests                                                        | ✅                          |
 | aws_cost_explorer                | HTTP                        | requests                                                        | ✅                          |
 | aws_documentdb                   | DB protocol                 | pymongo (delegates to MongoDBSource)                            | ➖                          |
@@ -244,6 +248,7 @@ the row lists both.
 | cimis                            | HTTP                        | requests                                                        | ✅                          |
 | cisco_duo                        | HTTP                        | requests (hand-rolled HMAC-SHA1/SHA-512 request signing)        | ✅                          |
 | cloudflare                       | HTTP                        | requests                                                        | ✅                          |
+| cloudflare_d1                    | HTTP                        | requests                                                        | ✅                          |
 | cloudflare_r2                    | HTTP (vendor SDK)           | boto3 (listing), s3fs (reads), deltalake (Delta tables)         | ⚠️                          |
 | clari                            | HTTP                        | requests                                                        | ✅                          |
 | clay                             | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -1034,10 +1039,8 @@ doesn't conflict with concurrent PRs.
 - allegro
 - alpaca_broker_api
 - amazon_ads
-- amazon_cloudwatch
 - amazon_eventbridge
 - amazon_kinesis
-- amazon_selling_partner
 - amazon_sns
 - amazon_sqs
 - anodot_cost
@@ -1054,10 +1057,8 @@ doesn't conflict with concurrent PRs.
 - audiogo
 - autodesk_construction_cloud
 - automox
-- aws_athena
 - aws_cloudformation
 - aws_connect
-- aws_cost_and_usage_report
 - aws_health
 - aws_rds_performance_insights
 - aws_support

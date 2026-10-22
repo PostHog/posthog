@@ -20,7 +20,7 @@ from bson.code import Code
 from bson.codec_options import DatetimeConversion
 from bson.dbref import DBRef
 from bson.json_util import JSONMode, JSONOptions
-from pymongo import ASCENDING, MongoClient
+from pymongo import ASCENDING, DESCENDING, MongoClient
 from pymongo.collection import Collection
 from pymongo.cursor import Cursor
 from pymongo.database import Database
@@ -265,6 +265,7 @@ def _build_query(
     incremental_field: Optional[str],
     incremental_field_type: Optional[IncrementalFieldType],
     db_incremental_field_last_value: Optional[Any],
+    upper_bound: Optional[Any] = None,
 ) -> dict[str, Any]:
     query: dict[str, Any] = {}
 
@@ -281,6 +282,9 @@ def _build_query(
         query = {incremental_field: {"$gt": _coerce_object_id_cursor(db_incremental_field_last_value), "$exists": True}}
     else:
         query = {incremental_field: {"$gt": db_incremental_field_last_value, "$exists": True}}
+
+    if upper_bound is not None:
+        query[incremental_field]["$lte"] = upper_bound
 
     return query
 
@@ -712,6 +716,59 @@ def _estimate_rows_to_sync(collection: Collection, query: dict[str, Any], logger
     return 0
 
 
+def _serves_range_and_sort(spec: dict[str, Any], incremental_field: str) -> bool:
+    """Whether the planner can serve `field > x` ordered by `field` from this index.
+
+    A hashed, text or geo index serves neither the range nor the sort, a partial index serves them
+    only for a query that implies its filter, which the cap query does not, and the planner ignores
+    a hidden index entirely. The field has to come first: a compound index that only holds it later
+    cannot order by it on its own.
+    """
+    field, direction = spec["key"][0]
+    return (
+        field == incremental_field
+        and direction in (ASCENDING, DESCENDING)
+        and "partialFilterExpression" not in spec
+        and not spec.get("hidden")
+    )
+
+
+def _read_upper_bound(
+    collection: Collection, query: dict[str, Any], incremental_field: str, logger: FilteringBoundLogger
+) -> Any | None:
+    """The newest incremental value when the read starts, or None to leave the read uncapped.
+
+    The read is in `_id` order, and the watermark it stores is the newest value it read anywhere.
+    An update to a document the cursor already passed can get a value below that watermark, and no
+    later run reads it. With the read capped here, such an update lands above the cap and the
+    watermark, so the next run reads it.
+    """
+    try:
+        indexed = any(
+            _serves_range_and_sort(spec, incremental_field) for spec in collection.index_information().values()
+        )
+        if not indexed:
+            # Without a usable index the lookup scans the whole collection a second time.
+            logger.debug(f"MongoDB: no usable index on {incremental_field}, so the read is not capped")
+            return None
+        newest = collection.find_one(
+            query,
+            {incremental_field: 1},
+            sort=[(incremental_field, DESCENDING)],
+            max_time_ms=COLLECTION_STATS_TIMEOUT_MS,
+        )
+    except _UNREACHABLE_CLUSTER_ERRORS:
+        raise
+    except PyMongoError as e:
+        logger.warning(f"MongoDB: could not read the newest {incremental_field} ({e}), so the read is not capped")
+        return None
+    if newest is None:
+        # Nothing matches yet. Capping at the lower bound reads nothing, so a document written during
+        # the read waits for the next run, as it does when the read is capped.
+        return query[incremental_field]["$gt"]
+    return newest.get(incremental_field)
+
+
 def _get_rows_to_sync(collection: Collection, query: dict[str, Any], logger: FilteringBoundLogger) -> int:
     try:
         rows_to_sync = collection.count_documents(query, maxTimeMS=ROW_COUNT_TIMEOUT_MS)
@@ -788,15 +845,17 @@ _EXECUTION_TIMEOUT_ERROR_CODE = 50
 
 @frozen
 class MongoResumeConfig:
-    """Checkpoint of a full-refresh read: the `_id` of the last document handed to the pipeline.
+    """Checkpoint of a read: the `_id` of the last document handed to the pipeline, and the cap of
+    an incremental read, so every attempt of the run reads with the same filter.
 
-    The value is canonical MongoDB Extended JSON. Plain JSON has no ObjectId, UUID, date or
+    The values are canonical MongoDB Extended JSON. Plain JSON has no ObjectId, UUID, date or
     Decimal128, and the resume manager writes `str()` of a value it cannot encode, which no later
     attempt can parse. Extended JSON gives back the same BSON type and value, so `$gt` compares it
     the way the server compared the original.
     """
 
     last_id: str
+    upper_bound: str | None = None
 
 
 # UNSPECIFIED keeps every binary `_id` a `Binary` of its own subtype on decode. A representation
@@ -870,18 +929,26 @@ def _to_exact_bson(value: Any) -> Any:
     return value
 
 
-def encode_resume_id(value: Any) -> str | None:
-    """Extended JSON for a document `_id`, or None when a resumed read cannot seek past it."""
-    if _id_type_bracket(value) is None:
-        return None
+def _encode_bson_value(value: Any) -> str | None:
     try:
         return json_util.dumps(_to_exact_bson(value), json_options=_RESUME_ID_JSON_OPTIONS)
     except (TypeError, ValueError):
         return None
 
 
-def decode_resume_id(encoded: str) -> Any:
+def encode_resume_id(value: Any) -> str | None:
+    """Extended JSON for a document `_id`, or None when a resumed read cannot seek past it."""
+    if _id_type_bracket(value) is None:
+        return None
+    return _encode_bson_value(value)
+
+
+def _decode_bson_value(encoded: str) -> Any:
     return json_util.loads(encoded, json_options=_RESUME_ID_JSON_OPTIONS)
+
+
+def decode_resume_id(encoded: str) -> Any:
+    return _decode_bson_value(encoded)
 
 
 def _id_seek_filter(last_id: Any) -> dict[str, Any]:
@@ -908,11 +975,12 @@ def mongo_source(
 ) -> SourceResponse:
     connection_params = _parse_connection_string(connection_string, database_name)
 
-    # Only a full refresh resumes. Its read is `find({}).sort(_id)` with no filter, so every document
-    # that sorts before the checkpoint was already handed on. An incremental or append read restarts
-    # from its incremental watermark instead, and an `_id` seek would have to agree with a filter on
-    # another field.
-    resume_manager = None if should_use_incremental_field else resumable_source_manager
+    # The read is sorted by `_id`, so every document before the checkpoint was already handed on as
+    # long as the filter is the same on every attempt. A full refresh has no filter. A first
+    # incremental or append sync filters on the initial watermark, which no attempt moves. A later
+    # incremental read restarts from its stored watermark instead.
+    resumes_by_id = not should_use_incremental_field or db_incremental_field_last_value is None
+    resume_manager = resumable_source_manager if resumes_by_id else None
 
     if not connection_params["database"]:
         raise ValueError(DATABASE_NAME_REQUIRED_ERROR)
@@ -955,20 +1023,42 @@ def mongo_source(
                 db_incremental_field_last_value,
             )
 
-            if resume_manager is not None and resume_manager.can_resume():
-                state = resume_manager.load_state()
-                if state is not None:
-                    try:
-                        resume_after = decode_resume_id(state.last_id)
-                        query = _id_seek_filter(resume_after)
-                    except Exception:
-                        # This attempt already counts as a resume, so it cannot fall back to a
-                        # fresh read. Clearing the state lets the next attempt start one.
-                        resume_manager.clear_state()
-                        raise
-                    logger.debug(
-                        f"MongoDB: resuming collection={collection_name} after _id type={type(resume_after).__name__}"
-                    )
+            state = resume_manager.load_state() if resume_manager is not None and resume_manager.can_resume() else None
+            seek: dict[str, Any] | None = None
+            upper_bound: Any = None
+            encoded_bound: str | None = None
+            if resume_manager is not None and state is not None:
+                try:
+                    resume_after = decode_resume_id(state.last_id)
+                    seek = _id_seek_filter(resume_after)
+                    # A new bound would change the filter, and the documents before the checkpoint
+                    # were read with the old one.
+                    encoded_bound = state.upper_bound
+                    upper_bound = None if encoded_bound is None else _decode_bson_value(encoded_bound)
+                except Exception:
+                    # This attempt already counts as a resume, so it cannot fall back to a
+                    # fresh read. Clearing the state lets the next attempt start one.
+                    resume_manager.clear_state()
+                    raise
+                logger.debug(
+                    f"MongoDB: resuming collection={collection_name} after _id type={type(resume_after).__name__}"
+                )
+            elif should_use_incremental_field and incremental_field is not None:
+                upper_bound = _read_upper_bound(read_collection, query, incremental_field, logger)
+                encoded_bound = None if upper_bound is None else _encode_bson_value(upper_bound)
+                if encoded_bound is None:
+                    upper_bound = None
+
+            if upper_bound is not None:
+                query = _build_query(
+                    should_use_incremental_field,
+                    incremental_field,
+                    incremental_field_type,
+                    db_incremental_field_last_value,
+                    upper_bound,
+                )
+            if seek is not None:
+                query = {"$and": [query, seek]} if query else seek
 
             # Set when the resume state was cleared for an `_id` that cannot be a checkpoint, so a
             # run of such documents costs one Redis delete and not one per document.
@@ -1033,7 +1123,9 @@ def mongo_source(
                                 # after it writes the batch that holds this document.
                                 encoded_id = encode_resume_id(last_id)
                                 if encoded_id is not None:
-                                    resume_manager.save_state(MongoResumeConfig(last_id=encoded_id))
+                                    resume_manager.save_state(
+                                        MongoResumeConfig(last_id=encoded_id, upper_bound=encoded_bound)
+                                    )
                                     resume_state_cleared = False
                                 elif not resume_state_cleared:
                                     # An older checkpoint would re-read the rows written since it,
