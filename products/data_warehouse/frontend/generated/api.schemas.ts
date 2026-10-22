@@ -2551,6 +2551,7 @@ export interface CredentialApi {
  * * `IncidentIo` - IncidentIo
  * * `Pingdom` - Pingdom
  * * `Cloudflare` - Cloudflare
+ * * `CloudflareD1` - CloudflareD1
  * * `CosmosDB` - CosmosDB
  * * `PlanetScaleMySQL` - PlanetScaleMySQL
  * * `PlanetScalePostgres` - PlanetScalePostgres
@@ -3268,6 +3269,7 @@ export interface CredentialApi {
  * * `AwsCostAndUsageReport` - AwsCostAndUsageReport
  * * `AwsCostAnomalyDetection` - AwsCostAnomalyDetection
  * * `AwsCostExplorer` - AwsCostExplorer
+ * * `AwsDocumentDB` - AwsDocumentDB
  * * `AwsGlueDataCatalog` - AwsGlueDataCatalog
  * * `AwsGuardduty` - AwsGuardduty
  * * `AwsHealth` - AwsHealth
@@ -3961,6 +3963,7 @@ export const ExternalDataSourceTypeEnumApi = {
     IncidentIo: 'IncidentIo',
     Pingdom: 'Pingdom',
     Cloudflare: 'Cloudflare',
+    CloudflareD1: 'CloudflareD1',
     CosmosDB: 'CosmosDB',
     PlanetScaleMySQL: 'PlanetScaleMySQL',
     PlanetScalePostgres: 'PlanetScalePostgres',
@@ -4678,6 +4681,7 @@ export const ExternalDataSourceTypeEnumApi = {
     AwsCostAndUsageReport: 'AwsCostAndUsageReport',
     AwsCostAnomalyDetection: 'AwsCostAnomalyDetection',
     AwsCostExplorer: 'AwsCostExplorer',
+    AwsDocumentDB: 'AwsDocumentDB',
     AwsGlueDataCatalog: 'AwsGlueDataCatalog',
     AwsGuardduty: 'AwsGuardduty',
     AwsHealth: 'AwsHealth',

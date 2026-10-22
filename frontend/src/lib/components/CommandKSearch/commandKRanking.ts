@@ -3,11 +3,14 @@ const WORD = /[\p{L}\p{N}_]+/gu
 export type RankKey = number[]
 
 const MIN_ALIAS_QUERY_LENGTH = 3
+const MAX_LOCAL_QUERY_LENGTH = 200
 const STARTS_WITH = 1
 
 export const searchWords = (text: string): string[] => text.toLowerCase().match(WORD) ?? []
 
-export const FILTER_TOKEN = /(^|\s)([-!]\S+|(path|name|user|author|type|ref):("[^"]*"|\S*))/gi
+const FILTER_KEY = '(?:path|name|user|author|type|ref)'
+
+export const FILTER_TOKEN = new RegExp(`(^|\\s)([-!](?:${FILTER_KEY}:"[^"]*"|\\S+)|${FILTER_KEY}:("[^"]*"|\\S*))`, 'gi')
 
 export const freeWords = (query: string): string[] => searchWords(query.replace(FILTER_TOKEN, ' '))
 
@@ -156,7 +159,7 @@ interface LocalRank {
 }
 
 export function rankLocalItem(query: string, name: string, aliases: string[] = []): LocalRank | null {
-    const normalized = query.trim().toLowerCase().replace(/\s+/g, ' ')
+    const normalized = query.trim().toLowerCase().replace(/\s+/g, ' ').slice(0, MAX_LOCAL_QUERY_LENGTH)
     const tokens = searchWords(normalized)
     if (!tokens.length) {
         return null
