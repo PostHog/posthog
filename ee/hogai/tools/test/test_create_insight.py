@@ -4,8 +4,6 @@ from typing import Any
 from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest
 from unittest.mock import AsyncMock, patch
 
-from django.utils import timezone
-
 from langchain_core.runnables import RunnableConfig
 from parameterized import parameterized
 
@@ -29,7 +27,7 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.posthog_ai.backend.models.assistant import AgentArtifact, Conversation
 from products.product_analytics.backend.facade.models import Insight
-from products.subscriptions.backend.models.subscription import Subscription
+from products.subscriptions.backend.facade.testing import create_subscription
 
 from ee.hogai.chat_agent.schema_generator.nodes import SchemaGenerationException
 from ee.hogai.context.context import AssistantContextManager
@@ -238,14 +236,7 @@ class TestCreateInsightTool(ClickhouseTestMixin, NonAtomicBaseTest):
         if exposure == "public_share":
             await SharingConfiguration.objects.acreate(team=self.team, insight=insight, enabled=True)
         else:
-            await database_sync_to_async(Subscription.objects.create)(
-                team=self.team,
-                insight=insight,
-                target_type="email",
-                target_value="reader@example.com",
-                frequency="daily",
-                start_date=timezone.now(),
-            )
+            await database_sync_to_async(create_subscription)(team_id=self.team.id, insight_id=insight.id)
 
         with patch("posthog.api.sharing_publish_gate.blocked_access_for_user", return_value=["restricted table"]):
             with self.assertRaisesRegex(MaxToolRetryableError, expected_reason):

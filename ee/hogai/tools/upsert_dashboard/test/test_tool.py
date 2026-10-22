@@ -4,8 +4,6 @@ from uuid import uuid4
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from django.utils import timezone
-
 from parameterized import parameterized
 
 from posthog.schema import (
@@ -29,12 +27,13 @@ from posthog.schema import (
 from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership
 from posthog.models.sharing_configuration import SharingConfiguration
+from posthog.sync import database_sync_to_async
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile, Text
 from products.posthog_ai.backend.models.assistant import AgentArtifact, Conversation
 from products.product_analytics.backend.facade.models import Insight
-from products.subscriptions.backend.models.subscription import Subscription
+from products.subscriptions.backend.facade.testing import create_subscription
 
 from ee.hogai.artifacts.types import ModelArtifactResult, StateArtifactResult, VisualizationWithSourceResult
 from ee.hogai.context.context import AssistantContextManager
@@ -361,15 +360,7 @@ class TestUpsertDashboardTool(BaseTest):
             level=OrganizationMembership.Level.MEMBER
         )
         dashboard = await Dashboard.objects.acreate(team=self.team, name="Dashboard", created_by=self.user)
-        await Subscription.objects.acreate(
-            team=self.team,
-            dashboard=dashboard,
-            created_by=self.user,
-            target_type="email",
-            target_value="reader@example.com",
-            frequency="daily",
-            start_date=timezone.now(),
-        )
+        await database_sync_to_async(create_subscription)(team_id=self.team.id, dashboard_id=dashboard.id)
         restricted = await self._create_insight("Restricted")
         if source == "restored_tile":
             await DashboardTile.objects.acreate(dashboard=dashboard, insight=restricted, deleted=True)

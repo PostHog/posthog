@@ -50,7 +50,6 @@ from products.exports.backend.models.exported_asset import ExportedAsset, get_re
 from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.facade.models import Insight
 from products.subscriptions.backend.facade.testing import create_subscription
-from products.subscriptions.backend.models.subscription import Subscription
 
 
 def mock_exporter_template(test_func):
@@ -2523,18 +2522,6 @@ class TestSaveTimeAccessBlock(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         assert "governed_view" in str(response.json())
 
-    def _subscription(self, **kwargs) -> Subscription:
-        fields = {
-            "team": self.team,
-            "created_by": self.user,
-            "target_type": "email",
-            "target_value": "reader@example.com",
-            "frequency": "daily",
-            "start_date": now(),
-            **kwargs,
-        }
-        return Subscription.objects.create(**fields)
-
     @parameterized.expand(
         [
             ("direct", "this insight is publicly shared"),
@@ -2559,22 +2546,24 @@ class TestSaveTimeAccessBlock(APIBaseTest):
             DashboardTile.objects.create(dashboard=dashboard, insight=self.insight)
             SharingConfiguration.objects.create(team=self.team, dashboard=dashboard, enabled=True)
         elif coverage == "subscription":
-            self._subscription(insight=self.insight)
+            create_subscription(team_id=self.team.id, insight_id=self.insight.id)
         elif coverage in ("dashboard_subscription", "deleted_dashboard_subscription"):
             dashboard = Dashboard.objects.create(
                 team=self.team, created_by=self.user, deleted=coverage == "deleted_dashboard_subscription"
             )
             DashboardTile.objects.create(dashboard=dashboard, insight=self.insight)
-            self._subscription(dashboard=dashboard)
+            create_subscription(team_id=self.team.id, dashboard_id=dashboard.id)
         elif coverage == "dashboard_subscription_with_hidden_tile":
             dashboard = Dashboard.objects.create(team=self.team, created_by=self.user)
             DashboardTile.objects.create(dashboard=dashboard, insight=self.insight, deleted=True)
-            self._subscription(dashboard=dashboard)
+            create_subscription(team_id=self.team.id, dashboard_id=dashboard.id)
         elif coverage == "dashboard_subscription_with_deleted_selection":
             dashboard = Dashboard.objects.create(team=self.team, created_by=self.user)
             DashboardTile.objects.create(dashboard=dashboard, insight=self.insight)
             deleted_insight = Insight.objects.create(team=self.team, created_by=self.user, deleted=True)
-            self._subscription(dashboard=dashboard).dashboard_export_insights.add(deleted_insight)
+            create_subscription(
+                team_id=self.team.id, dashboard_id=dashboard.id, dashboard_export_insight_ids=[deleted_insight.id]
+            )
         else:
             notebook = Notebook.objects.create(
                 team=self.team,
@@ -2615,7 +2604,7 @@ class TestSaveTimeAccessBlock(APIBaseTest):
     def test_query_update_allowed_when_not_shared(self, coverage: str, subscription_fields: dict):
         self._deny_editor()
         if subscription_fields:
-            self._subscription(insight=self.insight, **subscription_fields)
+            create_subscription(team_id=self.team.id, insight_id=self.insight.id, **subscription_fields)
         if coverage == "deleted_tile":
             dashboard = Dashboard.objects.create(team=self.team, created_by=self.user)
             # The shared dashboard also carries a live tile for another insight. A share lookup
@@ -2690,7 +2679,7 @@ class TestSaveTimeAccessBlock(APIBaseTest):
         self.insight.query = self._DENIED_QUERY
         self.insight.save()
         dashboard = Dashboard.objects.create(team=self.team, created_by=self.user)
-        subscription = self._subscription(dashboard=dashboard)
+        selected_insight_ids: list[int] = []
         if coverage == "insight_selection":
             selected_insight = Insight.objects.create(
                 team=self.team,
@@ -2698,7 +2687,10 @@ class TestSaveTimeAccessBlock(APIBaseTest):
                 created_by=self.user,
             )
             DashboardTile.objects.create(dashboard=dashboard, insight=selected_insight)
-            subscription.dashboard_export_insights.add(selected_insight)
+            selected_insight_ids.append(selected_insight.id)
+        create_subscription(
+            team_id=self.team.id, dashboard_id=dashboard.id, dashboard_export_insight_ids=selected_insight_ids
+        )
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/insights/{self.insight.id}/", {"dashboards": [dashboard.id]}
