@@ -34,7 +34,7 @@ class TestLibpqTLSKwargs(SimpleTestCase):
             (
                 "client_certificate_alone",
                 {"client_certificate": "CERT PEM", "client_key": "KEY PEM"},
-                None,
+                "require",
                 None,
                 ("CERT PEM", "KEY PEM"),
             ),

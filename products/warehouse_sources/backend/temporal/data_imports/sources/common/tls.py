@@ -164,6 +164,8 @@ def libpq_tls_kwargs(options: TLSOptions | None) -> Iterator[dict[str, str]]:
             kwargs["sslmode"] = "verify-full" if options.verify_hostname else "verify-ca"
             kwargs["sslrootcert"] = files.ca_certificate or system_ca_bundle()
         if files.client_certificate and files.client_key:
+            # With `prefer`, libpq falls back to plaintext and never presents the certificate.
+            kwargs.setdefault("sslmode", "require")
             kwargs["sslcert"] = files.client_certificate
             kwargs["sslkey"] = files.client_key
         yield kwargs
