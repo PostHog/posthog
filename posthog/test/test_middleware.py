@@ -47,7 +47,8 @@ from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_invite import OrganizationInvite
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.settings import SITE_URL
+from posthog.run_mode import derive_run_mode
+from posthog.settings import SITE_URL, base_variables
 from posthog.utils import get_ip_address, get_trusted_client_ip
 
 from products.access_control.backend.models.access_control import AccessControl
@@ -462,12 +463,14 @@ class TestUnversionedStaticPathMiddleware(SimpleTestCase):
 
         assert seen_paths == ["/static/1.438.12/array.js"]
 
-    def test_runs_before_whitenoise(self) -> None:
+    def test_registered_only_in_hobby_and_before_whitenoise(self) -> None:
         middleware = list(settings.MIDDLEWARE)
+        name = "posthog.middleware.UnversionedStaticPathMiddleware"
+        registered_expected = derive_run_mode(base_variables.CLOUD_DEPLOYMENT, base_variables.DEBUG).is_hobby
 
-        assert middleware.index("posthog.middleware.UnversionedStaticPathMiddleware") < middleware.index(
-            "whitenoise.middleware.WhiteNoiseMiddleware"
-        )
+        assert (name in middleware) == registered_expected
+        if registered_expected:
+            assert middleware.index(name) < middleware.index("whitenoise.middleware.WhiteNoiseMiddleware")
 
 
 class TestAutoProjectMiddleware(APIBaseTest):
