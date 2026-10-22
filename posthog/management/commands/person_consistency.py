@@ -69,7 +69,10 @@ def _id_range(value: str) -> IdRange:
 
 
 class Command(BaseCommand):
-    help = "Read-only. Classify every person and mapping of one team and write a report grouped by repair verb."
+    help = (
+        "Classify every person and mapping of one team into a report grouped by repair verb, and repair them. "
+        "Scans are read-only; repair writes only with --apply."
+    )
 
     def add_arguments(self, parser: CommandParser) -> None:
         actions = parser.add_subparsers(dest="action", required=True, metavar="action")
@@ -270,7 +273,8 @@ class Command(BaseCommand):
             log=self._log,
         )
         outcomes = ", ".join(f"{outcome}={n}" for outcome, n in sorted(counts.items())) or "nothing to do"
-        self._log(f"{options['verb']} {mode.upper()}: {outcomes}; actions in {actions_path}")
+        label = "APPLY" if options["apply"] else "DRY RUN"
+        self._log(f"{options['verb']} {label}: {outcomes}; actions in {actions_path}")
         if not options["apply"]:
             self._log("Dry run: nothing was written. Pass --apply to write.")
         if counts.get("undelivered"):
