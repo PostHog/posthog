@@ -295,7 +295,11 @@ class ErrorTrackingIssueSummaryResponseSerializer(serializers.Serializer):
 
 
 def issue_summary_response(team_id: int, issue_id: UUID, *, regenerate: bool) -> dict[str, object]:
-    """Read the stored summary and start generation when one is missing or `regenerate` is set. Never waits."""
+    """Read the stored summary and ask the facade to start generation, which it skips while the summary is fresh.
+
+    `regenerate` only changes the status of a started refresh of a stored summary: `generating` instead of `ready`.
+    Never waits.
+    """
     summary = summaries_facade.get_issue_summary(team_id, issue_id)
     # Starting is a no-op while a stored summary is younger than the regenerate interval,
     # so a read of a stale summary also refreshes it in the background.

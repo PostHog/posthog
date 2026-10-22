@@ -1,8 +1,10 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { lemonToast } from '@posthog/lemon-ui'
+
 import { initKeaTests } from '~/test/init'
 
-import { errorTrackingIssuesSummaryRetrieve } from '../../generated/api'
+import { errorTrackingIssuesSummaryRegenerateCreate, errorTrackingIssuesSummaryRetrieve } from '../../generated/api'
 import type { ErrorTrackingIssueSummaryApi, ErrorTrackingIssueSummaryResponseApi } from '../../generated/api.schemas'
 import { ISSUE_SUMMARY_POLL_INTERVAL_MS, ISSUE_SUMMARY_POLL_TIMEOUT_MS, issueSummaryLogic } from './issueSummaryLogic'
 
@@ -20,9 +22,12 @@ const SUMMARY: ErrorTrackingIssueSummaryApi = {
 }
 const GENERATING: ErrorTrackingIssueSummaryResponseApi = { status: 'generating', summary: null }
 const READY: ErrorTrackingIssueSummaryResponseApi = { status: 'ready', summary: SUMMARY }
+const UNAVAILABLE: ErrorTrackingIssueSummaryResponseApi = { status: 'unavailable', summary: null }
+const NEW_SUMMARY: ErrorTrackingIssueSummaryApi = { ...SUMMARY, generated_at: '2026-10-22T12:00:00Z' }
 
 describe('issueSummaryLogic', () => {
     const retrieve = jest.mocked(errorTrackingIssuesSummaryRetrieve)
+    const regenerate = jest.mocked(errorTrackingIssuesSummaryRegenerateCreate)
     let logic: ReturnType<typeof issueSummaryLogic.build>
 
     beforeEach(() => {
@@ -40,15 +45,18 @@ describe('issueSummaryLogic', () => {
         await jest.advanceTimersByTimeAsync(ms)
     }
 
-    it('stops polling and offers a retry when generation outlasts the deadline', async () => {
-        retrieve.mockResolvedValue(GENERATING)
+    it.each([
+        ['generation outlasts the deadline', GENERATING, 'generating', 'timed_out'],
+        ['no summary will be written', UNAVAILABLE, 'hidden', 'hidden'],
+    ])('stops polling when %s', async (_name, response, viewOnLoad, viewAtDeadline) => {
+        retrieve.mockResolvedValue(response)
         logic = issueSummaryLogic({ issueId: ISSUE_ID })
         logic.mount()
-        await expectLogic(logic).toDispatchActions(['loadSummarySuccess']).toMatchValues({ view: 'generating' })
+        await expectLogic(logic).toDispatchActions(['loadSummarySuccess']).toMatchValues({ view: viewOnLoad })
 
         await advance(ISSUE_SUMMARY_POLL_TIMEOUT_MS)
         const callsAtDeadline = retrieve.mock.calls.length
-        expect(logic.values.view).toBe('timed_out')
+        expect(logic.values.view).toBe(viewAtDeadline)
 
         await advance(ISSUE_SUMMARY_POLL_TIMEOUT_MS)
         expect(retrieve.mock.calls.length).toBe(callsAtDeadline)
@@ -66,5 +74,46 @@ describe('issueSummaryLogic', () => {
         await advance(ISSUE_SUMMARY_POLL_TIMEOUT_MS)
         expect(retrieve).toHaveBeenCalledTimes(3)
         expect(logic.values.view).toBe('ready')
+    })
+
+    it('stops polling on a failed read and recovers on retry', async () => {
+        retrieve.mockResolvedValueOnce(GENERATING).mockRejectedValueOnce(new Error('500')).mockResolvedValue(READY)
+        jest.spyOn(console, 'error').mockImplementation(() => {})
+        logic = issueSummaryLogic({ issueId: ISSUE_ID })
+        logic.mount()
+
+        await advance(ISSUE_SUMMARY_POLL_INTERVAL_MS)
+        expect(logic.values.view).toBe('failed')
+        await advance(ISSUE_SUMMARY_POLL_TIMEOUT_MS)
+        expect(retrieve).toHaveBeenCalledTimes(2)
+
+        logic.actions.retry()
+        await advance(0)
+        expect(logic.values.view).toBe('ready')
+    })
+
+    it.each([
+        ['shows the new summary once it lands', [READY, { status: 'ready', summary: NEW_SUMMARY }], NEW_SUMMARY, false],
+        ['tells the user when no new summary lands', [READY], SUMMARY, true],
+    ] as const)('regenerate %s', async (_name, reads, expectedSummary, toasts) => {
+        const info = jest.spyOn(lemonToast, 'info').mockImplementation(() => '')
+        retrieve.mockResolvedValueOnce(READY)
+        for (const read of reads.slice(0, -1)) {
+            retrieve.mockResolvedValueOnce(read)
+        }
+        retrieve.mockResolvedValue(reads[reads.length - 1])
+        regenerate.mockResolvedValue({ status: 'generating', summary: SUMMARY })
+        logic = issueSummaryLogic({ issueId: ISSUE_ID })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadSummarySuccess'])
+
+        logic.actions.regenerateSummary()
+        await advance(ISSUE_SUMMARY_POLL_INTERVAL_MS)
+        expect(logic.values.regenerating).toBe(true)
+
+        await advance(ISSUE_SUMMARY_POLL_TIMEOUT_MS)
+        expect(logic.values.regenerating).toBe(false)
+        expect(logic.values.summary).toEqual(expectedSummary)
+        expect(info).toHaveBeenCalledTimes(toasts ? 1 : 0)
     })
 })

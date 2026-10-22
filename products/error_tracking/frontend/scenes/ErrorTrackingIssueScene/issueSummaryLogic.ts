@@ -259,6 +259,11 @@ export const issueSummaryLogic = kea<issueSummaryLogicType>([
             cache.disposables.dispose('summaryPollDeadline')
         },
         pollTimedOut: () => {
+            // A regenerate whose inputs did not change keeps the same `generated_at`, so it always ends here.
+            // Read `regenerating` first, because `stopPolling` resets it.
+            if (values.regenerating && values.summary) {
+                lemonToast.info('No new summary yet. Check back later.')
+            }
             actions.stopPolling()
         },
         markLoadFailed: () => {
@@ -284,6 +289,7 @@ export const issueSummaryLogic = kea<issueSummaryLogicType>([
                     issue_id: props.issueId,
                     category: summary.category,
                     model: summary.model,
+                    generated_at: summary.generated_at,
                 })
             }
         },
@@ -303,6 +309,7 @@ export const issueSummaryLogic = kea<issueSummaryLogicType>([
                 feedback,
                 category: values.summary?.category ?? null,
                 model: values.summary?.model ?? null,
+                generated_at: values.summary?.generated_at ?? null,
             })
         },
     })),
