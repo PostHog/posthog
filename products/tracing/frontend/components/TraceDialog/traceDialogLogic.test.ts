@@ -486,6 +486,7 @@ describe('traceDialogLogic', () => {
                 entry_point: 'log_row_action',
                 has_span: true,
                 has_log: false,
+                view: 'waterfall',
             })
             expect(captureSpy).toHaveBeenCalledWith(
                 'tracing trace dialog closed',
