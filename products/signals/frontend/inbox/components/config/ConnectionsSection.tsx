@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { IconCheckCircle, IconChevronRight, IconGithub } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
@@ -7,14 +7,28 @@ import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { urls } from 'scenes/urls'
 
 export function ConnectionsSection(): JSX.Element {
-    const { getIntegrationsByKind, integrationsLoading } = useValues(integrationsLogic)
+    const { githubReadiness, integrationsLoading, integrationsLoadFailed } = useValues(integrationsLogic)
+    const { loadIntegrations } = useActions(integrationsLogic)
 
-    const githubIntegrations = getIntegrationsByKind(['github'])
-    const hasGithubIntegration = githubIntegrations.length > 0
-    const isConnected = hasGithubIntegration && !integrationsLoading
+    const isConnected = githubReadiness === 'ready' && !integrationsLoading && !integrationsLoadFailed
+    const label = {
+        ready: 'Manage',
+        not_connected: 'Connect GitHub',
+        reconnect_required: 'Reconnect GitHub',
+        no_repositories: 'Manage repository access',
+        temporarily_unavailable: 'Check connection',
+    }[githubReadiness]
+    const description = {
+        ready: 'Agents can read your repositories and create pull requests.',
+        not_connected: 'Connect GitHub to start scouts, research, and implementation in this project.',
+        reconnect_required: 'GitHub access is unavailable. Reconnect to resume scouts, research, and implementation.',
+        no_repositories: 'Allow access to at least one repository to resume scouts, research, and implementation.',
+        temporarily_unavailable:
+            'Scouts, research, and implementation are waiting for GitHub access. Check again shortly.',
+    }[githubReadiness]
 
     return (
-        <div className="flex items-center justify-between gap-4 rounded border bg-bg-light px-3 py-2.5">
+        <div className="flex flex-wrap items-center justify-between gap-4 rounded border bg-bg-light px-3 py-2.5">
             <div className="flex items-start gap-3 min-w-0">
                 <IconGithub className="size-5 shrink-0 mt-0.5 text-default" />
                 <div className="min-w-0">
@@ -28,17 +42,26 @@ export function ConnectionsSection(): JSX.Element {
                         )}
                     </div>
                     <p className="text-xs text-secondary mt-0.5 mb-0 max-w-xl">
-                        Foundational integration agents read from and write pull requests to.
+                        {integrationsLoading
+                            ? 'Checking GitHub connection…'
+                            : integrationsLoadFailed
+                              ? 'Could not load your GitHub connection. Retry to check its status.'
+                              : description}
                     </p>
                 </div>
             </div>
             <LemonButton
+                data-attr="self-driving-github-connection"
+                loading={integrationsLoading}
                 type="secondary"
                 size="small"
                 sideIcon={<IconChevronRight />}
-                to={urls.settings('environment-integrations', 'integration-github')}
+                to={
+                    integrationsLoadFailed ? undefined : urls.settings('environment-integrations', 'integration-github')
+                }
+                onClick={integrationsLoadFailed ? () => loadIntegrations() : undefined}
             >
-                {hasGithubIntegration ? 'Manage' : 'Connect'}
+                {integrationsLoadFailed ? 'Retry' : label}
             </LemonButton>
         </div>
     )
