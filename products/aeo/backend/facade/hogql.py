@@ -38,6 +38,9 @@ aeo_citation_checks: PostgresTable = PostgresTable(
         "prompt_source": StringDatabaseField(
             name="prompt_source", description="Where the prompt came from: 'imported' or 'manual'."
         ),
+        "prompt_topic": StringDatabaseField(
+            name="prompt_topic", description="Topic the prompt belonged to when it ran; empty when it had none."
+        ),
         "prompt_hash": StringDatabaseField(
             name="prompt_hash", description="SHA-256 of the normalized prompt; stable join key across runs."
         ),

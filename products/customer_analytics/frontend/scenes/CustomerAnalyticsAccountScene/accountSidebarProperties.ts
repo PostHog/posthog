@@ -12,8 +12,6 @@ import type { AccountSidebarProperty } from './components/accountPropertyTypes'
 export interface AccountSidebarPropertyData {
     customValues: CustomPropertyValueApi[]
     relationships: AccountRelationshipApi[]
-    // Loaded only when an account field is pinned.
-    account: AccountApi | null
 }
 
 // Some account fields are top-level attributes and the others live in `properties`.
@@ -29,6 +27,7 @@ function accountFieldValue(account: AccountApi | null, field: AccountsTableAccou
 export function buildAccountSidebarProperties(
     pinnedProperties: ResolvedPinnedAccountProperty[],
     data: AccountSidebarPropertyData | null,
+    account: AccountApi | null,
     editable: boolean
 ): AccountSidebarProperty[] {
     if (!data) {
@@ -42,7 +41,7 @@ export function buildAccountSidebarProperties(
                 key,
                 kind: 'account_field',
                 field: property.field,
-                value: accountFieldValue(data.account, property.field.key),
+                value: accountFieldValue(account, property.field.key),
             }
         }
         if (property.kind === 'custom_property') {

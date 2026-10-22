@@ -38,6 +38,7 @@ problem (A3/A4), not a query-scope problem.
 
 The SQL in this file follows the query rules in `diagnostic-snapshot.md`: the experiment's exposure event, the flag's variant keys, a window with both ends set, and no test-account filter.
 The exposure event is `resolved_exposure_event`, unless `exposure_criteria.exposure_config` names `$experiment_exposure`: then it is that event ("Which event, which property" in `diagnostic-snapshot.md`).
+When `resolved_exposure_event` is `$feature_flag_called`, also read `$experiment_exposure` (`event IN ('$feature_flag_called', '$experiment_exposure')`), and count persons, not rows.
 The queries count `person_id`.
 On a flag aggregated by a group type (`feature_flag.filters.aggregation_group_type_index` is set), put `$group_<index>` in its place and leave out the rows where it is empty.
 When a result is compared with `$multiple`, leave out the keys in `excluded_variants`: the experiment never counts them.
@@ -74,7 +75,7 @@ This is the signal behind the in-app banner "Setup likely introduced bias".
   The exclusion is still in the numbers: the banner's absence on an ended experiment clears nothing.
 
 <!-- Source for maintainers (may rot): evaluate_bias_risk and MULTIPLE_VARIANT_BIAS_THRESHOLD in
-products/experiments/backend/analysis_health.py; the end-date rule in _evaluate_bias_risk,
+products/experiments/backend/health/checks/bias_risk.py; the end-date rule in _evaluate_bias_risk,
 products/experiments/backend/hogql_queries/experiment_exposures_query_runner.py. Verify before citing. -->
 
 **The warning-vs-visible gap.** The banner fires above 0.1%.

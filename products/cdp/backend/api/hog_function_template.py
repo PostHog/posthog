@@ -10,11 +10,11 @@ from rest_framework.exceptions import NotFound
 from rest_framework.request import Request
 
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
-from posthog.cdp.flag_gated_templates import FLAG_GATED_TEMPLATE_IDS, hidden_gated_template_ids
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.permissions import APIScopePermission
 
+from products.cdp.backend.flag_gated_templates import FLAG_GATED_TEMPLATE_IDS, hidden_gated_template_ids
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.cdp.backend.models.hog_functions import HogFunction
 

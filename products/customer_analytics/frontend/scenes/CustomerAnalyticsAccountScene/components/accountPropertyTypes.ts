@@ -56,16 +56,17 @@ export interface AccountFieldProperty {
 
 export type AccountSidebarProperty = AccountCustomProperty | AccountRelationshipProperty | AccountFieldProperty
 
-export const ACCOUNT_PROPERTY_KIND_LABELS: Record<AccountSidebarProperty['kind'], string> = {
-    custom: 'Custom property',
-    relationship: 'Relationship',
-    account_field: 'Account field',
-}
-
 export interface AccountPropertyOption {
     key: string
     label: string
-    kind: AccountSidebarProperty['kind']
+    kind: AccountSidebarProperty['kind'] | 'account'
+}
+
+export const ACCOUNT_PROPERTY_KIND_LABELS: Record<AccountPropertyOption['kind'], string> = {
+    custom: 'Custom property',
+    relationship: 'Relationship',
+    account_field: 'Account field',
+    account: 'Account property',
 }
 
 export function isCustomPropertyEditable(provenance: AccountCustomPropertyProvenance): boolean {

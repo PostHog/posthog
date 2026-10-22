@@ -1,7 +1,7 @@
 import json
 from datetime import timedelta
 from typing import Any
-from uuid import uuid4
+from uuid import NAMESPACE_URL, uuid4, uuid5
 
 import pytest
 from posthog.test.base import APIBaseTest
@@ -15,6 +15,7 @@ from django.utils import timezone
 from asgiref.sync import async_to_sync, sync_to_async
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.test import APIClient
 from social_django.models import UserSocialAuth
 
 from posthog.models import Organization, Team, User
@@ -59,6 +60,7 @@ from products.signals.backend.scout_harness.tools.report import (
     _wants_repo_selection,
     edit_report_sync,
 )
+from products.signals.backend.scout_harness.tools.report_author import ScoutRunReportAuthor
 from products.signals.backend.scout_report import ScoutReportSignal
 from products.signals.backend.task_run_artefacts import record_implementation_task
 from products.signals.backend.temporal.report_safety_judge import SafetyJudgeResponse
@@ -1382,7 +1384,12 @@ class TestScoutReportAPI(APIBaseTest):
             patch("products.signals.backend.scout_harness.tools.report._assert_edit_gates"),
             pytest.raises(InvalidScoutReportError, match="not in progress"),
         ):
-            edit_report_sync(team=self.team, run=run, report_id=created["report_id"], summary="Late rewrite")
+            edit_report_sync(
+                team=self.team,
+                author=ScoutRunReportAuthor(run=run),
+                report_id=created["report_id"],
+                summary="Late rewrite",
+            )
 
     def _latest_artefact(self, report_id: str, artefact_type: str) -> SignalReportArtefact | None:
         return (
@@ -1594,6 +1601,86 @@ class TestScoutReportAPI(APIBaseTest):
         assert autostart.await_args is not None
         assert autostart.await_args.kwargs["report_id"] == response.json()["report_id"]
 
+    @patch("products.signals.backend.reviewer_rules.assignment_writer_enabled", return_value=True)
+    @patch("products.signals.backend.reviewer_rules.assignment_side_effects_enabled", return_value=False)
+    def test_human_scout_human_flow_preserves_corrections(self, _effects, _writer) -> None:
+        human = APIClient()
+        human.force_login(self.user)
+        report = SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY, title="A report")
+        run = _make_run(self.team)
+        root = f"/api/projects/{self.team.id}/signals/reports/{report.id}"
+        selected = {"action": "add", "content": [{"user_uuid": str(self.user.uuid)}]}
+        assert human.put(f"{root}/reviewers/", selected, format="json").status_code == 200
+        before = human.get(f"{root}/").json()["reviewer_assignment"]
+        assert before["pinned_user_uuids"] == [str(self.user.uuid)]
+        assert (
+            human.put(
+                f"{root}/reviewers/",
+                {"action": "remove", "content": [{"user_uuid": str(self.user.uuid)}]},
+                format="json",
+            ).status_code
+            == 200
+        )
+        request = {
+            "report_id": str(report.id),
+            "suggested_reviewers": [{"user_uuid": str(self.user.uuid)}],
+            "expected_reviewers": before["state"],
+        }
+        stale = self.client.post(self._edit_url(str(run.id)), request, format="json")
+        assert stale.status_code == 200, stale.json()
+        assert stale.json()["warnings"][0]["field"] == "suggested_reviewers"
+        assert not stale.json()["reviewers_set"]
+        state = human.get(f"{root}/").json()["reviewer_assignment"]
+        request.update(expected_reviewers=state["state"])
+        with patch(AUTOSTART_PATH, new=AsyncMock()) as autostart:
+            for _ in range(2):
+                response = self.client.post(self._edit_url(str(run.id)), request, format="json")
+                assert response.status_code == 200, response.json()
+                assert not response.json()["reviewers_set"]
+            autostart.assert_not_called()
+        assert report.artefacts.filter(type="suggested_reviewers").count() == 2
+        assert human.put(f"{root}/reviewers/", selected, format="json").status_code == 200
+        state = human.get(f"{root}/").json()["reviewer_assignment"]
+        response = human.post(
+            f"{root}/reviewers/resume/",
+            {"expected_reviewers": state["state"]},
+            format="json",
+        )
+        assert response.status_code == 404
+        assert human.get(f"{root}/").json()["reviewer_assignment"]["pinned_user_uuids"] == [str(self.user.uuid)]
+        failed = self.client.post(
+            self._edit_url(str(run.id)),
+            {
+                "report_id": str(report.id),
+                "expected_reviewers": state["state"],
+                "reviewer_outcome": "lookup_failed",
+                "reviewer_retry_reason": "Member lookup unavailable",
+            },
+            format="json",
+        )
+        assert failed.status_code == 200, failed.json()
+        assert not failed.json()["reviewers_set"]
+        reviewers = SignalReportArtefact.latest_content(
+            team_id=self.team.id, report_id=str(report.id), model=SuggestedReviewers
+        )
+        assert reviewers is not None and reviewers.root[0].user_uuid == str(self.user.uuid)
+        empty = self.client.post(
+            self._edit_url(str(run.id)),
+            {
+                "report_id": str(report.id),
+                "suggested_reviewers": [],
+                "expected_reviewers": state["state"],
+                "reviewer_outcome": "no_suitable_owner",
+            },
+            format="json",
+        )
+        assert empty.status_code == 200, empty.json()
+        assert not empty.json()["reviewers_set"]
+        reviewers = SignalReportArtefact.latest_content(
+            team_id=self.team.id, report_id=str(report.id), model=SuggestedReviewers
+        )
+        assert reviewers is not None and reviewers.root[0].user_uuid == str(self.user.uuid)
+
     def test_edit_report_sets_reviewers_and_reruns_autostart(self) -> None:
         # The routing rescue: a report that surfaced with no reviewer can have one set via edit_report,
         # which writes the suggested_reviewers artefact and re-fires autostart (so a report that already
@@ -1772,7 +1859,7 @@ class TestScoutReportAPI(APIBaseTest):
             with patch(CAPTURE_PATH):
                 captured = _capture_report_edited(
                     team=self.team,
-                    run=run,
+                    author=ScoutRunReportAuthor(run=run),
                     result=result,
                     title=None,
                     summary=None,
@@ -2025,7 +2112,9 @@ class TestScoutReportAPI(APIBaseTest):
         assert forward.kwargs["token"] == self.team.api_token
         assert forward.kwargs["process_person_profile"] is False
         assert forward.kwargs["distinct_id"] == f"signals_scout:{run.skill_name}"
-        expected_url = None if expected_outcome == "gate_skipped" else f"/inbox/reports/{body['report_id']}"
+        expected_url = (
+            None if expected_outcome == "gate_skipped" else f"/inbox/reports/{body['report_id']}?link_source=scout"
+        )
         if expected_url is None:
             assert forward.kwargs["properties"]["report_url"] is None
         else:
@@ -2056,7 +2145,14 @@ class TestScoutReportAPI(APIBaseTest):
         )
         assert forward.kwargs["token"] == self.team.api_token
         assert forward.kwargs["process_person_profile"] is False
-        assert forward.kwargs["properties"]["report_url"].endswith(f"/inbox/reports/{created['report_id']}")
+        assert forward.kwargs["properties"]["report_url"].endswith(
+            f"/inbox/reports/{created['report_id']}?link_source=scout"
+        )
+        assert props["run_id"] == str(run.id)
+        assert forward.kwargs["distinct_id"] == f"signals_scout:{run.skill_name}"
+        # Ingestion dedupes on this uuid. If its key drifts, an edit retried across a deploy fires twice.
+        edit_key = f"edit|{run.id}|{created['report_id']}|['title', 'updated_at']|new title||re-validated"
+        assert forward.kwargs["event_uuid"] == str(uuid5(NAMESPACE_URL, f"signals_scout_report:{edit_key}"))
 
     def test_self_improvement_report_classified_on_emit_and_edit(self) -> None:
         # Classification must ride both lifecycle events: stamped from the authored title on emit, and
@@ -2089,7 +2185,7 @@ class TestScoutReportAPI(APIBaseTest):
             with patch(CAPTURE_PATH):
                 captured = _capture_report_edited(
                     team=self.team,
-                    run=run,
+                    author=ScoutRunReportAuthor(run=run),
                     result=result,
                     title=None,
                     summary=None,
@@ -2116,7 +2212,7 @@ class TestScoutReportAPI(APIBaseTest):
             with patch(CAPTURE_PATH):
                 captured = _capture_report_edited(
                     team=self.team,
-                    run=run,
+                    author=ScoutRunReportAuthor(run=run),
                     result=result,
                     title=None,
                     summary=None,
@@ -2159,7 +2255,7 @@ class TestScoutReportAPI(APIBaseTest):
             with patch(CAPTURE_PATH):
                 captured = _capture_report_edited(
                     team=self.team,
-                    run=run,
+                    author=ScoutRunReportAuthor(run=run),
                     result=result,
                     title=None,
                     summary=None,
@@ -2327,7 +2423,7 @@ class TestScoutReportAPI(APIBaseTest):
             with patch(CAPTURE_PATH):
                 captured = _capture_report_edited(
                     team=self.team,
-                    run=run,
+                    author=ScoutRunReportAuthor(run=run),
                     result=result,
                     title=None,
                     summary=None,
@@ -2349,7 +2445,7 @@ class TestScoutReportAPI(APIBaseTest):
         with patch(CAPTURE_PATH):
             chart_clear = _capture_report_edited(
                 team=self.team,
-                run=run,
+                author=ScoutRunReportAuthor(run=run),
                 result=EditReportResult(
                     report_id=result.report_id, updated_fields=[], note_appended=False, charts_set=0
                 ),
@@ -2373,7 +2469,7 @@ class TestScoutReportAPI(APIBaseTest):
             with patch(CAPTURE_PATH):
                 captured = _capture_report_edited(
                     team=self.team,
-                    run=run,
+                    author=ScoutRunReportAuthor(run=run),
                     result=EditReportResult(
                         report_id=report_id,
                         updated_fields=[],

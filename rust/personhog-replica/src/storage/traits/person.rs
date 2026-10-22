@@ -3,7 +3,8 @@ use uuid::Uuid;
 
 use crate::storage::error::StorageResult;
 use crate::storage::types::{
-    DeletePersonsOutcome, Person, PersonTombstoneQueueEntry, SplitResult, TombstonedDeleteOutcome,
+    DeletePersonsOutcome, Person, PersonListEntry, PersonTombstoneQueueEntry,
+    PersonVersionFloorResult, SplitResult, TombstoneTarget, TombstonedDeleteOutcome,
     TombstonedPerson,
 };
 
@@ -65,10 +66,13 @@ pub trait PersonLookup: Send + Sync {
     /// persons that fit the budget go whole, the first that does not is trimmed with the leftover
     /// and returned pending, the rest are returned pending untouched. A revival either wins the
     /// row lock first and is skipped, or lands afterwards on a fresh row. Idempotent.
+    ///
+    /// A person is deleted only while its version is at or below its target's `max_version`,
+    /// checked under the same row lock. A uuid listed twice keeps its lowest bound.
     async fn delete_tombstoned_persons(
         &self,
         team_id: i64,
-        uuids: &[Uuid],
+        targets: &[TombstoneTarget],
         max_rows: i64,
     ) -> StorageResult<TombstonedDeleteOutcome>;
 
@@ -109,7 +113,8 @@ pub trait PersonLookup: Send + Sync {
     /// 1. Locks the specified PersonDistinctId rows with SELECT FOR UPDATE and
     ///    validates ownership under the lock
     /// 2. Creates new persons via one bulk upsert (deterministic UUIDv5,
-    ///    version = original person version + 101)
+    ///    version = original person version + 101). A live person at that
+    ///    UUID is never reused: the distinct_id gets a random UUID instead.
     /// 3. Reassigns PDIs to new persons in one bulk update
     ///    (version = original PDI version + 101)
     ///
@@ -144,4 +149,22 @@ pub trait PersonLookup: Send + Sync {
         person_id: i64,
         min_version: i64,
     ) -> StorageResult<bool>;
+
+    /// Raise each person tombstone to at least its min version in one primary transaction, inserting a
+    /// tombstone for a missing person and leaving a live row unchanged; `floors` must not repeat a uuid.
+    async fn ensure_person_version_floors(
+        &self,
+        team_id: i64,
+        floors: &[(Uuid, i64)],
+    ) -> StorageResult<Vec<PersonVersionFloorResult>>;
+
+    /// One page of a team's persons, live and tombstoned, with id above `after_person_id` and below
+    /// `before_person_id` when given, in id order.
+    async fn list_persons_for_team(
+        &self,
+        team_id: i64,
+        after_person_id: i64,
+        before_person_id: Option<i64>,
+        limit: i64,
+    ) -> StorageResult<Vec<PersonListEntry>>;
 }

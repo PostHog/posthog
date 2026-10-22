@@ -26,7 +26,6 @@ from posthog.models.team.team_revenue_analytics_config import TeamRevenueAnalyti
 from posthog.sync import database_sync_to_async
 
 from products.data_modeling.backend.facade.api import UnsatisfiableFrequencyError, get_declared_target
-from products.data_modeling.backend.facade.modeling import DataWarehouseModelPath
 from products.data_modeling.backend.facade.models import DAG, DataModelingJob, DataWarehouseSavedQuery, Node
 from products.endpoints.backend.insight_transformers import transform_materialized_insight_response
 from products.endpoints.backend.logic.execution import EndpointExecutionService
@@ -1749,11 +1748,26 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
 
         self.assertTrue(Node.objects.filter(team=self.team, saved_query_id=saved_query_id).exists())
 
-        response = self.client.patch(
-            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
-            {"is_materialized": False},
-            format="json",
-        )
+        with (
+            mock.patch.object(DataWarehouseSavedQuery, "revert_materialization", side_effect=RuntimeError("boom")),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            failed_response = self.client.patch(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
+                {"is_materialized": False},
+                format="json",
+            )
+
+        self.assertEqual(failed_response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertFalse(DataWarehouseSavedQuery.objects.get(id=saved_query_id).deleted)
+        self.assertTrue(Node.objects.filter(team=self.team, saved_query_id=saved_query_id).exists())
+
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
+                {"is_materialized": False},
+                format="json",
+            )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         self.assertFalse(Node.objects.filter(team=self.team, saved_query_id=saved_query_id).exists())
@@ -2456,8 +2470,6 @@ class TestEndpointMaterializationTemporal:
         )
         saved_query.columns = await sync_to_async(saved_query.get_columns)()
         await sync_to_async(saved_query.save)()
-
-        await database_sync_to_async(DataWarehouseModelPath.objects.create_from_saved_query)(saved_query)
 
         # Link saved_query to version instead of endpoint
         version.saved_query = saved_query

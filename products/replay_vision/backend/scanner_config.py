@@ -29,6 +29,8 @@ def scanner_config_error(scanner_type: ScannerType, scanner_config: Any) -> str 
         return f"Prompt can be at most {MAX_PROMPT_LENGTH:,} characters."
     if scanner_type == ScannerType.CLASSIFIER:
         tags = scanner_config.get("tags") or []
+        if not isinstance(tags, list):
+            return "Categories must be a list."
         if len(tags) == 0:
             return "Add at least one category."
         if len(tags) > MAX_TAGS:

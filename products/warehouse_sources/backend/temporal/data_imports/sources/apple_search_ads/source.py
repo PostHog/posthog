@@ -4,6 +4,7 @@ from typing import Any, Optional, cast
 
 import requests
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -73,6 +74,8 @@ class AppleSearchAdsSource(
     CredentialAccountsMixin[AppleSearchAdsSourceConfig],
     OAuthMixin,
 ):
+    codebase_detection = detect(env=("^(APPLE_SEARCH_ADS|APPLESEARCHADS)_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     supported_versions = (APPLE_SEARCH_ADS_API_VERSION_V5, APPLE_ADS_API_VERSION_V1)
@@ -152,7 +155,7 @@ Reporting tables use daily granularity, which Apple serves for the last 90 days 
             permissionsCaption="""Assign the **API Account Read Only** role to the Apple Ads user who sets up the connection, under **Account settings > User management**. Apple attaches API roles to users, not to clients, so this applies to both authentication types. That role grants read access to the campaign data these tables are built from. Pick it rather than the campaign group **API Read Only**, which covers a single campaign group. The **API Account Manager** role also works if you already use it.""",
             iconPath="/static/services/apple_search_ads.png",
             docsUrl="https://posthog.com/docs/cdp/sources/apple-search-ads",
-            releaseStatus=ReleaseStatus.BETA,
+            releaseStatus=ReleaseStatus.GA,
             # "Apple Search Ads" is the former product name, kept so the catalog still finds
             # this source under what Apple used to call it.
             keywords=["apple search ads", "asa", "app store ads", "search ads", "apple maps ads"],
@@ -310,11 +313,25 @@ Reporting tables use daily granularity, which Apple serves for the last 90 days 
 
     @staticmethod
     def _normalize_job_inputs(job_inputs: dict) -> dict:
-        """Make pre-auth-selector key-pair rows readable during a rolling deployment."""
+        """Wrap a flat payload in the auth branch the config expects.
+
+        Two callers send one: a key-pair row stored before the auth selector existed, and the
+        connect form's ad account picker, which posts the single field it holds rather than the
+        branch around it. Reading an integration id as key-pair material leaves the signing path
+        with no private key, so the id decides the branch.
+        """
         if "auth_method" in job_inputs:
             return job_inputs
 
         normalized = dict(job_inputs)
+        integration_id = job_inputs.get("apple_ads_integration_id")
+        if integration_id:
+            normalized["auth_method"] = {
+                "selection": "oauth",
+                "apple_ads_integration_id": integration_id,
+            }
+            return normalized
+
         normalized["auth_method"] = {
             "selection": "key_pair",
             "client_id": job_inputs.get("client_id"),

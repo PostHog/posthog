@@ -32,7 +32,6 @@ from dataclasses import dataclass
 from functools import wraps
 from typing import TYPE_CHECKING, Any, ParamSpec, TypeVar, cast
 
-from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
@@ -60,6 +59,7 @@ from products.signals.backend.artefact_schemas import (
     SuggestedReviewerEntry,
     SuggestedReviewers,
 )
+from products.signals.backend.briefing_reports import SUMMARY_LEAD_LIMIT, summary_lead
 from products.signals.backend.enums import ReportLinkKind
 from products.signals.backend.models import (
     MAX_SCOUT_CONTENT_REVISIONS,
@@ -87,6 +87,8 @@ from products.signals.backend.report_metrics import (
     metric_batch_error,
 )
 from products.signals.backend.report_prompts import normalize_suggested_prompts, suggested_prompts_batch_error
+from products.signals.backend.report_urls import ReportLinkSource, build_report_url
+from products.signals.backend.reviewer_rules import ReviewerProposal, ReviewerRules, StaleReviewerProposal
 from products.signals.backend.scout_harness.prompt import SELF_IMPROVEMENT_REPORT_TITLE_PREFIX
 from products.signals.backend.scout_harness.skill_loader import resolve_skill_owner_user_uuids
 from products.signals.backend.scout_harness.slack_delivery_queue import queue_configured_scout_slack_delivery
@@ -95,12 +97,11 @@ from products.signals.backend.scout_harness.tools.emit import (
     SOURCE_PRODUCT,
     SOURCE_TYPE,
     # Shared harness gates/attribution — the report channel applies the same preflight as emit.
-    _assert_team_owns_run,
     _preflight_emit_gates,
     remediation_for_skip,
 )
 from products.signals.backend.scout_harness.tools.notes import MAX_NOTE_CONTENT_LENGTH
-from products.signals.backend.scout_harness.tools.report_author import ReportAuthor, ScoutRunReportAuthor
+from products.signals.backend.scout_harness.tools.report_author import ReportAuthor
 from products.signals.backend.scout_harness.trial_gateway import create_trial_gateway_token, revoke_trial_gateway_token
 from products.signals.backend.scout_report import (
     INFERRED_REPOSITORY_REASON,
@@ -117,6 +118,7 @@ from products.signals.backend.scout_report import (
     find_scout_report_by_idempotency_key,
     get_content_revision_count,
     get_scout_report_capture_snapshot,
+    get_scout_report_decision_contents,
     get_scout_report_signal_count,
     get_scout_report_status,
     get_scout_report_title,
@@ -384,6 +386,11 @@ def _trial_store(run: SignalScoutRun) -> ScoutTrialStore | None:
     return ScoutTrialStore(run) if is_scout_trial(run) else None
 
 
+def _author_trial_store(author: ReportAuthor) -> ScoutTrialStore | None:
+    run = author.scout_run
+    return _trial_store(run) if run is not None else None
+
+
 def _reject_trial_report_links(store: ScoutTrialStore | None, links: Sequence[ReportLinkInput] | None) -> None:
     if store is not None and links:
         store.invalidate("Report links are not supported by private capture; this run cannot be compared.")
@@ -393,7 +400,7 @@ def _reject_trial_report_links(store: ScoutTrialStore | None, links: Sequence[Re
 def _private_report_gateway(function: Callable[_Parameters, _Return]) -> Callable[_Parameters, _Return]:
     @wraps(function)
     def wrapped(*args: _Parameters.args, **kwargs: _Parameters.kwargs) -> _Return:
-        run = getattr(kwargs.get("author"), "scout_run", kwargs.get("run"))
+        run = getattr(kwargs.get("author"), "scout_run", None)
         if not isinstance(run, SignalScoutRun) or _trial_store(run) is None:
             return function(*args, **kwargs)
         with private_capture_context():
@@ -412,7 +419,7 @@ def _private_report_gateway_async(
 ) -> Callable[_Parameters, Awaitable[_Return]]:
     @wraps(function)
     async def wrapped(*args: _Parameters.args, **kwargs: _Parameters.kwargs) -> _Return:
-        run = getattr(kwargs.get("author"), "scout_run", kwargs.get("run"))
+        run = getattr(kwargs.get("author"), "scout_run", None)
         if not isinstance(run, SignalScoutRun) or _trial_store(run) is None:
             return await function(*args, **kwargs)
         with private_capture_context():
@@ -504,6 +511,7 @@ def _capture_trial_report(
         "id": report_id,
         "title": title,
         "summary": summary,
+        "summary_lead": summary_lead(summary, SUMMARY_LEAD_LIMIT),
         "status": str(judgement.status),
         "created_at": now,
         "updated_at": now,
@@ -537,6 +545,10 @@ def _capture_trial_report(
         "billing_exempt_reason": None,
         "channel_id": None,
     }
+    if not judgement.safety.choice:
+        document["suppression_source"] = "safety_judge"
+        document["suppression_explanation"] = judgement.safety.explanation or None
+    TrialReport.apply_actionability(document, judgement.actionability)
     artefacts = [
         _trial_artefact(store.run, "note", scout_report_provenance(store.run).model_dump(mode="json")),
         _trial_artefact(
@@ -622,12 +634,19 @@ def _capture_trial_edit(
     suggested_prompts: list[str] | None,
     supersedes_implementation: bool,
     corroboration_only: bool,
+    actionability: ActionabilityAssessment | None,
+    priority: PriorityAssessment | None,
 ) -> EditReportResult:
     if supersedes_implementation:
         store.invalidate("Implementation replacement is not supported by private trials.")
         raise InvalidScoutReportError("Implementation replacement is not supported for this run.")
     original = _trial_report_for_edit(store, report_id)
     source_selection = persisted_repo_selection(report_id) if original.source_report_id else None
+    source_decisions = (
+        get_scout_report_decision_contents(team_id=store.run.team_id, report_id=report_id)
+        if original.source_report_id and (actionability is not None or priority is not None)
+        else {}
+    )
     connected_repos = _connected_repositories(store.run.team_id) if title is not None or summary is not None else []
 
     def change(report: TrialReport) -> EditReportResult:
@@ -656,6 +675,11 @@ def _capture_trial_edit(
                 "suggested_prompts": list(suggested_prompts) if suggested_prompts is not None else None,
                 "supersedes_implementation": supersedes_implementation,
                 "corroboration_only": corroboration_only,
+                "actionability": actionability.actionability.value if actionability is not None else None,
+                "actionability_explanation": actionability.explanation if actionability is not None else None,
+                "already_addressed": actionability.already_addressed if actionability is not None else None,
+                "priority": priority.priority.value if priority is not None else None,
+                "priority_explanation": priority.explanation if priority is not None else None,
             }
         )
         updated_fields = []
@@ -669,6 +693,8 @@ def _capture_trial_edit(
                 )
                 document[name] = value
                 updated_fields.append(name)
+        if "summary" in updated_fields:
+            document["summary_lead"] = summary_lead(summary, SUMMARY_LEAD_LIMIT)
         supersede = False
         if updated_fields:
             report.content_revision_count += 1
@@ -736,6 +762,33 @@ def _capture_trial_edit(
         if repository_set and selection is not None:
             document["repo_slug"] = selection.repository
             report.artefacts.append(_trial_artefact(store.run, "repo_selection", selection.model_dump(mode="json")))
+        decision_fields_set: list[str] = []
+        assessment: ActionabilityAssessment | PriorityAssessment | None
+        for field, assessment in (("actionability", actionability), ("priority", priority)):
+            if assessment is None:
+                continue
+            kind = f"{field}_judgment"
+            previous = next(
+                (artefact["content"] for artefact in reversed(report.artefacts) if artefact["type"] == kind),
+                source_decisions.get(kind),
+            )
+            try:
+                previous_assessment = type(assessment).model_validate(previous) if previous is not None else None
+            except ValidationError:
+                previous_assessment = None
+            if assessment == previous_assessment:
+                continue
+            content = assessment.model_dump(mode="json")
+            report.artefacts.append(_trial_artefact(store.run, kind, content))
+            if isinstance(assessment, ActionabilityAssessment):
+                report.apply_actionability(document, assessment)
+                addressed = "already addressed" if assessment.already_addressed else "not yet addressed"
+                note = f"Set actionability: {assessment.actionability.value} ({addressed})"
+            else:
+                document["priority"] = assessment.priority.value
+                note = f"Set priority: {assessment.priority.value}"
+            report.artefacts.append(_trial_artefact(store.run, "note", {"note": note, "author": store.run.skill_name}))
+            decision_fields_set.append(field)
         charts_set = metrics_set = prompts_set = None
         for name, values in (
             ("charts", [chart.model_dump(mode="json") for chart in charts] if charts is not None else None),
@@ -768,6 +821,7 @@ def _capture_trial_edit(
             content_revision_count=report.content_revision_count,
             supersedes_implementation=supersede,
             corroboration_collapsed=collapsed,
+            decision_fields_set=tuple(decision_fields_set),
         )
         if result.changed:
             # Production moves `updated_at` only when it saves report content. Notes, reviewers and a
@@ -1602,11 +1656,10 @@ class _ReportForward:
 
 
 def _report_url(team_id: int, report_id: str | None) -> str | None:
-    """Inbox deep link for an authored report, or None when no report exists yet (gate-skipped emit). The
-    canonical form used by the Slack inbox notifications (`slack_inbox_notifications.py`)."""
+    """Inbox deep link for an authored report, or None when no report exists yet (gate-skipped emit)."""
     if not report_id:
         return None
-    return f"{settings.SITE_URL}/project/{team_id}/inbox/reports/{report_id}"
+    return build_report_url(team_id, report_id, ReportLinkSource.SCOUT)
 
 
 def _chart_event_key(chart: ReportChartInput) -> str:
@@ -1808,7 +1861,7 @@ def _capture_report_emitted(
 def _capture_report_edited(
     *,
     team: Team,
-    run: SignalScoutRun,
+    author: ReportAuthor,
     result: EditReportResult,
     title: str | None,
     summary: str | None,
@@ -1837,7 +1890,6 @@ def _capture_report_edited(
     streams stay quiet rather than telling a CDP destination a report changed when it didn't."""
     if not result.changed:
         return None
-    author = ScoutRunReportAuthor(run=run)
     properties = {
         **author.event_properties(),
         **_report_classification_props(result.report_title),
@@ -1891,7 +1943,15 @@ def _capture_report_edited(
     # title/summary/note, so two distinct reviewer corrections to the same report in one run would
     # otherwise hash identically and ingestion would collapse the later routing change; key on the
     # reviewer identity too (only when reviewers were set, so non-reviewer edits keep their existing uuid).
-    parts: list[object] = ["edit", run.id, result.report_id, sorted(result.updated_fields), title, summary, note]
+    parts: list[object] = [
+        "edit",
+        author.idempotency_scope,
+        result.report_id,
+        sorted(result.updated_fields),
+        title,
+        summary,
+        note,
+    ]
     if result.reviewers_set and suggested_reviewers:
         parts.append(",".join(sorted(f"{r.github_login or ''}:{r.user_uuid or ''}" for r in suggested_reviewers)))
     # Evidence is a valid sole input too, so two evidence-only edits to one report in a run share
@@ -2378,7 +2438,7 @@ def emit_report_sync(
 def _do_edit_report(
     *,
     team: Team,
-    run: SignalScoutRun,
+    author: ReportAuthor,
     report_id: str,
     title: str | None,
     summary: str | None,
@@ -2389,6 +2449,7 @@ def _do_edit_report(
     charts: list[ReportChart] | None,
     metrics: list[ReportMetric] | None,
     suggested_prompts: list[str] | None,
+    reviewer_proposal: ReviewerProposal | None = None,
     links: list[ReportLink] | None = None,
     supersedes_implementation: bool = False,
     corroboration_only: bool = False,
@@ -2407,10 +2468,11 @@ def _do_edit_report(
     bad reviewer fails before the judge spends an LLM call and before any write. None leaves existing
     reviewers untouched; a supplied set replaces them verbatim (nothing injected), with owner
     provenance stamped so a picked owner can't become the autostart identity."""
-    _assert_edit_gates(team, run, report_id)
+    _assert_edit_gates(team, author, report_id)
     if corroboration_only and not append_note:
         raise InvalidScoutReportError("corroboration_only requires append_note")
-    trial_store = _trial_store(run)
+    run = author.scout_run
+    trial_store = _author_trial_store(author)
     if trial_store is not None:
         return _capture_trial_edit(
             store=trial_store,
@@ -2426,9 +2488,11 @@ def _do_edit_report(
             suggested_prompts=suggested_prompts,
             supersedes_implementation=supersedes_implementation,
             corroboration_only=corroboration_only,
+            actionability=actionability,
+            priority=priority,
         )
 
-    attribution = ScoutRunReportAuthor(run=run).attribution()
+    attribution = author.attribution()
     updated_fields: list[str] = []
     note_appended = False
     repository_set = False
@@ -2441,11 +2505,15 @@ def _do_edit_report(
     corroboration_collapsed = False
     supersede_recorded = False
     decision_fields_set: list[str] = []
+    reviewer_warnings: tuple[EditReportWarning, ...] = ()
     implementation_context = (
         prepare_scout_supersession(team_id=team.id, report_id=report_id, title=title, summary=summary)
         if supersedes_implementation
         else NO_IMPLEMENTATION_CONTEXT
     )
+    assignment = ReviewerRules(team=team, report_id=report_id)
+    if reviewers is None and reviewer_proposal is not None and reviewer_proposal.outcome != "selected":
+        reviewers = SuggestedReviewers(root=[])
     # One edit is one transaction, so a rejection part-way through takes the whole edit with it
     # instead of leaving the report half-changed. The side effects below (autostart, telemetry,
     # delivery) stay outside, and the `on_commit` hooks these writes register fire on this commit.
@@ -2453,15 +2521,16 @@ def _do_edit_report(
         # Cancellation also locks the TaskRun row before terminalizing it. Lock that same row through
         # the report writes so cancellation and authorship have a defined order: if cancellation wins,
         # this edit sees the terminal status and fails; if this edit wins, cancellation waits for it.
-        locked_run = (
-            SignalScoutRun.objects.for_team(team.id)
-            .select_related("task_run")
-            .select_for_update(of=("task_run",))
-            .filter(pk=run.pk)
-            .first()
-        )
-        if locked_run is None or locked_run.task_run.status != tasks_facade.TaskRunStatus.IN_PROGRESS:
-            raise InvalidScoutReportError("edit_report blocked because the task run is not in progress")
+        if run is not None:
+            locked_run = (
+                SignalScoutRun.objects.for_team(team.id)
+                .select_related("task_run")
+                .select_for_update(of=("task_run",))
+                .filter(pk=run.pk)
+                .first()
+            )
+            if locked_run is None or locked_run.task_run.status != tasks_facade.TaskRunStatus.IN_PROGRESS:
+                raise InvalidScoutReportError("edit_report blocked because the task run is not in progress")
         if title is not None or summary is not None:
             # `reviewed` only when the judge saw the whole document this save re-embeds — the
             # entrypoints judged exactly the title/summary supplied. A partial edit merges with a
@@ -2488,28 +2557,31 @@ def _do_edit_report(
                     supersede_requested=supersedes_implementation,
                     updated_fields=updated_fields,
                     attribution=attribution,
-                    author=run.skill_name,
+                    author=author.skill_name,
                     implementation_context=implementation_context,
                 )
         # Re-stamp owner provenance from the live owner set at the write: the safety-judge call sits
         # between resolution and this transaction, autostart trusts the stored stamp, and an owner
         # added during that wait must not remain an identity candidate.
         if reviewers is not None:
-            reviewers = _stamp_owner_provenance(team, reviewers, skill_name=run.skill_name)
-        # Replace the report's `suggested_reviewers` status artefact (latest-wins). This is the routing
-        # fix — a report authored without a reviewer (so it routes to no one) can have one added after
-        # the fact. `reviewers` is None for empty/all-blank input, which leaves existing ones untouched.
-        reviewers_set = (
-            set_scout_report_reviewers(
-                team_id=team.id,
-                report_id=report_id,
-                suggested_reviewers=reviewers,
-                attribution=attribution,
-                author=run.skill_name,
+            reviewers = _stamp_owner_provenance(team, reviewers, skill_name=author.skill_name)
+        try:
+            reviewers_set = (
+                set_scout_report_reviewers(
+                    team_id=team.id,
+                    report_id=report_id,
+                    suggested_reviewers=reviewers,
+                    proposal=reviewer_proposal,
+                    service=assignment,
+                    attribution=attribution,
+                    author=author.skill_name,
+                )
+                if reviewers is not None
+                else False
             )
-            if reviewers is not None
-            else False
-        )
+        except StaleReviewerProposal as error:
+            reviewers_set = False
+            reviewer_warnings = (EditReportWarning(field="suggested_reviewers", message=str(error)),)
         # The other routing fix: a report that surfaced against the wrong codebase is repointed in
         # place, so the scout corrects it instead of filing a duplicate report to carry the right
         # repository. Omitting the field leaves the report's selection as it stands.
@@ -2519,7 +2591,7 @@ def _do_edit_report(
                 report_id=report_id,
                 repository=None if repository == NO_REPO else repository,
                 attribution=attribution,
-                author=run.skill_name,
+                author=author.skill_name,
             )
         # The work decision auto-start reads. In the same transaction as the content, so a rewrite
         # and the judgment it supports land together or not at all.
@@ -2530,7 +2602,7 @@ def _do_edit_report(
                 actionability=actionability,
                 priority=priority,
                 attribution=attribution,
-                author=run.skill_name,
+                author=author.skill_name,
             )
         if append_note is not None:
             appended = append_report_note(
@@ -2538,7 +2610,7 @@ def _do_edit_report(
                 report_id=report_id,
                 note=append_note,
                 attribution=attribution,
-                author=run.skill_name,
+                author=author.skill_name,
                 corroboration_only=corroboration_only,
             )
             note_appended = True
@@ -2551,7 +2623,7 @@ def _do_edit_report(
                 report_id=report_id,
                 signals=append_evidence,
                 attribution=attribution,
-                author=run.skill_name,
+                author=author.skill_name,
             )
         # Additive like the evidence above. A link is a fact about two reports, so a later edit
         # adds another rather than replacing the set, and `unlink` is how one comes back off.
@@ -2571,7 +2643,7 @@ def _do_edit_report(
                 report_id=report_id,
                 charts=charts,
                 attribution=attribution,
-                author=run.skill_name,
+                author=author.skill_name,
             )
         if metrics is not None:
             metrics_changed = set_report_metrics(
@@ -2579,7 +2651,7 @@ def _do_edit_report(
                 report_id=report_id,
                 metrics=metrics,
                 attribution=attribution,
-                author=run.skill_name,
+                author=author.skill_name,
             )
         # Same replace-don't-append contract as the charts above: omitting the field keeps the
         # report's prompts, an explicit empty list takes them down.
@@ -2589,7 +2661,7 @@ def _do_edit_report(
                 report_id=report_id,
                 suggested_prompts=suggested_prompts,
                 attribution=attribution,
-                author=run.skill_name,
+                author=author.skill_name,
             )
         # `content_revision_count` is the report's running total, the number the scout reasons about
         # the cap with. A revision above already set it to the report's new total; every other edit
@@ -2630,7 +2702,7 @@ def _do_edit_report(
     # short as one status read. If the slow work ran first, that earlier delivery could read the freshly
     # committed edit, still find no marker, and post the edited report — the same content this edit's
     # own delivery then posts a second time.
-    if changed:
+    if changed and run is not None:
         # Mirror emit's surfaced gate: an edit to a suppressed / never-surfaced report must not push
         # its content to a configured destination. The delivery worker re-checks status at send time
         # (the report can be suppressed after enqueue), so this mainly keeps the two paths symmetric
@@ -2681,7 +2753,7 @@ def _do_edit_report(
             report_id=report_id,
             signals=append_evidence or [],
             document_ids=evidence_document_ids,
-            skill_name=run.skill_name,
+            skill_name=author.skill_name,
         )
     # A rewrite can move the report onto a different repository, and an inferred target is only ever a
     # reading of that text. Outside the transaction above for the same reason autostart is: it reads
@@ -2743,7 +2815,7 @@ def _do_edit_report(
     # own owners out of the exclusion. Both writes swallow their own failures, so they can't block
     # autostart. The Slack delivery for this edit was already enqueued above, so a prior in-flight
     # delivery sees the supersede marker rather than posting the edit a second time.
-    if changed:
+    if changed and run is not None:
         record_report_edit(team_id=team.id, run_id=run.id, report_id=report_id)
         # Also link the run itself on the report's work log (deduped), so the editing scout's
         # transcript is reachable from the report — not just the run-side `edited_report_ids` tally.
@@ -2806,7 +2878,8 @@ def _do_edit_report(
         corroboration_collapsed=corroboration_collapsed,
         links_appended=links_appended,
         decision_fields_set=tuple(decision_fields_set),
-        warnings=(
+        warnings=reviewer_warnings
+        + (
             (_supersede_warning(updated_fields=updated_fields, content_revision_count=content_revision_count),)
             if supersedes_implementation and not supersede_recorded
             else ()
@@ -2815,7 +2888,7 @@ def _do_edit_report(
     return result
 
 
-def _assert_edit_gates(team: Team, run: SignalScoutRun, report_id: str, appended_evidence: int = 0) -> None:
+def _assert_edit_gates(team: Team, author: ReportAuthor, report_id: str, appended_evidence: int = 0) -> None:
     """The emit preflight gates, applied to an edit. Shared by the entrypoints (which must gate
     before spending the safety-judge LLM call) and `_do_edit_report` (so a future caller that skips
     the entrypoints still fails closed).
@@ -2824,23 +2897,29 @@ def _assert_edit_gates(team: Team, run: SignalScoutRun, report_id: str, appended
     An edit blocked by a gate is the identical situation, because the scout has done the work and
     the write will not land, so a bare reason code here would leave it with no next step on one
     channel and a fixable one on the other."""
-    preflight = _preflight_report_emission(team, run)
+    run = author.scout_run
+    trial_store = _author_trial_store(author)
+    preflight = (
+        _preflight_report_emission(team, trial_store.run)
+        if trial_store is not None
+        else author.preflight_skip_reason(team)
+    )
     if preflight is not None:
         remediation = remediation_for_skip(preflight)
         detail = f"edit_report blocked by preflight gate: {preflight}"
         raise InvalidScoutReportError(f"{detail}. {remediation}" if remediation else detail)
-    task_is_in_progress = (
-        SignalScoutRun.objects.for_team(team.id)
-        .filter(
-            pk=run.pk,
-            task_run_id=run.task_run_id,
-            task_run__status=tasks_facade.TaskRunStatus.IN_PROGRESS,
+    if run is not None:
+        task_is_in_progress = (
+            SignalScoutRun.objects.for_team(team.id)
+            .filter(
+                pk=run.pk,
+                task_run_id=run.task_run_id,
+                task_run__status=tasks_facade.TaskRunStatus.IN_PROGRESS,
+            )
+            .exists()
         )
-        .exists()
-    )
-    if not task_is_in_progress:
-        raise InvalidScoutReportError("edit_report blocked because the task run is not in progress")
-    trial_store = _trial_store(run)
+        if not task_is_in_progress:
+            raise InvalidScoutReportError("edit_report blocked because the task run is not in progress")
     if trial_store is not None:
         report = _trial_report_for_edit(trial_store, report_id)
         count = report.document.get("signal_count", 0)
@@ -2882,7 +2961,7 @@ def _raise_if_unsafe_edit(safety: SafetyJudgment) -> None:
 
 def _validate_edit_inputs(
     team: Team,
-    run: SignalScoutRun,
+    author: ReportAuthor,
     title,
     summary,
     append_note,
@@ -2899,8 +2978,8 @@ def _validate_edit_inputs(
     priority=None,
     priority_explanation=None,
 ) -> None:
-    _assert_team_owns_run(team, run)
-    trial_store = _trial_store(run)
+    author.assert_owned_by(team)
+    trial_store = _author_trial_store(author)
     _reject_trial_report_links(trial_store, links)
     if trial_store is not None:
         validate_scout_report_text("title", title)
@@ -2929,7 +3008,7 @@ def _validate_edit_inputs(
         and summary is None
         and append_note is None
         and not append_evidence
-        and not suggested_reviewers
+        and suggested_reviewers is None
         and repository is None
         and charts is None
         and metrics is None
@@ -2951,7 +3030,7 @@ def _validate_edit_inputs(
 async def edit_report(
     *,
     team: Team,
-    run: SignalScoutRun,
+    author: ReportAuthor,
     report_id: str,
     title: str | None = None,
     summary: str | None = None,
@@ -2962,6 +3041,7 @@ async def edit_report(
     charts: list[ReportChartInput] | None = None,
     metrics: list[ReportMetricInput] | None = None,
     suggested_prompts: list[str] | None = None,
+    reviewer_proposal: ReviewerProposal | None = None,
     links: list[ReportLinkInput] | None = None,
     supersedes_implementation: bool = False,
     corroboration_only: bool = False,
@@ -2979,9 +3059,11 @@ async def edit_report(
     Content-changing edits pass the same safety judge as `emit_report` before anything is written
     (see `_raise_if_unsafe_edit`); an unsafe edit is rejected whole and the report keeps what it
     had."""
+    if reviewer_proposal is not None and reviewer_proposal.outcome != "selected" and suggested_reviewers is None:
+        suggested_reviewers = []
     await database_sync_to_async(_validate_edit_inputs, thread_sensitive=False)(
         team,
-        run,
+        author,
         title,
         summary,
         append_note,
@@ -3013,12 +3095,12 @@ async def edit_report(
     built_metrics = _build_edit_metrics(allowed_metrics)
     # Gates before the judge, mirroring emit: a disabled or dry-run scout must not spend an LLM call.
     await database_sync_to_async(_assert_edit_gates, thread_sensitive=False)(
-        team, run, report_id, len(built_evidence or [])
+        team, author, report_id, len(built_evidence or [])
     )
     # Reviewers resolve before the judge too: resolution is the one step that rejects caller input
     # (an unresolvable user_uuid 400s), so a bad reviewer must not cost a judge call first.
     built_reviewers = await database_sync_to_async(_build_suggested_reviewers, thread_sensitive=False)(
-        team, suggested_reviewers, skill_name=run.skill_name
+        team, suggested_reviewers, skill_name=author.skill_name
     )
     _raise_if_unsafe_edit(
         await judge_edited_report_content(
@@ -3037,13 +3119,16 @@ async def edit_report(
     )
     result = await database_sync_to_async(_do_edit_report, thread_sensitive=False)(
         team=team,
-        run=run,
+        author=author,
         report_id=report_id,
         title=title,
         summary=summary,
         append_note=append_note,
         append_evidence=built_evidence,
-        reviewers=built_reviewers,
+        reviewers=built_reviewers
+        if suggested_reviewers is None or built_reviewers is not None
+        else SuggestedReviewers(root=[]),
+        reviewer_proposal=reviewer_proposal,
         repository=normalized_repository,
         charts=built_charts,
         metrics=built_metrics,
@@ -3054,11 +3139,11 @@ async def edit_report(
         actionability=built_actionability,
         priority=built_priority,
     )
-    if _trial_store(run) is not None:
+    if _author_trial_store(author) is not None:
         return result
     forward = await database_sync_to_async(_capture_report_edited, thread_sensitive=False)(
         team=team,
-        run=run,
+        author=author,
         result=result,
         title=title,
         summary=summary,
@@ -3082,7 +3167,7 @@ async def edit_report(
 def edit_report_sync(
     *,
     team: Team,
-    run: SignalScoutRun,
+    author: ReportAuthor,
     report_id: str,
     title: str | None = None,
     summary: str | None = None,
@@ -3093,6 +3178,7 @@ def edit_report_sync(
     charts: list[ReportChartInput] | None = None,
     metrics: list[ReportMetricInput] | None = None,
     suggested_prompts: list[str] | None = None,
+    reviewer_proposal: ReviewerProposal | None = None,
     links: list[ReportLinkInput] | None = None,
     supersedes_implementation: bool = False,
     corroboration_only: bool = False,
@@ -3103,9 +3189,11 @@ def edit_report_sync(
     priority_explanation: str | None = None,
 ) -> EditReportResult:
     """Sync entry used by the DRF view path. Same behavior as `edit_report`, on the calling thread."""
+    if reviewer_proposal is not None and reviewer_proposal.outcome != "selected" and suggested_reviewers is None:
+        suggested_reviewers = []
     _validate_edit_inputs(
         team,
-        run,
+        author,
         title,
         summary,
         append_note,
@@ -3135,10 +3223,10 @@ def edit_report_sync(
     allowed_metrics = _allowed_metrics(team, metrics)
     built_metrics = _build_edit_metrics(allowed_metrics)
     # Gates before the judge, mirroring emit: a disabled or dry-run scout must not spend an LLM call.
-    _assert_edit_gates(team, run, report_id, len(built_evidence or []))
+    _assert_edit_gates(team, author, report_id, len(built_evidence or []))
     # Reviewers resolve before the judge too: resolution is the one step that rejects caller input
     # (an unresolvable user_uuid 400s), so a bad reviewer must not cost a judge call first.
-    built_reviewers = _build_suggested_reviewers(team, suggested_reviewers, skill_name=run.skill_name)
+    built_reviewers = _build_suggested_reviewers(team, suggested_reviewers, skill_name=author.skill_name)
     _raise_if_unsafe_edit(
         async_to_sync(judge_edited_report_content)(
             team_id=team.id,
@@ -3156,13 +3244,16 @@ def edit_report_sync(
     )
     result = _do_edit_report(
         team=team,
-        run=run,
+        author=author,
         report_id=report_id,
         title=title,
         summary=summary,
         append_note=append_note,
         append_evidence=built_evidence,
-        reviewers=built_reviewers,
+        reviewers=built_reviewers
+        if suggested_reviewers is None or built_reviewers is not None
+        else SuggestedReviewers(root=[]),
+        reviewer_proposal=reviewer_proposal,
         repository=normalized_repository,
         charts=built_charts,
         metrics=built_metrics,
@@ -3173,11 +3264,11 @@ def edit_report_sync(
         actionability=built_actionability,
         priority=built_priority,
     )
-    if _trial_store(run) is not None:
+    if _author_trial_store(author) is not None:
         return result
     forward = _capture_report_edited(
         team=team,
-        run=run,
+        author=author,
         result=result,
         title=title,
         summary=summary,

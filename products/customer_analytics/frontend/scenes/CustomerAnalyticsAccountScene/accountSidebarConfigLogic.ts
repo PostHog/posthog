@@ -146,7 +146,7 @@ const loadEveryPage = async <T>(
     return results
 }
 
-const resolvePinnedProperties = (
+export const resolvePinnedProperties = (
     references: readonly PinnedAccountProperty[],
     definitions: AvailableDefinitions
 ): PinnedPropertyResolution => {

@@ -3,7 +3,8 @@ export const baseModifier: string[] = ['command', 'option']
 export const keyBinds: Record<string, string[]> = {
     // Sequence shortcuts: use 'then' between keys (e.g., type "sql" to open SQL editor)
     sqlEditor: ['s', 'then', 'q', 'then', 'l'],
-    toggleLeftNav: ['['],
+    toggleLeftNav: ['command', 'b'],
+    toggleLeftNavFallback: ['['],
     toggleRightNav: [']'],
     helpMenu: ['?'],
     newAccountMenu: ['g', 'then', 'a'],
@@ -35,7 +36,6 @@ export const keyBinds: Record<string, string[]> = {
     tab9: [...baseModifier, '9'],
     zenMode: [...baseModifier, 'z'],
     newChat: ['g', 'then', 'n'],
-    maxHandsFree: ['h', 'then', 'f'],
     allChats: ['g', 'then', '1'],
     allProducts: ['g', 'then', '2'],
     theme: ['g', 'then', 't'],

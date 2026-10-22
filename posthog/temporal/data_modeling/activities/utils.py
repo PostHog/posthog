@@ -8,6 +8,7 @@ from django.db import transaction
 from structlog.contextvars import bind_contextvars
 
 from posthog.sync import database_sync_to_async_pool
+from posthog.temporal.common.asyncpa import INVALID_MESSAGE_FORMAT_ERROR, InvalidMessageFormat
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.data_modeling.activities.preempt_dag_run import ABANDONED_ERROR
 
@@ -93,6 +94,10 @@ def starts_a_failure_streak(saved_query_id: UUID, current_job: DataModelingJob) 
 # NOT "was this our fault" - a query that exhausts memory is one we do want suspended.
 EXTERNALLY_ABORTED_MARKERS = (
     "Code: 202",  # TOO_MANY_SIMULTANEOUS_QUERIES
+    # ATTEMPT_TO_READ_AFTER_EOF from a remote shard that dropped the connection mid-query. The same
+    # code also covers a parse that runs out of input, which is the query's fault, so match the
+    # receive context and not the code.
+    "Attempt to read after eof: while receiving packet from",
     "Cannot connect to host",
     "Connection refused",
     # our own egress proxy was unreachable, so nothing left the cluster - the trailing colon keeps a
@@ -104,11 +109,28 @@ EXTERNALLY_ABORTED_MARKERS = (
     ABANDONED_ERROR,
     # the query ran and produced rows; only the publish was refused
     QUALITY_BLOCKED_ERROR_PREFIX,
+    # Trino killed the query because the whole cluster ran out of memory. A query over its own
+    # memory limit fails with an EXCEEDED_*_MEMORY_LIMIT name and still counts.
+    "name=CLUSTER_OUT_OF_MEMORY,",
+)
+
+STREAM_FAULT_ERROR_PREFIXES = (
+    # the Arrow stream broke and carried no ClickHouse error, so nothing says the query failed
+    f"{InvalidMessageFormat.__name__}: {INVALID_MESSAGE_FORMAT_ERROR}: ",
+    # older job rows record the same stream fault with this text
+    f"{InvalidMessageFormat.__name__}: Encapsulated IPC message format must begin with continuation bytes, received: ",
+)
+
+SUSPENDED_ERROR_PREFIX = (
+    f"This model has been suspended after {CONSECUTIVE_FAILURES_TO_SUSPEND} consecutive failed "
+    "materializations. Error: "
 )
 
 
 def is_externally_aborted(error: str) -> bool:
-    return any(marker in error for marker in EXTERNALLY_ABORTED_MARKERS)
+    return any(marker in error for marker in EXTERNALLY_ABORTED_MARKERS) or error.removeprefix(
+        SUSPENDED_ERROR_PREFIX
+    ).startswith(STREAM_FAULT_ERROR_PREFIXES)
 
 
 def bind_data_modeling_log_context(team_id: int, saved_query_id: UUID | str) -> None:
@@ -218,10 +240,7 @@ def maybe_suspend_node_for_engine(
     # not the model the customer reads.
     if str(engine) == DataModelingJobEngine.CLICKHOUSE.value:
         job = DataModelingJob.objects.get(id=job_id)
-        job.error = (
-            f"This model has been suspended after {CONSECUTIVE_FAILURES_TO_SUSPEND} consecutive failed "
-            f"materializations. Error: {job.error}"
-        )
+        job.error = f"{SUSPENDED_ERROR_PREFIX}{job.error}"
         job.save(update_fields=["error"])
     return True
 

@@ -1,6 +1,7 @@
 import { MakeLogicType, actions, afterMount, connect, isBreakpoint, kea, listeners, path } from 'kea'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { runWhenIdle } from 'lib/utils/async'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { productSetupProbes } from '~/products'
@@ -75,6 +76,7 @@ export const productSetupPreloadLogic = kea<productSetupPreloadLogicType>([
             ]
 
             let existingDefinitions: ProbeEventDefinition[]
+            cache.requestsInFlight = (cache.requestsInFlight ?? 0) + 1
             try {
                 const response = await api.eventDefinitionsList(String(teamId), {
                     names: eventNames,
@@ -88,6 +90,8 @@ export const productSetupPreloadLogic = kea<productSetupPreloadLogicType>([
                 // Nothing was marked seeded, so the next trigger retries; until then the
                 // in-scene detection logic answers on its own.
                 return
+            } finally {
+                cache.requestsInFlight -= 1
             }
             breakpoint()
             if (values.currentTeamId !== teamId) {
@@ -113,15 +117,17 @@ export const productSetupPreloadLogic = kea<productSetupPreloadLogicType>([
         },
     })),
     afterMount(({ actions, cache }) => {
+        // The authenticated shell mounts after the team has loaded, so the team listener has already fired.
+        actions.preloadStatuses()
         // Defer to idle so boot-critical work (scene chunk, first queries) wins.
         cache.disposables.add(() => {
-            const run = (): void => actions.preloadStatuses()
-            if (typeof window.requestIdleCallback === 'function') {
-                const id = window.requestIdleCallback(run, { timeout: 5000 })
-                return () => window.cancelIdleCallback(id)
+            // A retry for a failed mount run. A second request while one is running would cancel it.
+            const run = (): void => {
+                if (!cache.requestsInFlight) {
+                    actions.preloadStatuses()
+                }
             }
-            const id = window.setTimeout(run, 1000)
-            return () => clearTimeout(id)
+            return runWhenIdle(run)
         }, 'idle-preload')
     }),
 ])

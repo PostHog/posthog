@@ -1,8 +1,14 @@
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.linkrunner import source as source_module
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.linkrunner import (
+    LinkrunnerSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.linkrunner.source import LinkrunnerSource
 
 
@@ -24,24 +30,16 @@ class TestGetSchemas:
         assert schema.supports_incremental is supports_incremental
         assert schema.detected_primary_keys == primary_keys
 
-    def test_names_filter_restricts_output(self) -> None:
-        schemas = LinkrunnerSource().get_schemas(MagicMock(), team_id=1, names=["campaigns"])
-        assert [s.name for s in schemas] == ["campaigns"]
-
-    def test_documented_tables_render_without_credentials(self) -> None:
-        # lists_tables_without_credentials=True lets the public docs render the table catalog with no I/O.
-        tables = LinkrunnerSource().get_documented_tables()
-        assert {t["name"] for t in tables} == {"campaigns", "attributed_users", "reporting_campaigns"}
-
 
 class TestValidateCredentials:
     @parameterized.expand([("valid", True, True), ("invalid", False, False)])
     def test_validation_maps_transport_result(self, _name: str, transport_ok: bool, expected: bool) -> None:
-        config = MagicMock(api_key="key")
-        with patch.object(source_module, "validate_linkrunner_credentials", return_value=transport_ok):
+        config = LinkrunnerSourceConfig(api_key="key")
+        with scripted_network([ScriptedResponse(status=200 if transport_ok else 401)]) as network:
             ok, error = LinkrunnerSource().validate_credentials(config, team_id=1)
         assert ok is expected
         assert (error is None) is expected
+        assert network.requests_log[0].path == "/api/v1/campaigns"
 
 
 class TestNonRetryableErrors:

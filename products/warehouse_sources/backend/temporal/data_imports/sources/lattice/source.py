@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import NOT_DETECTABLE
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -34,6 +35,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class LatticeSource(ResumableSource[LatticeSourceConfig, LatticeResumeConfig]):
+    codebase_detection = NOT_DETECTABLE
+
     api_docs_url = "https://developers.lattice.com"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
@@ -68,7 +71,7 @@ class LatticeSource(ResumableSource[LatticeSourceConfig, LatticeResumeConfig]):
 A Lattice admin can generate an API key under Admin > Settings > API Keys (Lattice may require requesting API access first). Pick the region that matches your Lattice data residency.""",
             iconPath="/static/services/lattice.png",
             docsUrl="https://posthog.com/docs/cdp/sources/lattice",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

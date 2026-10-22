@@ -42,23 +42,32 @@ class FailMaterializationInputs:
     update_node: bool = True
 
 
+def _fail_node(inputs: FailMaterializationInputs, sanitized_error: str) -> Node | None:
+    with transaction.atomic():
+        node = (
+            Node.objects.select_for_update()
+            .filter(id=inputs.node_id, team_id=inputs.team_id, dag_id=inputs.dag_id)
+            .first()
+        )
+        if node is None:
+            return None
+        status = DataModelingJobStatus.CANCELLED if inputs.cancelled else DataModelingJobStatus.FAILED
+        update_node_system_properties(
+            node,
+            status=status,
+            job_id=inputs.job_id,
+            error=sanitized_error,
+        )
+        node.save()
+    return node
+
+
 @database_sync_to_async_pool
 def _fail_node_and_data_modeling_job(inputs: FailMaterializationInputs):
     # strip hostnames from error for user-facing storage while preserving original for logging
     sanitized_error = strip_hostname_from_error(inputs.error)
 
-    node = None
-    if inputs.update_node:
-        with transaction.atomic():
-            node = Node.objects.select_for_update().get(id=inputs.node_id, team_id=inputs.team_id, dag_id=inputs.dag_id)
-            status = DataModelingJobStatus.CANCELLED if inputs.cancelled else DataModelingJobStatus.FAILED
-            update_node_system_properties(
-                node,
-                status=status,
-                job_id=inputs.job_id,
-                error=sanitized_error,
-            )
-            node.save()
+    node = _fail_node(inputs, sanitized_error) if inputs.update_node else None
 
     job = DataModelingJob.objects.get(id=inputs.job_id)
 
@@ -93,8 +102,11 @@ def _revert_materialization_on_unknown_table(job: DataModelingJob, saved_query: 
 
 
 @activity.defn
-async def fail_materialization_activity(inputs: FailMaterializationInputs) -> None:
-    """Mark materialization as failed and update node properties."""
+async def fail_materialization_activity(inputs: FailMaterializationInputs) -> str | None:
+    """Mark materialization as failed and update node properties.
+
+    Returns the job's run mode, or None when the run failed before choosing one.
+    """
     bind_contextvars(team_id=inputs.team_id)
     logger = LOGGER.bind()
     _, job = await _fail_node_and_data_modeling_job(inputs)
@@ -110,13 +122,13 @@ async def fail_materialization_activity(inputs: FailMaterializationInputs) -> No
     await logger.aerror(f"Failed materialization job: {job_context} error={inputs.error}", write_only=True)
     # error-specific recovery: revert on unknown table, else suspend the node after repeated failures
     if not inputs.update_node:
-        return
+        return job.run_mode
     error = inputs.error
     saved_query = None
     try:
         saved_query = await _get_saved_query_for_job(job)
         if saved_query is None:
-            return
+            return job.run_mode
 
         if "Unknown table" in error:
             await logger.ainfo(
@@ -157,3 +169,4 @@ async def fail_materialization_activity(inputs: FailMaterializationInputs) -> No
             await logger.aexception(
                 f"Failed to notify materialization failure for node {inputs.node_id}: {strip_hostname_from_error(str(e))}"
             )
+    return job.run_mode

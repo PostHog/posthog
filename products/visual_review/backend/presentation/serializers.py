@@ -143,6 +143,13 @@ class SnapshotSerializer(DataclassSerializer):
     reviewed_by = UserBasicInfoSerializer(allow_null=True, required=False)
     cluster_summary = ClusterSummarySerializer(allow_null=True, required=False)
     row_shift = RowShiftSerializer(allow_null=True, required=False)
+    is_quarantined = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "Whether a quarantine covered this snapshot when the run was last gated, so its diff did not "
+            "block the pull request. It keeps that value after the quarantine ends or a new one starts."
+        ),
+    )
 
     class Meta:
         dataclass = Snapshot
@@ -655,8 +662,8 @@ class FlakinessEntrySerializer(DataclassSerializer):
             "every run, so its baseline is wrong and quarantining it only hides that. `unstable` "
             "fails some runs and not others, the classic flake. `at_risk` never fails, but its "
             "worst absorbed diff is already touching the threshold, so the next unrelated change "
-            "turns it red. `noisy` renders variants and absorbs them with room to spare. `clean` "
-            "matched its baseline on every run in the window."
+            "turns it red. `clean` has no gate failure inside the rate span, and any diff it absorbed "
+            "sits far below the threshold."
         ),
     )
     needs_decision = serializers.BooleanField(
@@ -696,11 +703,10 @@ class FlakinessTotalsSerializer(DataclassSerializer):
     broken = serializers.IntegerField(help_text="Identifiers whose `flakiness_state` is `broken`.")
     unstable = serializers.IntegerField(help_text="Identifiers whose `flakiness_state` is `unstable`.")
     at_risk = serializers.IntegerField(help_text="Identifiers whose `flakiness_state` is `at_risk`.")
-    noisy = serializers.IntegerField(help_text="Identifiers whose `flakiness_state` is `noisy`.")
     clean = serializers.IntegerField(
         help_text=(
-            "Identifiers whose `flakiness_state` is `clean`. They are listed because they carry live "
-            "variants or older history, and reported here so every listed entry is reachable."
+            "Identifiers whose `flakiness_state` is `clean`. They are listed because they carry a "
+            "quarantine or older gate failures, and reported here so every listed entry is reachable."
         )
     )
     by_run_type = serializers.DictField(
@@ -726,7 +732,9 @@ class RunSnapshotsQuerySerializer(serializers.Serializer):
         help_text=(
             "Whether to include snapshots whose identifier is currently quarantined. "
             "Defaults to false: quarantined snapshots are excluded from results and reported "
-            "in quarantined_count instead, since they are noise when reviewing real changes."
+            "in quarantined_count instead, since they are noise when reviewing real changes. "
+            "This filter uses the quarantines active now. Each snapshot's `is_quarantined` flag "
+            "holds the state when the run was gated, so for an older run pass true and read the flag."
         ),
     )
     exclude_unchanged = serializers.BooleanField(
@@ -750,7 +758,9 @@ class RunSnapshotsQuerySerializer(serializers.Serializer):
             "Whether to list only the snapshots whose identifier is currently quarantined. "
             "Defaults to false. When true, `include_quarantined` is ignored and quarantined "
             "snapshots are returned. Combine with `exclude_unchanged=false` to find a quarantined "
-            "story that rendered `unchanged`, which is the snapshot to request a lift on merge for."
+            "story that rendered `unchanged`, which is the snapshot to request a lift on merge for. "
+            "This uses the quarantines active now, not each snapshot's `is_quarantined` flag, so on an "
+            "older run it misses stories whose quarantine has ended since."
         ),
     )
 

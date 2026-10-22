@@ -21,7 +21,7 @@ Two request forms:
    - `histogram`: `histogram_quantile` with `quantile` (e.g. 0.95). All selected series must share one bucket layout — narrow with `filters` if you get a bounds-mismatch error.
 3. **Narrow with filters.** `filters: [{key, op, value, scope?}]`, ANDed. Ops: `eq`, `neq`, `regex`, `not_regex` (RE2). Leave `scope` at its default `auto` unless you know whether the attribute is per-target (`resource`) or per-datapoint (`attribute`). Negative ops also match rows lacking the key, like Prometheus negative matchers.
 4. **Split with groupBy.** `groupBy: [{key}]` returns one series per label value (capped at the 100 largest). The service name is always available — `service_name` and `service.name` both resolve to it in metrics (logs only accept the dotted `service.name`); discover other keys from a sample query's labels or ask the user.
-5. **Control the grid with `interval`.** One of `second, minute, minute_5, minute_15, hour, hour_6, day, week`. Omit to auto-pick (~60 buckets across the range). Use the same interval when comparing windows.
+5. **Control the grid with `interval`.** One of `second_15, second_30, minute, minute_5, minute_15, minute_30, hour, hour_6, day, week`. Omit to auto-pick (~60 buckets across the range). Use the same interval when comparing windows.
 
 # Investigating an anomaly ("metric X is rising — why?")
 
@@ -31,4 +31,4 @@ Two request forms:
 4. Use `formula` for normalized comparisons, e.g. error ratio `errors / requests` instead of raw error counts.
 5. Correlate the onset window across signals: query logs (`query-logs`, filtered to the same `service.name` and time window, severity error) and traces (APM span tools, same service/window) to find the cause and its blast radius.
 
-CRITICAL: be minimalist — only include filters/settings essential to the question. Time ranges: `dateFrom` is required, ISO 8601; `dateTo` defaults to now. `dateFrom` snaps down to its bucket boundary, so the first point can be labelled up to one interval earlier than requested but always covers a whole bucket.
+CRITICAL: be minimalist — only include filters/settings essential to the question. Time ranges: `dateFrom` and `dateTo` take ISO 8601 or a relative offset back from now (`-1h`, `-24h`, `-7d`, `-2w`; `m` means months, not minutes). `dateTo` defaults to now and `dateFrom` to 24 hours before `dateTo`. `dateFrom` snaps down to its bucket boundary, so the first point can be labelled up to one interval earlier than requested but always covers a whole bucket.

@@ -21,6 +21,7 @@ The linters own the mechanical rules (below); this skill is the **judgment calls
   `ci-backend.yml` is the reference for the heavy patterns (bounded-depth checkout, per-SHA concurrency, draft/ready, sharding).
 - Related skills — reach for these instead of duplicating them here:
   - `/gating-production-deploys` — any job that pushes a prod image or dispatches a Charts deploy.
+    Read its [ordered-image reference](../gating-production-deploys/references/ordered-image-releases.md) for new monorepo publishers and shared-build consumers.
   - `/managing-github-actions-secrets` — creating the GitHub App / secret a workflow reads.
   - `/depot-github-runners` — Depot runner labels and sizing.
   - `/debugging-ci-failures` — CI is red and you need to know why.
@@ -28,7 +29,7 @@ The linters own the mechanical rules (below); this skill is the **judgment calls
 ## What the linters already enforce
 
 Run `bin/hogli lint:workflows` and `actionlint` before pushing — they gate CI, and they (not this list) are the source of truth for what's enforced.
-Today that's: `timeout-minutes` on every job, the canonical PR concurrency block, a repo-wide budget for unscoped PR event dispatches, `dorny/paths-filter` negation safety, justification for full-depth checkouts, cache-write gating, semgrep service coverage, MCP path-filter coverage of the trees the MCP build compiles, required-check gate hygiene, secrets a reusable workflow reads being declared and passed by its callers, runner labels that name an OS version rather than a floating `-latest` alias, `#`-free values for the action inputs an inner shell re-parses, and generic GHA correctness (bad `secrets.*` / `needs:` refs, deprecated `::set-output`, unknown runner labels).
+Today that's: `timeout-minutes` on every job, the canonical PR concurrency block, a repo-wide budget for unscoped PR event dispatches, `dorny/paths-filter` negation safety, justification for full-depth checkouts, cache-write gating, semgrep service coverage, MCP path-filter coverage of the trees the MCP build compiles, Storybook path-filter coverage of every `staticDirs` source, required-check gate hygiene, secrets a reusable workflow reads being declared and passed by its callers, runner labels that name an OS version rather than a floating `-latest` alias, `#`-free values for the action inputs an inner shell re-parses, and generic GHA correctness (bad `secrets.*` / `needs:` refs, deprecated `::set-output`, unknown runner labels).
 Third-party action digests are bumped by Renovate.
 
 ## Check what a condition does before you push it
@@ -240,6 +241,14 @@ Measured checkout-step durations, from the GitHub API on real runs:
 
 - **Default:** plain `actions/checkout` (depth 1). Add nothing.
 
+- **Asking for changed files or a merge base:** ask the GitHub API, not local history.
+  On `pull_request` the checkout's HEAD is the merge commit, so `repos/{repo}/compare/{default_branch}...{merge_sha}?per_page=1` returns the merge base and the change set in one call.
+  It lists at most 300 files, so a list at the cap is truncated. Past it, fetch the merge base without blobs and `git diff --name-only --no-renames <sha> HEAD`, which reads only trees.
+  `repos/{repo}/pulls/{n}/files` is no substitute: it diffs the PR head against its own base, not the merge commit, and reads whatever head the PR has when the call runs.
+  List a rename's `previous_filename` too, since the old path counts as deleted.
+  To read one file at the merge base, `git fetch --no-tags --depth=1 --filter=blob:none origin <sha>` and `git show <sha>:<path>` it, or use the contents API.
+  `trunk-impacted-targets.yml` is the reference.
+
 - **Diffing against the PR base:** you need real history, so bound the depth, filter blobs, **and** sparse-checkout the files the job reads:
 
   ```yaml
@@ -361,7 +370,7 @@ Make those runs pass, and never let untrusted code reach a secret.
 - Comment or label only on same-repo PRs — the fork token can't write.
 - To act on a fork PR with secrets/write (reviewer or label bots), use `pull_request_target`: base-repo permissions, but it must **never check out and run fork code**. That's why those workflows can't fold into a `pull_request` parent.
 - First-time contributors need maintainer approval before workflows run (`action_required`) — expected.
-- Depot CI runs no fork PR at all, so the backend router keeps fork PRs on GitHub Actions and the required check stays on the head. Never re-push a fork's head in-repo to get it a Depot run. See [Pull requests from forks](../../../docs/published/handbook/engineering/fork-pull-requests.md).
+- Depot CI runs no fork PR at all, so a fork PR never gets the required backend check and is re-created in-repo after review. Never re-push a fork's head in-repo to get it a Depot run before that review. See [Pull requests from forks](../../../docs/published/handbook/engineering/fork-pull-requests.md).
 
 ## Timeouts
 
@@ -468,7 +477,7 @@ Crons are offset so the runs do not all fire at once, and the offsets live here 
 | ----------------------------------- | ------ |
 | `ci-frontend.yml`                   | 7      |
 | `ci-nodejs.yml`                     | 13     |
-| `ci-backend.yml`                    | 23     |
+| `.depot/workflows/ci-backend.yml`   | 23     |
 | `ci-dagster.yml`                    | 33     |
 | `ci-python.yml`                     | 43     |
 | `ci-mcp.yml`                        | 53     |
@@ -488,7 +497,6 @@ group: ${{ github.workflow }}-${{ github.event_name == 'schedule' && 'scheduled'
 ```
 
 That keeps hourly runs queueing behind each other rather than stacking, and leaves push behavior untouched.
-`ci-backend.yml` reaches the same place from the other side: its push arm is already keyed per SHA, so pushes never share a group with the cron.
 Prefer the `'scheduled'` key when the push lane still runs real per-commit work, because a per-SHA push arm also gives up the deduplication that collapses a burst of master pushes into one run.
 
 **The paths filter must be skipped on `schedule`, and every output it feeds must default to `true`.**
@@ -502,12 +510,18 @@ Any _step_ that reads a filter output needs the same `schedule` arm.
 A lane that stops producing runs is invisible to the master-red alerter: it reads run completions, so a dropped cron reads as unreadable and drops out of evaluation rather than paging.
 Add every converted workflow to `SCHEDULED_GATING_WORKFLOWS` in `ci-alerts-devex.yml` in the same change, or its failures stop paging altogether.
 
+Backend CI's hourly run is the one test suite whose cron is on Depot CI: `.depot/workflows/ci-backend.yml` has the `schedule` trigger and `.github/workflows/ci-backend.yml` has none.
+GitHub has no runs or artifacts for it, so its readers go through `.github/scripts/depot_scheduled_runs.py`: the alerter names it in `DEPOT_SCHEDULED_GATING_WORKFLOW`, and `ci-backend-update-test-timing.yml` finds and downloads its artifacts from Depot.
+The master run trace reporter reads the same Depot lane. Depot's public API exposes workflow and job timestamps, so those traces omit step and job-queue spans.
+
 ## Backwards-compat with unrebased PRs
 
 A workflow edit hits every open PR the instant it merges (it runs against PR-merged-with-master), but companion changes — a new dependency, file, or config — only reach a branch when it rebases.
 If the workflow starts _requiring_ something unrebased branches lack, every in-flight PR fails before its tests run.
 Make new behavior degrade gracefully when the prerequisite is absent, or gate it.
 Roll out a new blocking lint the same way: ship `continue-on-error`, clear the inbox, promote to blocking.
+A new or tightened baseline ratchet in `posthog/test/repo_invariants/` meets queued PRs that passed CI before it existed, so report its mismatch through `enforce_baseline` in `ratchet.py` with a `blocking_from` date a few days out: new violations only warn until then.
+Before that date, fix or add to the baseline every violation that landed during the grace period, or master goes red on it.
 
 ## New-workflow checklist
 

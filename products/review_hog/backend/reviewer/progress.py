@@ -9,12 +9,26 @@ comment, so the two surfaces can never disagree.
 
 import logging
 import operator
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from functools import reduce
-from typing import Any
+from typing import Any, Final, Literal
 
-from django.db.models import Func, IntegerField, JSONField, Max, Q, QuerySet
+from django.db.models import (
+    Case,
+    CharField,
+    Exists,
+    Func,
+    IntegerField,
+    JSONField,
+    Max,
+    OuterRef,
+    Q,
+    QuerySet,
+    Value,
+    When,
+)
 from django.db.models.fields.json import KeyTextTransform, KeyTransform
 from django.db.models.functions import Cast
 from django.utils import timezone
@@ -23,38 +37,50 @@ from pydantic import ValidationError
 
 from posthog.dataclasses import frozen
 
+from products.review_hog.backend.facade.contracts import (
+    RESOLUTION_COMPLETED,
+    RESOLUTION_RESOLVING,
+    RESOLUTION_STOPPED,
+    ResolutionRunState,
+    ResolutionSummary,
+)
 from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact, ReviewSkillConfig
 from products.review_hog.backend.reviewer.artefact_content import (
+    RUN_OUTCOME_NOTE_AUTHOR,
     PerspectiveSelectionArtefact,
     ResolutionRunArtefact,
     ReviewIssueFinding,
+    RunOutcomeNote,
     ValidationVerdict,
 )
-from products.review_hog.backend.reviewer.constants import BLIND_SPOT_PASS_NUMBER
+from products.review_hog.backend.reviewer.constants import (
+    BLIND_SPOT_PASS_NUMBER,
+    effective_priority,
+    is_single_agent_pass,
+)
 from products.review_hog.backend.reviewer.models.github_meta import PRMetadata
+from products.review_hog.backend.reviewer.models.issues_review import IssuePriority
 from products.review_hog.backend.reviewer.models.perspective_selection import ChunkPerspectiveSelection
+from products.review_hog.backend.reviewer.review_design import REVIEW_DESIGN_PIPELINE, REVIEW_DESIGN_SINGLE_AGENT
 from products.review_hog.backend.reviewer.skill_loader import (
     CANONICAL_PERSPECTIVE_SKILL_NAMES,
     REVIEW_HOG_PERSPECTIVE_PREFIX,
 )
+from products.signals.backend.artefact_attribution import ArtefactAttribution
 
 logger = logging.getLogger(__name__)
-
-REVIEW_STAGES = ["fetching", "chunking", "selecting", "reviewing", "deduplicating", "validating", "finalizing"]
 
 # Artefacts and activity heartbeats keep active reviews fresh; stopped runs must age out so the UI
 # does not show a live spinner forever. A resolution run with no closing note then reads as stopped.
 IN_PROGRESS_STALE_AFTER = timedelta(minutes=30)
 
-RESOLUTION_RESOLVING = "resolving"
-RESOLUTION_STOPPED = "stopped"
 # The `author` the resolution stage stamps on its closing run `note` — the completion marker the
 # state derivation looks for. Kept here so the writer (temporal/resolution.py) and this reader
 # can't drift apart.
 RESOLUTION_RUN_NOTE_AUTHOR = "review_hog_resolution"
 
 
-@dataclass
+@dataclass(frozen=True)
 class SnapshotStats:
     """PR facts from the report's latest `pr_snapshot` artefact (metadata only, never `pr_files`)."""
 
@@ -63,9 +89,10 @@ class SnapshotStats:
     # Whether a snapshot exists for the report's CURRENT head (vs. a stale-turn fallback) — the
     # in-flight stage detection needs "has this turn fetched yet", not "was anything ever fetched".
     head_matched: bool = False
+    review_design: str | None = None
 
 
-@dataclass
+@dataclass(frozen=False)
 class TurnStats:
     """Pipeline shape of the latest turn, from `chunk_set` / `perspective_result` working state."""
 
@@ -75,10 +102,27 @@ class TurnStats:
     blind_spot_issue_count: int | None = None
     # (pass, chunk) review units completed this turn — the in-flight "reviewing" progress counter.
     perspective_reads: int | None = None
+    single_agent_reads: int | None = None
     # The selector's persisted plan for the turn: the full menu + the normalized per-chunk picks.
     # None when the turn ran without a selection (failed, skipped, or predates the feature).
     selection_roster: list[str] | None = None
     selection_chunks: list[ChunkPerspectiveSelection] | None = None
+
+
+def finding_counts(
+    pairs: Sequence[tuple[ReviewIssueFinding, ValidationVerdict | None]],
+) -> tuple[dict[IssuePriority, int], int]:
+    """Kept findings per effective priority, and the dismissed count. Unjudged findings count in neither."""
+    counts = dict.fromkeys(IssuePriority, 0)
+    dismissed = 0
+    for finding, verdict in pairs:
+        if verdict is None:
+            continue
+        if verdict.is_valid:
+            counts[effective_priority(finding.priority, verdict.adjusted_priority)] += 1
+        else:
+            dismissed += 1
+    return counts, dismissed
 
 
 def _content_json() -> Cast:
@@ -115,7 +159,8 @@ def snapshot_stats(team_id: int, heads: dict[str, str | None]) -> dict[str, Snap
             files_reviewed=Func(
                 KeyTransform("pr_files", _content_json()), function="jsonb_array_length", output_field=IntegerField()
             ),
-        ).values("report_id", "meta", "files_reviewed")
+            review_design=KeyTextTransform("review_design", _content_json()),
+        ).values("report_id", "meta", "files_reviewed", "review_design")
 
     def _ingest(row: dict[str, Any], *, head_matched: bool) -> None:
         report_id = str(row["report_id"])
@@ -132,7 +177,12 @@ def snapshot_stats(team_id: int, heads: dict[str, str | None]) -> dict[str, Snap
         except ValidationError as e:
             logger.warning("Skipping unparseable pr_snapshot metadata for report %s: %s", report_id, e)
             meta = None
-        stats[report_id] = SnapshotStats(meta=meta, files_reviewed=row["files_reviewed"], head_matched=head_matched)
+        stats[report_id] = SnapshotStats(
+            meta=meta,
+            files_reviewed=row["files_reviewed"],
+            head_matched=head_matched,
+            review_design=row["review_design"],
+        )
 
     head_q = _turn_scope_q(heads)
     if head_q is not None:
@@ -211,8 +261,11 @@ def turn_stats(team_id: int, heads: dict[str, str | None]) -> dict[str, TurnStat
     for report_id, units in issues_by_unit.items():
         wave_units = {unit: count for unit, count in units.items() if unit[0] != BLIND_SPOT_PASS_NUMBER}
         blind_units = {unit: count for unit, count in units.items() if unit[0] == BLIND_SPOT_PASS_NUMBER}
-        if units:
-            stats[report_id].perspective_reads = len(units)
+        single_agent_units = [unit for unit in units if is_single_agent_pass(unit[0])]
+        if len(units) > len(single_agent_units):
+            stats[report_id].perspective_reads = len(units) - len(single_agent_units)
+        if single_agent_units:
+            stats[report_id].single_agent_reads = len(single_agent_units)
         if wave_units:
             stats[report_id].perspective_count = len({pass_number for pass_number, _ in wave_units})
             stats[report_id].perspective_issue_count = sum(wave_units.values())
@@ -222,14 +275,215 @@ def turn_stats(team_id: int, heads: dict[str, str | None]) -> dict[str, TurnStat
 
 
 @frozen
-class ResolutionRunState:
-    """The report's latest resolution run, as the list row and the drawer render it."""
+class TurnMarker:
+    """The mode, design and head of one executed turn, from its `turn_marker` artefact."""
 
-    status: str  # RESOLUTION_RESOLVING | RESOLUTION_STOPPED
-    done: int = 0
-    total: int = 0
-    fixed: int = 0
-    needs_attention: int = 0
+    review_mode: str
+    head_sha: str | None
+    # When the marker row was written, which is just before the turn's review sessions start.
+    started_at: datetime
+    review_design: str = REVIEW_DESIGN_PIPELINE
+
+
+def turn_markers(team_id: int, report_ids: list[str]) -> dict[tuple[str, int], TurnMarker]:
+    """Each turn's marker, keyed by (report id, run index). The newest row of a retried turn wins.
+
+    Turns that started before markers existed, or whose marker write failed, are absent.
+    """
+    rows = (
+        ReviewReportArtefact.objects.for_team(team_id)
+        .filter(report_id__in=report_ids, type=ReviewReportArtefact.ArtefactType.TURN_MARKER)
+        .annotate(
+            marker_run_index=KeyTextTransform("run_index", _content_json()),
+            marker_review_mode=KeyTextTransform("review_mode", _content_json()),
+            marker_review_design=KeyTextTransform("review_design", _content_json()),
+            fingerprint_review_design=KeyTextTransform(
+                "review_design", KeyTransform("fingerprint_inputs", _content_json())
+            ),
+        )
+        .order_by("created_at", "id")
+        .values(
+            "report_id",
+            "head_sha",
+            "marker_run_index",
+            "marker_review_mode",
+            "marker_review_design",
+            "fingerprint_review_design",
+            "created_at",
+        )
+    )
+    markers: dict[tuple[str, int], TurnMarker] = {}
+    for row in rows:
+        if row["marker_run_index"] is None or row["marker_review_mode"] is None:
+            continue
+        # Markers written before the explicit field carry the design only in a single-agent
+        # fingerprint. The pipeline fingerprint never had it.
+        review_design = row["marker_review_design"] or row["fingerprint_review_design"] or REVIEW_DESIGN_PIPELINE
+        markers[(str(row["report_id"]), int(row["marker_run_index"]))] = TurnMarker(
+            review_mode=row["marker_review_mode"],
+            head_sha=row["head_sha"],
+            started_at=row["created_at"],
+            review_design=review_design,
+        )
+    return markers
+
+
+RUN_STAGE_REVIEW: Final = "review"
+RUN_STAGE_RESOLUTION: Final = "resolution"
+RUN_OUTCOME_SKIPPED: Final = "skipped"
+RUN_OUTCOME_FAILED: Final = "failed"
+REVIEW_FAILED_REASON = "review_failed"
+
+
+@frozen
+class RunOutcomeMarker:
+    """A review turn or resolution run that ended without a result, from its run outcome `note`."""
+
+    stage: str  # RUN_STAGE_REVIEW | RUN_STAGE_RESOLUTION
+    outcome: str  # RUN_OUTCOME_SKIPPED | RUN_OUTCOME_FAILED
+    reason: str
+    run_index: int | None
+    review_mode: str | None
+    head_sha: str | None
+    created_at: datetime
+
+
+def record_run_outcome(
+    team_id: int,
+    report_id: str,
+    *,
+    stage: Literal["review", "resolution"],
+    outcome: Literal["skipped", "failed"],
+    reason: str,
+    run_index: int | None = None,
+    review_mode: str | None = None,
+    head_sha: str | None = None,
+) -> None:
+    """Append a run outcome `note`. Best-effort, because a status record must never fail the run it describes."""
+    run_label = f"Review turn {run_index}" if stage == RUN_STAGE_REVIEW and run_index else f"The {stage} run"
+    try:
+        ReviewReportArtefact.add_log(
+            team_id=team_id,
+            report_id=report_id,
+            content=RunOutcomeNote(
+                note=f"{run_label} {outcome} ({reason}).",
+                stage=stage,
+                outcome=outcome,
+                reason=reason,
+                run_index=run_index,
+                review_mode=review_mode,
+                head_sha=head_sha,
+            ),
+            attribution=ArtefactAttribution.system(),
+        )
+    except Exception:
+        logger.exception("Could not record the %s %s outcome for report %s", stage, outcome, report_id)
+
+
+def run_outcome_markers(
+    team_id: int, report_ids: list[str], since: datetime | None = None
+) -> dict[str, list[RunOutcomeMarker]]:
+    """Each report's run outcome notes written at or after `since`, oldest first."""
+    rows = (
+        ReviewReportArtefact.objects.for_team(team_id)
+        .filter(report_id__in=report_ids, type=ReviewReportArtefact.ArtefactType.NOTE)
+        .annotate(note_author=KeyTextTransform("author", _content_json()))
+        .filter(note_author=RUN_OUTCOME_NOTE_AUTHOR)
+    )
+    if since is not None:
+        rows = rows.filter(created_at__gte=since)
+    markers: dict[str, list[RunOutcomeMarker]] = {report_id: [] for report_id in report_ids}
+    for row in rows.order_by("created_at", "id").values("report_id", "content", "created_at"):
+        report_id = str(row["report_id"])
+        try:
+            note = RunOutcomeNote.model_validate_json(row["content"])
+        except ValidationError as e:
+            logger.warning("Skipping unparseable run outcome note for report %s: %s", report_id, e)
+            continue
+        markers.setdefault(report_id, []).append(
+            RunOutcomeMarker(
+                stage=note.stage,
+                outcome=note.outcome,
+                reason=note.reason,
+                run_index=note.run_index,
+                review_mode=note.review_mode,
+                head_sha=note.head_sha,
+                created_at=row["created_at"],
+            )
+        )
+    return markers
+
+
+def live_turn_markers(
+    team_id: int, reports: Sequence[ReviewReport], markers: dict[tuple[str, int], TurnMarker]
+) -> dict[str, TurnMarker]:
+    """The marker of each report's running turn `run_count + 1`, keyed by report id.
+
+    An attempt that fails or is skipped leaves its marker at that index, and the next attempt
+    reuses the index. So a marker counts only on the report's current head, and only when no
+    outcome note of its turn came after it.
+    """
+    candidates: dict[str, tuple[int, TurnMarker]] = {}
+    for report in reports:
+        report_id = str(report.id)
+        marker = markers.get((report_id, report.run_count + 1))
+        if marker is not None and marker.head_sha == report.head_sha:
+            candidates[report_id] = (report.run_count + 1, marker)
+    if not candidates:
+        return {}
+    since = min(marker.started_at for _, marker in candidates.values())
+    outcomes = run_outcome_markers(team_id, list(candidates), since=since)
+    return {
+        report_id: marker
+        for report_id, (run_index, marker) in candidates.items()
+        if not any(
+            outcome.stage == RUN_STAGE_REVIEW
+            and outcome.run_index == run_index
+            and outcome.created_at >= marker.started_at
+            for outcome in outcomes.get(report_id, [])
+        )
+    }
+
+
+@frozen
+class _ThreadVerdictRow:
+    outcome: str
+    reply_posted: bool
+    # Only a fix commit the public reply links to: verified on the PR branch and not touching restricted paths.
+    linked_commit_sha: str | None
+
+
+@frozen
+class _RunSignals:
+    """Per report, the newest `pr_snapshot`, closing run `note`, and turn-written artefact."""
+
+    snapshot_latest: dict[str, datetime]
+    note_latest: dict[str, datetime]
+    activity_latest: dict[str, datetime]
+
+
+def _activity_artefacts(queryset: QuerySet) -> QuerySet:
+    """Artefacts that show a run is moving, for the staleness window.
+
+    `finding_outcome` rows come from the outcome sweep after the PR merges, and run outcome notes
+    record that a run already ended. Neither one is a running turn, so counting them would show a
+    dead run as live for another staleness window.
+    """
+    note_author = Case(
+        When(
+            type=ReviewReportArtefact.ArtefactType.NOTE,
+            then=KeyTextTransform("author", _content_json()),
+        ),
+        default=Value(None),
+        output_field=CharField(),
+    )
+    # The author is NULL on every non-note row. A plain `.exclude()` on an annotation compiles to
+    # `NOT (author = x)`, which is NULL for those rows and drops them, so keep NULL authors explicitly.
+    return (
+        queryset.exclude(type=ReviewReportArtefact.ArtefactType.FINDING_OUTCOME)
+        .annotate(activity_note_author=note_author)
+        .filter(Q(activity_note_author__isnull=True) | ~Q(activity_note_author=RUN_OUTCOME_NOTE_AUTHOR))
+    )
 
 
 def _latest_created_at(queryset: QuerySet) -> dict[str, datetime]:
@@ -264,6 +518,34 @@ def _load_resolution_runs(
     return runs
 
 
+def _run_signals(team_id: int, report_ids: list[str]) -> _RunSignals:
+    scoped = ReviewReportArtefact.objects.for_team(team_id).filter(report_id__in=report_ids)
+    return _RunSignals(
+        snapshot_latest=_latest_created_at(scoped.filter(type=ReviewReportArtefact.ArtefactType.PR_SNAPSHOT)),
+        note_latest=_latest_created_at(
+            scoped.filter(type=ReviewReportArtefact.ArtefactType.NOTE)
+            .annotate(note_author=KeyTextTransform("author", _content_json()))
+            .filter(note_author=RESOLUTION_RUN_NOTE_AUTHOR)
+        ),
+        activity_latest=_latest_created_at(_activity_artefacts(scoped)),
+    )
+
+
+def _superseded(signals: _RunSignals, report_id: str, started_at: datetime) -> bool:
+    snapshot_at = signals.snapshot_latest.get(report_id)
+    return snapshot_at is not None and snapshot_at > started_at
+
+
+def _closed_at(signals: _RunSignals, report_id: str, started_at: datetime) -> datetime | None:
+    note_at = signals.note_latest.get(report_id)
+    return note_at if note_at is not None and note_at >= started_at else None
+
+
+def _is_fresh(report: ReviewReport, latest_artefact_at: datetime | None) -> bool:
+    last_activity = max(filter(None, [report.updated_at, latest_artefact_at]), default=None)
+    return last_activity is not None and last_activity >= timezone.now() - IN_PROGRESS_STALE_AFTER
+
+
 def _live_resolution_runs(
     team_id: int, runs: dict[str, tuple[ResolutionRunArtefact, datetime]]
 ) -> tuple[dict[str, tuple[ResolutionRunArtefact, datetime]], dict[str, datetime]]:
@@ -271,36 +553,26 @@ def _live_resolution_runs(
 
     A run drops out when a newer review turn superseded it (a `pr_snapshot` after the run anchor) or
     it completed (a closing run `note` after the anchor). Activity liveness reuses the same signal
-    `_in_progress_report_ids` uses for review turns, so the two can't disagree about "visibly moving".
+    `in_progress_report_ids` uses for review turns, so the two can't disagree about "visibly moving".
     """
-    scoped = ReviewReportArtefact.objects.for_team(team_id).filter(report_id__in=list(runs))
-    snapshot_latest = _latest_created_at(scoped.filter(type=ReviewReportArtefact.ArtefactType.PR_SNAPSHOT))
-    note_latest = _latest_created_at(
-        scoped.filter(type=ReviewReportArtefact.ArtefactType.NOTE)
-        .annotate(note_author=KeyTextTransform("author", _content_json()))
-        .filter(note_author=RESOLUTION_RUN_NOTE_AUTHOR)
-    )
-    activity_latest = _latest_created_at(scoped.exclude(type=ReviewReportArtefact.ArtefactType.FINDING_OUTCOME))
-
+    signals = _run_signals(team_id, list(runs))
     live: dict[str, tuple[ResolutionRunArtefact, datetime]] = {}
     for report_id, (run, started_at) in runs.items():
-        superseded = snapshot_latest.get(report_id) is not None and snapshot_latest[report_id] > started_at
-        completed = note_latest.get(report_id) is not None and note_latest[report_id] >= started_at
-        if not superseded and not completed:
+        if not _superseded(signals, report_id, started_at) and _closed_at(signals, report_id, started_at) is None:
             live[report_id] = (run, started_at)
-    return live, activity_latest
+    return live, signals.activity_latest
 
 
 def _thread_verdicts(
     team_id: int, live: dict[str, tuple[ResolutionRunArtefact, datetime]]
-) -> dict[str, dict[str, tuple[str, bool]]]:
+) -> dict[str, dict[str, _ThreadVerdictRow]]:
     """Latest verdict per thread within each live run (rows come oldest-first, so later rows win).
 
     Scoped to the run's own queued threads, because redelivering a prior run's verdict also appends
     rows during this run. Only delivered verdicts (`reply_posted`) count: a judged thread whose
     GitHub writes failed has no reply yet, so it must not read as settled.
     """
-    verdicts: dict[str, dict[str, tuple[str, bool]]] = {report_id: {} for report_id in live}
+    verdicts: dict[str, dict[str, _ThreadVerdictRow]] = {report_id: {} for report_id in live}
     verdict_rows = (
         ReviewReportArtefact.objects.for_team(team_id)
         .filter(
@@ -312,18 +584,32 @@ def _thread_verdicts(
             thread_id=KeyTextTransform("thread_id", _content_json()),
             outcome=KeyTextTransform("outcome", _content_json()),
             reply_posted=KeyTextTransform("reply_posted", _content_json()),
+            commit_sha=KeyTextTransform("commit_sha", _content_json()),
+            commit_verified=KeyTextTransform("commit_verified", _content_json()),
+            commit_restricted=KeyTextTransform("commit_restricted", _content_json()),
         )
         .order_by("created_at", "id")
-        .values("report_id", "thread_id", "outcome", "reply_posted", "created_at")
+        .values(
+            "report_id",
+            "thread_id",
+            "outcome",
+            "reply_posted",
+            "commit_sha",
+            "commit_verified",
+            "commit_restricted",
+            "created_at",
+        )
     )
     for verdict_row in verdict_rows:
         report_id = str(verdict_row["report_id"])
         run, started_at = live[report_id]
         if verdict_row["created_at"] < started_at or verdict_row["thread_id"] not in run.thread_ids:
             continue
-        verdicts[report_id][verdict_row["thread_id"]] = (
-            verdict_row["outcome"],
-            verdict_row["reply_posted"] == "true",
+        linked = verdict_row["commit_verified"] == "true" and verdict_row["commit_restricted"] != "true"
+        verdicts[report_id][verdict_row["thread_id"]] = _ThreadVerdictRow(
+            outcome=verdict_row["outcome"],
+            reply_posted=verdict_row["reply_posted"] == "true",
+            linked_commit_sha=verdict_row["commit_sha"] if linked else None,
         )
     return verdicts
 
@@ -350,14 +636,11 @@ def resolution_states(team_id: int, reports: list[ReviewReport]) -> dict[str, Re
 
     verdicts = _thread_verdicts(team_id, live)
 
-    cutoff = timezone.now() - IN_PROGRESS_STALE_AFTER
     reports_by_id = {str(report.id): report for report in reports}
     states: dict[str, ResolutionRunState] = {}
     for report_id, (run, _started_at) in live.items():
-        report = reports_by_id[report_id]
-        last_activity = max(filter(None, [report.updated_at, activity_latest.get(report_id)]), default=None)
-        fresh = last_activity is not None and last_activity >= cutoff
-        delivered = [outcome for outcome, reply_posted in verdicts[report_id].values() if reply_posted]
+        fresh = _is_fresh(reports_by_id[report_id], activity_latest.get(report_id))
+        delivered = [verdict.outcome for verdict in verdicts[report_id].values() if verdict.reply_posted]
         states[report_id] = ResolutionRunState(
             status=RESOLUTION_RESOLVING if fresh else RESOLUTION_STOPPED,
             done=len(delivered),
@@ -366,6 +649,88 @@ def resolution_states(team_id: int, reports: list[ReviewReport]) -> dict[str, Re
             needs_attention=sum(1 for outcome in delivered if outcome == "escalate"),
         )
     return states
+
+
+def latest_resolution_summaries(team_id: int, reports: list[ReviewReport]) -> dict[str, ResolutionSummary]:
+    """Each report's latest resolution run, completed runs included, with its outcome counts and fix commits.
+
+    A sibling of `resolution_states`, which drops completed and superseded runs because the list row
+    only shows a run while it matters for progress. A run that a newer review turn superseded
+    without its closing note reads as stopped.
+    """
+    runs = _load_resolution_runs(team_id, reports)
+    if not runs:
+        return {}
+    signals = _run_signals(team_id, list(runs))
+    verdicts = _thread_verdicts(team_id, runs)
+    reports_by_id = {str(report.id): report for report in reports}
+    summaries: dict[str, ResolutionSummary] = {}
+    for report_id, (run, started_at) in runs.items():
+        completed_at = _closed_at(signals, report_id, started_at)
+        if completed_at is not None:
+            status = RESOLUTION_COMPLETED
+        elif not _superseded(signals, report_id, started_at) and _is_fresh(
+            reports_by_id[report_id], signals.activity_latest.get(report_id)
+        ):
+            status = RESOLUTION_RESOLVING
+        else:
+            status = RESOLUTION_STOPPED
+        delivered = [verdict for verdict in verdicts[report_id].values() if verdict.reply_posted]
+        fixed = [verdict for verdict in delivered if verdict.outcome == "fixed"]
+        summaries[report_id] = ResolutionSummary(
+            status=status,
+            started_at=started_at,
+            completed_at=completed_at,
+            total=run.total,
+            fixed=len(fixed),
+            needs_attention=sum(1 for verdict in delivered if verdict.outcome == "escalate"),
+            commits=tuple(dict.fromkeys(v.linked_commit_sha for v in fixed if v.linked_commit_sha)),
+        )
+    return summaries
+
+
+def in_progress_report_ids(team_id: int, reports: list[ReviewReport]) -> set[str]:
+    """Which ACTIVE reports are visibly running: artefact or report activity within the staleness window.
+
+    Artefacts mark persisted progress, and long review activities refresh the report timestamp while
+    their sandbox runs. Both stop when a worker dies, so a crashed run ages out instead of showing
+    a stuck spinner forever.
+
+    `finding_outcome` is excluded because it is the one artefact type not written by a turn: the
+    outcome sweep appends it after the PR merges, which can be long after the run ended. Counting it
+    would restart the staleness window and re-show the spinner for a report with nothing running —
+    exactly the crashed-and-never-finalized report (status only leaves ACTIVE on a successful
+    finalize) that the ageing-out exists to retire.
+    """
+    candidates = [report for report in reports if report.status == ReviewReport.Status.ACTIVE]
+    if not candidates:
+        return set()
+    latest_artefact = dict(
+        _activity_artefacts(
+            ReviewReportArtefact.objects.for_team(team_id).filter(report_id__in=[report.id for report in candidates])
+        )
+        .values_list("report_id")
+        .annotate(latest=Max("created_at"))
+        .values_list("report_id", "latest")
+    )
+    cutoff = timezone.now() - IN_PROGRESS_STALE_AFTER
+    fresh: set[str] = set()
+    for report in candidates:
+        last_activity = max(filter(None, [report.updated_at, latest_artefact.get(report.id)]), default=None)
+        if last_activity is not None and last_activity >= cutoff:
+            fresh.add(str(report.id))
+    return fresh
+
+
+def running_q(team_id: int) -> Q:
+    """The same liveness as `in_progress_report_ids`, as a queryset filter for the paginated table."""
+    cutoff = timezone.now() - IN_PROGRESS_STALE_AFTER
+    fresh_artefact = Exists(
+        _activity_artefacts(
+            ReviewReportArtefact.objects.for_team(team_id).filter(report_id=OuterRef("id"), created_at__gte=cutoff)
+        )
+    )
+    return Q(status=ReviewReport.Status.ACTIVE) & (Q(updated_at__gte=cutoff) | Q(fresh_artefact))
 
 
 def _expected_reads(team_id: int, report: ReviewReport, turn: TurnStats) -> int | None:
@@ -392,35 +757,73 @@ def _expected_reads(team_id: int, report: ReviewReport, turn: TurnStats) -> int 
     return chunk_count * (perspectives + 1)
 
 
-def progress_payload(
+def in_publish_window(report: ReviewReport, live_marker: TurnMarker | None) -> bool:
+    """Whether the turn finished but has not published yet.
+
+    On publishing runs finalize defers the idle write to the publish stage, so the report is still
+    ACTIVE with `run_count` already bumped and no in-flight findings. Scoped to the not-yet-published
+    head so a resolution run's ACTIVE window (published head) keeps its current label.
+
+    `live_marker` is the marker of turn `run_count + 1`. When it exists, a new turn started after the
+    finished one. A finished turn that published nothing, such as a clean Standard review, leaves the
+    head unpublished, so the head check alone would put the next turn on that head in this window.
+    """
+    return bool(
+        live_marker is None
+        and report.completed_head_sha
+        and report.completed_head_sha == report.head_sha
+        and report.published_head_sha != report.head_sha
+    )
+
+
+def _single_agent_progress(
+    turn: TurnStats,
+    current_pairs: list[tuple[ReviewIssueFinding, ValidationVerdict | None]],
+    in_publish_window: bool,
+    started: bool,
+) -> dict[str, Any]:
+    """Stage for a single-agent turn: preparing → reviewing (main and lens sessions) → finalizing.
+
+    Dedup persists the findings with accepted verdicts in one step, so any finding at the turn means
+    the sessions are done. The reviewing step has no counter, because the number of lens sessions
+    is not persisted and a failed lens session writes no result.
+    """
+    if current_pairs or in_publish_window:
+        stage = "single_agent_finalizing"
+    elif started or turn.single_agent_reads:
+        stage = "single_agent_reviewing"
+    else:
+        stage = "single_agent_preparing"
+    return {"review_stage": stage, "done": None, "total": None}
+
+
+def _stage_payload(
     team_id: int,
     report: ReviewReport,
     snapshot: SnapshotStats,
     turn: TurnStats,
     current_pairs: list[tuple[ReviewIssueFinding, ValidationVerdict | None]],
+    live_marker: TurnMarker | None,
 ) -> dict[str, Any]:
-    """Stage + counters for the in-flight turn, inferred from which working state exists at the head.
-
-    Covers the full pipeline: fetching → chunking → selecting → reviewing → deduplicating →
-    validating → finalizing (body build + publish, the moments before the turn completes).
-    """
+    # The newest snapshot at the head can belong to an earlier turn of the other design on the same
+    # head, so the marker's design wins once the turn has one.
+    if live_marker is not None:
+        review_design: str | None = live_marker.review_design
+    else:
+        review_design = snapshot.review_design if snapshot.head_matched else None
+    publish_window = in_publish_window(report, live_marker)
+    if review_design == REVIEW_DESIGN_SINGLE_AGENT:
+        return _single_agent_progress(turn, current_pairs, publish_window, started=live_marker is not None)
     if current_pairs:
         judged = sum(1 for _, verdict in current_pairs if verdict is not None)
         if judged >= len(current_pairs):
             return {"review_stage": "finalizing", "done": judged, "total": len(current_pairs)}
         return {"review_stage": "validating", "done": judged, "total": len(current_pairs)}
-    # The publish window: on publishing runs finalize defers the idle write to the publish stage,
-    # so the report is still ACTIVE with `run_count` already bumped and no in-flight findings, and
-    # the branches below would misread the finished turn's working state as "deduplicating".
-    # Scoped to the not-yet-published head so a resolution run's ACTIVE window (published head)
-    # keeps its current label; relabeling that window properly is its own change. Trade-off: an
-    # unpublished same-head re-run reads "finalizing" until dedup persists its first findings,
-    # a brief stretch because such a turn resumes its chunk and perspective state.
-    if (
-        report.completed_head_sha
-        and report.completed_head_sha == report.head_sha
-        and report.published_head_sha != report.head_sha
-    ):
+    # Without this check the branches below would misread the finished turn's working state as
+    # "deduplicating". Relabeling a resolution run's ACTIVE window properly is its own change.
+    # Trade-off: a same-head re-run after an unpublished turn reads "finalizing" until its marker
+    # lands, a brief stretch before its review sessions start.
+    if publish_window:
         return {"review_stage": "finalizing", "done": None, "total": None}
     if turn.chunk_count is not None:
         done = turn.perspective_reads or 0
@@ -435,3 +838,31 @@ def progress_payload(
     if snapshot.head_matched:
         return {"review_stage": "chunking", "done": None, "total": None}
     return {"review_stage": "fetching", "done": None, "total": None}
+
+
+def progress_payload(
+    team_id: int,
+    report: ReviewReport,
+    snapshot: SnapshotStats,
+    turn: TurnStats,
+    current_pairs: list[tuple[ReviewIssueFinding, ValidationVerdict | None]],
+    live_marker: TurnMarker | None,
+    finished_marker: TurnMarker | None = None,
+) -> dict[str, Any]:
+    """Stage, counters and mode of the in-flight turn, inferred from which working state exists at the head.
+
+    Covers the full pipeline: fetching → chunking → selecting → reviewing → deduplicating →
+    validating → finalizing (body build + publish, the moments before the turn completes).
+    A single-agent turn gets its own stages once its fetch has recorded the design.
+
+    `live_marker` is the marker of turn `run_count + 1`, written right before the turn's review
+    sessions start. Until it exists, the mode is unknown and the design comes from the snapshot.
+    `finished_marker` is the marker of turn `run_count`. It gives the mode while that turn publishes.
+    """
+    if live_marker is not None:
+        review_mode = live_marker.review_mode
+    elif finished_marker is not None and in_publish_window(report, None):
+        review_mode = finished_marker.review_mode
+    else:
+        review_mode = None
+    return {**_stage_payload(team_id, report, snapshot, turn, current_pairs, live_marker), "review_mode": review_mode}

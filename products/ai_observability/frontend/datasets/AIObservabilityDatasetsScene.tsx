@@ -19,6 +19,8 @@ import { toAccessControlLevel } from '~/lib/utils/accessControlUtils'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, type UserBasicType } from '~/types'
 
+import { ResourceTagFilter } from '../components/ResourceTagFilter'
+import { ResourceTags } from '../components/ResourceTags'
 import { datasetsEmptyState } from '../emptyState/datasetsEmptyState'
 import type { DatasetReadApi as Dataset } from '../generated/api.schemas'
 import { DATASETS_PER_PAGE, aiObservabilityDatasetsLogic, getDatasetDetailUrl } from './aiObservabilityDatasetsLogic'
@@ -31,7 +33,7 @@ export const scene: SceneExport = {
 }
 
 export function AIObservabilityDatasetsScene(): JSX.Element {
-    const { setFilters, archiveDataset, restoreDataset } = useActions(aiObservabilityDatasetsLogic)
+    const { loadDatasets, setFilters, archiveDataset, restoreDataset } = useActions(aiObservabilityDatasetsLogic)
     const { archivingDatasetId, datasets, datasetsLoading, sorting, pagination, filters, datasetCountLabel } =
         useValues(aiObservabilityDatasetsLogic)
     const { searchParams } = useValues(router)
@@ -42,10 +44,14 @@ export function AIObservabilityDatasetsScene(): JSX.Element {
             title: 'Name',
             dataIndex: 'name',
             key: 'name',
-            width: '20%',
+            width: '25%',
             render: function renderName(_, dataset) {
                 return (
-                    <Link to={datasetUrl(dataset.id)} data-testid="dataset-link">
+                    <Link
+                        to={datasetUrl(dataset.id)}
+                        data-testid="dataset-link"
+                        className="block max-w-64 @max-[50rem]/datasets:max-w-32 truncate font-semibold"
+                    >
                         {dataset.name}
                     </Link>
                 )
@@ -55,13 +61,15 @@ export function AIObservabilityDatasetsScene(): JSX.Element {
             title: 'Description',
             dataIndex: 'description',
             key: 'description',
-            width: '50%',
+            width: '20%',
+            className: '@max-[50rem]/datasets:hidden',
             render: function renderDescription(description) {
                 return <span className="text-muted">{String(description) || <i>–</i>}</span>
             },
         },
         {
             title: 'Created by',
+            className: '@max-[50rem]/datasets:hidden',
             dataIndex: 'created_by',
             render: function renderCreatedBy(_, item) {
                 const { created_by } = item
@@ -83,8 +91,30 @@ export function AIObservabilityDatasetsScene(): JSX.Element {
                 )
             },
         },
-        createdAtColumn<Dataset>() as LemonTableColumn<Dataset, keyof Dataset | undefined>,
-        updatedAtColumn<Dataset>() as LemonTableColumn<Dataset, keyof Dataset | undefined>,
+        {
+            title: 'Tags',
+            key: 'tags',
+            width: '20%',
+            render: (_, dataset) => (
+                <ResourceTags
+                    entity="datasets"
+                    resourceId={dataset.id}
+                    tags={dataset.tags}
+                    onSaved={() => loadDatasets(false)}
+                    onTagClick={(tag) => setFilters({ tags: [tag] }, true, false)}
+                    userAccessLevel={toAccessControlLevel(dataset.user_access_level)}
+                    disabledReason={dataset.archived ? 'Restore this dataset to edit its tags' : undefined}
+                />
+            ),
+        },
+        {
+            ...(createdAtColumn<Dataset>() as LemonTableColumn<Dataset, keyof Dataset | undefined>),
+            className: '@max-[60rem]/datasets:hidden',
+        },
+        {
+            ...(updatedAtColumn<Dataset>() as LemonTableColumn<Dataset, keyof Dataset | undefined>),
+            className: '@max-[50rem]/datasets:hidden',
+        },
         {
             width: 0,
             render: function renderMore(_, dataset) {
@@ -133,7 +163,7 @@ export function AIObservabilityDatasetsScene(): JSX.Element {
     ]
 
     return (
-        <SceneContent>
+        <SceneContent className="@container/datasets">
             <SceneTitleSection
                 name="Datasets"
                 description="Create and manage datasets to test changes and evaluate your AI outputs. [Learn more](https://posthog.com/docs/ai-evals/datasets)"
@@ -152,6 +182,7 @@ export function AIObservabilityDatasetsScene(): JSX.Element {
                         size="small"
                         data-attr="datasets-status-filter"
                     />
+                    <ResourceTagFilter filters={filters} onChange={(tags) => setFilters(tags, true, false)} />
                     <LemonInput
                         type="search"
                         placeholder="Search datasets..."
@@ -183,6 +214,7 @@ export function AIObservabilityDatasetsScene(): JSX.Element {
 
             <LemonTable
                 id="datasets"
+                className="@max-[50rem]/datasets:[&_colgroup]:hidden"
                 loading={datasetsLoading}
                 columns={columns}
                 dataSource={datasets.results}

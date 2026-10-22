@@ -1,4 +1,5 @@
 import dataclasses
+from collections.abc import Iterable, Iterator
 from typing import Any, Optional
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
@@ -9,6 +10,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     OffsetPaginator,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -34,6 +36,14 @@ def _headers() -> dict[str, str]:
     # Auth (Bearer) is supplied via the framework auth config so its value is redacted from logs and
     # raised errors; only the non-secret accept header is set here.
     return {"Accept": "application/json"}
+
+
+def _scalar_rows(
+    resource: Resource, column: str, resumable_source_manager: ResumableSourceManager[JobNimbusResumeConfig]
+) -> Iterator[list[dict[str, Any]]]:
+    for page in resource:
+        yield [item if isinstance(item, dict) else {column: item} for item in page]
+        resumable_source_manager.safe_point()
 
 
 def jobnimbus_source(
@@ -65,8 +75,9 @@ def jobnimbus_source(
                 "name": endpoint,
                 "endpoint": {
                     "path": config.path,
+                    **({"params": dict(config.params)} if config.params else {}),
                     "data_selector": config.data_selector,
-                    # A 200 body without a `results` list means the response shape changed — fail
+                    # A 200 body without the selected list means the response shape changed — fail
                     # loud instead of silently syncing 0 rows (or wrapping a stray object as a row).
                     "data_selector_required": True,
                     **({} if config.paginated else {"paginator": "single_page"}),
@@ -96,9 +107,14 @@ def jobnimbus_source(
         initial_paginator_state=initial_paginator_state,
     )
 
+    def items() -> Iterable[Any]:
+        if config.scalar_column is not None:
+            return _scalar_rows(resource, config.scalar_column, resumable_source_manager)
+        return resource
+
     return SourceResponse(
         name=endpoint,
-        items=lambda: resource,
+        items=items,
         primary_keys=config.primary_keys,
         partition_count=1,
         partition_size=1,

@@ -2,7 +2,6 @@
 
 import json
 
-from posthog.temporal.ai_observability.eval_reports.output_types import get_outcome_definition
 from posthog.temporal.ai_observability.eval_reports.report_agent.schema import MAX_REPORT_SECTIONS
 from posthog.temporal.ai_observability.eval_reports.targets import (
     GENERATION_TARGET,
@@ -10,6 +9,8 @@ from posthog.temporal.ai_observability.eval_reports.targets import (
     TRACE_TARGET,
     get_target_descriptor,
 )
+
+from products.ai_observability.backend.models.evaluation_outcomes import get_outcome_definition
 
 EVAL_REPORT_SYSTEM_PROMPT = """You are an evaluation report agent for PostHog's AI observability platform. Your job is to analyze results from an LLM evaluation and produce a concise, grounded, example-backed report.
 
