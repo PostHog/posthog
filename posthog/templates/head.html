@@ -43,8 +43,8 @@
     {% endif %}
     {% if twitter_site %}<meta name="twitter:site" content="{{ twitter_site }}">{% endif %}
     {% if structured_data_json %}
-    {# nosemgrep: python.flask.security.xss.audit.template-unescaped-with-safe.template-unescaped-with-safe, generic.html-templates.security.var-in-script-tag.var-in-script-tag (_structured_data_json escapes "<", ">" and "&", so the JSON cannot end the script element) #}
-    <script type="application/ld+json">{{ structured_data_json|safe }}</script>
+        {# nosemgrep: python.flask.security.xss.audit.template-unescaped-with-safe.template-unescaped-with-safe, generic.html-templates.security.var-in-script-tag.var-in-script-tag (_structured_data_json escapes "<", ">" and "&", so the JSON cannot end the script element) #}
+        <script type="application/ld+json">{{ structured_data_json|safe }}</script>
     {% endif %}
 {% endif %}
 {% if not opt_out_capture and js_posthog_api_key %}
