@@ -73,9 +73,6 @@ const SKIP_REASON_LABELS: Record<string, string> = {
     min_runtime: 'experiment <12h old',
     data_warehouse: 'data warehouse metric',
     group_aggregation: 'group-aggregated experiment',
-    activation_config: 'activation exposure criteria',
-    cohort_not_calculated: 'cohort not calculated yet',
-    native_events_cluster: 'native events cluster query',
 }
 
 function reasonForDirect(item: SlowestQuery, table: 'exposures' | 'metric_events'): string {

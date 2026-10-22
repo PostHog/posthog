@@ -80,6 +80,7 @@ from posthog.schema_migrations.upgrade import upgrade
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl, UserAccessControlError
 from products.data_tools.backend.models.join import DataWarehouseJoin
+from products.managed_warehouse.backend.facade.query_execution import get_managed_trino_schema
 
 from common.hogvm.python.debugger import color_bytecode
 
@@ -546,6 +547,14 @@ def native_events_cluster_modifiers_for_insight(
 def process_database_schema_query(
     team: Team, query: DatabaseSchemaQuery, *, user: Optional[User] = None
 ) -> DatabaseSchemaQueryResponse:
+    if query.executionTarget == "managed_trino":
+        try:
+            return get_managed_trino_schema(query, team=team, user=user)
+        except (APIException, ExposedHogQLError, UserAccessControlError):
+            raise
+        except Exception as error:
+            capture_exception(error, {"team_id": team.pk, "query_kind": "DatabaseSchemaQuery"})
+            raise DatabaseSchemaUnavailable() from error
     return _build_database_schema_query(team, query, user=user).response
 
 

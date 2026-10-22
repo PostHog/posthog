@@ -1,4 +1,4 @@
-import './RetentionTable/RetentionTable.scss'
+import './RetentionModal.scss'
 
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
@@ -165,7 +165,7 @@ export function RetentionModal(): JSX.Element | null {
                     ) : (
                         <>
                             <table
-                                className="RetentionTable RetentionTable--non-interactive"
+                                className="RetentionPeopleTable"
                                 // eslint-disable-next-line react/forbid-dom-props
                                 style={
                                     {
@@ -181,7 +181,7 @@ export function RetentionModal(): JSX.Element | null {
                                                 <th
                                                     key={index}
                                                     className={clsx('!pl-2', {
-                                                        'RetentionTable__SelectedColumn--header':
+                                                        'RetentionPeopleTable__SelectedColumn--header':
                                                             index === selectedColumnIndex,
                                                     })}
                                                 >
@@ -242,13 +242,13 @@ export function RetentionModal(): JSX.Element | null {
                                                             <td
                                                                 key={index}
                                                                 className={clsx({
-                                                                    'RetentionTable__SelectedColumn--cell':
+                                                                    'RetentionPeopleTable__SelectedColumn--cell':
                                                                         index === selectedColumnIndex,
                                                                 })}
                                                             >
                                                                 <div
                                                                     className={clsx(
-                                                                        'RetentionTable__Tab',
+                                                                        'RetentionPeopleTable__Tab',
                                                                         hasAppearance ? 'opacity-100' : 'opacity-20'
                                                                     )}
                                                                 />

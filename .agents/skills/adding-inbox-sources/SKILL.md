@@ -1,255 +1,97 @@
 ---
 name: adding-inbox-sources
-description: Add a new warehouse-backed source to the PostHog Desktop Self-driving Inbox (the feature that ships GitHub, Linear, Zendesk, pganalyze, Jira). A source syncs one warehouse table (issues/tickets/conversations) and a cloud "signals scout" watches it and emits findings. Use when asked to "add a new inbox/self-driving source", "wire up <Jira/GitLab/Sentry/Intercom/Freshdesk/Front/Gorgias/etc> as a signal source", or to extend the source-toggle grid. Covers all three surfaces (posthog/posthog scout emitter + posthog/code UI wiring + the context-mill self-driving wizard skill that offers the source in `npx @posthog/wizard self-driving`), the deploy ordering between them, and created_via attribution.
+description: Add a data warehouse table as a Self-driving Inbox signal source (the feature that ships GitHub, Linear, Zendesk, Jira, PagerDuty, Sentry, Snyk, Canny and others). A source syncs one warehouse table of actionable records (issues, tickets, conversations, incidents, findings, feedback, reviews) and the signals pipeline turns new rows into signals. Use when asked to "add a new inbox/self-driving source", "make <vendor> a signal source", or to find which warehouse sources could become signal sources. Covers candidate discovery, the backend emitter and registry, the signals frontend source catalog, the optional context-mill wizard entry, and created_via attribution.
 ---
 
 # Adding a Self-driving Inbox source
 
-The Self-driving Inbox connects a PostHog **data-warehouse source** (GitHub, Linear,
-Zendesk, pganalyze, Jira today), syncs one "actionable records" table (`issues` /
-`tickets` / `conversations`), and a server-side **signals scout** in
-`posthog/posthog` watches new rows and emits findings/reports into the Code Inbox.
+The Self-driving Inbox connects a PostHog **data warehouse source** and syncs one table of actionable records.
+After each sync, the signals pipeline reads the new rows, filters them with an LLM actionability gate, and emits signals.
+The pipeline is driven by a static registry keyed on `(ExternalDataSourceType, table)`, so each table needs an emitter config.
 
-**Adding a source touches three surfaces.** The scout is not generic over arbitrary
-tables — it is driven by a static registry keyed on `(source_type, table)`. The
-first two surfaces are mandatory (without them the source can't emit signals or be
-toggled in the app); the third is what makes the CLI `self-driving` wizard _offer_
-the source during onboarding.
+All work happens in this repository:
 
-This skill lives in `posthog/posthog`; the UI lives in the separate `posthog/code`
-repo; the wizard's onboarding script lives in `PostHog/context-mill`:
+| Surface             | What changes                                                                                            |
+| ------------------- | ------------------------------------------------------------------------------------------------------- |
+| Backend (required)  | `SignalSourceProduct` value, emitter module, registry entry, contract variant, a test row               |
+| Frontend (required) | `products/signals/frontend/inbox/externalSignalSources.ts` entry and the `signalSourcesLogic.ts` unions |
+| Wizard (optional)   | `PostHog/context-mill` `self-driving` skill, so `npx @posthog/wizard self-driving` offers the source    |
 
-| Surface                       | What changes                                                                                                                                                                                                                                                            |
-| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `posthog/posthog` (this repo) | New scout emitter + registry entry + `SignalSourceProduct` enum value (+ migration) + contract variant. **The data-warehouse source itself must already exist** (all Tier-1 sources do).                                                                                |
-| `posthog/code`                | ~8 UI/wiring files: the source-product unions, toggle card, setup form, hook maps, icon, filter option (+ OAuth service/router only for OAuth sources).                                                                                                                 |
-| `PostHog/context-mill`        | The `self-driving` skill's connected-tools list, so `npx @posthog/wizard self-driving` offers the source. **Optional** — skip it and the source still works everywhere else; the wizard just won't proactively suggest it. See "The self-driving wizard surface" below. |
+Do **not** edit the desktop app (`products/desktop/`) or `packages/agent/packages/agent-contracts/src/inbox-types.ts` for a new source.
+A desktop change in the same PR as a new `SignalSourceProduct` value fails the desktop/backend coupling check, and the inbox does not need it.
 
-> Backend work in `posthog/posthog` should be done in a **git worktree** (see
-> "Worktree setup" below). Merges in both repos go through the Trunk merge queue —
-> see the `merging-prs` skill.
+The data warehouse source itself must already exist and be implemented.
 
-## Deploy ordering (do not skip)
+## Find candidates
 
-The backend `SignalSourceProduct` choice must ship **before** the Code UI surfaces
-the toggle. The Code toggle calls `createSignalSourceConfig({ source_product })`,
-and the Django model rejects a `source_product` that isn't in its choices → 400.
+1. List implemented sources: iterate `SourceRegistry.get_all_sources()` and keep a source when `type(src).get_schemas is not _BaseSource.get_schemas` and `get_source_config.unreleasedSource` is false.
+   Run it on a fresh `origin/master` worktree.
+2. Call `get_documented_tables()` for each source. It gives table names and incremental fields without credentials.
+   `get_canonical_descriptions()` gives column names.
+3. Keep tables that hold one actionable record per row: issues, tickets, conversations, incidents, alerts, findings, feedback, reviews, survey responses.
+   Skip CRM tasks and notes, message logs, blog posts and event tickets.
+4. Check that each table has a human-readable text column, a stable id, and a creation timestamp.
+   Tables with text only in nested JSON need a bespoke emitter. Tables with one row per occurrence need grouping (see below).
+5. Compare against `_register_all_emitters()` in `products/signals/backend/emission/registry.py` and open PRs (`gh pr list --search "inbox source in:title"`).
 
-So: **land the posthog/posthog PR(s) first (or at least the enum migration), then
-the posthog/code PR.** When opening both together, note the dependency in the Code
-PR description.
+## Backend checklist (per source)
 
-## The setup form: use the dynamic renderer, don't hardcode
+Code lives in `products/signals/backend/`. Read `emission/CLAUDE.md` first.
 
-**Do not hand-code a per-source setup form.** PostHog Cloud serves each source's
-connect-form field schema over HTTP, and the app renders it generically via
-`DynamicSourceSetup` (`packages/ui/src/features/inbox/components/DynamicSourceSetup.tsx`).
-A new credential-based source needs **zero form code** — just route its
-`DataSourceSetup` switch case to `DynamicSourceSetup` with the capitalized
-`sourceType` and the `schemas` to sync.
+1. **Enum**: add a `SignalSourceProduct` value and a `SIGNAL_SOURCE_PRODUCT_LABELS` entry in `enums.py`.
+   The model's choices are callables, so a new value needs **no migration**.
+   A new record kind needs a `SignalSourceType` value, the matching `models.py` `SourceType` choice, and a prompt pair in `emission/_prompts.py`.
+2. **Emitter**: add `emission/<product>_<table>.py` exporting a `SignalSourceTableConfig`.
+   - Flat tables use `make_flat_emitter` from `emission/_common.py` (see `pagerduty_incidents.py`).
+   - Nested JSON: extract in HogQL with `JSONExtractString(col, 'key') AS new_alias`, using an alias that differs from the column name, or parse in Python (see `jira_issues.py`, `intercom_conversations.py`, `emission/_survey.py`).
+   - Warehouse columns are **snake_case**. The import renames API fields (`createdAt` becomes `created_at`). Check the source's `canonical_descriptions.py` and `settings.py`.
+   - `partition_field` is the creation timestamp. Set `partition_field_is_datetime_string=True` for string columns. The fetcher wraps the column in `parseDateTimeBestEffort(toString(...))`, so a native timestamp also works. Epoch columns use an expression such as `fromUnixTimestamp(intDiv(toInt(col), 1000))`.
+   - Tables with one row per occurrence (no grouped issue id) use `fetchers/grouped_warehouse.py` with a `GROUP BY`, so one issue emits once instead of flooding the inbox.
+   - Use `where_clause` to skip resolved, closed or empty-text rows only when the status values are certain. A filter on a column that a vendor sometimes omits makes the whole query fail.
+   - Do not select PII (emails, names, user objects, IPs). Use ids, urls, statuses and severities.
+   - Reuse the shared prompt pair for the record kind. Siblings use `max_records=200`, `first_sync_lookback_days=1` and `description_summarization_threshold_chars=2000`.
+3. **Register**: `register_signal_source(ExternalDataSourceType.X, "<table>", CONFIG)` in `_register_all_emitters()`. The table name must match the schema name the source returns, including casing (`Issues`, `Cases`).
+4. **Contract**: in `contracts.py` add `<Name><Kind>SignalExtra` (one `str | None` per extra field, `list` for list fields) and `<Name><Kind>SignalInput`, then add the Input to the `SignalInput` union and the `SIGNAL_INPUT_VARIANTS` tuple.
+5. **Tests**: add a row to `TIER1_SOURCES` in `emission/tests/test_tier1_registry.py`. It checks registration, the contract and the prompts. A bespoke emitter also gets a small parameterized test file for its parsing edge cases.
+6. **Generated types**: a new enum value changes `products/signals/frontend/generated/` and the MCP generated files. Run `hogli build:openapi`, or let the CI bot commit the regenerated types to the branch.
 
-- Endpoint: `GET /api/environments/{projectId}/external_data_sources/wizard/?source_type=<Type>` → `Record<string, SourceConfig>`. Client method: `PostHogAPIClient.getExternalDataSourceConfigs`. Hook: `useSourceConfig(sourceType)`.
-- `SourceConfig.fields` is a union: `input` (text/email/password/url/number/…), `select`, `switch-group`, `oauth`, `oauth-account-select`, `ssh-tunnel`, `file-upload`. `DynamicSourceSetup` renders input/select/switch-group **and `oauth`/`oauth-account-select`** generically, and builds the `createExternalDataSource` payload from field `name`s. The backend is the single source of truth for field names/labels/required/secret, so forms never drift.
-- The field `name`s become the `payload` keys — so you no longer hand-maintain them. (Jira → `subdomain`, `email`, `api_token`; all `secret:false` except the token.)
+Check that the fetch query parses: build the SELECT the fetcher builds and run `parse_select` from `posthog.hogql.parser` on it.
 
-**OAuth sources need NO bespoke form.** `DynamicSourceSetup` renders the `oauth` field (a
-connect button that starts the flow by `kind` and polls `getIntegrationsForProject` for the new
-integration, writing its id into `payload[<name>]`) and the `oauth-account-select` field (a
-server-side-searched picker over the integration's resources) generically. The connect flow is
-started by the generic, `kind`-parameterized `integration` tRPC router
-(`packages/host-router/src/routers/integration.router.ts` → `IntegrationService`), so any
-provider in `OauthIntegration.supported_kinds` works with no per-kind service or router. So an
-OAuth source (Intercom, HubSpot, Salesforce, …) is the same one-registry-entry change as a
-credential source — route its `DataSourceSetup` case to `DynamicSourceSetup`.
+## Frontend checklist (per source)
 
-Only two field types still lack a generic renderer (disable submit): `ssh-tunnel` and
-`file-upload`. Route those to a bespoke form. Resource pickers that must run _after_ OAuth
-(GitHub's repo picker) are handled by `oauth-account-select`; the old `GitHubSetup`/`ZendeskSetup`
-/`PgAnalyzeSetup` hardcoded forms remain only for historical reasons — leave them or migrate to
-`DynamicSourceSetup` opportunistically; don't add new ones.
+1. `products/signals/frontend/inbox/externalSignalSources.ts`: add an `EXTERNAL_SIGNAL_SOURCES` entry with `source`, `label`, `category`, `watches`, `dwSourceType` (the exact `ExternalDataSourceType` string), `requiredTables` and `sourceType` (the record kind).
+   Write `watches` in sentence case and follow `/writing-user-facing-copy`.
+   `WAREHOUSE_SOURCE_SETUP` derives from this list, so it needs no edit.
+2. `products/signals/frontend/inbox/signalSourcesLogic.ts`: add the product to **every** hand-written `externalSourceStates: Record<...>` union, in alphabetical order.
+   There are several, and they must all equal the `EXTERNAL_SIGNAL_SOURCES` list.
 
-Supported OAuth `kind` values (posthog `OauthIntegration.supported_kinds`,
-`posthog/models/integration/oauth.py`): `slack, salesforce, hubspot, google-ads,
-google-analytics, google-search-console, google-sheets, snapchat, linkedin-ads,
-reddit-ads, tiktok-ads, bing-ads, meta-ads, intercom, linear, clickup, jira,
-pinterest-ads, stripe` (+ `github` via App install). **A source not in this list
-must use the API-key form** — its warehouse connector takes credentials directly,
-independent of the OAuth integration list. (Note: even Jira's _warehouse source_
-uses an API token, not the OAuth `kind=jira`.)
+## The self-driving wizard (`PostHog/context-mill`), optional
 
-## Source catalog (Tier-1)
+The wizard's connected-tools list is hardcoded, so a new source is not offered during `npx @posthog/wizard self-driving` until you add it.
+Edit `context/skills/self-driving/references/5-connected-tools.md` (plus the source lists in `4-sources.md`, `2-read-context.md` and `description.md`):
 
-`source_type` = the capitalized DWH type string passed to `createExternalDataSource`.
-Verify exact `source_type` + `payload` key names against the posthog
-`external_data_sources` serializer / the source's `source.py` at implementation time.
+1. Add the tool to the step-5 `wizard_ask` options.
+2. Add its responder mapping: the same `source_product` and record kind as the emitter.
+3. Add its warehouse `source_type` to the "already connected" detection list.
+4. Credential sources are recorded as a follow-up, with no connector file. One-click OAuth sources get a connector reference (clone `5b-linear.md`).
 
-| Product   | `source_type` | Table           | Auth                    | Setup template       | `payload` keys                                     |
-| --------- | ------------- | --------------- | ----------------------- | -------------------- | -------------------------------------------------- |
-| Jira      | `Jira`        | `issues`        | API token               | `DynamicSourceSetup` | `subdomain`, `email`, `api_token`                  |
-| GitLab    | `GitLab`      | `issues`        | API token               | `DynamicSourceSetup` | `gitlab_host`, `personal_access_token`, `project`  |
-| Sentry    | `Sentry`      | `issues`        | API token               | `DynamicSourceSetup` | `auth_token`, `organization_slug`, `api_base_url?` |
-| Freshdesk | `Freshdesk`   | `tickets`       | API key                 | `DynamicSourceSetup` | `subdomain`, `api_key`                             |
-| Front     | `Front`       | `conversations` | API token               | `DynamicSourceSetup` | `api_token`                                        |
-| Gorgias   | `Gorgias`     | `tickets`       | API key                 | `DynamicSourceSetup` | `gorgias_domain`, `email`, `api_key`               |
-| Intercom  | `Intercom`    | `conversations` | OAuth (`kind=intercom`) | `DynamicSourceSetup` | `intercom_integration_id`                          |
-
-(Zendesk `tickets`, GitHub `issues`, Linear `issues`, pganalyze `issues`+`servers`,
-and Jira `issues` are already shipped — copy them, don't re-add. The Jira row above
-stays as the canonical worked example for `payload` keys and the JSON-blob emitter
-gotcha below.)
-
----
-
-## posthog/code checklist (per source)
-
-Product key is the lowercase `source_product` (e.g. `"jira"`). Grep the repo for
-`"zendesk"` (case-insensitive) inside `packages/` — every hit that is
-source-list-relevant is a place you must add the new product. The canonical list:
-
-### Type gates (every source)
-
-1. `packages/agent/packages/agent-contracts/src/inbox-types.ts` — add `"jira"` to the `SourceProduct` union.
-2. `packages/api-client/src/posthog-client.ts` — add to `SignalSourceConfig.source_product` union; add a new `source_type` value only if the record type isn't already `issue`/`ticket`.
-
-### Live UI path (every source)
-
-3. `packages/ui/src/features/inbox/hooks/useSignalSourceToggles.ts` — `SetupSourceProduct`, `SOURCE_TYPE_MAP`, `SOURCE_LABELS`, `DATA_WAREHOUSE_SOURCES` (`{ dwSourceType, requiredTable }`), `ALL_SOURCE_PRODUCTS`, and the `computeValues` initializer object.
-4. `packages/ui/src/features/inbox/components/SignalSourceToggles.tsx` — `SignalSourceValues` field, a `toggleX`/`setupX` callback, and a `<SignalSourceToggleCard>` in the "External connections" column (icon/label/description + `requiresSetup`/`onSetup`/`loading`/`syncStatus`).
-5. `packages/ui/src/features/inbox/components/DataSourceSetup.tsx` — `DataSourceType`, `REQUIRED_SCHEMAS`, and the `switch` case. For a credential source, route the case to `<DynamicSourceSetup sourceType="Jira" title="Connect Jira" schemas={schemasPayload("jira")} … />` — **no new form component**. Only OAuth/resource-picker sources need a bespoke `XSetup`.
-6. `packages/ui/src/features/inbox/components/utils/source-product-icons.tsx` — `SOURCE_PRODUCT_META` entry (`Icon`, `color`, `label`). Add an inline SVG icon file (copy `PgAnalyzeIcon.tsx`) if no Phosphor icon fits.
-7. `packages/ui/src/features/inbox/filterOptions.tsx` — `INBOX_SOURCE_OPTIONS` entry (source-filter dropdown).
-
-### Core mirror (keep in sync — `SignalSourceService`/`DataSourceService` mirror the maps; not on the live UI path today but keep them consistent)
-
-8. `packages/core/src/inbox/signalSourceService.ts` — mirror `SOURCE_TYPE_MAP`, `DATA_WAREHOUSE_SOURCES`, `ALL_SOURCE_PRODUCTS`, `computeSourceValues` init, plus `WarehouseSourceProduct`/`SignalSourceValues`.
-9. `packages/core/src/inbox/dataSourceService.ts` — `DataSourceType`, `REQUIRED_SCHEMAS`, a `createXDataSource` method.
-
-### OAuth plumbing — NOT needed per source anymore
-
-There is now a **generic, `kind`-parameterized** integration flow: `IntegrationService`
-(`packages/core/src/integrations/integration.ts`) + the `integration` tRPC router
-(`packages/host-router/src/routers/integration.router.ts`). `DynamicSourceSetup` starts any
-OAuth flow through it via the field's `kind`. So a new OAuth source needs **no** per-kind
-service, symbol, or router — do not clone `linear.ts`/`linear-integration.router.ts` per source.
-(The old per-kind linear/slack/github routers still exist for other callers; leave them.)
-
-### Setup-form specifics
-
-- **Credential source:** route the `DataSourceSetup` switch case to `DynamicSourceSetup`. Nothing else — the fields come from the wizard endpoint.
-- **OAuth source:** also just route to `DynamicSourceSetup`. Its connect-form schema carries the
-  `oauth` field (and, if the provider needs a resource picked, an `oauth-account-select` field),
-  which `DynamicSourceSetup` renders generically — connect button + integration polling + account
-  picker, all by `kind`. No bespoke form. The provider must be in
-  `OauthIntegration.supported_kinds`.
-- Issues sources (`github`/`linear`/`jira`) force `issues` to `full_refresh` in `ensureRequiredTableSyncing` (`useSignalSourceToggles.ts`) — add the new product to that condition if it syncs an `issues` table (issues get edited/closed, so incremental append would miss updates). Ticket/conversation sources only force `should_sync=true`.
-
-### Verify
-
-- `pnpm --filter @posthog/shared... build` after touching `inbox-types.ts` (it's a published type).
-- `pnpm typecheck` (whole repo — the unions are consumed across packages).
-- `biome lint packages/core packages/ui` — zero `noRestrictedImports`, imports ordered.
-
----
-
-## posthog/posthog checklist (per source)
-
-Scout lives in `products/signals/backend/`. The warehouse→signals handoff is
-generic; only the per-source emitter + registry entry are new.
-
-1. **Enum** — `products/signals/backend/enums.py`: add a `SignalSourceProduct` value + a `SIGNAL_SOURCE_PRODUCT_LABELS` entry. This regenerates `SIGNAL_SOURCE_PRODUCT_CHOICES` used by the model.
-2. **SourceType** — `products/signals/backend/models.py` `SignalSourceConfig.SourceType`: only add if the record type isn't already `ISSUE`/`TICKET`.
-3. **Migration** — `python manage.py makemigrations signals` → `NNNN_alter_signalsourceconfig_source_product`. **Batch all new enum values into ONE migration when doing several sources** — parallel PRs each adding a migration to this model collide in the merge queue.
-4. **Emitter** — new module `products/signals/backend/emission/<source>_<table>.py` exporting a `SignalSourceTableConfig`: `partition_field` (incremental cursor column), `fields` (columns to SELECT), optional `where_clause`, `partition_field_is_datetime_string`, an `emitter(row) -> SignalEmitterOutput(source_product, source_type, source_id, description, weight, extra)`, and optional LLM `actionability_prompt`/`summarization_prompt`. **Copy `github_issues.py` and adapt to the warehouse table's columns** (read the source's `settings.py`/`canonical_descriptions.py` under `products/warehouse_sources/backend/temporal/data_imports/sources/<name>/` for exact column names).
-
-   ⚠️ **Not every source stores flat columns.** GitHub/Linear expose `title`/`body`/`created_at` as top-level columns, so the generic `data_warehouse_record_fetcher` (`SELECT {fields} FROM {table} WHERE {partition_field} > cursor`) works directly. Others do **not**: e.g. **Jira's `issues` table has only `id`, `key`, `self`, `fields` (a nested JSON blob), `expand`** — `summary`/`description`/`status`/`created` all live inside `fields`. For such sources you must SELECT `fields` and `JSONExtractString(fields, '…')` in the emitter, and the `partition_field` must be a JSON expression (`JSONExtractString(fields, 'created')`, `partition_field_is_datetime_string=True`). **Verify the generic fetcher accepts a JSON-expression `partition_field`** (it interpolates it into HogQL `WHERE`) before assuming a clone works — this is the single most likely thing to be subtly wrong, and it can only be confirmed by running a sync, not by reading code. Inspect the real column shape via the source's `canonical_descriptions.py` first.
-
-5. **Register** — `products/signals/backend/emission/registry.py` `_register_all_emitters()`: `register((ExternalDataSourceType.X, "<table>"), <config>)`.
-6. **Contract** — `products/signals/backend/contracts.py`: add a `Literal[SignalSourceProduct.X]` variant.
-7. The generic fetcher (`emission/fetchers/data_warehouse.py`), the gate (`emission/gate.py`), and the warehouse hook plumbing need **no** changes.
-
-### Verify
-
-- Migration applies cleanly; `python manage.py makemigrations --check` is clean afterward.
-- The `ExternalDataSourceType` member exists in `products/warehouse_sources/backend/types.py`.
-
----
-
-## The self-driving wizard surface (`PostHog/context-mill`) — optional
-
-The two surfaces above make a source work in the app. They do **not** make the CLI
-`npx @posthog/wizard self-driving` onboarding _offer_ it. That flow is an AI agent
-driven by a skill in the separate `PostHog/context-mill` repo, and its connected-tool
-list is **hardcoded** — it is not read dynamically from the wizard endpoint. So a new
-source is invisible to self-driving onboarding until you add it there.
-
-Edit `context/skills/self-driving/references/5-connected-tools.md` (plus the source-list
-mentions in `4-sources.md`, `2-read-context.md`, and `description.md`):
-
-1. Add the tool to the step-5 `wizard_ask` multi-select options (`{ label, value }`).
-2. Add its responder mapping — the same `source_product` / `source_type` pair as the
-   posthog emitter (e.g. Jira → `jira` / `issue`).
-3. Add its DWH `source_type` to the "already connected" detection list.
-4. Classify how the run connects it:
-   - **Credential source** (API key/token — Jira, Zendesk, pganalyze): the run can't
-     collect credentials in-flight, so it never sends the user to the UI. Group it with
-     Zendesk — arm the dormant responder and record a follow-up. **No connector file.**
-   - **One-click OAuth source** (Linear-style, `kind=<source>` integration): add a
-     dedicated connector reference (`5X-<source>.md`, clone `5b-linear.md`) that hands
-     over the authorize link and creates the source from the integration id.
-
-`dist/` is gitignored (built in CI), but run `node scripts/build.js` (Node ≥20) once to
-confirm the skill bundles; the build validates structure.
+Run `node scripts/build.js` once to confirm the skill bundles.
 
 ## created_via attribution
 
-`ExternalDataSource.created_via` records **how** a source was created and is derived
-**server-side from the request transport** (`get_event_source` in
-`posthog/event_usage.py`, keyed on the user-agent) — an API caller **cannot** set it
-directly, which is deliberate (otherwise any client could self-label). A new source
-inherits this for free; there is nothing per-source to wire. For reference, the machine
-value `mcp` is upgraded based on the caller:
-
-| Caller                                       | Transport                  | `created_via`  |
-| -------------------------------------------- | -------------------------- | -------------- |
-| PostHog Desktop app inbox (`posthog/code`)   | `EventSource.POSTHOG_CODE` | `self_driving` |
-| `npx @posthog/wizard` (self-driving program) | `EventSource.WIZARD`       | `self_driving` |
-| Other MCP clients                            | `EventSource.MCP`          | `mcp`          |
-
-The upgrade lives in `_create_external_data_source` in
-`products/warehouse_sources/backend/presentation/views/external_data_source.py`.
-
----
-
-## Worktree setup (posthog/posthog backend work)
-
-```bash
-# from your local posthog/posthog clone
-git fetch origin
-git worktree add ../worktrees/inbox-<source> -b <your-branch-prefix>/inbox-<source>-source origin/master
-```
-
-If the agent sandbox has no GPG signing key configured, disable signing for the
-commit (`git -c commit.gpgsign=false commit`) so it doesn't fail on a missing
-key. Do **not** reflexively add `--no-verify`: the pre-commit/pre-push hooks run
-lint, type-check, and `ci:preflight`, and skipping them lets breakage reach CI.
-Only bypass a specific hook if it genuinely can't run in the worktree, and run
-the Verify steps above by hand first. Open PRs **ready for review** (not draft).
-Use semantic commit prefix `feat(data-warehouse):` for anything touching
-warehouse sources / signals. Clean up the worktree when merged:
-`git worktree remove ../worktrees/inbox-<source>`.
+`ExternalDataSource.created_via` is set server-side from the request transport (`get_event_source` in `posthog/event_usage.py`).
+Callers cannot set it, and a new source needs no wiring.
+The upgrade from `mcp` to `self_driving` lives in `_create_external_data_source` in `products/warehouse_sources/backend/presentation/views/external_data_source.py`.
 
 ## PR conventions
 
-- One PR per source per repo (per the request). Title: `feat(data-warehouse): add <Source> as a self-driving inbox source`.
-- Base the PR body on the repo's PR template.
-- Backend PRs first (or the shared enum migration first); Code PR references the backend PR and the deploy-ordering dependency.
-- **Migration hygiene:** if opening several backend PRs, put all new `SignalSourceProduct` values in ONE prep PR's migration, and have the per-source emitter PRs carry no migration — otherwise they conflict.
-- Follow the `merging-prs` skill to land each PR through the Trunk queue.
+- Title: `feat(data-warehouse): add <Source or group> as self-driving inbox sources`.
+- Group related sources (incidents, security, trackers, support, feedback) in one PR per group.
+- PRs that edit the same lists (`registry.py`, `contracts.py`, `test_tier1_registry.py`, `externalSignalSources.ts`, `signalSourcesLogic.ts`) conflict with each other after one merges. Keep the entries from both sides when you resolve the conflict, and keep every `signalSourcesLogic.ts` union complete.
 
 ## Gotchas
 
-- `source_type` (DWH, capitalized e.g. `"Jira"`) ≠ `source_product` (lowercase e.g. `"jira"`) ≠ `SourceType` record kind (`"issue"`). Three distinct fields.
-- `DATA_WAREHOUSE_SOURCES` matches an existing external source by `source_type.toLowerCase()` — so `dwSourceType` must equal the real DWH type string.
-- The exact `payload` keys are the real risk. They must match the posthog serializer for that `source_type`. Confirm against `source.py` before shipping.
-- Keep `SOURCE_PRODUCT_META` and `INBOX_SOURCE_OPTIONS` covered for every product (the inbox `CLAUDE.md` calls this out) or findings render without an icon/filter.
-- Do **not** confuse this with `packages/core/src/onboarding/githubConnectService.ts` — that's repo-access (clone/branch/PR), unrelated to warehouse sources.
+- `source_type` on the warehouse source (`"Jira"`), `source_product` (`"jira"`) and the record kind (`"issue"`) are three different fields.
+- `dwSourceType` must equal the real `ExternalDataSourceType` string.
+- A column the vendor omits for some accounts (`priority`, `date_closed`, `archived_at`) may be missing from the synced table. Do not select or filter on it unless it is always present.
+- Every canonical actionability prompt keeps the `When in doubt, classify as ACTIONABLE` line, because steering injection anchors on it.

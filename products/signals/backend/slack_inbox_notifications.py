@@ -36,6 +36,7 @@ from posthog.slack.formatting import (
 )
 from posthog.slack.markdown import slack_markdown_block as _markdown_block
 
+from products.signals.backend.assignment_flags import assignment_side_effects_allowed
 from products.signals.backend.enums import SIGNAL_SOURCE_PRODUCT_LABELS
 from products.signals.backend.models import (
     AutonomyPriority,
@@ -713,6 +714,8 @@ def _deliver_route_notification(
         ai_enabled = bool(report.team.organization.is_ai_data_processing_approved)
         if invite := slack_followup_invite(route.integration, utm_tags=_INBOX_INVITE_UTM_TAGS, ai_enabled=ai_enabled):
             blocks.append(invite)
+        if not assignment_side_effects_allowed(team_id=report.team_id, report_id=str(report.id)):
+            return False
         response = slack.client.chat_postMessage(channel=channel_id, blocks=blocks, text=text)
         delivered = True
         thread_ts = response.get("ts") if hasattr(response, "get") else None
@@ -813,6 +816,9 @@ def dispatch_inbox_item_notifications(
 
     Best-effort: per-destination Slack errors are logged, not raised.
     """
+    if not assignment_side_effects_allowed(team_id=team_id, report_id=report_id):
+        return 0
+
     try:
         report = SignalReport.objects.get(id=report_id, team_id=team_id)
     except SignalReport.DoesNotExist:
@@ -951,6 +957,9 @@ def dispatch_reviewer_added_notifications(
     fires for reports that would themselves have notified. `exclude_user_id` drops the actor
     so someone adding themselves isn't pinged. Best-effort; returns messages sent.
     """
+    if not assignment_side_effects_allowed(team_id=team_id, report_id=report_id):
+        return 0
+
     added_logins = {login.lower() for login in _stripped_nonempty(added_github_logins)}
     added_uuids = _stripped_nonempty(added_user_uuids)
     if not added_logins and not added_uuids:
