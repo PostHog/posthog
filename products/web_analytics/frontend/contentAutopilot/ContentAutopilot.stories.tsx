@@ -16,6 +16,8 @@ import { ContentAutopilot } from './ContentAutopilot'
 import { type ContentAutopilotProposalTab, contentAutopilotLogic } from './contentAutopilotLogic'
 import { ContentAutopilotSetup } from './ContentAutopilotSetup'
 import {
+    EXAMPLE_FAILED_DRAFT_OPPORTUNITY,
+    EXAMPLE_FAILED_PROPOSAL_LIST,
     EXAMPLE_OPPORTUNITIES,
     EXAMPLE_PROFILE,
     EXAMPLE_PROPOSAL,
@@ -117,8 +119,8 @@ ReadyForReview.decorators = [
     workspaceHandlers({
         profiles: [EXAMPLE_PROFILE],
         runs: [EXAMPLE_RUN],
-        proposals: [EXAMPLE_PROPOSAL_LIST],
-        opportunities: EXAMPLE_OPPORTUNITIES,
+        proposals: [EXAMPLE_PROPOSAL_LIST, EXAMPLE_FAILED_PROPOSAL_LIST],
+        opportunities: [...EXAMPLE_OPPORTUNITIES, EXAMPLE_FAILED_DRAFT_OPPORTUNITY],
     }),
 ]
 
