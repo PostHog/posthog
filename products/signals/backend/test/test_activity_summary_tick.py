@@ -93,6 +93,7 @@ _CONFIG_CASES: list[tuple[str, Any, ActivitySummaryConfig]] = [
             "max_versions": -3,
             "emit_embeddings": "no",
             "rebuild_before": "not a time",
+            "rebuild_budget_share": 2,
         },
         ActivitySummaryConfig(enabled=True, organization_ids=("org-a",), skip_team_ids=(3,)),
     ),
@@ -226,7 +227,10 @@ class TestActivitySummaryQueue(BaseTest):
             (self.team.id, fresh.id),
         ]
 
-    def test_a_stale_summary_is_due_without_new_rows_and_ranks_with_cold_starts(self) -> None:
+    @parameterized.expand([("every stale pair fits the share", 0.3, 2), ("the share caps the rebuilds", 0.1, 1)])
+    def test_a_stale_summary_is_due_without_new_rows_and_ranks_with_cold_starts(
+        self, _name: str, share: float, rebuilds: int
+    ) -> None:
         current, old_version, before_rebuild, busy = (
             self._user(f"{name}@example.com") for name in ("current", "old", "rebuild", "busy")
         )
@@ -242,10 +246,9 @@ class TestActivitySummaryQueue(BaseTest):
             self._changes(user, 1, days_ago=5)
         self._changes(busy, 3)
 
-        config = self._config(rebuild_before=NOW - datetime.timedelta(days=2, hours=12))
+        config = self._config(rebuild_before=NOW - datetime.timedelta(days=2, hours=12), rebuild_budget_share=share)
         assert self._select(config) == [
-            (self.team.id, before_rebuild.id),
-            (self.team.id, old_version.id),
+            *[(self.team.id, before_rebuild.id), (self.team.id, old_version.id)][:rebuilds],
             (self.team.id, busy.id),
         ]
 

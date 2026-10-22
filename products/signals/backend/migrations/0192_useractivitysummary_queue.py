@@ -43,6 +43,8 @@ class Migration(migrations.Migration):
                 ("last_activity_at", models.DateTimeField(blank=True, null=True)),
                 ("due_at", models.DateTimeField(blank=True, null=True)),
                 ("summarized_at", models.DateTimeField(blank=True, null=True)),
+                ("prompt_version", models.PositiveSmallIntegerField(blank=True, null=True)),
+                ("render_version", models.PositiveSmallIntegerField(blank=True, null=True)),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 ("updated_at", models.DateTimeField(auto_now=True)),
                 (

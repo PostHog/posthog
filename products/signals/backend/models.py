@@ -3934,6 +3934,9 @@ class UserActivitySummaryQueueState(TeamScopedRootMixin, UUIDModel):
     due_at = models.DateTimeField(null=True, blank=True)
     # A copy of `UserActivitySummary.generated_at`, so the queue order needs no join.
     summarized_at = models.DateTimeField(null=True, blank=True)
+    # Copies of the stored summary's versions, so the queue finds stale summaries with no join.
+    prompt_version = models.PositiveSmallIntegerField(null=True, blank=True)
+    render_version = models.PositiveSmallIntegerField(null=True, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

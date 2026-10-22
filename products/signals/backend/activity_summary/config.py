@@ -47,6 +47,8 @@ class ActivitySummaryConfig:
     limits: RenderLimits = DEFAULT_LIMITS
     # Summaries generated before this time are rebuilt from the full window, as after a version change.
     rebuild_before: datetime.datetime | None = None
+    # The largest share of a tick that rebuilds of stale summaries can take. Other updates get the rest.
+    rebuild_budget_share: float = 0.3
 
 
 DISABLED = ActivitySummaryConfig()
@@ -61,6 +63,11 @@ def _positive_number(value: Any, default: float) -> float:
     if isinstance(value, bool) or not isinstance(value, int | float) or value <= 0:
         return default
     return float(value)
+
+
+def _fraction(value: Any, default: float) -> float:
+    number = _positive_number(value, default)
+    return number if number <= 1 else default
 
 
 def _bool(value: Any, default: bool) -> bool:
@@ -127,6 +134,7 @@ def parse_config(payload: Any) -> ActivitySummaryConfig:
         count_views=_bool(payload.get("count_views"), defaults.count_views),
         limits=parse_limits(payload.get("limits")),
         rebuild_before=_timestamp(payload.get("rebuild_before")),
+        rebuild_budget_share=_fraction(payload.get("rebuild_budget_share"), defaults.rebuild_budget_share),
     )
 
 

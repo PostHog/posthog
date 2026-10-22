@@ -6,8 +6,10 @@ ordered query. Row counts here are only a queue estimate. `update_activity_summa
 real drop rules and `min_units`, and backs a pair off when it skips, so the pair leaves the queue head.
 """
 
+import math
 import datetime
 from collections.abc import Callable
+from typing import Any
 
 from django.db import transaction
 from django.db.models import BooleanField, Case, Count, ExpressionWrapper, F, Max, OuterRef, Q, Subquery, Sum, When
@@ -19,12 +21,13 @@ from posthog.models import ActivityLog, FileSystemViewLog, Team
 from products.signals.backend.activity_summary.config import ActivitySummaryConfig
 from products.signals.backend.activity_summary.inputs import TASK_ORIGIN_PRODUCTS
 from products.signals.backend.activity_summary.logic import EXCEPTION_ERROR_PREFIX
-from products.signals.backend.activity_summary.prompt import system_prompt
+from products.signals.backend.activity_summary.prompt import PROMPT_VERSION, system_prompt
 from products.signals.backend.activity_summary.render import (
     DEFAULT_LIMITS,
     MAX_LIMITS,
     MAX_SUMMARY_CHARS,
     NOISY_ACTIVITY_SCOPES,
+    RENDER_VERSION,
     SANDBOX_PROMPT_TITLE_PREFIX,
     SCOUT_CLIENT_PREFIX,
     RenderLimits,
@@ -159,8 +162,8 @@ def _after_watermark(
     for team_id, user_id, at in rows:
         pair = ActivitySummaryPair(team_id=team_id, user_id=user_id)
         watermark = watermarks.get(pair)
-        if watermark is None or at > watermark:
-            _add(pending, pair, 1, at)
+        # A row the summary already read is no pending unit, but it still dates the pair's last activity.
+        _add(pending, pair, 1 if watermark is None or at > watermark else 0, at)
     return pending
 
 
@@ -177,6 +180,7 @@ def _activity_rows(
         .exclude(scope__in=NOISY_ACTIVITY_SCOPES)
         .exclude(client__startswith=SCOUT_CLIENT_PREFIX)
     )
+    unit_count = Count("id")
     if after_watermark:
         watermark = Subquery(
             # nosemgrep: idor-lookup-without-team (correlated on the outer row's team_id)
@@ -184,11 +188,12 @@ def _activity_rows(
                 "input_watermark"
             )[:1]
         )
-        rows = rows.filter(created_at__gt=Coalesce(watermark, start))
+        # A row the summary already read is no pending unit, but it still dates the pair's last activity.
+        unit_count = Count("id", filter=Q(created_at__gt=Coalesce(watermark, start)))
     return {
         ActivitySummaryPair(team_id=team_id, user_id=user_id): _NewRows(units=units, last_at=last_at)
         for team_id, user_id, units, last_at in rows.values("team_id", "user_id")
-        .annotate(units=Count("id"), last_at=Max("created_at"))
+        .annotate(units=unit_count, last_at=Max("created_at"))
         .values_list("team_id", "user_id", "units", "last_at")
         if team_id is not None and user_id is not None
     }
@@ -237,22 +242,30 @@ def queue_sources(config: ActivitySummaryConfig) -> tuple[str, ...]:
     )
 
 
+_STORED_FIELDS = ("next_eligible_at", "generated_at", "prompt_version", "render_version")
+
+
+def _state_fields(stored: dict[str, Any]) -> dict[str, Any]:
+    """The queue state fields that copy a stored summary."""
+    return {
+        "due_at": stored["next_eligible_at"],
+        "summarized_at": stored["generated_at"],
+        "prompt_version": stored["prompt_version"],
+        "render_version": stored["render_version"],
+    }
+
+
 def _create_missing_states(pairs: list[ActivitySummaryPair]) -> None:
-    """Create a state row for each pair that has none, with the due time and summary time of its stored summary."""
+    """Create a state row for each pair that has none, with the times and versions of its stored summary."""
     team_ids = {pair.team_id for pair in pairs}
     # nosemgrep: idor-lookup-without-team (system tick with no user input; filtered to the given pairs)
     stored = UserActivitySummary.all_teams.filter(
         team_id__in=team_ids, user_id__in={pair.user_id for pair in pairs}
-    ).values_list("team_id", "user_id", "next_eligible_at", "generated_at")
-    times = {ActivitySummaryPair(team_id=team_id, user_id=user_id): (due, at) for team_id, user_id, due, at in stored}
+    ).values("team_id", "user_id", *_STORED_FIELDS)
+    copies = {ActivitySummaryPair(team_id=row["team_id"], user_id=row["user_id"]): _state_fields(row) for row in stored}
     UserActivitySummaryQueueState.all_teams.bulk_create(
         [
-            UserActivitySummaryQueueState(
-                team_id=pair.team_id,
-                user_id=pair.user_id,
-                due_at=times.get(pair, (None, None))[0],
-                summarized_at=times.get(pair, (None, None))[1],
-            )
+            UserActivitySummaryQueueState(team_id=pair.team_id, user_id=pair.user_id, **copies.get(pair, {}))
             for pair in pairs
         ],
         ignore_conflicts=True,
@@ -297,7 +310,10 @@ def feed_queue(config: ActivitySummaryConfig, now: datetime.datetime) -> int:
 
 
 def seed_queue(config: ActivitySummaryConfig, team_ids: list[int], end: datetime.datetime) -> int:
-    """Set the queue state of these teams from the rows after each pair's watermark in the window before `end`.
+    """Set the queue state of these teams from the rows in the window before `end`.
+
+    Pending units count the rows after each pair's watermark. Last activity counts every row, so a
+    stale summary with no new rows is still due.
 
     Pending units of these teams that the window does not hold go to zero. Returns the pairs seeded.
     """
@@ -327,49 +343,70 @@ def move_cursors_to(config: ActivitySummaryConfig, end: datetime.datetime) -> No
 
 
 def sync_pair_state(team_id: int, user_id: int) -> None:
-    """Copy the due time and summary time of the stored summary to the pair's queue state.
+    """Copy the times and versions of the stored summary to the pair's queue state.
 
     Pending units go to zero when the summary's watermark includes the newest pending row.
     """
     stored = (
         UserActivitySummary.objects.for_team(team_id)
         .filter(user_id=user_id)
-        .values("next_eligible_at", "generated_at", "input_watermark")
+        .values(*_STORED_FIELDS, "input_watermark")
         .first()
     )
     if stored is None:
         return
     watermark = stored["input_watermark"]
     UserActivitySummaryQueueState.objects.for_team(team_id).filter(user_id=user_id).update(
-        due_at=stored["next_eligible_at"],
-        summarized_at=stored["generated_at"],
+        **_state_fields(stored),
         pending_units=F("pending_units")
         if watermark is None
         else Case(When(last_activity_at__lte=watermark, then=0), default=F("pending_units")),
     )
 
 
+def _current(config: ActivitySummaryConfig) -> Q:
+    """Queue states with no summary, or a summary that `logic.is_stale` does not mark stale."""
+    current = Q(prompt_version=PROMPT_VERSION, render_version=RENDER_VERSION)
+    if config.rebuild_before is not None:
+        current &= Q(summarized_at__gte=config.rebuild_before)
+    return Q(summarized_at__isnull=True) | current
+
+
 def select_pairs(config: ActivitySummaryConfig, now: datetime.datetime, limit: int) -> list[ActivitySummaryPair]:
     """The due pairs of the enrolled teams, highest priority first, cut to `limit`.
 
-    A pair is due when it has at least `min_units` pending units with a row in the last `window_days`,
-    and its due time is empty or past. One unit never comes from less than one row, so a pair with
-    fewer rows would only skip. Pairs with no summary come first, then the pairs with the most pending units, then
-    the oldest summaries.
+    A pair is due when it has a row in the last `window_days` and its due time is empty or past. A pair
+    with a current summary also needs at least `min_units` pending units. One unit never comes from less
+    than one row, so a pair with fewer rows would only skip. A pair with a stale summary needs no pending
+    units, because its update reads the full window. Stale pairs take at most `rebuild_budget_share` of
+    `limit`, so a version change does not stop the other updates.
+
+    Pairs with no summary come first, then stale pairs with the oldest summary first, then the pairs with
+    the most pending units, then the oldest summaries.
     """
     team_ids = enrolled_team_ids(config)
     if not team_ids or limit <= 0:
         return []
     window_start = now - datetime.timedelta(days=config.limits.window_days)
-    rows = (
+    due = (
         # nosemgrep: idor-lookup-without-team (system tick with no user input; filtered to the enrolled teams)
-        UserActivitySummaryQueueState.all_teams.filter(
-            team_id__in=team_ids,
-            pending_units__gte=max(1, config.min_units),
-            last_activity_at__gte=window_start,
+        UserActivitySummaryQueueState.all_teams.filter(team_id__in=team_ids, last_activity_at__gte=window_start).filter(
+            Q(due_at__isnull=True) | Q(due_at__lte=now)
         )
-        .filter(Q(due_at__isnull=True) | Q(due_at__lte=now))
-        .order_by(*_QUEUE_ORDER)
-        .values_list("team_id", "user_id")[:limit]
     )
-    return [ActivitySummaryPair(team_id=team_id, user_id=user_id) for team_id, user_id in rows]
+    current = _current(config)
+    updates = list(
+        due.filter(current, pending_units__gte=max(1, config.min_units))
+        .order_by(*_QUEUE_ORDER)
+        .values_list("team_id", "user_id", "summarized_at")[:limit]
+    )
+    rebuilds = list(
+        due.exclude(current)
+        .order_by("summarized_at", "team_id", "user_id")
+        .values_list("team_id", "user_id")[: math.ceil(limit * config.rebuild_budget_share)]
+    )
+    cold = [(team_id, user_id) for team_id, user_id, at in updates if at is None]
+    warm = [(team_id, user_id) for team_id, user_id, at in updates if at is not None]
+    return [ActivitySummaryPair(team_id=team_id, user_id=user_id) for team_id, user_id in cold + rebuilds + warm][
+        :limit
+    ]
