@@ -143,6 +143,8 @@ export const QueryDatabase = ({
         highlightViewsSectionDrop,
         featureFlags,
         editingPropertyDefinition,
+        materializationStatusFilters,
+        dataWarehouseSavedQueriesLoading,
     } = useValues(queryDatabaseLogic)
     const {
         setExpandedFolders,
@@ -164,6 +166,7 @@ export const QueryDatabase = ({
         closePropertyDefinitionEditor,
         updatePropertyDefinition,
     } = useActions(queryDatabaseLogic)
+    const { dataWarehouseSavedQueriesLoaded } = useValues(dataWarehouseViewsLogic)
     const {
         createDataWarehouseSavedQueryFolder,
         deleteDataWarehouseSavedQueryFolder,
@@ -1417,6 +1420,13 @@ export const QueryDatabase = ({
 
     return (
         <>
+            {!connectionId &&
+                materializationStatusFilters.length > 0 &&
+                dataWarehouseSavedQueriesLoaded &&
+                !dataWarehouseSavedQueriesLoading &&
+                treeData.length === 0 && (
+                    <p className="px-3 py-2 text-muted text-sm">No materialized views match your filters.</p>
+                )}
             {tree}
             {editingPropertyDefinition ? (
                 <PropertyDefinitionEditModal

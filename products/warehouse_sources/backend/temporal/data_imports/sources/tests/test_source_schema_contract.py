@@ -51,6 +51,7 @@ PASS = "pass"
 SCHEMA_FILTER_NOT_CHECKABLE: dict[str, str] = {
     "AmazonS3": "network",
     "AwsAthena": "network",
+    "AwsDocumentDB": "driver",
     "AzureBlob": "network",
     "BigQuery": "driver",
     "Baserow": "network",
@@ -103,7 +104,9 @@ UNKNOWN_SCHEMA_NOT_CHECKABLE: dict[str, str] = {
     "AmazonS3": "request",
     "Attentive": "webhook",
     "AwsAthena": "request",
+    "AwsDocumentDB": "driver",
     "AzureBlob": "request",
+    "AzureLogAnalytics": "request",
     "Baserow": "request",
     "BigQuery": "driver",
     "BingAds": "database",
