@@ -4,6 +4,7 @@ import { SendMailOptions } from 'nodemailer'
 import { Counter, Histogram } from 'prom-client'
 
 import { CyclotronInvocationQueueParametersEmailType } from '~/cdp/schema/cyclotron'
+import { EmailTag } from '~/cdp/schema/emailFields'
 import { HogFlowEmailSendingRateLimit, HogFlowEmailSendingRateLimitSchema } from '~/cdp/schema/hogflow'
 import {
     CyclotronJobInvocationHogFunction,
@@ -314,6 +315,10 @@ function sanitizeFromName(name: string): string {
 export function formatMailbox(name: string | undefined, email: string): string {
     const cleaned = (name ?? '').replace(/[\x00-\x1F\x7F]/g, '').trim()
     return cleaned ? `"${cleaned.replace(/[\\"]/g, '\\$&')}" <${email}>` : email
+}
+
+export function emailTagProperties(tags: readonly EmailTag[]): Record<string, string> {
+    return Object.fromEntries(tags.map((tag) => [tag.name, tag.value]))
 }
 
 export function parseAddressList(value?: string): string[] | undefined {
@@ -665,6 +670,7 @@ export class EmailService {
                     // dimension on the send there is no way to build an open rate in an insight that
                     // isn't deflated by however much of the audience declined tracking.
                     $email_tracking_enabled: trackingEnabled,
+                    ...(params.tags?.length ? { $email_tags: emailTagProperties(params.tags) } : {}),
                 },
             })
         }
@@ -971,7 +977,10 @@ export class EmailService {
             to: formatMailbox(params.to.name, params.to.email),
             subject: sanitizeEmailSubject(params.subject),
             ...(params.text ? { text: params.text } : {}),
-            headers: { [AUTO_SUBMITTED_HEADER.Name!]: AUTO_SUBMITTED_HEADER.Value! },
+            headers: {
+                ...Object.fromEntries((params.headers ?? []).map((header) => [header.name, header.value])),
+                [AUTO_SUBMITTED_HEADER.Name!]: AUTO_SUBMITTED_HEADER.Value!,
+            },
             ...(params.html
                 ? {
                       html: trackingEnabled
@@ -1075,6 +1084,7 @@ export class EmailService {
                 ...(result.invocation.hogFunction?.metadata?.sensitive === true
                     ? [{ Name: SES_SENSITIVE_TAG, Value: 'true' }]
                     : []),
+                ...(params.tags ?? []).map((tag) => ({ Name: tag.name, Value: tag.value })),
             ],
             FeedbackForwardingEmailAddress: from.email,
         }
@@ -1105,7 +1115,13 @@ export class EmailService {
                       identifier: params.to.email,
                   })
                 : []
-            sendEmailParams.Content.Simple.Headers = [...unsubscribeHeaders, trackingHeader, AUTO_SUBMITTED_HEADER]
+            const codeSendHeaders = (params.headers ?? []).map((header) => ({ Name: header.name, Value: header.value }))
+            sendEmailParams.Content.Simple.Headers = [
+                ...codeSendHeaders,
+                ...unsubscribeHeaders,
+                trackingHeader,
+                AUTO_SUBMITTED_HEADER,
+            ]
         }
 
         const replyToAddresses = parseAddressList(params.replyTo)

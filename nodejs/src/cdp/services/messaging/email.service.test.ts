@@ -989,6 +989,17 @@ describe('EmailService', () => {
                 to: [{ address: 'test@example.com', name: 'Test User' }],
             })
         })
+        it("should send a code send's headers", async () => {
+            invocation.queueParameters = createEmailParams({
+                from: { integrationId: 1 },
+                headers: [{ name: 'X-Entity-Ref-ID', value: 'order-123' }],
+            })
+            const result = await service.executeSendEmail(invocation)
+            expect(result.error).toBeUndefined()
+            await waitForExpect(async () => expect(mailDevAPI.getEmails()).resolves.toHaveLength(1))
+            const emails = await mailDevAPI.getEmails()
+            expect(emails[0].headers).toMatchObject({ 'x-entity-ref-id': 'order-123' })
+        })
         it('should include tracking code in the email with distinct_id', async () => {
             invocation.queueParameters = createEmailParams({
                 html: '<body>Hi! <a href="https://example.com">Click me</a></body>',
@@ -1538,6 +1549,28 @@ describe('EmailService', () => {
             }
         )
 
+        it("sends a code send's headers beside PostHog's own and its tags beside PostHog's tags", async () => {
+            sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+            invocation.hogFunction.metadata = { message_category_type: 'transactional' }
+            invocation.queueParameters = createEmailParams({
+                headers: [{ name: 'X-Entity-Ref-ID', value: 'order-123' }],
+                tags: [{ name: 'category', value: 'password_reset' }],
+            })
+
+            const result = await service.executeSendEmail(invocation)
+
+            expect(result.error).toBeUndefined()
+            const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
+            expect(sentCommand.input.Content.Simple.Headers.map((h: { Name: string }) => h.Name)).toEqual([
+                'X-Entity-Ref-ID',
+                'X-PostHog-Tracking-Code',
+                'Auto-Submitted',
+            ])
+            expect(sentCommand.input.Content.Simple.Headers[0]).toEqual({ Name: 'X-Entity-Ref-ID', Value: 'order-123' })
+            expect(sentCommand.input.EmailTags.map((t: { Name: string }) => t.Name)).toEqual(['ph_id', 'category'])
+            expect(sentCommand.input.EmailTags[1]).toEqual({ Name: 'category', Value: 'password_reset' })
+        })
+
         it('attaches the X-PostHog-Tracking-Code header carrying the full signed code', async () => {
             // The header is the authoritative tracking-code carrier (the EmailTag is the
             // bounded backwards-compat fallback). It rides on every outbound message,
@@ -1796,17 +1829,22 @@ describe('EmailService', () => {
         })
 
         it.each([
-            ['an ordinary template', {}, 'Test Subject'],
-            ['a sensitive template', { sensitive: true }, undefined],
+            ['an ordinary template', {}, 'Test Subject', {}],
+            ['a sensitive template', { sensitive: true }, undefined, {}],
+            ['a code send with tags', {}, 'Test Subject', { tags: [{ name: 'category', value: 'password_reset' }] }],
         ])(
             'should capture a $workflows_email_sent PostHog event on success, for %s',
-            async (_name, extraMetadata, subject) => {
+            async (_name, extraMetadata, subject, extraParams) => {
                 // Engagement capture is team-opt-in; enable it for this team so the captured event is emitted.
                 jest.spyOn(
                     (service as any).teamWorkflowsConfigService,
                     'shouldCaptureEngagementEvents'
                 ).mockResolvedValue(true)
                 invocation.hogFunction.metadata = { ...invocation.hogFunction.metadata, ...extraMetadata }
+                invocation.queueParameters = {
+                    ...invocation.queueParameters!,
+                    ...extraParams,
+                } as typeof invocation.queueParameters
                 sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
                 const result = await service.executeSendEmail(invocation)
                 expect(result.error).toBeUndefined()
@@ -1823,6 +1861,9 @@ describe('EmailService', () => {
                     },
                 })
                 expect(result.capturedPostHogEvents[0].properties.$email_subject).toEqual(subject)
+                expect(result.capturedPostHogEvents[0].properties.$email_tags).toEqual(
+                    'tags' in extraParams ? { category: 'password_reset' } : undefined
+                )
             }
         )
 

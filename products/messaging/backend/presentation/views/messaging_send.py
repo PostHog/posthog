@@ -22,6 +22,7 @@ from products.messaging.backend.facade.transactional_email import (
     SENDER_ADDRESS_MAX_LENGTH,
     SENDER_ADDRESS_PATTERN,
     AcceptedSend,
+    EmailField,
     EmailSendCommand,
     RenderedContent,
     RenderedEmail,
@@ -32,7 +33,17 @@ from products.messaging.backend.facade.transactional_email import (
     rendered_content,
     require_code_email_access,
 )
-from products.messaging.backend.presentation.views.send_email_fields import PlainAddressField
+from products.messaging.backend.presentation.views.send_email_fields import (
+    MAX_COPIES,
+    MAX_HEADER_VALUE_LENGTH,
+    MAX_HEADERS,
+    MAX_TAGS,
+    EmailTagSerializer,
+    PlainAddressField,
+    copies_field,
+    validate_headers,
+    validate_tags,
+)
 from products.messaging.backend.presentation.views.transactional_email_api import (
     IDEMPOTENCY_KEY_PARAMETER,
     TRANSACTIONAL_EMAIL_THROTTLES,
@@ -83,6 +94,7 @@ class TemplateReferenceSerializer(RefusesUnknownFieldsSerializer):
 
 
 CODE_FORM_FIELDS = ("subject", "html", "text")
+CODE_SEND_FIELDS = ("from", "reply_to", "cc", "bcc", "headers", "tags")
 
 
 class SendIdentifiersSerializer(RefusesUnknownFieldsSerializer, TransactionalEmailIdentifiersSerializer):
@@ -134,6 +146,30 @@ class SendEmailSerializer(RefusesUnknownFieldsSerializer, SendTransactionalEmail
         allow_empty=False,
         max_length=10,
         help_text="Addresses replies go to. Not with `template.id`.",
+    )
+    cc = copies_field(
+        help_text=f"Addresses that get a visible copy, at most {MAX_COPIES}. Each one is checked against the "
+        "suppression list, and one suppressed address stops the send. Not with `template.id`."
+    )
+    bcc = copies_field(
+        help_text=f"Addresses that get a hidden copy, at most {MAX_COPIES}. Each one is checked against the "
+        "suppression list, and one suppressed address stops the send. Not with `template.id`."
+    )
+    headers = serializers.DictField(
+        child=serializers.CharField(trim_whitespace=False, allow_blank=True),
+        required=False,
+        validators=[validate_headers],
+        help_text=f"Extra email headers by name, such as `X-Entity-Ref-ID` or `List-Unsubscribe`, at most "
+        f"{MAX_HEADERS}. Values are printable ASCII up to {MAX_HEADER_VALUE_LENGTH} characters. Headers PostHog "
+        "sets itself, such as `From`, `Subject` and `Content-Type`, are refused. Not with `template.id`.",
+    )
+    tags = serializers.ListField(
+        child=EmailTagSerializer(),
+        required=False,
+        max_length=MAX_TAGS,
+        validators=[validate_tags],
+        help_text=f"Name and value pairs, at most {MAX_TAGS}, that PostHog adds to the email's engagement events "
+        "as `$email_tags`. Not with `template.id`.",
     )
     capture_engagement = serializers.BooleanField(
         required=False,
@@ -192,9 +228,11 @@ class SendEmailSerializer(RefusesUnknownFieldsSerializer, SendTransactionalEmail
             if field in data:
                 raise serializers.ValidationError({field: "Only with `template_key`."})
         if "id" in data["template"]:
-            for field in ("from", "reply_to"):
+            for field in CODE_SEND_FIELDS:
                 if field in data:
-                    raise serializers.ValidationError({field: "Not with `template.id`. The template's sender applies."})
+                    raise serializers.ValidationError(
+                        {field: "Not with `template.id`. A template made in PostHog sends with its own settings."}
+                    )
 
 
 class SendEmailWarningSerializer(serializers.Serializer):
@@ -451,6 +489,10 @@ class MessagingSendViewSet(TransactionalEmailViewSetMixin, viewsets.ViewSet):
             sender=code_send_from(self.team_id, data.get("from")) if needs_sender else None,
             reply_to=tuple(data.get("reply_to", ())),
             capture_engagement=True if capture is None else capture,
+            cc=tuple(data.get("cc", ())),
+            bcc=tuple(data.get("bcc", ())),
+            headers=tuple(EmailField(name=name, value=value) for name, value in data.get("headers", {}).items()),
+            tags=tuple(EmailField(name=tag["name"], value=tag["value"]) for tag in data.get("tags", ())),
         )
 
     @staticmethod

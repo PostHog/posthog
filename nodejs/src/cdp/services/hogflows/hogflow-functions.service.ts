@@ -32,6 +32,10 @@ const layAcceptedSendOver = (
             }),
             ...(send.from && { from: { ...send.from } }),
             ...(send.replyTo && { replyTo: send.replyTo.join(', ') }),
+            ...(send.cc && { cc: send.cc.join(', ') }),
+            ...(send.bcc && { bcc: send.bcc.join(', ') }),
+            ...(send.headers && { headers: send.headers.map((header) => ({ ...header })) }),
+            ...(send.tags && { tags: send.tags.map((tag) => ({ ...tag })) }),
         },
     },
 })

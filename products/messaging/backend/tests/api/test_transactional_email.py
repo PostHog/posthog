@@ -634,6 +634,32 @@ class TestTransactionalEmail(APIBaseTest):
                 },
             ),
             (
+                "rendered_content_with_copies_headers_and_tags",
+                "template_key",
+                {
+                    "text": "Hi",
+                    "cc": ["jane@example.com"],
+                    "bcc": ["audit@example.com"],
+                    "headers": {"X-Entity-Ref-ID": "order-123"},
+                    "tags": [{"name": "category", "value": "password_reset"}],
+                },
+                {
+                    "content": {"subject": "Welcome, Jane", "html": "<p>Hi {{ variables.name }}</p>", "text": "Hi"},
+                    "from": {"integrationId": "default"},
+                    "cc": ["jane@example.com"],
+                    "bcc": ["audit@example.com"],
+                    "headers": [{"name": "X-Entity-Ref-ID", "value": "order-123"}],
+                    "tags": [{"name": "category", "value": "password_reset"}],
+                    "tracking": {"captureEngagement": True},
+                },
+            ),
+            (
+                "template_by_key_with_a_copy",
+                "key",
+                {"bcc": ["audit@example.com"]},
+                {"bcc": ["audit@example.com"], "tracking": {"captureEngagement": True}},
+            ),
+            (
                 "template_by_id_with_capture",
                 "id",
                 {"capture_engagement": True},
@@ -688,6 +714,8 @@ class TestTransactionalEmail(APIBaseTest):
                 "invalid_request",
                 "identifiers__email",
             ),
+            ("header_posthog_sets", {"headers": {"From": "a@example.com"}}, "invalid_request", "headers"),
+            ("bad_tag", {"tags": [{"name": "plan", "value": "pro.v2"}]}, "invalid_request", "tags__0__value"),
         ]
     )
     def test_refuses_a_rendered_send_it_cannot_make_with_what_to_fix(
