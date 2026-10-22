@@ -66,6 +66,12 @@ class IncrementalState:
     last_full_refresh_at: Optional[str] = None
     last_run_mode: Optional[str] = None
     has_incremental_history: bool = False
+    first_build_in_progress: bool = False
+    backfill_until: Any = None
+    backfill_span: Optional[int] = None
+
+
+FIRST_BUILD_STATE_KEYS = ("first_build_in_progress", "backfill_until", "backfill_span")
 
 
 def get_incremental_config(saved_query) -> Optional[IncrementalConfig]:
@@ -114,6 +120,9 @@ def get_incremental_state(saved_query, *, scope: Optional[str] = None) -> Increm
         last_full_refresh_at=raw.get("last_full_refresh_at"),
         last_run_mode=raw.get("last_run_mode"),
         has_incremental_history=raw.get("has_incremental_history") is True,
+        first_build_in_progress=raw.get("first_build_in_progress") is True,
+        backfill_until=raw.get("backfill_until"),
+        backfill_span=raw.get("backfill_span"),
     )
 
 
@@ -258,6 +267,37 @@ def clear_incremental_state(saved_query, *, scope: Optional[str] = None) -> None
         target.pop("watermark", None)
         target.pop("watermark_type", None)
         target.pop("definition_fingerprint", None)
+        for key in FIRST_BUILD_STATE_KEYS:
+            target.pop(key, None)
+        locked.incremental_state = state
+        locked.save(update_fields=["incremental_state"])
+    saved_query.incremental_state = state
+
+
+def start_first_build(saved_query, *, backfill_until: Any = None, backfill_span: Optional[int] = None) -> None:
+    def mark(state: dict[str, Any]) -> None:
+        state["first_build_in_progress"] = True
+        if backfill_until is not None:
+            state["backfill_until"] = backfill_until
+            state["backfill_span"] = backfill_span
+
+    _mutate_state(saved_query, mark)
+
+
+def finish_first_build(saved_query) -> None:
+    def unmark(state: dict[str, Any]) -> None:
+        for key in FIRST_BUILD_STATE_KEYS:
+            state.pop(key, None)
+
+    _mutate_state(saved_query, unmark)
+
+
+def _mutate_state(saved_query, mutate: Callable[[dict[str, Any]], None]) -> None:
+    model = type(saved_query)
+    with transaction.atomic():
+        locked = model.objects.select_for_update().get(pk=saved_query.pk)
+        state = dict(locked.incremental_state or {})
+        mutate(state)
         locked.incremental_state = state
         locked.save(update_fields=["incremental_state"])
     saved_query.incremental_state = state

@@ -97,7 +97,16 @@ _LAZY = {
     "has_incremental_history": "logic.incremental",
     "record_incremental_history": "logic.incremental",
     "set_incremental_state": "logic.incremental",
+    "start_first_build": "logic.incremental",
+    "finish_first_build": "logic.incremental",
     "window_start": "logic.incremental",
+    "FAST_WINDOW": "logic.incremental_windows",
+    "WindowSpan": "logic.incremental_windows",
+    "fits_in_one_window": "logic.incremental_windows",
+    "initial_span": "logic.incremental_windows",
+    "integer_span": "logic.incremental_windows",
+    "temporal_span_for": "logic.incremental_windows",
+    "windowed_materialization_enabled": "logic.incremental_windows",
     "WritePlan": "logic.incremental_plan",
     "resolve_write_plan": "logic.incremental_plan",
     "IncrementalFilterError": "logic.incremental_filter",
@@ -107,6 +116,7 @@ _LAZY = {
     "check_incremental_eligibility": "logic.incremental_eligibility",
     "propose_incremental_config": "logic.incremental_eligibility",
     "definition_database": "logic.incremental_eligibility",
+    "key_filter_reaches_source": "logic.incremental_eligibility",
 }
 
 __all__ = sorted(_LAZY)

@@ -1,3 +1,4 @@
+import uuid
 import asyncio
 import datetime as dt
 import dataclasses
@@ -7,14 +8,21 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import temporalio.workflow
+from temporalio import activity
 from temporalio.exceptions import CancelledError, ChildWorkflowError, WorkflowAlreadyStartedError
+from temporalio.testing import WorkflowEnvironment
+from temporalio.worker import Replayer, UnsandboxedWorkflowRunner, Worker
 
 from posthog.temporal.data_modeling.activities import (
+    CreateDataModelingJobInputs,
     FailMaterializationInputs,
     ManagedWarehouseShadowResult,
+    MaterializeViewInputs,
     MaterializeViewResult,
+    PrepareQueryableTableInputs,
     PrepareQueryableTableResult,
     StageQueryableFilesResult,
+    SucceedMaterializationInputs,
     SucceedMaterializationResult,
     fail_materialization_activity,
 )
@@ -686,3 +694,58 @@ class TestCDPProducerHandoff(TestQualityGateBranching):
         assert "dwh-cdp-producer-job" not in [
             call.kwargs.get("workflow") or call.args[0] for call in start_child.await_args_list
         ]
+
+
+@activity.defn(name="create_data_modeling_job_activity")
+async def _create_job(_inputs: CreateDataModelingJobInputs) -> str:
+    return "job-1"
+
+
+@activity.defn(name="materialize_view_activity")
+async def _materialize(_inputs: MaterializeViewInputs) -> MaterializeViewResult:
+    return _materialize_result("skip")
+
+
+@activity.defn(name="prepare_queryable_table_activity")
+async def _prepare(_inputs: PrepareQueryableTableInputs) -> PrepareQueryableTableResult:
+    return PrepareQueryableTableResult(storage_delta_mib=None, total_storage_mib=None)
+
+
+@activity.defn(name="succeed_materialization_activity")
+async def _succeed(_inputs: SucceedMaterializationInputs) -> SucceedMaterializationResult:
+    return SucceedMaterializationResult()
+
+
+async def test_a_history_recorded_with_the_previous_activity_timeout_replays() -> None:
+    previous_timeout = dt.timedelta(minutes=20)
+    task_queue = str(uuid.uuid4())
+
+    with patch(f"{WORKFLOW_MODULE}.MATERIALIZE_VIEW_START_TO_CLOSE_TIMEOUT", previous_timeout):
+        async with await WorkflowEnvironment.start_time_skipping() as env:
+            async with Worker(
+                env.client,
+                task_queue=task_queue,
+                workflows=[MaterializeViewWorkflow],
+                activities=[_create_job, _materialize, _prepare, _succeed],
+                workflow_runner=UnsandboxedWorkflowRunner(),
+            ):
+                handle = await env.client.start_workflow(
+                    MaterializeViewWorkflow.run,
+                    _inputs(),
+                    id=str(uuid.uuid4()),
+                    task_queue=task_queue,
+                    execution_timeout=dt.timedelta(days=1),
+                )
+                await handle.result()
+                history = await handle.fetch_history()
+
+    recorded_timeouts = [
+        event.activity_task_scheduled_event_attributes.start_to_close_timeout.ToTimedelta()
+        for event in history.events
+        if event.HasField("activity_task_scheduled_event_attributes")
+        and event.activity_task_scheduled_event_attributes.activity_type.name == "materialize_view_activity"
+    ]
+    assert recorded_timeouts == [previous_timeout]
+    await Replayer(workflows=[MaterializeViewWorkflow], workflow_runner=UnsandboxedWorkflowRunner()).replay_workflow(
+        history
+    )

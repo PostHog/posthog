@@ -237,6 +237,12 @@ def check_incremental_eligibility(
     )
 
 
+def key_filter_reaches_source(query: str, incremental_key: str, *, database: Optional[Database] = None) -> bool:
+    node = parse_select(query)
+    selects = _resolved_selects(node, database) or _leaf_selects(node)
+    return not any(_key_behind_aggregate_subquery(select, incremental_key) for select in selects)
+
+
 def propose_incremental_config(
     query: str, column_types: Mapping[str, str], *, database: Optional[Database] = None
 ) -> Optional[IncrementalConfig]:

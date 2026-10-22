@@ -10,6 +10,7 @@ from posthog.hogql.database.models import DateTimeDatabaseField, IntegerDatabase
 from products.data_modeling.backend.logic.incremental import IncrementalConfig
 from products.data_modeling.backend.logic.incremental_eligibility import (
     check_incremental_eligibility,
+    key_filter_reaches_source,
     propose_incremental_config,
 )
 
@@ -268,14 +269,16 @@ class TestIncrementalEligibility(SimpleTestCase):
     def test_key_behind_an_aggregating_cte_warns_that_it_will_not_prune(self) -> None:
         """The filter still lands in the outer WHERE, so the result is correct, but ClickHouse
         cannot push it through the inner GROUP BY and the run reads as much as a full refresh."""
-        result = check_incremental_eligibility(
+        query = (
             "WITH daily AS (SELECT toStartOfDay(timestamp) AS day, count() AS c FROM events GROUP BY day) "
-            "SELECT day, c FROM daily",
-            IncrementalConfig(incremental_key="day", unique_key=("day",)),
+            "SELECT day, c FROM daily"
         )
+        result = check_incremental_eligibility(query, IncrementalConfig(incremental_key="day", unique_key=("day",)))
 
         assert result.eligible
         assert any("cannot be pushed down" in warning for warning in result.warnings), result.warnings
+        assert key_filter_reaches_source(query, "day") is False
+        assert key_filter_reaches_source("SELECT toStartOfDay(timestamp) AS day FROM events", "day") is True
 
     def test_candidates_exclude_aggregates_and_span_union_branches(self) -> None:
         result = check_incremental_eligibility(

@@ -88,7 +88,10 @@ NON_RETRYABLE_ERRORS = [
     "EmptyHogQLResponseColumnsError",
     "DuplicateOutputColumnError",
     "UnstorableIntegerError",
+    "WindowCannotShrinkError",
 ]
+
+MATERIALIZE_VIEW_START_TO_CLOSE_TIMEOUT = dt.timedelta(hours=3)
 
 CLICKHOUSE_RUN_WITHOUT_TRINO_SHADOW_PATCH = "data-modeling-clickhouse-run-without-trino-shadow"
 
@@ -315,8 +318,8 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                         dag_id=inputs.dag_id,
                         job_id=job_id,
                     ),
-                    # clickhouse timeout is 10mins so start to close is that plus a bit of margin
-                    start_to_close_timeout=dt.timedelta(minutes=20),
+                    # a windowed first build runs many bounded ClickHouse queries within one attempt
+                    start_to_close_timeout=MATERIALIZE_VIEW_START_TO_CLOSE_TIMEOUT,
                     heartbeat_timeout=dt.timedelta(minutes=2),
                     retry_policy=temporalio.common.RetryPolicy(
                         maximum_attempts=3,
