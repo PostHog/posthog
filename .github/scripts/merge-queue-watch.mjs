@@ -31,7 +31,7 @@ const TIMELINE_CONCURRENCY = 5
 // Timeline reads are enrichment, so they get a total budget well under the workflow's five minute limit.
 const TIMELINE_BUDGET_MS = 60000
 const TIMELINE_TIMEOUT_MS = 10000
-// A new alert inside the cooldown needs one of these labels on a PR that no recent alert named.
+// A new alert inside the cooldown needs one of these labels on a PR that no recent alert named as a culprit.
 const ESCALATION_LABELS = ['hidden', 'likely']
 // A repeat alert for the same labeled PR inside this window stays quiet.
 const COOLDOWN_MINUTES = 120
@@ -51,8 +51,11 @@ const LABELS = {
     recent: 'repeated in the last hour',
     victim: 'possible victim',
 }
-// Most useful first, so the alert leads with the PR a person should look at.
-const LABEL_ORDER = ['hidden', 'likely', 'recent', 'victim']
+// LABELS is ordered most useful first, so the alert leads with the PR a person should look at.
+const LABEL_ORDER = Object.keys(LABELS)
+
+// Timeline states after which a PR no longer blocks the queue.
+const OUT_OF_QUEUE_STATES = ['merged', 'failed', 'cancelled', 'not_ready']
 
 const MINUTE = 60 * 1000
 const defaultSleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
@@ -178,7 +181,7 @@ export function evaluate(rows, until) {
     }
 }
 
-// Pure: one PR's timeline -> whether it has merged and how many cycles it ran in the long window.
+// Pure: one PR's timeline -> whether it is out of the queue and how many cycles it ran in the long window.
 // A cycle is a pass when Trunk tested the PR alone, then a later failure in a batch of several PRs.
 export function analyzeTimeline(timeline, until) {
     const endMs = until.getTime()
@@ -186,8 +189,10 @@ export function analyzeTimeline(timeline, until) {
         .map((e) => ({ ...e, at: new Date(e.timestamp).getTime() }))
         .filter((e) => e.at <= endMs)
         .sort((a, b) => a.at - b.at)
-    if (events.some((e) => e.state === 'merged')) {
-        return { merged: true, cycles: 0 }
+    // A PR whose latest state is terminal is out of the queue, whether it merged or Trunk kicked it.
+    // A PR that was kicked and queued again has a later pending event, so it stays in.
+    if (OUT_OF_QUEUE_STATES.includes(events.at(-1)?.state)) {
+        return { gone: true, cycles: 0 }
     }
     // Each pass waits for the next batch failure, and a failure closes at most one pass, so two passes
     // before one failure make one cycle.
@@ -205,7 +210,7 @@ export function analyzeTimeline(timeline, until) {
             awaitingFailure = false
         }
     }
-    return { merged: false, cycles }
+    return { gone: false, cycles }
 }
 
 // Pure: counts and cycles -> labeled PRs, most useful first. "Fails alone" needs a failed run that
@@ -421,6 +426,7 @@ async function fetchRestartMetrics() {
 }
 
 export async function main({ argv = process.argv.slice(2), sleep = defaultSleep } = {}) {
+    trunkCalls = 0
     const dry = argv.includes('--dry')
     const atIdx = argv.indexOf('--at')
     const now = atIdx >= 0 ? new Date(argv[atIdx + 1]) : new Date()
@@ -430,19 +436,20 @@ export async function main({ argv = process.argv.slice(2), sleep = defaultSleep 
     const verdict = evaluate(rows, now)
     const timelines = await fetchTimelines(verdict.cycleCandidates)
     const cyclesByPr = new Map()
-    const merged = new Set()
+    const gone = new Set()
     for (const [pr, timeline] of timelines) {
         const result = analyzeTimeline(timeline, now)
-        if (result.merged) {
-            merged.add(pr)
+        if (result.gone) {
+            gone.add(pr)
         } else {
             cyclesByPr.set(pr, result.cycles)
         }
     }
-    // A PR that merged is out of the queue, so the count rules skip it too.
-    const unmerged = (counts) => new Map([...counts].filter(([pr]) => !merged.has(pr)))
+    // A PR that is out of the queue cannot be the cause now, so the count rules and the top list skip it.
+    const inQueue = (counts) => new Map([...counts].filter(([pr]) => !gone.has(pr)))
+    verdict.top = [...inQueue(verdict.long)].sort((a, b) => b[1] - a[1]).slice(0, 5)
     const findings = classify(
-        { short: unmerged(verdict.short), long: unmerged(verdict.long), solo: unmerged(verdict.solo) },
+        { short: inQueue(verdict.short), long: inQueue(verdict.long), solo: inQueue(verdict.solo) },
         cyclesByPr
     )
     console.log(
@@ -483,7 +490,10 @@ export async function main({ argv = process.argv.slice(2), sleep = defaultSleep 
     const alerted = new Set(recent.flatMap(keysOf))
     // Inside the cooldown, only a culprit label on a PR that no recent alert named breaks the quiet
     // period. A new victim or the rate signal alone stays quiet, so a long spike does not alert every tick.
-    const escalates = keys.some((k) => !alerted.has(k) && ESCALATION_LABELS.some((label) => k.startsWith(`${label}:`)))
+    const culpritPrs = (list) =>
+        list.filter((k) => ESCALATION_LABELS.some((label) => k.startsWith(`${label}:`))).map((k) => k.split(':')[1])
+    const alertedCulprits = new Set(culpritPrs([...alerted]))
+    const escalates = culpritPrs(keys).some((pr) => !alertedCulprits.has(pr))
     if (recent.length > 0 && !escalates) {
         // The alert posted but its webhook failed on an earlier tick. Retry on that alert's thread, and
         // only for an alert that names one of the PRs flagged now.

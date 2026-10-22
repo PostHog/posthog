@@ -90,12 +90,19 @@ describe('analyzeTimeline', () => {
         ['a cycle older than the long window', [passedAlone(200), failedInBatch(190)], 0],
     ]) {
         it(`counts ${expected} cycles for ${name}`, () => {
-            assert.deepEqual(analyzeTimeline(timeline, NOW), { merged: false, cycles: expected })
+            assert.deepEqual(analyzeTimeline(timeline, NOW), { gone: false, cycles: expected })
         })
     }
 
-    it('reports a merged PR so the rules can skip it', () => {
-        assert.equal(analyzeTimeline([...twoCycles(), event('merged', 10)], NOW).merged, true)
+    for (const state of ['merged', 'cancelled', 'failed', 'not_ready']) {
+        it(`reports a PR whose latest state is ${state} as out of the queue`, () => {
+            assert.equal(analyzeTimeline([...twoCycles(), event(state, 10)], NOW).gone, true)
+        })
+    }
+
+    it('keeps a kicked PR that was queued again', () => {
+        const timeline = [...twoCycles(), event('failed', 60), event('pending', 50)]
+        assert.equal(analyzeTimeline(timeline, NOW).gone, false)
     })
 })
 
@@ -215,6 +222,30 @@ describe('main', () => {
         await run(t, world)
         assert.equal(world.to('chat.postMessage').length, 1)
         assert.match(world.to('chat.postMessage')[0].body.metadata.event_payload.keys, /hidden:100/)
+    })
+
+    it('stays quiet when a PR already alerted as one culprit label now carries the other', async (t) => {
+        const world = fakeWorld({
+            alerts: [alertMessage('9.9', 'likely:100', 'started')],
+            resultRows: failures(100, [160, 120, 80, 40]),
+            timelines: { 100: twoCycles() },
+        })
+        await run(t, world)
+        assertQuiet(world)
+    })
+
+    it('leaves a PR that left the queue out of the investigation payload', async (t) => {
+        const world = fakeWorld({
+            resultRows: [...failures(100, [50, 40, 30, 20]), ...failures(200, [55, 45, 35, 25])],
+            timelines: { 200: [event('cancelled', 5)] },
+        })
+        await run(t, world)
+        const [start] = world.to(WEBHOOK)
+        assert.deepEqual(
+            start.body.properties.top_prs.filter((p) => p.pr === 200),
+            []
+        )
+        assert.ok(start.body.properties.top_prs.some((p) => p.pr === 100))
     })
 
     it('does not retry a pending investigation that belongs to an unrelated alert', async (t) => {

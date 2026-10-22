@@ -1,8 +1,8 @@
 name: Merge queue watch
 
-# Prototype. Every 15 minutes, read the last hour of Trunk merge queue test runs and post to
-# #merge-queue-watch-proto when one PR keeps failing or the failure rate spikes. Read only against
-# Trunk. See .github/scripts/merge-queue-watch.mjs for the thresholds.
+# Prototype. Every 15 minutes, read the last three hours of Trunk merge queue test runs, flag PRs
+# that look like a loop, and post to #merge-queue-watch-proto. Read only against Trunk.
+# See .github/scripts/merge-queue-watch.mjs for the rules and thresholds.
 
 on:
     schedule:
@@ -20,7 +20,6 @@ permissions:
 
 env:
     SLACK_CHANNEL: 'C0CAYS95ACT' # #merge-queue-watch-proto
-    ALERT_OWNER_SLACK_ID: 'U0BLPNRQBSN'
 
 jobs:
     watch:
@@ -37,6 +36,9 @@ jobs:
               env:
                   TRUNK_API_TOKEN: ${{ secrets.TRUNK_API_TOKEN }}
                   SLACK_BOT_TOKEN: ${{ secrets.SLACK_DEVEX_BOT_TOKEN }}
+                  # A person to tag on an alert. Unset alerts without a tag. A variable, not a secret, because
+                  # it is an identifier and not a credential.
+                  ALERT_OWNER_SLACK_ID: ${{ vars.MERGE_QUEUE_ALERT_OWNER_SLACK_ID }}
                   # Incoming-webhook trigger of the investigation workflow. The URL is the only thing
                   # guarding the endpoint, so it must be a secret: an Actions variable prints in
                   # this public repo's step log. Unset still posts the Slack alert and skips the agent.
