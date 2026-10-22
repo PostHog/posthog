@@ -27,7 +27,12 @@ from posthog.ph_client import ph_scoped_capture
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.temporal.common.utils import is_stale_connection_read_only_error
 
+from products.signals.backend.assignment_flags import assignment_side_effects_allowed
 from products.signals.backend.billing import current_billing_period_bounds
+from products.signals.backend.first_report_notification_tasks import (
+    dispatch_first_report_notification as dispatch_first_report_notification,
+    sweep_first_report_notifications as sweep_first_report_notifications,
+)
 from products.signals.backend.implementation_dispatch_tasks import (
     dispatch_implementation_replacement as dispatch_implementation_replacement,
     sweep_implementation_dispatches as sweep_implementation_dispatches,
@@ -349,6 +354,8 @@ def deliver_scout_slack_thread_replies(
     report_revision: str | None = None,
 ) -> None:
     """Continue a rate-limited report thread without holding or retrying the lead-message worker."""
+    if report_id is not None and not assignment_side_effects_allowed(team_id=team_id, report_id=report_id):
+        return
     team = Team.objects.only("project_id").get(id=team_id)
     integration = _slack_integration_for_project(integration_id=integration_id, project_id=team.project_id)
     slack = SlackIntegration(integration, source="signals_scout")
@@ -515,6 +522,8 @@ def deliver_scout_slack_output(
                 channel=channel,
             )
         elif output_type == "report":
+            if not assignment_side_effects_allowed(team_id=team_id, report_id=output_id):
+                return
             report = SignalReport.objects.select_related("team").filter(id=output_id, team_id=team_id).first()
             run = SignalScoutRun.objects.select_related("team").filter(id=run_id, team_id=team_id).first()
             if report is None or run is None:
@@ -619,6 +628,8 @@ def enqueue_scout_slack_delivery(
     # report message to the delivery that is still building it.
     supersedes = output_type == "report" and edit_note is None
     try:
+        if output_type == "report" and not assignment_side_effects_allowed(team_id=team_id, report_id=output_id):
+            return
         # Claim before publishing: an earlier delivery of the same report reads this marker to decide
         # whether to yield, and between the two calls it would see no claim and post the report that
         # this delivery is about to post again.

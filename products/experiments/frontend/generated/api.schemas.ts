@@ -324,6 +324,10 @@ export interface FeatureFlagFilterPropertyCohortInSchemaApi {
     operator: FeatureFlagFilterPropertyCohortInSchemaOperatorEnumApi
     /** Cohort comparison value (single or list, depending on usage). */
     value: unknown
+    /** Set to true in responses when the cohort is deleted or does not exist. The flag cannot evaluate this condition. Ignored on write. */
+    cohort_deleted?: boolean
+    /** Set to true in responses when no cohort with this id exists in the project, so it cannot be restored. `cohort_deleted` is also true. Absent for a soft-deleted cohort. Ignored on write. */
+    cohort_missing?: boolean
 }
 
 /**
@@ -1116,6 +1120,10 @@ export interface SessionPropertyFilterApi {
 }
 
 export interface CohortPropertyFilterApi {
+    /** Set by the feature flag API when the cohort is deleted or does not exist. */
+    cohort_deleted?: boolean | null
+    /** Set by the feature flag API when the cohort does not exist, so it cannot be restored. */
+    cohort_missing?: boolean | null
     cohort_name?: string | null
     key?: 'id'
     label?: string | null
@@ -2270,6 +2278,8 @@ export type _ExperimentApiMetricsListApi = ExperimentApiMetricApi[]
  * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
  * * `multiple_variants_share` - Multiple Variants Share
  * * `no_metric` - No Metric
+ * * `metric_event_not_ingested` - Metric Event Not Ingested
+ * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
  * * `srm` - Sample Ratio Mismatch
  * * `zero_exposures` - Zero Exposures
  * * `forced_variant_release_condition` - Forced Variant Release Condition
@@ -2277,6 +2287,7 @@ export type _ExperimentApiMetricsListApi = ExperimentApiMetricApi[]
  * * `split_changed_mid_run` - Split Changed Mid Run
  * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
  * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
+ * * `new_flag_no_traffic` - New Flag No Traffic
  */
 export type ExperimentHealthFindingCodeEnumApi =
     (typeof ExperimentHealthFindingCodeEnumApi)[keyof typeof ExperimentHealthFindingCodeEnumApi]
@@ -2289,6 +2300,8 @@ export const ExperimentHealthFindingCodeEnumApi = {
     BiasRiskMultipleExcluded: 'bias_risk_multiple_excluded',
     MultipleVariantsShare: 'multiple_variants_share',
     NoMetric: 'no_metric',
+    MetricEventNotIngested: 'metric_event_not_ingested',
+    ExposureCriteriaCannotMatch: 'exposure_criteria_cannot_match',
     Srm: 'srm',
     ZeroExposures: 'zero_exposures',
     ForcedVariantReleaseCondition: 'forced_variant_release_condition',
@@ -2296,6 +2309,7 @@ export const ExperimentHealthFindingCodeEnumApi = {
     SplitChangedMidRun: 'split_changed_mid_run',
     BucketingChangedMidRun: 'bucketing_changed_mid_run',
     ReleaseConditionsChangedMidRun: 'release_conditions_changed_mid_run',
+    NewFlagNoTraffic: 'new_flag_no_traffic',
 } as const
 
 /**
@@ -2351,13 +2365,16 @@ export interface ExperimentHealthFindingApi {
      * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
      * * `multiple_variants_share` - Multiple Variants Share
      * * `no_metric` - No Metric
+     * * `metric_event_not_ingested` - Metric Event Not Ingested
+     * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
      * * `srm` - Sample Ratio Mismatch
      * * `zero_exposures` - Zero Exposures
      * * `forced_variant_release_condition` - Forced Variant Release Condition
      * * `flag_variants_mismatch` - Flag Variants Mismatch
      * * `split_changed_mid_run` - Split Changed Mid Run
      * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
-     * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run */
+     * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
+     * * `new_flag_no_traffic` - New Flag No Traffic */
     code: ExperimentHealthFindingCodeEnumApi
     /**
      * The case within the code, when a code covers several, for example 'running_but_no_rollout' within 'flag_off_while_running'. Null when the code has one case.
@@ -2393,7 +2410,10 @@ export interface ExperimentHealthFindingApi {
  * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
  * * `flag_variants_mismatch` - Flag Variants Mismatch
  * * `forced_variant_release_condition` - Forced Variant Release Condition
+ * * `new_flag_no_traffic` - New Flag No Traffic
  * * `no_metric` - No Metric
+ * * `metric_event_not_ingested` - Metric Event Not Ingested
+ * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
  * * `zero_exposures` - Zero Exposures
  * * `srm` - Srm
  * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
@@ -2410,7 +2430,10 @@ export const ExperimentHealthCheckKeyEnumApi = {
     ReleaseConditionsChangedMidRun: 'release_conditions_changed_mid_run',
     FlagVariantsMismatch: 'flag_variants_mismatch',
     ForcedVariantReleaseCondition: 'forced_variant_release_condition',
+    NewFlagNoTraffic: 'new_flag_no_traffic',
     NoMetric: 'no_metric',
+    MetricEventNotIngested: 'metric_event_not_ingested',
+    ExposureCriteriaCannotMatch: 'exposure_criteria_cannot_match',
     ZeroExposures: 'zero_exposures',
     Srm: 'srm',
     BiasRiskMultipleExcluded: 'bias_risk_multiple_excluded',
@@ -2443,7 +2466,10 @@ export interface ExperimentHealthCheckResultApi {
      * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
      * * `flag_variants_mismatch` - Flag Variants Mismatch
      * * `forced_variant_release_condition` - Forced Variant Release Condition
+     * * `new_flag_no_traffic` - New Flag No Traffic
      * * `no_metric` - No Metric
+     * * `metric_event_not_ingested` - Metric Event Not Ingested
+     * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
      * * `zero_exposures` - Zero Exposures
      * * `srm` - Srm
      * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded

@@ -43,7 +43,7 @@ import {
 import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
+import { cohortFilterName, isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType, TaxonomicFilterProps } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -165,7 +165,7 @@ function summarizeProperties(
 
         let value: string | number
         if (property.type === PropertyFilterType.Cohort) {
-            value = property.cohort_name || `ID ${property.value}`
+            value = cohortFilterName(property)
         } else if (Array.isArray(property.value)) {
             const displayValues = property.value.map(resolveValue)
             value = displayValues.slice(0, 2).join(', ') + (displayValues.length > 2 ? '...' : '')

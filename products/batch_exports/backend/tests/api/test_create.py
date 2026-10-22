@@ -108,7 +108,7 @@ def test_create_batch_export_with_interval_schedule(
     assert args["team_id"] == team.pk
     assert args["batch_export_id"] == data["id"]
     assert args["interval"] == interval
-    assert args["batch_export_model"]["user_id"] is None
+    assert "user_id" not in args["batch_export_model"]
 
     # expected jitter is 15 minutes for hourly exports
     assert batch_export.jitter == dt.timedelta(minutes=15)
@@ -541,12 +541,12 @@ def test_create_batch_export_with_custom_schema(
 
     assert batch_export.schema == expected_schema
     assert args["batch_export_model"] == {
-        "filters": None,
+        "filters": [],
         "name": "events",
         "schema": expected_schema,
-        "hogql_query": None,
-        "user_id": None,
-        "hogql_modifiers": None,
+        "primary_key": [],
+        "version_key": [],
+        "incremental_mode": "APPEND",
     }
 
 
@@ -663,12 +663,13 @@ def test_create_batch_export_with_hogql_model(
     decoded_payload = async_to_sync(encryption_codec.decode)(schedule.schedule.action.args)
     args = json.loads(decoded_payload[0].data)
     assert args["batch_export_model"] == {
-        "filters": None,
         "name": "hogql",
-        "schema": None,
-        "hogql_query": hogql_batch_export_data["hogql_query"],
+        "query": hogql_batch_export_data["hogql_query"],
         "user_id": user.pk,
-        "hogql_modifiers": hogql_modifiers,
+        "modifiers": hogql_modifiers,
+        "primary_key": [],
+        "version_key": [],
+        "incremental_mode": "APPEND",
     }
 
 

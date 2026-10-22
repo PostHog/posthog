@@ -1007,9 +1007,16 @@ class TestWriteAccessPromptSection(SimpleTestCase):
         task_granted = _prompt(write_scopes=["customer_task:write"])
         assert "Customer analytics tasks" in task_granted
         assert "Tasks belong to people" in task_granted
+        assert "Ticket messages: private notes only" not in granted
+        assert "Ticket messages: private notes only" in _prompt(write_scopes=["ticket:write"])
         # A scout run cannot create a canvas, so the canvas grant has to steer it at an existing one.
         assert "never create one" not in granted
         assert "never create one" in _prompt(write_scopes=["canvas:write"])
+        # Experiment lifecycle actions change what end users see, so the grant has to say when to make one.
+        assert "Experiment lifecycle changes reach real users" not in granted
+        experiment_granted = _prompt(write_scopes=["experiment:write"])
+        assert "experiments in this project" in experiment_granted
+        assert "Experiment lifecycle changes reach real users" in experiment_granted
 
         # A scout that holds only the default grant still has to be told it may write notebooks.
         notebooks_only = _prompt(write_scopes=["notebook:write"])
@@ -2267,6 +2274,63 @@ async def test_run_mints_the_scouts_granted_write_scopes_and_stamps_them_on_the_
 @pytest.mark.asyncio
 @pytest.mark.django_db
 @pytest.mark.parametrize(
+    "allowed_mcp_tools,flag_on,expected",
+    [
+        pytest.param(["dashboard-get"], True, ["dashboard-get"], id="flag_on_stamps_the_list"),
+        pytest.param([], True, [], id="empty_list_still_narrows"),
+        # The flag gates writing the list, so a list saved while it was on must stop applying when it goes off.
+        pytest.param(["dashboard-get"], False, None, id="flag_off_leaves_scopes_alone"),
+        pytest.param(None, True, None, id="no_list_leaves_scopes_alone"),
+    ],
+)
+async def test_run_stamps_the_scouts_tool_list_on_the_task_and_the_run(
+    ateam, aerrors_skill, allowed_mcp_tools, flag_on, expected
+):
+    session, result = await database_sync_to_async(_make_fake_session, thread_sensitive=False)(ateam)
+    captured: dict = {}
+
+    def _seed_config() -> None:
+        SignalScoutConfig.objects.unscoped().create(
+            team_id=ateam.id, skill_name="signals-scout-errors", allowed_mcp_tools=allowed_mcp_tools
+        )
+
+    await database_sync_to_async(_seed_config, thread_sensitive=False)()
+
+    async def _capture_start(*args, before_task_dispatch=None, **kwargs):
+        captured.update(kwargs)
+        if before_task_dispatch is not None:
+            await database_sync_to_async(before_task_dispatch)(session.task_run.id)
+        return session, result
+
+    with (
+        patch("products.signals.backend.scout_harness.runner.MultiTurnSession.start", new=_capture_start),
+        patch(
+            "products.signals.backend.scout_harness.runner.get_or_create_signals_sandbox_env",
+            return_value="env-id",
+        ),
+        patch(
+            "products.signals.backend.temporal.agentic.resolve_acting_user_id_for_team",
+            return_value=42,
+        ),
+        patch(
+            "products.signals.backend.scout_harness.runner.scout_tool_access_enabled",
+            return_value=flag_on,
+        ),
+    ):
+        await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
+
+    assert captured["mcp_tool_allowlist"] == expected
+    assert ("# Your tools" in captured["prompt"]) is (expected is not None)
+    metadata = await database_sync_to_async(
+        lambda: SignalScoutRun.objects.unscoped().filter(team_id=ateam.id).latest("created_at").metadata or {},
+        thread_sensitive=False,
+    )()
+    assert metadata.get("allowed_mcp_tools") == expected
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize(
     "names,expect_nudge",
     [
         pytest.param(["scout_run_fail_pct"], True, id="approved_metrics_nudge"),
@@ -3460,12 +3524,19 @@ async def test_activity_runs_when_team_under_signals_quota(ateam):
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_activity_swallows_transient_db_connection_drop(ateam):
-    # A pgbouncer pool recycle / failover can surface as OperationalError from the runner's
-    # synchronous DB access, outside the run-row try/except. The activity's "never raises"
-    # contract must hold: report a failed run instead of letting it escape.
+@pytest.mark.parametrize(
+    "error,expected_status,expected_skip_reason",
+    [
+        # A pgbouncer pool recycle / failover can surface as OperationalError from the runner's
+        # synchronous DB access, outside the run-row try/except.
+        (OperationalError("server closed the connection unexpectedly"), "failed", None),
+        # The skill was deleted while a scheduled run slept its start delay.
+        (SkillNotFoundError("No skill named 'signals-scout-errors'"), None, "skill_missing"),
+    ],
+)
+async def test_activity_does_not_raise_on_runner_error(ateam, error, expected_status, expected_skip_reason):
     async def fake_arun(**_kwargs):
-        raise OperationalError("server closed the connection unexpectedly")
+        raise error
 
     with patch(
         "products.signals.backend.scout_harness.runner.arun_signals_scout",
@@ -3479,9 +3550,33 @@ async def test_activity_swallows_transient_db_connection_drop(ateam):
 
     assert output.run_id is None
     assert output.task_run_id is None
-    assert output.status == "failed"
+    assert output.status == expected_status
     assert output.skill_name == "signals-scout-errors"
-    assert output.skip_reason is None
+    assert output.skip_reason == expected_skip_reason
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize("skill_state,expected", [("live", True), ("deleted", False), ("absent", False)])
+async def test_config_runnable_check_requires_a_live_skill(ateam, skill_state, expected):
+    await sync_to_async(SignalScoutConfig.objects.create)(team=ateam, skill_name="signals-scout-errors", enabled=True)
+    if skill_state != "absent":
+        await sync_to_async(LLMSkill.objects.create)(
+            team=ateam,
+            name="signals-scout-errors",
+            description="Errors scout",
+            body="scout",
+            deleted=skill_state == "deleted",
+            is_latest=skill_state == "live",
+        )
+
+    env = ActivityEnvironment()
+    runnable = await env.run(
+        check_signals_scout_config_runnable_activity,
+        RunSignalsScoutInput(team_id=ateam.id, skill_name="signals-scout-errors"),
+    )
+
+    assert runnable is expected
 
 
 # ── Tasks-UI cross-link: SignalScoutRun ─→ TaskRun ────────────────────────────

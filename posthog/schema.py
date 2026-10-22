@@ -47,6 +47,7 @@ from posthog.schema_enums import (
     AssistantGenericPropertyFilterType as AssistantGenericPropertyFilterType,
     AssistantLifecycleStatus as AssistantLifecycleStatus,
     AssistantMessageType as AssistantMessageType,
+    AssistantMetricsNodeKind as AssistantMetricsNodeKind,
     AssistantNavigateUrl as AssistantNavigateUrl,
     AssistantNumericValuePropertyFilterOperator as AssistantNumericValuePropertyFilterOperator,
     AssistantRetentionDisplayType as AssistantRetentionDisplayType,
@@ -1602,26 +1603,6 @@ class ExperimentExposureTimeSeries(BaseModel):
     days: list[str]
     exposure_counts: list[float]
     variant: str
-
-
-class ExperimentMaxBayesianContext(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    chance_to_win: float
-    credible_interval: list[float] = Field(..., max_length=2, min_length=2)
-    key: str
-    significant: bool
-
-
-class ExperimentMaxFrequentistContext(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    confidence_interval: list[float] = Field(..., max_length=2, min_length=2)
-    key: str
-    p_value: float
-    significant: bool
 
 
 class ExperimentMetricOutlierHandling(BaseModel):
@@ -3857,7 +3838,7 @@ class AssistantBIVisualizationNode(BaseModel):
 
 
 class AssistantBareInsightQuery(BaseModel):
-    kind: InsightNodeKind
+    kind: InsightNodeKind | AssistantMetricsNodeKind
 
 
 class AssistantBreakdownFilter(BaseModel):
@@ -5378,6 +5359,14 @@ class ClickhouseQueryProgress(BaseModel):
 class CohortPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    cohort_deleted: bool | None = Field(
+        default=None,
+        description=("Set by the feature flag API when the cohort is deleted or does not exist."),
+    )
+    cohort_missing: bool | None = Field(
+        default=None,
+        description=("Set by the feature flag API when the cohort does not exist, so it cannot be restored."),
     )
     cohort_name: str | None = None
     key: Literal["id"] = "id"
@@ -7689,7 +7678,8 @@ class QueryStatus(BaseModel):
         default=None,
         description=(
             "Stable machine-readable code for the error, when known: the DRF exception"
-            " code, or the ClickHouse error name."
+            " code, the ClickHouse error name, the HogQL error code, or"
+            " `unhandled_<exception class>` for a failure that no handler classified."
         ),
     )
     error_message: str | None = None
@@ -32048,6 +32038,10 @@ class DatabaseSchemaQuery(BaseModel):
     connectionId: str | None = Field(
         default=None,
         description="Optional direct external data source id for schema introspection",
+    )
+    executionTarget: ExecutionTarget | None = Field(
+        default=None,
+        description=("Select the native managed Trino catalog instead of the default PostHog catalog."),
     )
     includeFields: bool | None = Field(
         default=None,
