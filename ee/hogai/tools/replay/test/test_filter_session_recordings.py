@@ -226,6 +226,16 @@ class TestFilterSessionRecordingsTool(ClickhouseTestMixin, NonAtomicBaseTest):
             with self.assertRaises(MaxToolRetryableError):
                 await tool._arun_impl(recordings_filters=filters)
 
+    async def test_missing_cohort_filter_asks_the_agent_to_retry_without_reporting_an_error(self):
+        tool = await self._create_tool()
+        filters = self._event_filters("$pageview", [{"type": "cohort", "key": "id", "value": 999999, "operator": "in"}])
+
+        with patch("ee.hogai.tools.replay.filter_session_recordings.capture_exception") as mock_capture:
+            with self.assertRaisesRegex(MaxToolRetryableError, "Cohort 999999 does not exist"):
+                await tool._arun_impl(recordings_filters=filters)
+
+        mock_capture.assert_not_called()
+
     async def test_returns_single_recording_with_metadata(self):
         base_time = datetime(2025, 1, 15, 10, 0, 0)
         session_id = self._produce_replay(
