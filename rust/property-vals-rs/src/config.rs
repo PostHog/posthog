@@ -68,6 +68,13 @@ pub struct Config {
     #[envconfig(default = "clickhouse-property-vals-rs-groups")]
     pub groups_kafka_consumer_group: String,
 
+    // A deployment that reads a second events topic sets this, so that it does
+    // not run the groups and merger workers a second time. The main deployment's
+    // merger reads what this deployment's events worker produces to the
+    // intermediate topic.
+    #[envconfig(default = "false")]
+    pub events_worker_only: bool,
+
     #[envconfig(default = "")]
     pub allowed_teams: TeamList,
 
@@ -144,7 +151,32 @@ impl FromStr for ExcludedPropertyKeys {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Worker {
+    Events,
+    Groups,
+    Merger,
+}
+
+impl Worker {
+    pub fn name(self) -> &'static str {
+        match self {
+            Worker::Events => "events",
+            Worker::Groups => "groups",
+            Worker::Merger => "merger",
+        }
+    }
+}
+
 impl Config {
+    pub fn workers(&self) -> &'static [Worker] {
+        if self.events_worker_only {
+            &[Worker::Events]
+        } else {
+            &[Worker::Events, Worker::Groups, Worker::Merger]
+        }
+    }
+
     pub fn init_with_defaults() -> Result<Self, envconfig::Error> {
         // auto_commit=true: background timer ships stored offsets to the
         // broker every ~5s. We manually advance the stored offset only after
@@ -224,6 +256,30 @@ mod tests {
         let caps = LengthCaps::init_from_hashmap(&env).unwrap();
         assert_eq!(caps.max_property_key_len, 500);
         assert_eq!(caps.max_property_value_len, 1000);
+    }
+
+    #[test]
+    fn events_worker_only_selects_the_workers_to_start() {
+        let cases: [(Option<&str>, &[Worker]); 2] = [
+            (None, &[Worker::Events, Worker::Groups, Worker::Merger]),
+            (Some("true"), &[Worker::Events]),
+        ];
+        for (events_worker_only, expected) in cases {
+            let mut env = std::collections::HashMap::from([
+                ("KAFKA_CONSUMER_GROUP".to_string(), "group".to_string()),
+                ("KAFKA_CONSUMER_TOPIC".to_string(), "topic".to_string()),
+                ("KAFKA_CONSUMER_AUTO_COMMIT".to_string(), "true".to_string()),
+            ]);
+            if let Some(value) = events_worker_only {
+                env.insert("EVENTS_WORKER_ONLY".to_string(), value.to_string());
+            }
+            let config = Config::init_from_hashmap(&env).unwrap();
+            assert_eq!(
+                config.workers(),
+                expected,
+                "EVENTS_WORKER_ONLY={events_worker_only:?}"
+            );
+        }
     }
 
     fn arb_team_list() -> impl Strategy<Value = Vec<i64>> {

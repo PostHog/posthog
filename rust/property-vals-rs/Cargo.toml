@@ -12,6 +12,7 @@ common-continuous-profiling = { path = "../common/continuous_profiling" }
 common-kafka = { path = "../common/kafka" }
 common-liveness = { path = "../common/liveness" }
 envconfig = { workspace = true }
+futures = { workspace = true }
 lifecycle = { path = "../common/lifecycle" }
 metrics = { workspace = true }
 quick_cache = { workspace = true }

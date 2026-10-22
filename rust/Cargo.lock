@@ -9976,6 +9976,7 @@ dependencies = [
  "common-kafka",
  "common-liveness",
  "envconfig",
+ "futures",
  "lifecycle",
  "metrics",
  "proptest",

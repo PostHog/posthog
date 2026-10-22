@@ -4,9 +4,10 @@ use std::time::Duration;
 use axum::{response::IntoResponse, routing::get, Router};
 use common_kafka::kafka_consumer::SingleTopicConsumer;
 use common_kafka::kafka_producer::EnvelopeEncoding;
-use lifecycle::{ComponentOptions, Manager};
+use futures::future::BoxFuture;
+use lifecycle::{ComponentOptions, Handle, Manager};
 use property_vals_rs::{
-    config::Config,
+    config::{Config, Worker},
     fan_out::{extract_tuple, fan_out, fan_out_group},
     producer::{AggregatedProducer, WireFormat},
     types::{Event, GroupIdentify, PropertyValueMessage},
@@ -34,6 +35,109 @@ pub async fn index() -> &'static str {
     "property-vals-rs"
 }
 
+/// Builds one worker's consumer, producer and loop. The caller spawns the loop
+/// after the lifecycle monitor starts. A worker that exits before then sends its
+/// exit event nowhere. The monitor then never learns that the worker stopped.
+async fn build_worker(
+    worker: Worker,
+    config: &Arc<Config>,
+    handle: Handle,
+) -> Result<BoxFuture<'static, ()>, Box<dyn std::error::Error>> {
+    let produce_timeout = Duration::from_secs(config.kafka_produce_timeout_secs);
+    let length_caps = config.length_caps;
+
+    let task: BoxFuture<'static, ()> = match worker {
+        Worker::Events => {
+            let consumer = SingleTopicConsumer::new(config.kafka.clone(), config.consumer.clone())?;
+            let producer = AggregatedProducer::new(
+                &config.kafka,
+                handle.clone(),
+                config.intermediate_topic.clone(),
+                produce_timeout,
+                config.intermediate_topic_encoding,
+                config.intermediate_topic_format,
+            )
+            .await?;
+            info!(
+                "Subscribed to topic: {}",
+                config.consumer.kafka_consumer_topic
+            );
+            let excluded = config.excluded_property_keys.clone();
+            Box::pin(worker_loop::<Event, _, _>(
+                config.clone(),
+                consumer,
+                producer,
+                handle,
+                move |e: &Event| fan_out(e, &excluded, length_caps),
+                worker.name(),
+                ReductionConfig {
+                    max_values_per_key: 0,
+                    seen_cache_capacity: config.events_seen_cache_capacity,
+                },
+            ))
+        }
+        Worker::Groups => {
+            let mut consumer_config = config.consumer.clone();
+            consumer_config.kafka_consumer_topic = config.groups_kafka_consumer_topic.clone();
+            consumer_config.kafka_consumer_group = config.groups_kafka_consumer_group.clone();
+            let consumer = SingleTopicConsumer::new(config.kafka.clone(), consumer_config)?;
+            let producer = AggregatedProducer::new(
+                &config.kafka,
+                handle.clone(),
+                config.intermediate_topic.clone(),
+                produce_timeout,
+                config.intermediate_topic_encoding,
+                config.intermediate_topic_format,
+            )
+            .await?;
+            info!(
+                "Subscribed to topic: {}",
+                config.groups_kafka_consumer_topic
+            );
+            let excluded = config.excluded_property_keys.clone();
+            Box::pin(worker_loop::<GroupIdentify, _, _>(
+                config.clone(),
+                consumer,
+                producer,
+                handle,
+                move |g: &GroupIdentify| fan_out_group(g, &excluded, length_caps),
+                worker.name(),
+                ReductionConfig::default(),
+            ))
+        }
+        Worker::Merger => {
+            let mut consumer_config = config.consumer.clone();
+            consumer_config.kafka_consumer_topic = config.intermediate_topic.clone();
+            consumer_config.kafka_consumer_group = config.merger_consumer_group.clone();
+            let consumer = SingleTopicConsumer::new(config.kafka.clone(), consumer_config)?;
+            // ClickHouse reads the output topic and expects raw rows. Do not encode it.
+            let producer = AggregatedProducer::new(
+                &config.kafka,
+                handle.clone(),
+                config.output_topic.clone(),
+                produce_timeout,
+                EnvelopeEncoding::None,
+                WireFormat::Json,
+            )
+            .await?;
+            info!("Subscribed to topic: {}", config.intermediate_topic);
+            Box::pin(worker_loop::<PropertyValueMessage, _, _>(
+                config.clone(),
+                consumer,
+                producer,
+                handle,
+                |m: &PropertyValueMessage| extract_tuple(m),
+                worker.name(),
+                ReductionConfig {
+                    max_values_per_key: config.max_values_per_key,
+                    seen_cache_capacity: config.merger_seen_cache_capacity,
+                },
+            ))
+        }
+    };
+    Ok(task)
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     setup_tracing();
@@ -53,35 +157,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_global_shutdown_timeout(Duration::from_secs(60))
         .build();
 
-    let events_handle = manager.register(
-        "events-worker",
-        ComponentOptions::new()
-            .with_graceful_shutdown(Duration::from_secs(30))
-            .with_liveness_deadline(Duration::from_secs(60))
-            .with_stall_threshold(3),
-    );
-    let groups_handle = manager.register(
-        "groups-worker",
-        ComponentOptions::new()
-            .with_graceful_shutdown(Duration::from_secs(30))
-            .with_liveness_deadline(Duration::from_secs(60))
-            .with_stall_threshold(3),
-    );
-    let merger_handle = manager.register(
-        "merger-worker",
-        ComponentOptions::new()
-            .with_graceful_shutdown(Duration::from_secs(30))
-            .with_liveness_deadline(Duration::from_secs(60))
-            .with_stall_threshold(3),
-    );
-
-    let metrics_handle =
-        manager.register("metrics", ComponentOptions::new().is_observability(true));
-
-    let readiness = manager.readiness_handler();
-    let liveness = manager.liveness_handler();
-
     info!(
+        workers = ?config.workers(),
         events_topic = %config.consumer.kafka_consumer_topic,
         events_consumer_group = %config.consumer.kafka_consumer_group,
         groups_topic = %config.groups_kafka_consumer_topic,
@@ -95,102 +172,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "config loaded"
     );
 
-    let produce_timeout = Duration::from_secs(config.kafka_produce_timeout_secs);
-
-    let events_consumer = SingleTopicConsumer::new(config.kafka.clone(), config.consumer.clone())?;
-    let events_producer = AggregatedProducer::new(
-        &config.kafka,
-        events_handle.clone(),
-        config.intermediate_topic.clone(),
-        produce_timeout,
-        config.intermediate_topic_encoding,
-        config.intermediate_topic_format,
-    )
-    .await?;
-
-    let mut groups_consumer_config = config.consumer.clone();
-    groups_consumer_config.kafka_consumer_topic = config.groups_kafka_consumer_topic.clone();
-    groups_consumer_config.kafka_consumer_group = config.groups_kafka_consumer_group.clone();
-    let groups_consumer = SingleTopicConsumer::new(config.kafka.clone(), groups_consumer_config)?;
-    let groups_producer = AggregatedProducer::new(
-        &config.kafka,
-        groups_handle.clone(),
-        config.intermediate_topic.clone(),
-        produce_timeout,
-        config.intermediate_topic_encoding,
-        config.intermediate_topic_format,
-    )
-    .await?;
-
-    let mut merger_consumer_config = config.consumer.clone();
-    merger_consumer_config.kafka_consumer_topic = config.intermediate_topic.clone();
-    merger_consumer_config.kafka_consumer_group = config.merger_consumer_group.clone();
-    let merger_consumer = SingleTopicConsumer::new(config.kafka.clone(), merger_consumer_config)?;
-    // Output topic is read by ClickHouse, which expects raw rows — never encode.
-    let merger_producer = AggregatedProducer::new(
-        &config.kafka,
-        merger_handle.clone(),
-        config.output_topic.clone(),
-        produce_timeout,
-        EnvelopeEncoding::None,
-        WireFormat::Json,
-    )
-    .await?;
-
-    info!(
-        "Subscribed to topic: {}",
-        config.consumer.kafka_consumer_topic
-    );
-    info!(
-        "Subscribed to topic: {}",
-        config.groups_kafka_consumer_topic
-    );
-    info!("Subscribed to topic: {}", config.intermediate_topic);
-
     let shared_config = Arc::new(config.clone());
+
+    let mut worker_tasks = Vec::new();
+    for &worker in config.workers() {
+        let handle = manager.register(
+            &format!("{}-worker", worker.name()),
+            ComponentOptions::new()
+                .with_graceful_shutdown(Duration::from_secs(30))
+                .with_liveness_deadline(Duration::from_secs(60))
+                .with_stall_threshold(3),
+        );
+        worker_tasks.push(build_worker(worker, &shared_config, handle).await?);
+    }
+
+    let metrics_handle =
+        manager.register("metrics", ComponentOptions::new().is_observability(true));
+
+    let readiness = manager.readiness_handler();
+    let liveness = manager.liveness_handler();
 
     let guard = manager.monitor_background();
 
-    let excluded_events = shared_config.excluded_property_keys.clone();
-    let excluded_groups = shared_config.excluded_property_keys.clone();
-    let length_caps = shared_config.length_caps;
-
-    tokio::spawn(worker_loop::<Event, _, _>(
-        shared_config.clone(),
-        events_consumer,
-        events_producer,
-        events_handle.clone(),
-        move |e: &Event| fan_out(e, &excluded_events, length_caps),
-        "events",
-        ReductionConfig {
-            max_values_per_key: 0,
-            seen_cache_capacity: shared_config.events_seen_cache_capacity,
-        },
-    ));
-    tokio::spawn(worker_loop::<GroupIdentify, _, _>(
-        shared_config.clone(),
-        groups_consumer,
-        groups_producer,
-        groups_handle.clone(),
-        move |g: &GroupIdentify| fan_out_group(g, &excluded_groups, length_caps),
-        "groups",
-        ReductionConfig::default(),
-    ));
-    tokio::spawn(worker_loop::<PropertyValueMessage, _, _>(
-        shared_config.clone(),
-        merger_consumer,
-        merger_producer,
-        merger_handle.clone(),
-        |m: &PropertyValueMessage| extract_tuple(m),
-        "merger",
-        ReductionConfig {
-            max_values_per_key: shared_config.max_values_per_key,
-            seen_cache_capacity: shared_config.merger_seen_cache_capacity,
-        },
-    ));
-    drop(events_handle);
-    drop(groups_handle);
-    drop(merger_handle);
+    for task in worker_tasks {
+        tokio::spawn(task);
+    }
 
     let app = Router::new()
         .route("/", get(index))
