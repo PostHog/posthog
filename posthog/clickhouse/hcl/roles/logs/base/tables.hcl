@@ -193,6 +193,9 @@ database "posthog" {
     column "severity_text" {
       type = "LowCardinality(String)"
     }
+    column "internal_source" {
+      type = "LowCardinality(String)"
+    }
     column "retention_days" {
       type = "SimpleAggregateFunction(max, UInt16)"
     }
@@ -228,6 +231,9 @@ database "posthog" {
     }
     column "pattern" {
       type = "String"
+    }
+    column "internal_source" {
+      type = "LowCardinality(String)"
     }
     column "retention_days" {
       type = "SimpleAggregateFunction(max, UInt16)"
@@ -631,6 +637,10 @@ database "posthog" {
     column "pattern_version" {
       type = "UInt8"
     }
+    column "internal_source" {
+      type    = "LowCardinality(String)"
+      default = "''"
+    }
     engine "distributed" {
       cluster_name    = "posthog_single_shard"
       remote_database = "posthog"
@@ -700,7 +710,7 @@ database "posthog" {
   }
 
   table "logs_volume_buckets" {
-    order_by     = ["team_id", "time_bucket", "service_name", "namespace", "environment", "severity_text"]
+    order_by     = ["team_id", "time_bucket", "service_name", "namespace", "environment", "severity_text", "internal_source"]
     partition_by = "toDate(time_bucket)"
     ttl          = "time_bucket + toIntervalDay(greatest(42, retention_days))"
     settings = {
@@ -724,6 +734,9 @@ database "posthog" {
       type = "LowCardinality(String)"
     }
     column "severity_text" {
+      type = "LowCardinality(String)"
+    }
+    column "internal_source" {
       type = "LowCardinality(String)"
     }
     column "retention_days" {
@@ -758,6 +771,9 @@ database "posthog" {
     column "severity_text" {
       type = "LowCardinality(String)"
     }
+    column "internal_source" {
+      type = "LowCardinality(String)"
+    }
     column "retention_days" {
       type = "SimpleAggregateFunction(max, UInt16)"
     }
@@ -772,7 +788,7 @@ database "posthog" {
   }
 
   table "logs_pattern_buckets" {
-    order_by     = ["team_id", "time_bucket", "service_name", "namespace", "environment", "severity_text", "pattern_version", "pattern"]
+    order_by     = ["team_id", "time_bucket", "service_name", "namespace", "environment", "severity_text", "pattern_version", "pattern", "internal_source"]
     primary_key  = ["team_id", "time_bucket", "service_name", "namespace", "environment", "severity_text", "pattern_version"]
     partition_by = "toDate(time_bucket)"
     ttl          = "time_bucket + toIntervalDay(greatest(42, retention_days))"
@@ -804,6 +820,9 @@ database "posthog" {
     }
     column "pattern" {
       type = "String"
+    }
+    column "internal_source" {
+      type = "LowCardinality(String)"
     }
     column "retention_days" {
       type = "SimpleAggregateFunction(max, UInt16)"
@@ -842,6 +861,9 @@ database "posthog" {
     }
     column "pattern" {
       type = "String"
+    }
+    column "internal_source" {
+      type = "LowCardinality(String)"
     }
     column "retention_days" {
       type = "SimpleAggregateFunction(max, UInt16)"
@@ -1065,6 +1087,10 @@ database "posthog" {
     }
     column "pattern_version" {
       type = "UInt8"
+    }
+    column "internal_source" {
+      type    = "LowCardinality(String)"
+      default = "''"
     }
     index "idx_severity_text_set" {
       expr        = "severity_text"

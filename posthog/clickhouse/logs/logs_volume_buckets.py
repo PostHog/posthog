@@ -44,12 +44,13 @@ CREATE TABLE IF NOT EXISTS {settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.{TABLE_NA
     `namespace` LowCardinality(String),
     `environment` LowCardinality(String),
     `severity_text` LowCardinality(String),
+    `internal_source` LowCardinality(String),
     `retention_days` SimpleAggregateFunction(max, UInt16),
     `log_count` SimpleAggregateFunction(sum, UInt64)
 )
 ENGINE = {AggregatingMergeTree(TABLE_NAME, replication_scheme=ReplicationScheme.REPLICATED)}
 PARTITION BY toDate(time_bucket)
-ORDER BY (team_id, time_bucket, service_name, namespace, environment, severity_text)
+ORDER BY (team_id, time_bucket, service_name, namespace, environment, severity_text, internal_source)
 {ttl_clause}
 SETTINGS index_granularity = 8192, ttl_only_drop_parts = 0
 """

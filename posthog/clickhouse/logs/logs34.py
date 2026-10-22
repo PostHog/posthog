@@ -49,6 +49,7 @@ CREATE TABLE IF NOT EXISTS {settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.{TABLE_NA
     `_record_count` UInt64,
     `pattern` String,
     `pattern_version` UInt8,
+    `internal_source` LowCardinality(String) DEFAULT '',
     INDEX idx_severity_text_set severity_text TYPE set(10) GRANULARITY 1,
     INDEX idx_attributes_str_keys mapKeys(attributes_map_str) TYPE bloom_filter(0.01) GRANULARITY 1,
     INDEX idx_attributes_str_values mapValues(attributes_map_str) TYPE bloom_filter(0.001) GRANULARITY 1,
@@ -147,7 +148,8 @@ CREATE TABLE IF NOT EXISTS {db}.writable_logs34
     `_bytes_compressed` UInt64,
     `_record_count` UInt64,
     `pattern` String,
-    `pattern_version` UInt8
+    `pattern_version` UInt8,
+    `internal_source` LowCardinality(String) DEFAULT ''
 )
 ENGINE = {Distributed(data_table=TABLE_NAME, cluster=settings.CLICKHOUSE_LOGS_WRITE_CLUSTER)}
 SETTINGS background_insert_batch = 1
@@ -320,7 +322,8 @@ def KAFKA_LOGS34_AVRO_MV_SELECT():
     toInt64OrNull(_headers.value[indexOf(_headers.name, 'bytes_uncompressed')]) / _record_count AS _bytes_uncompressed,
     toInt64OrNull(_headers.value[indexOf(_headers.name, 'bytes_compressed')]) / _record_count AS _bytes_compressed,
     ifNull(pattern, '') AS pattern,
-    toUInt8(ifNull(pattern_version, 0)) AS pattern_version
+    toUInt8(ifNull(pattern_version, 0)) AS pattern_version,
+    _headers.value[indexOf(_headers.name, 'internal-source')] AS internal_source
 FROM {db}.{KAFKA_TABLE_NAME}"""
 
 
@@ -356,7 +359,8 @@ CREATE MATERIALIZED VIEW IF NOT EXISTS {db}.kafka_logs34_avro_mv TO {db}.{to_tab
     `_bytes_uncompressed` Nullable(Int64),
     `_bytes_compressed` Nullable(Int64),
     `pattern` String,
-    `pattern_version` UInt8
+    `pattern_version` UInt8,
+    `internal_source` LowCardinality(String)
 )
 AS {KAFKA_LOGS34_AVRO_MV_SELECT()}
 """
@@ -406,16 +410,18 @@ def LOGS34_TO_VOLUME_BUCKETS_MV_SELECT():
     namespace,
     environment,
     severity_text,
+    internal_source,
     maxSimpleState(retention_days) AS retention_days,
     sumSimpleState(1) AS log_count
 FROM
 (
     SELECT
 {_LOGS34_SERIES_KEY_COLUMNS},
+        internal_source,
 {_LOGS34_RETENTION_DAYS_COLUMN}
     FROM {db}.{TABLE_NAME}
 )
-GROUP BY team_id, time_bucket, service_name, namespace, environment, severity_text"""
+GROUP BY team_id, time_bucket, service_name, namespace, environment, severity_text, internal_source"""
 
 
 def LOGS34_TO_VOLUME_BUCKETS_MV():
@@ -429,6 +435,7 @@ CREATE MATERIALIZED VIEW IF NOT EXISTS {db}.logs34_to_volume_buckets TO {db}.log
     `namespace` LowCardinality(String),
     `environment` LowCardinality(String),
     `severity_text` LowCardinality(String),
+    `internal_source` LowCardinality(String),
     `retention_days` SimpleAggregateFunction(max, UInt16),
     `log_count` SimpleAggregateFunction(sum, UInt64)
 )
@@ -451,6 +458,7 @@ def LOGS34_TO_PATTERN_BUCKETS_MV_SELECT() -> str:
     severity_text,
     pattern_version,
     pattern,
+    internal_source,
     maxSimpleState(retention_days) AS retention_days,
     sumSimpleState(1) AS log_count
 FROM
@@ -459,11 +467,12 @@ FROM
 {_LOGS34_SERIES_KEY_COLUMNS},
         pattern_version,
         pattern,
+        internal_source,
 {_LOGS34_RETENTION_DAYS_COLUMN}
     FROM {db}.{TABLE_NAME}
     WHERE pattern_version != 0
 )
-GROUP BY team_id, time_bucket, service_name, namespace, environment, severity_text, pattern_version, pattern"""
+GROUP BY team_id, time_bucket, service_name, namespace, environment, severity_text, pattern_version, pattern, internal_source"""
 
 
 def LOGS34_TO_PATTERN_BUCKETS_MV() -> str:
@@ -479,6 +488,7 @@ CREATE MATERIALIZED VIEW IF NOT EXISTS {db}.logs34_to_pattern_buckets TO {db}.lo
     `severity_text` LowCardinality(String),
     `pattern_version` UInt8,
     `pattern` String,
+    `internal_source` LowCardinality(String),
     `retention_days` SimpleAggregateFunction(max, UInt16),
     `log_count` SimpleAggregateFunction(sum, UInt64)
 )
