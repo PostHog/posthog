@@ -194,6 +194,7 @@ rules:
                               |ErrorTrackingIssue
                               |ErrorTrackingIssueChange
                               |ErrorTrackingIssueFingerprintV2
+                              |ErrorTrackingIssueSummary
                               |ErrorTrackingRelease
                               |ErrorTrackingRecommendation
                               |ErrorTrackingSettings
@@ -672,6 +673,7 @@ rules:
                         |ErrorTrackingIssue
                         |ErrorTrackingIssueChange
                         |ErrorTrackingIssueFingerprintV2
+                        |ErrorTrackingIssueSummary
                         |ErrorTrackingRelease
                         |ErrorTrackingRecommendation
                         |ErrorTrackingSettings
