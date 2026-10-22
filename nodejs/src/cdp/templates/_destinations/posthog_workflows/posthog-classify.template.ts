@@ -15,12 +15,18 @@ export const template: HogFunctionTemplate = {
     code: `
 ${hogApiErrorMessageFn}
 
-let response := postHogClassify({
+let payload := {
   'question': inputs.question,
   'context': inputs.context,
   'categories': inputs.categories,
   'model': inputs.model
-})
+}
+let response := postHogClassify(payload)
+
+// postHogClassify sets retry_scheduled when the model was busy. The step resumes after a delay and asks again.
+while (response.retry_scheduled) {
+  response := postHogClassify(payload)
+}
 
 if (response.status >= 400) {
   throw Error(f'Could not classify ({response.status}): {apiErrorMessage(response)}')
