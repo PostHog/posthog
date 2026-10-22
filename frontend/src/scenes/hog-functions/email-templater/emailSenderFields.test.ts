@@ -4,12 +4,14 @@ describe('emailSenderFields', () => {
     const withDomain = { id: 1, config: { email: 'hello@example.com', domain: 'example.com' } }
     // Senders without a stored domain are checked against their own address's domain.
     const withoutDomain = { id: 2, config: { email: 'hello@example.com' } }
+    const otherDomain = { id: 3, config: { email: 'hello@example.org', domain: 'example.org' } }
 
     test.each([
         ['an empty address', '', withDomain],
         ['an address on the verified domain', 'security@example.com', withDomain],
         ['an address whose domain differs only in case', 'security@Example.COM', withDomain],
         ['a templated address', '{{ variables.alias }}@example.org', withDomain],
+        ['an address on the domain every rotating sender shares', 'security@example.com', [withDomain, withoutDomain]],
     ])('accepts %s', (_name, address, sender) => {
         expect(senderAddressError(address, sender)).toBeNull()
     })
@@ -20,6 +22,18 @@ describe('emailSenderFields', () => {
         ['a name instead of an address', 'Security team', withDomain, 'Enter one email address'],
         ['two addresses', 'a@example.com, b@example.com', withDomain, 'Enter one email address'],
         ['an address too long to deliver', `${'a'.repeat(250)}@example.com`, withDomain, 'at most 254 characters'],
+        [
+            'any address for rotating senders on different domains',
+            'security@example.com',
+            [withDomain, otherDomain],
+            'different domains',
+        ],
+        [
+            'a local part for rotating senders on different domains',
+            'security',
+            [withDomain, otherDomain],
+            'different domains',
+        ],
     ])('rejects %s', (_name, address, sender, expected) => {
         expect(senderAddressError(address, sender)).toContain(expected)
     })

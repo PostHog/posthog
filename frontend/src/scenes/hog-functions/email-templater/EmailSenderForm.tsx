@@ -1,30 +1,27 @@
-import { IconExternal } from '@posthog/icons'
-import { LemonButton, LemonSelect } from '@posthog/lemon-ui'
+import { LemonButton } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
-import { urls } from 'scenes/urls'
 
 import {
     EmailSender,
+    SenderDataAttrPrefix,
     addressFromLocalPart,
     addressLocalPart,
+    selectedSenders,
     senderAddressError,
-    senderDomain,
+    sharedSenderDomain,
 } from './emailSenderFields'
+import { LiquidSupportedText } from './LiquidSupportedText'
 import { EmailTemplateFrom } from './types'
 
-const ADD_SENDER = -1
-
-function senderLabel(sender: EmailSender): string {
-    const { name, email } = sender.config ?? {}
-    return name && email ? `${name} <${email}>` : (email ?? sender.display_name ?? `Sender ${sender.id}`)
-}
-
+/** The optional overrides on top of the chosen senders: display name, address, and reply-to. */
 export function EmailSenderForm({
     from,
     replyTo,
     senders,
+    variables,
+    dataAttrPrefix,
     onChangeFrom,
     onChangeReplyTo,
     onDone,
@@ -32,81 +29,104 @@ export function EmailSenderForm({
     from: EmailTemplateFrom
     replyTo: string | undefined
     senders: EmailSender[]
+    /** Sample values for templating. When set, the name and reply-to take Liquid with a variable picker. */
+    variables?: Record<string, any>
+    dataAttrPrefix: SenderDataAttrPrefix
     onChangeFrom: (from: EmailTemplateFrom) => void
     onChangeReplyTo: (replyTo: string) => void
     onDone: () => void
 }): JSX.Element {
-    const sender = senders.find((candidate) => candidate.id === from.integrationId)
-    const domain = senderDomain(sender)
-    const senderEmail = sender?.config?.email
+    const selected = selectedSenders(from, senders)
+    const domain = sharedSenderDomain(selected)
     const localPart = addressLocalPart(from.email, domain)
+    const single = selected.length === 1 ? selected[0] : undefined
+    // Senders on different domains can only send from their own addresses.
+    const mixedDomains = selected.length > 1 && !domain
+    const hasOverrides = !!(from.name || from.email || replyTo)
 
-    const onChangeSender = (integrationId: number): void => {
-        if (integrationId === ADD_SENDER) {
-            window.open(urls.workflows('channels'), '_blank')
-            return
-        }
-        // A custom address keeps its part before the @ and moves to the new sender's domain.
-        const nextDomain = senderDomain(senders.find((candidate) => candidate.id === integrationId))
-        const email = from.email ? addressFromLocalPart(addressLocalPart(from.email, domain), nextDomain) : undefined
-        onChangeFrom({ ...from, integrationId, email })
-    }
+    const textInput = (
+        value: string | undefined,
+        onChange: (value: string) => void,
+        placeholder: string,
+        dataAttr: string
+    ): JSX.Element =>
+        variables ? (
+            <div className="border rounded bg-surface-primary px-1" data-attr={dataAttr}>
+                <LiquidSupportedText
+                    value={value ?? ''}
+                    onChange={(next) => onChange(next ?? '')}
+                    globals={variables}
+                />
+            </div>
+        ) : (
+            <LemonInput value={value ?? ''} placeholder={placeholder} onChange={onChange} data-attr={dataAttr} />
+        )
 
     return (
         <div className="flex flex-col gap-3 p-2 w-100 max-w-full">
-            <LemonField.Pure label="Sender">
-                <LemonSelect
-                    fullWidth
-                    placeholder="Choose a sender"
-                    value={from.integrationId}
-                    onChange={onChangeSender}
-                    options={[
-                        {
-                            options: senders.map((candidate) => ({
-                                value: candidate.id,
-                                label: senderLabel(candidate),
-                            })),
-                        },
-                        { options: [{ value: ADD_SENDER, label: 'Add new email sender', icon: <IconExternal /> }] },
-                    ]}
-                    data-attr="transactional-email-sender-select"
-                />
-            </LemonField.Pure>
-            <LemonField.Pure label="Display name" help="Shown in the inbox. Supports Liquid templating.">
-                <LemonInput
-                    value={from.name ?? ''}
-                    placeholder={sender?.config?.name || "The sender's name"}
-                    onChange={(name) => onChangeFrom({ ...from, name: name || undefined })}
-                    data-attr="transactional-email-sender-name"
-                />
+            <LemonField.Pure
+                label="Display name"
+                help={
+                    single?.config?.name
+                        ? `Shown in the inbox. Leave empty to use ${single.config.name}.`
+                        : "Shown in the inbox. Leave empty to use the sender's name."
+                }
+            >
+                {textInput(
+                    from.name,
+                    (name) => onChangeFrom({ ...from, name: name || undefined }),
+                    single?.config?.name || "The sender's name",
+                    `${dataAttrPrefix}-sender-name`
+                )}
             </LemonField.Pure>
             <LemonField.Pure
                 label="Address"
-                help={senderEmail ? `Leave empty to send from ${senderEmail}.` : undefined}
-                error={senderAddressError(from.email, sender)}
+                help={
+                    mixedDomains
+                        ? 'Your senders are on different domains, so each one sends from its own address.'
+                        : single?.config?.email
+                          ? `Leave empty to send from ${single.config.email}.`
+                          : "Leave empty to send from each sender's own address."
+                }
+                error={senderAddressError(from.email, selected)}
             >
                 <LemonInput
                     value={localPart}
-                    placeholder={senderEmail?.split('@')[0]}
+                    // An address already set stays editable so it can be cleared.
+                    disabled={mixedDomains && !from.email}
+                    placeholder={single?.config?.email?.split('@')[0] ?? 'Sender address'}
                     // A pasted full address already has its own domain, so the suffix would only confuse it.
                     suffix={
                         domain && !localPart.includes('@') ? (
                             <span className="text-secondary">{`@${domain}`}</span>
                         ) : undefined
                     }
-                    onChange={(localPart) => onChangeFrom({ ...from, email: addressFromLocalPart(localPart, domain) })}
-                    data-attr="transactional-email-sender-address"
+                    onChange={(next) => onChangeFrom({ ...from, email: addressFromLocalPart(next, domain) })}
+                    data-attr={`${dataAttrPrefix}-sender-address`}
                 />
             </LemonField.Pure>
             <LemonField.Pure label="Reply-to" help="Separate several addresses with commas.">
-                <LemonInput
-                    value={replyTo ?? ''}
-                    placeholder={sender?.config?.reply_to || 'Replies go to the sender address'}
-                    onChange={onChangeReplyTo}
-                    data-attr="transactional-email-reply-to"
-                />
+                {textInput(
+                    replyTo,
+                    onChangeReplyTo,
+                    single?.config?.reply_to || 'Replies go to the sender address',
+                    `${dataAttrPrefix}-reply-to`
+                )}
             </LemonField.Pure>
-            <div className="flex justify-end">
+            <div className="flex gap-2 justify-end">
+                {hasOverrides ? (
+                    <LemonButton
+                        type="tertiary"
+                        size="small"
+                        onClick={() => {
+                            onChangeFrom({ ...from, name: undefined, email: undefined })
+                            onChangeReplyTo('')
+                        }}
+                        data-attr={`${dataAttrPrefix}-custom-sender-clear`}
+                    >
+                        Clear
+                    </LemonButton>
+                ) : null}
                 <LemonButton type="primary" size="small" onClick={onDone}>
                     Done
                 </LemonButton>
