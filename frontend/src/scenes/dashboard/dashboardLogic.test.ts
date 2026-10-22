@@ -2041,6 +2041,25 @@ describe('dashboardLogic', () => {
                 )
             })
 
+            it('keeps staged tile order and height when the scene becomes narrow', async () => {
+                await expectLogic(logic).toFinishAllListeners()
+
+                const layouts = logic.values.layouts
+                const first = layouts.sm![0]
+                const lastY = Math.max(...layouts.sm!.map((layout) => layout.y + layout.h))
+                const changedHeight = first.h + 2
+                logic.actions.stageLayouts({
+                    ...layouts,
+                    sm: layouts.sm?.map((layout) =>
+                        layout.i === first.i ? { ...layout, y: lastY, h: changedHeight } : layout
+                    ),
+                })
+                logic.actions.updateContainerWidth(500, 1)
+
+                expect(logic.values.layout?.at(-1)?.i).toBe(first.i)
+                expect(logic.values.layout?.at(-1)?.h).toBe(changedHeight)
+            })
+
             it('keeps edits made while a layout save is in flight', async () => {
                 await expectLogic(logic).toFinishAllListeners()
 
@@ -5046,10 +5065,11 @@ describe('dashboardLogic', () => {
         })
 
         it('duplicateTile refreshes newly duplicated widget tiles', async () => {
+            const duplicatedSm = { i: '99', x: 0, y: 10, w: 6, h: 5 }
             const duplicatedTile = {
                 id: 99,
                 widget: { id: '3', widget_type: 'error_tracking_list', config: { limit: 5 } },
-                layouts: { sm: { i: '99', x: 0, y: 10, w: 6, h: 5 } },
+                layouts: { sm: duplicatedSm },
                 color: null,
             } as unknown as DashboardTile
 
@@ -5060,6 +5080,16 @@ describe('dashboardLogic', () => {
             logic = dashboardLogic({ id: 5 })
             logic.mount()
             await expectLogic(logic).toFinishAllListeners()
+
+            const firstTile = logic.values.dashboard!.tiles[0]
+            const layouts = logic.values.layouts
+            const changedX = (layouts.sm?.find((layout) => layout.i === String(firstTile.id))?.x ?? 0) + 1
+            logic.actions.stageLayouts({
+                ...layouts,
+                sm: layouts.sm?.map((layout) =>
+                    layout.i === String(firstTile.id) ? { ...layout, x: changedX } : layout
+                ),
+            })
 
             fetchRunWidgetsMock.mockResolvedValueOnce([
                 {
@@ -5086,6 +5116,25 @@ describe('dashboardLogic', () => {
                 results: [{ id: 'issue-1' }],
                 hasMore: false,
             })
+            expect(logic.values.layouts.sm?.find((layout) => layout.i === String(firstTile.id))?.x).toBe(changedX)
+            expect(logic.values.layouts.sm?.find((layout) => layout.i === String(duplicatedTile.id))).toMatchObject(
+                duplicatedSm
+            )
+
+            await expectLogic(logic, () => {
+                logic.actions.saveLayoutChanges()
+            }).toFinishAllListeners()
+            expect(api.update).toHaveBeenCalledWith(
+                `api/projects/${MOCK_TEAM_ID}/dashboards/5`,
+                expect.objectContaining({
+                    tiles: expect.arrayContaining([
+                        expect.objectContaining({
+                            id: duplicatedTile.id,
+                            layouts: { sm: expect.objectContaining(duplicatedSm) },
+                        }),
+                    ]),
+                })
+            )
         })
 
         it('surfaces a failed tile duplicate instead of resolving it as a success', async () => {

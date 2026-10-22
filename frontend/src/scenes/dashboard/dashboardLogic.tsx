@@ -298,6 +298,28 @@ const tileLayoutsFromDashboard = (
     return tileIdToLayouts
 }
 
+function calculateDraftLayouts(
+    tiles: DashboardTile[],
+    draftLayouts: ResponsiveLayouts | null,
+    dashboardLayouts: Record<DashboardTile['id'], DashboardTile['layouts']>
+): ResponsiveLayouts {
+    if (!draftLayouts) {
+        return calculateLayouts(tiles)
+    }
+
+    const draftSmByTile = new Map(draftLayouts.sm?.map((layout) => [layout.i, layout]))
+    const tilesWithDraft = tiles.map((tile) => {
+        const savedSm = dashboardLayouts[tile.id]?.sm
+        const serverSm = tile.layouts?.sm
+        const serverChangedSm = savedSm && serverSm && !equal(savedSm, serverSm)
+        const sm = serverChangedSm ? serverSm : (draftSmByTile.get(String(tile.id)) ?? serverSm)
+
+        return sm ? ({ ...tile, layouts: { ...tile.layouts, sm } } as DashboardTile) : tile
+    })
+
+    return calculateLayouts(tilesWithDraft)
+}
+
 function mergeUpdatedWidgetTileIntoDashboard(dashboard: DashboardType, updatedTile: DashboardTile): DashboardType {
     return {
         ...dashboard,
@@ -369,7 +391,6 @@ export interface dashboardLogicValues {
     dashboardFailedToLoad: boolean
     dashboardFiltersSaving: boolean
     dashboardLayouts: Record<DashboardTile['id'], DashboardTile['layouts']>
-    draftLayouts: ResponsiveLayouts | null
     dashboardLoadData: {
         action: DashboardLoadAction | undefined
         dashboardQueryId: string
@@ -385,6 +406,7 @@ export interface dashboardLogicValues {
     dashboardTileSpacingSaving: boolean
     dataColorTheme: DataColorTheme | null
     dataColorThemeId: number | null
+    draftLayouts: ResponsiveLayouts | null
     effectiveBreakdownColors: BreakdownColorConfig[]
     effectiveEditBarFilters: DashboardFilter
     effectiveLastRefresh: Dayjs | null
@@ -418,7 +440,7 @@ export interface dashboardLogicValues {
     layoutEditMode: boolean
     layoutForItem: Record<string, TileLayout>
     layoutZoom: number
-    layouts: Partial<Record<DashboardLayoutSize, Layout>>
+    layouts: ResponsiveLayouts
     loadLayoutFromServerOnPreview: boolean
     loadTimer: Date | null
     loadingPreview: boolean
@@ -546,6 +568,7 @@ export interface dashboardLogicActions {
     clearDashboardSettingsUrlOverrides: () => {
         value: true
     }
+    clearDraftLayouts: () => boolean
     clearInitialDashboardSettingsOverride: () => {
         value: true
     }
@@ -1060,6 +1083,9 @@ export interface dashboardLogicActions {
     setWidgetRunResults: (results: Record<number, DashboardWidgetRunResultApi>) => {
         results: Record<number, DashboardWidgetRunResultApi>
     }
+    stageLayouts: (layouts: ResponsiveLayouts) => {
+        layouts: Partial<Record<string, Layout>>
+    }
     tileStreamingComplete: () => {
         value: true
     }
@@ -1107,8 +1133,6 @@ export interface dashboardLogicActions {
     updateLayouts: (layouts: ResponsiveLayouts) => {
         layouts: Partial<Record<string, Layout>>
     }
-    stageLayouts: (layouts: ResponsiveLayouts) => { layouts: ResponsiveLayouts }
-    clearDraftLayouts: () => true
     updateTileColor: (
         tileId: number,
         color: InsightColor | null
@@ -1267,7 +1291,7 @@ export interface dashboardLogicMeta {
                 number,
                 Record<string, never> | Record<DashboardLayoutSize, TileLayout> | undefined
             >,
-            draftLayouts: ResponsiveLayouts | null
+            draftLayouts: Partial<Record<string, Layout>> | null
         ) => boolean
         effectiveVariablesAndAssociatedInsights: (
             dashboard: DashboardType | null,
@@ -1358,12 +1382,13 @@ export interface dashboardLogicMeta {
         sizeKey: (columns: number | null) => DashboardLayoutSize | undefined
         layouts: (
             tiles: DashboardTile[],
-            draftLayouts: ResponsiveLayouts | null
-        ) => Partial<Record<DashboardLayoutSize, Layout>>
-        layout: (
-            layouts: Partial<Record<DashboardLayoutSize, Layout>>,
-            sizeKey: DashboardLayoutSize | undefined
-        ) => Layout | undefined
+            draftLayouts: Partial<Record<string, Layout>> | null,
+            dashboardLayouts: Record<
+                number,
+                Record<string, never> | Record<DashboardLayoutSize, TileLayout> | undefined
+            >
+        ) => ResponsiveLayouts
+        layout: (layouts: any, sizeKey: DashboardLayoutSize | undefined) => Layout | undefined
         layoutForItem: (layout: Layout | undefined) => Record<string, TileLayout>
         refreshMetrics: (
             refreshStatus: Record<string, RefreshStatus>,
@@ -1825,7 +1850,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     cache.draftLayoutsAtSave = values.draftLayouts
                     try {
                         // Only persist sm layouts; xs layouts are derived on the fly
-                        const draftByTile = values.draftLayouts ? layoutsByTile(values.draftLayouts) : null
+                        const draftByTile = values.draftLayouts ? layoutsByTile(values.layouts) : null
                         const layoutsToUpdate = (values.dashboard?.tiles || []).map((tile) => {
                             const sm = draftByTile?.[tile.id]?.sm ?? tile.layouts?.sm
                             return { id: tile.id, layouts: sm ? { sm } : {} }
@@ -3421,8 +3446,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
             },
         ],
         layouts: [
-            (s) => [s.tiles, s.draftLayouts],
-            (tiles: DashboardTile[], draftLayouts: ResponsiveLayouts | null) => draftLayouts ?? calculateLayouts(tiles),
+            (s) => [s.tiles, s.draftLayouts, s.dashboardLayouts],
+            (
+                tiles: DashboardTile[],
+                draftLayouts: ResponsiveLayouts | null,
+                dashboardLayouts: Record<DashboardTile['id'], DashboardTile['layouts']>
+            ): ResponsiveLayouts => calculateDraftLayouts(tiles, draftLayouts, dashboardLayouts),
             // Tile refreshes replace `tiles` once per insight response without touching geometry;
             // keeping the result reference stable stops react-grid-layout re-laying-out every tile
             // N times per dashboard refresh cycle.
