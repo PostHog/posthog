@@ -149,7 +149,7 @@ Compare results on representative inputs when changing models.
 For boolean evaluations, the prompt becomes a [Noul question](https://docs.typesafe.ai/primitives/noul).
 A probability at or above `output_config.decision_threshold` produces `true`; the evaluation's existing pass/fail polarity still applies.
 The threshold accepts finite numbers from 0 to 1, inclusive, and defaults to 0.5 when omitted or null.
-The editor displays this setting as a percentage under **Decision threshold** for boolean decision model judges.
+For boolean judges, selecting **Decision model** shows **Decision threshold** as a percentage inside the **Judge model** section, below the model selector.
 Changing the threshold affects new runs only; historical verdicts remain unchanged.
 The raw probability is stored in `$ai_evaluation_probability` when the criteria apply, with available token usage and the configured model ID.
 Missing or invalid token counts remain unknown and do not discard a valid answer.
