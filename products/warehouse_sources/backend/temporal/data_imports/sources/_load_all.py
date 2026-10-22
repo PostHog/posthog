@@ -443,6 +443,7 @@ from .featurebase.source import FeaturebaseSource
 from .feishu.source import FeishuSource
 from .fieldpulse.source import FieldpulseSource
 from .fieldwire.source import FieldwireSource
+from .file_upload.source import FileUploadSource
 from .filevine.source import FilevineSource
 from .fillout.source import FilloutSource
 from .finage.source import FinageSource
@@ -923,6 +924,7 @@ from .pandadoc.source import PandaDocSource
 from .paperform.source import PaperformSource
 from .papersign.source import PapersignSource
 from .pardot.source import PardotSource
+from .particle.source import ParticleSource
 from .partnerize.source import PartnerizeSource
 from .partnerstack.source import PartnerStackSource
 from .patreon.source import PatreonSource

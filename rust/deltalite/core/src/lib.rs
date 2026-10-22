@@ -37,6 +37,7 @@ mod logprobe;
 pub mod pkset;
 pub mod prefetch;
 pub mod probecache;
+mod readahead;
 pub mod schema;
 mod smallfile;
 mod stats;

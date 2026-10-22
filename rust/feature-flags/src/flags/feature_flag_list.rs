@@ -24,6 +24,12 @@ type HypercacheParseResult = (Vec<FeatureFlag>, EvaluationMetadata, Option<Vec<C
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UndecodableDocument {
     NotAnObject,
+    /// A v1 object whose `groups`, or a group's `properties`, is neither falsy nor a list of
+    /// objects.
+    /// Python's builder cannot read it either.
+    MalformedV1Groups,
+    /// A v1 object that Python's builder reads but the typed decoder rejects, such as one
+    /// with a property filter that has no `type` key.
     UnreadableV1Object,
 }
 
@@ -333,10 +339,11 @@ impl FeatureFlagList {
                         // Serde fails the whole `filters` struct when a required field is
                         // absent, so one bad property filter costs the entire flag. A property
                         // filter with no `"type"` key does that, because
-                        // PropertyFilter::prop_type has no default. Python does not parse these
-                        // filters, so it keeps such a flag when the flag is active, and those
-                        // drops are real builder divergences. Either way the team keeps the
-                        // rest of its flags, rather than failing the read.
+                        // PropertyFilter::prop_type has no default. Python reads only the cohort
+                        // and flag references. It reads a property's `type` with `.get`, so it
+                        // keeps such a flag when the flag is active. Those drops are real
+                        // builder divergences, which `UnreadableV1Object` marks. Either way the
+                        // team keeps the rest of its flags, rather than failing the read.
                         tracing::warn!(
                             "Failed to deserialize filters for flag {} in team {}: {}",
                             row.key,

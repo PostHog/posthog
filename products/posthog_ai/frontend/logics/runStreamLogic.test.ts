@@ -5308,6 +5308,27 @@ describe('runStreamLogic', () => {
                 size: 200000,
             })
         })
+
+        it('lands the folded usage of a replayed history', async () => {
+            jest.mocked(tasksRunsRetrieve).mockResolvedValue({ status: 'completed', state: {} } as any)
+            jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue([
+                notification('_posthog/usage_update', { used: { inputTokens: 100 }, breakdown: { tools: 5 } }),
+                sessionUpdate({ sessionUpdate: 'usage_update', used: 9000, size: 200000 }),
+                notification('_posthog/usage_update', { used: { inputTokens: 250 } }),
+                sessionUpdate({ sessionUpdate: 'usage_update', used: 12000, size: 200000 }),
+            ] as any)
+
+            await expectLogic(logic, () => {
+                logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
+            }).toFinishAllListeners()
+
+            expect(logic.values.contextUsage).toEqual({
+                tokens: { inputTokens: 250 },
+                breakdown: { tools: 5 },
+                used: 12000,
+                size: 200000,
+            })
+        })
     })
 
     describe('_posthog/status + compact_boundary inline items', () => {
