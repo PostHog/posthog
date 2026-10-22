@@ -33,6 +33,8 @@ from products.signals.backend.contracts import (
 )
 from products.signals.backend.enums import (
     ReportTaskActionKind,
+    ReviewerEditAction,
+    ReviewerSelectionOutcome,
     SignalSourceProduct,
     SignalSourceType,
     SuggestedSourceProduct,
@@ -53,6 +55,7 @@ from products.signals.backend.report_checks import (
     parse_check_config,
 )
 from products.signals.backend.report_content_gates import team_report_monitoring_enabled
+from products.signals.backend.reviewer_rules import ReviewerRules
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 from products.warehouse_sources.backend.facade.types import ExternalDataSchemaStatus
 
@@ -1247,6 +1250,56 @@ class SignalReportPriorityUpdateSerializer(serializers.Serializer):
     )
 
 
+class ReviewerStateSerializer(serializers.Serializer):
+    reviewers_id = serializers.UUIDField(
+        allow_null=True, help_text="Current reviewer artefact ID, or null before the first list."
+    )
+    corrections_id = serializers.UUIDField(
+        allow_null=True, help_text="Current corrections artefact ID, or null before corrections are stored."
+    )
+
+
+class ReviewerProposalSerializer(serializers.Serializer):
+    expected_reviewers = ReviewerStateSerializer(
+        required=False,
+        help_text="Report reviewer_assignment.state read before selection began. Required when reviewer corrections are enabled.",
+    )
+    reviewer_outcome = serializers.ChoiceField(
+        choices=ReviewerSelectionOutcome.choices,
+        default="selected",
+        help_text="A successful selection, a deliberate empty result, or an unavailable lookup.",
+    )
+    reviewer_retry_reason = serializers.CharField(
+        required=False, max_length=500, help_text="Reason the reviewer lookup failed."
+    )
+
+
+class ReviewerControlResponseSerializer(serializers.Serializer):
+    state = ReviewerStateSerializer(help_text="State token for a selection, replacement, or list confirmation.")
+    pinned_user_uuids = serializers.ListField(
+        child=serializers.UUIDField(), help_text="People an automatic selection must retain."
+    )
+    excluded_user_uuids = serializers.ListField(
+        child=serializers.UUIDField(), help_text="People an automatic selection must not restore."
+    )
+    confirmed = serializers.BooleanField(help_text="A person explicitly confirmed the complete reviewer list.")
+    needs_review = serializers.BooleanField(
+        help_text="Older edits need recovery on the next protected write, or have incomplete history. Automatic changes are paused until recovery or list confirmation."
+    )
+    enabled = serializers.BooleanField(help_text="Whether this report uses saved reviewer corrections.")
+
+    def to_representation(self, instance: ReviewerRules) -> dict[str, object]:
+        snapshot = instance.read()
+        return {
+            "state": snapshot.state.model_dump(mode="json"),
+            "pinned_user_uuids": [entry.user_uuid for entry in snapshot.corrections.pinned if entry.user_uuid],
+            "excluded_user_uuids": [entry.user_uuid for entry in snapshot.corrections.excluded if entry.user_uuid],
+            "confirmed": snapshot.corrections.confirmed,
+            "needs_review": snapshot.corrections.needs_review,
+            "enabled": instance.enabled or snapshot.state.corrections_id is not None,
+        }
+
+
 class SignalReportSerializerExtension(OpenApiSerializerExtension):
     target_class = "products.signals.backend.serializers.SignalReportSerializer"
     match_subclasses = True
@@ -1261,6 +1314,17 @@ class SignalReportSerializerExtension(OpenApiSerializerExtension):
 
 
 class SignalReportSerializer(serializers.ModelSerializer):
+    reviewer_assignment = serializers.SerializerMethodField(
+        help_text="Reviewer control and state token for preparing an automatic proposal."
+    )
+
+    @extend_schema_field(ReviewerControlResponseSerializer(allow_null=True))
+    def get_reviewer_assignment(self, obj: SignalReport) -> dict | None:
+        if isinstance(self, SignalReportListSerializer):
+            return None
+        service = ReviewerRules(team=obj.team, report_id=str(obj.id))
+        return dict(ReviewerControlResponseSerializer(service).data)
+
     monitoring_started_at = serializers.DateTimeField(
         read_only=True,
         required=False,
@@ -1435,6 +1499,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "title",
             "summary",
             "summary_lead",
+            "reviewer_assignment",
             "status",
             "monitoring_started_at",
             "total_weight",  # Used for priority scoring
@@ -2748,24 +2813,36 @@ class SignalReportSuggestedReviewersArtefactSerializer(SignalReportArtefactSeria
 
 
 class SignalReportArtefactWriteSerializer(serializers.Serializer):
-    """PUT body for replacing a `suggested_reviewers` artefact's content.
-
-    Only `suggested_reviewers` artefacts may be modified via this endpoint;
-    the viewset enforces the type check before validation runs.
-    """
-
     MAX_ENTRIES = 10
 
-    # ListField rather than the serializer with many=True: drf-spectacular returns early for a
-    # nested many=True serializer, so a cap declared there never reaches the schema as maxItems.
+    action = serializers.ChoiceField(
+        choices=ReviewerEditAction.choices,
+        default="replace",
+        help_text="Add or remove only the supplied people, replace the list, or explicitly confirm it.",
+    )
+    expected_reviewers = ReviewerStateSerializer(
+        required=False,
+        help_text="State from the last read. Required for replacement and confirmation when corrections are enabled.",
+    )
     content = serializers.ListField(
         child=SuggestedReviewerEntryWriteSerializer(),
         allow_empty=True,
         max_length=MAX_ENTRIES,
-        help_text=(
-            f"Full replacement list of reviewers. Empty list clears the artefact. At most {MAX_ENTRIES} entries."
-        ),
+        help_text="People to add, remove, or keep in a replacement. Send an empty list for confirmation.",
     )
+
+    targets = serializers.ListField(
+        child=SuggestedReviewerEntryWriteSerializer(),
+        required=False,
+        allow_empty=False,
+        max_length=MAX_ENTRIES,
+        help_text="Explicit add or remove targets. When supplied, content is only a fallback for older servers.",
+    )
+
+    def validate(self, attrs: dict) -> dict:
+        if "targets" in attrs and attrs["action"] not in {"add", "remove"}:
+            raise serializers.ValidationError({"targets": "Targets require an add or remove action."})
+        return attrs
 
 
 # Writable types only — `video_segment` (and any other NON_WRITABLE type) is read-only and rejected
@@ -2787,7 +2864,7 @@ def _validate_artefact_content_is_container(value: object) -> dict | list:
     return value
 
 
-class SignalReportArtefactLogCreateSerializer(serializers.Serializer):
+class SignalReportArtefactLogCreateSerializer(ReviewerProposalSerializer):
     """Body for appending an artefact to a report.
 
     Everything is append-only: log artefacts accumulate, status artefacts supersede the previous
