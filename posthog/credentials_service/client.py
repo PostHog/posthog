@@ -45,7 +45,7 @@ from django.conf import settings
 import requests
 import structlog
 import posthoganalytics
-from prometheus_client import Counter
+from prometheus_client import Counter, Histogram
 
 from posthog.dataclasses import frozen
 from posthog.jwt import PosthogJwtAudience, encode_jwt
@@ -83,6 +83,16 @@ CREDENTIALS_SERVICE_ENV_FALLBACK_COUNTER = Counter(
     "posthog_credentials_service_env_fallback_total",
     "Credential reads served from the local environment instead of the credentials service",
     labelnames=["reason"],
+)
+
+# End to end from the caller's side: signing the token, the round trip, and parsing the body.
+# The service's own histogram starts when the request arrives, so it misses connection setup and
+# anything slow inside the calling pod.
+CREDENTIALS_SERVICE_REQUEST_DURATION = Histogram(
+    "posthog_credentials_service_request_duration_seconds",
+    "Time a caller spends on one credentials service request, from signing the token to a parsed body",
+    labelnames=["caller", "result"],
+    buckets=(0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0),
 )
 
 
@@ -312,9 +322,9 @@ class CredentialsServiceClient:
         # Minted outside the try: signing is local work, and a failure there is a bug in this
         # process, not the service being unreachable. Catching it here would file it under the
         # one label nobody investigates.
+        started = time.monotonic()
         headers = self._auth_headers(keys, caller)
         url = f"{settings.CREDENTIALS_SERVICE_URL.rstrip('/')}{RESOLVE_PATH}"
-        started = time.monotonic()
         try:
             response = self._session.post(url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
             response.raise_for_status()
@@ -324,10 +334,14 @@ class CredentialsServiceClient:
             body: dict[str, Any] = response.json()
         except (requests.RequestException, ValueError) as e:
             CREDENTIALS_SERVICE_FETCH_COUNTER.labels(outcome="unreachable").inc()
+            CREDENTIALS_SERVICE_REQUEST_DURATION.labels(caller=str(caller), result="error").observe(
+                time.monotonic() - started
+            )
             _log_resolve(url, keys, caller, started, response=getattr(e, "response", None), error=e)
             raise CredentialsServiceUnreachableError(
                 f"The credentials service did not answer a credential request: {e}"
             ) from e
+        CREDENTIALS_SERVICE_REQUEST_DURATION.labels(caller=str(caller), result="ok").observe(time.monotonic() - started)
         _log_resolve(url, keys, caller, started, response=response, body=body)
         return body
 

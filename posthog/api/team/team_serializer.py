@@ -797,6 +797,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         return instance
 
     def _update_workflows_config(self, instance: Team, validated_data: dict[str, Any]) -> Team:
+        team_config.drop_cached_workflows_config(instance)
         old_config = {
             field: getattr(instance.workflows_config, field)
             for field in team_config.TeamWorkflowsConfigSerializer.Meta.fields

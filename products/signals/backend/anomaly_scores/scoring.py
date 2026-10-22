@@ -10,6 +10,8 @@ import numpy as np
 
 from posthog.schema import BreakdownFilter, ChartDisplayType, DateRange, IntervalType, TrendsQuery
 
+from posthog.hogql.constants import LimitContext
+
 from posthog.api.services.query import ExecutionMode
 from posthog.caching.calculate_results import calculate_for_query_based_insight
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
@@ -147,7 +149,7 @@ def score_series(
     """
     if len(values) != len(buckets):
         raise ValueError("Each value needs a bucket")
-    completed = [i for i, start in enumerate(buckets) if _bucket_end(start, interval) <= now]
+    completed = [i for i, start in enumerate(buckets) if bucket_end(start, interval) <= now]
     returned = [i for i in completed if after is None or buckets[i] > after][-limits.max_backfill_buckets :]
     detector = get_detector(scoring.detector)
     data = np.array(values, dtype=float)
@@ -193,6 +195,8 @@ def score_insight(
         user=insight.created_by,
         query_override=scoring_query.model_dump(exclude_none=True),
         analytics_props={"source": EventSource.SELF_DRIVING},
+        # The async context raises the ClickHouse timeout to minutes. One slow insight must not hold a tick.
+        limit_context=LimitContext.QUERY,
     )
     if calculation.result is None:
         raise RuntimeError(f"No results for insight {insight.pk}")
@@ -262,7 +266,7 @@ def _interval(query: TrendsQuery) -> IntervalType:
     return query.interval or IntervalType.DAY
 
 
-def _bucket_end(start: datetime, interval: IntervalType) -> datetime:
+def bucket_end(start: datetime, interval: IntervalType) -> datetime:
     if interval == IntervalType.HOUR:
         # An hour is elapsed time, so step in UTC to stay one hour long across DST changes.
         return (start.astimezone(UTC) + timedelta(hours=1)).astimezone(start.tzinfo)

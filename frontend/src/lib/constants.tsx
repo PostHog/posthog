@@ -276,6 +276,7 @@ export const FEATURE_FLAGS = {
     CDP_NEW_PRICING: 'cdp-new-pricing', // owner: #team-workflows
     CDP_PERSON_UPDATES: 'cdp-person-updates', // owner: #team-workflows-cdp
     CDP_VERCEL_LOG_DRAIN: 'cdp-vercel-log-drain', // owner: #team-workflows-cdp
+    CHRISTMAS_GOLD_RINGS: 'christmas-gold-rings', // owner: #team-growth
     CLEARABLE_NOTIFICATIONS: 'clearable-notifications', // owner: @jordanm-posthog #team-web-analytics
     CODE_BADGE_SELF_DRIVING_LABEL: 'code-badge-self-driving-label', // owner: #team-self-driving, experiment: label the Code badge "Self-driving" and compare setup activations
     COHORT_INLINE_CALCULATION: 'inline-cohort-calculation', // owner: #team-analytics-platform, inlines fast dynamic cohort queries instead of using precomputed cohortpeople table
@@ -443,7 +444,7 @@ export const FEATURE_FLAGS = {
     PAYMENT_ENTRY_CONTACT_SUPPORT: 'payment-entry-contact-support', // owner: #team-billing, see `PaymentEntryModal.tsx`
     PHAI_PLAN_MODE: 'phai-plan-mode', // owner: #team-posthog-ai
     PHAI_QUILL: 'phai-quill', // owner: #team-posthog-ai, renders the PostHog AI chat thread in quill like PostHog Desktop; on with today-rail-nav too
-    PHAI_SANDBOX_MODE: 'phai-sandbox-mode', // owner: #team-posthog-ai
+    PHAI_SANDBOX_MODE: 'phai-sandbox-mode', // owner: #team-posthog-ai, PostHog AI 2.0: the sandbox runtime and the task composer; without it the today-rail-nav chats use the legacy chat
     PHAI_SCENE_AUTO_OPEN: 'phai-scene-auto-open', // owner: #team-posthog-ai
     PHAI_TASKS: 'phai-tasks', // owner: #team-array
     PI_ACP: 'pi-acp', // owner: #team-agent-infrastructure, Pi runs write ACP and show on the web run surface
@@ -601,7 +602,6 @@ export const FEATURE_FLAGS = {
     WORKFLOW_OPT_OUT_OF_MESSAGES_ACTION: 'workflow-opt-out-of-messages-action', // owner: #team-workflows
     WORKFLOWS_AI_EMAIL_DRAFT: 'workflows-ai-email-draft', // owner: @dmarchuk #team-workflows, AI first draft for cross-product entry points
     WORKFLOWS_AI_FIRST_NEW: 'workflows-ai-first-new', // owner: @mayteio #team-workflows
-    WORKFLOWS_BROADCAST_RECIPIENT_LISTS: 'workflows-broadcast-recipient-lists', // owner: @mayteio #team-workflows
     WORKFLOWS_COHORT_CONDITIONS: 'workflows-cohort-conditions', // owner: @meikelmosby #team-workflows
     WORKFLOWS_EMAIL_MEDIA_LIBRARY: 'workflows-email-media-library', // owner: @mayteio #team-workflows, backs the email editor's Uploads tab with the media library
     WORKFLOWS_EMAIL_SENDER_ROTATION: 'workflows-email-sender-rotation', // owner: @arthurdedeus #team-workflows
@@ -613,7 +613,6 @@ export const FEATURE_FLAGS = {
     WORKFLOWS_SEND_CALENDAR: 'workflows-send-calendar', // owner: @meikelmosby #team-workflows, calendar of scheduled email sends in Broadcasts and Workflows
     WORKFLOWS_TILE_CANVAS: 'workflows-tile-canvas', // owner: #team-workflows
     WORKFLOWS_TRANSACTIONAL_EMAIL_API: 'workflows-transactional-email-api', // owner: @mayteio #team-workflows
-    WORKFLOWS_TRIGGER_VOLUME_ESTIMATE: 'workflows-trigger-volume-estimate', // owner: @mayteio #team-workflows
     XAA_AUTHENTICATION: 'xaa-authentication', // owner: @reecejones #team-platform-features
 } as const
 export type FeatureFlagLookupKey = keyof typeof FEATURE_FLAGS
