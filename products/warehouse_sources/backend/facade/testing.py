@@ -13,6 +13,7 @@ module-body import path.
 
 _MODULES = {
     "create_data_warehouse_table_from_csv": "products.warehouse_sources.backend.test.utils",
+    "create_synced_table_from_rows": "products.warehouse_sources.backend.test.utils",
     "WarehouseAccessControlTestMixin": "products.warehouse_sources.backend.facade._access_control_base",
 }
 

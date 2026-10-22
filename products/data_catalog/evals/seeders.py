@@ -6,26 +6,16 @@ function. Every seeder returns the identities and trust signals its scorers grad
 
 from __future__ import annotations
 
-import csv
 from typing import TYPE_CHECKING, Any
 
 from unittest.mock import patch
 
 from django.db import transaction
 
-import s3fs
-
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.settings import (
-    OBJECT_STORAGE_ACCESS_KEY_ID,
-    OBJECT_STORAGE_BUCKET,
-    OBJECT_STORAGE_ENDPOINT,
-    OBJECT_STORAGE_SECRET_ACCESS_KEY,
-    XDIST_SUFFIX,
-)
 
 from products.data_catalog.backend.facade.api import (
     accept_proposal,
@@ -158,16 +148,11 @@ from products.data_modeling.backend.facade.models import (
 )
 from products.data_tools.backend.facade.models import DataWarehouseJoin
 from products.product_analytics.backend.facade.models import Insight
-from products.warehouse_sources.backend.facade.models import (
-    DataWarehouseCredential,
-    DataWarehouseTable,
-    ExternalDataSchema,
-    ExternalDataSource,
-    WarehouseColumnAnnotation,
-)
+from products.warehouse_sources.backend.facade.contracts import SyncedWarehouseTable
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable
+from products.warehouse_sources.backend.facade.testing import create_synced_table_from_rows
 from products.warehouse_sources.backend.facade.types import (
     DataWarehouseTableFormat,
-    ExternalDataSourceStatus,
     ExternalDataSourceType,
     WarehouseColumnAnnotationDescriptionSource,
 )
@@ -201,9 +186,6 @@ __all__ = [
 _STRING_COLUMN = {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}
 _INTEGER_COLUMN = {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "schema_valid": True}
 _FLOAT_COLUMN = {"hogql": "FloatDatabaseField", "clickhouse": "Float64", "schema_valid": True}
-# ClickHouse runs in docker-compose and reaches object storage by its service name. OBJECT_STORAGE_ENDPOINT is the
-# address for this process, and a localhost address there would make ClickHouse connect to itself.
-_CLICKHOUSE_OBJECT_STORAGE_ENDPOINT = "http://objectstorage:19000"
 _INCIDENT_WAREHOUSE_QUERIES = {
     "paid_bills": "SELECT distinct_id, timestamp, amount_usd FROM paid_bills LIMIT 1",
     "extended_properties": ("SELECT hedgebox_user_id, account_kind, monthly_bill_usd FROM extended_properties LIMIT 1"),
@@ -726,71 +708,22 @@ def _synced_table(
     columns: dict[str, dict[str, Any]],
     rows: tuple[tuple[Any, ...], ...],
     descriptions: dict[str, str],
-) -> tuple[DataWarehouseTable, dict[str, WarehouseColumnAnnotation]]:
-    """Install a completed source sync: rows in object storage, the source and schema rows, and canonical annotations.
-
-    ``""`` in ``descriptions`` is the table-level annotation.
-    """
-    folder = f"{OBJECT_STORAGE_BUCKET}/eval_catalog{XDIST_SUFFIX}/team_{team.id}/{table_name}"
-    fs = s3fs.S3FileSystem(
-        client_kwargs={
-            "region_name": "us-east-1",
-            "endpoint_url": OBJECT_STORAGE_ENDPOINT,
-            "aws_access_key_id": OBJECT_STORAGE_ACCESS_KEY_ID,
-            "aws_secret_access_key": OBJECT_STORAGE_SECRET_ACCESS_KEY,
-        },
-    )
-    with fs.open(f"{folder}/data.csv", "w", newline="") as handle:
-        writer = csv.writer(handle)
-        writer.writerow(columns)
-        writer.writerows(rows)
-
-    source = ExternalDataSource.objects.create(
-        team=team,
-        source_id=f"eval_{schema_name}_source",
-        connection_id=f"eval_{schema_name}_connection",
-        status=ExternalDataSourceStatus.COMPLETED,
+) -> SyncedWarehouseTable:
+    synced = create_synced_table_from_rows(
+        team,
         source_type=source_type,
-    )
-    credential = DataWarehouseCredential.objects.create(
-        team=team,
-        access_key=OBJECT_STORAGE_ACCESS_KEY_ID,
-        access_secret=OBJECT_STORAGE_SECRET_ACCESS_KEY,
-    )
-    table = DataWarehouseTable.objects.create(
-        team=team,
-        name=table_name,
-        format=DataWarehouseTableFormat.CSVWithNames,
-        external_data_source=source,
-        credential=credential,
-        url_pattern=f"{_CLICKHOUSE_OBJECT_STORAGE_ENDPOINT}/{folder}/*.csv",
+        schema_name=schema_name,
+        table_name=table_name,
         columns=columns,
+        rows=rows,
+        canonical_descriptions=descriptions,
+        test_bucket="eval_catalog",
     )
-    ExternalDataSchema.objects.create(
-        team=team,
-        name=schema_name,
-        source=source,
-        table=table,
-        status=ExternalDataSchema.Status.COMPLETED,
-        initial_sync_complete=True,
-    )
-    annotations = {
-        column_name: WarehouseColumnAnnotation.objects.for_team(team.id).create(
-            team=team,
-            table=table,
-            column_name=column_name,
-            description=description,
-            description_source=WarehouseColumnAnnotationDescriptionSource.CANONICAL,
-            is_user_edited=False,
-        )
-        for column_name, description in descriptions.items()
-    }
-
     # A table ClickHouse cannot read would score the agent 0 for an infrastructure fault, so fail the seed instead.
     response = execute_hogql_query(f"SELECT count() FROM {table_name}", team=team, user=user)
     if getattr(response, "error", None) or not response.results or response.results[0][0] != len(rows):
         raise RuntimeError(f"Seeded synced table '{table_name}' did not return its {len(rows)} rows.")
-    return table, annotations
+    return synced
 
 
 def _annotated_view(team: Team, user: User, *, name: str, sql: str, descriptions: dict[str, str]) -> None:
@@ -898,7 +831,7 @@ def seed_synced_time_off_table(context: CustomPromptSandboxContext) -> dict[str,
 
 def seed_annotation_write_target(context: CustomPromptSandboxContext) -> dict[str, Any]:
     team, user = _team_and_user(context)
-    table, annotations = _synced_table(
+    synced = _synced_table(
         team,
         user,
         source_type=ExternalDataSourceType.HUBSPOT,
@@ -916,10 +849,10 @@ def seed_annotation_write_target(context: CustomPromptSandboxContext) -> dict[st
     )
     return {
         "annotation_target": {
-            "table_id": str(table.id),
+            "table_id": str(synced.table_id),
             "table_name": ANNOTATION_WRITE_TABLE_NAME,
             "column_name": ANNOTATION_WRITE_COLUMN,
-            "annotation_id": str(annotations[ANNOTATION_WRITE_COLUMN].id),
+            "annotation_id": str(synced.annotation_ids[ANNOTATION_WRITE_COLUMN]),
             "required_terms": list(ANNOTATION_WRITE_REQUIRED_TERMS),
         }
     }

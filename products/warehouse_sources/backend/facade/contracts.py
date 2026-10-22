@@ -46,6 +46,14 @@ class ConfigValueError(ValueError):
 
 
 @dataclass(frozen=True)
+class SyncedWarehouseTable:
+    table_id: UUID
+    name: str
+    # Keyed by column name. "" is the table-level annotation.
+    annotation_ids: dict[str, UUID]
+
+
+@dataclass(frozen=True)
 class RevenueViewSyncInput:
     team_id: int
     source_id: UUID
