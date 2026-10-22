@@ -84,6 +84,9 @@ MAX_BYTES_READ = 10_000_000_000
 # The sample reads wide columns and sorts them for the repeat window, so it gets a tighter limit.
 MAX_SAMPLE_BYTES_READ = 1_000_000_000
 MAX_ESTIMATED_BYTES = 10_000_000_000
+# Larger than the JSON of almost any event. Below it, the checks skip the size read, which can read hundreds of MB.
+# An event above it only makes a check stop at MAX_BYTES_READ, which offers the person the same button.
+MAX_JSON_BYTES_PER_EVENT = 10_000
 # A check run on request has the same time limit as the insight's own query, and no read limit.
 REQUESTED_MAX_EXECUTION_SECONDS = 60
 JSON_SIZE_SAMPLE = 1_000
@@ -805,7 +808,7 @@ def _json_bytes_per_event(
     return 0.0 if math.isnan(average) else average
 
 
-def _estimated_bytes(
+def _would_read_too_much(
     events: ChartEvents,
     reader: _EventReader,
     window: CheckWindow,
@@ -813,12 +816,15 @@ def _estimated_bytes(
     *,
     email_access: TeamEmailAccess,
     hidden_properties: RestrictedPropertyNames,
-) -> int | None:
-    """About how much the count of every event would read, which is the most any check reads. None when unknown.
+) -> bool:
+    """Whether the count of every event, which is the most any check reads, would read more than MAX_ESTIMATED_BYTES.
 
     Only a property without a column of its own makes a check heavy, because it is read from a JSON column of every
     event the check reads.
     """
+    if window.events_on_days_to_check * MAX_JSON_BYTES_PER_EVENT <= MAX_ESTIMATED_BYTES:
+        return False
+
     where = _checked_where(events, window, timezone)
     try:
         internal_users = _internal_users_match(
@@ -830,15 +836,16 @@ def _estimated_bytes(
         no_filter = Skipped(reason=InsightDataCheckSkipReason.INVALID_FILTER)
         columns = _json_columns_read(_counted_events_query(events, where, no_filter), reader)
     if not columns:
-        return 0
+        return False
 
     first, last = window.days_to_check[0], window.days_to_check[-1]
     # The count reads each event of the chart's event names and days before its filters drop any.
     sort_key_where = ast.And(exprs=[events.sort_key_where, _between_days(events, first, last, timezone)])
     bytes_per_event = _json_bytes_per_event(events, reader, sort_key_where, columns)
+    # A size read that stops at a limit means the full count would stop there too.
     if isinstance(bytes_per_event, Skipped):
-        return None
-    return round(window.events_on_days_to_check * bytes_per_event)
+        return True
+    return window.events_on_days_to_check * bytes_per_event > MAX_ESTIMATED_BYTES
 
 
 def _sample_summary(sample: SampledEvents | Skipped) -> InsightDataChecksSample | None:
@@ -894,16 +901,14 @@ def run_insight_data_checks(
         window = _choose_window(events, reader, timezone)
         if isinstance(window, Skipped):
             return _nothing_checked(InsightDataChecksStatus.INCONCLUSIVE, reason=window.reason)
-        if not run_expensive:
-            estimate = _estimated_bytes(
-                events, reader, window, timezone, email_access=email_access, hidden_properties=hidden_properties
+        if not run_expensive and _would_read_too_much(
+            events, reader, window, timezone, email_access=email_access, hidden_properties=hidden_properties
+        ):
+            return _nothing_checked(
+                InsightDataChecksStatus.ON_REQUEST,
+                _coverage(events, window, None),
+                InsightDataCheckSkipReason.ON_REQUEST,
             )
-            if estimate is None or estimate > MAX_ESTIMATED_BYTES:
-                return _nothing_checked(
-                    InsightDataChecksStatus.ON_REQUEST,
-                    _coverage(events, window, None),
-                    InsightDataCheckSkipReason.ON_REQUEST,
-                )
         checked = _read_checked_days(
             events,
             reader,

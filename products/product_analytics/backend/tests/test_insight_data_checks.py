@@ -791,16 +791,23 @@ class TestInsightDataChecks(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("properties_with_columns_of_their_own", [], None, "warning"),
-            ("a_filter_on_a_property_without_a_column", [SENT_WITHOUT_A_PLAN], None, "on_request"),
-            ("asked_for_in_the_request_body", [SENT_WITHOUT_A_PLAN], "body", "warning"),
-            ("asked_for_on_a_saved_insight", [SENT_WITHOUT_A_PLAN], "saved_insight", "warning"),
+            ("properties_with_columns_of_their_own", [], None, 10_000, "warning"),
+            ("a_filter_on_a_property_without_a_column", [SENT_WITHOUT_A_PLAN], None, 10_000, "on_request"),
+            ("too_few_events_to_read_a_lot_even_from_large_events", [SENT_WITHOUT_A_PLAN], None, 0, "warning"),
+            ("asked_for_in_the_request_body", [SENT_WITHOUT_A_PLAN], "body", 10_000, "warning"),
+            ("asked_for_on_a_saved_insight", [SENT_WITHOUT_A_PLAN], "saved_insight", 10_000, "warning"),
         ]
     )
     @patch(f"{CHECKS_MODULE}.MAX_ESTIMATED_BYTES", 1)
     def test_runs_the_checks_that_would_read_a_lot_only_on_request(
-        self, _name: str, properties: list[dict[str, Any]], asked_for: str | None, expected_status: str
+        self,
+        _name: str,
+        properties: list[dict[str, Any]],
+        asked_for: str | None,
+        max_json_bytes_per_event: int,
+        expected_status: str,
     ) -> None:
+        self.enterContext(patch(f"{CHECKS_MODULE}.MAX_JSON_BYTES_PER_EVENT", max_json_bytes_per_event))
         self.addCleanup(cleanup_materialized_columns)
         materialize("events", "email", table_column="person_properties")
         # A lifecycle chart filters on this property, which production reads from a column of its own.
