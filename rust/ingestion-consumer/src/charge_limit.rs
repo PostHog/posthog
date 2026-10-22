@@ -24,6 +24,10 @@ impl ChargeLimit {
         self.events.is_some() || self.bytes.is_some()
     }
 
+    pub fn sets_both_axes(&self) -> bool {
+        self.events.is_some() && self.bytes.is_some()
+    }
+
     pub(crate) fn reached(&self, charge: Charge) -> bool {
         self.events.is_some_and(|limit| charge.events >= limit)
             || self.bytes.is_some_and(|limit| charge.bytes >= limit)

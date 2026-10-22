@@ -91,8 +91,10 @@ pub(crate) enum Selected {
 /// Continuous polling needs `group` granularity, because at `poll` only a
 /// retired poll settles, and continuous polling retires no poll. It needs a
 /// partition budget and an in-flight limit, because it has no in-flight poll
-/// cap. Without all three the capped strategy runs, so a lane rolled back to
-/// `poll` needs no second setting changed.
+/// cap. Each needs both axes, because one axis alone leaves the other
+/// unbounded: a message with no key, value or headers charges zero bytes.
+/// Without all three the capped strategy runs, so a lane rolled back to `poll` needs no
+/// second setting changed.
 pub(crate) fn select(
     polling: Polling,
     granularity: CompletionGranularity,
@@ -111,8 +113,14 @@ pub(crate) fn select(
             granularity != CompletionGranularity::Group,
             "CONSUMER_COMPLETION_GRANULARITY=group",
         ),
-        (!budget.is_set(), "a partition budget"),
-        (!in_flight.is_set(), "an in-flight limit"),
+        (
+            !budget.sets_both_axes(),
+            "a partition budget on events and bytes",
+        ),
+        (
+            !in_flight.sets_both_axes(),
+            "an in-flight limit on events and bytes",
+        ),
     ]
     .into_iter()
     .filter_map(|(missing, requirement)| missing.then_some(requirement))
@@ -133,29 +141,47 @@ mod tests {
 
     use super::*;
 
+    #[derive(Clone, Copy)]
+    enum Axes {
+        Neither,
+        Events,
+        Bytes,
+        Both,
+    }
+
+    impl Axes {
+        fn limits(self) -> (Option<NonZeroU64>, Option<NonZeroU64>) {
+            let (events, bytes) = match self {
+                Axes::Neither => (0, 0),
+                Axes::Events => (100, 0),
+                Axes::Bytes => (0, 100_000),
+                Axes::Both => (100, 100_000),
+            };
+            (NonZeroU64::new(events), NonZeroU64::new(bytes))
+        }
+    }
+
     struct SelectCase {
         granularity: CompletionGranularity,
-        budget_set: bool,
-        in_flight_set: bool,
+        budget: Axes,
+        in_flight: Axes,
         expected_continuous: bool,
     }
 
     #[rstest::rstest]
-    #[case::all_requirements(SelectCase { granularity: CompletionGranularity::Group, budget_set: true, in_flight_set: true, expected_continuous: true })]
-    #[case::poll_granularity(SelectCase { granularity: CompletionGranularity::Poll, budget_set: true, in_flight_set: true, expected_continuous: false })]
-    #[case::no_budget(SelectCase { granularity: CompletionGranularity::Group, budget_set: false, in_flight_set: true, expected_continuous: false })]
-    #[case::no_in_flight_limit(SelectCase { granularity: CompletionGranularity::Group, budget_set: true, in_flight_set: false, expected_continuous: false })]
+    #[case::all_requirements(SelectCase { granularity: CompletionGranularity::Group, budget: Axes::Both, in_flight: Axes::Both, expected_continuous: true })]
+    #[case::poll_granularity(SelectCase { granularity: CompletionGranularity::Poll, budget: Axes::Both, in_flight: Axes::Both, expected_continuous: false })]
+    #[case::no_budget(SelectCase { granularity: CompletionGranularity::Group, budget: Axes::Neither, in_flight: Axes::Both, expected_continuous: false })]
+    #[case::event_only_budget(SelectCase { granularity: CompletionGranularity::Group, budget: Axes::Events, in_flight: Axes::Both, expected_continuous: false })]
+    #[case::byte_only_budget(SelectCase { granularity: CompletionGranularity::Group, budget: Axes::Bytes, in_flight: Axes::Both, expected_continuous: false })]
+    #[case::no_in_flight_limit(SelectCase { granularity: CompletionGranularity::Group, budget: Axes::Both, in_flight: Axes::Neither, expected_continuous: false })]
+    #[case::event_only_in_flight_limit(SelectCase { granularity: CompletionGranularity::Group, budget: Axes::Both, in_flight: Axes::Events, expected_continuous: false })]
+    #[case::byte_only_in_flight_limit(SelectCase { granularity: CompletionGranularity::Group, budget: Axes::Both, in_flight: Axes::Bytes, expected_continuous: false })]
     fn continuous_polling_runs_only_with_all_its_requirements(#[case] case: SelectCase) {
-        let budget = if case.budget_set {
-            BudgetLimits::new(NonZeroU64::new(100), None, 0.8).unwrap()
-        } else {
-            BudgetLimits::unset()
-        };
-        let in_flight = if case.in_flight_set {
-            ChargeLimit::new(NonZeroU64::new(1_000), None)
-        } else {
-            ChargeLimit::unset()
-        };
+        let (events, bytes) = case.budget.limits();
+        let budget = BudgetLimits::new(events, bytes, 0.8).unwrap();
+        let (events, bytes) = case.in_flight.limits();
+        let in_flight = ChargeLimit::new(events, bytes);
 
         let selected = select(Polling::Continuous, case.granularity, &budget, in_flight, 4);
 

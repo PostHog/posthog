@@ -50,6 +50,7 @@ use ingestion_worker_proto::ingestion::worker::v1::{
     MessageRef, StreamReady, SubBatchAck, SubBatchStatus,
 };
 
+const UNBOUNDED_BYTES: u64 = 1 << 40;
 const KAFKA_BROKERS: &str = "localhost:9092";
 const BUDGET_ATTEMPTS: NonZeroU32 = NonZeroU32::new(3).expect("nonzero attempts");
 
@@ -780,8 +781,13 @@ impl Harness {
             ),
             Polling::Continuous => (
                 CompletionGranularity::Group,
-                BudgetLimits::new(NonZeroU64::new(10_000), None, 0.8).expect("a valid budget"),
-                ChargeLimit::new(NonZeroU64::new(100_000), None),
+                BudgetLimits::new(
+                    NonZeroU64::new(10_000),
+                    NonZeroU64::new(UNBOUNDED_BYTES),
+                    0.8,
+                )
+                .expect("a valid budget"),
+                ChargeLimit::new(NonZeroU64::new(100_000), NonZeroU64::new(UNBOUNDED_BYTES)),
             ),
         };
         Self::start_inner(
@@ -865,7 +871,10 @@ impl Harness {
         let (max_in_flight, in_flight_limit) = match polling {
             Polling::Capped => (8, ChargeLimit::unset()),
             // One poll slot: the continuous loop must not wait on any poll.
-            Polling::Continuous => (1, ChargeLimit::new(NonZeroU64::new(1_000), None)),
+            Polling::Continuous => (
+                1,
+                ChargeLimit::new(NonZeroU64::new(1_000), NonZeroU64::new(UNBOUNDED_BYTES)),
+            ),
         };
         Self::start_inner(
             topic,
@@ -2730,7 +2739,8 @@ async fn group_granularity_commits_a_partition_while_another_stalls() {
 #[tokio::test]
 async fn a_partition_at_its_budget_pauses_until_a_commit_frees_it(#[case] polling: Polling) {
     let topic = format!("e2e-partition-budget-{}", Uuid::new_v4());
-    let budget = BudgetLimits::new(NonZeroU64::new(5), None, 0.5).expect("a valid budget");
+    let budget = BudgetLimits::new(NonZeroU64::new(5), NonZeroU64::new(UNBOUNDED_BYTES), 0.5)
+        .expect("a valid budget");
     let harness = Harness::start_with_partition_budget(
         common::PRODUCTION_PACK_TARGETS,
         &topic,
@@ -2779,7 +2789,8 @@ async fn a_partition_at_its_budget_pauses_until_a_commit_frees_it(#[case] pollin
 #[tokio::test]
 async fn a_partition_at_its_budget_does_not_pause_another(#[case] polling: Polling) {
     let topic = format!("e2e-partition-budget-two-{}", Uuid::new_v4());
-    let budget = BudgetLimits::new(NonZeroU64::new(5), None, 0.5).expect("a valid budget");
+    let budget = BudgetLimits::new(NonZeroU64::new(5), NonZeroU64::new(UNBOUNDED_BYTES), 0.5)
+        .expect("a valid budget");
     // One message per request, or the packer puts both keys on one worker.
     let harness = Harness::start_with_partition_budget(
         common::ONE_MESSAGE_PER_REQUEST,
@@ -2842,8 +2853,13 @@ async fn continuous_polling_commits_the_ledger_frontier() {
             &topic,
             1,
             1,
-            BudgetLimits::new(NonZeroU64::new(1_000), None, 0.8).expect("a valid budget"),
-            ChargeLimit::new(NonZeroU64::new(1_000), None),
+            BudgetLimits::new(
+                NonZeroU64::new(1_000),
+                NonZeroU64::new(UNBOUNDED_BYTES),
+                0.8,
+            )
+            .expect("a valid budget"),
+            ChargeLimit::new(NonZeroU64::new(1_000), NonZeroU64::new(UNBOUNDED_BYTES)),
         )
         .await,
     )
@@ -2858,8 +2874,13 @@ async fn the_in_flight_limit_stops_reading_until_a_commit_frees_room() {
         &topic,
         1,
         1,
-        BudgetLimits::new(NonZeroU64::new(1_000), None, 0.8).expect("a valid budget"),
-        ChargeLimit::new(NonZeroU64::new(5), None),
+        BudgetLimits::new(
+            NonZeroU64::new(1_000),
+            NonZeroU64::new(UNBOUNDED_BYTES),
+            0.8,
+        )
+        .expect("a valid budget"),
+        ChargeLimit::new(NonZeroU64::new(5), NonZeroU64::new(UNBOUNDED_BYTES)),
     )
     .await;
     let p0 = TopicPartition::new(&topic, 0);
@@ -2894,7 +2915,8 @@ async fn the_in_flight_limit_stops_reading_until_a_commit_frees_room() {
 #[tokio::test]
 async fn a_partition_paused_at_its_budget_fetches_again_after_a_rebalance_returns_it() {
     let topic = format!("e2e-partition-budget-rebalance-{}", Uuid::new_v4());
-    let budget = BudgetLimits::new(NonZeroU64::new(5), None, 0.5).expect("a valid budget");
+    let budget = BudgetLimits::new(NonZeroU64::new(5), NonZeroU64::new(UNBOUNDED_BYTES), 0.5)
+        .expect("a valid budget");
     let harness = Harness::start_with_partition_budget_committing_every(
         common::PRODUCTION_PACK_TARGETS,
         &topic,

@@ -80,7 +80,7 @@ The partition budget bounds each partition's replay exposure, and the in-flight 
 The limit is approximate: it stops reading, and the poll in progress still completes, so the uncommitted charge can pass the limit by one poll. One poll holds at most `CONSUMER_BATCH_SIZE` events and `CONSUMER_BATCH_SIZE_KB` plus one message; with the byte bound off, its bytes are bounded only by the batch size times the largest message.
 Room frees when a commit hands out offsets, as it does for the partition budget, not when a completion arrives.
 At the limit the loop stops reading Kafka until a commit frees room, and rebalance callbacks wait with it, so size the limit above the budget times the partitions a pod holds.
-`continuous` needs `CONSUMER_COMPLETION_GRANULARITY=group`, a partition budget, and an in-flight limit. Without all three the consumer logs a warning and runs `capped`, so switching a lane back to `poll` rolls back both.
+`continuous` needs `CONSUMER_COMPLETION_GRANULARITY=group`, a partition budget, and an in-flight limit, and the budget and the limit each need both their events and bytes settings. A message with no key, value or headers charges zero bytes, so a byte-only limit admits any number of them. Without all three the consumer logs a warning and runs `capped`, so switching a lane back to `poll` rolls back both.
 `ingestion_consumer_in_flight_limit_reached_total` counts each time the loop stops reading at the limit; the `kafka_consumer_ledger_uncommitted_*` gauges show each partition's share.
 
 ## Batcher

@@ -47,6 +47,11 @@ impl BudgetLimits {
         self.limits.is_some()
     }
 
+    pub fn sets_both_axes(&self) -> bool {
+        self.limits
+            .is_some_and(|limits| limits.pause_at.sets_both_axes())
+    }
+
     pub(crate) fn pauses(&self, uncommitted: Charge) -> bool {
         self.limits
             .is_some_and(|limits| limits.pause_at.reached(uncommitted))
