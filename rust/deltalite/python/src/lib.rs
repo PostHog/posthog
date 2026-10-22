@@ -386,7 +386,15 @@ impl DeltaLiteTable {
     /// `max_source_bytes` guards against oversized batches (resident source + estimated
     /// PK set); `0` disables the guard, `None` uses `DELTALITE_MAX_SOURCE_BYTES` or the
     /// built-in 2 GiB default. `multipart_threshold` / `multipart_part_size` control
-    /// multipart upload of output files (`0` threshold disables).
+    /// multipart upload of output files (`0` threshold disables), and
+    /// `multipart_concurrency` sets how many parts upload at once. A ranged read of a
+    /// data file larger than `range_get_part_size` is split into requests of that size,
+    /// `range_get_concurrency` at once. A concurrency of `1` turns either off; see the
+    /// README for the defaults and environment variables.
+    ///
+    /// `read_ahead_row_groups=True` reads the next row group of a file while the
+    /// current one decodes. A reader then holds up to two row groups from the fetch
+    /// budget. Off by default.
     ///
     /// `max_fetch_bytes` caps the compressed row-group bytes this call's file readers
     /// hold between fetching and decoding (`DELTALITE_PROCESS_MAX_FETCH_BYTES` caps it
@@ -423,6 +431,10 @@ impl DeltaLiteTable {
         max_source_bytes = None,
         multipart_threshold = None,
         multipart_part_size = None,
+        multipart_concurrency = None,
+        range_get_part_size = None,
+        range_get_concurrency = None,
+        read_ahead_row_groups = false,
         use_probe_cache = true,
     ))]
     #[allow(clippy::too_many_arguments)]
@@ -448,6 +460,10 @@ impl DeltaLiteTable {
         max_source_bytes: Option<usize>,
         multipart_threshold: Option<usize>,
         multipart_part_size: Option<usize>,
+        multipart_concurrency: Option<usize>,
+        range_get_part_size: Option<usize>,
+        range_get_concurrency: Option<usize>,
+        read_ahead_row_groups: bool,
         use_probe_cache: bool,
     ) -> PyResult<UpsertStats> {
         // Import while holding the GIL (it reads a Python object), then release it for
@@ -476,6 +492,7 @@ impl DeltaLiteTable {
             max_parallel_files,
             max_buffered_bytes,
             max_fetch_bytes,
+            read_ahead_row_groups,
             commit_max_retries,
             read_batch_size,
             target_file_size,
@@ -487,7 +504,13 @@ impl DeltaLiteTable {
             limits: ProcessLimits::global().clone(),
             probe_cache: use_probe_cache.then(|| ProbeCache::global().clone()),
         };
-        let multipart = MultipartConfig::resolve(multipart_threshold, multipart_part_size);
+        let multipart = MultipartConfig::resolve(
+            multipart_threshold,
+            multipart_part_size,
+            multipart_concurrency,
+            range_get_part_size,
+            range_get_concurrency,
+        );
 
         // Conflict retries, snapshot refreshes and the post-commit reload all live in
         // `TableHandle::upsert` (shared with the Rust benchmarks); the handle refreshes
@@ -538,6 +561,9 @@ impl DeltaLiteTable {
         dry_run = false,
         multipart_threshold = None,
         multipart_part_size = None,
+        multipart_concurrency = None,
+        range_get_part_size = None,
+        range_get_concurrency = None,
     ))]
     #[allow(clippy::too_many_arguments)]
     fn compact(
@@ -561,6 +587,9 @@ impl DeltaLiteTable {
         dry_run: bool,
         multipart_threshold: Option<usize>,
         multipart_part_size: Option<usize>,
+        multipart_concurrency: Option<usize>,
+        range_get_part_size: Option<usize>,
+        range_get_concurrency: Option<usize>,
     ) -> PyResult<Py<PyAny>> {
         let opts = deltalite_core::CompactOptions {
             target_file_size,
@@ -585,7 +614,13 @@ impl DeltaLiteTable {
             dry_run,
             limits: ProcessLimits::global().clone(),
         };
-        let multipart = MultipartConfig::resolve(multipart_threshold, multipart_part_size);
+        let multipart = MultipartConfig::resolve(
+            multipart_threshold,
+            multipart_part_size,
+            multipart_concurrency,
+            range_get_part_size,
+            range_get_concurrency,
+        );
         let handle = &mut self.handle;
         let s = py
             .detach(|| runtime().block_on(handle.compact(opts, multipart)))
