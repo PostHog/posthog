@@ -3,15 +3,12 @@ import uuid
 import datetime
 from typing import Any
 
-import time_machine
 from posthog.test.base import ClickhouseTestMixin, snapshot_clickhouse_queries
 from unittest.mock import MagicMock, patch
 
 from django.db import transaction
 from django.test import SimpleTestCase, TestCase
 
-from celery.worker.request import Request as WorkerRequest
-from kombu import Message
 from parameterized import parameterized
 
 from posthog.schema import ClickhouseQueryProgress, QueryStatus
@@ -133,67 +130,6 @@ class TestQueryStatusManager(SimpleTestCase):
         self.assertTrue(result.successful())
         self.assertEqual(execute.call_count, failures + 1)
         self.assertEqual([call.kwargs["countdown"] for call in retry.call_args_list], [error.wait] * failures)
-
-    @parameterized.expand(
-        [
-            ("short_iso", 4, "iso", True),
-            ("exact_datetime", 5, "datetime", True),
-            ("short_naive", 4, "naive", True),
-            ("enough_time", 6, "iso", False),
-            ("no_expiry", None, "iso", False),
-        ]
-    )
-    def test_capacity_retry_respects_worker_expiry(self, name, remaining, expiry_format, expected_error):
-        from posthog.tasks.tasks import process_query_task
-
-        self.manager.store_query_status(self.query_status)
-        error = ClickHouseAtCapacity()
-        error.wait = 5
-        args: tuple[Any, ...] = (self.team_id, None, self.query_id, build_query("SELECT 1"), {}, False)
-        task_id = str(uuid.uuid4())
-
-        def execute(**kwargs):
-            if execute_query.call_count == 1:
-                raise error
-            self.query_status.complete = True
-            self.manager.store_query_status(self.query_status)
-
-        with (
-            time_machine.travel(datetime.datetime.now(datetime.UTC), tick=False) as clock,
-            patch("posthog.clickhouse.client.execute_process_query", side_effect=execute) as execute_query,
-            patch.object(process_query_task, "apply_async") as publish,
-            patch.object(process_query_task, "__trace__", None, create=True),
-        ):
-            expiry: datetime.datetime | str | None = (
-                None
-                if remaining is None
-                else datetime.datetime.now(datetime.UTC) + datetime.timedelta(seconds=remaining)
-            )
-            if isinstance(expiry, datetime.datetime):
-                if expiry_format == "iso":
-                    expiry = expiry.isoformat()
-                elif expiry_format == "naive":
-                    expiry = expiry.replace(tzinfo=None)
-            headers = {"id": task_id, "task": process_query_task.name, "expires": expiry, "retries": 0}
-            message = Message(headers=headers, body=(args, {}, {}))
-            WorkerRequest(message, app=process_query_task.app, task=process_query_task, decoded=True).execute()
-            if publish.called:
-                retry = publish.call_args.kwargs
-                clock.shift(datetime.timedelta(seconds=retry["countdown"]))
-                message = Message(
-                    headers={**headers, "expires": retry["expires"], "retries": retry["retries"]},
-                    body=(args, {}, {}),
-                )
-                WorkerRequest(message, app=process_query_task.app, task=process_query_task, decoded=True).execute()
-
-        result = self.manager.get_query_status()
-        self.assertTrue(result.complete)
-        self.assertEqual(result.error, expected_error)
-        self.assertEqual(execute_query.call_count, 1 if expected_error else 2)
-        self.assertEqual(publish.call_count, 0 if expected_error else 1)
-        if expected_error:
-            self.assertEqual(result.error_code, "clickhouse_at_capacity")
-            self.assertIsNotNone(result.end_time)
 
     @parameterized.expand([False, True])
     def test_process_query_task_respects_team_concurrency_limit(self, keyword_args):

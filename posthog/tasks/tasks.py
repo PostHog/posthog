@@ -14,7 +14,6 @@ from django.utils import timezone
 
 import requests
 from celery import Task, shared_task
-from celery.utils.time import maybe_iso8601, maybe_make_aware
 from clickhouse_driver.errors import UnknownPacketFromServerError
 from prometheus_client import Counter, Gauge
 from redis import Redis
@@ -499,12 +498,6 @@ def process_query_task(
         # A remote capacity failure can arrive after other shards have done expensive work.
         if self.request.retries >= 2:
             raise
-        # Celery discards expired retries without invoking the terminal-status failure handler.
-        expires = maybe_iso8601(self.request.expires)
-        if expires is not None:
-            retry_at = datetime.datetime.now(datetime.UTC) + datetime.timedelta(seconds=exc.wait)
-            if retry_at >= maybe_make_aware(expires, self.app.timezone):
-                raise
         raise self.retry(exc=exc, countdown=exc.wait)
 
 
