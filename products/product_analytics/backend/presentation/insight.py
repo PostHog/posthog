@@ -46,7 +46,7 @@ from posthog.api.monitoring import Feature, monitor
 from posthog.api.openapi_parameters import make_filters_override_param, make_variables_override_param
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
-from posthog.api.sharing_publish_gate import blocked_insight_query_edit
+from posthog.api.sharing_publish_gate import insight_query_access_error
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import action
 from posthog.auth import (
@@ -888,7 +888,7 @@ class InsightSerializer(InsightBasicSerializer):
         # a table the editor can't run must not reach them. Other insights save without any access query.
         new_query = validated_data.get("query")
         if new_query != instance.query and (
-            error := blocked_insight_query_edit(
+            error := insight_query_access_error(
                 self.context["request"].user, instance, new_query, self.user_access_control
             )
         ):

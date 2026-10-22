@@ -54,7 +54,7 @@ def insight_shared_or_subscribed(insight: Insight) -> str | None:
     return None
 
 
-def blocked_insight_query_edit(
+def insight_query_access_error(
     user: User,
     insight: Insight,
     query: Any,
