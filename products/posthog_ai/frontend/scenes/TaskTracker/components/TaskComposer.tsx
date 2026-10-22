@@ -23,6 +23,7 @@ import {
 } from 'products/posthog_ai/frontend/utils/composerModels'
 import {
     cycleMode,
+    getDefaultModeForRuntimeAdapter,
     getModesForRuntimeAdapter,
     type PermissionMode,
     resolveModeForRuntimeAdapter,
@@ -130,7 +131,11 @@ export function TaskComposer({
     const repositoryEnabled = !composerOverride?.hideRepositorySelector
     const [repositoryRequested, setRepositoryRequested] = useState(false)
     const showRepositoryChip = repositoryEnabled && (repositoryRequested || !!newTaskData.repositoryConfig.repository)
-    const showModePicker = skin === 'lemon' || !!newTaskData.repositoryConfig.repository
+    const showModePicker =
+        skin === 'lemon' ||
+        !!newTaskData.repositoryConfig.repository ||
+        resolveModeForRuntimeAdapter(composerAdapter, newTaskData.permissionMode) !==
+            getDefaultModeForRuntimeAdapter(composerAdapter)
     const [contextPickerOpen, setContextPickerOpen] = useState(false)
 
     useEffect(() => {

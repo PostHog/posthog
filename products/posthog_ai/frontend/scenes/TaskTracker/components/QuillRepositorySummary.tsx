@@ -1,29 +1,16 @@
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 import { useId } from 'react'
 
 import { IconGithub } from '@posthog/icons'
-import {
-    Button,
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuItem,
-    DropdownMenuTrigger,
-    Label,
-    Popover,
-    PopoverContent,
-    PopoverTrigger,
-    Switch,
-} from '@posthog/quill-primitives'
+import { Button, Label, Popover, PopoverContent, PopoverTrigger, Switch } from '@posthog/quill-primitives'
 
 import { GitHubBranchCombobox } from 'lib/integrations/GitHubBranchCombobox'
 import { GitHubRepositoryCombobox } from 'lib/integrations/GitHubRepositoryCombobox'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { useGitHubDefaultBranch } from 'lib/integrations/useGitHubDefaultBranch'
-import { LinkPrimitive } from 'lib/lemon-ui/Link'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import type { RepositoryConfig } from '../../../types/taskTypes'
-import { githubAuthorizeUrl } from './githubAuthorizeUrl'
+import { QuillGitHubAccountMenu } from './QuillGitHubAccountMenu'
 
 export interface QuillRepositorySummaryProps {
     value: RepositoryConfig
@@ -42,7 +29,6 @@ export function QuillRepositorySummary({
 }: QuillRepositorySummaryProps): JSX.Element {
     const repository = value.repository ?? ''
     const { getIntegrationsByKind } = useValues(integrationsLogic)
-    const { reportIntegrationConnectClicked } = useActions(eventUsageLogic)
     const githubIntegrations = getIntegrationsByKind(['github'])
     const defaultSwitchId = useId()
     const onBranchChange = (branch: string | null): void => onChange({ ...value, branch: branch ?? undefined })
@@ -70,40 +56,13 @@ export function QuillRepositorySummary({
                 {githubIntegrations.length > 1 && (
                     <div className="flex flex-col gap-1">
                         <Label>GitHub account</Label>
-                        <DropdownMenu>
-                            <DropdownMenuTrigger
-                                render={
-                                    <Button variant="outline" size="sm" className="w-full justify-start">
-                                        <IconGithub className="shrink-0" />
-                                        {githubIntegrations.find((i) => i.id === integrationId)?.display_name ??
-                                            'GitHub'}
-                                    </Button>
-                                }
-                            />
-                            <DropdownMenuContent align="start" className="min-w-fit">
-                                {githubIntegrations.map((integration) => (
-                                    <DropdownMenuItem
-                                        key={integration.id}
-                                        onClick={() =>
-                                            onChange({
-                                                ...value,
-                                                integrationId: integration.id,
-                                                repository: undefined,
-                                                branch: undefined,
-                                            })
-                                        }
-                                    >
-                                        {integration.display_name}
-                                    </DropdownMenuItem>
-                                ))}
-                                <DropdownMenuItem
-                                    render={<LinkPrimitive to={githubAuthorizeUrl} disableClientSideRouting />}
-                                    onClick={() => reportIntegrationConnectClicked('github', 'github', 'task_composer')}
-                                >
-                                    Connect another
-                                </DropdownMenuItem>
-                            </DropdownMenuContent>
-                        </DropdownMenu>
+                        <QuillGitHubAccountMenu
+                            integrationId={integrationId}
+                            onSelect={(id) =>
+                                onChange({ ...value, integrationId: id, repository: undefined, branch: undefined })
+                            }
+                            fullWidth
+                        />
                     </div>
                 )}
                 <div className="flex flex-col gap-1">
