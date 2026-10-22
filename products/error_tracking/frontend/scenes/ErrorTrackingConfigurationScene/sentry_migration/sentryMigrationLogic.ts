@@ -29,6 +29,26 @@ export function sentryProjectKey(project: SentryProjectApi): string {
     return `${project.organization_slug}/${project.project_slug}`
 }
 
+export interface SentryOrganizationProjects {
+    value: string
+    label: string
+    items: SentryProjectApi[]
+}
+
+function groupByOrganization(projects: SentryProjectApi[]): SentryOrganizationProjects[] {
+    const groups = new Map<string, SentryOrganizationProjects>()
+    for (const project of projects) {
+        const group = groups.get(project.organization_slug) ?? {
+            value: project.organization_slug,
+            label: project.organization_name,
+            items: [],
+        }
+        group.items.push(project)
+        groups.set(project.organization_slug, group)
+    }
+    return Array.from(groups.values())
+}
+
 function importSummary(result: SentryMigrationApplyResponseApi): string {
     const parts: string[] = []
     if (result.suppression_rules_created > 0) {
@@ -54,6 +74,7 @@ export interface sentryMigrationLogicValues {
     items: SentryMigrationItemApi[] | null
     itemsLoading: boolean
     projects: SentryProjectApi[] | null
+    projectsByOrganization: SentryOrganizationProjects[]
     projectsLoading: boolean
     selectedItemIds: string[]
     selectedProject: SentryProjectApi | null
@@ -171,6 +192,7 @@ export interface sentryMigrationLogicMeta {
             selectedProjectKey: string | null
         ) => SentryProjectApi | null
         isConnected: (projects: SentryProjectApi[] | null) => boolean
+        projectsByOrganization: (projects: SentryProjectApi[] | null) => SentryOrganizationProjects[]
     }
 }
 
@@ -305,6 +327,10 @@ export const sentryMigrationLogic = kea<sentryMigrationLogicType>([
                 projects?.find((project: SentryProjectApi) => sentryProjectKey(project) === selectedProjectKey) ?? null,
         ],
         isConnected: [(s) => [s.projects], (projects: SentryProjectApi[] | null): boolean => projects !== null],
+        projectsByOrganization: [
+            (s) => [s.projects],
+            (projects: SentryProjectApi[] | null): SentryOrganizationProjects[] => groupByOrganization(projects ?? []),
+        ],
     }),
 
     listeners(({ actions, values }) => ({

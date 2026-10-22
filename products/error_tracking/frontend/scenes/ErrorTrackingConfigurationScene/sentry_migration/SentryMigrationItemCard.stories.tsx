@@ -1,5 +1,7 @@
 import { Meta, StoryObj } from '@storybook/react'
 
+import { CardGroup, TooltipProvider } from '@posthog/quill'
+
 import type { SentryMigrationItemApi } from '../../../generated/api.schemas'
 import { SentryMigrationItemCard } from './SentryMigrationItemCard'
 
@@ -78,21 +80,23 @@ const IP_FILTER: SentryMigrationItemApi = {
 /** A selected rule, a rule already in PostHog, a rate limit, and a setting PostHog can't import. */
 export const Variants: Story = {
     render: () => (
-        <div className="flex flex-col gap-2 w-160">
-            <SentryMigrationItemCard item={ERROR_MESSAGE} selected disabledReason={null} onToggle={() => {}} />
-            <SentryMigrationItemCard
-                item={LEGACY_BROWSER}
-                selected={false}
-                disabledReason="This project already has this setting"
-                onToggle={() => {}}
-            />
-            <SentryMigrationItemCard item={RATE_LIMIT} selected={false} disabledReason={null} onToggle={() => {}} />
-            <SentryMigrationItemCard
-                item={IP_FILTER}
-                selected={false}
-                disabledReason="PostHog can't import this setting"
-                onToggle={() => {}}
-            />
-        </div>
+        <TooltipProvider>
+            <CardGroup size="sm" className="w-160">
+                <SentryMigrationItemCard item={ERROR_MESSAGE} selected disabledReason={null} onToggle={() => {}} />
+                <SentryMigrationItemCard
+                    item={LEGACY_BROWSER}
+                    selected={false}
+                    disabledReason="This project already has this setting"
+                    onToggle={() => {}}
+                />
+                <SentryMigrationItemCard item={RATE_LIMIT} selected={false} disabledReason={null} onToggle={() => {}} />
+                <SentryMigrationItemCard
+                    item={IP_FILTER}
+                    selected={false}
+                    disabledReason="PostHog can't import this setting"
+                    onToggle={() => {}}
+                />
+            </CardGroup>
+        </TooltipProvider>
     ),
 }
