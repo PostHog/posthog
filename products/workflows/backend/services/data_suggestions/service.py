@@ -42,9 +42,10 @@ from products.workflows.backend.services.data_suggestions.builder import (
     clean_copy,
     missing_inputs,
 )
-from products.workflows.backend.services.data_suggestions.event_volume import weekly_counts
+from products.workflows.backend.services.data_suggestions.event_volume import mobile_share, weekly_counts
 from products.workflows.backend.services.data_suggestions.planner import (
     MAX_PLANNED_STEPS,
+    Channel,
     IdeaContext,
     PlannedWorkflow,
     StepsContext,
@@ -60,6 +61,7 @@ from products.workflows.backend.services.data_suggestions.premade import (
     premade_suggestions,
     store_premade_ideas,
     waiting_premade_idea,
+    with_push_channels,
     with_sender,
 )
 from products.workflows.backend.services.data_suggestions.ranking import (
@@ -102,6 +104,7 @@ _BUILDING = BuiltSuggestion(status="building")
 _BUILD_FAILED = BuiltSuggestion(status="failed")
 _UNAVAILABLE = DataSuggestionsResult(status="unavailable", suggestions=())
 _ONCE_PER_PERSON_STAGES = frozenset({"signup", "onboarding"})
+_MOBILE_FIRST_SHARE = 0.5
 # A project without a verified sender cannot pick one yet, so the field says what to do first.
 NO_SENDER_FIELD = "Email sender (no verified sender yet: add a sending domain under Workflows > Channels)"
 
@@ -254,7 +257,7 @@ def save_premade_draft(
         row = lock_premade_idea(team.id, idea_id)
         if row is None:
             return None
-        workflow = with_sender(row.definition, team_context.email_sender(team))
+        workflow = _premade_workflow(team, row)
         validated = validate_draft(team, workflow)
         if validated is None:
             return _BUILD_FAILED
@@ -280,10 +283,15 @@ def get_premade_workflow(
     row = waiting_premade_idea(team.id, idea_id)
     if row is None:
         return None
-    workflow = with_sender(row.definition, team_context.email_sender(team))
+    workflow = _premade_workflow(team, row)
     if validate_draft(team, workflow) is None:
         return _BUILD_FAILED
     return _premade_build(team, row, workflow)
+
+
+def _premade_workflow(team: Team, row: WorkflowIdeaRow) -> dict[str, Any]:
+    workflow = with_sender(row.definition, team_context.email_sender(team))
+    return with_push_channels(workflow, team_context.push_integration_ids(team))
 
 
 def _premade_build(team: Team, row: WorkflowIdeaRow, workflow: dict[str, Any]) -> BuiltSuggestion:
@@ -405,7 +413,7 @@ def _plan_and_build(
     email_templates = team_context.email_templates(team)
     slack_integration_id = team_context.slack_integration_id(team)
     step_templates = tuple(list_step_templates(team))
-    channels = team_context.channels(team)
+    channels, mobile_first = _offered_channels(team)
     event_properties = team_context.event_property_names(team, suggestion.trigger_event)
     context = BuildContext(
         allowed_events=frozenset({suggestion.trigger_event, *events}),
@@ -417,6 +425,7 @@ def _plan_and_build(
         once_per_person=suggestion.stage in _ONCE_PER_PERSON_STAGES,
         event_properties=frozenset(event_properties),
         weekly_count=suggestion.weekly_count,
+        push_integration_ids=team_context.push_integration_ids(team),
     )
     built = None
     # The model now and then links a step to an id it never wrote. A second plan almost always holds up.
@@ -433,6 +442,7 @@ def _plan_and_build(
                     channels=channels,
                     has_slack=slack_integration_id is not None,
                     event_properties=event_properties,
+                    mobile_first=mobile_first,
                 ),
                 analytics_client=analytics_client,
             )
@@ -475,6 +485,15 @@ def _current_build(team: Team, suggestion_id: str, caller: str) -> BuiltSuggesti
     if actions is None:
         return None
     return dataclasses.replace(stored, missing_inputs=_missing_inputs(team, {"actions": actions}))
+
+
+def _offered_channels(team: Team) -> tuple[frozenset[Channel], bool]:
+    """The channels a plan may use, and whether the project's people are mostly on its mobile app. A mobile-first
+    project gets push even before it connects a provider, and the step's note asks the team to connect one."""
+    connected = team_context.channels(team)
+    mobile_first = mobile_share(team) >= _MOBILE_FIRST_SHARE
+    push: frozenset[Channel] = frozenset({"push"})
+    return (connected | push if mobile_first else connected), mobile_first
 
 
 def _missing_inputs(team: Team, workflow: dict[str, Any]) -> tuple[MissingInput, ...]:
@@ -665,14 +684,16 @@ def _suggest(*, team: Team, user: User, analytics_client: Any) -> DataSuggestion
     if not prompt_events:
         return DataSuggestionsResult(status="ready", suggestions=())
     offered = {name for name, _ in prompt_events}
+    channels, mobile_first = _offered_channels(team)
     ideas = suggest_ideas(
         team=team,
         user=user,
         context=IdeaContext(
             events=tuple(prompt_events),
             stages=jev_stages,
-            channels=team_context.channels(team),
+            channels=channels,
             has_slack=team_context.slack_integration_id(team) is not None,
+            mobile_first=mobile_first,
         ),
         analytics_client=analytics_client,
     )

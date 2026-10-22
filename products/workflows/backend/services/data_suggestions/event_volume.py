@@ -24,6 +24,7 @@ _COUNT_MAX_BYTES = 2_000_000_000
 MAX_EVENTS = 5000
 # PostHog's own events that mark a real moment, unlike the generic `$` events the planner must skip.
 ALLOWED_POSTHOG_EVENTS = frozenset({"$conversation_ticket_created"})
+MOBILE_LIBS = frozenset({"posthog-ios", "posthog-android", "posthog-react-native", "posthog-flutter"})
 
 
 def weekly_counts(team: Team) -> dict[str, int]:
@@ -47,6 +48,23 @@ def estimated_weekly_events(team: Team) -> int:
     response = _run_count(team, query, "workflows_data_suggestions_volume")
     rows = response.results or []
     return int(rows[0][0]) * _ESTIMATE_SAMPLE_DENOMINATOR if rows else 0
+
+
+def mobile_share(team: Team) -> float:
+    """The share of the project's app events that its mobile SDKs send, out of mobile and web together. Server-side
+    events are left out, because a mobile app's backend often sends them too."""
+    query = parse_select(
+        """
+        SELECT countIf(properties.$lib IN {mobile}), countIf(properties.$lib IN {app})
+        FROM events
+        WHERE timestamp >= now() - INTERVAL 1 DAY
+        """,
+        placeholders={"mobile": _strings(MOBILE_LIBS), "app": _strings(MOBILE_LIBS | {"web"})},
+    )
+    rows = _run_count(team, query, "workflows_data_suggestions_mobile_share").results or []
+    if not rows or not rows[0][1]:
+        return 0.0
+    return int(rows[0][0]) / int(rows[0][1])
 
 
 def _count_events(team: Team, sample_denominator: int, *, skip: frozenset[str]) -> dict[str, int]:
