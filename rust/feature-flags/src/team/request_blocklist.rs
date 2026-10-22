@@ -3,7 +3,7 @@
 //! Django validates and normalizes both lists on write and puts them in the team metadata
 //! cache. This module parses them when the team is loaded, so a match does no parsing.
 
-use crate::utils::bot_detection::{parse_cidr, ParsedCidr};
+use crate::utils::cidr::{parse_cidr, ParsedCidr};
 use axum::http::HeaderMap;
 use serde::{Deserialize, Serialize};
 use std::net::IpAddr;
@@ -119,9 +119,7 @@ fn parse_ip_entry(entry: &str) -> Option<ParsedCidr> {
     if entry.contains('/') {
         return parse_cidr(entry);
     }
-    let ip: IpAddr = entry.parse().ok()?;
-    let prefix = if ip.is_ipv4() { 32 } else { 128 };
-    parse_cidr(&format!("{ip}/{prefix}"))
+    entry.parse().ok().map(ParsedCidr::single)
 }
 
 /// Host first: when both match, `host` is the more specific answer for support.
