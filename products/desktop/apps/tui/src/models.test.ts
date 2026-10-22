@@ -244,10 +244,27 @@ describe("piControl", () => {
     const sendCommand = vi.fn(async (_input: { method: string }) => ({
       success: true,
     }));
+    const cancelRun = vi.fn(async () => ({}));
 
-    await piControl(sendCommand as never, "t1", "r1").abort();
+    await piControl(sendCommand as never, "t1", "r1", cancelRun).abort();
 
     expect(sendCommand.mock.calls[0][0]).toMatchObject({ method: "cancel" });
+    expect(cancelRun).not.toHaveBeenCalled();
+  });
+
+  it("cancels the run on the server when its sandbox no longer takes the stop", async () => {
+    const sendCommand = vi.fn(async (_input: { method: string }) => ({
+      success: false,
+      error: "Agent server returned 502",
+    }));
+    const cancelRun = vi.fn(async () => ({}));
+
+    await piControl(sendCommand as never, "t1", "r1", cancelRun).abort();
+
+    expect(cancelRun).toHaveBeenCalledTimes(1);
+    await expect(
+      piControl(sendCommand as never, "t1", "r1").abort(),
+    ).rejects.toThrow("Agent server returned 502");
   });
 
   it("runs a shell command in the run's sandbox and returns its output", async () => {

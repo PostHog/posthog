@@ -152,6 +152,8 @@ export function piControl(
   send: PiCommand,
   taskId: string,
   runId: string,
+  // Cancels the run on the server, for a stop the sandbox's agent server could not take.
+  cancelRun?: () => Promise<unknown>,
 ): PiControl {
   const client = new RemotePiRpcClient({
     request: async (command) => {
@@ -169,11 +171,13 @@ export function piControl(
   });
   return {
     ...controlOf(client, (command) => client.bash(command)),
-    // A Claude Code sandbox has no pi RPC, so the stop goes as the command every sandbox agent takes.
+    // A Claude Code sandbox has no pi RPC, so the stop goes as the command every sandbox agent takes. A sandbox
+    // whose agent server has died answers 502, so the run is cancelled on the server instead, which tears it down.
     abort: async () => {
       const response = await send({ taskId, runId, method: "cancel" });
-      if (!response.success)
-        throw new Error(response.error ?? "The run did not stop");
+      if (response.success) return;
+      if (!cancelRun) throw new Error(response.error ?? "The run did not stop");
+      await cancelRun();
     },
     // The sandbox's session takes a mode change the same way; what it offers is read from the run's log.
     setMode: async (id) => {
