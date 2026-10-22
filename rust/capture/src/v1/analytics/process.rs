@@ -31,6 +31,7 @@ use crate::config::CaptureMode;
 use crate::ingestion_warnings::{bounded_detail, emit_rate_limit_warning};
 use crate::router;
 use crate::sinks::sink::{Outcome, SinkResult};
+use crate::v1::constants::CAPTURE_V1_WARNING_METRIC;
 use crate::v1::context::RequestContext;
 use crate::v1::prepare::{serialize_batch, SerializationFailure};
 use crate::v1::types::{Destination, Publishable};
@@ -104,6 +105,12 @@ fn observe_duplicate_drops(state: &router::State, context: &Context, dropped: &H
         "stage" => "deduplication",
     )
     .increment(count);
+    metrics::counter!(
+        CAPTURE_V1_WARNING_METRIC,
+        "reason" => "duplicate_event_uuid",
+        "path" => context.path,
+    )
+    .increment(1);
     crate::ctx_log!(
         Level::INFO,
         context,
@@ -1694,6 +1701,12 @@ mod tests {
             observe_duplicate_drops(&state, &ctx, &dropped);
         });
         assert_eq!(count, Some(3));
+        let requests = counter_value(
+            CAPTURE_V1_WARNING_METRIC,
+            &[("reason", "duplicate_event_uuid"), ("path", ctx.path)],
+            || observe_duplicate_drops(&state, &ctx, &dropped),
+        );
+        assert_eq!(requests, Some(1), "one request-level count per request");
     }
 
     #[test]
