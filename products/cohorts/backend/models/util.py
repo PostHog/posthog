@@ -302,6 +302,8 @@ def get_clickhouse_query_stats(tag_matcher: str, cohort_id: int, start_time: dat
     table's sort key by query start time, so the lookup reads only the team's recent rows and never
     the query strings. start_time comes from the app server clock and the archive uses the ClickHouse
     clock, so the bound allows for skew between the two.
+    The archive is an AggregatingMergeTree, so one query can span several unmerged rows; the lookup
+    aggregates them per query_id the same way a merge would.
     Returns None when no row is in the archive yet. ClickHouse errors propagate, so the caller can
     tell a failed lookup apart from rows that are not flushed yet.
     """
@@ -313,19 +315,20 @@ def get_clickhouse_query_stats(tag_matcher: str, cohort_id: int, start_time: dat
         """
         SELECT
             query_id,
-            query_duration_ms,
-            read_rows,
-            read_bytes,
-            written_rows,
-            memory_usage,
-            exception
+            max(query_duration_ms),
+            sum(read_rows),
+            sum(read_bytes),
+            sum(written_rows),
+            max(memory_usage),
+            max(exception)
         FROM query_log_archive
         WHERE
             team_id = %(team_id)s
             AND initial_query_start_time >= %(earliest_start_time)s
             AND lc_cohort_id = %(cohort_id)s
             AND lc_id = %(tag_matcher)s
-        ORDER BY event_time DESC
+        GROUP BY query_id
+        ORDER BY max(event_time) DESC
         """,
         {
             "cohort_id": cohort_id,
@@ -345,7 +348,7 @@ def get_clickhouse_query_stats(tag_matcher: str, cohort_id: int, start_time: dat
     def get_column(rows, col_index):
         return [row[col_index] for row in rows if len(row) > col_index and row[col_index] is not None]
 
-    # Get the most recent query (first row after ORDER BY event_time DESC)
+    # Get the most recent query (first row after ORDER BY max(event_time) DESC)
     first_row = result[0]
 
     return {

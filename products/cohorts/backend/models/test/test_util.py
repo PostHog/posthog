@@ -1474,6 +1474,13 @@ class TestGetClickhouseQueryStats(BaseTest):
             read_rows=100,
         )
         self._log_query(
+            "calculation",
+            "INSERT INTO cohortpeople SELECT 1",
+            tag_id=cohort_tag,
+            cohort_id=cohort_id,
+            read_rows=20,
+        )
+        self._log_query(
             "quotes_the_tag",
             f"SELECT query_id FROM query_log_archive WHERE query LIKE '%{cohort_tag}%'",
             tag_id="posthog.tasks.calculate_cohort.collect_cohort_query_stats",
@@ -1491,4 +1498,4 @@ class TestGetClickhouseQueryStats(BaseTest):
         stats = get_clickhouse_query_stats(cohort_tag, cohort_id, start_time, self.team.pk)
 
         assert stats is not None
-        assert (stats["query_id"], stats["query_count"], stats["read_rows"]) == ("calculation", 1, 100)
+        assert (stats["query_id"], stats["query_count"], stats["read_rows"]) == ("calculation", 1, 120)
