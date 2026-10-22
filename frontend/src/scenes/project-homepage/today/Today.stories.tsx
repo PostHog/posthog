@@ -87,6 +87,7 @@ const CONVERSATIONS = [
         status: 'idle',
         type: 'assistant',
         updated_at: '2026-09-28T16:10:00Z',
+        user: ADA,
     },
     {
         id: 'chat-2',
@@ -94,6 +95,7 @@ const CONVERSATIONS = [
         status: 'idle',
         type: 'assistant',
         updated_at: '2026-09-25T09:00:00Z',
+        user: ADA,
     },
 ]
 
