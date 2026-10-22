@@ -280,69 +280,7 @@ export function AIObservabilityDatasetScene(): JSX.Element {
                             )}
                         </nav>
                         <div className="flex flex-wrap items-center gap-2">
-                            {!shouldDisplaySkeleton && displayEditForm ? (
-                                todayRailNav ? (
-                                    <>
-                                        <Button
-                                            variant="outline"
-                                            data-attr="cancel-dataset"
-                                            onClick={cancelEditing}
-                                            disabledReason={isDatasetFormSubmitting ? 'Saving…' : undefined}
-                                        >
-                                            Cancel
-                                        </Button>
-                                        <AccessControlAction
-                                            resourceType={AccessControlResourceType.LlmAnalytics}
-                                            minAccessLevel={AccessControlLevel.Editor}
-                                            userAccessLevel={
-                                                isDataset(dataset)
-                                                    ? toAccessControlLevel(dataset.user_access_level)
-                                                    : undefined
-                                            }
-                                        >
-                                            <Button
-                                                variant="primary"
-                                                data-attr="save-dataset"
-                                                onClick={submitDatasetForm}
-                                                loading={isDatasetFormSubmitting}
-                                            >
-                                                {isNewDataset ? 'Create dataset' : 'Save'}
-                                            </Button>
-                                        </AccessControlAction>
-                                    </>
-                                ) : (
-                                    <>
-                                        <LemonButton
-                                            type="secondary"
-                                            data-attr="cancel-dataset"
-                                            onClick={cancelEditing}
-                                            disabledReason={isDatasetFormSubmitting ? 'Saving…' : undefined}
-                                            size="small"
-                                        >
-                                            Cancel
-                                        </LemonButton>
-                                        <AccessControlAction
-                                            resourceType={AccessControlResourceType.LlmAnalytics}
-                                            minAccessLevel={AccessControlLevel.Editor}
-                                            userAccessLevel={
-                                                isDataset(dataset)
-                                                    ? toAccessControlLevel(dataset.user_access_level)
-                                                    : undefined
-                                            }
-                                        >
-                                            <LemonButton
-                                                type="primary"
-                                                data-attr="save-dataset"
-                                                onClick={submitDatasetForm}
-                                                loading={isDatasetFormSubmitting}
-                                                size="small"
-                                            >
-                                                {isNewDataset ? 'Create dataset' : 'Save'}
-                                            </LemonButton>
-                                        </AccessControlAction>
-                                    </>
-                                )
-                            ) : isDataset(dataset) ? (
+                            {!displayEditForm && isDataset(dataset) ? (
                                 <>
                                     <LemonButton
                                         size="small"
@@ -371,7 +309,72 @@ export function AIObservabilityDatasetScene(): JSX.Element {
                     <p className="text-muted m-0">{dataset.description}</p>
                 )}
                 {displayEditForm ? (
-                    <EditDatasetForm />
+                    <div className="flex max-w-160 flex-col gap-4">
+                        <EditDatasetForm />
+                        <div className="flex flex-wrap items-center gap-2">
+                            {todayRailNav ? (
+                                <>
+                                    <Button
+                                        variant="outline"
+                                        data-attr="cancel-dataset"
+                                        onClick={cancelEditing}
+                                        disabledReason={isDatasetFormSubmitting ? 'Saving…' : undefined}
+                                    >
+                                        Cancel
+                                    </Button>
+                                    <AccessControlAction
+                                        resourceType={AccessControlResourceType.LlmAnalytics}
+                                        minAccessLevel={AccessControlLevel.Editor}
+                                        userAccessLevel={
+                                            isDataset(dataset)
+                                                ? toAccessControlLevel(dataset.user_access_level)
+                                                : undefined
+                                        }
+                                    >
+                                        <Button
+                                            variant="primary"
+                                            data-attr="save-dataset"
+                                            onClick={submitDatasetForm}
+                                            loading={isDatasetFormSubmitting}
+                                        >
+                                            {isNewDataset ? 'Create dataset' : 'Save'}
+                                        </Button>
+                                    </AccessControlAction>
+                                </>
+                            ) : (
+                                <>
+                                    <LemonButton
+                                        type="secondary"
+                                        data-attr="cancel-dataset"
+                                        onClick={cancelEditing}
+                                        disabledReason={isDatasetFormSubmitting ? 'Saving…' : undefined}
+                                        size="small"
+                                    >
+                                        Cancel
+                                    </LemonButton>
+                                    <AccessControlAction
+                                        resourceType={AccessControlResourceType.LlmAnalytics}
+                                        minAccessLevel={AccessControlLevel.Editor}
+                                        userAccessLevel={
+                                            isDataset(dataset)
+                                                ? toAccessControlLevel(dataset.user_access_level)
+                                                : undefined
+                                        }
+                                    >
+                                        <LemonButton
+                                            type="primary"
+                                            data-attr="save-dataset"
+                                            onClick={submitDatasetForm}
+                                            loading={isDatasetFormSubmitting}
+                                            size="small"
+                                        >
+                                            {isNewDataset ? 'Create dataset' : 'Save'}
+                                        </LemonButton>
+                                    </AccessControlAction>
+                                </>
+                            )}
+                        </div>
+                    </div>
                 ) : isDataset(dataset) ? (
                     <DatasetContents dataset={dataset} />
                 ) : null}

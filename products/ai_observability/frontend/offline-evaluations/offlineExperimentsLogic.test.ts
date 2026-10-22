@@ -81,6 +81,8 @@ describe('offlineExperimentsLogic', () => {
                 urls.aiObservabilityDataset(datasetId)
             )
             expect(router.values.searchParams).toEqual({ search: 'regression' })
+            tabs.actions.setActiveTab('datasets')
+            expect(router.values.searchParams).toMatchObject({ tab: 'datasets', search: 'regression' })
             router.actions.push(urls.aiObservabilityOfflineEvaluations(), { tab: 'experiments' })
             expect(tabs.values.activeTab).toBe('experiments')
             expect(router.values.searchParams.tab).toBe('experiments')

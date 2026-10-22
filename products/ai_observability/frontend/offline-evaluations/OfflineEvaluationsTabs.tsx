@@ -2,17 +2,14 @@ import { useActions, useValues } from 'kea'
 
 import { LemonSegmentedButton, LemonTag } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getProductAccessDisabledReason } from 'lib/utils/accessControlUtils'
 import { Scene } from 'scenes/sceneTypes'
 
 import { OfflineEvaluationsTab, offlineEvaluationsLogic } from './offlineEvaluationsLogic'
 
 export function OfflineEvaluationsTabs({ activeTab }: { activeTab: OfflineEvaluationsTab }): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
+    const { datasetsEnabled, offlineEvaluationsEnabled } = useValues(offlineEvaluationsLogic)
     const { setActiveTab } = useActions(offlineEvaluationsLogic)
-    const offlineEvaluationsEnabled = !!featureFlags[FEATURE_FLAGS.AI_OBSERVABILITY_OFFLINE_EVALUATIONS]
 
     return (
         <LemonSegmentedButton
@@ -42,10 +39,12 @@ export function OfflineEvaluationsTabs({ activeTab }: { activeTab: OfflineEvalua
                 {
                     value: 'datasets',
                     label: 'Datasets',
-                    disabledReason: getProductAccessDisabledReason({
-                        sceneKey: Scene.AIObservabilityDatasets,
-                        displayLabel: 'datasets',
-                    }),
+                    disabledReason: !datasetsEnabled
+                        ? 'Datasets are coming soon.'
+                        : getProductAccessDisabledReason({
+                              sceneKey: Scene.AIObservabilityDatasets,
+                              displayLabel: 'datasets',
+                          }),
                 },
             ]}
         />

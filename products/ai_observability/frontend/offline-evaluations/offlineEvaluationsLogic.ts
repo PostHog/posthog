@@ -15,6 +15,7 @@ export interface offlineEvaluationsLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     receivedFeatureFlags: boolean // featureFlagLogic
     activeTab: OfflineEvaluationsTab
+    datasetsEnabled: boolean
     datasetsOnly: boolean
     offlineEvaluationsEnabled: boolean
     selectedTab: OfflineEvaluationsTab
@@ -37,7 +38,8 @@ export interface offlineEvaluationsLogicActions {
 export interface offlineEvaluationsLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         offlineEvaluationsEnabled: (featureFlags: FeatureFlagsSet) => boolean
-        datasetsOnly: (featureFlags: FeatureFlagsSet, offlineEvaluationsEnabled: boolean) => boolean
+        datasetsEnabled: (featureFlags: FeatureFlagsSet) => boolean
+        datasetsOnly: (datasetsEnabled: boolean, offlineEvaluationsEnabled: boolean) => boolean
         activeTab: (selectedTab: OfflineEvaluationsTab, datasetsOnly: boolean) => OfflineEvaluationsTab
     }
 }
@@ -72,10 +74,14 @@ export const offlineEvaluationsLogic = kea<offlineEvaluationsLogicType>([
             (featureFlags: FeatureFlagsSet): boolean =>
                 !!featureFlags[FEATURE_FLAGS.AI_OBSERVABILITY_OFFLINE_EVALUATIONS],
         ],
+        datasetsEnabled: [
+            (s) => [s.featureFlags],
+            (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_DATASETS],
+        ],
         datasetsOnly: [
-            (s) => [s.featureFlags, s.offlineEvaluationsEnabled],
-            (featureFlags: FeatureFlagsSet, offlineEvaluationsEnabled: boolean): boolean =>
-                !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_DATASETS] && !offlineEvaluationsEnabled,
+            (s) => [s.datasetsEnabled, s.offlineEvaluationsEnabled],
+            (datasetsEnabled: boolean, offlineEvaluationsEnabled: boolean): boolean =>
+                datasetsEnabled && !offlineEvaluationsEnabled,
         ],
         activeTab: [
             (s) => [s.selectedTab, s.datasetsOnly],
@@ -104,7 +110,12 @@ export const offlineEvaluationsLogic = kea<offlineEvaluationsLogicType>([
     actionToUrl(({ values }) => ({
         setActiveTab: ({ tab }) => [
             values.datasetsOnly || tab === 'datasets'
-                ? getDatasetListUrl(router.values.searchParams)
+                ? getDatasetListUrl(
+                      removeProjectIdIfPresent(router.values.location.pathname) ===
+                          urls.aiObservabilityOfflineEvaluations() && router.values.searchParams.tab !== 'datasets'
+                          ? {}
+                          : router.values.searchParams
+                  )
                 : `${urls.aiObservabilityOfflineEvaluations()}?tab=experiments`,
             {},
             router.values.hashParams,

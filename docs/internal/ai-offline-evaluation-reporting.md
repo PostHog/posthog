@@ -561,8 +561,11 @@ detail routes redirect there, preserving item deep links, revisions, tabs, filte
 The Evaluations heading and navigation stay in place on dataset creation and detail pages. Dataset items appear
 directly in the detail view; **Details** opens the dataset metadata without replacing the items table.
 The back arrow beside the dataset name returns to the list and preserves its filters, including after creating a dataset.
+Creation and editing actions appear below the dataset form. Switching from Experiments to Datasets clears
+experiment search and filters and restores the saved dataset tag selection.
 Projects with Datasets enabled but without offline evaluations open **Datasets** automatically,
 including from experiment-list links. **Experiments** stays visible with a disabled **Coming soon** label.
+When Datasets is disabled, its tab stays disabled and direct list links show an availability message.
 The chevron beside **Score trends** collapses or expands the charts. It starts expanded and remembers
 your choice in local storage. Charts load on the first expansion if the page opens collapsed, and
 keep their data when collapsed and expanded again. Refresh or a filter change updates loaded charts.

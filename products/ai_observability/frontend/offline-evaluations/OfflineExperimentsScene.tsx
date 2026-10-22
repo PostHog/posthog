@@ -20,17 +20,19 @@ export const scene: SceneExport = { component: OfflineExperimentsScene, productK
 export function OfflineExperimentsScene(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { user } = useValues(userLogic)
-    const { activeTab, offlineEvaluationsEnabled } = useValues(offlineEvaluationsLogic)
+    const { activeTab, datasetsEnabled, offlineEvaluationsEnabled } = useValues(offlineEvaluationsLogic)
     const experimentsDisabledReason = !offlineEvaluationsEnabled
         ? 'Offline experiments are coming soon.'
         : getProductAccessDisabledReason({
               sceneKey: Scene.AIObservabilityOfflineExperiment,
               displayLabel: 'experiments',
           })
-    const datasetsDisabledReason = getProductAccessDisabledReason({
-        sceneKey: Scene.AIObservabilityDatasets,
-        displayLabel: 'datasets',
-    })
+    const datasetsDisabledReason = !datasetsEnabled
+        ? 'Datasets are coming soon.'
+        : getProductAccessDisabledReason({
+              sceneKey: Scene.AIObservabilityDatasets,
+              displayLabel: 'datasets',
+          })
     const activeTabDisabledReason =
         activeTab === 'datasets'
             ? datasetsDisabledReason
