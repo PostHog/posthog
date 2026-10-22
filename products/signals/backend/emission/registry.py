@@ -153,8 +153,10 @@ def _register_all_emitters() -> None:
     from products.signals.backend.emission.aha_ideas import AHA_CONFIG
     from products.signals.backend.emission.appfigures_reviews import APPFIGURES_CONFIG
     from products.signals.backend.emission.appfollow_reviews import APPFOLLOW_CONFIG
+    from products.signals.backend.emission.appsignal_exception_incidents import APPSIGNAL_CONFIG
     from products.signals.backend.emission.asana_tasks import ASANA_CONFIG
     from products.signals.backend.emission.asknicely_responses import ASKNICELY_CONFIG
+    from products.signals.backend.emission.azure_application_insights_exceptions import AZURE_EXCEPTIONS_CONFIG
     from products.signals.backend.emission.azure_devops_work_item_revisions import AZURE_DEVOPS_CONFIG
     from products.signals.backend.emission.betterstack_incidents import BETTERSTACK_CONFIG
     from products.signals.backend.emission.bigeye_issues import BIGEYE_CONFIG
@@ -162,6 +164,7 @@ def _register_all_emitters() -> None:
     from products.signals.backend.emission.canny_posts import CANNY_CONFIG
     from products.signals.backend.emission.checkly_error_groups import CHECKLY_CONFIG
     from products.signals.backend.emission.conversations_tickets import CONVERSATIONS_TICKETS_CONFIG
+    from products.signals.backend.emission.cursor_bugbot_reviews import CURSOR_CONFIG
     from products.signals.backend.emission.datadog_error_issues import DATADOG_ERROR_ISSUES_CONFIG
     from products.signals.backend.emission.datadog_error_logs import DATADOG_ERROR_LOGS_CONFIG
     from products.signals.backend.emission.datadog_error_spans import DATADOG_ERROR_SPANS_CONFIG
@@ -178,6 +181,9 @@ def _register_all_emitters() -> None:
     from products.signals.backend.emission.gitea_issues import GITEA_CONFIG
     from products.signals.backend.emission.github_issues import GITHUB_ISSUES_CONFIG
     from products.signals.backend.emission.gitlab_issues import GITLAB_CONFIG
+    from products.signals.backend.emission.google_play_console_error_issues import (
+        GOOGLE_PLAY_CONSOLE_ERROR_ISSUES_CONFIG,
+    )
     from products.signals.backend.emission.google_search_console_opportunities import GOOGLE_SEARCH_CONSOLE_CONFIG
     from products.signals.backend.emission.gorgias_tickets import GORGIAS_CONFIG
     from products.signals.backend.emission.grafana_irm_incidents import GRAFANA_IRM_CONFIG
@@ -311,6 +317,13 @@ def _register_all_emitters() -> None:
     register_signal_source(ExternalDataSourceType.TRIGGERDEV, "errors", TRIGGER_DEV_CONFIG)
     register_signal_source(ExternalDataSourceType.CHECKLY, "error_groups", CHECKLY_CONFIG)
     register_signal_source(ExternalDataSourceType.ROARK, "issue", ROARK_CONFIG)
+    # Tier-2 errors and code review (record kind: issue)
+    register_signal_source(
+        ExternalDataSourceType.GOOGLEPLAYCONSOLE, "error_issues", GOOGLE_PLAY_CONSOLE_ERROR_ISSUES_CONFIG
+    )
+    register_signal_source(ExternalDataSourceType.AZUREAPPLICATIONINSIGHTS, "exceptions", AZURE_EXCEPTIONS_CONFIG)
+    register_signal_source(ExternalDataSourceType.APPSIGNAL, "exception_incidents", APPSIGNAL_CONFIG)
+    register_signal_source(ExternalDataSourceType.CURSOR, "bugbot_reviews", CURSOR_CONFIG)
 
 
 _register_all_emitters()

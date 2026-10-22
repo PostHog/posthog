@@ -84,6 +84,11 @@ TIER1_SOURCES = [
     (ExternalDataSourceType.TRIGGERDEV, "errors", "trigger_dev", "issue"),
     (ExternalDataSourceType.CHECKLY, "error_groups", "checkly", "issue"),
     (ExternalDataSourceType.ROARK, "issue", "roark", "issue"),
+    # Tier-2 errors and code review
+    (ExternalDataSourceType.GOOGLEPLAYCONSOLE, "error_issues", "google_play_console", "issue"),
+    (ExternalDataSourceType.AZUREAPPLICATIONINSIGHTS, "exceptions", "azure_application_insights", "issue"),
+    (ExternalDataSourceType.APPSIGNAL, "exception_incidents", "appsignal", "issue"),
+    (ExternalDataSourceType.CURSOR, "bugbot_reviews", "cursor", "issue"),
 ]
 
 IDS = [product for _, _, product, _ in TIER1_SOURCES]
@@ -98,6 +103,12 @@ def _mock_record(fields: tuple[str, ...]) -> dict:
             record[name] = '[{"name": "one"}, {"name": "two"}]' if name == "projects" else '["one", "two"]'
         elif name == "column_values":
             record[name] = '[{"id": "a", "type": "text", "text": "some text"}]'
+        elif name == "bugs_found":
+            record[name] = 2
+        elif name == "dry_run":
+            record[name] = False
+        elif name == "bugs":
+            record[name] = '[{"severity": "high", "resolution_status": "unresolved"}]'
         elif name in ("id", "iid", "project_id", "number", "workflow_state_id"):
             record[name] = 123
         else:
