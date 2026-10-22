@@ -85,7 +85,11 @@ class TestTableActivitySnapshot(SimpleTestCase):
                 "https://bucket.s3.amazonaws.com/data/*.parquet",
                 "https://bucket.s3.amazonaws.com/data/*.parquet",
             ),
-            ("userinfo", "https://key:secret@bucket.example.com/data.csv", "https://bucket.example.com/data.csv"),
+            (
+                "userinfo",
+                "https://key:secret@bucket.example.com/data.csv",
+                "https://<redacted:3095b341>@bucket.example.com/data.csv",
+            ),
             (
                 "signed_query",
                 "https://bucket.example.com/data.csv?X-Amz-Signature=abc",

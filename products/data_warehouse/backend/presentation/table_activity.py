@@ -16,13 +16,18 @@ if TYPE_CHECKING:
     from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 
+def _digest(secret: str) -> str:
+    return f"<redacted:{hashlib.sha256(secret.encode()).hexdigest()[:8]}>"
+
+
 def _redact_url(url: str) -> str:
     # A URL can carry an access key in its userinfo or a signature in its query string. The activity
-    # row and its internal event must not copy either. A short digest keeps a query-only change visible.
+    # row and its internal event must not copy either. A short digest keeps a change to either visible.
     parts = urlsplit(url)
-    host = parts.netloc.rsplit("@", 1)[-1]
-    query = f"<redacted:{hashlib.sha256(parts.query.encode()).hexdigest()[:8]}>" if parts.query else ""
-    return urlunsplit((parts.scheme, host, parts.path, query, ""))
+    userinfo, _, host = parts.netloc.rpartition("@")
+    netloc = f"{_digest(userinfo)}@{host}" if userinfo else host
+    query = _digest(parts.query) if parts.query else ""
+    return urlunsplit((parts.scheme, netloc, parts.path, query, ""))
 
 
 def snapshot_table(table: "DataWarehouseTable") -> dict[str, Any]:
