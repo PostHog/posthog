@@ -360,6 +360,9 @@ export type Setting = {
      */
     organizationAdminOnly?: boolean
 
+    /** Shows the setting only to PostHog staff. The API it calls must enforce the same check. */
+    staffOnly?: boolean
+
     /**
      * If true, this setting will be hidden when viewing all settings (no specific section selected),
      * but will still appear when viewing its specific section directly

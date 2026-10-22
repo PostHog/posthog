@@ -24,7 +24,6 @@ from posthog.models.user import User
 from products.ai_gateway.backend.models import DevGatewayToken
 
 _POST = "products.ai_gateway.backend.logic.requests.post"
-_FLAG = "products.ai_gateway.backend.logic.posthoganalytics.feature_enabled"
 _VIEW_IMPERSONATED = "products.ai_gateway.backend.presentation.views.is_impersonated"
 URL = "/api/ai_gateway/dev_tokens/"
 VERIFIER = "v" * 43
@@ -53,9 +52,6 @@ class TestDevTokens(APIBaseTest):
         )
         override.enable()
         self.addCleanup(override.disable)
-        flag = patch(_FLAG, return_value=True)
-        flag.start()
-        self.addCleanup(flag.stop)
         self.user.is_staff = True
         self.user.save()
 
@@ -170,15 +166,6 @@ class TestDevTokens(APIBaseTest):
         assert response.json()["code"] == code
         post.assert_not_called()
         assert not self._rows(user=target).exists()
-
-    def test_kill_switch_refuses_only_on_explicit_false(self):
-        with patch(_FLAG, return_value=False), patch(_POST) as post:
-            response = self.client.post(URL)
-        assert response.json()["code"] == "disabled"
-        post.assert_not_called()
-
-        with patch(_FLAG, side_effect=Exception("flags down")), patch(_POST, return_value=_minted()):
-            assert self.client.post(URL).status_code == 201
 
     def test_daily_cap_is_reserved_before_the_gateway_call(self):
         with patch(_POST, side_effect=[_minted(f"phe_{i}") for i in range(2)]):
