@@ -429,6 +429,29 @@ describe('workflowLogic auto-save', () => {
             expect(patchBodies[0].status).toBe('draft')
         })
 
+        it('disables with unsaved edits in the form, without saving or dropping them', async () => {
+            useMocks(activeMocks(activeWorkflow))
+            initKeaTests()
+            logic = workflowLogic({ id: WORKFLOW_ID })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
+
+            logic.actions.setWorkflowValues({
+                name: 'Unsaved name',
+                actions: renameExit(logic.values.workflow.actions, 'Unsaved exit'),
+            })
+            expect(logic.values.statusToggleDisabledReason).toBeUndefined()
+
+            await expectLogic(logic, () => {
+                logic.actions.saveWorkflowPartial({ status: 'draft' })
+            }).toDispatchActions(['saveWorkflowSuccess'])
+
+            expect(patchBodies[0]).toMatchObject({ status: 'draft', name: 'Autosave test' })
+            expect(logic.values.workflow).toMatchObject({ status: 'draft', name: 'Unsaved name' })
+            expect(logic.values.workflow.actions.find((a) => a.id === 'exit_node')?.name).toBe('Unsaved exit')
+            expect(logic.values.hasUnsavedChanges).toBe(true)
+        })
+
         it('an edit to a disabled workflow with a leftover draft clears the draft and keeps the edit', async () => {
             useMocks(
                 activeMocks({

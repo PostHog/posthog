@@ -249,6 +249,8 @@ interface SaveContext {
     moveToBroadcastIds: string[]
     // How many of them moved. The save sets it before it finishes.
     movedToBroadcasts?: number
+    // A status change made while the form had unsaved edits. The edits stay in the form, unsaved.
+    keepsFormEdits: boolean
 }
 
 function omitWorkflowContent(workflow: HogFlow): Partial<HogFlow> {
@@ -317,6 +319,7 @@ export interface workflowLogicValues {
     scheduleTimezone: string
     schedules: HogFlowSchedule[]
     showDraftActions: boolean
+    statusToggleDisabledReason: string | undefined
     showWorkflowErrors: boolean
     triggerAction: TriggerAction | null
     workflow: HogFlow
@@ -3183,6 +3186,7 @@ export interface workflowLogicMeta {
             hasUnsavedChanges: boolean,
             draftActionPending: 'discard' | 'publish' | null
         ) => string | undefined
+        statusToggleDisabledReason: (workflow: HogFlow, hasUnsavedChanges: boolean) => string | undefined
     }
 }
 
@@ -3358,9 +3362,11 @@ export const workflowLogic = kea<workflowLogicType>([
                         initiatedByAutoSave,
                         pendingSchedule: values.pendingSchedule,
                         moveToBroadcastIds: (cache.nextSaveMovesWorkflowIds ?? []) as string[],
+                        keepsFormEdits: cache.nextSaveKeepsFormEdits === true,
                     }
                     saveContexts.push(saveContext)
                     cache.nextSaveMovesWorkflowIds = []
+                    cache.nextSaveKeepsFormEdits = false
                     // Whether this save means to change the lifecycle. Only the enable and disable
                     // control does, and it says so when it dispatches. Comparing the payload's
                     // status against the stored one cannot tell the difference: that control does
@@ -3814,8 +3820,12 @@ export const workflowLogic = kea<workflowLogicType>([
                     return newSchedule
                 }
 
-                const savedRRule = currentSchedule.rrule
                 const savedStartsAt = currentSchedule.starts_at
+                // An rrule saved through the API or MCP is stored as written. Compare it in the form
+                // the picker regenerates, or an untouched schedule reads as an unsaved change.
+                const savedRRule = isOneTimeSchedule(currentSchedule.rrule)
+                    ? ONE_TIME_RRULE
+                    : stateToRRule(parseRRuleToState(currentSchedule.rrule), savedStartsAt)
                 const savedTimezone = currentSchedule.timezone ?? dayjs.tz.guess()
 
                 if (rrule === savedRRule && scheduleStartsAt === savedStartsAt && scheduleTimezone === savedTimezone) {
@@ -4165,6 +4175,18 @@ export const workflowLogic = kea<workflowLogicType>([
                 return hasStagedDraft ? undefined : 'No changes staged to discard'
             },
         ],
+
+        statusToggleDisabledReason: [
+            (s) => [s.workflow, s.hasUnsavedChanges],
+            (workflow: HogFlow, hasUnsavedChanges: boolean): string | undefined => {
+                // Disabling is always allowed: it changes only the status and keeps the edits in the
+                // form. Enabling would run the saved version, not the edits on screen.
+                if (workflow?.status !== 'active' && hasUnsavedChanges) {
+                    return 'Save changes first'
+                }
+                return undefined
+            },
+        ],
     }),
     listeners(({ actions, values, props, cache }) => ({
         setScheduleStartsAtFromPicker: ({ pickerDate }) => {
@@ -4343,7 +4365,11 @@ export const workflowLogic = kea<workflowLogicType>([
             // Recorded before the error guard: an enable attempt on an invalid draft must still
             // reveal the per-field step messages even though the save itself is aborted.
             actions.markSaveAttempted(values.workflow.actions.map((action) => action.id))
-            const merged = { ...values.workflow, ...workflow }
+            // A status change on a dirty form sends the stored copy with the new status, so the edits
+            // on screen are not saved by accident. The success listener puts them back in the form.
+            const stored = (cache.lastSavedWorkflow as HogFlow | undefined) ?? values.originalWorkflow
+            const keepsFormEdits = 'status' in workflow && values.hasUnsavedChanges && !!stored
+            const merged = { ...(keepsFormEdits && stored ? withStagedDraft(stored) : values.workflow), ...workflow }
             if (merged.status === 'active' && values.workflowHasActionErrors) {
                 lemonToast.error('Fix all errors before enabling')
                 return
@@ -4352,6 +4378,7 @@ export const workflowLogic = kea<workflowLogicType>([
             // as it handles the action below, so it describes this save and no other.
             cache.nextSaveChangesStatus = 'status' in workflow
             cache.enablingWorkflow = workflow.status === 'active' && values.originalWorkflow?.status !== 'active'
+            cache.nextSaveKeepsFormEdits = keepsFormEdits
             actions.saveWorkflow(merged)
         },
         loadWorkflowSuccess: async ({ originalWorkflow }) => {
@@ -4531,7 +4558,8 @@ export const workflowLogic = kea<workflowLogicType>([
             // A staged save's response carries the live config plus the new draft blob: rebaseline the
             // form on the merged view, or the reset would wipe the just-saved edits off the canvas.
             const editedDuringSave =
-                cache.saveEditVersion !== undefined && values.workflowEditVersion !== cache.saveEditVersion
+                !!saveContext?.keepsFormEdits ||
+                (cache.saveEditVersion !== undefined && values.workflowEditVersion !== cache.saveEditVersion)
             const editsDuringSave = editedDuringSave ? pickWorkflowEdits(values.workflow) : null
             actions.resetWorkflow(withStagedDraft(originalWorkflow))
             actions.markAutoSave(false)
