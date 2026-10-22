@@ -44,7 +44,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.per
 
 logger = structlog.get_logger(__name__)
 
-INTERRUPTED_RUN_NEXT_STEP = "Click Backfill to try again."
+INTERRUPTED_RUN_NEXT_STEP = "Click Backfill to continue from where it stopped."
 RECORD_FAILED_RUN_PATCH = "person-property-backfill-record-failed-run-2026-10"
 
 PERSON_PROPERTY_BACKFILL_TOTAL = Counter(
