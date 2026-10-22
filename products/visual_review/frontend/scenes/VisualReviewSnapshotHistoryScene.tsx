@@ -227,8 +227,10 @@ function QuarantineSection({
             >
                 <div className="text-sm flex flex-col gap-1">
                     <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                        <span className="font-semibold">Quarantined{label && ` (${label})`}</span>
-                        <span>— {quarantineEntry.reason || 'no reason given'}</span>
+                        <span>
+                            <span className="font-semibold">Quarantined{label && ` (${label})`}:</span>{' '}
+                            {quarantineEntry.reason || 'no reason given'}
+                        </span>
                         {expires && (
                             <>
                                 <span aria-hidden>·</span>
@@ -253,27 +255,43 @@ function QuarantineSection({
                     </div>
                     {sourceRun && (
                         <div className="text-xs text-muted flex flex-wrap items-center gap-x-2 gap-y-0.5">
-                            <span>Originally failed on</span>
+                            <span>Failed on</span>
+                            <span className="font-mono">{sourceRun.branch}</span>
+                            <span aria-hidden>·</span>
                             <Link
-                                to={runPath(sourceRun.id, repoFullName)}
-                                className="font-mono text-default"
-                                data-attr="visual-review-quarantine-source-run"
+                                to={`https://github.com/${repoFullName}/commit/${sourceRun.commit_sha}`}
+                                target="_blank"
+                                className="font-mono"
                             >
                                 {sourceRun.commit_sha.slice(0, 8)}
                             </Link>
-                            <span aria-hidden>·</span>
-                            <span className="font-mono">{sourceRun.branch}</span>
                             {sourceRun.pr_number && (
                                 <>
                                     <span aria-hidden>·</span>
-                                    <span className="font-mono">PR #{sourceRun.pr_number}</span>
+                                    <Link
+                                        to={`https://github.com/${repoFullName}/pull/${sourceRun.pr_number}`}
+                                        target="_blank"
+                                        className="font-mono"
+                                    >
+                                        #{sourceRun.pr_number}
+                                    </Link>
                                 </>
                             )}
                             <span aria-hidden>·</span>
                             <TZLabel time={sourceRun.created_at} />
                         </div>
                     )}
-                    <div className="flex items-center gap-2 pt-1">
+                    <div className="flex flex-wrap items-center gap-2 pt-1">
+                        {sourceRun && (
+                            <LemonButton
+                                type="primary"
+                                size="small"
+                                to={runPath(sourceRun.id, repoFullName)}
+                                data-attr="visual-review-quarantine-source-run"
+                            >
+                                View failing run
+                            </LemonButton>
+                        )}
                         <QuarantineAction
                             identifier={identifier}
                             onQuarantine={onQuarantine}
