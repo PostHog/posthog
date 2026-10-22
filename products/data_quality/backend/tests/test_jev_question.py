@@ -865,7 +865,6 @@ def test_successful_gateway_batches_are_retained_when_a_sibling_batch_fails() ->
             CLICKHOUSE_USE_HTTP=False,
             CLICKHOUSE_USE_HTTP_PER_TEAM=[],
         ),
-        patch("posthog.hogql.transforms.prompt_jev.feature_enabled_or_false", return_value=True),
         patch("ee.billing.quota_limiting.is_team_over_ai_credit_budget", return_value=False),
         patch.object(httpx.AsyncClient, "send", side_effect=send),
     ):
