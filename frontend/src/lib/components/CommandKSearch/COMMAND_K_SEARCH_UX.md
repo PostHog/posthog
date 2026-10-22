@@ -63,7 +63,6 @@ The input is always in exactly one mode, decided from the token under the cursor
 ### Empty mode
 
 - Sections in this fixed order: **Recents** (5), **Starred**, **Products**.
-  With the `today-rail-nav` flag on, **Products** comes first: **Products**, **Recents** (5), **Starred**.
 - Same data sources as today (`recentItemsModel`, `projectTreeDataLogic` shortcuts, `getTreeItemsProducts()`).
 - Zero network requests on open. Everything comes from already-loaded models.
 - First row is highlighted.
@@ -98,6 +97,7 @@ The input is always in exactly one mode, decided from the token under the cursor
   2. In-memory lists, filtered on every keystroke: **Data management**, **People**, **Health**, **Misc**, **Settings** (with a Dark mode / Light mode row for "dark", "light", "theme", "appearance"), **Create new**. For a search with words they keep only items that match every word with no typo. Products rank with the results instead.
   3. Remote lists that the file system does not hold: **Events**, **Properties**, **Workflows** (one unified search request), **Accounts** (behind the customer analytics flag), **Support tickets** (3+ characters or a ticket number), **Persons**, **Groups**.
   4. **Ask PostHog AI**.
+- With the `today-rail-nav` flag on, matching **Products** come first, above **Results**, and leave the ranked results. Products match every word with no typo there, as the other in-memory lists do.
 - With any filter (a chip, or a valid `key:value` still being typed), only **Results** and **Ask PostHog AI** show, because filters apply only to objects.
 - With an `is:` chip (not negated), **Results** holds a **View all <types>** row (`View all feature flags`) that opens the list page of that type. With no search text it is the first row; once you type a search it moves below the results. It shows only for types with a list page.
 

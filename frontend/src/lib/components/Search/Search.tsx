@@ -300,7 +300,7 @@ export interface SearchRootProps {
     defaultSearchValue?: string
     /** Optional suggested items shown above recents/tools */
     suggestedItems?: SearchItem[]
-    /** Show products above recents and starred */
+    /** Show products above recents and starred while searching */
     productsFirst?: boolean
 }
 
@@ -485,11 +485,12 @@ function SearchRoot({
             loadingByCategory.set(cat.key, cat.isLoading ?? false)
         }
 
-        // Fixed order: ai first (when searching), then recents, starred, tools, create, then everything else
-        const orderedCategories = productsFirst
-            ? ['suggested', 'tools', 'recents', 'starred', 'create']
-            : ['suggested', 'recents', 'starred', 'tools', 'create']
         const hasSearchValue = searchValue.trim().length > 0
+        // Fixed order: ai first (when searching), then recents, starred, tools, create, then everything else
+        const orderedCategories =
+            productsFirst && hasSearchValue
+                ? ['suggested', 'tools', 'recents', 'starred', 'create']
+                : ['suggested', 'recents', 'starred', 'tools', 'create']
 
         for (const category of orderedCategories) {
             const items = categoryMap.get(category) ?? []

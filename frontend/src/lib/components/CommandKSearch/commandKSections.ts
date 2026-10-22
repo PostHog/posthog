@@ -224,7 +224,7 @@ export interface SectionsInput {
     themeItem: SearchItem | null
     askAiQuestion: string | null
     viewAll: ViewAll | null
-    /** Puts Products above Recents and Starred in empty mode. */
+    /** Lists matching Products above all other results in search mode. */
     productsFirst: boolean
 }
 
@@ -267,19 +267,18 @@ function rankedResultsSections(
 export function buildSections(input: SectionsInput): CommandKSection[] {
     const { mode, context, local, remote, remoteQueries, localQuery } = input
     if (mode === 'empty') {
-        const recents = readySection('recents', itemRows('recents', local.recents, RECENTS_LIMIT))
-        const starred = readySection('starred', itemRows('starred', local.starred))
-        // Tab rows ("Dashboards / Templates") only appear for a search, as in the current palette.
-        const products = readySection(
-            'products',
-            itemRows(
+        return [
+            readySection('recents', itemRows('recents', local.recents, RECENTS_LIMIT)),
+            readySection('starred', itemRows('starred', local.starred)),
+            // Tab rows ("Dashboards / Templates") only appear for a search, as in the current palette.
+            readySection(
                 'products',
-                local.products.filter((item) => !item.parentName)
-            )
-        )
-        return (input.productsFirst ? [products, recents, starred] : [recents, starred, products]).filter(
-            (section) => section.rows.length > 0
-        )
+                itemRows(
+                    'products',
+                    local.products.filter((item) => !item.parentName)
+                )
+            ),
+        ].filter((section) => section.rows.length > 0)
     }
 
     const remoteSectionFor = (source: RemoteSource): CommandKSection | null => {
@@ -301,8 +300,28 @@ export function buildSections(input: SectionsInput): CommandKSection[] {
         )
     }
     const ranked = !!remoteQueries.results && freeWords(remoteQueries.results).length > 0
+    const localSection = (source: LocalSource): CommandKSection | null => {
+        const filtered =
+            ranked && source !== 'create'
+                ? strictLocalMatches(filterLocal(source, local[source], localQuery), localQuery)
+                : filterLocal(source, local[source], localQuery)
+        const themeItem = source === 'settings' ? input.themeItem : null
+        const rows = themeItem
+            ? itemRows(source, [themeItem, ...filtered], SECONDARY_LIMIT + 1)
+            : itemRows(source, filtered, SECONDARY_LIMIT)
+        return rows.length > 0 ? readySection(source, rows) : null
+    }
+    const productsLead = input.productsFirst && mode !== 'value' && !!localQuery
+    if (productsLead) {
+        sections.push(localSection('products'))
+    }
     if (ranked) {
-        const rankedSections = rankedResultsSections(remote.results, remoteQueries.results ?? '', local, localQuery)
+        const rankedSections = rankedResultsSections(
+            remote.results,
+            remoteQueries.results ?? '',
+            productsLead ? { ...local, products: [] } : local,
+            localQuery
+        )
         sections.push(
             input.suggestions,
             ...(rankedSections.some((section) => section.key === 'results')
@@ -316,18 +335,10 @@ export function buildSections(input: SectionsInput): CommandKSection[] {
     }
     if (mode !== 'value' && localQuery) {
         for (const source of LOCAL_SOURCES) {
-            if (ranked && source === 'products') {
+            if (source === 'products' && (ranked || productsLead)) {
                 continue
             }
-            const filtered =
-                ranked && source !== 'create'
-                    ? strictLocalMatches(filterLocal(source, local[source], localQuery), localQuery)
-                    : filterLocal(source, local[source], localQuery)
-            const themeItem = source === 'settings' ? input.themeItem : null
-            const rows = themeItem
-                ? itemRows(source, [themeItem, ...filtered], SECONDARY_LIMIT + 1)
-                : itemRows(source, filtered, SECONDARY_LIMIT)
-            sections.push(rows.length > 0 ? readySection(source, rows) : null)
+            sections.push(localSection(source))
         }
     }
     if (mode !== 'value') {

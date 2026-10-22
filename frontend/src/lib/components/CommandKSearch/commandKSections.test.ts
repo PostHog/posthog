@@ -76,18 +76,31 @@ describe('buildSections', () => {
     })
 
     test.each([
-        [false, ['recents', 'starred', 'products']],
-        [true, ['products', 'recents', 'starred']],
-    ])('orders the empty palette with productsFirst=%s', (productsFirst, expectedKeys) => {
-        const local = {
-            ...emptyLocal(),
-            recents: [dashboard('recent', '1')],
-            starred: [dashboard('starred', '2')],
-            products: [{ id: 'product', name: 'Product analytics', category: 'tools' }],
+        [false, 'empty', '', ['recents', 'starred', 'products']],
+        [true, 'empty', '', ['recents', 'starred', 'products']],
+        [false, 'search', 'product', ['results', 'products']],
+        [true, 'search', 'product', ['products', 'results']],
+    ] as const)(
+        'orders the palette with productsFirst=%s in %s mode',
+        (productsFirst, mode, localQuery, expectedKeys) => {
+            const product = { id: 'product', name: 'Product analytics', category: 'tools' }
+            const local = {
+                ...emptyLocal(),
+                recents: [dashboard('recent', '1')],
+                starred: [dashboard('starred', '2')],
+                products: [product],
+            }
+            const sections = buildSections(
+                input(mode, {
+                    local,
+                    localQuery,
+                    productsFirst,
+                    ...(mode === 'search' ? remoteResults([dashboard('result', '3')]) : {}),
+                })
+            )
+            expect(sections.map((section) => section.key)).toEqual(expectedKeys)
         }
-        const sections = buildSections(input('empty', { local, productsFirst }))
-        expect(sections.map((section) => section.key)).toEqual(expectedKeys)
-    })
+    )
 
     test.each([
         ['lead', ['view-all', 'skeleton-0', 'skeleton-1', 'skeleton-2'], ['view-all', 'dashboard:1']],
