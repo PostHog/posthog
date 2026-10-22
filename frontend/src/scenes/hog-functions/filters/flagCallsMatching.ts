@@ -2,13 +2,26 @@ import { FEATURE_FLAG_CALLED_EVENT, storesFlagCallsOutsideEvents } from 'scenes/
 
 import { performQuery } from '~/queries/query'
 import { EventsQuery, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
-import { setLatestVersionsOnQuery } from '~/queries/utils'
-import { PropertyGroupFilter, TeamPublicType, TeamType, TrendResult } from '~/types'
+import { hogql, setLatestVersionsOnQuery } from '~/queries/utils'
+import {
+    FilterLogicalOperator,
+    HogQLPropertyFilter,
+    PropertyFilterType,
+    PropertyGroupFilter,
+    TeamPublicType,
+    TeamType,
+    TrendResult,
+} from '~/types'
 
 import { MatchingFiltersInput, matchingFiltersToPropertyGroup } from './matchingFilters'
 
 export const FLAG_CALLS_NOT_LOADABLE =
     "Feature flag calls are stored separately from other events, so they can't be loaded as a test event."
+
+const NOT_A_FLAG_CALL: HogQLPropertyFilter = {
+    type: PropertyFilterType.HogQL,
+    key: hogql`event != ${FEATURE_FLAG_CALLED_EVENT}`,
+}
 
 /**
  * The matchers that can match a flag call that `events` does not hold, as a property group to count on
@@ -30,6 +43,22 @@ export function flagCallsOutsideEventsFilters(
     }
     const flagCallMatchers = (events ?? []).filter(({ id }) => !id || id === FEATURE_FLAG_CALLED_EVENT)
     return flagCallMatchers.length ? matchingFiltersToPropertyGroup({ events: flagCallMatchers, properties }) : null
+}
+
+/**
+ * Whether the team's flag calls are outside `events` and every matcher names the flag call event. A search of
+ * `events` then finds no recent event that the matchers match.
+ */
+export function matchesOnlyFlagCallsOutsideEvents(
+    team: TeamPublicType | TeamType | null,
+    { events, actions }: MatchingFiltersInput
+): boolean {
+    return (
+        storesFlagCallsOutsideEvents(team) &&
+        !actions?.length &&
+        !!events?.length &&
+        events.every(({ id }) => id === FEATURE_FLAG_CALLED_EVENT)
+    )
 }
 
 /**
@@ -72,9 +101,24 @@ export function withFlagCallCounts(
     }
 }
 
+function withoutFlagCalls(properties: TrendsQuery['properties']): TrendsQuery['properties'] {
+    if (!properties) {
+        return [NOT_A_FLAG_CALL]
+    }
+    if (Array.isArray(properties)) {
+        return [...properties, NOT_A_FLAG_CALL]
+    }
+    return {
+        type: FilterLogicalOperator.And,
+        values: [properties, { type: FilterLogicalOperator.And, values: [NOT_A_FLAG_CALL] }],
+    }
+}
+
 /**
- * Runs `trendsQuery` as given. When `flagCallFilters` is set, it also counts the flag calls those filters match
- * over the last `days` days and adds them to the first series. `days` must cover the range of `trendsQuery`.
+ * Runs `trendsQuery`. When `flagCallFilters` is set, the trends query leaves out flag calls. This function then
+ * counts the flag calls those filters match over the last `days` days on flag_evaluations and adds them to the
+ * first series. Ingestion on mode 1 wrote each flag call to both tables, so a count from one table counts it once.
+ * `days` must cover the range of `trendsQuery`.
  */
 export async function performTrendsQueryWithFlagCalls(
     trendsQuery: TrendsQuery,
@@ -82,7 +126,9 @@ export async function performTrendsQueryWithFlagCalls(
     days: number
 ): Promise<Pick<TrendResult, 'data' | 'count' | 'labels'>> {
     const [trends, flagCalls] = await Promise.all([
-        performQuery(trendsQuery),
+        performQuery(
+            flagCallFilters ? { ...trendsQuery, properties: withoutFlagCalls(trendsQuery.properties) } : trendsQuery
+        ),
         flagCallFilters
             ? performQuery(flagCallsDailyCountQuery(flagCallFilters, trendsQuery.filterTestAccounts, days))
             : null,

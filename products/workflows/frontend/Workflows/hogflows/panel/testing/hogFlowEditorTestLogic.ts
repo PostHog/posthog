@@ -24,7 +24,10 @@ import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { FEATURE_FLAG_CALLED_EVENT } from 'scenes/feature-flags/flagEvaluationsTable'
-import { FLAG_CALLS_NOT_LOADABLE, flagCallsOutsideEventsFilters } from 'scenes/hog-functions/filters/flagCallsMatching'
+import {
+    FLAG_CALLS_NOT_LOADABLE,
+    matchesOnlyFlagCallsOutsideEvents,
+} from 'scenes/hog-functions/filters/flagCallsMatching'
 import { performWideEventsQueryInTwoPhases } from 'scenes/hog-functions/sampleEventsQuery'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -191,7 +194,7 @@ export interface hogFlowEditorTestLogicValues {
     testInvocationValidationErrors: DeepPartialMap<HogflowTestInvocation, ValidationErrorType>
     testResult: HogflowTestResult | null
     testResultMode: 'diff' | 'raw'
-    triggerMatchesFlagCallsOutsideEvents: boolean
+    triggerMatchesOnlyFlagCallsOutsideEvents: boolean
     workflowVariableDefaults: Record<string, any>
 }
 
@@ -341,7 +344,7 @@ export interface hogFlowEditorTestLogicActions {
 export interface hogFlowEditorTestLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
-        triggerMatchesFlagCallsOutsideEvents: (
+        triggerMatchesOnlyFlagCallsOutsideEvents: (
             triggerAction:
                 | ({
                       config:
@@ -1225,7 +1228,7 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
 
                         if (!response?.results?.[0]) {
                             // No matching events found
-                            const flagCallsNotLoadable = values.triggerMatchesFlagCallsOutsideEvents
+                            const flagCallsNotLoadable = values.triggerMatchesOnlyFlagCallsOutsideEvents
                             // A test run applies the trigger filters, so a flag call trigger needs a flag call example.
                             const exampleGlobals = createExampleEvent(
                                 values.workflow.team_id,
@@ -1377,11 +1380,11 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
         ],
     })),
     selectors(() => ({
-        triggerMatchesFlagCallsOutsideEvents: [
+        triggerMatchesOnlyFlagCallsOutsideEvents: [
             (s) => [s.triggerAction, s.currentTeam],
             (triggerAction: TriggerAction | null, currentTeam: TeamPublicType | TeamType | null): boolean =>
                 triggerAction?.config.type === 'event' &&
-                flagCallsOutsideEventsFilters(currentTeam, triggerAction.config.filters ?? {}) !== null,
+                matchesOnlyFlagCallsOutsideEvents(currentTeam, triggerAction.config.filters ?? {}),
         ],
         shouldLoadSampleGlobals: [
             (s) => [s.triggerAction],

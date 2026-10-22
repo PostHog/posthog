@@ -42,20 +42,30 @@ describe('triggerVolumeLogic', () => {
     })
 
     // Mode 1 still writes flag calls to events, so only mode 2 adds the flag_evaluations count.
+    // On mode 2 the trends query leaves out flag calls, so a call that both tables hold counts once.
     it.each([
-        ['events', FlagEvaluationsModeEnumApi.Number0, 500, 500],
-        ['read flag evaluations', FlagEvaluationsModeEnumApi.Number1, 500, 500],
-        ['flag evaluations only', FlagEvaluationsModeEnumApi.Number2, 1203, 1200],
-    ])('estimates a trigger on feature flag calls on the %s mode', async (_name, mode, total, peakPerDay) => {
-        teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, flag_evaluations_mode: mode })
-        const logic = triggerVolumeLogic({
-            id: 'trigger_node',
-            filters: { events: [{ id: '$feature_flag_called', type: 'events', name: '$feature_flag_called' }] },
-        })
-        logic.mount()
+        ['events', FlagEvaluationsModeEnumApi.Number0, 500, 500, false],
+        ['read flag evaluations', FlagEvaluationsModeEnumApi.Number1, 500, 500, false],
+        ['flag evaluations only', FlagEvaluationsModeEnumApi.Number2, 1203, 1200, true],
+    ])(
+        'estimates a trigger on feature flag calls on the %s mode',
+        async (_name, mode, total, peakPerDay, excludesFlagCalls) => {
+            teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, flag_evaluations_mode: mode })
+            const logic = triggerVolumeLogic({
+                id: 'trigger_node',
+                filters: { events: [{ id: '$feature_flag_called', type: 'events', name: '$feature_flag_called' }] },
+            })
+            logic.mount()
 
-        await expectLogic(logic).toDispatchActions(['loadVolumeSuccess'])
+            await expectLogic(logic).toDispatchActions(['loadVolumeSuccess'])
 
-        expect(logic.values.volume).toMatchObject({ total, peakPerDay })
-    })
+            expect(logic.values.volume).toMatchObject({ total, peakPerDay })
+            const trendsQuery = (performQuery as jest.Mock).mock.calls
+                .map(([query]) => query)
+                .find((query) => query.kind === NodeKind.TrendsQuery)
+            expect(JSON.stringify(trendsQuery.properties).includes("event != '$feature_flag_called'")).toBe(
+                excludesFlagCalls
+            )
+        }
+    )
 })

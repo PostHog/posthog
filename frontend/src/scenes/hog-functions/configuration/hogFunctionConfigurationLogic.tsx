@@ -88,6 +88,7 @@ import type { TeamPublicType, TeamType } from '../../../types'
 import {
     FLAG_CALLS_NOT_LOADABLE,
     flagCallsOutsideEventsFilters,
+    matchesOnlyFlagCallsOutsideEvents,
     performTrendsQueryWithFlagCalls,
 } from '../filters/flagCallsMatching'
 import { MatchingFiltersInput, matchingFiltersToPropertyGroup } from '../filters/matchingFilters'
@@ -1191,9 +1192,11 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     if (!values.lastEventQuery) {
                         return values.sampleGlobals
                     }
-                    const errorMessage = values.flagCallsOutsideEvents
-                        ? `${FLAG_CALLS_NOT_LOADABLE} Showing an example $pageview event instead.`
-                        : 'No events match these filters in the last 30 days. Showing an example $pageview event instead.'
+                    const errorMessage =
+                        values.matchingFiltersInput &&
+                        matchesOnlyFlagCallsOutsideEvents(values.currentTeam, values.matchingFiltersInput)
+                            ? `${FLAG_CALLS_NOT_LOADABLE} Showing an example $pageview event instead.`
+                            : 'No events match these filters in the last 30 days. Showing an example $pageview event instead.'
                     try {
                         await breakpoint(values.sampleGlobals === null ? 10 : 1000)
                         let response = await performWideEventsQueryInTwoPhases({

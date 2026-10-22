@@ -369,14 +369,17 @@ describe('hogFunctionConfigurationLogic', () => {
     })
 
     describe('a destination on feature flag calls', () => {
-        const FLAG_CALLED_TEMPLATE: HogFunctionTemplateType = {
-            ...HOG_TEMPLATE,
-            filters: {
-                events: [{ id: '$feature_flag_called', name: '$feature_flag_called', type: 'events', order: 0 }],
-            },
+        const FLAG_CALLED = {
+            id: '$feature_flag_called',
+            name: '$feature_flag_called',
+            type: 'events' as const,
+            order: 0,
         }
+        const PAGEVIEW = { id: '$pageview', name: '$pageview', type: 'events' as const, order: 1 }
+        const FLAG_CALLED_TEMPLATE: HogFunctionTemplateType = { ...HOG_TEMPLATE, filters: { events: [FLAG_CALLED] } }
 
-        function mountOnMode(mode: FlagEvaluationsModeEnumApi): void {
+        function mountOnMode(mode: FlagEvaluationsModeEnumApi, events = [FLAG_CALLED]): void {
+            mockApi.getTemplate.mockReturnValue(Promise.resolve({ ...HOG_TEMPLATE, filters: { events } }))
             teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, flag_evaluations_mode: mode })
             logic = hogFunctionConfigurationLogic({ templateId: 'test' })
             logic.mount()
@@ -424,17 +427,26 @@ describe('hogFunctionConfigurationLogic', () => {
 
         it.each([
             [
-                'events',
+                'events mode',
                 FlagEvaluationsModeEnumApi.Number0,
+                [FLAG_CALLED],
                 'No events match these filters in the last 30 days. Showing an example $pageview event instead.',
             ],
             [
-                'flag evaluations only',
+                'flag evaluations only mode',
                 FlagEvaluationsModeEnumApi.Number2,
+                [FLAG_CALLED],
                 `${FLAG_CALLS_NOT_LOADABLE} Showing an example $pageview event instead.`,
             ],
-        ])('explains a missing test event on the %s mode', async (_name, mode, message) => {
-            mountOnMode(mode)
+            // A pageview can still match, so the notice about flag calls does not apply.
+            [
+                'flag evaluations only mode with a pageview matcher',
+                FlagEvaluationsModeEnumApi.Number2,
+                [FLAG_CALLED, PAGEVIEW],
+                'No events match these filters in the last 30 days. Showing an example $pageview event instead.',
+            ],
+        ])('explains a missing test event on the %s', async (_name, mode, events, message) => {
+            mountOnMode(mode, events)
             await expectLogic(logic).toDispatchActions(['loadTemplateSuccess'])
 
             await expectLogic(logic, () => {

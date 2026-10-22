@@ -60,6 +60,13 @@ FLAG_EVALUATIONS_DISTINCT_ID = "flag-evaluations-user"
 FLAG_EVALUATIONS_EMAIL = "flag-user@example.com"
 FLAG_EVALUATIONS_GROUP_KEY = "flag-org"
 FLAG_CALL_TIMESTAMP = datetime(2020, 1, 11, 12, 0, 1, tzinfo=UTC)
+FLAG_KEY_MATCHER = PropertyGroupFilterValue(
+    type=FilterLogicalOperator.AND_,
+    values=[
+        EventPropertyFilter(key="$feature_flag", value=FLAG_EVALUATIONS_FLAG_KEY, operator=PropertyOperator.EXACT),
+        HogQLPropertyFilter(key="event = '$feature_flag_called'"),
+    ],
+)
 
 
 class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
@@ -1504,23 +1511,19 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
+            ("a_flag_key_matcher", [FLAG_KEY_MATCHER], [("2020-01-10", 2), ("2020-01-11", 1)], True),
+            # The flag_key filter stays inside its OR branch, so the all-events branch still counts the other flag.
             (
-                "a_flag_key_matcher",
+                "a_flag_key_matcher_or_all_events",
                 [
-                    PropertyGroupFilterValue(
-                        type=FilterLogicalOperator.AND_,
-                        values=[
-                            EventPropertyFilter(
-                                key="$feature_flag", value=FLAG_EVALUATIONS_FLAG_KEY, operator=PropertyOperator.EXACT
-                            ),
-                            HogQLPropertyFilter(key="event = '$feature_flag_called'"),
-                        ],
-                    )
+                    FLAG_KEY_MATCHER,
+                    PropertyGroupFilterValue(type=FilterLogicalOperator.AND_, values=[HogQLPropertyFilter(key="true")]),
                 ],
-                [("2020-01-10", 2), ("2020-01-11", 1)],
+                [("2020-01-10", 2), ("2020-01-11", 2)],
+                True,
             ),
             # A destination with no event or action matcher sends an empty OR, which matches every flag call.
-            ("no_matcher", [], [("2020-01-10", 2), ("2020-01-11", 2)]),
+            ("no_matcher", [], [("2020-01-10", 2), ("2020-01-11", 2)], False),
         ]
     )
     def test_flag_evaluations_only_organization_counts_matched_flag_calls_per_day(
@@ -1528,6 +1531,7 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         _name: str,
         matchers: list[PropertyGroupFilterValue],
         expected: list[tuple[str, int]],
+        reads_flag_key: bool,
     ):
         self._set_flag_evaluations_mode(FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY)
         self._create_events(
@@ -1563,6 +1567,7 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         assert isinstance(response, CachedEventsQueryResponse)
         assert [(str(day), count) for day, count in response.results] == expected
+        assert (f"in(flag_key, tuple('{FLAG_EVALUATIONS_FLAG_KEY}'))" in (response.hogql or "")) is reads_flag_key
 
     @parameterized.expand([("range_older_than_retention", "-180d"), ("all_time", "all")])
     def test_flag_evaluations_list_stops_at_the_retention_window(self, _name: str, after: str):

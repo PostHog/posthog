@@ -536,36 +536,45 @@ describe('hogFlowEditorTestLogic', () => {
     })
 
     describe('a trigger on feature flag calls', () => {
-        const FLAG_CALLED_FILTERS = { events: [{ id: '$feature_flag_called', type: 'events', properties: [] }] }
-        const FLAG_CALLED_WORKFLOW = {
-            ...WORKFLOW_FIXTURE,
-            actions: WORKFLOW_FIXTURE.actions.map((action) =>
-                action.id === 'trigger_node'
-                    ? { ...action, config: { type: 'event', filters: FLAG_CALLED_FILTERS } }
-                    : action
-            ),
-            trigger: { type: 'event', filters: FLAG_CALLED_FILTERS },
+        const FLAG_CALLED = { id: '$feature_flag_called', type: 'events', properties: [] }
+        const PAGEVIEW = { id: '$pageview', type: 'events', properties: [] }
+        const NO_MATCH_IN_7_DAYS =
+            'No events match these filters in the last 7 days. Using an example $pageview event instead.'
+
+        function workflowTriggeredBy(events: (typeof FLAG_CALLED)[]): typeof WORKFLOW_FIXTURE {
+            const filters = { events }
+            return {
+                ...WORKFLOW_FIXTURE,
+                actions: WORKFLOW_FIXTURE.actions.map((action) =>
+                    action.id === 'trigger_node' ? { ...action, config: { type: 'event', filters } } : action
+                ),
+                trigger: { type: 'event', filters },
+            }
         }
 
         it.each([
+            ['events mode', FlagEvaluationsModeEnumApi.Number0, [FLAG_CALLED], NO_MATCH_IN_7_DAYS, true, '$pageview'],
             [
-                'events',
-                FlagEvaluationsModeEnumApi.Number0,
-                'No events match these filters in the last 7 days. Using an example $pageview event instead.',
-                true,
-                '$pageview',
-            ],
-            [
-                'flag evaluations only',
+                'flag evaluations only mode',
                 FlagEvaluationsModeEnumApi.Number2,
+                [FLAG_CALLED],
                 `${FLAG_CALLS_NOT_LOADABLE} Using an example $feature_flag_called event instead.`,
                 false,
                 '$feature_flag_called',
             ],
+            // An older pageview can still match, so the 30-day search stays available.
+            [
+                'flag evaluations only mode with a pageview matcher',
+                FlagEvaluationsModeEnumApi.Number2,
+                [FLAG_CALLED, PAGEVIEW],
+                NO_MATCH_IN_7_DAYS,
+                true,
+                '$pageview',
+            ],
         ])(
-            'explains a missing test event on the %s mode',
-            async (_name, mode, message, canTryExtendedSearch, exampleEvent) => {
-                useMocks({ get: { '/api/environments/:team_id/hog_flows/:id/': FLAG_CALLED_WORKFLOW } })
+            'explains a missing test event on the %s',
+            async (_name, mode, events, message, canTryExtendedSearch, exampleEvent) => {
+                useMocks({ get: { '/api/environments/:team_id/hog_flows/:id/': workflowTriggeredBy(events) } })
                 teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, flag_evaluations_mode: mode })
                 logic = hogFlowEditorTestLogic({ id: 'test-workflow' })
                 logic.mount()
