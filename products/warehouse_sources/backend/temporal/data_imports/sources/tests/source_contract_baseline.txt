@@ -9,6 +9,7 @@ AppsFlyer fail:safe-point
 Appsignal fail:safe-point
 Attentive not-checkable:database
 AwsCostExplorer fail:safe-point
+AwsDocumentDB not-checkable:driver:pymongo
 AzureBlob not-checkable:schemas
 AzureCostManagement not-checkable:no-request
 Baserow not-checkable:schemas

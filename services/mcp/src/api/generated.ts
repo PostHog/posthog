@@ -31936,6 +31936,7 @@ export namespace Schemas {
      * * `AwsCostAndUsageReport` - AwsCostAndUsageReport
      * * `AwsCostAnomalyDetection` - AwsCostAnomalyDetection
      * * `AwsCostExplorer` - AwsCostExplorer
+     * * `AwsDocumentDB` - AwsDocumentDB
      * * `AwsGlueDataCatalog` - AwsGlueDataCatalog
      * * `AwsGuardduty` - AwsGuardduty
      * * `AwsHealth` - AwsHealth
@@ -33346,6 +33347,7 @@ export namespace Schemas {
       AwsCostAndUsageReport: 'AwsCostAndUsageReport',
       AwsCostAnomalyDetection: 'AwsCostAnomalyDetection',
       AwsCostExplorer: 'AwsCostExplorer',
+      AwsDocumentDB: 'AwsDocumentDB',
       AwsGlueDataCatalog: 'AwsGlueDataCatalog',
       AwsGuardduty: 'AwsGuardduty',
       AwsHealth: 'AwsHealth',
@@ -34770,6 +34772,7 @@ export namespace Schemas {
        * * `AwsCostAndUsageReport` - AwsCostAndUsageReport
        * * `AwsCostAnomalyDetection` - AwsCostAnomalyDetection
        * * `AwsCostExplorer` - AwsCostExplorer
+       * * `AwsDocumentDB` - AwsDocumentDB
        * * `AwsGlueDataCatalog` - AwsGlueDataCatalog
        * * `AwsGuardduty` - AwsGuardduty
        * * `AwsHealth` - AwsHealth
@@ -37529,6 +37532,7 @@ export namespace Schemas {
        * * `AwsCostAndUsageReport` - AwsCostAndUsageReport
        * * `AwsCostAnomalyDetection` - AwsCostAnomalyDetection
        * * `AwsCostExplorer` - AwsCostExplorer
+       * * `AwsDocumentDB` - AwsDocumentDB
        * * `AwsGlueDataCatalog` - AwsGlueDataCatalog
        * * `AwsGuardduty` - AwsGuardduty
        * * `AwsHealth` - AwsHealth
@@ -49896,6 +49900,7 @@ export namespace Schemas {
        * * `AwsCostAndUsageReport` - AwsCostAndUsageReport
        * * `AwsCostAnomalyDetection` - AwsCostAnomalyDetection
        * * `AwsCostExplorer` - AwsCostExplorer
+       * * `AwsDocumentDB` - AwsDocumentDB
        * * `AwsGlueDataCatalog` - AwsGlueDataCatalog
        * * `AwsGuardduty` - AwsGuardduty
        * * `AwsHealth` - AwsHealth
@@ -51340,6 +51345,7 @@ export namespace Schemas {
        * * `AwsCostAndUsageReport` - AwsCostAndUsageReport
        * * `AwsCostAnomalyDetection` - AwsCostAnomalyDetection
        * * `AwsCostExplorer` - AwsCostExplorer
+       * * `AwsDocumentDB` - AwsDocumentDB
        * * `AwsGlueDataCatalog` - AwsGlueDataCatalog
        * * `AwsGuardduty` - AwsGuardduty
        * * `AwsHealth` - AwsHealth
@@ -107495,6 +107501,7 @@ export namespace Schemas {
        * * `AwsCostAndUsageReport` - AwsCostAndUsageReport
        * * `AwsCostAnomalyDetection` - AwsCostAnomalyDetection
        * * `AwsCostExplorer` - AwsCostExplorer
+       * * `AwsDocumentDB` - AwsDocumentDB
        * * `AwsGlueDataCatalog` - AwsGlueDataCatalog
        * * `AwsGuardduty` - AwsGuardduty
        * * `AwsHealth` - AwsHealth
@@ -108970,6 +108977,7 @@ export namespace Schemas {
        * * `AwsCostAndUsageReport` - AwsCostAndUsageReport
        * * `AwsCostAnomalyDetection` - AwsCostAnomalyDetection
        * * `AwsCostExplorer` - AwsCostExplorer
+       * * `AwsDocumentDB` - AwsDocumentDB
        * * `AwsGlueDataCatalog` - AwsGlueDataCatalog
        * * `AwsGuardduty` - AwsGuardduty
        * * `AwsHealth` - AwsHealth
@@ -110412,6 +110420,7 @@ export namespace Schemas {
        * * `AwsCostAndUsageReport` - AwsCostAndUsageReport
        * * `AwsCostAnomalyDetection` - AwsCostAnomalyDetection
        * * `AwsCostExplorer` - AwsCostExplorer
+       * * `AwsDocumentDB` - AwsDocumentDB
        * * `AwsGlueDataCatalog` - AwsGlueDataCatalog
        * * `AwsGuardduty` - AwsGuardduty
        * * `AwsHealth` - AwsHealth

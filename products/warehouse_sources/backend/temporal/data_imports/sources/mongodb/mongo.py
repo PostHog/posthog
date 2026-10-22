@@ -332,23 +332,56 @@ def _make_safe_server_selector(team_id: int) -> Callable[[list[ServerDescription
     return selector
 
 
+def _options(connection_string: str) -> list[str]:
+    return re.split(r"[&;]", connection_string.partition("?")[2])
+
+
+def _option_key(option: str) -> str:
+    return option.partition("=")[0].lower()
+
+
 def connection_timeouts(connection_string: str) -> dict[str, int]:
     """The connect and socket timeouts to pass to `MongoClient`, less those the connection string sets."""
-    option_keys = {
-        option.partition("=")[0].lower() for option in re.split(r"[&;]", connection_string.partition("?")[2])
-    }
+    option_keys = {_option_key(option) for option in _options(connection_string)}
     return {name: value for name, value in _CONNECTION_TIMEOUT_DEFAULTS.items() if name.lower() not in option_keys}
 
 
+# pymongo opens these paths on our host while it parses the string, so a path from the customer's
+# machine never works there. The CA bundle always comes from the `tlsCAFile` keyword, so that option
+# is dropped (AWS's DocumentDB string names `global-bundle.pem`). A revocation list or a client
+# certificate has no replacement, so the client refuses those rather than connect without them.
+_CA_FILE_OPTION = "tlscafile"
+_UNSUPPORTED_FILE_OPTIONS = frozenset({"tlscertificatekeyfile", "tlscrlfile"})
+UNSUPPORTED_FILE_OPTION_ERROR = "Connection string names a certificate file PostHog cannot read"
+
+
+class UnsupportedConnectionOptionError(ValueError):
+    pass
+
+
+def _checked_connection_string(connection_string: str) -> str:
+    """The string without `tlsCAFile`. Raises when it names a file that has no replacement."""
+    options = _options(connection_string)
+    if any(_option_key(option) in _UNSUPPORTED_FILE_OPTIONS for option in options):
+        raise UnsupportedConnectionOptionError(UNSUPPORTED_FILE_OPTION_ERROR)
+    kept = [option for option in options if _option_key(option) != _CA_FILE_OPTION]
+    if len(kept) == len(options):
+        return connection_string
+    base = connection_string.partition("?")[0]
+    return f"{base}?{'&'.join(kept)}" if kept else base
+
+
 @contextlib.contextmanager
-def mongo_client(connection_string: str, team_id: int) -> Iterator[MongoClient]:
+def mongo_client(connection_string: str, team_id: int, tls_ca_file: str | None = None) -> Iterator[MongoClient]:
+    """Open a client for one source. `tls_ca_file` replaces the public CA bundle, for a server whose
+    certificate a private CA signs (AWS DocumentDB)."""
     # rpartition strips credentials; multiple hosts stay comma-joined as-is.
     log_connection_open(db_host=urlparse(connection_string).netloc.rpartition("@")[2], team_id=team_id)
     kwargs: dict[str, Any] = {
         "serverSelectionTimeoutMS": SERVER_SELECTION_TIMEOUT_MS,
         **connection_timeouts(connection_string),
         "tls": True,
-        "tlsCAFile": certifi.where(),
+        "tlsCAFile": tls_ca_file or certifi.where(),
         "server_selector": _make_safe_server_selector(team_id),
         # Decode BSON Binary subtype 4 as native uuid.UUID instead of bson.Binary,
         # so UUID primary keys don't leak as Python bytes repr downstream.
@@ -362,14 +395,14 @@ def mongo_client(connection_string: str, team_id: int) -> Iterator[MongoClient]:
         # to None in _process_nested_value so a single bad row doesn't fail the sync.
         "datetime_conversion": DatetimeConversion.DATETIME_AUTO,
     }
-    client: MongoClient = MongoClient(connection_string, **kwargs)
+    client: MongoClient = MongoClient(_checked_connection_string(connection_string), **kwargs)
     try:
         yield client
     finally:
         client.close()
 
 
-def get_server_metadata(connection_string: str, team_id: int) -> dict[str, Any]:
+def get_server_metadata(connection_string: str, team_id: int, tls_ca_file: str | None = None) -> dict[str, Any]:
     """Probe the cluster for the MongoDB version it reports, and for its wire version.
 
     The driver refuses any server below its own wire-version floor, and that floor rises across
@@ -378,7 +411,7 @@ def get_server_metadata(connection_string: str, team_id: int) -> dict[str, Any]:
     upgrade ships. AWS DocumentDB and Azure Cosmos DB's Mongo API report the MongoDB version they
     emulate, and that emulated version is what the driver gates on.
     """
-    with mongo_client(connection_string, team_id) as client:
+    with mongo_client(connection_string, team_id, tls_ca_file) as client:
         # buildInfo is answered by every server version we accept and by the DocumentDB and Cosmos
         # DB Mongo APIs, whereas `hello` was added in MongoDB 5.0 and is missing from the older
         # emulation levels this probe most needs to identify. Asking for it also completes the
@@ -595,13 +628,13 @@ def _list_importable_collection_names(db: Database) -> list[str]:
 
 
 def get_schemas(
-    config: MongoDBSourceConfig, team_id: int, names: list[str] | None = None
+    config: MongoDBSourceConfig, team_id: int, names: list[str] | None = None, tls_ca_file: str | None = None
 ) -> dict[str, list[tuple[str, str]]]:
     """Get all collections from MongoDB source database to sync."""
 
     connection_params = _parse_connection_string(config.connection_string, config.database_name)
 
-    with mongo_client(config.connection_string, team_id=team_id) as client:
+    with mongo_client(config.connection_string, team_id=team_id, tls_ca_file=tls_ca_file) as client:
         if not connection_params["database"]:
             raise ValueError(DATABASE_NAME_REQUIRED_ERROR)
 
@@ -628,9 +661,9 @@ def get_schemas(
     return schema_list
 
 
-def get_collection_names(config: MongoDBSourceConfig, team_id: int) -> list[str]:
+def get_collection_names(config: MongoDBSourceConfig, team_id: int, tls_ca_file: str | None = None) -> list[str]:
     connection_params = _parse_connection_string(config.connection_string, config.database_name)
-    with mongo_client(config.connection_string, team_id=team_id) as client:
+    with mongo_client(config.connection_string, team_id=team_id, tls_ca_file=tls_ca_file) as client:
         if not connection_params["database"]:
             raise ValueError(DATABASE_NAME_REQUIRED_ERROR)
         db = client[connection_params["database"]]
@@ -871,6 +904,7 @@ def mongo_source(
     incremental_field_type: Optional[IncrementalFieldType] = None,
     database_name: Optional[str] = None,
     resumable_source_manager: ResumableSourceManager[MongoResumeConfig] | None = None,
+    tls_ca_file: str | None = None,
 ) -> SourceResponse:
     connection_params = _parse_connection_string(connection_string, database_name)
 
@@ -884,7 +918,7 @@ def mongo_source(
         raise ValueError(DATABASE_NAME_REQUIRED_ERROR)
 
     # Create MongoDB client
-    with mongo_client(connection_string, team_id=team_id) as client:
+    with mongo_client(connection_string, team_id=team_id, tls_ca_file=tls_ca_file) as client:
         db = client[connection_params["database"]]
         collection = db[collection_name]
 
@@ -910,7 +944,7 @@ def mongo_source(
 
     def get_rows() -> Iterator[dict[str, Any]]:
         # New connection for data reading
-        with mongo_client(connection_string, team_id=team_id) as read_client:
+        with mongo_client(connection_string, team_id=team_id, tls_ca_file=tls_ca_file) as read_client:
             read_db = read_client[connection_params["database"]]
             read_collection = read_db[collection_name]
 

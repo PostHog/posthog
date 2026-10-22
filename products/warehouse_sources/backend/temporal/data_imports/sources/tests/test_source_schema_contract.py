@@ -50,6 +50,7 @@ PASS = "pass"
 # `empty`: `get_schemas` returns no schema for a placeholder config.
 SCHEMA_FILTER_NOT_CHECKABLE: dict[str, str] = {
     "AmazonS3": "network",
+    "AwsDocumentDB": "driver",
     "AzureBlob": "network",
     "BigQuery": "driver",
     "Baserow": "network",
@@ -100,6 +101,7 @@ SCHEMA_FILTER_NOT_CHECKABLE: dict[str, str] = {
 UNKNOWN_SCHEMA_NOT_CHECKABLE: dict[str, str] = {
     "AmazonS3": "request",
     "Attentive": "webhook",
+    "AwsDocumentDB": "driver",
     "AzureBlob": "request",
     "Baserow": "request",
     "BigQuery": "driver",
