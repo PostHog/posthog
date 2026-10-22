@@ -3264,12 +3264,13 @@ class TestRefreshOrgSelfDrivingQuota(BaseTest):
                 return_value=[(self.team.id, 100)],
             ),
             patch(
-                "ee.billing.quota_limiting.get_self_driving_credits_used_in_period_for_org", return_value=1500
+                "ee.billing.quota_limiting.get_self_driving_credits_used_in_period_for_orgs",
+                return_value={str(self.organization.id): 1500},
             ) as live_mock,
         ):
             update_all_orgs_billing_quotas()
 
-        assert live_mock.call_args.args[0] == str(self.organization.id)
+        assert live_mock.call_args.args[0] == [str(self.organization.id)]
         self.organization.refresh_from_db()
         assert self.organization.usage is not None
         assert self.organization.usage["signals_credits"]["todays_usage"] == 1500

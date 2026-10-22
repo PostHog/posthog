@@ -3,7 +3,7 @@ import json
 from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
 from datetime import datetime, timedelta
 from enum import Enum
-from functools import lru_cache
+from functools import lru_cache, partial
 from itertools import batched, groupby
 from time import time
 from typing import Any, Optional, TypedDict, cast
@@ -32,6 +32,7 @@ from posthog.tasks.usage_report import (
     combine_posthog_code_credits,
     convert_team_usage_rows_to_dict,
     get_self_driving_credits_used_in_period_for_org,
+    get_self_driving_credits_used_in_period_for_orgs,
     get_signals_credited_refund_credits_for_org,
     get_teams_with_api_queries_metrics,
     iter_billable_teams,
@@ -1481,6 +1482,14 @@ def update_all_orgs_billing_quotas(
                 .in_bulk
             ).values()
         }
+        signals_recount_ids = [
+            org_id
+            for org_id, fresh in fresh_orgs.items()
+            if (fresh.usage or {}).get(QuotaResource.SIGNALS_CREDITS.value)
+        ]
+        signals_recounts = retry_quota_database_operation(
+            partial(get_self_driving_credits_used_in_period_for_orgs, signals_recount_ids, period.start, period.end)
+        )
         refresh_count += len(fresh_orgs)
         refresh_total_seconds += time() - refresh_start
         usage_batch = QuotaUsageBatch()
@@ -1499,9 +1508,7 @@ def update_all_orgs_billing_quotas(
                         usage_batch.require_unchanged_usage(org, fresh.usage_md5)
                         if (org.usage or {}).get(QuotaResource.SIGNALS_CREDITS.value):
                             # Push refreshes can raise signals usage after the source snapshot. Recount before writing it.
-                            todays_report["signals_credits"] = get_self_driving_credits_used_in_period_for_org(
-                                org_id, period.start, period.end
-                            )
+                            todays_report["signals_credits"] = signals_recounts.get(org_id, 0)
                     _patch_todays_usage(org, todays_report, batch=usage_batch)
                     org_is_limited = org_is_suspended = False
                     for resource in QuotaResource:
