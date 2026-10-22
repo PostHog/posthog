@@ -77,6 +77,20 @@ interface MountedSceneLogic {
 
 const generateTabId = (): string => crypto?.randomUUID?.()?.split('-')?.pop() || `${Date.now()}-${Math.random()}`
 
+function checkGoldRingsAfterScenePaint(navigation: string, enabled: boolean): void {
+    window.requestAnimationFrame(() => {
+        if (router.values.location.pathname + router.values.location.search !== navigation) {
+            return
+        }
+
+        const mainContent = document.getElementById('main-content')
+        const pageContent = mainContent?.querySelector<HTMLElement>('.scene-content') ?? mainContent
+        if (shouldPlayGoldRings(new Date(), enabled, pageContent?.innerText ?? '')) {
+            playGoldRings()
+        }
+    })
+}
+
 /**
  * Homepage snapshot for JSON persistence: strips `sceneParams` (deep/cyclic routing state) and
  * ensures an id. Every other `SceneTab` field is kept so new fields aren't forgotten; if a future
@@ -917,23 +931,10 @@ export const sceneLogic = kea<sceneLogicType>([
                 const navigation = router.values.location.pathname + router.values.location.search
                 if (cache.lastGoldRingsNavigation !== navigation) {
                     cache.lastGoldRingsNavigation = navigation
-                    window.requestAnimationFrame(() => {
-                        if (router.values.location.pathname + router.values.location.search !== navigation) {
-                            return
-                        }
-
-                        const mainContent = document.getElementById('main-content')
-                        const pageContent = mainContent?.querySelector<HTMLElement>('.scene-content') ?? mainContent
-                        if (
-                            shouldPlayGoldRings(
-                                new Date(),
-                                values.featureFlags[FEATURE_FLAGS.CHRISTMAS_GOLD_RINGS] === true,
-                                pageContent?.innerText ?? ''
-                            )
-                        ) {
-                            playGoldRings()
-                        }
-                    })
+                    checkGoldRingsAfterScenePaint(
+                        navigation,
+                        values.featureFlags[FEATURE_FLAGS.CHRISTMAS_GOLD_RINGS] === true
+                    )
                 }
             }
         },
