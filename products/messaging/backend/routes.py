@@ -4,6 +4,7 @@ from products.messaging.backend.presentation.views.message_categories import Mes
 from products.messaging.backend.presentation.views.message_preferences import MessagePreferencesViewSet
 from products.messaging.backend.presentation.views.message_suppression import MessageSuppressionViewSet
 from products.messaging.backend.presentation.views.message_templates import MessageTemplatesViewSet
+from products.messaging.backend.presentation.views.messaging_emails import MessagingEmailsViewSet
 from products.messaging.backend.presentation.views.messaging_send import MessagingSendViewSet
 
 
@@ -22,3 +23,4 @@ def register_routes(routers: RouterRegistry) -> None:
         r"messaging_suppressions", MessageSuppressionViewSet, "project_messaging_suppressions", ["team_id"]
     )
     routers.projects.register(r"messaging", MessagingSendViewSet, "project_messaging", ["team_id"])
+    routers.projects.register(r"messaging/emails", MessagingEmailsViewSet, "project_messaging_emails", ["team_id"])

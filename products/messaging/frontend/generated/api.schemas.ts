@@ -8,6 +8,74 @@
  * OpenAPI spec version: 1.0.0
  */
 /**
+ * * `queued` - Queued
+ * * `waiting` - Waiting
+ * * `unknown` - Unknown
+ * * `skipped` - Skipped
+ * * `failed` - Failed
+ * * `sent` - Sent
+ * * `delivered` - Delivered
+ * * `bounced` - Bounced
+ * * `complained` - Complained
+ */
+export type EmailStatusEnumApi = (typeof EmailStatusEnumApi)[keyof typeof EmailStatusEnumApi]
+
+export const EmailStatusEnumApi = {
+    Queued: 'queued',
+    Waiting: 'waiting',
+    Unknown: 'unknown',
+    Skipped: 'skipped',
+    Failed: 'failed',
+    Sent: 'sent',
+    Delivered: 'delivered',
+    Bounced: 'bounced',
+    Complained: 'complained',
+} as const
+
+export interface EmailStatusApi {
+    /** The email's `message_id`, as the send answered it. */
+    id: string
+    /** Where the email is. A status never moves back: a late `sent` never replaces `delivered`.
+     *
+     * * `queued` - Queued
+     * * `waiting` - Waiting
+     * * `unknown` - Unknown
+     * * `skipped` - Skipped
+     * * `failed` - Failed
+     * * `sent` - Sent
+     * * `delivered` - Delivered
+     * * `bounced` - Bounced
+     * * `complained` - Complained */
+    status: EmailStatusEnumApi
+    /** When PostHog accepted the send. */
+    created_at: string
+    /** When the email reached its status. */
+    status_at: string
+    /** Why the email is `skipped`, `failed`, `bounced` or `complained`, such as `recipient_suppressed`, `provider_error` or `hard`. Absent for the other statuses. */
+    reason?: string
+}
+
+export interface TemplateErrorApi {
+    /** Error class, such as `invalid_request`. */
+    type: string
+    /** Stable error code to branch on, such as `invalid_template_key`. */
+    code: string
+    /** What went wrong. */
+    detail: string
+    /**
+     * The request field the error is about, if any.
+     * @nullable
+     */
+    attr: string | null
+    /** Why PostHog refuses the request. */
+    why?: string
+    /** What to change before you retry. */
+    fix?: string
+    /** Documentation for this error code. */
+    docs_url?: string
+}
+
+/**
  * Data for the template's Liquid placeholders, available as `variables`. For example `{"reset_link": "https://..."}` fills `{{ variables.reset_link }}`.
  */
 export type SendEmailApiMessageData = { [key: string]: unknown }
@@ -134,26 +202,6 @@ export interface SendEmailResponseApi {
     replayed: boolean
     /** Things to know about the queued email. Empty in the normal case. */
     warnings: SendEmailWarningApi[]
-}
-
-export interface TemplateErrorApi {
-    /** Error class, such as `invalid_request`. */
-    type: string
-    /** Stable error code to branch on, such as `invalid_template_key`. */
-    code: string
-    /** What went wrong. */
-    detail: string
-    /**
-     * The request field the error is about, if any.
-     * @nullable
-     */
-    attr: string | null
-    /** Why PostHog refuses the request. */
-    why?: string
-    /** What to change before you retry. */
-    fix?: string
-    /** Documentation for this error code. */
-    docs_url?: string
 }
 
 /**

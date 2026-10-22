@@ -1,5 +1,6 @@
 from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
 from uuid import UUID
 
@@ -295,3 +296,37 @@ class TemplateUpload:
     if_not_superseded: bool
     # A send's automatic upload sets it, so it never takes over a template people edit in PostHog.
     if_code_managed: bool = False
+
+
+class EmailStatus(LabeledStrEnum):
+    """Where a transactional email is. Each status ranks above the ones before it, so a late status never replaces
+    a later one."""
+
+    QUEUED = "queued", "Queued"
+    WAITING = "waiting", "Waiting"
+    UNKNOWN = "unknown", "Unknown"
+    SKIPPED = "skipped", "Skipped"
+    FAILED = "failed", "Failed"
+    SENT = "sent", "Sent"
+    DELIVERED = "delivered", "Delivered"
+    BOUNCED = "bounced", "Bounced"
+    COMPLAINED = "complained", "Complained"
+
+
+@frozen
+class EmailStatusRecord:
+    """The latest status of one transactional email."""
+
+    message_id: UUID
+    status: EmailStatus
+    created_at: datetime
+    status_at: datetime
+    reason: str | None
+
+
+@frozen
+class EmailStatusCursor:
+    """Where a page of a recipient's emails ends. The next page starts after it."""
+
+    created_at: datetime
+    message_id: UUID
