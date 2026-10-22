@@ -255,6 +255,10 @@ class TestValidation:
             ("a start-end range", {"patterns": ["192.0.2.10 - 192.0.2.40"]}),
             ("a range saved before conditions held a list", {"pattern": "192.0.2.0/24", "patterns": None}),
             ("as many ranges as a condition holds", {"patterns": separate_addresses(MAX_IP_RANGES_PER_CONDITION)}),
+            (
+                "overlapping ranges that merge under the block cap",
+                {"patterns": [f"10.0.0.1-10.0.{n}.254" for n in range(1, 100)]},
+            ),
         ]
     )
     def test_accepts_usable_ip_ranges(self, _name: str, overrides: dict):
