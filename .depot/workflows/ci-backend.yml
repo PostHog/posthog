@@ -1023,6 +1023,7 @@ jobs:
                   enable-cache: true
                   cache-dependency-glob: uv.lock
                   save-cache: false
+                  prune-cache: true
             - name: Install SAML dependencies
               if: steps.schema-cache.outputs.cache-matched-key == '' && steps.setup-uv.outputs.cache-hit != 'true'
               run: sudo rm -f /etc/apt/sources.list.d/*twingate* && sudo apt-get update && sudo apt-get install -y libxml2-dev libxmlsec1-dev libxmlsec1-openssl
@@ -1797,6 +1798,7 @@ jobs:
                   enable-cache: true
                   cache-dependency-glob: uv.lock
                   save-cache: ${{ env.IS_MASTER == 'true' }}
+                  prune-cache: true
             - name: Install SAML (python3-saml) dependencies
               if: steps.setup-uv.outputs.cache-hit != 'true'
               run: |
@@ -2511,6 +2513,7 @@ jobs:
                   enable-cache: true
                   cache-dependency-glob: uv.lock
                   save-cache: ${{ env.IS_MASTER == 'true' }}
+                  prune-cache: true
             - name: Install SAML (python3-saml) dependencies
               if: steps.setup-uv.outputs.cache-hit != 'true'
               run: |
@@ -3198,6 +3201,7 @@ jobs:
                   enable-cache: true
                   cache-dependency-glob: uv.lock
                   save-cache: ${{ env.IS_MASTER == 'true' }}
+                  prune-cache: true
             - name: Install SAML (python3-saml) dependencies
               if: ${{ needs.changes.outputs.backend == 'true' && steps.setup-uv-tests.outputs.cache-hit != 'true' }}
               shell: bash

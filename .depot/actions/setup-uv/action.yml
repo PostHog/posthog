@@ -40,3 +40,6 @@ runs:
               enable-cache: ${{ inputs.enable-cache }}
               cache-dependency-glob: ${{ inputs.cache-dependency-glob }}
               save-cache: ${{ inputs.save-cache }}
+              # Keeps only wheels built from source. The pre-built wheels of uv.lock total about
+              # 1 GB, and every job downloads them faster than it restores them from the cache.
+              prune-cache: true
