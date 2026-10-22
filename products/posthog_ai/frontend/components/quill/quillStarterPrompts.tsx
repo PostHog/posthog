@@ -6,7 +6,6 @@ export interface QuillStarterPrompt {
     label: string
     description: string
     prompt: string
-    /** The product icon type, so the card uses the same icon and colour as the product elsewhere. */
     iconType: FileSystemIconType
     mode?: PermissionMode
 }

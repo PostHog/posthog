@@ -34,7 +34,7 @@ export function TaskComposerAddMenu({
     const { fileInput, openPicker, isOver, addDisabledReason } = useComposerFilePicker(attachmentsKey, dropTargetRef)
     const { getIntegrationsByKind, integrationsLoading } = useValues(integrationsLogic)
     const { reportIntegrationConnectClicked } = useActions(eventUsageLogic)
-    const needsGitHub = !integrationsLoading && getIntegrationsByKind(['github']).length === 0
+    const needsGitHub = getIntegrationsByKind(['github']).length === 0
     return (
         <>
             {fileInput}
@@ -71,6 +71,7 @@ export function TaskComposerAddMenu({
                         Attach files
                     </DropdownMenuItem>
                     {onAddRepository &&
+                        !integrationsLoading &&
                         (needsGitHub ? (
                             <DropdownMenuItem
                                 render={<LinkPrimitive to={githubAuthorizeUrl} disableClientSideRouting />}
