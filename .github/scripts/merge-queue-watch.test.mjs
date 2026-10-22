@@ -1,9 +1,9 @@
 // Run with: node --test .github/scripts/merge-queue-watch.test.mjs
 
 import assert from 'node:assert/strict'
-import { describe, it } from 'node:test'
+import { afterEach, beforeEach, describe, it } from 'node:test'
 
-import { analyzeTimeline, classify, evaluate } from './merge-queue-watch.mjs'
+import { analyzeTimeline, classify, evaluate, fetchResults, main } from './merge-queue-watch.mjs'
 
 const NOW = new Date('2026-10-21T22:00:00Z')
 const minutesAgo = (n) => new Date(NOW.getTime() - n * 60000).toISOString()
@@ -39,6 +39,11 @@ describe('count rules', () => {
         assert.deepEqual(classify(counts, new Map()), [])
     })
 
+    it('counts a run in the 30 minute rate by its end time, once however many PRs it holds', () => {
+        const input = [40, 30, 20, 10].flatMap((ago) => rows(`run-${ago}`, 'failed', ago, [1, 2]))
+        assert.equal(evaluate(input, NOW).failedLast30m, 3)
+    })
+
     it('counts only failed runs, and skips rows without a test run id', () => {
         const input = [
             ...rows('a', 'interrupted', 5, [100]),
@@ -72,7 +77,13 @@ describe('analyzeTimeline', () => {
     }
 
     it('reports a merged PR so the rules can skip it', () => {
-        const timeline = [passedAlone(150), failedInBatch(140), passedAlone(100), failedInBatch(90), event('merged', 10)]
+        const timeline = [
+            passedAlone(150),
+            failedInBatch(140),
+            passedAlone(100),
+            failedInBatch(90),
+            event('merged', 10),
+        ]
         assert.equal(analyzeTimeline(timeline, NOW).merged, true)
     })
 })
@@ -87,5 +98,122 @@ describe('cycle rule', () => {
     it('needs the failed-run gate, so two flakes do not read as a culprit', () => {
         const counts = evaluate(failures(100, [160, 120, 80]), NOW)
         assert.deepEqual(classify(counts, new Map([[100, 2]])), [])
+    })
+})
+
+const WEBHOOK = 'https://hooks.example.com/investigate'
+const noSleep = async () => {}
+
+// A fake Trunk, Slack and webhook behind `fetch`. `calls` records every request body by endpoint.
+function fakeWorld({ alerts = [], webhookStatus = 200, resultRows = failures(100, [50, 40, 30, 20]) } = {}) {
+    const calls = []
+    const json = (data, status = 200) => new Response(JSON.stringify(data), { status })
+    const handler = async (url, init) => {
+        const target = String(url)
+        const body = init?.body ? JSON.parse(init.body) : undefined
+        calls.push({ target, body })
+        if (target.includes('listMergeQueueTestingResults')) {
+            return json({ testingResults: resultRows, totalItems: resultRows.length })
+        }
+        if (target.includes('getSubmittedPullRequest')) {
+            return json({ timeline: [] })
+        }
+        if (target.includes('getMergeQueueMetrics')) {
+            return new Response('mq_pr_restarts_1h_total{repo="PostHog/posthog",branch="master",queue_type="main"} 3\n')
+        }
+        if (target.includes('conversations.history')) {
+            return json({ ok: true, messages: alerts })
+        }
+        if (target.includes('chat.postMessage')) {
+            return json({ ok: true, ts: '1.1' })
+        }
+        if (target.includes('chat.update')) {
+            return json({ ok: true })
+        }
+        if (target === WEBHOOK) {
+            return json({}, webhookStatus)
+        }
+        throw new Error(`unexpected request to ${target}`)
+    }
+    const to = (needle) => calls.filter((c) => c.target.includes(needle))
+    return { handler, to }
+}
+
+const alertMessage = (ts, keys, investigation) => ({
+    ts,
+    text: 'old alert',
+    blocks: [],
+    metadata: { event_type: 'merge_queue_loop_alert', event_payload: { keys, investigation } },
+})
+
+describe('main', () => {
+    const saved = { ...process.env }
+    beforeEach(() => {
+        Object.assign(process.env, {
+            TRUNK_API_TOKEN: 'trunk-token',
+            SLACK_BOT_TOKEN: 'slack-token',
+            SLACK_CHANNEL: 'C1',
+            INVESTIGATION_WEBHOOK_URL: WEBHOOK,
+        })
+    })
+    afterEach(() => {
+        process.env = { ...saved }
+    })
+
+    const run = (t, world) => {
+        t.mock.method(globalThis, 'fetch', world.handler)
+        t.mock.method(console, 'log', () => {})
+        t.mock.method(console, 'warn', () => {})
+        return main({ argv: ['--at', NOW.toISOString()], sleep: noSleep })
+    }
+
+    it('posts a fresh alert once, sends its ts to the webhook, and marks it started', async (t) => {
+        const world = fakeWorld()
+        await run(t, world)
+        assert.equal(world.to('chat.postMessage').length, 1)
+        const [start] = world.to(WEBHOOK)
+        assert.equal(start.body.properties.ts, '1.1')
+        assert.equal(start.body.properties.alert_id, 'C1:1.1')
+        assert.equal(world.to('chat.update')[0].body.metadata.event_payload.investigation, 'started')
+    })
+
+    it('retries a pending investigation on the old thread without posting again', async (t) => {
+        const world = fakeWorld({ alerts: [alertMessage('9.9', 'recent:100', 'pending')] })
+        await run(t, world)
+        assert.equal(world.to('chat.postMessage').length, 0)
+        assert.equal(world.to(WEBHOOK)[0].body.properties.ts, '9.9')
+    })
+
+    it('posts nothing and starts nothing for an alert that already started', async (t) => {
+        const world = fakeWorld({ alerts: [alertMessage('9.9', 'recent:100', 'started')] })
+        await run(t, world)
+        assert.equal(world.to('chat.postMessage').length, 0)
+        assert.equal(world.to(WEBHOOK).length, 0)
+    })
+
+    it('leaves the alert posted when the webhook fails all three attempts', async (t) => {
+        const world = fakeWorld({ webhookStatus: 500 })
+        await assert.rejects(run(t, world), /Could not start the investigation/)
+        assert.equal(world.to('chat.postMessage').length, 1)
+        assert.equal(world.to(WEBHOOK).length, 3)
+    })
+})
+
+describe('fetchResults', () => {
+    const saved = { ...process.env }
+    afterEach(() => {
+        process.env = { ...saved }
+    })
+
+    it('reads past the first 100 row page', async (t) => {
+        process.env.TRUNK_API_TOKEN = 'trunk-token'
+        const all = Array.from({ length: 130 }, (_, n) => ({ testRunId: `run-${n}`, prNumber: n }))
+        t.mock.method(globalThis, 'fetch', async (url, init) => {
+            const { offset } = JSON.parse(init.body)
+            const page = all.slice(offset, offset + 100)
+            return new Response(JSON.stringify({ testingResults: page, totalItems: all.length }))
+        })
+        const result = await fetchResults(new Date(NOW.getTime() - 180 * 60000), NOW)
+        assert.equal(result.length, 130)
     })
 })

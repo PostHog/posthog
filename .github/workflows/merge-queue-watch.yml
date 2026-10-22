@@ -6,7 +6,8 @@ name: Merge queue watch
 
 on:
     schedule:
-        - cron: '*/15 * * * *'
+        # Off the top of the hour: GitHub delays or drops scheduled runs most often at :00.
+        - cron: '4,19,34,49 * * * *'
     workflow_dispatch: # manual run, for testing and for a bot to start on demand
 
 # Serialize ticks so the cooldown check never races a post from the previous tick.

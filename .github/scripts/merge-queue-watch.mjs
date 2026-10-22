@@ -13,8 +13,6 @@
 // A culprit that passes when tested alone never gets isolated by the count rules, which is what the
 // cycle rule is for. The labels below say which case each PR looks like.
 
-import { readFileSync } from 'node:fs'
-import { homedir } from 'node:os'
 import { pathToFileURL } from 'node:url'
 
 const TRUNK_API = 'https://api.trunk.io/v1'
@@ -52,13 +50,14 @@ export const LABELS = {
 const LABEL_ORDER = ['hidden', 'likely', 'recent', 'victim']
 
 const MINUTE = 60 * 1000
+const defaultSleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 let trunkCalls = 0
 
 function trunkToken() {
-    if (process.env.TRUNK_API_TOKEN) {
-        return process.env.TRUNK_API_TOKEN
+    if (!process.env.TRUNK_API_TOKEN) {
+        throw new Error('TRUNK_API_TOKEN is not set')
     }
-    return readFileSync(`${homedir()}/.config/trunk-mq/token`, 'utf8').trim()
+    return process.env.TRUNK_API_TOKEN
 }
 
 async function trunk(path, body) {
@@ -251,10 +250,7 @@ function parseMetrics(text) {
             .split('\n')
             .filter((l) => l.startsWith(name) && !l.includes('} 0'))
             .map((l) => l.replace(/repo=".*?",branch="master",/, ''))
-    return {
-        restarts: pick('mq_pr_restarts_1h_total'),
-        depth: pick('mq_depth_current'),
-    }
+    return { restarts: pick('mq_pr_restarts_1h_total') }
 }
 
 function restartSummary(series) {
@@ -343,7 +339,7 @@ async function recentAlerts(now) {
 
 // The workflow behind the webhook reads `properties.channel` and `properties.ts` to reply in the
 // alert thread, so dropping either from the payload leaves the agent's answer with nowhere to land.
-async function startInvestigation(url, payload) {
+async function startInvestigation(url, payload, sleep) {
     let lastError = 'unknown'
     for (let attempt = 1; attempt <= WEBHOOK_ATTEMPTS; attempt++) {
         try {
@@ -360,7 +356,7 @@ async function startInvestigation(url, payload) {
         } catch (err) {
             lastError = err.message
         }
-        await new Promise((r) => setTimeout(r, WEBHOOK_RETRY_DELAY_MS * attempt))
+        await sleep(WEBHOOK_RETRY_DELAY_MS * attempt)
     }
     throw new Error(`Could not start the investigation after ${WEBHOOK_ATTEMPTS} attempts: ${lastError}`)
 }
@@ -372,6 +368,8 @@ function investigationPayload(findings, verdict, ts) {
         properties: {
             channel: process.env.SLACK_CHANNEL,
             ts,
+            // Stable per alert, so the receiver can drop a repeat start for the same message.
+            alert_id: `${process.env.SLACK_CHANNEL}:${ts}`,
             window_minutes: WINDOW_MINUTES,
             reasons: describe(findings.slice(0, MAX_FINDINGS_SHOWN), verdict).join('; '),
             top_prs: verdict.top.map(([pr, failed_runs]) => ({ pr, failed_runs })),
@@ -390,17 +388,23 @@ function investigationPayload(findings, verdict, ts) {
 }
 
 // Records on the alert message that the webhook accepted the start, so a later tick does not repeat it.
+// A failed update leaves the message pending, which can repeat the start once. The `alert_id` in the
+// payload lets the receiver drop that repeat, and failing the run here would not undo the start.
 async function markInvestigationStarted(ts, message) {
-    await slack('chat.update', {
-        channel: process.env.SLACK_CHANNEL,
-        ts,
-        text: message.text,
-        blocks: message.blocks,
-        metadata: {
-            event_type: ALERT_EVENT_TYPE,
-            event_payload: { ...message.metadata.event_payload, investigation: 'started' },
-        },
-    })
+    try {
+        await slack('chat.update', {
+            channel: process.env.SLACK_CHANNEL,
+            ts,
+            text: message.text,
+            blocks: message.blocks,
+            metadata: {
+                event_type: ALERT_EVENT_TYPE,
+                event_payload: { ...message.metadata.event_payload, investigation: 'started' },
+            },
+        })
+    } catch (err) {
+        console.warn(`could not mark the investigation as started: ${err.message}`)
+    }
 }
 
 // The alert is only supplementary context, so a metrics outage must not stop the alert.
@@ -409,12 +413,11 @@ async function fetchRestartMetrics() {
         return parseMetrics(await trunk('/getMergeQueueMetrics'))
     } catch (err) {
         console.warn(`metrics unavailable: ${err.message}`)
-        return { restarts: [], depth: [] }
+        return { restarts: [] }
     }
 }
 
-async function main() {
-    const argv = process.argv.slice(2)
+export async function main({ argv = process.argv.slice(2), sleep = defaultSleep } = {}) {
     const dry = argv.includes('--dry')
     const atIdx = argv.indexOf('--at')
     const now = atIdx >= 0 ? new Date(argv[atIdx + 1]) : new Date()
@@ -470,7 +473,7 @@ async function main() {
         // The alert posted but its webhook failed on an earlier tick. Retry on the same thread.
         const pending = recent.find((m) => webhook && m.metadata.event_payload?.investigation === 'pending')
         if (pending) {
-            await startInvestigation(webhook, investigationPayload(findings, verdict, pending.ts))
+            await startInvestigation(webhook, investigationPayload(findings, verdict, pending.ts), sleep)
             await markInvestigationStarted(pending.ts, {
                 text: pending.text,
                 blocks: pending.blocks,
@@ -481,9 +484,13 @@ async function main() {
         console.log('cooldown: every labeled PR already alerted')
         return
     }
-    const posted = await slack('chat.postMessage', { channel: process.env.SLACK_CHANNEL, unfurl_links: false, ...message })
+    const posted = await slack('chat.postMessage', {
+        channel: process.env.SLACK_CHANNEL,
+        unfurl_links: false,
+        ...message,
+    })
     if (webhook) {
-        await startInvestigation(webhook, investigationPayload(findings, verdict, posted.ts))
+        await startInvestigation(webhook, investigationPayload(findings, verdict, posted.ts), sleep)
         await markInvestigationStarted(posted.ts, message)
     }
 }
