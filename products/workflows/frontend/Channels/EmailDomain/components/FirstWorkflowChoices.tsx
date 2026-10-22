@@ -56,13 +56,16 @@ function ChoicesWithSuggestions(): JSX.Element {
 }
 
 function SuggestedChoices({ cards, onSkip }: { cards: SuggestionCard[]; onSkip: () => void }): JSX.Element {
-    const { reportCardsShown } = useActions(workflowDataSuggestionsLogic({ surface: SURFACE }))
+    const logic = workflowDataSuggestionsLogic({ surface: SURFACE })
+    const { buildingKey } = useValues(logic)
+    const { reportCardsShown } = useActions(logic)
     const [expanded, setExpanded] = useState(false)
     const [best, ...others] = cards
 
+    // Only the cards on screen count as shown, so expanding reports the rest.
     useEffect(() => {
-        reportCardsShown()
-    }, [cards, reportCardsShown])
+        reportCardsShown((expanded ? cards : [best]).map((card) => card.suggestionId))
+    }, [cards, best, expanded, reportCardsShown])
 
     return (
         <div className="flex flex-col gap-3" data-attr="workflows-data-suggestions">
@@ -91,7 +94,13 @@ function SuggestedChoices({ cards, onSkip }: { cards: SuggestionCard[]; onSkip: 
                         Show {others.length} more {others.length === 1 ? 'suggestion' : 'suggestions'}
                     </LemonButton>
                 )}
-                <LemonButton type="tertiary" size="small" onClick={onSkip} data-attr="email-domain-skip-suggestions">
+                <LemonButton
+                    type="tertiary"
+                    size="small"
+                    onClick={onSkip}
+                    disabledReason={buildingKey ? 'Wait until the suggested workflow is built' : undefined}
+                    data-attr="email-domain-skip-suggestions"
+                >
                     Start without a suggestion
                 </LemonButton>
             </div>
