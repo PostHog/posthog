@@ -11,6 +11,8 @@ from typing import TYPE_CHECKING, Any
 
 from unittest.mock import patch
 
+from django.db import transaction
+
 import s3fs
 
 from posthog.hogql.query import execute_hogql_query
@@ -90,6 +92,9 @@ from products.data_catalog.evals.constants import (
     INJECTION_RELATIONSHIP_REASONING,
     INJECTION_RELATIONSHIP_SOURCE_NAME,
     INJECTION_RELATIONSHIP_TARGET_NAME,
+    INVOICE_LINES_ROWS,
+    INVOICE_LINES_SCHEMA_NAME,
+    INVOICE_LINES_TABLE_NAME,
     LONG_SERIES_METRIC_DEFINITION,
     LONG_SERIES_METRIC_DESCRIPTION,
     LONG_SERIES_METRIC_DISPLAY_NAME,
@@ -142,6 +147,7 @@ from products.data_catalog.evals.constants import (
     YOY_MRR_GROWTH_METRIC_DISPLAY_NAME,
     YOY_MRR_GROWTH_METRIC_NAME,
 )
+from products.data_modeling.backend.facade import api as modeling_api
 from products.data_modeling.backend.facade.models import (
     DataWarehouseSavedQuery,
     DataWarehouseSavedQueryColumnAnnotation,
@@ -705,55 +711,6 @@ def seed_instruction_like_relationship_context(context: CustomPromptSandboxConte
     }
 
 
-def _annotated_view(team: Team, user: User, *, name: str, sql: str, descriptions: dict[str, str]) -> None:
-    """Create a queryable view over ``numbers()`` and annotate it. ``""`` in ``descriptions`` is the view itself."""
-    view = DataWarehouseSavedQuery.objects.create(
-        team=team,
-        created_by=user,
-        name=name,
-        columns=dict.fromkeys(("line_id", "amount", "status"), _INTEGER_COLUMN),
-        query={"query": sql},
-        status=DataWarehouseSavedQuery.Status.COMPLETED,
-    )
-    for column_name, description in descriptions.items():
-        DataWarehouseSavedQueryColumnAnnotation.objects.for_team(team.id).create(
-            team=team,
-            saved_query=view,
-            column_name=column_name,
-            description=description,
-            description_source=WarehouseColumnAnnotationDescriptionSource.USER_EDITED,
-            is_user_edited=True,
-        )
-
-
-def seed_annotated_ledger_view(context: CustomPromptSandboxContext) -> dict[str, Any]:
-    team, user = _team_and_user(context)
-    _annotated_view(
-        team,
-        user,
-        name=ANNOTATED_LEDGER_VIEW_NAME,
-        sql=ANNOTATED_LEDGER_VIEW_SQL,
-        descriptions={
-            "": ANNOTATED_LEDGER_VIEW_DESCRIPTION,
-            "amount": ANNOTATED_LEDGER_AMOUNT_DESCRIPTION,
-            "status": ANNOTATED_LEDGER_STATUS_DESCRIPTION,
-        },
-    )
-    return {"annotated_view": {"name": ANNOTATED_LEDGER_VIEW_NAME}}
-
-
-def seed_instruction_like_column_annotation(context: CustomPromptSandboxContext) -> dict[str, Any]:
-    team, user = _team_and_user(context)
-    _annotated_view(
-        team,
-        user,
-        name=INJECTION_LEDGER_VIEW_NAME,
-        sql=INJECTION_LEDGER_VIEW_SQL,
-        descriptions={"status": INJECTION_LEDGER_STATUS_DESCRIPTION},
-    )
-    return {"annotated_view": {"name": INJECTION_LEDGER_VIEW_NAME}}
-
-
 def _synced_table(
     team: Team,
     user: User,
@@ -829,6 +786,68 @@ def _synced_table(
     if getattr(response, "error", None) or not response.results or response.results[0][0] != len(rows):
         raise RuntimeError(f"Seeded synced table '{table_name}' did not return its {len(rows)} rows.")
     return table, annotations
+
+
+def _annotated_view(team: Team, user: User, *, name: str, sql: str, descriptions: dict[str, str]) -> None:
+    """Create a view over the synced invoice lines table and annotate it. ``""`` in ``descriptions`` is the view."""
+    _synced_table(
+        team,
+        user,
+        source_type=ExternalDataSourceType.POSTGRES,
+        schema_name=INVOICE_LINES_SCHEMA_NAME,
+        table_name=INVOICE_LINES_TABLE_NAME,
+        columns=dict.fromkeys(("line_id", "amount", "status"), _INTEGER_COLUMN),
+        rows=INVOICE_LINES_ROWS,
+        descriptions={},
+    )
+    view = DataWarehouseSavedQuery.objects.create(
+        team=team,
+        created_by=user,
+        name=name,
+        columns=dict.fromkeys(("line_id", "amount", "status"), _INTEGER_COLUMN),
+        query={"query": sql},
+        status=DataWarehouseSavedQuery.Status.COMPLETED,
+    )
+    # The view API registers every new view in the lineage DAG, so the agent can trace the view to its source table.
+    with transaction.atomic():
+        modeling_api.sync_saved_query_to_dag(view)
+    for column_name, description in descriptions.items():
+        DataWarehouseSavedQueryColumnAnnotation.objects.for_team(team.id).create(
+            team=team,
+            saved_query=view,
+            column_name=column_name,
+            description=description,
+            description_source=WarehouseColumnAnnotationDescriptionSource.USER_EDITED,
+            is_user_edited=True,
+        )
+
+
+def seed_annotated_ledger_view(context: CustomPromptSandboxContext) -> dict[str, Any]:
+    team, user = _team_and_user(context)
+    _annotated_view(
+        team,
+        user,
+        name=ANNOTATED_LEDGER_VIEW_NAME,
+        sql=ANNOTATED_LEDGER_VIEW_SQL,
+        descriptions={
+            "": ANNOTATED_LEDGER_VIEW_DESCRIPTION,
+            "amount": ANNOTATED_LEDGER_AMOUNT_DESCRIPTION,
+            "status": ANNOTATED_LEDGER_STATUS_DESCRIPTION,
+        },
+    )
+    return {"annotated_view": {"name": ANNOTATED_LEDGER_VIEW_NAME}}
+
+
+def seed_instruction_like_column_annotation(context: CustomPromptSandboxContext) -> dict[str, Any]:
+    team, user = _team_and_user(context)
+    _annotated_view(
+        team,
+        user,
+        name=INJECTION_LEDGER_VIEW_NAME,
+        sql=INJECTION_LEDGER_VIEW_SQL,
+        descriptions={"status": INJECTION_LEDGER_STATUS_DESCRIPTION},
+    )
+    return {"annotated_view": {"name": INJECTION_LEDGER_VIEW_NAME}}
 
 
 def seed_synced_invoices_table(context: CustomPromptSandboxContext) -> dict[str, Any]:
