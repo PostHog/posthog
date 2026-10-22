@@ -230,6 +230,7 @@ class TestNativeEventsQueryCancellation(SimpleTestCase):
             for confirmed in (False, True)
         ]
         + [(True, False, "confirmed" if confirmed else "empty", "discovery", None) for confirmed in (False, True)]
+        + [(False, False, "unconfirmed", None, "not confirmed")]
     )
     @override_settings(CLICKHOUSE_NATIVE_EVENTS_HOST="native.example.com")
     def test_cancellation_survives_an_unavailable_cluster_only_when_cleanup_is_confirmed(
@@ -238,6 +239,7 @@ class TestNativeEventsQueryCancellation(SimpleTestCase):
         from posthog.clickhouse.cancel import cancel_query_on_cluster
 
         native_finished = Event()
+        matched = ("confirmed", "unconfirmed")
         native_client, legacy_client = MagicMock(), MagicMock()
         native_client.__enter__.return_value = native_client
         legacy_client.__enter__.return_value = legacy_client
@@ -258,8 +260,9 @@ class TestNativeEventsQueryCancellation(SimpleTestCase):
                 if native_result == "unavailable":
                     raise RuntimeError("native unavailable")
                 if "system.processes" in query:
-                    return [("native.example.com", "44_example-query_12345678")] if native_result == "confirmed" else []
-                return [("finished", "44_example-query_12345678")], [("kill_status", "String"), ("query_id", "String")]
+                    return [("native.example.com", "44_example-query_12345678")] if native_result in matched else []
+                status = "finished" if native_result == "confirmed" else "cant_cancel"
+                return [(status, "44_example-query_12345678")], [("kill_status", "String"), ("query_id", "String")]
             finally:
                 native_finished.set()
 
@@ -280,10 +283,10 @@ class TestNativeEventsQueryCancellation(SimpleTestCase):
                 cancel_query_on_cluster(44, "example-query")
             self.assertTrue(native_finished.wait(1))
         native_calls = [call for call in client.call_args_list if call.kwargs.get("host") == "native.example.com"]
-        self.assertEqual(len(native_calls), 2 if native_result == "confirmed" else 1)
+        self.assertEqual(len(native_calls), 2 if native_result in matched else 1)
         self.assertEqual(native_calls[0].kwargs["send_receive_timeout"], 15)
         native_kills = [call for call in native_client.execute.call_args_list if "KILL" in call.args[0]]
-        self.assertEqual(len(native_kills), 1 if native_result == "confirmed" else 0)
+        self.assertEqual(len(native_kills), 1 if native_result in matched else 0)
         if native_kills:
             self.assertIn("SYNC", native_kills[0].args[0])
             self.assertNotIn("ON CLUSTER", native_kills[0].args[0])
