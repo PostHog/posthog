@@ -119,7 +119,7 @@ describe('AiIngestionPipeline', () => {
 
         mockEventFilterManager = {
             getFilter: jest.fn().mockReturnValue(undefined),
-            dropsAllEvents: jest.fn().mockResolvedValue(false),
+            dropsAllEvents: jest.fn().mockReturnValue(false),
         }
 
         mockCookielessManager = {

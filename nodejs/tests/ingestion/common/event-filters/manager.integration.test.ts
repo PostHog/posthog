@@ -146,7 +146,7 @@ describe('EventFilterManager integration', () => {
         const { manager, stop } = await createManagerAndWaitForLoad('errortracking')
         const lookupTeamId = input.lookupTeam === 'root' ? teamId : environmentId
 
-        expect(await manager.dropsAllEvents(lookupTeamId)).toBe(expected.dropsAllEvents)
+        expect(manager.dropsAllEvents(lookupTeamId)).toBe(expected.dropsAllEvents)
 
         await stop()
     })
