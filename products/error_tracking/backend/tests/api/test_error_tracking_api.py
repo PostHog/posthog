@@ -32,6 +32,10 @@ from posthog.settings import (
 )
 
 from products.access_control.backend.facade.testing import add_role_member, create_role
+from products.error_tracking.backend.facade import (
+    contracts,
+    summaries as summaries_facade,
+)
 from products.error_tracking.backend.models import (
     ErrorTrackingAlert,
     ErrorTrackingAlertThread,
@@ -607,6 +611,69 @@ class TestErrorTracking(APIBaseTest):
         )
 
         assert response.status_code == 404
+
+    @parameterized.expand(
+        [
+            ("read_none_started", "get", "", False, True, "generating"),
+            ("read_none_blocked", "get", "", False, False, "unavailable"),
+            ("read_stale_refreshes", "get", "", True, True, "ready"),
+            ("read_fresh", "get", "", True, False, "ready"),
+            ("regenerate_started", "post", "/regenerate", True, True, "generating"),
+            ("regenerate_fresh", "post", "/regenerate", True, False, "ready"),
+            ("regenerate_blocked", "post", "/regenerate", False, False, "unavailable"),
+        ]
+    )
+    def test_issue_summary_status(
+        self, _name: str, method: str, suffix: str, stored: bool, started: bool, expected_status: str
+    ) -> None:
+        issue = self.create_issue()
+        summary = contracts.ErrorTrackingIssueSummary(
+            issue_id=issue.id,
+            what_happened="A TypeError in checkout.",
+            likely_cause="",
+            who_is_affected="Signed-in users on Safari.",
+            suggested_next_step="Guard the null cart.",
+            category=contracts.IssueSummaryCategory.OWN_CODE,
+            model="gpt-4.1-mini",
+            generated_at=datetime(2026, 10, 20, 12, 0, tzinfo=UTC),
+        )
+        with (
+            patch.object(summaries_facade, "get_issue_summary", return_value=summary if stored else None),
+            patch.object(summaries_facade, "start_issue_summary_generation", return_value=started) as start,
+        ):
+            response = getattr(self.client, method)(
+                f"/api/projects/{self.team.id}/error_tracking/issues/{issue.id}/summary{suffix}"
+            )
+
+        assert response.status_code == 200
+        start.assert_called_once_with(self.team.id, issue.id)
+        expected_summary = (
+            {
+                "what_happened": "A TypeError in checkout.",
+                "likely_cause": "",
+                "who_is_affected": "Signed-in users on Safari.",
+                "suggested_next_step": "Guard the null cart.",
+                "category": "own_code",
+                "model": "gpt-4.1-mini",
+                "generated_at": "2026-10-20T12:00:00Z",
+            }
+            if stored
+            else None
+        )
+        assert response.json() == {"status": expected_status, "summary": expected_summary}
+
+    @parameterized.expand([("get", ""), ("post", "/regenerate")])
+    def test_issue_summary_is_scoped_to_team(self, method: str, suffix: str) -> None:
+        other_team = Team.objects.create(organization=self.organization)
+        other_issue = ErrorTrackingIssue.objects.create(team=other_team)
+
+        with patch.object(summaries_facade, "start_issue_summary_generation") as start:
+            response = getattr(self.client, method)(
+                f"/api/projects/{self.team.id}/error_tracking/issues/{other_issue.id}/summary{suffix}"
+            )
+
+        assert response.status_code == 404
+        start.assert_not_called()
 
     @parameterized.expand(
         [

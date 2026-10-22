@@ -27,6 +27,7 @@ from products.error_tracking.backend.facade import (
     api as facade_api,
     contracts,
     issues as issues_facade,
+    summaries as summaries_facade,
 )
 from products.error_tracking.backend.presentation.pagination import paginate_via_facade
 from products.error_tracking.backend.presentation.views.external_references import (
@@ -256,10 +257,65 @@ class ErrorTrackingIssueSplitResponseSerializer(serializers.Serializer):
     )
 
 
+class IssueSummaryStatus(models.TextChoices):
+    READY = "ready", "ready"
+    GENERATING = "generating", "generating"
+    UNAVAILABLE = "unavailable", "unavailable"
+
+
+class ErrorTrackingIssueSummarySerializer(serializers.Serializer):
+    what_happened = serializers.CharField(help_text="What the exception is and where it happens.")
+    likely_cause = serializers.CharField(
+        help_text="The model's hypothesis about the cause. Not a confirmed finding. Can be empty."
+    )
+    who_is_affected = serializers.CharField(help_text="Which users, sessions or environments see the issue.")
+    suggested_next_step = serializers.CharField(help_text="One concrete step to investigate or fix the issue.")
+    category = serializers.ChoiceField(
+        choices=contracts.IssueSummaryCategory.choices,
+        allow_null=True,
+        help_text="Broad source of the issue, or null when the category model did not answer.",
+    )
+    model = serializers.CharField(help_text="Model that wrote the summary.")
+    generated_at = serializers.DateTimeField(help_text="When the summary was written.")
+
+
+class ErrorTrackingIssueSummaryResponseSerializer(serializers.Serializer):
+    status = serializers.ChoiceField(
+        choices=IssueSummaryStatus.choices,
+        help_text=(
+            "ready: `summary` holds the stored summary. "
+            "generating: a summary is being written in the background, so poll again. "
+            "`summary` holds the previous one, if any. "
+            "unavailable: no summary exists and none will be written, for example because the feature is off."
+        ),
+    )
+    summary = ErrorTrackingIssueSummarySerializer(
+        allow_null=True, help_text="The stored summary, or null when none exists yet."
+    )
+
+
+def issue_summary_response(team_id: int, issue_id: UUID, *, regenerate: bool) -> dict[str, object]:
+    """Read the stored summary and start generation when one is missing or `regenerate` is set. Never waits."""
+    summary = summaries_facade.get_issue_summary(team_id, issue_id)
+    # Starting is a no-op while a stored summary is younger than the regenerate interval,
+    # so a read of a stale summary also refreshes it in the background.
+    started = summaries_facade.start_issue_summary_generation(team_id, issue_id)
+    if started and (regenerate or summary is None):
+        summary_status = IssueSummaryStatus.GENERATING
+    elif summary is not None:
+        summary_status = IssueSummaryStatus.READY
+    else:
+        summary_status = IssueSummaryStatus.UNAVAILABLE
+    return {
+        "status": summary_status,
+        "summary": ErrorTrackingIssueSummarySerializer(summary).data if summary is not None else None,
+    }
+
+
 class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.GenericViewSet):
     scope_object = "error_tracking"
     # These override the base defaults, so keep the standard DRF actions too.
-    scope_object_read_actions = ["list", "retrieve", "values", "exists"]
+    scope_object_read_actions = ["list", "retrieve", "values", "exists", "summary"]
     scope_object_write_actions = [
         "update",
         "partial_update",
@@ -270,6 +326,7 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
         "assign",
         "cohort",
         "bulk",
+        "summary_regenerate",
     ]
     serializer_class = ErrorTrackingIssueReadSerializer
 
@@ -528,6 +585,24 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
                 },
             )
         return Response({"success": True})
+
+    @extend_schema(responses={200: ErrorTrackingIssueSummaryResponseSerializer})
+    @action(methods=["GET"], detail=True)
+    def summary(self, request: request.Request, *args: object, pk: object = None, **kwargs: object) -> Response:
+        issue_id = UUID(str(pk))
+        if not facade_api.issue_exists_by_id(self.team_id, issue_id):
+            raise NotFound("Issue not found")
+        return Response(issue_summary_response(self.team_id, issue_id, regenerate=False))
+
+    @extend_schema(request=None, responses={200: ErrorTrackingIssueSummaryResponseSerializer})
+    @action(methods=["POST"], detail=True, url_path="summary/regenerate")
+    def summary_regenerate(
+        self, request: request.Request, *args: object, pk: object = None, **kwargs: object
+    ) -> Response:
+        issue_id = UUID(str(pk))
+        if not facade_api.issue_exists_by_id(self.team_id, issue_id):
+            raise NotFound("Issue not found")
+        return Response(issue_summary_response(self.team_id, issue_id, regenerate=True))
 
     @extend_schema(operation_id="error_tracking_issues_all_activity_retrieve")
     @action(methods=["GET"], url_path="activity", detail=False, required_scopes=["activity_log:read"])

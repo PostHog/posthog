@@ -1070,6 +1070,73 @@ export interface ErrorTrackingIssueSplitResponseApi {
 }
 
 /**
+ * * `ready` - ready
+ * * `generating` - generating
+ * * `unavailable` - unavailable
+ */
+export type IssueSummaryStatusEnumApi = (typeof IssueSummaryStatusEnumApi)[keyof typeof IssueSummaryStatusEnumApi]
+
+export const IssueSummaryStatusEnumApi = {
+    Ready: 'ready',
+    Generating: 'generating',
+    Unavailable: 'unavailable',
+} as const
+
+/**
+ * * `own_code` - Own Code
+ * * `third_party` - Third Party
+ * * `network` - Network
+ * * `bots` - Bots
+ * * `expected` - Expected
+ * * `unclear` - Unclear
+ */
+export type IssueSummaryCategoryEnumApi = (typeof IssueSummaryCategoryEnumApi)[keyof typeof IssueSummaryCategoryEnumApi]
+
+export const IssueSummaryCategoryEnumApi = {
+    OwnCode: 'own_code',
+    ThirdParty: 'third_party',
+    Network: 'network',
+    Bots: 'bots',
+    Expected: 'expected',
+    Unclear: 'unclear',
+} as const
+
+export interface ErrorTrackingIssueSummaryApi {
+    /** What the exception is and where it happens. */
+    what_happened: string
+    /** The model's hypothesis about the cause. Not a confirmed finding. Can be empty. */
+    likely_cause: string
+    /** Which users, sessions or environments see the issue. */
+    who_is_affected: string
+    /** One concrete step to investigate or fix the issue. */
+    suggested_next_step: string
+    /** Broad source of the issue, or null when the category model did not answer.
+     *
+     * * `own_code` - Own Code
+     * * `third_party` - Third Party
+     * * `network` - Network
+     * * `bots` - Bots
+     * * `expected` - Expected
+     * * `unclear` - Unclear */
+    category: IssueSummaryCategoryEnumApi | null
+    /** Model that wrote the summary. */
+    model: string
+    /** When the summary was written. */
+    generated_at: string
+}
+
+export interface ErrorTrackingIssueSummaryResponseApi {
+    /** ready: `summary` holds the stored summary. generating: a summary is being written in the background, so poll again. `summary` holds the previous one, if any. unavailable: no summary exists and none will be written, for example because the feature is off.
+     *
+     * * `ready` - ready
+     * * `generating` - generating
+     * * `unavailable` - unavailable */
+    status: IssueSummaryStatusEnumApi
+    /** The stored summary, or null when none exists yet. */
+    summary: ErrorTrackingIssueSummaryApi | null
+}
+
+/**
  * * `set_status` - set_status
  * * `assign` - assign
  */
