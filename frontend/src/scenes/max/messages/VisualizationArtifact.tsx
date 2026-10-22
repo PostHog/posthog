@@ -10,7 +10,7 @@ import { Scene } from 'scenes/sceneTypes'
 
 import { ArtifactMessage, VisualizationArtifactContent } from '~/queries/schema/schema-assistant-messages'
 
-import { VisualizationWidget, getArtifactOpenTarget } from 'products/posthog_ai/frontend/api/primitives'
+import { VisualizationWidget, getArtifactOpenTarget } from 'products/posthog_ai/frontend/api/dataWidgets'
 
 import { MessageStatus } from '../maxLogic'
 

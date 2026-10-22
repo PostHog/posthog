@@ -431,3 +431,26 @@ class ErrorTrackingAlert:
     destinations: list[ErrorTrackingAlertDestination]
     created_at: datetime
     updated_at: datetime
+
+
+class IssueSummaryCategory(LabeledStrEnum):
+    OWN_CODE = "own_code"
+    THIRD_PARTY = "third_party"
+    NETWORK = "network"
+    BOTS = "bots"
+    EXPECTED = "expected"
+    UNCLEAR = "unclear"
+
+
+@dataclass(frozen=True)
+class ErrorTrackingIssueSummary:
+    issue_id: UUID
+    what_happened: str
+    # A hypothesis, never a finding.
+    likely_cause: str
+    who_is_affected: str
+    suggested_next_step: str
+    # None when the category model did not answer.
+    category: IssueSummaryCategory | None
+    model: str
+    generated_at: datetime

@@ -10,6 +10,13 @@ type RawTeam = Omit<Team, 'available_features'> & {
     available_product_features: { key: string; name: string }[]
 }
 
+// Postgres stores team ids in int4 columns. A query that compares one of those columns to a
+// non-integer, or to a number above 2_147_483_647, fails. Team ids start at 1. The check therefore
+// also rejects 0 and negative numbers.
+export function isValidTeamId(value: unknown): value is number {
+    return Number.isInteger(value) && (value as number) > 0 && (value as number) <= 2_147_483_647
+}
+
 export interface TeamManagerOptions {
     /** Retry transient team-load failures (e.g. a Postgres pooler blip) instead of letting them propagate. */
     loaderRetry?: LoaderRetryOptions
@@ -135,7 +142,7 @@ export class TeamManager {
                 if (/^\d{1,10}$/.test(idOrToken)) {
                     const parsed = parseInt(idOrToken)
                     // TODO: stat if this happens
-                    if (!isNaN(parsed) && parsed > 0 && parsed <= 2147483647) {
+                    if (isValidTeamId(parsed)) {
                         teamIds.push(parsed)
                     }
                 } else {

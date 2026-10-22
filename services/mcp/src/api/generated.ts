@@ -2398,138 +2398,6 @@ export namespace Schemas {
       groups: AccountTrackRuleGroup[];
     }
 
-    /**
-     * * `private` - Personal
-     * * `team` - Team
-     */
-    export type AccountViewVisibilityEnum = typeof AccountViewVisibilityEnum[keyof typeof AccountViewVisibilityEnum];
-
-
-    export const AccountViewVisibilityEnum = {
-      Private: 'private',
-      Team: 'team',
-    } as const;
-
-    /**
-     * * `doc` - doc
-     */
-    export type AccountViewContentTypeEnum = typeof AccountViewContentTypeEnum[keyof typeof AccountViewContentTypeEnum];
-
-
-    export const AccountViewContentTypeEnum = {
-      Doc: 'doc',
-    } as const;
-
-    /**
-     * * `ph-markdown-notebook` - ph-markdown-notebook
-     */
-    export type AccountViewMarkdownNodeTypeEnum = typeof AccountViewMarkdownNodeTypeEnum[keyof typeof AccountViewMarkdownNodeTypeEnum];
-
-
-    export const AccountViewMarkdownNodeTypeEnum = {
-      PhMarkdownNotebook: 'ph-markdown-notebook',
-    } as const;
-
-    export interface AccountViewMarkdownAttributes {
-      /** Stable identifier for this document. */
-      nodeId: string;
-      /**
-         * Component-only Markdown stored by the account view editor.
-         * @maxLength 262144
-         */
-      markdown: string;
-    }
-
-    export interface AccountViewMarkdownNode {
-      /** Markdown notebook node type.
-       *
-       * * `ph-markdown-notebook` - ph-markdown-notebook */
-      type: AccountViewMarkdownNodeTypeEnum;
-      /** Markdown notebook attributes. */
-      attrs: AccountViewMarkdownAttributes;
-    }
-
-    export interface AccountViewContent {
-      /** Document root type.
-       *
-       * * `doc` - doc */
-      type: AccountViewContentTypeEnum;
-      /**
-         * The single Markdown notebook node containing the account view components.
-         * @minItems 1
-         * @maxItems 1
-         */
-      content: AccountViewMarkdownNode[];
-    }
-
-    export interface AccountView {
-      /** Stable account view identifier. */
-      readonly id: string;
-      /** Name shown in the account view. */
-      readonly name: string;
-      /** Whether the view is personal or available to the project.
-       *
-       * * `private` - Personal
-       * * `team` - Team */
-      readonly visibility: AccountViewVisibilityEnum;
-      /** Validated Markdown notebook document. */
-      readonly content: AccountViewContent;
-      /** Searchable component labels extracted from content. */
-      readonly text_content: string;
-      /** Optimistic concurrency version. */
-      readonly version: number;
-      /**
-         * Creator user ID.
-         * @nullable
-         */
-      readonly created_by: number | null;
-      /**
-         * User ID that last changed the view.
-         * @nullable
-         */
-      readonly last_modified_by: number | null;
-      /** When the view was created. */
-      readonly created_at: string;
-      /** When the view was last changed. */
-      readonly updated_at: string;
-      /** Whether the requesting user can edit the view. */
-      readonly can_edit: boolean;
-      /** Whether the requesting user can delete the view. */
-      readonly can_delete: boolean;
-      /** Whether the requesting user can change the view visibility. */
-      readonly can_change_visibility: boolean;
-    }
-
-    export interface AccountViewCreate {
-      /**
-         * View name.
-         * @maxLength 400
-         */
-      name: string;
-      /** Initial account view components. */
-      content: AccountViewContent;
-    }
-
-    export interface AccountViewUpdate {
-      /**
-         * New view name. Omit to keep the current name.
-         * @maxLength 400
-         */
-      name?: string;
-      /** Replacement account view components. Omit to keep current content. */
-      content?: AccountViewContent;
-      /** New visibility. Only the creator or a project admin can change it.
-       *
-       * * `private` - Personal
-       * * `team` - Team */
-      visibility?: AccountViewVisibilityEnum;
-      /**
-         * Version returned by the last read.
-         * @minimum 1
-         */
-      version: number;
-    }
-
     export type BounceRatePageViewMode = typeof BounceRatePageViewMode[keyof typeof BounceRatePageViewMode];
 
 
@@ -2948,6 +2816,189 @@ export namespace Schemas {
       type?: 'warehouse_sync';
     }
 
+    export interface ActorsQueryResponse {
+      columns: unknown[];
+      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+      error?: string | null;
+      hasMore?: boolean | null;
+      /** Generated HogQL query. */
+      hogql: string;
+      limit: number;
+      missing_actors_count?: number | null;
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      offset: number;
+      /** Query status indicates whether next to the provided data, a query is still running. */
+      query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
+      /** The date range used for the query */
+      resolved_date_range?: ResolvedDateRangeResponse | null;
+      results: unknown[][];
+      /** Measured timings for different parts of the query generation process */
+      timings?: QueryTiming[] | null;
+      types?: string[] | null;
+      /** Connector-synced data warehouse sources referenced by this query, if any. */
+      used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
+      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
+    }
+
+    export interface QueryLogTags {
+      /** Name of the query, preferably unique. For example web_analytics_vitals */
+      name?: string | null;
+      /** Short id of the saved Web analytics filter preset this query was run under, if any. */
+      presetId?: string | null;
+      /** Product responsible for this query. Use string, there's no need to churn the Schema when we add a new product * */
+      productKey?: string | null;
+      /** Scene where this query is shown in the UI. Use string, there's no need to churn the Schema when we add a new Scene * */
+      scene?: string | null;
+    }
+
+    export interface AccountUsersQuery {
+      /** ID of the account whose users to list. */
+      accountId: string;
+      kind?: 'AccountUsersQuery';
+      /** Modifiers used when performing the query */
+      modifiers?: HogQLQueryModifiers | null;
+      response?: ActorsQueryResponse | null;
+      tags?: QueryLogTags | null;
+      /** version of the node, used for schema migrations */
+      version?: number | null;
+    }
+
+    /**
+     * * `private` - Personal
+     * * `team` - Team
+     */
+    export type AccountViewVisibilityEnum = typeof AccountViewVisibilityEnum[keyof typeof AccountViewVisibilityEnum];
+
+
+    export const AccountViewVisibilityEnum = {
+      Private: 'private',
+      Team: 'team',
+    } as const;
+
+    /**
+     * * `doc` - doc
+     */
+    export type AccountViewContentTypeEnum = typeof AccountViewContentTypeEnum[keyof typeof AccountViewContentTypeEnum];
+
+
+    export const AccountViewContentTypeEnum = {
+      Doc: 'doc',
+    } as const;
+
+    /**
+     * * `ph-markdown-notebook` - ph-markdown-notebook
+     */
+    export type AccountViewMarkdownNodeTypeEnum = typeof AccountViewMarkdownNodeTypeEnum[keyof typeof AccountViewMarkdownNodeTypeEnum];
+
+
+    export const AccountViewMarkdownNodeTypeEnum = {
+      PhMarkdownNotebook: 'ph-markdown-notebook',
+    } as const;
+
+    export interface AccountViewMarkdownAttributes {
+      /** Stable identifier for this document. */
+      nodeId: string;
+      /**
+         * Component-only Markdown stored by the account view editor.
+         * @maxLength 262144
+         */
+      markdown: string;
+    }
+
+    export interface AccountViewMarkdownNode {
+      /** Markdown notebook node type.
+       *
+       * * `ph-markdown-notebook` - ph-markdown-notebook */
+      type: AccountViewMarkdownNodeTypeEnum;
+      /** Markdown notebook attributes. */
+      attrs: AccountViewMarkdownAttributes;
+    }
+
+    export interface AccountViewContent {
+      /** Document root type.
+       *
+       * * `doc` - doc */
+      type: AccountViewContentTypeEnum;
+      /**
+         * The single Markdown notebook node containing the account view components.
+         * @minItems 1
+         * @maxItems 1
+         */
+      content: AccountViewMarkdownNode[];
+    }
+
+    export interface AccountView {
+      /** Stable account view identifier. */
+      readonly id: string;
+      /** Name shown in the account view. */
+      readonly name: string;
+      /** Whether the view is personal or available to the project.
+       *
+       * * `private` - Personal
+       * * `team` - Team */
+      readonly visibility: AccountViewVisibilityEnum;
+      /** Validated Markdown notebook document. */
+      readonly content: AccountViewContent;
+      /** Searchable component labels extracted from content. */
+      readonly text_content: string;
+      /** Optimistic concurrency version. */
+      readonly version: number;
+      /**
+         * Creator user ID.
+         * @nullable
+         */
+      readonly created_by: number | null;
+      /**
+         * User ID that last changed the view.
+         * @nullable
+         */
+      readonly last_modified_by: number | null;
+      /** When the view was created. */
+      readonly created_at: string;
+      /** When the view was last changed. */
+      readonly updated_at: string;
+      /** Whether the requesting user can edit the view. */
+      readonly can_edit: boolean;
+      /** Whether the requesting user can delete the view. */
+      readonly can_delete: boolean;
+      /** Whether the requesting user can change the view visibility. */
+      readonly can_change_visibility: boolean;
+    }
+
+    export interface AccountViewCreate {
+      /**
+         * View name.
+         * @maxLength 400
+         */
+      name: string;
+      /** Initial account view components. */
+      content: AccountViewContent;
+    }
+
+    export interface AccountViewUpdate {
+      /**
+         * New view name. Omit to keep the current name.
+         * @maxLength 400
+         */
+      name?: string;
+      /** Replacement account view components. Omit to keep current content. */
+      content?: AccountViewContent;
+      /** New visibility. Only the creator or a project admin can change it.
+       *
+       * * `private` - Personal
+       * * `team` - Team */
+      visibility?: AccountViewVisibilityEnum;
+      /**
+         * Version returned by the last read.
+         * @minimum 1
+         */
+      version: number;
+    }
+
     export interface AccountsQueryResponse {
       columns: unknown[];
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
@@ -2976,17 +3027,6 @@ export namespace Schemas {
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
-    }
-
-    export interface QueryLogTags {
-      /** Name of the query, preferably unique. For example web_analytics_vitals */
-      name?: string | null;
-      /** Short id of the saved Web analytics filter preset this query was run under, if any. */
-      presetId?: string | null;
-      /** Product responsible for this query. Use string, there's no need to churn the Schema when we add a new product * */
-      productKey?: string | null;
-      /** Scene where this query is shown in the UI. Use string, there's no need to churn the Schema when we add a new Scene * */
-      scene?: string | null;
     }
 
     export interface AccountsQuery {
@@ -5117,6 +5157,100 @@ export namespace Schemas {
       total_count: number;
     }
 
+    /**
+     * * `ready` - Ready
+     * * `not_ready` - Not Ready
+     */
+    export type ActivitySummaryStatusEnum = typeof ActivitySummaryStatusEnum[keyof typeof ActivitySummaryStatusEnum];
+
+
+    export const ActivitySummaryStatusEnum = {
+      Ready: 'ready',
+      NotReady: 'not_ready',
+    } as const;
+
+    export interface ActivitySummaryFocusArea {
+      /** A main thread of the user's work, in the words of their activity. */
+      topic: string;
+      /**
+         * How much of the recent activity is about this thread: high, medium or low.
+         * @nullable
+         */
+      strength: string | null;
+      /**
+         * The last day with activity on this thread, as YYYY-MM-DD.
+         * @nullable
+         */
+      last_seen: string | null;
+    }
+
+    export interface ActivitySummary {
+      /** `ready` when a summary exists. `not_ready` when no summary exists yet, which is normal for new or quiet users.
+       *
+       * * `ready` - Ready
+       * * `not_ready` - Not Ready */
+      status: ActivitySummaryStatusEnum;
+      /**
+         * Two or three sentences that capture the profile.
+         * @nullable
+         */
+      headline: string | null;
+      /**
+         * A one-page markdown profile of the user's work in this project. Null on summaries from before profiles existed.
+         * @nullable
+         */
+      profile: string | null;
+      /** The main threads of the user's work. */
+      focus_areas: ActivitySummaryFocusArea[];
+      /** The PostHog products the user works with, by name. */
+      products: string[];
+      /**
+         * What changed since the version before this one, or null when nothing changed.
+         * @nullable
+         */
+      recent_shift: string | null;
+      /**
+         * When this version of the summary was written.
+         * @nullable
+         */
+      generated_at: string | null;
+      /** The number of this version of the summary. 0 before the first. */
+      version: number;
+      /**
+         * The version of the prompt that wrote this summary.
+         * @nullable
+         */
+      prompt_version: number | null;
+      /** True when a newer version will replace this summary soon. */
+      stale: boolean;
+    }
+
+    export interface ActivitySummaryVersion {
+      /** The number of this version. Higher numbers are newer. */
+      version: number;
+      /** When this version was written. */
+      generated_at: string;
+      /** The version of the prompt that wrote this version. */
+      prompt_version: number;
+      /**
+         * Two or three sentences that capture the profile.
+         * @nullable
+         */
+      headline: string | null;
+      /**
+         * What changed since the version before this one, or null when nothing changed.
+         * @nullable
+         */
+      recent_shift: string | null;
+      /** The main threads of the user's work. */
+      focus_areas: ActivitySummaryFocusArea[];
+      /**
+         * The one-page markdown profile. Set only when the request asks for one version with `version`.
+         * @nullable
+         */
+      profile: string | null;
+    }
+
     export interface ActorsPropertyTaxonomyResponse {
       sample_count: number;
       sample_values: (string | number | boolean)[];
@@ -5160,34 +5294,6 @@ export namespace Schemas {
     export interface PropertyGroupFilterValue {
       type: FilterLogicalOperator;
       values: (PropertyGroupFilterValue | EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter | BehavioralPropertyFilter)[];
-    }
-
-    export interface ActorsQueryResponse {
-      columns: unknown[];
-      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
-      error?: string | null;
-      hasMore?: boolean | null;
-      /** Generated HogQL query. */
-      hogql: string;
-      limit: number;
-      missing_actors_count?: number | null;
-      /** Modifiers used when performing the query */
-      modifiers?: HogQLQueryModifiers | null;
-      offset: number;
-      /** Query status indicates whether next to the provided data, a query is still running. */
-      query_status?: QueryStatus | null;
-      /** The resolved previous/comparison period date range, when comparing against another period */
-      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
-      /** The date range used for the query */
-      resolved_date_range?: ResolvedDateRangeResponse | null;
-      results: unknown[][];
-      /** Measured timings for different parts of the query generation process */
-      timings?: QueryTiming[] | null;
-      types?: string[] | null;
-      /** Connector-synced data warehouse sources referenced by this query, if any. */
-      used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
-      warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
     export type Compare = typeof Compare[keyof typeof Compare];
@@ -7565,7 +7671,7 @@ export namespace Schemas {
       response?: ActorsQueryResponse | null;
       search?: string | null;
       select?: string[] | null;
-      source?: InsightActorsQuery | FunnelsActorsQuery | ExperimentActorsQuery | StickinessActorsQuery | PathsV2ActorsQuery | HogQLQuery | null;
+      source?: InsightActorsQuery | FunnelsActorsQuery | ExperimentActorsQuery | StickinessActorsQuery | PathsV2ActorsQuery | AccountUsersQuery | HogQLQuery | null;
       tags?: QueryLogTags | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
@@ -13038,6 +13144,14 @@ export namespace Schemas {
       content_base64: string;
     }
 
+    export interface AsanaIssueSignalExtra {
+      url: string | null;
+      resource_subtype: string | null;
+      created_at: string | null;
+      projects: string[];
+      tags: string[];
+    }
+
     export interface AsknicelyFeedbackSignalExtra {
       score: string | null;
       status: string | null;
@@ -15145,6 +15259,13 @@ export namespace Schemas {
     export const AzureBlobDestinationRequestTypeEnum = {
       AzureBlob: 'AzureBlob',
     } as const;
+
+    export interface AzureDevopsIssueSignalExtra {
+      work_item_type: string | null;
+      state: string | null;
+      priority: string | null;
+      created_at: string | null;
+    }
 
     export interface BackfillCreate {
       /** Inclusive lower bound of the historical window to scan. */
@@ -18206,7 +18327,6 @@ export namespace Schemas {
       /** @nullable */
       subscription_level?: string | null;
       has_active_subscription?: boolean;
-      deactivated?: boolean;
       is_annual_plan_customer?: boolean;
       /** @nullable */
       free_trial_until?: string | null;
@@ -18466,7 +18586,6 @@ export namespace Schemas {
       /** @nullable */
       billing_plan: string | null;
       billing_provider: BillingProviderEnum | null;
-      deactivated: boolean;
       is_annual_plan_customer: boolean;
       billing_period: BillingPeriod | null;
       trial: Trial | null;
@@ -22862,6 +22981,13 @@ export namespace Schemas {
       Freshness: 'freshness',
       CustomSql: 'custom_sql',
     } as const;
+
+    export interface ChecklyErrorGroupSignalExtra {
+      check_id: string | null;
+      error_hash: string | null;
+      first_seen: string | null;
+      last_seen: string | null;
+    }
 
     /**
      * * `code` - Code
@@ -31219,6 +31345,7 @@ export namespace Schemas {
      * * `IncidentIo` - IncidentIo
      * * `Pingdom` - Pingdom
      * * `Cloudflare` - Cloudflare
+     * * `CloudflareD1` - CloudflareD1
      * * `CosmosDB` - CosmosDB
      * * `PlanetScaleMySQL` - PlanetScaleMySQL
      * * `PlanetScalePostgres` - PlanetScalePostgres
@@ -31936,6 +32063,7 @@ export namespace Schemas {
      * * `AwsCostAndUsageReport` - AwsCostAndUsageReport
      * * `AwsCostAnomalyDetection` - AwsCostAnomalyDetection
      * * `AwsCostExplorer` - AwsCostExplorer
+     * * `AwsDocumentDB` - AwsDocumentDB
      * * `AwsGlueDataCatalog` - AwsGlueDataCatalog
      * * `AwsGuardduty` - AwsGuardduty
      * * `AwsHealth` - AwsHealth
@@ -32629,6 +32757,7 @@ export namespace Schemas {
       IncidentIo: 'IncidentIo',
       Pingdom: 'Pingdom',
       Cloudflare: 'Cloudflare',
+      CloudflareD1: 'CloudflareD1',
       CosmosDB: 'CosmosDB',
       PlanetScaleMySQL: 'PlanetScaleMySQL',
       PlanetScalePostgres: 'PlanetScalePostgres',
@@ -33346,6 +33475,7 @@ export namespace Schemas {
       AwsCostAndUsageReport: 'AwsCostAndUsageReport',
       AwsCostAnomalyDetection: 'AwsCostAnomalyDetection',
       AwsCostExplorer: 'AwsCostExplorer',
+      AwsDocumentDB: 'AwsDocumentDB',
       AwsGlueDataCatalog: 'AwsGlueDataCatalog',
       AwsGuardduty: 'AwsGuardduty',
       AwsHealth: 'AwsHealth',
@@ -34053,6 +34183,7 @@ export namespace Schemas {
        * * `IncidentIo` - IncidentIo
        * * `Pingdom` - Pingdom
        * * `Cloudflare` - Cloudflare
+       * * `CloudflareD1` - CloudflareD1
        * * `CosmosDB` - CosmosDB
        * * `PlanetScaleMySQL` - PlanetScaleMySQL
        * * `PlanetScalePostgres` - PlanetScalePostgres
@@ -34770,6 +34901,7 @@ export namespace Schemas {
        * * `AwsCostAndUsageReport` - AwsCostAndUsageReport
        * * `AwsCostAnomalyDetection` - AwsCostAnomalyDetection
        * * `AwsCostExplorer` - AwsCostExplorer
+       * * `AwsDocumentDB` - AwsDocumentDB
        * * `AwsGlueDataCatalog` - AwsGlueDataCatalog
        * * `AwsGuardduty` - AwsGuardduty
        * * `AwsHealth` - AwsHealth
@@ -36812,6 +36944,7 @@ export namespace Schemas {
        * * `IncidentIo` - IncidentIo
        * * `Pingdom` - Pingdom
        * * `Cloudflare` - Cloudflare
+       * * `CloudflareD1` - CloudflareD1
        * * `CosmosDB` - CosmosDB
        * * `PlanetScaleMySQL` - PlanetScaleMySQL
        * * `PlanetScalePostgres` - PlanetScalePostgres
@@ -37529,6 +37662,7 @@ export namespace Schemas {
        * * `AwsCostAndUsageReport` - AwsCostAndUsageReport
        * * `AwsCostAnomalyDetection` - AwsCostAnomalyDetection
        * * `AwsCostExplorer` - AwsCostExplorer
+       * * `AwsDocumentDB` - AwsDocumentDB
        * * `AwsGlueDataCatalog` - AwsGlueDataCatalog
        * * `AwsGuardduty` - AwsGuardduty
        * * `AwsHealth` - AwsHealth
@@ -39627,6 +39761,29 @@ export namespace Schemas {
       OptOut: 'opt_out',
       OptIn: 'opt_in',
     } as const;
+
+    export interface EmailUtmParams {
+      /**
+         * Default utm_source. Supports Liquid variables.
+         * @maxLength 500
+         */
+      utm_source?: string;
+      /**
+         * Default utm_medium. Supports Liquid variables.
+         * @maxLength 500
+         */
+      utm_medium?: string;
+      /**
+         * Default utm_campaign. Empty uses the broadcast or workflow name. Supports Liquid variables.
+         * @maxLength 500
+         */
+      utm_campaign?: string;
+      /**
+         * Default utm_content. Empty uses the email step name. Supports Liquid variables.
+         * @maxLength 500
+         */
+      utm_content?: string;
+    }
 
     export type EmbeddingStatusEnum = typeof EmbeddingStatusEnum[keyof typeof EmbeddingStatusEnum];
 
@@ -42669,13 +42826,20 @@ export namespace Schemas {
     } | null;
 
     /**
-     * Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For 'numeric': only min/max/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. For 'categorical': options [{key, label}], selection_mode (single or multiple), allows_na, and optional passing_rule {categories: [key]}. Do not send true_is_failure for numeric or categorical output. For 'sentiment': {}.
+     * Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For boolean decision-model judges, decision_threshold is a probability from 0 to 1 (default 0.5). For 'numeric': only min/max/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. For 'categorical': options [{key, label}], selection_mode (single or multiple), allows_na, and optional passing_rule {categories: [key]}. Do not send true_is_failure for numeric or categorical output. For 'sentiment': {}.
      */
     export type EvaluationOutputConfig = {
       /** Whether the evaluation can return N/A for non-applicable generations. */
       allows_na?: boolean;
       /** Boolean output only. Omit for numeric, categorical, and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
       true_is_failure?: boolean;
+      /**
+         * Boolean decision-model judges only. Minimum probability of true required for a true result, inclusive. Omit or set null to use 0.5. Applies to new runs; historical results are unchanged.
+         * @minimum 0
+         * @maximum 1
+         * @nullable
+         */
+      decision_threshold?: number | null;
       /**
          * Inclusive minimum numeric score. Omit for no lower bound. Required for numeric decision models.
          * @nullable
@@ -42934,7 +43098,7 @@ export namespace Schemas {
        * * `categorical` - Categorical
        * * `sentiment` - Sentiment */
       output_type: OutputTypeEnum;
-      /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For 'numeric': only min/max/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. For 'categorical': options [{key, label}], selection_mode (single or multiple), allows_na, and optional passing_rule {categories: [key]}. Do not send true_is_failure for numeric or categorical output. For 'sentiment': {}. */
+      /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For boolean decision-model judges, decision_threshold is a probability from 0 to 1 (default 0.5). For 'numeric': only min/max/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. For 'categorical': options [{key, label}], selection_mode (single or multiple), allows_na, and optional passing_rule {categories: [key]}. Do not send true_is_failure for numeric or categorical output. For 'sentiment': {}. */
       output_config?: EvaluationOutputConfig;
       /** Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads. */
       conditions?: EvaluationCondition[];
@@ -43326,6 +43490,13 @@ export namespace Schemas {
       allows_na?: boolean;
       /** Boolean output only. Omit for numeric, categorical, and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
       true_is_failure?: boolean;
+      /**
+         * Boolean decision-model judges only. Minimum probability of true required for a true result, inclusive. Omit or set null to use 0.5. Applies to new runs; historical results are unchanged.
+         * @minimum 0
+         * @maximum 1
+         * @nullable
+         */
+      decision_threshold?: number | null;
       /**
          * Inclusive minimum numeric score. Omit for no lower bound. Required for numeric decision models.
          * @nullable
@@ -49179,6 +49350,7 @@ export namespace Schemas {
        * * `IncidentIo` - IncidentIo
        * * `Pingdom` - Pingdom
        * * `Cloudflare` - Cloudflare
+       * * `CloudflareD1` - CloudflareD1
        * * `CosmosDB` - CosmosDB
        * * `PlanetScaleMySQL` - PlanetScaleMySQL
        * * `PlanetScalePostgres` - PlanetScalePostgres
@@ -49896,6 +50068,7 @@ export namespace Schemas {
        * * `AwsCostAndUsageReport` - AwsCostAndUsageReport
        * * `AwsCostAnomalyDetection` - AwsCostAnomalyDetection
        * * `AwsCostExplorer` - AwsCostExplorer
+       * * `AwsDocumentDB` - AwsDocumentDB
        * * `AwsGlueDataCatalog` - AwsGlueDataCatalog
        * * `AwsGuardduty` - AwsGuardduty
        * * `AwsHealth` - AwsHealth
@@ -50623,6 +50796,7 @@ export namespace Schemas {
        * * `IncidentIo` - IncidentIo
        * * `Pingdom` - Pingdom
        * * `Cloudflare` - Cloudflare
+       * * `CloudflareD1` - CloudflareD1
        * * `CosmosDB` - CosmosDB
        * * `PlanetScaleMySQL` - PlanetScaleMySQL
        * * `PlanetScalePostgres` - PlanetScalePostgres
@@ -51340,6 +51514,7 @@ export namespace Schemas {
        * * `AwsCostAndUsageReport` - AwsCostAndUsageReport
        * * `AwsCostAnomalyDetection` - AwsCostAnomalyDetection
        * * `AwsCostExplorer` - AwsCostExplorer
+       * * `AwsDocumentDB` - AwsDocumentDB
        * * `AwsGlueDataCatalog` - AwsGlueDataCatalog
        * * `AwsGuardduty` - AwsGuardduty
        * * `AwsHealth` - AwsHealth
@@ -58911,7 +59086,7 @@ export namespace Schemas {
     }
 
     /**
-     * Values of the dashboard variables that the PromQL, SQL or filters refer to as `$name`.
+     * Values of the dashboard variables that the PromQL, SQL, filters or interval refer to as `$name`.
      */
     export type MetricsQueryVariables = {[key: string]: MetricsVariableValue} | null;
 
@@ -58924,7 +59099,7 @@ export namespace Schemas {
       display?: MetricsDisplaySettings | null;
       /** Arithmetic over clause aliases (e.g. "a / b"); when set, only the formula series are returned */
       formula?: string | null;
-      /** Bucket size, one of: second_15, second_30, minute, minute_5, minute_15, minute_30, hour, hour_6, day, week; auto-picked from the range when omitted. Coarsened when the range would need more than 10,000 buckets. */
+      /** Bucket size, one of: second_15, second_30, minute, minute_5, minute_15, minute_30, hour, hour_6, day, week; auto-picked from the range when omitted. Fixed intervals are coarsened above 500 buckets. A dashboard variable reference such as `$window` pins the interval to its single duration value (15s, 30s, 1m, 5m, 15m, 30m, 1h, 6h, 1d, 1w). Variable intervals that exceed 500 buckets require a larger value or shorter date range, so the step stays consistent with PromQL lookbacks using that variable. */
       interval?: string | null;
       kind?: 'MetricsQuery';
       /** How the query is written; the builder when unset. */
@@ -58937,7 +59112,7 @@ export namespace Schemas {
       /** HogQL SELECT over the posthog.metric* tables. Used when `language` is `sql`. It must return a `time` and a `value` column; every other column is a series label. `{date_from}`, `{date_to}`, `{interval}` and `{interval_seconds}` are filled in from the date range and interval. */
       sql?: string | null;
       tags?: QueryLogTags | null;
-      /** Values of the dashboard variables that the PromQL, SQL or filters refer to as `$name`. */
+      /** Values of the dashboard variables that the PromQL, SQL, filters or interval refer to as `$name`. */
       variables?: MetricsQueryVariables;
       /** version of the node, used for schema migrations */
       version?: number | null;
@@ -58972,7 +59147,7 @@ export namespace Schemas {
     }
 
     /**
-     * Values of the dashboard variables that the filters refer to as `$name`.
+     * Values of the dashboard variables that the filters or interval refer to as `$name`.
      */
     export type MetricsHistogramQueryVariables = {[key: string]: MetricsVariableValue} | null;
 
@@ -58980,7 +59155,7 @@ export namespace Schemas {
       /** Defaults to the last 24 hours when omitted; dashboard date filters override it */
       dateRange?: DateRange | null;
       filters?: MetricsQueryFilter[] | null;
-      /** Bucket size; auto-picked from the range when omitted */
+      /** Bucket size; auto-picked from the range when omitted. A dashboard variable reference such as `$window` pins the interval to its single duration value (15s, 30s, 1m, 5m, 15m, 30m, 1h, 6h, 1d, 1w). Variable intervals that exceed 500 buckets require a larger value or shorter date range. */
       interval?: string | null;
       kind?: 'MetricsHistogramQuery';
       metricName: string;
@@ -58992,7 +59167,7 @@ export namespace Schemas {
       tags?: QueryLogTags | null;
       /** UCUM unit for the y-axis bounds, e.g. "s", "ms". Presentation only. */
       unit?: string | null;
-      /** Values of the dashboard variables that the filters refer to as `$name`. */
+      /** Values of the dashboard variables that the filters or interval refer to as `$name`. */
       variables?: MetricsHistogramQueryVariables;
       /** version of the node, used for schema migrations */
       version?: number | null;
@@ -69546,6 +69721,13 @@ export namespace Schemas {
     export interface ModelCatalogueResponse {
       /** Every model a run may use, newest catalogue from the LLM gateway. Empty when the gateway is unreachable. */
       models: ModelChoice[];
+    }
+
+    export interface MondayIssueSignalExtra {
+      state: string | null;
+      group: string | null;
+      board_id: string | null;
+      created_at: string | null;
     }
 
     export interface MonitorStats {
@@ -82975,13 +83157,20 @@ export namespace Schemas {
     } | null;
 
     /**
-     * Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For 'numeric': only min/max/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. For 'categorical': options [{key, label}], selection_mode (single or multiple), allows_na, and optional passing_rule {categories: [key]}. Do not send true_is_failure for numeric or categorical output. For 'sentiment': {}.
+     * Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For boolean decision-model judges, decision_threshold is a probability from 0 to 1 (default 0.5). For 'numeric': only min/max/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. For 'categorical': options [{key, label}], selection_mode (single or multiple), allows_na, and optional passing_rule {categories: [key]}. Do not send true_is_failure for numeric or categorical output. For 'sentiment': {}.
      */
     export type PatchedEvaluationOutputConfig = {
       /** Whether the evaluation can return N/A for non-applicable generations. */
       allows_na?: boolean;
       /** Boolean output only. Omit for numeric, categorical, and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
       true_is_failure?: boolean;
+      /**
+         * Boolean decision-model judges only. Minimum probability of true required for a true result, inclusive. Omit or set null to use 0.5. Applies to new runs; historical results are unchanged.
+         * @minimum 0
+         * @maximum 1
+         * @nullable
+         */
+      decision_threshold?: number | null;
       /**
          * Inclusive minimum numeric score. Omit for no lower bound. Required for numeric decision models.
          * @nullable
@@ -83089,7 +83278,7 @@ export namespace Schemas {
        * * `categorical` - Categorical
        * * `sentiment` - Sentiment */
       output_type?: OutputTypeEnum;
-      /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For 'numeric': only min/max/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. For 'categorical': options [{key, label}], selection_mode (single or multiple), allows_na, and optional passing_rule {categories: [key]}. Do not send true_is_failure for numeric or categorical output. For 'sentiment': {}. */
+      /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For boolean decision-model judges, decision_threshold is a probability from 0 to 1 (default 0.5). For 'numeric': only min/max/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. For 'categorical': options [{key, label}], selection_mode (single or multiple), allows_na, and optional passing_rule {categories: [key]}. Do not send true_is_failure for numeric or categorical output. For 'sentiment': {}. */
       output_config?: PatchedEvaluationOutputConfig;
       /** Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads. */
       conditions?: EvaluationCondition[];
@@ -85991,6 +86180,10 @@ export namespace Schemas {
        * * `opt_out` - Opt Out
        * * `opt_in` - Opt In */
       email_tracking_consent_mode?: EmailTrackingConsentModeEnum;
+      /** Whether new email steps and broadcasts start with UTM tags on their links. Each email can still change it. Existing emails keep their current values. */
+      email_utm_tags_enabled?: boolean;
+      /** Default UTM values that new email steps and broadcasts copy. An empty value keeps the built-in default for that tag. */
+      email_utm_params?: EmailUtmParams;
       /**
          * How many AI tasks one workflow can create in a rolling 24 hours. Null uses the default of 100; zero pauses task creation for every workflow in the project. Support raises the limit above 500.
          * @minimum 0
@@ -90837,6 +91030,13 @@ export namespace Schemas {
       status: string | null;
       priority: string | null;
       labels: unknown[];
+      created_at: string | null;
+    }
+
+    export interface PlaneIssueSignalExtra {
+      identifier: string | null;
+      sequence_id: string | null;
+      priority: string | null;
       created_at: string | null;
     }
 
@@ -99143,7 +99343,22 @@ export namespace Schemas {
       first_found: string | null;
     }
 
-    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | JiraIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | CheckFailedSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | AnalyticsAnomalyInvestigationSignalExtra | HealthCheckSignalExtra | EngineeringAnalyticsCIFlakyCheckSignalExtra | EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra | EngineeringAnalyticsCIDurationRegressionSignalExtra | FreshdeskTicketSignalExtra | FreshserviceTicketSignalExtra | FrontConversationSignalExtra | GorgiasTicketSignalExtra | KustomerConversationSignalExtra | DixaConversationSignalExtra | PlainThreadSignalExtra | GitlabIssueSignalExtra | GiteaIssueSignalExtra | ShortcutStorySignalExtra | SentryIssueSignalExtra | RollbarItemSignalExtra | BugsnagErrorSignalExtra | HoneybadgerFaultSignalExtra | RaygunErrorGroupSignalExtra | DatadogSignalExtra | SnykScannerFindingSignalExtra | SonarqubeScannerFindingSignalExtra | SemgrepScannerFindingSignalExtra | Rapid7InsightvmScannerFindingSignalExtra | FeaturebaseFeedbackSignalExtra | FrillFeedbackSignalExtra | AhaFeedbackSignalExtra | UservoiceFeedbackSignalExtra | ProductboardFeedbackSignalExtra | CannyFeedbackSignalExtra | AsknicelyFeedbackSignalExtra | RetentlyFeedbackSignalExtra | AppfiguresReviewSignalExtra | AppfollowReviewSignalExtra | JudgemeReviewsReviewSignalExtra | IntercomTicketSignalExtra | HubspotTicketSignalExtra | Dynamics365TicketSignalExtra | ZohoCrmTicketSignalExtra | GoogleSearchConsoleSearchOpportunitySignalExtra | PagerdutyIncidentSignalExtra | OpsgenieAlertSignalExtra | IncidentIoIncidentSignalExtra | FirehydrantIncidentSignalExtra | SquadcastIncidentSignalExtra | ServicenowIncidentSignalExtra | SolarwindsServiceDeskIncidentSignalExtra | GrafanaIrmIncidentSignalExtra | XmattersIncidentSignalExtra | LaceworkScannerFindingSignalExtra | OrcaSecurityScannerFindingSignalExtra | TenableVulnerabilityManagementScannerFindingSignalExtra | BetterstackIncidentSignalExtra | MonteCarloAlertSignalExtra | BigeyeIssueSignalExtra;
+    export interface TriggerDevErrorSignalExtra {
+      task_identifier: string | null;
+      status: string | null;
+      count: string | null;
+      first_seen: string | null;
+      last_seen: string | null;
+    }
+
+    export interface RoarkIssueSignalExtra {
+      severity: string | null;
+      status: string | null;
+      event_count: string | null;
+      created_at: string | null;
+    }
+
+    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | JiraIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | CheckFailedSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | AnalyticsAnomalyInvestigationSignalExtra | HealthCheckSignalExtra | EngineeringAnalyticsCIFlakyCheckSignalExtra | EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra | EngineeringAnalyticsCIDurationRegressionSignalExtra | FreshdeskTicketSignalExtra | FreshserviceTicketSignalExtra | FrontConversationSignalExtra | GorgiasTicketSignalExtra | KustomerConversationSignalExtra | DixaConversationSignalExtra | PlainThreadSignalExtra | GitlabIssueSignalExtra | GiteaIssueSignalExtra | ShortcutStorySignalExtra | SentryIssueSignalExtra | RollbarItemSignalExtra | BugsnagErrorSignalExtra | HoneybadgerFaultSignalExtra | RaygunErrorGroupSignalExtra | DatadogSignalExtra | SnykScannerFindingSignalExtra | SonarqubeScannerFindingSignalExtra | SemgrepScannerFindingSignalExtra | Rapid7InsightvmScannerFindingSignalExtra | FeaturebaseFeedbackSignalExtra | FrillFeedbackSignalExtra | AhaFeedbackSignalExtra | UservoiceFeedbackSignalExtra | ProductboardFeedbackSignalExtra | CannyFeedbackSignalExtra | AsknicelyFeedbackSignalExtra | RetentlyFeedbackSignalExtra | AppfiguresReviewSignalExtra | AppfollowReviewSignalExtra | JudgemeReviewsReviewSignalExtra | IntercomTicketSignalExtra | HubspotTicketSignalExtra | Dynamics365TicketSignalExtra | ZohoCrmTicketSignalExtra | GoogleSearchConsoleSearchOpportunitySignalExtra | PagerdutyIncidentSignalExtra | OpsgenieAlertSignalExtra | IncidentIoIncidentSignalExtra | FirehydrantIncidentSignalExtra | SquadcastIncidentSignalExtra | ServicenowIncidentSignalExtra | SolarwindsServiceDeskIncidentSignalExtra | GrafanaIrmIncidentSignalExtra | XmattersIncidentSignalExtra | LaceworkScannerFindingSignalExtra | OrcaSecurityScannerFindingSignalExtra | TenableVulnerabilityManagementScannerFindingSignalExtra | BetterstackIncidentSignalExtra | AsanaIssueSignalExtra | MondayIssueSignalExtra | PlaneIssueSignalExtra | AzureDevopsIssueSignalExtra | MonteCarloAlertSignalExtra | BigeyeIssueSignalExtra | TriggerDevErrorSignalExtra | ChecklyErrorGroupSignalExtra | RoarkIssueSignalExtra;
 
     export type SignalMatchMetadata = MatchedMetadata | NoMatchMetadata;
 
@@ -106941,6 +107156,7 @@ export namespace Schemas {
        * * `IncidentIo` - IncidentIo
        * * `Pingdom` - Pingdom
        * * `Cloudflare` - Cloudflare
+       * * `CloudflareD1` - CloudflareD1
        * * `CosmosDB` - CosmosDB
        * * `PlanetScaleMySQL` - PlanetScaleMySQL
        * * `PlanetScalePostgres` - PlanetScalePostgres
@@ -107658,6 +107874,7 @@ export namespace Schemas {
        * * `AwsCostAndUsageReport` - AwsCostAndUsageReport
        * * `AwsCostAnomalyDetection` - AwsCostAnomalyDetection
        * * `AwsCostExplorer` - AwsCostExplorer
+       * * `AwsDocumentDB` - AwsDocumentDB
        * * `AwsGlueDataCatalog` - AwsGlueDataCatalog
        * * `AwsGuardduty` - AwsGuardduty
        * * `AwsHealth` - AwsHealth
@@ -108416,6 +108633,7 @@ export namespace Schemas {
        * * `IncidentIo` - IncidentIo
        * * `Pingdom` - Pingdom
        * * `Cloudflare` - Cloudflare
+       * * `CloudflareD1` - CloudflareD1
        * * `CosmosDB` - CosmosDB
        * * `PlanetScaleMySQL` - PlanetScaleMySQL
        * * `PlanetScalePostgres` - PlanetScalePostgres
@@ -109133,6 +109351,7 @@ export namespace Schemas {
        * * `AwsCostAndUsageReport` - AwsCostAndUsageReport
        * * `AwsCostAnomalyDetection` - AwsCostAnomalyDetection
        * * `AwsCostExplorer` - AwsCostExplorer
+       * * `AwsDocumentDB` - AwsDocumentDB
        * * `AwsGlueDataCatalog` - AwsGlueDataCatalog
        * * `AwsGuardduty` - AwsGuardduty
        * * `AwsHealth` - AwsHealth
@@ -109858,6 +110077,7 @@ export namespace Schemas {
        * * `IncidentIo` - IncidentIo
        * * `Pingdom` - Pingdom
        * * `Cloudflare` - Cloudflare
+       * * `CloudflareD1` - CloudflareD1
        * * `CosmosDB` - CosmosDB
        * * `PlanetScaleMySQL` - PlanetScaleMySQL
        * * `PlanetScalePostgres` - PlanetScalePostgres
@@ -110575,6 +110795,7 @@ export namespace Schemas {
        * * `AwsCostAndUsageReport` - AwsCostAndUsageReport
        * * `AwsCostAnomalyDetection` - AwsCostAnomalyDetection
        * * `AwsCostExplorer` - AwsCostExplorer
+       * * `AwsDocumentDB` - AwsDocumentDB
        * * `AwsGlueDataCatalog` - AwsGlueDataCatalog
        * * `AwsGuardduty` - AwsGuardduty
        * * `AwsHealth` - AwsHealth
@@ -115555,6 +115776,13 @@ export namespace Schemas {
       /** Boolean output only. Omit for numeric, categorical, and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
       true_is_failure?: boolean;
       /**
+         * Boolean decision-model judges only. Minimum probability of true required for a true result, inclusive. Omit or set null to use 0.5. Applies to new runs; historical results are unchanged.
+         * @minimum 0
+         * @maximum 1
+         * @nullable
+         */
+      decision_threshold?: number | null;
+      /**
          * Inclusive minimum numeric score. Omit for no lower bound. Required for numeric decision models.
          * @nullable
          */
@@ -116024,6 +116252,34 @@ export namespace Schemas {
       threadNodeIds: string[];
       defaultNodeId: string;
       nodeIdsByAlias: TraceNodeIdsByAlias;
+    }
+
+    export type TraceEvaluationResultOutcomeEnum = typeof TraceEvaluationResultOutcomeEnum[keyof typeof TraceEvaluationResultOutcomeEnum];
+
+
+    export const TraceEvaluationResultOutcomeEnum = {
+      Pass: 'pass',
+      Fail: 'fail',
+      Inconclusive: 'inconclusive',
+      Unrated: 'unrated',
+    } as const;
+
+    export interface TraceEvaluationResult {
+      id: string;
+      evaluationId: string | null;
+      evaluationName: string;
+      /** The tree node the result grades: the generation's event uuid, or the trace id for a trace-level result. */
+      targetNodeId: string;
+      outcome: TraceEvaluationResultOutcomeEnum;
+      /** What the result says, such as "True", "0.82", "Positive" or "Skipped". */
+      label: string;
+      reasoning: string | null;
+      timestamp: string;
+      isBackfill: boolean;
+    }
+
+    export interface TraceEvaluationResults {
+      results: TraceEvaluationResult[];
     }
 
     export interface TraceNodeMetadata {
@@ -133999,6 +134255,19 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type SignalsActivitySummaryVersionsRetrieveParams = {
+    /**
+     * The most versions to return, newest first. Capped at the number of versions kept.
+     * @minimum 1
+     */
+    limit?: number;
+    /**
+     * Return only this version, with its full profile. Returns 404 when the version does not exist.
+     * @minimum 1
+     */
+    version?: number;
+    };
+
     export type SignalsProcessingListParams = {
     /**
      * Number of results to return per page.
@@ -135435,6 +135704,24 @@ export namespace Schemas {
      * Living artifact version
      */
     version?: number;
+    };
+
+    export type TasksRunsLogsRetrieveParams = {
+    /**
+     * With tail_bytes, end the window before this entry index, so a client can page back through older turns: pass the X-Log-Offset of the oldest page it holds.
+     * @minimum 0
+     */
+    before?: number;
+    /**
+     * With tail_bytes, return every entry from this index to the end, with no preamble, so a client that holds the entries before it can catch up after a disconnect: pass the X-Log-Count of its last read. When those entries are too large, the response holds the latest turns as tail_bytes alone returns them, and X-Log-Offset is greater than start.
+     * @minimum 0
+     */
+    start?: number;
+    /**
+     * Return only the latest turns of the log: the shortest suffix that starts at a user turn and holds at least this many bytes. The X-Log-Offset and X-Log-Count headers give the index of the first tail entry and the size of the full log. The slice starts with X-Log-Preamble earlier entries that still set run state, such as the run start, usage, mode, commands and open permission requests. X-Log-Turns-Before counts the user turns before the slice, so a client numbers turns the way the full log does.
+     * @minimum 1
+     */
+    tail_bytes?: number;
     };
 
     export type TasksRunsSessionLogsRetrieveParams = {

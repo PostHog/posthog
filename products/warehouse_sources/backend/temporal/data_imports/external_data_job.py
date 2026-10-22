@@ -922,7 +922,12 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 delay = min(IMPORT_HANDOFF_FIRST_DELAY * 2 ** min(early_handoffs, 10), IMPORT_HANDOFF_MAX_DELAY)
                 workflow.logger.info(
                     "Import handed off by a worker that is shutting down, running it again",
-                    extra={"handoffs": handoffs, "delay_seconds": delay.total_seconds()},
+                    extra={
+                        "handoffs": handoffs,
+                        "delay_seconds": delay.total_seconds(),
+                        "handoff_made_progress": pipeline_result.get("handoff_made_progress"),
+                        "handoff_reason": pipeline_result.get("handoff_reason"),
+                    },
                 )
                 await workflow.sleep(delay)
         finally:
