@@ -8,7 +8,7 @@ from django.db import transaction
 import structlog
 from langchain_core.messages import HumanMessage, SystemMessage
 from posthoganalytics.ai.langchain.callbacks import CallbackHandler
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 from temporalio import activity
 from temporalio.common import MetricMeter
 
@@ -183,6 +183,47 @@ def _build_model(
     )
 
 
+def _provider_error_type(body: object) -> str | None:
+    if not isinstance(body, dict):
+        return None
+    error = body.get("error")
+    if not isinstance(error, dict):
+        return None
+    error_type = error.get("type")
+    if not isinstance(error_type, str) or not error_type:
+        return None
+    return error_type
+
+
+def _validation_failures(error: ValidationError, output_model: type[BaseModel]) -> list[str]:
+    known_fields = output_model.model_fields.keys()
+    failures: list[str] = []
+    for detail in error.errors(include_url=False, include_context=False, include_input=False):
+        location = detail["loc"]
+        # An extra_forbidden location is a key that the model wrote, so only schema field names are logged.
+        field = str(location[0]) if location and location[0] in known_fields else "<other>"
+        failures.append(f"{field}:{detail['type']}")
+    return failures
+
+
+def _model_failure_fields(error: Exception, output_model: type[BaseModel]) -> dict[str, str | int | list[str]]:
+    fields: dict[str, str | int | list[str]] = {"error_type": type(error).__name__}
+    if error.__cause__ is not None:
+        fields["cause_type"] = type(error.__cause__).__name__
+    if isinstance(error, ValidationError):
+        fields["validation_failures"] = _validation_failures(error, output_model)
+    status_code = getattr(error, "status_code", None)
+    if isinstance(status_code, int):
+        fields["status_code"] = status_code
+    request_id = getattr(error, "request_id", None)
+    if isinstance(request_id, str) and request_id:
+        fields["request_id"] = request_id
+    provider_error_type = _provider_error_type(getattr(error, "body", None))
+    if provider_error_type is not None:
+        fields["provider_error_type"] = provider_error_type
+    return fields
+
+
 def _invoke_structured_model(
     team: Team,
     user: User,
@@ -209,7 +250,15 @@ def _invoke_structured_model(
             result = model.invoke(messages)
         else:
             result = model.invoke(messages, config={"callbacks": [callback]})
-    except Exception:
+    except Exception as error:
+        logger.error(  # noqa: TRY400 — exception() records the provider message, which can quote the support reply
+            "business_knowledge.learning.model_failed",
+            stage=stage,
+            team_id=team.id,
+            trace_id=trace_id,
+            **_model_failure_fields(error, output_model),
+        )
+        # The provider message can quote the support reply, and workflow history stores __cause__.
         raise LearningAnalysisError(f"{stage}_model_failed") from None
     if not isinstance(result, output_model):
         raise LearningAnalysisError(f"invalid_{stage}_output") from None

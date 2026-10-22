@@ -10,6 +10,7 @@ import {
     AlertDialogTitle,
     AlertDialogTrigger,
     Button,
+    Text,
 } from '@posthog/quill'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -34,7 +35,7 @@ export function ExcludeFromFilterButton({
 }): JSX.Element {
     const logic = insightDataChecksLogic(insightProps)
     const { currentTeamLoading } = useValues(logic)
-    const { addFilterRule } = useActions(logic)
+    const { addFilterRule, reportButtonClicked } = useActions(logic)
     const rule = check.filter_to_add
 
     if (!rule) {
@@ -49,6 +50,7 @@ export function ExcludeFromFilterButton({
                         target="_blank"
                     />
                 }
+                onClick={() => reportButtonClicked('edit_filter', check.key)}
                 data-attr="insight-data-check-filter-settings"
             >
                 Edit filter
@@ -73,6 +75,7 @@ export function ExcludeFromFilterButton({
                                 ? undefined
                                 : 'Only project admins can change the internal and test users filter.'
                         }
+                        onClick={() => reportButtonClicked('add_filter_rule', check.key)}
                         data-attr="insight-data-check-add-filter-rule"
                     />
                 }
@@ -91,10 +94,21 @@ export function ExcludeFromFilterButton({
                         <li key={value}>{value}</li>
                     ))}
                 </ul>
+                <Text size="xs" variant="muted">
+                    You can change the rule later in project settings.
+                </Text>
                 <AlertDialogFooter>
                     <AlertDialogClose render={<Button variant="outline" />}>Cancel</AlertDialogClose>
                     <AlertDialogClose
-                        render={<Button variant="primary" onClick={() => addFilterRule(check)} />}
+                        render={
+                            <Button
+                                variant="primary"
+                                onClick={() => {
+                                    reportButtonClicked('add_filter_rule_confirm', check.key)
+                                    addFilterRule(check)
+                                }}
+                            />
+                        }
                         data-attr="insight-data-check-add-filter-rule-confirm"
                     >
                         Add rule

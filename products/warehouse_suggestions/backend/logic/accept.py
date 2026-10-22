@@ -21,7 +21,6 @@ from products.data_modeling.backend.facade.api import (
     get_saved_query_columns,
     get_saved_query_sql,
     get_saved_query_summary,
-    incremental_enabled,
     propose_incremental_config,
 )
 from products.warehouse_sources.backend.facade.api import get_queryable_table
@@ -118,7 +117,6 @@ KEYS_NEED_INCREMENTAL = (
     "incremental_key, unique_key and lookback_seconds only apply to an incremental refresh. "
     "Set refresh_mode to incremental to use them."
 )
-INCREMENTAL_UNAVAILABLE = "Incremental refresh is not available for this project. Use a full refresh."
 KEYS_REQUIRED = (
     "An incremental refresh needs an incremental_key and a unique_key. Choose them with view-check-incremental."
 )
@@ -138,7 +136,7 @@ class MaterializeAcceptor(Acceptor):
             raise AcceptFailedError("This suggestion has no refresh interval to apply.")
         options = request.options
         interval = timedelta(seconds=options.refresh_interval_seconds or payload.refresh_interval_seconds)
-        incremental_config = _incremental_config(payload, options, suggestion.team_id)
+        incremental_config = _incremental_config(payload, options)
         if (
             incremental_config is not None
             and not _chose_keys(options)
@@ -168,13 +166,11 @@ class MaterializeAcceptor(Acceptor):
         return _materialization_asset(suggestion, interval, incremental_config)
 
 
-def _incremental_config(payload: MaterializePayload, options: AcceptOptions, team_id: int) -> IncrementalConfig | None:
+def _incremental_config(payload: MaterializePayload, options: AcceptOptions) -> IncrementalConfig | None:
     if (options.refresh_mode or payload.refresh_mode) == WarehouseSuggestionRefreshMode.FULL:
         if _chose_keys(options) or options.lookback_seconds is not None:
             raise AcceptOptionRefusedError(REFRESH_MODE_FIELD, KEYS_NEED_INCREMENTAL)
         return None
-    if not incremental_enabled(team_id):
-        raise AcceptOptionRefusedError(REFRESH_MODE_FIELD, INCREMENTAL_UNAVAILABLE)
     incremental_key = options.incremental_key or payload.incremental_key
     if incremental_key is None:
         raise AcceptOptionRefusedError(INCREMENTAL_KEY_FIELD, KEYS_REQUIRED)
