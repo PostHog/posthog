@@ -129,18 +129,10 @@ def run_citation_checks(
             engine_failures += failures
             checks.extend(fields_per_engine)
             if record and fields_per_engine:
-                prompt_rows = [AEOCitationCheck(team_id=canonical_team_id, **fields) for fields in fields_per_engine]
-                # Write per prompt so a mid-run crash keeps the completed checks.
-                try:
-                    # The fail-closed manager refuses writes without a team scope, and none of the callers
-                    # (the Celery task, the management command) run inside one.
-                    with team_scope(canonical_team_id):
-                        AEOCitationCheck.objects.bulk_create(prompt_rows)
-                    rows_written += len(prompt_rows)
-                    AEOPrompt.objects.for_team(team.id).filter(id=prompt.id).update(last_checked_at=timezone.now())
-                except Exception as e:
-                    write_failures += len(prompt_rows)
-                    logger.exception("aeo_citation_write_failed", team_id=team.id, run_id=run_id, error=str(e)[:300])
+                if _record_prompt_checks(team, canonical_team_id, run_id, prompt, fields_per_engine):
+                    rows_written += len(fields_per_engine)
+                else:
+                    write_failures += len(fields_per_engine)
             if done % 100 == 0:
                 logger.info("aeo_citation_run_progress", team_id=team.id, run_id=run_id, done=done, total=len(prompts))
 
@@ -167,6 +159,24 @@ def run_citation_checks(
         write_failures=summary.write_failures,
     )
     return summary, checks
+
+
+def _record_prompt_checks(
+    team: Team, canonical_team_id: int, run_id: str, prompt: AEOPrompt, fields_per_engine: list[dict[str, Any]]
+) -> bool:
+    """Write one prompt's checks and mark the prompt checked. Called per prompt so a
+    mid-run crash keeps the completed checks; False when the write failed."""
+    prompt_rows = [AEOCitationCheck(team_id=canonical_team_id, **fields) for fields in fields_per_engine]
+    try:
+        # The fail-closed manager refuses writes without a team scope, and none of the callers
+        # (the Celery task, the management command) run inside one.
+        with team_scope(canonical_team_id):
+            AEOCitationCheck.objects.bulk_create(prompt_rows)
+        AEOPrompt.objects.for_team(team.id).filter(id=prompt.id).update(last_checked_at=timezone.now())
+    except Exception as e:
+        logger.exception("aeo_citation_write_failed", team_id=team.id, run_id=run_id, error=str(e)[:300])
+        return False
+    return True
 
 
 def select_prompts(team: Team, limit: int) -> list[AEOPrompt]:
