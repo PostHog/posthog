@@ -8,7 +8,7 @@ matches, so it never sends a set of invocations that nobody previewed.
 The same flow is available in Django admin, on the hog function list page.
 """
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from django.core.management.base import BaseCommand, CommandError
@@ -17,6 +17,7 @@ from products.cdp.backend.services.invocation_replay import (
     DEFAULT_LATEST_PER_PERSON_TEMPLATE_IDS,
     SKIP_REASON_LABELS,
     ReplayCriteria,
+    claim_replay,
     execute_replay,
     plan_replay,
 )
@@ -29,7 +30,8 @@ def _parse_datetime(value: str, flag: str) -> datetime:
         raise CommandError(f"{flag} must be an ISO-8601 timestamp with a timezone") from error
     if parsed.tzinfo is None:
         raise CommandError(f"{flag} must include a timezone, e.g. 2026-10-22T11:30:00Z")
-    return parsed
+    # The rerun worker drops the offset of the window it receives, so the plan and the send must both use UTC.
+    return parsed.astimezone(UTC)
 
 
 class Command(BaseCommand):
@@ -60,6 +62,11 @@ class Command(BaseCommand):
             help="Also replay functions that have not succeeded since the window ended.",
         )
         parser.add_argument("--include-already-rerun", action="store_true", help="Also replay runs re-run before.")
+        parser.add_argument(
+            "--include-functions-failing-before-window",
+            action="store_true",
+            help="Also replay functions that already failed the same way in the day before the window.",
+        )
         parser.add_argument("--details", action="store_true", help="Print one line per function.")
         parser.add_argument("--execute", action="store_true", help="Send the replay. Requires --fingerprint.")
         parser.add_argument("--fingerprint", default="", help="The fingerprint printed by the preview.")
@@ -80,6 +87,7 @@ class Command(BaseCommand):
                 ),
                 require_success_since_window=not options["include_functions_without_recent_success"],
                 skip_already_rerun=not options["include_already_rerun"],
+                skip_failing_before_window=not options["include_functions_failing_before_window"],
             )
         except ValueError as error:
             raise CommandError(str(error)) from error
@@ -114,6 +122,8 @@ class Command(BaseCommand):
                 "The plan does not match --fingerprint, so nothing was sent. Review the plan above and use its fingerprint."
             )
 
+        if not claim_replay(plan, actor="management_command"):
+            raise CommandError("This plan was already sent, so nothing was sent again.")
         results = execute_replay(plan, actor="management_command")
         for result in results:
             self.stdout.write(
@@ -122,3 +132,7 @@ class Command(BaseCommand):
             )
         failed = [r for r in results if r.status_code != 200]
         self.stdout.write(f"Sent {len(results) - len(failed)} request(s), {len(failed)} failed.")
+        if failed:
+            raise CommandError(
+                f"{len(failed)} request(s) failed. Preview again to see the runs that are still failed, then send that plan."
+            )

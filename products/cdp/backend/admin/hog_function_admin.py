@@ -5,7 +5,7 @@ from django import forms
 from django.contrib import admin, messages
 from django.core.exceptions import PermissionDenied
 from django.http import HttpRequest, HttpResponse
-from django.shortcuts import render
+from django.shortcuts import redirect, render
 from django.urls import path, reverse
 from django.utils.html import format_html
 
@@ -15,9 +15,11 @@ from products.cdp.backend.services.invocation_replay import (
     DEFAULT_LATEST_PER_PERSON_TEMPLATE_IDS,
     SKIP_REASON_LABELS,
     ReplayCriteria,
-    execute_replay,
+    claim_replay,
+    get_replay_state,
     plan_replay,
 )
+from products.cdp.backend.tasks.invocation_replay import run_invocation_replay
 
 REPLAY_TEMPLATE = "admin/cdp/hogfunction/replay_failed_invocations.html"
 
@@ -66,6 +68,12 @@ class ReplayFailedInvocationsForm(forms.Form):
         help_text="A function that still fails, for example because its integration is disconnected, would only fail again.",
     )
     skip_already_rerun = forms.BooleanField(required=False, initial=True, label="Skip runs that were already re-run")
+    skip_failing_before_window = forms.BooleanField(
+        required=False,
+        initial=True,
+        label="Skip functions that already failed this way before the window",
+        help_text="Looks at the day before the window. Those failures have a cause of their own, like a revoked key.",
+    )
 
     def clean_team_ids(self) -> list[int]:
         try:
@@ -104,6 +112,7 @@ class ReplayFailedInvocationsForm(forms.Form):
             latest_per_person_template_ids=tuple(_split_list(data.get("latest_per_person_template_ids") or "")),
             require_success_since_window=bool(data.get("require_success_since_window")),
             skip_already_rerun=bool(data.get("skip_already_rerun")),
+            skip_failing_before_window=bool(data.get("skip_failing_before_window")),
         )
 
 
@@ -183,6 +192,11 @@ class HogFunctionAdmin(admin.ModelAdmin):
                 self.admin_site.admin_view(self.replay_failed_invocations_view),
                 name="cdp-replay-failed-invocations",
             ),
+            path(
+                "replay-failed-invocations/<str:fingerprint>/",
+                self.admin_site.admin_view(self.replay_status_view),
+                name="cdp-replay-failed-invocations-status",
+            ),
         ]
         return custom_urls + super().get_urls()
 
@@ -232,15 +246,28 @@ class HogFunctionAdmin(admin.ModelAdmin):
             messages.info(request, "There is nothing to replay.")
             return respond("summary")
 
-        results = execute_replay(plan, actor=f"admin:{request.user.pk}")
-        failed = [r for r in results if r.status_code != 200]
-        if failed:
-            messages.warning(
-                request,
-                f"{len(failed)} of {len(results)} requests failed. Review again and send: runs that went through "
-                "are no longer failed, so only the rest are sent.",
-            )
+        actor = f"admin:{request.user.pk}"
+        if not claim_replay(plan, actor=actor):
+            messages.warning(request, "This plan was already sent, so it was not sent again.")
         else:
-            messages.success(request, f"Queued {plan.invocation_count} runs in {len(results)} requests.")
-        context["results"] = results
-        return respond("results")
+            # The send runs in a task, because a plan can need hundreds of requests and
+            # the admin request would time out before they finish.
+            run_invocation_replay.delay(plan.criteria.to_payload(), plan.fingerprint, actor)
+        return redirect("admin:cdp-replay-failed-invocations-status", fingerprint=plan.fingerprint)
+
+    def replay_status_view(self, request: HttpRequest, fingerprint: str) -> HttpResponse:
+        if not self.has_change_permission(request):
+            raise PermissionDenied
+        state = get_replay_state(fingerprint)
+        results = (state or {}).get("results", [])
+        context: dict[str, Any] = {
+            **self.admin_site.each_context(request),
+            "title": "Replay failed invocations",
+            "step": "status",
+            "fingerprint": fingerprint,
+            "state": state,
+            "results": results,
+            "sent_requests": len(results),
+            "failed_requests": sum(1 for r in results if r["status_code"] != 200),
+        }
+        return render(request, REPLAY_TEMPLATE, context)

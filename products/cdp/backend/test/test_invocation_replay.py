@@ -4,6 +4,7 @@ from typing import Any
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, patch
 
+from django.core.cache import cache
 from django.test import Client
 
 from parameterized import parameterized
@@ -12,16 +13,25 @@ from posthog.clickhouse.client.execute import sync_execute
 
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.hog_invocation_results_sql import INSERT_HOG_INVOCATION_RESULT_SQL
-from products.cdp.backend.services.invocation_replay import ReplayCriteria, plan_replay
+from products.cdp.backend.services.invocation_replay import (
+    ReplayCriteria,
+    claim_replay,
+    execute_replay,
+    get_replay_state,
+    plan_replay,
+)
+from products.cdp.backend.tasks.invocation_replay import run_invocation_replay
 
 WINDOW_START = datetime(2026, 10, 22, 11, 30, tzinfo=UTC)
 WINDOW_END = datetime(2026, 10, 22, 14, 0, tzinfo=UTC)
 IN_WINDOW = WINDOW_START + timedelta(minutes=30)
-AFTER_WINDOW = WINDOW_END + timedelta(hours=1)
 EXPIRED = "401: The OAuth token used to make this call expired"
+# Minutes after IN_WINDOW that land after the window ends.
+RECOVERED = 200
 
-# (invocation suffix, status, minutes after IN_WINDOW, person, event, error message, is_retry, version)
-Row = tuple[str, str, int, str, str, str, int, int]
+
+def _invocation_id(suffix: str) -> str:
+    return f"018f0000-0000-0000-0000-0000000000{suffix}"
 
 
 def _row(
@@ -29,13 +39,52 @@ def _row(
     status: str,
     minutes: int = 0,
     *,
+    first_minutes: int | None = None,
     person: str = "person-1",
     event: str = "",
     error: str = EXPIRED,
     is_retry: int = 0,
     version: int = 1,
-) -> Row:
-    return (suffix, status, minutes, person, event, error if status == "failed" else "", is_retry, version)
+) -> dict[str, Any]:
+    return {
+        "invocation_id": _invocation_id(suffix),
+        "status": status,
+        "is_retry": is_retry,
+        "scheduled_at": IN_WINDOW + timedelta(minutes=minutes),
+        # A retry rewrites scheduled_at, while first_scheduled_at keeps the time of the original run.
+        "first_scheduled_at": IN_WINDOW + timedelta(minutes=minutes if first_minutes is None else first_minutes),
+        "error_kind": "http_4xx" if status == "failed" else "",
+        "error_message": error if status == "failed" else "",
+        "event_uuid": event,
+        "distinct_id": person,
+        "person_id": person,
+        "version": version,
+    }
+
+
+def _insert(function: HogFunction, rows: list[dict[str, Any]]) -> None:
+    for row in rows:
+        sync_execute(
+            INSERT_HOG_INVOCATION_RESULT_SQL,
+            {
+                "team_id": function.team_id,
+                "function_kind": "hog_function",
+                "function_id": str(function.id),
+                "parent_run_id": "",
+                "attempts": 1,
+                "started_at": row["scheduled_at"],
+                "finished_at": row["scheduled_at"],
+                "duration_ms": 10,
+                "invocation_globals": "{}",
+                "is_deleted": 0,
+                **row,
+            },
+        )
+
+
+def _recovered(person: str = "person-recovered") -> dict[str, Any]:
+    # A success after the window proves the integration works again, which the default criteria require.
+    return _row("ff", "succeeded", RECOVERED, person=person)
 
 
 def _criteria(**overrides: Any) -> ReplayCriteria:
@@ -50,52 +99,27 @@ def _criteria(**overrides: Any) -> ReplayCriteria:
         "latest_per_person_template_ids": ("template-hubspot",),
         "require_success_since_window": True,
         "skip_already_rerun": True,
+        "skip_failing_before_window": True,
         **overrides,
     }
     return ReplayCriteria(**values)
 
 
-def _insert(function: HogFunction, rows: list[Row]) -> None:
-    for suffix, status, minutes, person, event, error, is_retry, version in rows:
-        scheduled_at = IN_WINDOW + timedelta(minutes=minutes)
-        sync_execute(
-            INSERT_HOG_INVOCATION_RESULT_SQL,
-            {
-                "team_id": function.team_id,
-                "function_kind": "hog_function",
-                "function_id": str(function.id),
-                "invocation_id": f"018f0000-0000-0000-0000-0000000000{suffix}",
-                "parent_run_id": "",
-                "status": status,
-                "attempts": 1,
-                "is_retry": is_retry,
-                "scheduled_at": scheduled_at,
-                "first_scheduled_at": scheduled_at,
-                "started_at": scheduled_at,
-                "finished_at": scheduled_at,
-                "duration_ms": 10,
-                "error_kind": "http_4xx" if status == "failed" else "",
-                "error_message": error,
-                "event_uuid": event,
-                "distinct_id": person,
-                "person_id": person,
-                "invocation_globals": "{}",
-                "version": version,
-                "is_deleted": 0,
-            },
-        )
+def _function(team: Any, template_id: str, **fields: Any) -> HogFunction:
+    return HogFunction.objects.create(
+        team=team,
+        name=template_id,
+        type="destination",
+        template_id=template_id,
+        hog="",
+        **{"enabled": True, **fields},
+    )
 
 
 class TestInvocationReplay(ClickhouseTestMixin, APIBaseTest):
-    def _function(self, template_id: str, **fields: Any) -> HogFunction:
-        return HogFunction.objects.create(
-            team=self.team,
-            name=template_id,
-            type="destination",
-            template_id=template_id,
-            hog="",
-            **{"enabled": True, **fields},
-        )
+    def tearDown(self) -> None:
+        cache.clear()
+        super().tearDown()
 
     @parameterized.expand(
         [
@@ -112,7 +136,7 @@ class TestInvocationReplay(ClickhouseTestMixin, APIBaseTest):
                 "later_retry_succeeded_after_the_window",
                 "template-google-ads",
                 {},
-                [_row("a1", "failed"), ("a1", "succeeded", 200, "person-1", "", "", 0, 2)],
+                [_row("a1", "failed"), _row("a1", "succeeded", RECOVERED, first_minutes=0, version=2)],
                 [],
                 None,
             ),
@@ -149,6 +173,33 @@ class TestInvocationReplay(ClickhouseTestMixin, APIBaseTest):
                 {"superseded_by_later_success": 1},
             ),
             (
+                # An older event retried after a newer one succeeded: its scheduled_at
+                # is later than the success, its original time is not.
+                "person_sync_retried_older_run_is_still_superseded",
+                "template-hubspot",
+                {},
+                [_row("a1", "failed", 40, first_minutes=0), _row("a2", "succeeded", 30)],
+                [],
+                {"superseded_by_later_success": 1},
+            ),
+            (
+                "person_sync_retried_older_run_is_not_the_latest",
+                "template-hubspot",
+                {},
+                [_row("a1", "failed", 40, first_minutes=0), _row("a2", "failed", 10)],
+                ["a2"],
+                {"older_run_for_same_person": 1},
+            ),
+            (
+                # One person can update two companies, so company syncs replay every failure.
+                "company_sync_is_not_deduplicated_by_person",
+                "template-hubspot-company",
+                {},
+                [_row("a1", "failed", 0), _row("a2", "failed", 10), _row("a3", "succeeded", 30)],
+                ["a1", "a2"],
+                {},
+            ),
+            (
                 "disabled_function",
                 "template-google-ads",
                 {"enabled": False},
@@ -163,13 +214,12 @@ class TestInvocationReplay(ClickhouseTestMixin, APIBaseTest):
         _name: str,
         template_id: str,
         function_fields: dict[str, Any],
-        rows: list[Row],
+        rows: list[dict[str, Any]],
         expected_suffixes: list[str],
         expected_skipped: dict[str, int] | None,
     ) -> None:
-        function = self._function(template_id, **function_fields)
-        # A success after the window proves the integration works again, which the default criteria require.
-        _insert(function, [*rows, _row("ff", "succeeded", 200, person="person-recovered")])
+        function = _function(self.team, template_id, **function_fields)
+        _insert(function, [*rows, _recovered()])
 
         plan = plan_replay(_criteria())
 
@@ -177,17 +227,80 @@ class TestInvocationReplay(ClickhouseTestMixin, APIBaseTest):
         if expected_skipped is None:
             assert str(function.id) not in planned
             return
-        assert planned[str(function.id)].invocation_ids == tuple(
-            f"018f0000-0000-0000-0000-0000000000{suffix}" for suffix in expected_suffixes
-        )
+        assert planned[str(function.id)].invocation_ids == tuple(_invocation_id(s) for s in expected_suffixes)
         assert planned[str(function.id)].skipped == expected_skipped
 
-    def test_holds_a_function_that_has_not_succeeded_since_the_window(self) -> None:
-        function = self._function("template-google-ads")
-        _insert(function, [_row("a1", "failed")])
+    @parameterized.expand(
+        [
+            ("require_success_since_window", [_row("a1", "failed")], "no_success_since_window"),
+            (
+                "skip_failing_before_window",
+                [_row("b1", "failed", -6 * 60), _row("a1", "failed"), _recovered()],
+                "failing_before_window",
+            ),
+        ]
+    )
+    def test_holds_functions_whose_failures_have_another_cause(
+        self, option: str, rows: list[dict[str, Any]], reason: str
+    ) -> None:
+        function = _function(self.team, "template-google-ads")
+        _insert(function, rows)
 
-        assert plan_replay(_criteria()).functions[0].skipped == {"no_success_since_window": 1}
-        assert plan_replay(_criteria(require_success_since_window=False)).invocation_count == 1
+        assert plan_replay(_criteria()).functions[0].skipped == {reason: 1}
+        assert plan_replay(_criteria(**{option: False})).invocation_count == 1
+
+    @patch("products.cdp.backend.services.invocation_replay.HOG_INVOCATION_RERUN_MAX_COUNT", 1)
+    @patch("products.cdp.backend.services.invocation_replay.rerun_hog_invocations")
+    def test_task_sends_the_reviewed_plan_by_id_and_refuses_a_changed_one(self, rerun: MagicMock) -> None:
+        rerun.return_value = MagicMock(status_code=200, text="{}")
+        function = _function(self.team, "template-google-ads")
+        _insert(function, [_row("a1", "failed"), _row("a2", "failed", 5), _recovered()])
+        criteria = _criteria()
+        plan = plan_replay(criteria)
+
+        run_invocation_replay(criteria.to_payload(), "0000000000000000", "test")
+        assert (get_replay_state("0000000000000000") or {})["status"] == "refused"
+        rerun.assert_not_called()
+
+        assert claim_replay(plan, actor="test")
+        run_invocation_replay(criteria.to_payload(), plan.fingerprint, "test")
+
+        sent = [call.kwargs["payload"]["filter"]["invocation_ids"] for call in rerun.call_args_list]
+        assert sent == [[_invocation_id("a1")], [_invocation_id("a2")]]
+        state = get_replay_state(plan.fingerprint) or {}
+        assert (state["status"], state["failed_requests"], len(state["results"])) == ("done", 0, 2)
+
+    def test_a_plan_can_be_claimed_once(self) -> None:
+        function = _function(self.team, "template-google-ads")
+        _insert(function, [_row("a1", "failed"), _recovered()])
+        plan = plan_replay(_criteria())
+
+        assert claim_replay(plan, actor="first")
+        assert not claim_replay(plan, actor="second")
+        assert (get_replay_state(plan.fingerprint) or {})["actor"] == "first"
+
+    @patch("products.cdp.backend.services.invocation_replay.rerun_hog_invocations")
+    def test_records_a_failed_request_and_continues(self, rerun: MagicMock) -> None:
+        rerun.side_effect = [ConnectionError("cdp api down"), MagicMock(status_code=200, text="{}")]
+        for template_id in ("template-google-ads", "template-snapchat-ads"):
+            _insert(_function(self.team, template_id), [_row("a1", "failed"), _recovered()])
+        plan = plan_replay(_criteria())
+
+        results = execute_replay(plan, actor="test")
+
+        assert sorted(r.status_code for r in results) == [0, 200]
+        assert (get_replay_state(plan.fingerprint) or {})["failed_requests"] == 1
+
+    @patch("products.cdp.backend.services.invocation_replay.rerun_hog_invocations")
+    def test_a_send_that_queued_nothing_can_be_sent_again(self, rerun: MagicMock) -> None:
+        rerun.side_effect = ConnectionError("cdp api down")
+        _insert(_function(self.team, "template-google-ads"), [_row("a1", "failed"), _recovered()])
+        plan = plan_replay(_criteria())
+        assert claim_replay(plan, actor="first")
+
+        execute_replay(plan, actor="first")
+
+        assert claim_replay(plan, actor="second")
 
 
 class TestReplayAdmin(ClickhouseTestMixin, APIBaseTest):
@@ -195,10 +308,8 @@ class TestReplayAdmin(ClickhouseTestMixin, APIBaseTest):
         super().setUp()
         self.user.is_staff = True
         self.user.save()
-        self.function = HogFunction.objects.create(
-            team=self.team, name="Ads", type="destination", template_id="template-google-ads", hog="", enabled=True
-        )
-        _insert(self.function, [_row("a1", "failed"), _row("a2", "failed", 5), _row("ff", "succeeded", 200)])
+        self.function = _function(self.team, "template-google-ads")
+        _insert(self.function, [_row("a1", "failed"), _row("a2", "failed", 5), _recovered()])
         self.form = {
             "window_start": "2026-10-22 11:30:00",
             "window_end": "2026-10-22 14:00:00",
@@ -206,10 +317,18 @@ class TestReplayAdmin(ClickhouseTestMixin, APIBaseTest):
             "latest_per_person_template_ids": "template-hubspot",
             "require_success_since_window": "True",
             "skip_already_rerun": "True",
+            "skip_failing_before_window": "True",
         }
         self.url = "/admin/cdp/hogfunction/replay-failed-invocations/"
         self.admin_client = Client()
         self.admin_client.force_login(self.user)
+
+    def tearDown(self) -> None:
+        cache.clear()
+        super().tearDown()
+
+    def _fingerprint(self) -> str:
+        return self.admin_client.post(self.url, {**self.form, "action": "details"}).context["plan"].fingerprint
 
     @parameterized.expand(
         [
@@ -217,47 +336,35 @@ class TestReplayAdmin(ClickhouseTestMixin, APIBaseTest):
             ("wrong_confirmation_count", None, "3"),
         ]
     )
-    @patch("products.cdp.backend.services.invocation_replay.rerun_hog_invocations")
+    @patch("products.cdp.backend.admin.hog_function_admin.run_invocation_replay")
     def test_send_refuses_without_a_matching_review(
-        self, _name: str, fingerprint: str | None, confirm: str, rerun: MagicMock
+        self, _name: str, fingerprint: str | None, confirm: str, task: MagicMock
     ) -> None:
-        preview = self.admin_client.post(self.url, {**self.form, "action": "details"})
-        assert preview.status_code == 200
-        plan_fingerprint = preview.context["plan"].fingerprint
-
         response = self.admin_client.post(
             self.url,
             {
                 **self.form,
                 "action": "execute",
-                "fingerprint": fingerprint or plan_fingerprint,
+                "fingerprint": fingerprint or self._fingerprint(),
                 "confirm_count": confirm,
             },
         )
 
         assert response.status_code == 200
         assert response.context["step"] == "details"
-        rerun.assert_not_called()
+        task.delay.assert_not_called()
 
-    @patch("products.cdp.backend.services.invocation_replay.HOG_INVOCATION_RERUN_MAX_COUNT", 1)
-    @patch("products.cdp.backend.services.invocation_replay.rerun_hog_invocations")
-    def test_send_queues_the_reviewed_invocations_by_id(self, rerun: MagicMock) -> None:
-        rerun.return_value = MagicMock(status_code=200, text="{}")
-        summary = self.admin_client.post(self.url, {**self.form, "action": "preview"})
-        assert summary.context["step"] == "summary"
-        assert summary.context["plan"].invocation_count == 2
+    @patch("products.cdp.backend.admin.hog_function_admin.run_invocation_replay")
+    def test_send_dispatches_the_reviewed_plan_once(self, task: MagicMock) -> None:
+        fingerprint = self._fingerprint()
+        send = {**self.form, "action": "execute", "fingerprint": fingerprint, "confirm_count": "2"}
 
-        response = self.admin_client.post(
-            self.url,
-            {
-                **self.form,
-                "action": "execute",
-                "fingerprint": summary.context["plan"].fingerprint,
-                "confirm_count": "2",
-            },
-        )
+        first = self.admin_client.post(self.url, send)
+        second = self.admin_client.post(self.url, send)
 
-        assert response.context["step"] == "results"
-        sent = [call.kwargs["payload"]["filter"]["invocation_ids"] for call in rerun.call_args_list]
-        assert sent == [["018f0000-0000-0000-0000-0000000000a1"], ["018f0000-0000-0000-0000-0000000000a2"]]
-        assert {call.kwargs["function_id"] for call in rerun.call_args_list} == {str(self.function.id)}
+        assert first.status_code == second.status_code == 302
+        assert first["Location"].endswith(f"/replay-failed-invocations/{fingerprint}/")
+        task.delay.assert_called_once()
+        assert task.delay.call_args.args[1] == fingerprint
+        status = self.admin_client.get(first["Location"])
+        assert status.context["state"]["status"] == "queued"

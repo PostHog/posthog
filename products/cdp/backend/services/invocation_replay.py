@@ -4,21 +4,24 @@ The rerun endpoint replays whatever matches a filter. That is too blunt after an
 incident, because some failed invocations must not be sent again:
 
 - A destination that syncs person state (a CRM contact upsert) needs only the
-  latest failed run per person. A run that a later successful run superseded
-  would overwrite newer data with the old payload.
+  latest failed run per person, and none when a later run for that person
+  succeeded. The other runs only send the destination redundant updates.
 - An event that a later run already delivered would be delivered twice.
 - A function whose integration still fails would only fail again.
 
 So a replay is computed up front as an explicit list of invocation IDs, shown to
-an operator, and sent by ID. The rerun worker re-checks each invocation's latest
-status before it enqueues it, so sending the same plan twice does not send an
-invocation twice.
+an operator, and sent by ID. A plan can be sent once: the send claims the plan's
+fingerprint first, so a double submit or a second operator cannot send it again.
+The rerun worker also re-checks each invocation's latest status before it
+enqueues it.
 """
 
 import hashlib
 from collections import Counter
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
+
+from django.core.cache import cache
 
 import structlog
 
@@ -35,10 +38,15 @@ from products.cdp.backend.presentation.hog_invocations.rerun import (
 
 logger = structlog.get_logger(__name__)
 
-# Templates whose runs write the current state of a person (or of the person's
-# company) to the destination, so one successful run makes every earlier failed
-# run for that person redundant.
-DEFAULT_LATEST_PER_PERSON_TEMPLATE_IDS = ("template-hubspot", "template-hubspot-company")
+# Templates whose runs write the current state of the triggering person to the
+# destination, so one successful run makes every earlier failed run for that
+# person redundant. A template keyed on something else, like a company, does
+# not belong here, because two failures of one person can target two records.
+DEFAULT_LATEST_PER_PERSON_TEMPLATE_IDS = ("template-hubspot",)
+
+# Long enough to look up a replay after it ran, and to keep refusing a resend of
+# the same plan while its runs are still in flight.
+REPLAY_STATE_TTL_SECONDS = 7 * 24 * 60 * 60
 
 SkipReason = Literal[
     "function_not_replayable",
@@ -47,6 +55,7 @@ SkipReason = Literal[
     "superseded_by_later_success",
     "older_run_for_same_person",
     "no_success_since_window",
+    "failing_before_window",
 ]
 
 SKIP_REASON_LABELS: dict[SkipReason, str] = {
@@ -56,11 +65,17 @@ SKIP_REASON_LABELS: dict[SkipReason, str] = {
     "superseded_by_later_success": "A later run for the same person succeeded",
     "older_run_for_same_person": "Not the latest failed run for this person",
     "no_success_since_window": "Function has not succeeded since the window ended",
+    "failing_before_window": "Function already failed this way in the day before the window",
 }
+
+# How far before the window to look for the same failure. A function that failed
+# this way before the incident has a cause of its own, like a revoked key, so a
+# replay would only fail again.
+BASELINE_LOOKBACK = timedelta(days=1)
 
 # Candidate functions: any function with a failed lifecycle row in the window
 # that matches the error filters. The row-level filter is a superset of the
-# invocation-level check in _INVOCATIONS_QUERY, which is the one that decides.
+# invocation-level check in _FAILURES_QUERY, which is the one that decides.
 _CANDIDATE_FUNCTIONS_QUERY = """
 SELECT DISTINCT team_id, function_id
 FROM hog_invocation_results
@@ -73,30 +88,107 @@ WHERE function_kind = 'hog_function'
     {error_message_clause}
 """
 
-# One row per invocation of the candidate functions since the window start.
-# The scan has no upper bound on scheduled_at, because a later retry row
+# The scans below have no upper bound on scheduled_at, because a later retry row
 # (cyclotron rewrites scheduled_at on every attempt) or a later success must
 # count when the latest status is resolved. Aliases differ from the column
 # names, because the ClickHouse analyzer resolves a name in WHERE to a
 # same-named SELECT alias.
-_INVOCATIONS_QUERY = """
+#
+# The latest row must be inside the window, because the rerun worker selects
+# rows inside the window and would not find the invocation otherwise. Ordering
+# between runs uses first_scheduled_at, which a retry does not rewrite.
+#
+# Only invocations with a failed row in the window are grouped. Without that
+# restriction the query groups every run since the window start, which at
+# incident scale includes hours of traffic that cannot be a target.
+_FAILURES_QUERY = """
 SELECT
     function_id,
     invocation_id,
-    argMax(status, version) AS latest_status,
-    argMax(error_kind, version) AS latest_error_kind,
-    argMax(error_message, version) AS latest_error_message,
     argMax(person_id, version) AS latest_person_id,
     argMax(event_uuid, version) AS latest_event_uuid,
-    argMax(scheduled_at, version) AS latest_scheduled_at,
+    min(first_scheduled_at) AS original_scheduled_at,
     max(is_retry) AS was_rerun
 FROM hog_invocation_results
 WHERE function_kind = 'hog_function'
     AND team_id IN %(team_ids)s
     AND function_id IN %(function_ids)s
     AND scheduled_at >= %(window_start)s
+    AND invocation_id IN (
+        SELECT invocation_id
+        FROM hog_invocation_results
+        WHERE function_kind = 'hog_function'
+            AND team_id IN %(team_ids)s
+            AND function_id IN %(function_ids)s
+            AND scheduled_at >= %(window_start)s
+            AND scheduled_at < %(window_end)s
+            AND status = 'failed'
+    )
 GROUP BY function_id, invocation_id
 HAVING argMax(is_deleted, version) = 0
+    AND argMax(status, version) = 'failed'
+    AND argMax(scheduled_at, version) >= %(window_start)s
+    AND argMax(scheduled_at, version) < %(window_end)s
+    {error_kind_clause}
+    {error_message_clause}
+"""
+
+# Only the successes that can change a decision about one of the failures: the
+# same person or the same event on the same function. The result stays
+# proportional to the failures and not to the traffic after the incident. The
+# match runs against the failures query inside ClickHouse, because passing the
+# failures' person and event IDs as literals exceeds the maximum query size at
+# incident scale. Rows are matched before grouping, which is safe because the
+# person and the event of an invocation are the same on all of its rows.
+_RELATED_SUCCESSES_QUERY = """
+WITH failures AS ({failures_query})
+SELECT function_id, latest_person_id, latest_event_uuid, original_scheduled_at
+FROM (
+    SELECT
+        function_id,
+        invocation_id,
+        argMax(person_id, version) AS latest_person_id,
+        argMax(event_uuid, version) AS latest_event_uuid,
+        min(first_scheduled_at) AS original_scheduled_at
+    FROM hog_invocation_results
+    WHERE function_kind = 'hog_function'
+        AND team_id IN %(team_ids)s
+        AND function_id IN %(function_ids)s
+        AND scheduled_at >= %(window_start)s
+        AND (
+            (function_id, person_id) IN (
+                SELECT function_id, latest_person_id FROM failures WHERE latest_person_id != ''
+            )
+            OR (function_id, event_uuid) IN (
+                SELECT function_id, latest_event_uuid FROM failures WHERE latest_event_uuid != ''
+            )
+        )
+    GROUP BY function_id, invocation_id
+    HAVING argMax(is_deleted, version) = 0 AND argMax(status, version) = 'succeeded'
+)
+"""
+
+_FUNCTIONS_FAILING_BEFORE_QUERY = """
+SELECT DISTINCT function_id
+FROM hog_invocation_results
+WHERE function_kind = 'hog_function'
+    AND team_id IN %(team_ids)s
+    AND function_id IN %(function_ids)s
+    AND scheduled_at >= %(baseline_start)s
+    AND scheduled_at < %(window_start)s
+    AND status = 'failed'
+    {error_kind_clause}
+    {error_message_clause}
+"""
+
+_FUNCTIONS_WITH_SUCCESS_SINCE_QUERY = """
+SELECT DISTINCT function_id
+FROM hog_invocation_results
+WHERE function_kind = 'hog_function'
+    AND team_id IN %(team_ids)s
+    AND function_id IN %(function_ids)s
+    AND scheduled_at >= %(since)s
+    AND status = 'succeeded'
 """
 
 
@@ -113,6 +205,7 @@ class ReplayCriteria:
     latest_per_person_template_ids: tuple[str, ...]
     require_success_since_window: bool
     skip_already_rerun: bool
+    skip_failing_before_window: bool
 
     def __post_init__(self) -> None:
         if self.window_start.tzinfo is None or self.window_end.tzinfo is None:
@@ -125,6 +218,37 @@ class ReplayCriteria:
             # Without an error filter the plan would replay every failure in the
             # window, including ones the incident did not cause.
             raise ValueError("Set error_message_contains or error_kinds")
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "window_start": self.window_start.isoformat(),
+            "window_end": self.window_end.isoformat(),
+            "error_message_contains": self.error_message_contains,
+            "error_kinds": list(self.error_kinds),
+            "team_ids": list(self.team_ids),
+            "template_ids": list(self.template_ids),
+            "exclude_template_ids": list(self.exclude_template_ids),
+            "latest_per_person_template_ids": list(self.latest_per_person_template_ids),
+            "require_success_since_window": self.require_success_since_window,
+            "skip_already_rerun": self.skip_already_rerun,
+            "skip_failing_before_window": self.skip_failing_before_window,
+        }
+
+    @classmethod
+    def from_payload(cls, payload: dict[str, Any]) -> "ReplayCriteria":
+        return cls(
+            window_start=datetime.fromisoformat(payload["window_start"]),
+            window_end=datetime.fromisoformat(payload["window_end"]),
+            error_message_contains=payload["error_message_contains"],
+            error_kinds=tuple(payload["error_kinds"]),
+            team_ids=tuple(payload["team_ids"]),
+            template_ids=tuple(payload["template_ids"]),
+            exclude_template_ids=tuple(payload["exclude_template_ids"]),
+            latest_per_person_template_ids=tuple(payload["latest_per_person_template_ids"]),
+            require_success_since_window=payload["require_success_since_window"],
+            skip_already_rerun=payload["skip_already_rerun"],
+            skip_failing_before_window=payload["skip_failing_before_window"],
+        )
 
 
 @frozen
@@ -160,6 +284,10 @@ class ReplayPlan:
     @property
     def invocation_count(self) -> int:
         return sum(len(f.invocation_ids) for f in self.functions)
+
+    @property
+    def request_count(self) -> int:
+        return sum(-(-len(f.invocation_ids) // HOG_INVOCATION_RERUN_MAX_COUNT) for f in self.functions)
 
     @property
     def team_count(self) -> int:
@@ -198,7 +326,7 @@ class ReplayPlan:
 
     @property
     def fingerprint(self) -> str:
-        """Identifies the exact set of invocations, so a run can refuse a plan that changed after the preview."""
+        """Identifies the exact set of invocations, so a send can refuse a plan that changed after the preview."""
         digest = hashlib.sha256()
         for f in sorted(self.replayable_functions, key=lambda f: f.function_id):
             for invocation_id in sorted(f.invocation_ids):
@@ -216,16 +344,21 @@ class FunctionReplayResult:
 
 
 @frozen
-class _Invocation:
+class _Failure:
     function_id: str
     invocation_id: str
-    status: str
-    error_kind: str
-    error_message: str
     person_id: str
     event_uuid: str
     scheduled_at: datetime
     was_rerun: bool
+
+
+@frozen
+class _Success:
+    function_id: str
+    person_id: str
+    event_uuid: str
+    scheduled_at: datetime
 
 
 def _as_utc(value: datetime) -> datetime:
@@ -233,18 +366,26 @@ def _as_utc(value: datetime) -> datetime:
     return value if value.tzinfo else value.replace(tzinfo=UTC)
 
 
+def _error_clauses(criteria: ReplayCriteria, *, column: str, params: dict[str, Any]) -> tuple[str, str]:
+    error_kind_clause = error_message_clause = ""
+    if criteria.error_kinds:
+        error_kind_clause = f"AND {column.format('error_kind')} IN %(error_kinds)s"
+        params["error_kinds"] = list(criteria.error_kinds)
+    if criteria.error_message_contains:
+        error_message_clause = (
+            f"AND positionCaseInsensitive({column.format('error_message')}, %(error_message_contains)s) > 0"
+        )
+        params["error_message_contains"] = criteria.error_message_contains
+    return error_kind_clause, error_message_clause
+
+
 def _find_candidate_functions(criteria: ReplayCriteria) -> list[tuple[int, str]]:
     params: dict[str, Any] = {"window_start": criteria.window_start, "window_end": criteria.window_end}
-    team_clause = error_kind_clause = error_message_clause = ""
+    team_clause = ""
     if criteria.team_ids:
         team_clause = "AND team_id IN %(team_ids)s"
         params["team_ids"] = list(criteria.team_ids)
-    if criteria.error_kinds:
-        error_kind_clause = "AND error_kind IN %(error_kinds)s"
-        params["error_kinds"] = list(criteria.error_kinds)
-    if criteria.error_message_contains:
-        error_message_clause = "AND positionCaseInsensitive(error_message, %(error_message_contains)s) > 0"
-        params["error_message_contains"] = criteria.error_message_contains
+    error_kind_clause, error_message_clause = _error_clauses(criteria, column="{}", params=params)
     rows = sync_execute(
         _CANDIDATE_FUNCTIONS_QUERY.format(
             team_clause=team_clause,
@@ -256,79 +397,72 @@ def _find_candidate_functions(criteria: ReplayCriteria) -> list[tuple[int, str]]
     return [(int(row[0]), str(row[1])) for row in rows]
 
 
-def _load_invocations(criteria: ReplayCriteria, functions: list[HogFunction]) -> list[_Invocation]:
-    rows = sync_execute(
-        _INVOCATIONS_QUERY,
-        {
-            "team_ids": sorted({f.team_id for f in functions}),
-            "function_ids": [str(f.id) for f in functions],
-            "window_start": criteria.window_start,
-        },
+def _failures_query(criteria: ReplayCriteria, scope: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+    params = {**scope, "window_end": criteria.window_end}
+    error_kind_clause, error_message_clause = _error_clauses(criteria, column="argMax({}, version)", params=params)
+    return (
+        _FAILURES_QUERY.format(error_kind_clause=error_kind_clause, error_message_clause=error_message_clause),
+        params,
     )
+
+
+def _load_failures(criteria: ReplayCriteria, scope: dict[str, Any]) -> list[_Failure]:
+    rows = sync_execute(*_failures_query(criteria, scope))
     return [
-        _Invocation(
+        _Failure(
             function_id=row[0],
             invocation_id=row[1],
-            status=row[2],
-            error_kind=row[3],
-            error_message=row[4],
-            person_id=row[5],
-            event_uuid=row[6],
-            scheduled_at=_as_utc(row[7]),
-            was_rerun=bool(row[8]),
+            person_id=row[2],
+            event_uuid=row[3],
+            scheduled_at=_as_utc(row[4]),
+            was_rerun=bool(row[5]),
         )
         for row in rows
     ]
 
 
-def _is_target_failure(invocation: _Invocation, criteria: ReplayCriteria) -> bool:
-    if invocation.status != "failed":
-        return False
-    # The rerun worker selects rows inside the window, so an invocation whose
-    # latest row is outside it would not be found when the plan runs.
-    if not (criteria.window_start <= invocation.scheduled_at < criteria.window_end):
-        return False
-    if criteria.error_kinds and invocation.error_kind not in criteria.error_kinds:
-        return False
-    if criteria.error_message_contains and criteria.error_message_contains.lower() not in (
-        invocation.error_message.lower()
-    ):
-        return False
-    return True
+def _load_related_successes(criteria: ReplayCriteria, scope: dict[str, Any]) -> list[_Success]:
+    failures_query, params = _failures_query(criteria, scope)
+    rows = sync_execute(_RELATED_SUCCESSES_QUERY.format(failures_query=failures_query), params)
+    return [
+        _Success(function_id=row[0], person_id=row[1], event_uuid=row[2], scheduled_at=_as_utc(row[3])) for row in rows
+    ]
 
 
 def _plan_function(
-    function: HogFunction, invocations: list[_Invocation], criteria: ReplayCriteria
-) -> FunctionReplay | None:
-    failures = [i for i in invocations if _is_target_failure(i, criteria)]
-    if not failures:
-        return None
+    function: HogFunction,
+    failures: list[_Failure],
+    successes: list[_Success],
+    *,
+    succeeded_since_window: bool,
+    failing_before_window: bool,
+    criteria: ReplayCriteria,
+) -> FunctionReplay:
+    skipped: Counter[SkipReason] = Counter()
 
-    successes = [i for i in invocations if i.status == "succeeded"]
-    delivered_events = {i.event_uuid for i in successes if i.event_uuid}
+    if not function.enabled or function.deleted or function.type not in TYPES_THAT_CAN_RERUN:
+        skipped["function_not_replayable"] = len(failures)
+        return _function_replay(function, (), skipped)
+    if criteria.skip_failing_before_window and failing_before_window:
+        skipped["failing_before_window"] = len(failures)
+        return _function_replay(function, (), skipped)
+    if criteria.require_success_since_window and not succeeded_since_window:
+        skipped["no_success_since_window"] = len(failures)
+        return _function_replay(function, (), skipped)
+
+    delivered_events = {s.event_uuid for s in successes if s.event_uuid}
     last_success_by_person: dict[str, datetime] = {}
     for success in successes:
         if success.person_id:
-            previous = last_success_by_person.get(success.person_id)
-            last_success_by_person[success.person_id] = max(previous or success.scheduled_at, success.scheduled_at)
-
-    skipped: Counter[SkipReason] = Counter()
-
-    def skip_all(reason: SkipReason) -> FunctionReplay:
-        skipped[reason] += len(failures)
-        return _function_replay(function, (), skipped)
-
-    if not function.enabled or function.deleted or function.type not in TYPES_THAT_CAN_RERUN:
-        return skip_all("function_not_replayable")
-    if criteria.require_success_since_window and not any(s.scheduled_at >= criteria.window_end for s in successes):
-        return skip_all("no_success_since_window")
+            last_success_by_person[success.person_id] = max(
+                success.scheduled_at, last_success_by_person.get(success.person_id, success.scheduled_at)
+            )
 
     latest_per_person = (function.template_id or "") in criteria.latest_per_person_template_ids
     latest_failure_by_person: dict[str, str] = {}
-    if latest_per_person:
-        for failure in sorted(failures, key=lambda i: i.scheduled_at):
-            if failure.person_id:
-                latest_failure_by_person[failure.person_id] = failure.invocation_id
+    for failure in sorted(failures, key=lambda f: f.scheduled_at):
+        if failure.person_id:
+            latest_failure_by_person[failure.person_id] = failure.invocation_id
 
     replay: list[str] = []
     for failure in failures:
@@ -387,26 +521,117 @@ def _plan_replay(criteria: ReplayCriteria) -> ReplayPlan:
     if not functions:
         return ReplayPlan(criteria=criteria, functions=())
 
-    invocations_by_function: dict[str, list[_Invocation]] = {}
-    for invocation in _load_invocations(criteria, functions):
-        invocations_by_function.setdefault(invocation.function_id, []).append(invocation)
+    scope: dict[str, Any] = {
+        "team_ids": sorted({f.team_id for f in functions}),
+        "function_ids": [str(f.id) for f in functions],
+        "window_start": criteria.window_start,
+    }
+    failures = _load_failures(criteria, scope)
+    if not failures:
+        return ReplayPlan(criteria=criteria, functions=())
+    successes = _load_related_successes(criteria, scope)
+    succeeded_since_window = {
+        row[0]
+        for row in sync_execute(
+            _FUNCTIONS_WITH_SUCCESS_SINCE_QUERY,
+            {"team_ids": scope["team_ids"], "function_ids": scope["function_ids"], "since": criteria.window_end},
+        )
+    }
 
-    planned = [
-        _plan_function(function, invocations_by_function.get(str(function.id), []), criteria) for function in functions
+    failing_before_window: set[str] = set()
+    if criteria.skip_failing_before_window:
+        params: dict[str, Any] = {
+            "team_ids": scope["team_ids"],
+            "function_ids": scope["function_ids"],
+            "baseline_start": criteria.window_start - BASELINE_LOOKBACK,
+            "window_start": criteria.window_start,
+        }
+        error_kind_clause, error_message_clause = _error_clauses(criteria, column="{}", params=params)
+        query = _FUNCTIONS_FAILING_BEFORE_QUERY.format(
+            error_kind_clause=error_kind_clause, error_message_clause=error_message_clause
+        )
+        failing_before_window = {row[0] for row in sync_execute(query, params)}
+
+    failures_by_function: dict[str, list[_Failure]] = {}
+    for failure in failures:
+        failures_by_function.setdefault(failure.function_id, []).append(failure)
+    successes_by_function: dict[str, list[_Success]] = {}
+    for success in successes:
+        successes_by_function.setdefault(success.function_id, []).append(success)
+
+    replays = [
+        _plan_function(
+            function,
+            failures_by_function[str(function.id)],
+            successes_by_function.get(str(function.id), []),
+            succeeded_since_window=str(function.id) in succeeded_since_window,
+            failing_before_window=str(function.id) in failing_before_window,
+            criteria=criteria,
+        )
+        for function in functions
+        if str(function.id) in failures_by_function
     ]
-    replays = [p for p in planned if p is not None]
     replays.sort(key=lambda f: (-len(f.invocation_ids), f.team_id, f.function_id))
     return ReplayPlan(criteria=criteria, functions=tuple(replays))
 
 
+def _state_key(fingerprint: str) -> str:
+    return f"cdp:invocation_replay:{fingerprint}"
+
+
+def _claim_key(fingerprint: str) -> str:
+    return f"cdp:invocation_replay:claim:{fingerprint}"
+
+
+def claim_replay(plan: ReplayPlan, *, actor: str) -> bool:
+    """Reserve the plan for one send. Returns False when this exact plan was already claimed."""
+    if not cache.add(_claim_key(plan.fingerprint), actor, timeout=REPLAY_STATE_TTL_SECONDS):
+        return False
+    cache.set(
+        _state_key(plan.fingerprint),
+        {
+            "status": "queued",
+            "actor": actor,
+            "invocation_count": plan.invocation_count,
+            "request_count": plan.request_count,
+            "results": [],
+        },
+        timeout=REPLAY_STATE_TTL_SECONDS,
+    )
+    return True
+
+
+def _release_claim(fingerprint: str) -> None:
+    # Only for a send that queued nothing. The same plan is then still the right
+    # plan, and the operator must be able to send it again.
+    cache.delete(_claim_key(fingerprint))
+
+
+def get_replay_state(fingerprint: str) -> dict[str, Any] | None:
+    return cache.get(_state_key(fingerprint))
+
+
+def _save_state(fingerprint: str, **changes: Any) -> None:
+    state = get_replay_state(fingerprint) or {}
+    cache.set(_state_key(fingerprint), {**state, **changes}, timeout=REPLAY_STATE_TTL_SECONDS)
+
+
+def mark_replay_refused(fingerprint: str, reason: str) -> None:
+    _save_state(fingerprint, status="refused", detail=reason)
+    _release_claim(fingerprint)
+
+
 def execute_replay(plan: ReplayPlan, *, actor: str) -> list[FunctionReplayResult]:
+    """Send a claimed plan, one rerun request per chunk, and record progress under its fingerprint."""
+    fingerprint = plan.fingerprint
     logger.info(
         "invocation_replay_started",
         actor=actor,
-        fingerprint=plan.fingerprint,
+        fingerprint=fingerprint,
         function_count=len(plan.replayable_functions),
         invocation_count=plan.invocation_count,
     )
+    _save_state(fingerprint, status="running")
     criteria = plan.criteria
     results: list[FunctionReplayResult] = []
     for function in plan.replayable_functions:
@@ -430,22 +655,33 @@ def execute_replay(plan: ReplayPlan, *, actor: str) -> list[FunctionReplayResult
                 status_code, detail = response.status_code, response.text[:500]
             except Exception as error:
                 # One unreachable request must not stop the rest of the plan. The
-                # result row records it, so the operator can run the plan again,
-                # which skips what already went through.
+                # result records it, so the operator can preview again and send
+                # only what is still failed.
                 status_code, detail = 0, repr(error)[:500]
-            results.append(
-                FunctionReplayResult(
-                    team_id=function.team_id,
-                    function_id=function.function_id,
-                    invocation_count=len(chunk),
-                    status_code=status_code,
-                    detail=detail,
-                )
+            result = FunctionReplayResult(
+                team_id=function.team_id,
+                function_id=function.function_id,
+                invocation_count=len(chunk),
+                status_code=status_code,
+                detail=detail,
             )
-    logger.info(
-        "invocation_replay_finished",
-        actor=actor,
-        fingerprint=plan.fingerprint,
-        failed_requests=sum(1 for r in results if r.status_code != 200),
-    )
+            results.append(result)
+            _save_state(
+                fingerprint,
+                results=[
+                    {
+                        "team_id": r.team_id,
+                        "function_id": r.function_id,
+                        "invocation_count": r.invocation_count,
+                        "status_code": r.status_code,
+                        "detail": r.detail,
+                    }
+                    for r in results
+                ],
+            )
+    failed_requests = sum(1 for r in results if r.status_code != 200)
+    _save_state(fingerprint, status="done", failed_requests=failed_requests)
+    if results and failed_requests == len(results):
+        _release_claim(fingerprint)
+    logger.info("invocation_replay_finished", actor=actor, fingerprint=fingerprint, failed_requests=failed_requests)
     return results

@@ -414,6 +414,8 @@ def rerun_hog_invocations(
         CDP_API_URL + f"/api/projects/{team_id}/{function_kind}s/{function_id}/rerun",
         json=payload,
         headers=get_internal_api_headers(),
+        # The call only enqueues a wrapper job, so a stalled CDP API must not hold a replay of many functions open.
+        timeout=30,
     )
 
 
