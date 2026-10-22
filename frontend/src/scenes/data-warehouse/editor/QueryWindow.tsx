@@ -500,13 +500,15 @@ const InternalQueryWindow = memo(function InternalQueryWindow({
 function OpenInSqlEditorButton(): JSX.Element {
     const { editingView, queryInput, hasEditorChanges } = useValues(sqlEditorLogic)
 
-    // A view opens by id, which leaves out unsaved text, so unsaved edits block the link rather than get lost.
+    // Unsaved edits travel with the link, so the view opens in the SQL editor with them applied and not saved.
     return (
         <LemonButton
             type="secondary"
             size="small"
-            to={editingView ? urls.sqlEditor({ view_id: editingView.id }) : urls.sqlEditor({ query: queryInput ?? '' })}
-            disabledReason={editingView && hasEditorChanges ? 'Update or discard your changes first' : undefined}
+            to={urls.sqlEditor({
+                view_id: editingView?.id,
+                query: !editingView || hasEditorChanges ? (queryInput ?? '') : undefined,
+            })}
             data-attr="sql-editor-open-in-sql-editor"
         >
             Open in SQL editor

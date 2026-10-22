@@ -461,6 +461,18 @@ describe('sqlEditorLogic', () => {
                 .toMatchValues({ queryInput: restoredQuery, hasEditorChanges: false })
         })
 
+        it('opens a view with the query in the link as unsaved edits', async () => {
+            mountEditor()
+            await expectLogic(logic, () =>
+                router.actions.push(urls.sqlEditor({ view_id: MOCK_VIEW.id, query: 'SELECT edited' }))
+            )
+                .toDispatchActions(['createTab', 'setQueryInput'])
+                .toFinishAllListeners()
+                .toMatchValues({ queryInput: 'SELECT edited', hasEditorChanges: true })
+            expect(logic.values.editingView?.id).toBe(MOCK_VIEW.id)
+            expect(logic.values.editingView?.query?.query).toBe(MOCK_VIEW.query.query)
+        })
+
         it.each([false, true])('refreshes a discarded draft without overwriting new edits (%s)', async (editAgain) => {
             mountEditor()
             await expectLogic(logic, () => router.actions.push(urls.sqlEditor(), { open_view: MOCK_VIEW.id }))
