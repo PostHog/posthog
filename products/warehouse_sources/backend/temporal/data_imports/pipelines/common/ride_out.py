@@ -24,6 +24,8 @@ if TYPE_CHECKING:
 # Covers the gap to the next item or safe point, the result flush, and the SDK's cancellation of
 # activities once the graceful shutdown timeout passes. A grace period shorter than this gives a
 # deadline of zero, so the import hands off at once.
+# Per-schema rollout flag. Off, every hand-off follows the legacy rule.
+IMPORT_RIDE_OUT_FLAG = "warehouse-import-ride-out"
 RIDE_OUT_GRACE_MARGIN_SECONDS = 900.0
 # An execution younger than this restarts for nearly free, so it leaves the worker at once and the
 # pod keeps draining fast. Shorter than `NON_RESUMABLE_HANDOFF_MAX_ATTEMPT_AGE` on purpose: that one
