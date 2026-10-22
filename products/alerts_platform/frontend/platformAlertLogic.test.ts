@@ -1,6 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
+import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import { initKeaTests } from '~/test/init'
@@ -82,6 +83,16 @@ describe('platformAlertLogic', () => {
     ])('canSnoozeGroups: %s', (_, overrides, expected) => {
         logic.actions.loadConfigurationSuccess({ ...CONFIGURATION, ...overrides })
         expect(logic.values.canSnoozeGroups).toBe(expected)
+    })
+
+    test.each<[string, () => string | null, boolean]>([
+        ['no alert-wide snooze', () => null, false],
+        ['an alert-wide snooze that ended', () => dayjs().subtract(1, 'hour').toISOString(), false],
+        ['an active alert-wide snooze', () => dayjs().add(1, 'day').toISOString(), true],
+    ])('alertSnoozeUntil: %s', (_, snoozeUntil, active) => {
+        const snooze_until = snoozeUntil()
+        logic.actions.loadConfigurationSuccess({ ...CONFIGURATION, snooze_until })
+        expect(logic.values.alertSnoozeUntil).toBe(active ? snooze_until : null)
     })
 
     it('snoozes one group, holds the in-flight state until the API answers, and swaps in the returned group', async () => {

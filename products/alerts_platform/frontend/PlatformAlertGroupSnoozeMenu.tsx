@@ -5,13 +5,14 @@ import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
+import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 
 import { PlatformAlertApi } from './generated/api.schemas'
 import { GROUP_SNOOZE_EXPLANATION } from './platformAlertFormat'
 import { GROUP_SNOOZE_DURATIONS, platformAlertLogic } from './platformAlertLogic'
 
 export function PlatformAlertGroupSnoozeMenu({ alert }: { alert: PlatformAlertApi }): JSX.Element {
-    const { snoozingGroupKey } = useValues(platformAlertLogic)
+    const { snoozingGroupKey, alertSnoozeUntil } = useValues(platformAlertLogic)
     const { snoozeGroupFor, unsnoozeGroup, openCustomSnooze } = useActions(platformAlertLogic)
 
     const activeSnoozeUntil =
@@ -65,7 +66,11 @@ export function PlatformAlertGroupSnoozeMenu({ alert }: { alert: PlatformAlertAp
                     ) : undefined
                 }
                 disabledReason={
-                    snoozingGroupKey !== null && !inFlight ? 'Wait for the other group to finish saving' : undefined
+                    alertSnoozeUntil
+                        ? `The whole alert is snoozed until ${humanFriendlyDetailedTime(alertSnoozeUntil)}. Unsnooze the alert to snooze its groups one at a time.`
+                        : snoozingGroupKey !== null && !inFlight
+                          ? 'Wait for the other group to finish saving'
+                          : undefined
                 }
                 data-attr="platform-alert-group-snooze-menu"
             >
