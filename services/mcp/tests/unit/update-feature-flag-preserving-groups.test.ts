@@ -172,7 +172,7 @@ describe('update-feature-flag preserving groups', () => {
         expect(requestArgs(request, 0).body).toMatchObject({ active: false })
     })
 
-    describe('untyped property error', () => {
+    describe('rejected property error', () => {
         const existing = {
             id: 9,
             key: 'pricing-banner',

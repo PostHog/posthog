@@ -2039,19 +2039,82 @@ describe('preserveGroupTargetingFilters', () => {
         ])
     })
 
-    // An untyped property fails the API's serde guard whichever filter rules the API enforces.
-    it('leaves a property as sent when the stored filters on its key sit on different group types', () => {
-        const set = { aggregation_group_type_index: 0, rollout_percentage: 100 }
+    // The stored set holds `plan` on group types 1 and 0. When the set keeps group type 0, the two stored
+    // typings disagree, and an untyped property fails the API's serde guard whichever filter rules the API
+    // enforces. A move to group type 1 keeps the first on its own group type and moves the second with
+    // the set, so both agree.
+    it.each([
+        { name: 'the set keeps its group type', aggregation: 0, expected: [untypedPlan, untypedPlan] },
+        { name: 'the set moves to group type 1', aggregation: 1, expected: [planOnGroupType1, planOnGroupType1] },
+    ])('types a key that its source holds on two group types when $name', ({ aggregation, expected }) => {
         const existing = {
             aggregation_group_type_index: 0,
-            groups: [{ ...set, properties: [planOnGroupType1, { ...planOnGroupType1, group_type_index: 0 }] }],
+            groups: [
+                {
+                    aggregation_group_type_index: 0,
+                    properties: [planOnGroupType1, { ...planOnGroupType1, group_type_index: 0 }],
+                    rollout_percentage: 100,
+                },
+            ],
         }
 
         const merged = preserveGroupTargetingFilters(existing, {
-            groups: [{ ...set, properties: [untypedPlan, untypedPlan] }],
+            groups: [
+                {
+                    aggregation_group_type_index: aggregation,
+                    properties: [untypedPlan, untypedPlan],
+                    rollout_percentage: 100,
+                },
+            ],
         })
 
-        expect(merged?.groups?.[0]?.properties).toEqual([untypedPlan, untypedPlan])
+        expect(merged?.groups?.[0]?.properties).toEqual(expected)
+    })
+
+    // Without condition_id the merge pairs sets by position, so a deletion or a swap can pair a set with
+    // the wrong stored set. That stored set's older group type must not move onto another condition's filter.
+    it.each([
+        { name: 'the first condition is deleted', secondValue: 'ent', sent: ['ent'] },
+        { name: 'the two conditions trade places', secondValue: 'ent', sent: ['ent', 'pro'] },
+        { name: 'the first condition is deleted and the second has its filters', secondValue: 'pro', sent: ['pro'] },
+    ])('does not give a property the stored group type of another condition when $name', ({ secondValue, sent }) => {
+        const second = { ...planOnGroupType1, group_type_index: 0, value: secondValue }
+        const existing = {
+            aggregation_group_type_index: 0,
+            groups: [
+                { aggregation_group_type_index: 0, properties: [planOnGroupType1], rollout_percentage: 100 },
+                { aggregation_group_type_index: 0, properties: [second], rollout_percentage: 100 },
+            ],
+        }
+
+        const merged = preserveGroupTargetingFilters(existing, {
+            groups: sent.map((value) => ({
+                aggregation_group_type_index: 0,
+                properties: [{ ...untypedPlan, value }],
+                rollout_percentage: 100,
+            })),
+        })
+
+        expect(merged?.groups?.[0]?.properties).toEqual([second])
+    })
+
+    // An index the agent sends stays when its condition has a source, and the API reports the mismatch. A
+    // new condition has no stored group type to keep, so its property takes the condition's group type.
+    it.each([
+        { name: 'the condition that holds the key', appended: false, expected: 2 },
+        { name: 'a new condition', appended: true, expected: 0 },
+    ])('gives an index the agent sends on another group type to $name', ({ appended, expected }) => {
+        const sent = {
+            aggregation_group_type_index: 0,
+            properties: [{ key: 'plan', type: 'group', group_type_index: 2, operator: 'exact', value: 'enterprise' }],
+            rollout_percentage: 100,
+        }
+
+        const merged = preserveGroupTargetingFilters(existingGroupFlag, {
+            groups: appended ? [...existingGroupFlag.groups, sent] : [sent],
+        })
+
+        expect(merged?.groups?.at(-1)?.properties?.[0]?.group_type_index).toBe(expected)
     })
 
     // A person-aggregated set aggregates on no group type, so its group property sits on another group
