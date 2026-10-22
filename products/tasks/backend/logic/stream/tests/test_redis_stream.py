@@ -9,6 +9,7 @@ from django.test import override_settings
 
 from redis.asyncio.client import Pipeline
 
+from products.tasks.backend.logic.stream.push_message import PushMessage
 from products.tasks.backend.logic.stream.redis_stream import (
     DATA_KEY,
     TASK_RUN_STREAM_COMPLETED_TIMEOUT,
@@ -36,6 +37,16 @@ def _new_stream(timeout: int = 60, *, presence_gated: bool = False) -> TaskRunRe
     return TaskRunRedisStream(f"task-run-stream:test:{uuid4()}", timeout=timeout, presence_gated=presence_gated)
 
 
+def _reply_event(text: str) -> dict[str, object]:
+    return {
+        "type": "notification",
+        "notification": {
+            "method": "session/update",
+            "params": {"update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": text}}},
+        },
+    }
+
+
 async def _read_stream_events(redis_stream: TaskRunRedisStream) -> list[dict]:
     messages = await redis_stream._redis_client.xrange(redis_stream._stream_key)
     return [json.loads(message[DATA_KEY]) for _stream_id, message in messages]
@@ -59,9 +70,9 @@ async def test_write_event_with_sequence_accepts_next_sequence() -> None:
 @pytest.mark.parametrize(
     "write",
     [
-        pytest.param(lambda stream: stream.write_event_with_sequence({"type": "late"}, 1), id="ingest"),
+        pytest.param(lambda stream: stream.write_event_with_sequence(_reply_event("Late reply"), 1), id="ingest"),
         pytest.param(lambda stream: stream.mark_complete_after_sequence(0), id="ingest_complete"),
-        pytest.param(lambda stream: stream.write_event({"type": "late"}), id="relay"),
+        pytest.param(lambda stream: stream.write_event(_reply_event("Late reply")), id="relay"),
         pytest.param(lambda stream: stream.mark_complete(), id="relay_complete"),
         pytest.param(lambda stream: stream.mark_error("late"), id="relay_error"),
     ],
@@ -90,6 +101,7 @@ async def test_stream_generation_check_is_atomic(
         assert await _read_stream_events(redis_stream) == []
         assert await redis_stream.get_last_sequence() == 0
         assert not await client.exists(get_task_run_stream_completed_key(redis_stream._stream_key))
+        assert not await client.exists(f"{redis_stream._stream_key}:push-message")
     finally:
         await redis_stream.delete_stream()
 
@@ -142,13 +154,18 @@ async def test_write_event_with_sequence_mirrors_only_when_presence_allows(
         if watched:
             await redis_stream.mark_watched()
 
-        write = await redis_stream.write_event_with_sequence({"type": "message"}, 1)
+        event = _reply_event("Final reply.")
+        write = await redis_stream.write_event_with_sequence(event, 1)
+        duplicate = await redis_stream.write_event_with_sequence(event, 1)
+        assert duplicate.accepted is False
+        preview = await redis_stream._redis_client.get(f"{redis_stream._stream_key}:push-message")
+        assert PushMessage.from_json(preview).text == "Final reply."
 
         assert write.accepted is True
         assert write.skipped is not expect_mirrored
         assert (write.stream_id is not None) is expect_mirrored
         assert await redis_stream.get_last_sequence() == 1
-        assert await _read_stream_events(redis_stream) == ([{"type": "message"}] if expect_mirrored else [])
+        assert await _read_stream_events(redis_stream) == ([event] if expect_mirrored else [])
     finally:
         await redis_stream.delete_stream()
 

@@ -737,11 +737,28 @@ describe('redis-stream', () => {
                 await stream.markWatched()
             }
 
-            const write = await stream.writeEventWithSequence({ type: 'msg' }, 1)
+            const event = {
+                type: 'notification',
+                notification: {
+                    method: 'session/update',
+                    params: {
+                        update: {
+                            sessionUpdate: 'agent_message_chunk',
+                            content: { type: 'text', text: 'Final reply.' },
+                        },
+                    },
+                },
+            }
+            const write = await stream.writeEventWithSequence(event, 1)
+            const duplicate = await stream.writeEventWithSequence(event, 1)
+            expect(duplicate.accepted).toBe(false)
+            expect(JSON.parse(redis.getStringValue(`${streamKey}:push-message`)!)).toMatchObject({
+                text: 'Final reply.',
+            })
 
             expect(write.accepted).toBe(true)
             expect(write.streamId !== null).toBe(mirrored)
-            expect(redis.readStreamData(streamKey)).toEqual(mirrored ? [{ type: 'msg' }] : [])
+            expect(redis.readStreamData(streamKey)).toEqual(mirrored ? [event] : [])
             expect(redis.getStringValue(getSequenceKey(streamKey))).toBe('1')
         })
 

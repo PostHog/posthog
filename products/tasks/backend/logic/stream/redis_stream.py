@@ -14,6 +14,7 @@ from posthog.dataclasses import frozen
 
 from products.tasks.backend.logic.services.connection_token import SANDBOX_EVENT_INGEST_TOKEN_TTL
 from products.tasks.backend.logic.services.sandbox_config import SANDBOX_TTL_SECONDS
+from products.tasks.backend.logic.stream.push_message import PushMessage
 from products.tasks.backend.metrics import observe_stream_write_skipped
 from products.tasks.backend.redis import get_tasks_stream_redis_async, get_tasks_stream_redis_sync
 
@@ -426,6 +427,23 @@ class TaskRunRedisStream:
             self._watched_cached_until = now + TASK_RUN_STREAM_WATCHED_CACHE_SECONDS
         return watched
 
+    async def _record_push_message(self, event: dict[str, object]) -> None:
+        key = f"{self._stream_key}:push-message"
+        generation_key = f"{self._stream_key}:generation"
+        while True:
+            async with self._redis_client.pipeline(transaction=True) as pipe:
+                try:
+                    await pipe.watch(key, generation_key)
+                    self._check_generation(await pipe.get(generation_key))
+                    updated = PushMessage.from_json(await pipe.get(key)).update(event)
+                    pipe.multi()
+                    if updated is not None:
+                        pipe.set(key, updated.to_json(), ex=self._timeout)
+                    await pipe.execute()
+                    return
+                except redis_exceptions.WatchError:
+                    continue
+
     async def write_event(self, event: dict, *, ttl: int | None = None) -> str | None:
         """Write a single non-terminal event to the stream.
 
@@ -437,6 +455,8 @@ class TaskRunRedisStream:
         Returns None when the stream is presence-gated and no reader is attached.
         Terminal sentinels bypass this gate.
         """
+        if PushMessage().update(event) is not None:
+            await self._record_push_message(event)
         if self._presence_gated and not await self._is_watched():
             self._check_generation(await self._redis_client.get(f"{self._stream_key}:generation"))
             observe_stream_write_skipped("relay", self._origin_product)
@@ -558,7 +578,11 @@ class TaskRunRedisStream:
         completed_key = get_task_run_stream_completed_key(self._stream_key)
         watched_key = get_task_run_stream_watched_key(self._stream_key)
         generation_key = f"{self._stream_key}:generation"
+        push_message_key = f"{self._stream_key}:push-message"
+        tracks_message = PushMessage().update(event) is not None
         watch_keys = [sequence_key, completed_key, generation_key]
+        if tracks_message:
+            watch_keys.append(push_message_key)
         if self._presence_gated:
             watch_keys.append(watched_key)
 
@@ -574,10 +598,14 @@ class TaskRunRedisStream:
 
                     mirror = not self._presence_gated or bool(await pipe.exists(watched_key))
 
+                    message = PushMessage.from_json(await pipe.get(push_message_key)) if tracks_message else None
+                    updated = message.update(event) if message is not None else None
                     pipe.multi()
                     self._queue_sequenced_write(
                         pipe, event, sequence, mirror=mirror, pending_side_effect=pending_side_effect
                     )
+                    if updated is not None:
+                        pipe.set(push_message_key, updated.to_json(), ex=self._timeout)
                     results = await pipe.execute()
                     return _sequenced_write_result(_normalize_stream_id(results[0]) if mirror else None)
                 except redis_exceptions.WatchError:
@@ -626,6 +654,11 @@ class TaskRunRedisStream:
 
         mirror = not self._presence_gated or bool(await self._redis_client.exists(watched_key))
         stream_id = await self._xadd_event(event) if mirror else None
+        if PushMessage().update(event) is not None:
+            key = f"{self._stream_key}:push-message"
+            updated = PushMessage.from_json(await self._redis_client.get(key)).update(event)
+            if updated is not None:
+                await self._redis_client.set(key, updated.to_json(), ex=self._timeout)
         await self._redis_client.set(sequence_key, sequence, ex=self._sequence_timeout)
         if pending_side_effect is not None:
             pending_key = get_task_run_stream_side_effect_pending_key(self._stream_key, pending_side_effect, sequence)
@@ -770,6 +803,7 @@ class TaskRunRedisStream:
                 first_activity_key,
                 watched_key,
                 f"{self._stream_key}:generation",
+                f"{self._stream_key}:push-message",
             )
             return _normalize_redis_int(deleted) > 0
         except Exception:
@@ -798,6 +832,7 @@ def reset_task_run_stream(run_id: str, use_dedicated: bool = False) -> bool:
                 heartbeat_key,
                 first_command_key,
                 first_activity_key,
+                f"{stream_key}:push-message",
             )
             if settings.TASK_RUN_STREAM_GENERATION_ROTATION_ENABLED:
                 pipe.set(f"{stream_key}:generation", uuid4().hex, ex=TASK_RUN_STREAM_SEQUENCE_TIMEOUT)
