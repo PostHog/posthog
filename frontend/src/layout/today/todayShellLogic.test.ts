@@ -83,11 +83,13 @@ describe('todayShellLogic', () => {
     })
 
     test.each([
-        ['home', '/home'],
-        ['spaces', '/spaces/new'],
-        ['analytics', '/airplane'],
-        ['products', '/airplane'],
-    ] as const)('opens the %s section when its rail item is picked', (pane, pathname) => {
+        ['home', false, '/home'],
+        ['spaces', true, '/spaces/new'],
+        ['spaces', false, '/ai'],
+        ['analytics', false, '/airplane'],
+        ['products', false, '/airplane'],
+    ] as const)('opens the %s section when its rail item is picked, sandbox %s', (pane, sandbox, pathname) => {
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: sandbox })
         const logic = todayShellLogic()
         logic.mount()
 
