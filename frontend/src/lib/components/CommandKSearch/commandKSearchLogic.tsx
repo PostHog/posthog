@@ -11,7 +11,7 @@ import {
     selectors,
 } from 'kea'
 
-import api, { isAbortError } from 'lib/api'
+import api from 'lib/api'
 import { commandLogic } from 'lib/components/Command/commandLogic'
 import { SearchItem, fileSystemEntryToSearchItem } from 'lib/components/Search/searchItems'
 import { searchListsLogic } from 'lib/components/Search/searchListsLogic'
@@ -74,7 +74,7 @@ import {
     resultsSettled,
     themeSearchItem,
 } from './commandKSections'
-import { REMOTE_REQUESTS, RemoteContext, RemoteResults, RemoteSource, settleSources } from './commandKSources'
+import { REMOTE_REQUESTS, RemoteContext, RemoteResults, RemoteSource, settleRequest } from './commandKSources'
 
 const REMOTE_DEBOUNCE_MS = 150
 const OBJECTS_DEBOUNCE_MS = 50
@@ -949,16 +949,13 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
                         () => {
                             const controller = new AbortController()
                             const timer = setTimeout(() => {
-                                request
-                                    .fetch(query, controller.signal, values.remoteContext)
-                                    .then((results) => settleSources(request, results))
-                                    // A failed source settles empty so its section never stays on skeletons.
-                                    .catch((error) => (isAbortError(error) ? null : settleSources(request, {})))
-                                    .then((results) => {
+                                void settleRequest(request, query, controller.signal, values.remoteContext).then(
+                                    (results) => {
                                         if (results && values.requestedQueries[request.id] === query) {
                                             actions.remoteLoaded(query, results)
                                         }
-                                    })
+                                    }
+                                )
                             }, debounceMs)
                             return () => {
                                 clearTimeout(timer)

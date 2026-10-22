@@ -160,7 +160,7 @@ These are the rules reviewers check. Breaking one is a bug.
 5. **Highlight follows identity, not index.** The highlighted row is tracked by item key (`section/type:ref`). Once the person moves the highlight (arrow keys or pointer), it stays on that item through result swaps for the same query while the item still exists. If it is gone, or the person never moved it, the first row is highlighted. Any change to the query (typing, clearing, adding or removing a chip) starts again at the first row.
 6. **Fixed row height.** Every row is one line, same height. Long names truncate with an ellipsis; the type label and timestamp never wrap.
 7. **Instant local, deferred remote.** Local sources (recents, starred, products, filter keys, type values, cached members) filter synchronously on every keystroke. Remote search debounces at 150 ms, except the file system search, which debounces at 50 ms.
-8. **Latest wins.** Each remote request is aborted when a newer one starts (`AbortController`). A late response for an older query is dropped, never painted.
+8. **Latest wins.** Each remote request is aborted when a newer one starts (`AbortController`). A late response for an older query is dropped, never painted. A request that has not answered after 3 s settles empty, so the sections below it never wait longer than that.
 9. **Chips don't reflow the list.** Committing a chip changes the query but follows rules 3 to 5 like any other edit.
 
 ## Performance budget
