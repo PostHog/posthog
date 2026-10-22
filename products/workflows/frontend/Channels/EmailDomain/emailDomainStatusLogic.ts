@@ -156,17 +156,24 @@ export const emailDomainStatusLogic = kea<emailDomainStatusLogicType>([
         status: [
             null as EmailDomainStatusApi | null,
             {
-                loadStatus: async ({ refresh }): Promise<EmailDomainStatusApi | null> => {
+                loadStatus: async ({ refresh }, breakpoint): Promise<EmailDomainStatusApi | null> => {
                     const { integrationId, currentTeamId } = values
                     if (!integrationId || !currentTeamId) {
                         return null
                     }
+                    let status: EmailDomainStatusApi
                     try {
-                        return await integrationsEmailStatusRetrieve(String(currentTeamId), integrationId, { refresh })
+                        status = await integrationsEmailStatusRetrieve(String(currentTeamId), integrationId, {
+                            refresh,
+                        })
                     } catch (error) {
+                        breakpoint()
                         actions.statusCheckFailed(error instanceof ApiError ? (error.status ?? null) : null)
                         return values.status
                     }
+                    // A poll and a recheck can overlap. Only the newest one's answer counts.
+                    breakpoint()
+                    return status
                 },
             },
         ],

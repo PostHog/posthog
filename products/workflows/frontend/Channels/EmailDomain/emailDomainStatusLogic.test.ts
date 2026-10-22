@@ -149,6 +149,25 @@ describe('emailDomainStatusLogic', () => {
         expect(statusChecks()).toBe(1)
     })
 
+    it('keeps a newer verified answer when an older poll answers after it', async () => {
+        await mountAndLoad()
+
+        const releasePoll = backend.hold('email_status')
+        await jest.advanceTimersByTimeAsync(10_000)
+        const releaseRecheck = backend.hold('email_status')
+        logic.actions.recheck()
+        await jest.advanceTimersByTimeAsync(0)
+
+        backend.verifyDomain(DOMAIN)
+        releaseRecheck()
+        await jest.advanceTimersByTimeAsync(0)
+        backend.sesReports(DOMAIN, 'pending')
+        releasePoll()
+        await jest.advanceTimersByTimeAsync(0)
+
+        expect(logic.values.status?.verified).toBe(true)
+    })
+
     it('shows a check as running only while a check the person asked for is in flight', async () => {
         await mountAndLoad()
 
