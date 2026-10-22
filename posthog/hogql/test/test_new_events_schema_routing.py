@@ -28,12 +28,13 @@ from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.query import HogQLQueryExecutor
 
 from posthog.api.services.query import NATIVE_EVENTS_CLUSTER_USER_FLAG, native_events_cluster_modifiers_for_user
-from posthog.clickhouse.query_tagging import Product, tags_context
+from posthog.clickhouse.query_tagging import AccessMethod, Product, tags_context
 from posthog.clickhouse.workload import Workload
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode, QueryRunner, get_query_runner
-from posthog.models import Organization, Team, User
+from posthog.models import Organization, PersonalAPIKey, Team, User
 from posthog.models.instance_setting import override_instance_config
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.product_analytics.backend.facade.models import Insight
 
@@ -112,7 +113,7 @@ class TestNewEventsClusterRouting(SimpleTestCase):
             side_effect=lambda key, *args, **kwargs: key == NATIVE_EVENTS_CLUSTER_USER_FLAG,
         ):
             modifiers = native_events_cluster_modifiers_for_user(
-                self.team, self.user, query, is_query_service=False, execution_mode=ExecutionMode.CALCULATE_ASYNC_ALWAYS
+                self.team, self.user, query, execution_mode=ExecutionMode.CALCULATE_ASYNC_ALWAYS
             )
         self.assertEqual(modifiers, expected)
 
@@ -124,16 +125,15 @@ class TestNewEventsClusterRouting(SimpleTestCase):
     ) -> None:
         self.team.modifiers = team_modifiers
         query = TrendsQuery(series=[EventsNode(event="$pageview")])
-        with patch(
-            "posthog.api.services.query.posthoganalytics.feature_enabled",
-            side_effect=lambda key, *args, **kwargs: key == NATIVE_EVENTS_CLUSTER_USER_FLAG,
+        with (
+            patch(
+                "posthog.api.services.query.posthoganalytics.feature_enabled",
+                side_effect=lambda key, *args, **kwargs: key == NATIVE_EVENTS_CLUSTER_USER_FLAG,
+            ),
+            tags_context(access_method=AccessMethod.PERSONAL_API_KEY if is_query_service else None),
         ):
             modifiers = native_events_cluster_modifiers_for_user(
-                self.team,
-                self.user,
-                query,
-                is_query_service=is_query_service,
-                execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
+                self.team, self.user, query, execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE
             )
         self.assertIsNone(modifiers)
 
@@ -160,7 +160,6 @@ class TestNewEventsClusterRouting(SimpleTestCase):
                 self.team,
                 self.user,
                 TrendsQuery(series=[EventsNode(event="$pageview")]),
-                is_query_service=False,
                 execution_mode=execution_mode,
             )
         self.assertEqual(modifiers is not None and modifiers.useNewEventsCluster, native)
@@ -262,6 +261,13 @@ class TestNewEventsClusterRouting(SimpleTestCase):
         ):
             with self.assertRaisesRegex(ExposedHogQLError, "not enabled"):
                 get_query_runner(serialized, self.team, user=self.user)
+
+    def test_override_without_an_events_route_keeps_the_legacy_payload(self) -> None:
+        query = HogQLQuery(query="SELECT 1", modifiers=self.modifiers)
+        override = HogQLQueryModifiers(sessionTableVersion=SessionTableVersion.V2)
+        runner = HogQLQueryRunner(query=query, team=self.team, modifiers=override)
+        self.assertEqual(self._enqueue(runner), query.model_dump())
+        self.assertIsNone(self.runner_state)
 
     @parameterized.expand(
         [
@@ -424,6 +430,21 @@ class TestNewEventsClusterPilot(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("events", {"kind": "EventsQuery", "select": ["count()"]}),
+            ("property_values", {"kind": "PropertyValuesQuery", "property_type": "event", "property_key": "browser"}),
+        ]
+    )
+    def test_every_allowed_typed_query_reads_only_the_native_cluster(self, _name: str, query: dict[str, Any]) -> None:
+        with patch("posthog.hogql.query.sync_execute", return_value=([], [])) as execute:
+            response = self._run_query({**query, "modifiers": {"useNewEventsCluster": True}})
+        self.assertEqual(response.status_code, 200, response.json())
+        self.assertTrue(execute.called)
+        for call in execute.call_args_list:
+            self.assertEqual(call.kwargs["workload"], Workload.NEW_EVENTS_CLUSTER, call.args[0])
+            self.assertNotRegex(call.args[0], r"\b(FROM|JOIN)\s+events\b")
+
+    @parameterized.expand(
+        [
             (modifiers, eligible, native_table, native_cluster)
             for modifiers, eligible, native_table, native_cluster in (
                 ({"useNewEventsCluster": True}, True, True, True),
@@ -487,15 +508,7 @@ class TestNewEventsClusterPilot(APIBaseTest):
                 return_value=QueryStatus(id="native-test", team_id=self.team.pk, complete=False),
             ) as enqueue,
         ):
-            response = self.client.post(
-                f"/api/projects/{self.team.id}/query/",
-                {
-                    "query": {**query, "modifiers": modifiers},
-                    "refresh": refresh,
-                    "async": async_,
-                },
-                format="json",
-            )
+            response = self._run_query({**query, "modifiers": modifiers}, refresh=refresh, async_=async_)
         rejected = native_cluster and (not eligible or unsupported)
         self.assertEqual(response.status_code, 400 if rejected else 202 if asynchronous else 200, response.json())
         if asynchronous and not rejected:
@@ -507,6 +520,8 @@ class TestNewEventsClusterPilot(APIBaseTest):
             execute.assert_not_called()
             if unsupported:
                 self.assertIn("Native cluster comparisons", response.json()["detail"])
+            if query["kind"] != "HogQLQuery":
+                self.assertIn(query["kind"], response.json()["detail"])
             return
         self.assertEqual("events_json" in execute.call_args.args[0], native_table)
         self.assertEqual(execute.call_args.kwargs["workload"] == Workload.NEW_EVENTS_CLUSTER, native_cluster)
@@ -551,12 +566,19 @@ class TestNewEventsClusterPilot(APIBaseTest):
         self.assertEqual(workloads[True] == Workload.NEW_EVENTS_CLUSTER, native)
         self.assertEqual(responses[True].json()["cache_key"] != responses[False].json()["cache_key"], native)
 
-    @parameterized.expand([(False,), (True,)])
-    def test_rollout_flag_routes_saved_insights(self, flag: bool) -> None:
+    @parameterized.expand([("flag_off", False, False), ("flag_on", True, False), ("personal_api_key", True, True)])
+    def test_rollout_flag_routes_saved_insights(self, _name: str, flag: bool, api_key: bool) -> None:
         insight = Insight.objects.create(
             team=self.team,
             query={"kind": "DataTableNode", "source": {"kind": "EventsQuery", "select": ["count()"]}},
         )
+        headers = {}
+        if api_key:
+            value = generate_random_token_personal()
+            PersonalAPIKey.objects.create(
+                label="insight reader", user=self.user, secure_value=hash_key_value(value), scopes=["insight:read"]
+            )
+            headers["Authorization"] = f"Bearer {value}"
         with (
             patch(
                 "posthog.api.services.query.posthoganalytics.feature_enabled",
@@ -564,7 +586,10 @@ class TestNewEventsClusterPilot(APIBaseTest):
             ),
             patch("posthog.hogql.query.sync_execute", return_value=([], [])) as execute,
         ):
-            response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight.id}/?refresh=force_blocking")
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/insights/{insight.id}/?refresh=force_blocking", headers=headers
+            )
         self.assertEqual(response.status_code, 200, response.json())
-        self.assertEqual("events_json" in execute.call_args.args[0], flag)
-        self.assertEqual(execute.call_args.kwargs["workload"] == Workload.NEW_EVENTS_CLUSTER, flag)
+        native = flag and not api_key
+        self.assertEqual("events_json" in execute.call_args.args[0], native)
+        self.assertEqual(execute.call_args.kwargs["workload"] == Workload.NEW_EVENTS_CLUSTER, native)

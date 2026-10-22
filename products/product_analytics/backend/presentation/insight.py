@@ -45,7 +45,6 @@ from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.monitoring import Feature, monitor
 from posthog.api.openapi_parameters import make_filters_override_param, make_variables_override_param
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.api.services.query import native_events_cluster_modifiers_for_insight
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
 from posthog.api.sharing_publish_gate import blocked_access_for_user, is_publicly_shared
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
@@ -1387,18 +1386,15 @@ class InsightSerializer(InsightBasicSerializer):
                     and not self.context["request"].query_params.get("indent")
                     and not self.context.get("require_parsed_results")
                 )
-                team = self.context["get_team"]()
                 with tags_context(product=ProductKey.PRODUCT_ANALYTICS, feature=Feature.INSIGHT, **shared_tags):
                     insight_result = calculate_for_query_based_insight(
                         insight,
-                        team=team,
+                        team=self.context["get_team"](),
                         dashboard=dashboard,
                         execution_mode=execution_mode,
                         user=request_user,
                         user_access_control=request_user_access_control,
-                        modifiers=native_events_cluster_modifiers_for_insight(
-                            team, self.context["request"].user, insight.query, execution_mode=execution_mode
-                        ),
+                        native_events_flag_user=self.context["request"].user,
                         filters_override=filters_override,
                         variables_override=variables_override,
                         tile_filters_override=tile_filters_override,

@@ -76,10 +76,9 @@ def run_metadata_job(job: dict[str, Any]) -> Any:
                 typed=True,
             )
             names = [name for name, _ in columns]
-            if "query_id" not in names or "kill_status" not in names:
+            if rows and ("query_id" not in names or "kill_status" not in names):
                 return False
-            finished = {row[names.index("query_id")] for row in rows if row[names.index("kill_status")] == "finished"}
-            return finished.issuperset(query_ids)
+            return all(row[names.index("kill_status")] == "finished" for row in rows)
 
         # One connection per host, run in parallel, so stalled hosts cannot use up the shared deadline before a healthy host.
         workers = min(len(query_ids_by_host), _MAX_CONCURRENT_HOST_KILLS)

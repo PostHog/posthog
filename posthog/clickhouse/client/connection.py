@@ -561,8 +561,8 @@ def get_pool(
 
 
 def default_client_kwargs(
-    host=None,
-    password=None,
+    host: str | None = None,
+    password: str | None = None,
     *,
     user: str | None = None,
     database: str = "system",
@@ -571,7 +571,7 @@ def default_client_kwargs(
     workload: Workload | None = None,
     team_id: int | None = None,
     ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
-):
+) -> dict[str, Any]:
     if user is None and password is None and workload is None:
         user = settings.CLICKHOUSE_USER
         password = ClickHouseCredentials(
