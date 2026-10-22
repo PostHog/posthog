@@ -47,7 +47,7 @@ def recording_condition(issue_id: str, source: EventsQuery, team: Team) -> str:
         SELECT session_id FROM raw_session_replay_events
         WHERE min_first_timestamp <= {_datetime_literal(now)} {recording_from}
             AND session_id IN (
-                SELECT $session_id FROM events
+                SELECT DISTINCT $session_id FROM events
                 WHERE event = '$exception'
                     AND issue_id = toUUID({escape_hogql_string(issue_id)})
                     AND notEmpty($session_id)
