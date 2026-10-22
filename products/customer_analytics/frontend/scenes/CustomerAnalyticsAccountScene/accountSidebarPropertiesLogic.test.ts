@@ -131,8 +131,12 @@ describe('accountSidebarPropertiesLogic', () => {
     })
 
     it('shows pinned account fields from the account and keeps them read-only', async () => {
+        silenceKeaLoadersErrors()
+        const accountDataRequest = jest.fn(() => [500, { detail: 'Account data unavailable' }])
         useMocks({
             get: {
+                [VALUES_URL]: accountDataRequest,
+                [RELATIONSHIPS_URL]: accountDataRequest,
                 '/api/projects/:project_id/user_customer_analytics_config/@me/': {
                     pinned_properties: [
                         { kind: 'account_field', id: 'stripe_customer_id' },
@@ -154,6 +158,8 @@ describe('accountSidebarPropertiesLogic', () => {
         expect(stripeField).toMatchObject({ key: 'field:stripe_customer_id', value: 'cus_example' })
         expect(externalIdField).toMatchObject({ key: 'field:external_id', value: 'org-example' })
         expect(logic.values.editingPropertyKey).toBeNull()
+        expect(logic.values.propertiesPanelState).toBe('ready')
+        expect(accountDataRequest).not.toHaveBeenCalled()
     })
 
     it('defers account data until pinning and recovers the empty state after an account-data failure', async () => {

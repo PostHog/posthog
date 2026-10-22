@@ -30,10 +30,10 @@ export function buildAccountSidebarProperties(
     account: AccountApi | null,
     editable: boolean
 ): AccountSidebarProperty[] {
-    if (!data) {
+    if (!data && pinnedProperties.some(({ kind }) => kind !== 'account_field')) {
         return []
     }
-    const valuesByDefinition = new Map(data.customValues.map((value) => [value.definition_id, value.value]))
+    const valuesByDefinition = new Map((data?.customValues ?? []).map((value) => [value.definition_id, value.value]))
     return pinnedProperties.map((property): AccountSidebarProperty => {
         const key = pinnedPropertyToConfiguratorKey(property.reference)
         if (property.kind === 'account_field') {
@@ -66,7 +66,7 @@ export function buildAccountSidebarProperties(
             kind: 'relationship',
             definition: property.definition,
             editable,
-            members: data.relationships.flatMap((relationship) =>
+            members: (data?.relationships ?? []).flatMap((relationship) =>
                 relationship.definition.id === property.definition.id && !relationship.ended_at && relationship.user
                     ? [relationship.user]
                     : []

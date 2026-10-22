@@ -89,6 +89,7 @@ export interface accountSidebarPropertiesLogicValues {
     configuredPropertyReferences: PinnedAccountPropertyApi[] | null
     editingPropertyKey: string | null
     hasAccountFieldPin: boolean
+    needsPropertyData: boolean
     propertiesAvailable: boolean
     propertiesLoadFailed: boolean
     propertiesPanelState: AccountPropertiesPanelState
@@ -269,16 +270,14 @@ export interface accountSidebarPropertiesLogicActions {
 export interface accountSidebarPropertiesLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
-        propertyDataLoadFailed: (
-            resolvedPinnedProperties: ResolvedPinnedAccountProperty[],
-            sharedPropertyDataLoadFailed: boolean
-        ) => boolean
+        propertyDataLoadFailed: (needsPropertyData: boolean, sharedPropertyDataLoadFailed: boolean) => boolean
         resolvedPinnedProperties: (
             sidebarPinnedProperties: ResolvedPinnedAccountProperty[],
             availableDefinitions: AvailableDefinitions | null,
             configuredPropertyReferences: PinnedAccountPropertyApi[] | null
         ) => ResolvedPinnedAccountProperty[]
         hasAccountFieldPin: (resolvedPinnedProperties: ResolvedPinnedAccountProperty[]) => boolean
+        needsPropertyData: (resolvedPinnedProperties: ResolvedPinnedAccountProperty[]) => boolean
         sidebarProperties: (
             resolvedPinnedProperties: ResolvedPinnedAccountProperty[],
             propertyData: AccountSidebarPropertyData | null,
@@ -291,7 +290,7 @@ export interface accountSidebarPropertiesLogicMeta {
         propertiesAvailable: (
             config: UserCustomerAnalyticsConfigApi | null,
             availableDefinitions: AvailableDefinitions | null,
-            resolvedPinnedProperties: ResolvedPinnedAccountProperty[],
+            needsPropertyData: boolean,
             propertyData: AccountSidebarPropertyData | null,
             configuredPropertyReferences: PinnedAccountPropertyApi[] | null,
             hasAccountFieldPin: boolean,
@@ -300,7 +299,6 @@ export interface accountSidebarPropertiesLogicMeta {
         propertiesLoadFailed: (
             configLoadFailed: boolean,
             availableDefinitionsLoadFailed: boolean,
-            resolvedPinnedProperties: ResolvedPinnedAccountProperty[],
             propertyDataLoadFailed: boolean,
             configuredPropertyReferences: PinnedAccountPropertyApi[] | null,
             hasAccountFieldPin: boolean,
@@ -528,9 +526,8 @@ export const accountSidebarPropertiesLogic: LogicWrapper<accountSidebarPropertie
         })),
         selectors({
             propertyDataLoadFailed: [
-                (s) => [s.resolvedPinnedProperties, s.sharedPropertyDataLoadFailed],
-                (references: ResolvedPinnedAccountProperty[], failed: boolean): boolean =>
-                    references.length > 0 && failed,
+                (s) => [s.needsPropertyData, s.sharedPropertyDataLoadFailed],
+                (needsPropertyData: boolean, failed: boolean): boolean => needsPropertyData && failed,
             ],
             resolvedPinnedProperties: [
                 (s) => [s.sidebarPinnedProperties, s.availableDefinitions, s.configuredPropertyReferences],
@@ -549,6 +546,11 @@ export const accountSidebarPropertiesLogic: LogicWrapper<accountSidebarPropertie
                 (s) => [s.resolvedPinnedProperties],
                 (pinned: ResolvedPinnedAccountProperty[]): boolean =>
                     pinned.some(({ kind }) => kind === 'account_field'),
+            ],
+            needsPropertyData: [
+                (s) => [s.resolvedPinnedProperties],
+                (pinned: ResolvedPinnedAccountProperty[]): boolean =>
+                    pinned.some(({ kind }) => kind !== 'account_field'),
             ],
             sidebarProperties: [
                 (s) => [s.resolvedPinnedProperties, s.propertyData, s.account],
@@ -590,7 +592,7 @@ export const accountSidebarPropertiesLogic: LogicWrapper<accountSidebarPropertie
                 (s) => [
                     s.config,
                     s.availableDefinitions,
-                    s.resolvedPinnedProperties,
+                    s.needsPropertyData,
                     s.propertyData,
                     s.configuredPropertyReferences,
                     s.hasAccountFieldPin,
@@ -599,7 +601,7 @@ export const accountSidebarPropertiesLogic: LogicWrapper<accountSidebarPropertie
                 (
                     config: UserCustomerAnalyticsConfigApi | null,
                     definitions: AvailableDefinitions | null,
-                    pinned: ResolvedPinnedAccountProperty[],
+                    needsPropertyData: boolean,
                     data: AccountSidebarPropertyData | null,
                     references: PinnedAccountProperty[] | null,
                     hasAccountFieldPin: boolean,
@@ -607,14 +609,13 @@ export const accountSidebarPropertiesLogic: LogicWrapper<accountSidebarPropertie
                 ): boolean =>
                     (references !== null || config !== null) &&
                     definitions !== null &&
-                    (pinned.length === 0 || data !== null) &&
+                    (!needsPropertyData || data !== null) &&
                     (!hasAccountFieldPin || account !== null),
             ],
             propertiesLoadFailed: [
                 (s) => [
                     s.configLoadFailed,
                     s.availableDefinitionsLoadFailed,
-                    s.resolvedPinnedProperties,
                     s.propertyDataLoadFailed,
                     s.configuredPropertyReferences,
                     s.hasAccountFieldPin,
@@ -623,7 +624,6 @@ export const accountSidebarPropertiesLogic: LogicWrapper<accountSidebarPropertie
                 (
                     configFailed: boolean,
                     definitionsFailed: boolean,
-                    pinned: ResolvedPinnedAccountProperty[],
                     dataFailed: boolean,
                     references: PinnedAccountProperty[] | null,
                     hasAccountFieldPin: boolean,
@@ -631,7 +631,7 @@ export const accountSidebarPropertiesLogic: LogicWrapper<accountSidebarPropertie
                 ): boolean =>
                     (references === null && configFailed) ||
                     definitionsFailed ||
-                    (pinned.length > 0 && dataFailed) ||
+                    dataFailed ||
                     (hasAccountFieldPin && accountFailed),
             ],
             // A failed load keeps the values of the previous successful load, so the blocking error
@@ -669,7 +669,7 @@ export const accountSidebarPropertiesLogic: LogicWrapper<accountSidebarPropertie
                     }
                 },
                 loadPropertyData: () => {
-                    if (values.resolvedPinnedProperties.length > 0) {
+                    if (values.needsPropertyData) {
                         actions.reloadPropertyData()
                     }
                     if (values.hasAccountFieldPin && !values.accountLoading) {
