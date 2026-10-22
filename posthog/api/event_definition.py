@@ -144,6 +144,18 @@ def _event_definitions_source_sql(
         """
 
 
+def _team_names_matching_sql(search_query: str) -> str:
+    """Finds the matching names with an index-only scan of `posthog_eventdef_team_name_idx`.
+
+    The outer query then reads only the matching rows. Searched in place, the page query reads the heap row
+    of every definition the team has, and the trigram index reads the matches of every project.
+    """
+    return (
+        " AND posthog_eventdefinition.name IN"
+        f" (SELECT name FROM posthog_eventdefinition WHERE team_id = %(project_id)s {search_query})"
+    )
+
+
 def create_event_definitions_count_sql(
     event_type: EventDefinitionType,
     is_enterprise: bool = False,
@@ -462,10 +474,13 @@ class EventDefinitionViewSet(
             else None
         )
         large_project = scale is not None and scale.large
-        # A small project is cheaper to search through its own index than through the global trigram index.
+        # A team below the team-scan limit is cheaper to search through its own index than through the global trigram index.
+        searches_by_trigram = scale is not None and scale.searches_by_trigram
         search_query, search_kwargs = term_search_filter_sql(
-            self.search_fields, search, avoid_trigram_index=not large_project
+            self.search_fields, search, avoid_trigram_index=not searches_by_trigram
         )
+        if search_query and not searches_by_trigram:
+            search_query = _team_names_matching_sql(search_query)
 
         params = {
             "project_id": self.project_id,
