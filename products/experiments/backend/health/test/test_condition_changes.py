@@ -10,7 +10,7 @@ from products.experiments.backend.health.condition_changes import (
     conditions_change_from_activity,
     conditions_net_effect,
 )
-from products.experiments.backend.health.context import ConditionsChange
+from products.feature_flags.backend.facade.edits import ConditionsChange
 
 CHANGED_AT = datetime(2026, 9, 12, 13, 4, tzinfo=UTC)
 PRO = {"key": "plan", "value": ["pro"], "operator": "exact", "type": "person"}
