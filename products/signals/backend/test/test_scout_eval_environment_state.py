@@ -12,7 +12,9 @@ from pydantic import ValidationError
 from posthog.models import User
 
 from products.posthog_ai.eval_harness.environment.restore import EnvironmentReceipt
+from products.signals.backend.implementation_pr import fetch_implementation_prs_for_reports
 from products.signals.backend.models import SignalScoutConfig, SignalScoutNote, SignalScoutRun, SignalScratchpad
+from products.signals.backend.report_claims import get_active_claim
 from products.signals.backend.scout_harness.eval_environment.schema import (
     ScoutEnvironmentCase,
     ScoutEnvironmentOrganization,
@@ -117,6 +119,19 @@ class TestScoutEnvironmentState(BaseTest):
         seed_users.assert_not_called()
 
     def test_restores_linked_history_with_local_operator_identity_and_rejects_dirty_reuse(self) -> None:
+        companion = ScoutEnvironmentSkill(
+            id=uuid4(),
+            name="example-companion",
+            body="Read the supporting reference.",
+            version=2,
+            origin="custom",
+            category="",
+            created_by="source-owner",
+            owners=["source-member"],
+            files={"references/example.md": "Supporting evidence."},
+            file_content_types={"references/example.md": "text/markdown"},
+        )
+        self.case = self.case.model_copy(update={"companion_skills": [companion]})
         with patch(
             "products.signals.backend.scout_harness.eval_environment.state.PreparedEnvironment.assert_local",
             return_value=self.receipt.databases,
@@ -126,6 +141,10 @@ class TestScoutEnvironmentState(BaseTest):
             with self.assertRaisesRegex(ValueError, "already populated"):
                 ScoutEnvironmentState.seed(self.case, self.receipt)
         config = SignalScoutConfig.objects.for_team(self.team.id).get(id=result.config_id)
+        restored_companion = LLMSkill.objects.get(team_id=self.team.id, name=companion.name)
+        self.assertEqual(restored_companion.version, companion.version)
+        self.assertEqual(restored_companion.category, companion.category)
+        self.assertEqual(restored_companion.files.get().content, "Supporting evidence.")
         self.organization.refresh_from_db()
         self.team.refresh_from_db()
         self.assertEqual(self.organization.name, "Example organization")
@@ -195,6 +214,86 @@ class TestScoutEnvironmentState(BaseTest):
         self.assertFalse(SignalScoutConfig.objects.for_team(self.team.id).exists())
         self.user.refresh_from_db()
         self.assertEqual(self.user.first_name, original_name)
+
+    def test_restores_report_claims_and_pull_requests_with_backing_tasks(self) -> None:
+        task_id, report_id, claim_id, pr_id = (uuid4() for _ in range(4))
+        created_at = self.checkpoint - timedelta(hours=1)
+        state = self.case.state.model_copy(
+            update={
+                "tasks": [
+                    ScoutEnvironmentRecord(
+                        id=task_id,
+                        created_at=created_at,
+                        fields={
+                            "title": "Example repair",
+                            "description": "Repair the example.",
+                            "origin_product": "signal_report",
+                            "internal": True,
+                            "created_by_id": "source-owner",
+                        },
+                    )
+                ],
+                "reports": [
+                    ScoutEnvironmentRecord(
+                        id=report_id, created_at=created_at, fields={"title": "Example report", "status": "ready"}
+                    )
+                ],
+                "pull_requests": [
+                    ScoutEnvironmentRecord(
+                        id=pr_id,
+                        created_at=created_at,
+                        fields={
+                            "repository": "example/project",
+                            "number": 1,
+                            "url": "https://github.com/example/project/pull/1",
+                            "state": "open",
+                        },
+                    )
+                ],
+                "report_artefacts": [
+                    ScoutEnvironmentRecord(
+                        id=claim_id,
+                        created_at=created_at,
+                        fields={
+                            "report_id": str(report_id),
+                            "type": "work_claim",
+                            "content": "{}",
+                            "actor_kind": "task",
+                            "task_id": str(task_id),
+                        },
+                    ),
+                    ScoutEnvironmentRecord(
+                        id=uuid4(),
+                        created_at=created_at,
+                        fields={
+                            "report_id": str(report_id),
+                            "type": "pull_request",
+                            "content": "{}",
+                            "actor_kind": "task",
+                            "task_id": str(task_id),
+                            "claim_id": str(claim_id),
+                            "pull_request_id": str(pr_id),
+                        },
+                    ),
+                ],
+            }
+        )
+        case = self.case.model_copy(update={"state": state})
+        with patch(
+            "products.signals.backend.scout_harness.eval_environment.state.PreparedEnvironment.assert_local",
+            return_value=self.receipt.databases,
+        ):
+            result = ScoutEnvironmentState.seed(case, self.receipt)
+            ScoutEnvironmentState.verify(case, self.receipt, result)
+        local_report = result.identity_map[str(report_id)]
+        claim = get_active_claim(team_id=self.team.id, report_id=local_report)
+        self.assertIsNotNone(claim)
+        assert claim is not None
+        self.assertEqual(str(claim.actor_task_id), result.identity_map[str(task_id)])
+        self.assertEqual(str(claim.claim_id), result.identity_map[str(claim_id)])
+        prs = fetch_implementation_prs_for_reports([local_report], team_id=self.team.id)[local_report]
+        self.assertEqual([(pr.url, pr.state) for pr in prs], [("https://github.com/example/project/pull/1", "open")])
+        self.assertEqual(prs[0].claim_id, result.identity_map[str(claim_id)])
 
     def test_source_emails_use_normal_account_storage_and_verify_without_changing_the_case(self) -> None:
         case = self.case.model_copy(

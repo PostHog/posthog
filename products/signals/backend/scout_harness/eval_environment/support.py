@@ -83,7 +83,21 @@ class ScoutEnvironmentSupport:
     NOTE_FIELDS = frozenset({"skill_name", "content", "created_by_id", "expires_at", "origin"})
     MEMORY_FIELDS = frozenset({"key", "content", "created_by_run_id", "created_by_identity", "expires_at"})
     ARTEFACT_FIELDS = frozenset(
-        {"report_id", "type", "content", "actor_kind", "actor_agent", "created_by_id", "task_id", "claim_id"}
+        {
+            "report_id",
+            "type",
+            "content",
+            "actor_kind",
+            "actor_agent",
+            "created_by_id",
+            "task_id",
+            "claim_id",
+            "pull_request_id",
+        }
+    )
+    TASK_FIELDS = frozenset({"title", "description", "origin_product", "internal", "created_by_id", "deleted"})
+    PULL_REQUEST_FIELDS = frozenset(
+        {"repository", "number", "url", "state", "review_decision", "merged_at", "checked_at"}
     )
     DATE_FIELDS = frozenset(
         {
@@ -97,6 +111,8 @@ class ScoutEnvironmentSupport:
             "started_at",
             "completed_at",
             "expires_at",
+            "merged_at",
+            "checked_at",
         }
     )
 
@@ -139,11 +155,21 @@ class ScoutEnvironmentSupport:
         users = {source.id for source in case.users} | {str(source.uuid) for source in case.users if source.uuid}
         runs = {record.id for record in case.state.runs}
         reports = {record.id for record in case.state.reports}
-        tasks = {UUID(str(record.fields.get("task_id") or uuid5(record.id, "task"))) for record in case.state.runs}
+        tasks = {UUID(str(record.fields.get("task_id") or uuid5(record.id, "task"))) for record in case.state.runs} | {
+            record.id for record in case.state.tasks
+        }
+        claims = {
+            record.id: record.fields.get("report_id")
+            for record in case.state.report_artefacts
+            if record.fields.get("type") == "work_claim"
+        }
+        pull_requests = {record.id for record in case.state.pull_requests}
         groups = (
             (case.state.runs, cls.RUN_FIELDS | cls.RUN_CONTEXT_FIELDS),
             (case.state.reports, cls.REPORT_FIELDS),
             (case.state.report_artefacts, cls.ARTEFACT_FIELDS),
+            (case.state.tasks, cls.TASK_FIELDS),
+            (case.state.pull_requests, cls.PULL_REQUEST_FIELDS),
             (case.state.notes, cls.NOTE_FIELDS),
             (case.state.memory, cls.MEMORY_FIELDS),
             ([case.state.profile] if case.state.profile else [], cls.PROFILE_FIELDS),
@@ -163,8 +189,12 @@ class ScoutEnvironmentSupport:
                         raise ValueError("Starting-state artefacts require their report in the bundle.")
                     if name == "task_id" and UUID(str(value)) not in tasks:
                         raise ValueError("Starting-state task references must resolve inside the bundle.")
-                    if name == "claim_id":
-                        raise ValueError("Scout artefact claim references are not supported by portable environments.")
+                    if name == "claim_id" and UUID(str(value)) not in claims:
+                        raise ValueError("Starting-state claims must refer to supplied work-claim artefacts.")
+                    if name == "claim_id" and claims[UUID(str(value))] != record.fields.get("report_id"):
+                        raise ValueError("Starting-state claims must belong to the same report as their artefacts.")
+                    if name == "pull_request_id" and UUID(str(value)) not in pull_requests:
+                        raise ValueError("Starting-state pull requests must resolve inside the bundle.")
                     if name in {"task_id", "task_run_id"}:
                         UUID(str(value))
                 cls._validate_dates(record.fields, case)

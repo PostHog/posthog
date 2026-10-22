@@ -35,6 +35,7 @@ class SourceSlicePlan(EnvironmentModel):
     purpose: Literal["scout", "events_only"] = "scout"
     project_id: int = Field(gt=0)
     skill_name: str = Field(min_length=1, max_length=64)
+    companion_skill_names: list[str] = Field(default_factory=list)
     draft_skill: Path | None = None
     draft_config: dict[str, JsonValue] = Field(default_factory=dict)
     profile_snapshot: Path | None = None
@@ -57,6 +58,10 @@ class SourceSlicePlan(EnvironmentModel):
 
     @model_validator(mode="after")
     def validate_scope(self) -> Self:
+        if self.skill_name in self.companion_skill_names or len(set(self.companion_skill_names)) != len(
+            self.companion_skill_names
+        ):
+            raise ValueError("Companion skills must be unique and different from the selected Scout.")
         supported = {"events", "data_catalog_metrics", "scout_context"}
         missing = sorted(set(self.dependencies) - supported)
         if missing:

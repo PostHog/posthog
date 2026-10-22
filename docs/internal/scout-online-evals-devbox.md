@@ -22,6 +22,15 @@ continue to work. See the [bundle README](../../products/posthog_ai/eval_harness
 for command usage and the skill's real-data reference for current API limits,
 including the required existing project-profile snapshot.
 
+A source plan can include `companion_skill_names` for skills the scout reads.
+The bundle preserves their versions, files, categories, authors and owners, and
+verifies their restored content before each trial. Only the primary skill gets
+a scout config; importing a companion does not schedule it.
+Starting state can include backing tasks, work-claim artefacts and pull requests
+so report ownership and review state remain linked after IDs are remapped.
+Each claim must belong to the artefact's report. Task channels and external
+connections still require separate restore support.
+
 Real-data cases use `prompt_mode="native"`: leave `SCOUT_EVAL_ENVIRONMENT_FILE`
 unset so the runner builds its ordinary prompt from restored context. Freeze
 still binds the case and harness version; the native `runtime-prompt.json` is a

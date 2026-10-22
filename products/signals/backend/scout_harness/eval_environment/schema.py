@@ -28,6 +28,7 @@ class ScoutEnvironmentSkill(EnvironmentModel):
     body: str
     version: int = Field(ge=1)
     origin: Literal["canonical", "custom"]
+    category: str = "scout"
     allowed_tools: list[str] = Field(default_factory=list)
     files: dict[str, str] = Field(default_factory=dict)
     file_content_types: dict[str, str] = Field(default_factory=dict)
@@ -70,6 +71,8 @@ class ScoutEnvironmentStartingState(EnvironmentModel):
     runs: list[ScoutEnvironmentRecord] = Field(default_factory=list)
     reports: list[ScoutEnvironmentRecord] = Field(default_factory=list)
     report_artefacts: list[ScoutEnvironmentRecord] = Field(default_factory=list)
+    tasks: list[ScoutEnvironmentRecord] = Field(default_factory=list)
+    pull_requests: list[ScoutEnvironmentRecord] = Field(default_factory=list)
 
     def records(self) -> list[ScoutEnvironmentRecord]:
         return [
@@ -79,6 +82,8 @@ class ScoutEnvironmentStartingState(EnvironmentModel):
             *self.runs,
             *self.reports,
             *self.report_artefacts,
+            *self.tasks,
+            *self.pull_requests,
         ]
 
 
@@ -104,6 +109,7 @@ class ScoutEnvironmentCase(EnvironmentTextPolicy):
     project_name: str | None = Field(default=None, min_length=1)
     organization: ScoutEnvironmentOrganization = Field(default_factory=ScoutEnvironmentOrganization)
     skill: ScoutEnvironmentSkill
+    companion_skills: list[ScoutEnvironmentSkill] = Field(default_factory=list)
     config: dict[str, JsonValue] = Field(default_factory=dict)
     steering: str = ""
     prompt_mode: Literal["recorded", "native"] = "recorded"
@@ -119,19 +125,26 @@ class ScoutEnvironmentCase(EnvironmentTextPolicy):
             raise ValueError(
                 "Native scout environments must use the ordinary harness prompt without recorded overrides."
             )
-        identities = [self.skill.id, *(row.id for row in self.state.records())]
+        skills = [self.skill, *self.companion_skills]
+        identities = [*(skill.id for skill in skills), *(row.id for row in self.state.records())]
         if len(identities) != len(set(identities)):
             raise ValueError("Starting-state record IDs must be unique.")
+        if len({skill.name for skill in skills}) != len(skills):
+            raise ValueError("Starting-state skill names must be unique.")
         users = {user.id for user in self.users}
         if len(users) != len(self.users) or sum(user.is_operator for user in self.users) > 1:
             raise ValueError("Source users must be unique and have at most one operator.")
-        referenced_users = {*self.skill.owners, *([self.skill.created_by] if self.skill.created_by else [])}
+        referenced_users = {
+            user_id
+            for skill in skills
+            for user_id in [*skill.owners, *([skill.created_by] if skill.created_by else [])]
+        }
         if referenced_users - users:
             raise ValueError("Skill authors and owners must refer to supplied users.")
         for record in self.state.records():
             if record.created_at > self.checkpoint or (record.updated_at and record.updated_at > self.checkpoint):
                 raise ValueError("Starting state cannot contain versions written after the checkpoint.")
-        for timestamp in (self.skill.created_at, self.skill.updated_at):
+        for timestamp in (timestamp for skill in skills for timestamp in (skill.created_at, skill.updated_at)):
             if timestamp and timestamp > self.checkpoint:
                 raise ValueError("The skill version must exist at the checkpoint.")
         return self

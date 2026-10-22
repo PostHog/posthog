@@ -19,6 +19,7 @@ from products.signals.backend.models import (
     SignalProjectProfile,
     SignalReport,
     SignalReportArtefact,
+    SignalReportPullRequest,
     SignalScoutConfig,
     SignalScoutNote,
     SignalScoutRun,
@@ -29,6 +30,7 @@ from products.signals.backend.scout_harness.eval_environment.schema import (
     ScoutEnvironmentCase,
     ScoutEnvironmentRecord,
     ScoutEnvironmentSeed,
+    ScoutEnvironmentSkill,
     ScoutEnvironmentUser,
 )
 from products.signals.backend.scout_harness.eval_environment.support import ScoutEnvironmentSupport
@@ -52,9 +54,14 @@ class ScoutEnvironmentState:
             SignalScoutRun: {record.id for record in case.state.runs},
             SignalReport: {record.id for record in case.state.reports},
             SignalReportArtefact: {record.id for record in case.state.report_artefacts},
-            Task: set(),
+            SignalReportPullRequest: {record.id for record in case.state.pull_requests},
+            Task: {record.id for record in case.state.tasks},
         }
-        identifiers = [case.skill.id, *(row.id for row in case.state.records())]
+        identifiers = [
+            case.skill.id,
+            *(skill.id for skill in case.companion_skills),
+            *(row.id for row in case.state.records()),
+        ]
         for user in case.users:
             if user.uuid:
                 identifiers.append(user.uuid)
@@ -147,6 +154,8 @@ class ScoutEnvironmentState:
         groups = (
             (SignalReport, case.state.reports, ScoutEnvironmentSupport.REPORT_FIELDS),
             (SignalReportArtefact, case.state.report_artefacts, ScoutEnvironmentSupport.ARTEFACT_FIELDS),
+            (Task, case.state.tasks, ScoutEnvironmentSupport.TASK_FIELDS),
+            (SignalReportPullRequest, case.state.pull_requests, ScoutEnvironmentSupport.PULL_REQUEST_FIELDS),
             (SignalScoutNote, case.state.notes, ScoutEnvironmentSupport.NOTE_FIELDS),
             (SignalScratchpad, case.state.memory, ScoutEnvironmentSupport.MEMORY_FIELDS),
             (
@@ -174,7 +183,11 @@ class ScoutEnvironmentState:
                     frozenset({"status", "created_at", "completed_at", "error_message"}),
                 ),
             )
-        source_skill = case.skill
+        for source_skill in [case.skill, *case.companion_skills]:
+            cls._validate_skill(source_skill)
+
+    @classmethod
+    def _validate_skill(cls, source_skill: ScoutEnvironmentSkill) -> None:
         skill = LLMSkill(name=source_skill.name, metadata=source_skill.metadata)
         if scout_skill_row_origin(skill) != source_skill.origin:
             raise ValueError("Scout skill metadata does not preserve its declared origin.")
@@ -271,8 +284,7 @@ class ScoutEnvironmentState:
                 if user.get_github_login() != source.github_login:
                     raise ValueError("The reconstructed member already resolves to another GitHub identity.")
 
-    def _seed_skill(self, team: Team) -> LLMSkill:
-        source = self.case.skill
+    def _seed_skill(self, team: Team, source: ScoutEnvironmentSkill) -> LLMSkill:
         row = LLMSkill.objects.create(
             id=self.transform.identity(source.id),
             team_id=team.id,
@@ -282,7 +294,7 @@ class ScoutEnvironmentState:
             version=source.version,
             allowed_tools=source.allowed_tools,
             metadata=self.transform.value(source.metadata),
-            category="scout",
+            category=source.category,
             created_by_id=self._user(source.created_by),
             license=source.license,
             compatibility=source.compatibility,
@@ -396,7 +408,9 @@ class ScoutEnvironmentState:
             name=self._project_name()
         )
         self._seed_users(team, operator)
-        skill = self._seed_skill(team)
+        skill = self._seed_skill(team, self.case.skill)
+        for source_skill in self.case.companion_skills:
+            self._seed_skill(team, source_skill)
         config_values = self._config_values()
         config = SignalScoutConfig(
             id=uuid5(receipt.identity_namespace, f"scout-config:{self.case.environment_id}"),
@@ -409,10 +423,14 @@ class ScoutEnvironmentState:
         if config_dates:
             SignalScoutConfig.objects.for_team(team.id).filter(id=config.id).update(**config_dates)
         SignalTeamConfig.objects.update_or_create(team_id=team.id, defaults={"autostart_enabled": False})
+        for record in self.case.state.tasks:
+            self._insert(Task, record, ScoutEnvironmentSupport.TASK_FIELDS)
         for record in self.case.state.runs:
             self._seed_run(record, config)
         for record in self.case.state.reports:
             self._insert(SignalReport, record, self._REPORT_FIELDS)
+        for record in self.case.state.pull_requests:
+            self._insert(SignalReportPullRequest, record, ScoutEnvironmentSupport.PULL_REQUEST_FIELDS)
         reviewer_report_ids: set[str] = set()
         for record in self.case.state.report_artefacts:
             artefact = cast(
@@ -420,18 +438,7 @@ class ScoutEnvironmentState:
                 self._insert(
                     SignalReportArtefact,
                     record,
-                    frozenset(
-                        {
-                            "report_id",
-                            "type",
-                            "content",
-                            "actor_kind",
-                            "actor_agent",
-                            "created_by_id",
-                            "task_id",
-                            "claim_id",
-                        }
-                    ),
+                    ScoutEnvironmentSupport.ARTEFACT_FIELDS,
                 ),
             )
             if artefact.type == SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS:
@@ -483,7 +490,12 @@ class ScoutEnvironmentState:
             raise ValueError(f"The prepared {type(row).__name__} baseline changed.")
 
     def _verify_records(
-        self, model: type[models.Model], records: list[ScoutEnvironmentRecord], allowed: frozenset[str]
+        self,
+        model: type[models.Model],
+        records: list[ScoutEnvironmentRecord],
+        allowed: frozenset[str],
+        *,
+        allow_extra: bool = False,
     ) -> None:
         manager = model._default_manager
         rows = (
@@ -494,7 +506,8 @@ class ScoutEnvironmentState:
         if model is SignalScoutRun:
             rows = rows.exclude(pk__in=rows.filter(metadata__scout_trial__version=1).values("pk"))
         expected_ids = {self.transform.identity(record.id) for record in records}
-        if set(rows.values_list("id", flat=True)) != expected_ids:
+        actual_ids = set(rows.values_list("id", flat=True))
+        if not expected_ids <= actual_ids or (not allow_extra and actual_ids != expected_ids):
             raise ValueError(f"The prepared {model.__name__} record set changed.")
         for record in records:
             values = self._fields(model, record.fields, allowed)
@@ -548,43 +561,11 @@ class ScoutEnvironmentState:
                     raise ValueError("The prepared user UUID mapping changed.")
             if source.github_login and user.get_github_login() != source.github_login:
                 raise ValueError("The prepared member GitHub identity changed.")
-        skill = LLMSkill.objects.get(team_id=team.id, id=seed.skill_id)
-        source_skill = self.case.skill
-        self._assert_values(
-            skill,
-            {
-                "name": source_skill.name,
-                "body": self.transform.text(source_skill.body),
-                "description": self.transform.text(source_skill.description),
-                "version": source_skill.version,
-                "allowed_tools": source_skill.allowed_tools,
-                "metadata": self.transform.value(source_skill.metadata),
-                "license": source_skill.license,
-                "compatibility": source_skill.compatibility,
-                "created_at": (source_skill.created_at or self.case.checkpoint) + self.transform.delta,
-                "updated_at": (source_skill.updated_at or source_skill.created_at or self.case.checkpoint)
-                + self.transform.delta,
-                "created_by_id": self._user(source_skill.created_by),
-                "deleted": False,
-                "is_latest": True,
-            },
-        )
-        if scout_skill_row_origin(skill) != source_skill.origin:
-            raise ValueError("The prepared scout origin changed.")
-        files = {row.path: (row.content, row.content_type) for row in skill.files.all()}
-        if files != {
-            path: (self.transform.text(content), source_skill.file_content_types.get(path, "text/plain"))
-            for path, content in source_skill.files.items()
-        }:
-            raise ValueError("The prepared skill files changed.")
-        owners = set(
-            LLMSkillOwner.objects.for_team(team.id, canonical=True)
-            .filter(skill_name=source_skill.name)
-            .values_list("user_id", flat=True)
-        )
-        if owners != {self._user(source) for source in source_skill.owners}:
-            raise ValueError("The prepared skill owners changed.")
-        config = SignalScoutConfig.objects.for_team(team.id).get(id=seed.config_id, skill_name=source_skill.name)
+        if seed.skill_id != self.transform.identity(self.case.skill.id):
+            raise ValueError("The prepared scout skill mapping changed.")
+        for source_skill in [self.case.skill, *self.case.companion_skills]:
+            self._verify_skill(source_skill)
+        config = SignalScoutConfig.objects.for_team(team.id).get(id=seed.config_id, skill_name=self.case.skill.name)
         self._assert_values(config, self._config_values())
         if SignalTeamConfig.objects.get(team_id=team.id).autostart_enabled is not False:
             raise ValueError("The isolated project autostart protection changed.")
@@ -599,12 +580,14 @@ class ScoutEnvironmentState:
             ScoutEnvironmentSupport.MEMORY_FIELDS,
         )
         self._verify_records(SignalReport, self.case.state.reports, self._REPORT_FIELDS)
+        self._verify_records(Task, self.case.state.tasks, ScoutEnvironmentSupport.TASK_FIELDS, allow_extra=True)
+        self._verify_records(
+            SignalReportPullRequest, self.case.state.pull_requests, ScoutEnvironmentSupport.PULL_REQUEST_FIELDS
+        )
         self._verify_records(
             SignalReportArtefact,
             self.case.state.report_artefacts,
-            frozenset(
-                {"report_id", "type", "content", "actor_kind", "actor_agent", "created_by_id", "task_id", "claim_id"}
-            ),
+            ScoutEnvironmentSupport.ARTEFACT_FIELDS,
         )
         self._verify_records(
             SignalProjectProfile,
@@ -634,6 +617,44 @@ class ScoutEnvironmentState:
             if run.task_run.team_id != team.id or run.task_run.task.team_id != team.id:
                 raise ValueError("A historical task no longer belongs to the isolated project.")
         self._verify_records(SignalScoutRun, run_records, self._RUN_FIELDS)
+
+    def _verify_skill(self, source_skill: ScoutEnvironmentSkill) -> None:
+        skill = LLMSkill.objects.get(team_id=self.team_id, id=self.transform.identity(source_skill.id))
+        self._assert_values(
+            skill,
+            {
+                "name": source_skill.name,
+                "body": self.transform.text(source_skill.body),
+                "description": self.transform.text(source_skill.description),
+                "version": source_skill.version,
+                "allowed_tools": source_skill.allowed_tools,
+                "metadata": self.transform.value(source_skill.metadata),
+                "license": source_skill.license,
+                "compatibility": source_skill.compatibility,
+                "category": source_skill.category,
+                "created_at": (source_skill.created_at or self.case.checkpoint) + self.transform.delta,
+                "updated_at": (source_skill.updated_at or source_skill.created_at or self.case.checkpoint)
+                + self.transform.delta,
+                "created_by_id": self._user(source_skill.created_by),
+                "deleted": False,
+                "is_latest": True,
+            },
+        )
+        if scout_skill_row_origin(skill) != source_skill.origin:
+            raise ValueError("The prepared scout origin changed.")
+        files = {row.path: (row.content, row.content_type) for row in skill.files.all()}
+        if files != {
+            path: (self.transform.text(content), source_skill.file_content_types.get(path, "text/plain"))
+            for path, content in source_skill.files.items()
+        }:
+            raise ValueError("The prepared skill files changed.")
+        owners = set(
+            LLMSkillOwner.objects.for_team(self.team_id, canonical=True)
+            .filter(skill_name=source_skill.name)
+            .values_list("user_id", flat=True)
+        )
+        if owners != {self._user(source) for source in source_skill.owners}:
+            raise ValueError("The prepared skill owners changed.")
 
     @classmethod
     def verify(cls, case: ScoutEnvironmentCase, receipt: EnvironmentReceipt, seed: ScoutEnvironmentSeed) -> None:

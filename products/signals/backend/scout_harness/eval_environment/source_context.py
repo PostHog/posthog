@@ -166,8 +166,9 @@ class SourceContext:
             config["rubrics"] = {key: value for key, value in rubric.items() if key not in {"config_id", "skill_name"}}
         return config
 
-    def _skill(self, config: dict[str, JsonValue]) -> ScoutEnvironmentSkill:
-        if self.plan.draft_skill is not None:
+    def _skill(self, config: dict[str, JsonValue], *, skill_name: str | None = None) -> ScoutEnvironmentSkill:
+        selected_name = skill_name or self.plan.skill_name
+        if self.plan.draft_skill is not None and skill_name is None:
             draft_path = require_private_path(self.plan.draft_skill)
             try:
                 parsed = parse_skill_md(draft_path.read_text())
@@ -200,7 +201,7 @@ class SourceContext:
                     "owners": [user.id for user in self.users.values() if user.is_operator],
                 }
             )
-        path = self.api.project_path + "llm_skills/name/" + quote(self.plan.skill_name, safe="") + "/"
+        path = self.api.project_path + "llm_skills/name/" + quote(selected_name, safe="") + "/"
         row = object_value(self.api.read(path))
         version = row.get("version")
         if not isinstance(version, int):
@@ -234,8 +235,8 @@ class SourceContext:
             files[name], types[name] = body_text, string_value(content.get("content_type"))
         owners = [self._user(owner) for owner in array_value(row.get("owners", []))]
         creator = self._user(row.get("created_by"))
-        origin = config.get("scout_origin", "custom")
         metadata = object_value(row.get("metadata", {}))
+        origin = config.get("scout_origin", "canonical" if metadata.get("canonical_hash") else "custom")
         allowed_tools = [string_value(tool) for tool in array_value(row.get("allowed_tools", []))]
         if origin == "canonical" and metadata.get("canonical_hash") is not None:
             # The runtime's row-origin check compares this same complete content shape.
@@ -249,7 +250,7 @@ class SourceContext:
                 origin = "custom"
         return ScoutEnvironmentSkill(
             id=UUID(string_value(row.get("id"))),
-            name=self.plan.skill_name,
+            name=selected_name,
             description=string_value(row.get("description")),
             body=body,
             version=version,
@@ -264,6 +265,7 @@ class SourceContext:
             metadata=metadata,
             license=string_value(row.get("license", "")),
             compatibility=string_value(row.get("compatibility", "")),
+            category=string_value(row.get("category") or ""),
         )
 
     def _metrics(self) -> list[EnvironmentMetric]:
@@ -353,6 +355,7 @@ class SourceContext:
         self._user(user_document, operator=True)
         config = self._config()
         skill = self._skill(config)
+        companion_skills = [self._skill({}, skill_name=name) for name in self.plan.companion_skill_names]
         metrics = self._metrics()
         base = self.api.project_path + "signals/scout/"
         notes = self.api.dated_rows(
@@ -418,7 +421,13 @@ class SourceContext:
         for identifier in sorted(report_ids):
             path = self.api.project_path + "signals/reports/" + str(UUID(identifier)) + "/"
             row = object_value(self.api.read(path))
-            if row.get("channel_id") or row.get("pull_requests") or row.get("assignee") or row.get("work_state"):
+            expected_work_state = "done" if row.get("status") in {"resolved", "monitoring"} else "unclaimed"
+            if (
+                row.get("channel_id")
+                or row.get("pull_requests")
+                or row.get("assignee")
+                or row.get("work_state") not in {None, expected_work_state}
+            ):
                 raise SourceExportError(
                     "A selected report depends on unsupported task channels, work assignments or pull requests."
                 )
@@ -485,6 +494,7 @@ class SourceContext:
                 is_ai_training_opted_in=bool(org.get("is_ai_training_opted_in", False)),
             ),
             skill=skill,
+            companion_skills=companion_skills,
             config={key: value for key, value in config.items() if key in self.CONFIG_FIELDS},
             steering=self.plan.steering,
             prompt_mode="native",

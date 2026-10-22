@@ -45,6 +45,8 @@ class SourceFixture:
         self.drift = False
         self.empty_page = False
         self.unknown_author = False
+        self.report_status = "ready"
+        self.work_state = "unclaimed"
         self.destination: dict[str, JsonValue] = {"slack": None, "webhook": None, "inbox": True}
         self.skill_body = "Read events."
         self.user: dict[str, JsonValue] = {
@@ -136,12 +138,13 @@ class SourceFixture:
                     "generation": None,
                 },
             )
-        if path == "llm_skills/name/example-scout/":
+        if path in {"llm_skills/name/example-scout/", "llm_skills/name/example-companion/"}:
+            companion = path == "llm_skills/name/example-companion/"
             return httpx.Response(
                 200,
                 json={
-                    "id": self.skill_id,
-                    "name": "example-scout",
+                    "id": "00000000-0000-4000-8000-000000000009" if companion else self.skill_id,
+                    "name": "example-companion" if companion else "example-scout",
                     "description": "Inspect example events.",
                     "body": self.skill_body,
                     "body_total_length": len(self.skill_body),
@@ -212,7 +215,8 @@ class SourceFixture:
                     "id": self.report_id,
                     "title": "Example finding",
                     "summary": "Invented example.",
-                    "status": "ready",
+                    "status": self.report_status,
+                    "work_state": self.work_state,
                     "created_at": self.date,
                     "updated_at": self.date,
                 },
@@ -290,7 +294,7 @@ class TestSourceExport(SimpleTestCase):
         fixture = SourceFixture()
         with TemporaryDirectory() as temporary:
             directory = Path(temporary)
-            plan = fixture.plan(directory)
+            plan = fixture.plan(directory).model_copy(update={"companion_skill_names": ["example-companion"]})
             output = directory / "export"
             result = SourceEnvironmentExporter(self.api(fixture), plan).export(output)
             rows = list(EVENT_TABLE.read(output / "events.parquet"))
@@ -300,6 +304,9 @@ class TestSourceExport(SimpleTestCase):
             assert rows[0].created_at.microsecond == 654321
             assert rows[0].properties == {"quality": "observed"}
             assert case.prompt_mode == "native" and case.timezone == "America/Los_Angeles"
+            assert [skill.name for skill in case.companion_skills] == ["example-companion"]
+            assert case.companion_skills[0].body == fixture.skill_body
+            assert case.companion_skills[0].owners == ["1"]
             assert case.config["output_destinations"] == {"slack": None, "webhook": None, "inbox": True}
             rubrics = case.config["rubrics"]
             assert isinstance(rubrics, dict) and rubrics["revision"] == 3
@@ -416,6 +423,19 @@ class TestSourceExport(SimpleTestCase):
                 SourceSlicePlan.model_validate(
                     {**plan.model_dump(), "dependencies": ["events", "scout_context", "persons"]}
                 )
+
+    @parameterized.expand([("ready", "working"), ("ready", "in_review"), ("resolved", "unclaimed")])
+    def test_report_work_state_must_be_reproducible_without_missing_assignments(
+        self, status: str, work_state: str
+    ) -> None:
+        fixture = SourceFixture()
+        fixture.report_status = status
+        fixture.work_state = work_state
+        with TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            with self.assertRaisesRegex(SourceExportError, "unsupported task channels"):
+                SourceEnvironmentExporter(self.api(fixture), fixture.plan(directory)).export(directory / "export")
+        assert not any(request.url.path.endswith("query/") for request in fixture.requests)
 
     def test_quoted_event_names_and_property_values_remain_literals(self) -> None:
         fixture = SourceFixture()
