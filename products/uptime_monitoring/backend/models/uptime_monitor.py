@@ -14,6 +14,7 @@ from products.uptime_monitoring.backend.facade.enums import UptimeMonitorMethod
 
 MIN_INTERVAL_SECONDS = 60
 MAX_INTERVAL_SECONDS = 24 * 60 * 60
+MIN_TIMEOUT_SECONDS = 1
 MAX_TIMEOUT_SECONDS = 30
 
 
@@ -21,7 +22,7 @@ class UptimeMonitor(TeamScopedRootMixin, UUIDModel):
     Method = UptimeMonitorMethod
 
     # No database constraint: creating one takes a lock on `posthog_team` that queues behind
-    # live writes. Django still cascades in Python, which is the only path that deletes a team.
+    # live writes. Django still cascades the delete in Python.
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     # No database constraint, for the same reason on `posthog_user`.
     created_by = models.ForeignKey(
@@ -32,14 +33,15 @@ class UptimeMonitor(TeamScopedRootMixin, UUIDModel):
 
     name = models.CharField(max_length=255)
     url = models.URLField(max_length=2048)
-    method = models.CharField(max_length=8, choices=Method.choices, default=Method.GET.value, db_default="GET")
-    # In seconds rather than a runner's own unit, so each runner checks its own floor when it attaches.
+    method = models.CharField(max_length=8, choices=Method.choices, default=Method.GET, db_default=Method.GET)
     interval_seconds = models.PositiveIntegerField(
         default=300,
         db_default=300,
         validators=[MinValueValidator(MIN_INTERVAL_SECONDS), MaxValueValidator(MAX_INTERVAL_SECONDS)],
     )
     timeout_seconds = models.PositiveIntegerField(
-        default=10, db_default=10, validators=[MinValueValidator(1), MaxValueValidator(MAX_TIMEOUT_SECONDS)]
+        default=10,
+        db_default=10,
+        validators=[MinValueValidator(MIN_TIMEOUT_SECONDS), MaxValueValidator(MAX_TIMEOUT_SECONDS)],
     )
     enabled = models.BooleanField(default=True, db_default=True)
