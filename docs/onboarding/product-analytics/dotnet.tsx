@@ -73,14 +73,12 @@ export const getDotNetInstallSteps = (ctx: OnboardingComponentsContext): StepDef
                                 code: dedent`
                                     using PostHog;
 
-                                    var posthog = new PostHogClient(new PostHogOptions
+                                    // Disposing the client sends any queued events before your app exits
+                                    await using var posthog = new PostHogClient(new PostHogOptions
                                     {
                                         ProjectToken = "<ph_project_token>",
                                         HostUrl = new Uri("<ph_client_api_host>"),
                                     });
-
-                                    // Send any queued events before your app exits
-                                    await posthog.FlushAsync();
                                 `,
                             },
                         ]}
