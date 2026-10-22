@@ -1,4 +1,5 @@
 import json
+from collections.abc import Callable
 from datetime import datetime, timedelta
 from typing import Any, Optional
 from uuid import uuid4
@@ -703,16 +704,37 @@ email@example.org
         mock_delay.assert_called_once_with(cohort.pk, self.team.id)
         mock_csv_delay.assert_not_called()
 
-    @patch("posthog.tasks.calculate_cohort.insert_cohort_from_query.delay")
-    def test_static_cohort_patch_with_query_releases_claim_when_enqueue_fails(self, mock_delay: MagicMock):
+    @parameterized.expand(
+        [
+            (
+                "query",
+                "posthog.tasks.calculate_cohort.insert_cohort_from_query.delay",
+                lambda: {"data": {"query": {"kind": "ActorsQuery", "properties": []}}},
+            ),
+            (
+                "csv",
+                "posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay",
+                lambda: {
+                    "data": {
+                        "csv": SimpleUploadedFile("example.csv", b"distinct_id\n123\n", content_type="application/csv")
+                    },
+                    "format": "multipart",
+                },
+            ),
+        ]
+    )
+    def test_static_cohort_patch_releases_claim_when_enqueue_fails(
+        self, source_field: str, delay_path: str, request_kwargs: Callable[[], dict[str, Any]]
+    ):
         cohort = Cohort.objects.create(team=self.team, name="static", is_static=True)
-        query = {"kind": "ActorsQuery", "properties": []}
-        mock_delay.side_effect = [ConnectionError("broker down"), None]
+        url = f"/api/projects/{self.team.id}/cohorts/{cohort.pk}"
 
-        failed = self.client.patch(f"/api/projects/{self.team.id}/cohorts/{cohort.pk}", data={"query": query})
-        retried = self.client.patch(f"/api/projects/{self.team.id}/cohorts/{cohort.pk}", data={"query": query})
+        with patch(delay_path, side_effect=[ConnectionError("broker down"), None]) as mock_delay:
+            failed = self.client.patch(url, **request_kwargs())
+            retried = self.client.patch(url, **request_kwargs())
 
         self.assertEqual(failed.status_code, 400, failed.json())
+        self.assertEqual(failed.json()["attr"], source_field)
         self.assertEqual(retried.status_code, 200, retried.json())
         self.assertEqual(mock_delay.call_count, 2)
 
