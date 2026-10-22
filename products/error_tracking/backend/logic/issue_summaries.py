@@ -4,6 +4,7 @@ Every trigger calls `get_or_generate_issue_summary`, directly or through the Cel
 the stored summary when no new one is due, so callers need no freshness logic of their own.
 """
 
+import re
 import json
 import time
 import hashlib
@@ -101,6 +102,8 @@ PRIVACY_MODE_HEADER = "X-PostHog-Privacy-Mode"
 UNKNOWN = "unknown"
 IN_APP_FRAME_MARKER = "[in-app]"
 WAIT_POLL_INTERVAL_SECONDS = 0.25
+# Event values must not open or close the <issue> block that fences them in the prompt.
+ISSUE_FENCE_TAG = re.compile(r"</?\s*issue\s*>", re.IGNORECASE)
 LOCK_HELD_FOR_GENERATION = "1"
 
 
@@ -377,23 +380,26 @@ def build_issue_summary_inputs(team: Team, issue_id: UUID | str) -> IssueSummary
     exception = first_exception(event_properties)
     handled = mechanism_handled(event_properties)
 
+    fields = {
+        "exception_type": _text(exception.get("type")),
+        "exception_message": _text(truncate_text(exception.get("value"), 500)),
+        "handled": UNKNOWN if handled is None else ("yes" if handled else "no"),
+        "level": _text(event_properties.get("$exception_level")),
+        "lib": _text(event_properties.get("$lib")),
+        "url_path": _text(page_without_query(event_properties.get("$current_url"))),
+        "stack_trace": stack_trace.rstrip("\n"),
+        "first_seen": first_seen.isoformat() if first_seen else UNKNOWN,
+        "first_release": _text(first_release),
+        "latest_release": _text(latest_release),
+        "trend_direction": _text(trend.get("direction")),
+        "previous_occurrences": _count(trend.get("previous_occurrences")),
+        "current_occurrences": _count(trend.get("current_occurrences")),
+        "occurrences": _count(impact.get("occurrences")),
+        "users": _count(impact.get("users")),
+        "sessions": _count(impact.get("sessions")),
+    }
     prompt = ISSUE_SUMMARY_INPUT_TEMPLATE.format(
-        exception_type=_text(exception.get("type")),
-        exception_message=_text(truncate_text(exception.get("value"), 500)),
-        handled=UNKNOWN if handled is None else ("yes" if handled else "no"),
-        level=_text(event_properties.get("$exception_level")),
-        lib=_text(event_properties.get("$lib")),
-        url_path=_text(page_without_query(event_properties.get("$current_url"))),
-        stack_trace=stack_trace.rstrip("\n"),
-        first_seen=first_seen.isoformat() if first_seen else UNKNOWN,
-        first_release=_text(first_release),
-        latest_release=_text(latest_release),
-        trend_direction=_text(trend.get("direction")),
-        previous_occurrences=_count(trend.get("previous_occurrences")),
-        current_occurrences=_count(trend.get("current_occurrences")),
-        occurrences=_count(impact.get("occurrences")),
-        users=_count(impact.get("users")),
-        sessions=_count(impact.get("sessions")),
+        **{name: ISSUE_FENCE_TAG.sub("", value) for name, value in fields.items()}
     )
     fingerprints = list(
         ErrorTrackingIssueFingerprintV2.objects.filter(team_id=team.id, issue_id=issue_id).values_list(
