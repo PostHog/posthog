@@ -3,7 +3,8 @@ from typing import Literal
 
 from django.conf import settings
 
-from posthog.models.instance_setting import get_instance_settings
+from posthog.credentials_service.callers import CredentialsCaller
+from posthog.credentials_service.instance_settings import get_many_or_instance_settings
 
 OAuthCredentialsSource = Literal["slack_app", "slack_dev_app"]
 
@@ -40,9 +41,11 @@ def resolve_oauth_credentials_source(source: str) -> dict[str, str]:
         raise ValueError(f"Unknown OAuth credential source: {source}")
 
     prefix = "SLACK_DEV_APP" if source == "slack_dev_app" else "SLACK_APP"
-    instance_settings = get_instance_settings([f"{prefix}_CLIENT_ID", f"{prefix}_CLIENT_SECRET"])
-    client_id = instance_settings.get(f"{prefix}_CLIENT_ID")
-    client_secret = instance_settings.get(f"{prefix}_CLIENT_SECRET")
+    credentials = get_many_or_instance_settings(
+        [f"{prefix}_CLIENT_ID", f"{prefix}_CLIENT_SECRET"], CredentialsCaller.INTEGRATIONS
+    )
+    client_id = credentials.get(f"{prefix}_CLIENT_ID")
+    client_secret = credentials.get(f"{prefix}_CLIENT_SECRET")
     return {
         "client_id": client_id if isinstance(client_id, str) else "",
         "client_secret": client_secret if isinstance(client_secret, str) else "",

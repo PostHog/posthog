@@ -64,6 +64,7 @@ Decision models are available under the existing LLM judge option. They return t
 The evaluation editor separates **Judge method** from **Model**. Choose **LLM with explanation** for chat completions or **Decision model** for typed decisions.
 Each method lists models with the corresponding capability from the project's saved provider connections. API keys stay in AI provider settings.
 Switching methods keeps a compatible model and its saved connection; an incompatible model is cleared without changing the criteria or output settings.
+Leaving decision judging for LLM judging or Hog resets an invalid threshold to its default and preserves valid thresholds.
 Changing the judge method marks the evaluation as edited, including when the selected model supports both methods.
 The selection is stored as `evaluation_config.judge_method` (`llm` or `decision`). Evaluations without this field keep automatic routing until a method or model is explicitly selected.
 Automatic OpenRouter routing selects decisions only for models without text output. Models supporting both methods keep chat routing unless decisions are explicitly selected.
@@ -147,7 +148,10 @@ API compatibility does not guarantee equivalent judgments or calibration across 
 Compare results on representative inputs when changing models.
 
 For boolean evaluations, the prompt becomes a [Noul question](https://docs.typesafe.ai/primitives/noul).
-A probability of at least 0.5 produces `true`; the evaluation's existing pass/fail polarity still applies.
+A probability at or above `output_config.decision_threshold` produces `true`; the evaluation's existing pass/fail polarity still applies.
+The threshold accepts finite numbers from 0 to 1, inclusive, and defaults to 0.5 when omitted or null.
+For boolean judges, selecting **Decision model** shows **Decision threshold** as a percentage inside the **Judge model** section, below the model selector.
+Changing the threshold affects new runs only; historical verdicts remain unchanged.
 The raw probability is stored in `$ai_evaluation_probability` when the criteria apply, with available token usage and the configured model ID.
 Missing or invalid token counts remain unknown and do not discard a valid answer.
 Ingestion estimates cost from the configured model and token usage when the model appears in the existing pricing catalog.
