@@ -19,7 +19,14 @@ const SERIES_COLORS = Object.fromEntries(
     Object.entries(METRIC_LABELS).map(([metricName, label]) => [metricName, METRIC_COLORS[label]])
 )
 
-export function BroadcastSendActivity({ runId, runStartedAt, channel }: BroadcastPerformanceLogicProps): JSX.Element {
+export function BroadcastSendActivity({
+    runId,
+    runStartedAt,
+    channel,
+    hideSingleBucket = false,
+}: BroadcastPerformanceLogicProps & {
+    hideSingleBucket?: boolean
+}): JSX.Element | null {
     const { appMetricsTrends, appMetricsTrendsLoading } = useValues(
         appMetricsLogic({
             logicKey: `broadcast-send-activity-${runId}`,
@@ -31,6 +38,14 @@ export function BroadcastSendActivity({ runId, runStartedAt, channel }: Broadcas
     )
 
     const hasActivity = !!appMetricsTrends?.series.some((series) => series.values.some((value) => value > 0))
+    const activeBuckets = new Set(
+        appMetricsTrends?.series.flatMap((series) =>
+            series.values.flatMap((value, index) => (value > 0 ? [index] : []))
+        )
+    )
+    if (hideSingleBucket && !appMetricsTrendsLoading && activeBuckets.size <= 1) {
+        return null
+    }
 
     return (
         <div className="flex flex-col gap-2">

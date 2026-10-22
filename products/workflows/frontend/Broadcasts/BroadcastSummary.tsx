@@ -34,6 +34,7 @@ import { broadcastAudienceCohortsLogic } from './audience/broadcastAudienceCohor
 import { BroadcastEmailPreview } from './BroadcastEmailPreview'
 import { archiveDisabledReason, manageDisabledReason } from './broadcastLifecycle'
 import { BroadcastPerformance } from './BroadcastPerformance'
+import { BroadcastPushPerformance } from './BroadcastPushPerformance'
 import { BroadcastPushPreview } from './BroadcastPushPreview'
 import { BroadcastSceneHeader } from './BroadcastSceneHeader'
 import { broadcastSentLogic } from './broadcastSentLogic'
@@ -497,12 +498,18 @@ export function BroadcastSummary(): JSX.Element {
                                         <h2 className="m-0 text-base font-semibold">
                                             {latestBatchJobId ? 'Performance (latest send)' : 'Performance'}
                                         </h2>
-                                        {latestBatchJob ? (
-                                            <BroadcastPerformance
+                                        {latestBatchJob && channel === 'push' ? (
+                                            <BroadcastPushPerformance
                                                 runId={latestBatchJob.id}
                                                 runStartedAt={latestBatchJob.created_at}
                                                 hasGoal={goalEnabled}
                                                 channel={channel}
+                                            />
+                                        ) : latestBatchJob ? (
+                                            <BroadcastPerformance
+                                                runId={latestBatchJob.id}
+                                                runStartedAt={latestBatchJob.created_at}
+                                                hasGoal={goalEnabled}
                                             />
                                         ) : (
                                             <span className="text-muted">

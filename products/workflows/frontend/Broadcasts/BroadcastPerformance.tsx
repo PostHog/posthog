@@ -35,39 +35,25 @@ export function BroadcastPerformance({
         return <LemonSkeleton className="h-40" active={totalsLoading} />
     }
 
-    const isPush = props.channel === 'push'
-    const headline = isPush
-        ? [
-              // The worker counts each app it tries, so these are app attempts rather than people.
-              { label: 'Sent', value: humanFriendlyNumber(stats.sent), detail: null },
-              { label: 'No device', value: humanFriendlyNumber(stats.skipped), detail: null },
-              { label: 'Failed', value: humanFriendlyNumber(stats.failed), detail: null },
-          ]
-        : [
-              { label: 'Sent', value: humanFriendlyNumber(stats.sent), detail: null },
-              { label: 'Delivered', value: share(stats.delivered, stats.sent), detail: stats.delivered },
-              { label: 'Bounced', value: share(stats.bounced, stats.sent), detail: stats.bounced },
-              { label: 'Marked as spam', value: share(stats.markedAsSpam, stats.sent), detail: stats.markedAsSpam },
-              { label: 'Failed', value: share(stats.failed, stats.sent), detail: stats.failed },
-          ]
+    const headline = [
+        { label: 'Sent', value: humanFriendlyNumber(stats.sent), detail: null },
+        { label: 'Delivered', value: share(stats.delivered, stats.sent), detail: stats.delivered },
+        { label: 'Bounced', value: share(stats.bounced, stats.sent), detail: stats.bounced },
+        { label: 'Marked as spam', value: share(stats.markedAsSpam, stats.sent), detail: stats.markedAsSpam },
+        { label: 'Failed', value: share(stats.failed, stats.sent), detail: stats.failed },
+    ]
     const engagement = [
-        ...(isPush
-            ? [{ label: 'Opened', part: stats.opened, whole: stats.sent }]
-            : trackingOff
-              ? []
-              : [
-                    { label: 'Opened', part: stats.opened, whole: stats.trackedSends },
-                    { label: 'Clicked', part: stats.clicked, whole: stats.trackedSends },
-                    { label: 'Clicked to opened', part: stats.clicked, whole: stats.opened },
-                ]),
+        ...(trackingOff
+            ? []
+            : [
+                  { label: 'Opened', part: stats.opened, whole: stats.trackedSends },
+                  { label: 'Clicked', part: stats.clicked, whole: stats.trackedSends },
+                  { label: 'Clicked to opened', part: stats.clicked, whole: stats.opened },
+              ]),
         ...(hasGoal ? [{ label: 'Converted', part: stats.converted, whole: stats.sent }] : []),
     ]
     const footnote = [
-        isPush
-            ? 'Push counts are per app, so a person sent through two apps counts once for each. Opens are counted when your app reports a tapped notification.'
-            : trackingOff
-              ? null
-              : 'Opens and clicks are counted against sends with tracking on.',
+        trackingOff ? null : 'Opens and clicks are counted against sends with tracking on.',
         hasGoal ? 'Conversions are counted against all sends.' : null,
     ]
         .filter(Boolean)
@@ -111,7 +97,7 @@ export function BroadcastPerformance({
 
             <BroadcastSendActivity {...props} />
 
-            {isPush || trackingOff ? null : (
+            {trackingOff ? null : (
                 <div className="flex flex-col gap-2">
                     <h3 className="m-0 text-sm font-semibold">Top clicked links</h3>
                     <EmailLinksTable links={links} loading={linksLoading} emptyState="No link clicks yet" />
