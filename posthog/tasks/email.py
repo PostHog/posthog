@@ -1602,11 +1602,13 @@ def send_team_matview_failure_digest(team_id: int, failed_query_ids: list[str], 
 
 @shared_task(**EMAIL_TASK_KWARGS)
 @skip_team_scope_audit
-def send_matview_failure_immediate_email(team_id: int, saved_query_id: str, job_id: str) -> None:
+def send_matview_failure_immediate_email(
+    team_id: int, saved_query_id: str, job_id: str, suspended: bool = False
+) -> None:
     """Email members who asked for a materialization failure email as it happens.
 
-    Dispatched on the first failure of a streak only; the job-scoped campaign key
-    makes redelivery idempotent per recipient.
+    Dispatched on the first failure of a streak, and again when the streak suspends the view;
+    the job-scoped campaign key makes redelivery idempotent per recipient.
     """
 
     if not is_email_available(with_absolute_urls=True):
@@ -1639,15 +1641,22 @@ def send_matview_failure_immediate_email(team_id: int, saved_query_id: str, job_
     if len(error) > MAX_ERROR_CHARS:
         error = error[: MAX_ERROR_CHARS - 3] + "..."
 
+    if suspended:
+        campaign_key = f"matview_suspended_{saved_query_id}_{job_id}"
+        subject = f"PostHog: Materialized view '{saved_query.name}' was suspended in {team.name}"
+    else:
+        campaign_key = f"matview_failure_immediate_{saved_query_id}_{job_id}"
+        subject = f"PostHog: Materialized view '{saved_query.name}' failed in {team.name}"
     message = EmailMessage(
-        campaign_key=f"matview_failure_immediate_{saved_query_id}_{job_id}",
-        subject=f"PostHog: Materialized view '{saved_query.name}' failed in {team.name}",
+        campaign_key=campaign_key,
+        subject=subject,
         template_name="saved_query_materialization_failure",
         template_context={
             "team": team,
             "saved_query_name": saved_query.name,
             "saved_query_id": str(saved_query.id),
             "error": error,
+            "suspended": suspended,
         },
     )
     for membership in memberships_to_email:

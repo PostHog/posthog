@@ -439,7 +439,9 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                 workload=self.workload,
                 hogql_settings=self.hogql_settings,
             )
-            runner._shared_database = self._shared_database
+            # The live fallback reads other warehouse tables, so it needs a database built with its own modifiers.
+            if runner.modifiers == self.modifiers:
+                runner._shared_database = self._shared_database
             return runner.calculate()
 
         queries = self.to_queries()

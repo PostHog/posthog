@@ -6322,6 +6322,7 @@ export type ExperimentExposureHealthFindingCode =
 export type ExperimentExposureHealthFindingSeverity = 'critical' | 'warning' | 'info'
 
 export type ExperimentExposureHealthFindingActionKind =
+    | 'open_feature_flag'
     | 'edit_exposure_criteria'
     | 'adjust_distribution'
     | 'use_first_seen_variant'

@@ -269,6 +269,7 @@ class TestSuggestedDashboards(SimpleTestCase):
             if attribute == "service_name"
             else "SELECT DISTINCT attribute_value FROM posthog.metric_attributes"
         )
+        assert (variable.query or "").endswith(" AND metric_name IN ('orders_total')")
 
     def test_convert_drops_variables_with_unknown_attributes_or_no_panel(self) -> None:
         converted = _convert(
@@ -396,6 +397,34 @@ class TestSuggestedDashboards(SimpleTestCase):
 
         assert [panel.key for panel in converted.panels] == ["orders"]
         assert converted.dropped == ("queue: Bad regex",)
+
+    def test_convert_lists_only_the_values_of_the_metrics_of_the_panels_that_refer_to_a_variable(self) -> None:
+        scoped = [BuilderFilter(key="instance", op="eq", value="$instance")]
+        converted = _convert(
+            [
+                self._draft("orders", "orders_total", 0, filters=scoped),
+                self._draft("queue", "queue_depth", 4),
+                self._draft("latency", "request_duration_seconds", 8, filters=scoped),
+            ],
+            Team(id=1),
+            CATALOG,
+            variables=[DraftVariable(name="instance", label="Instance", attribute="instance")],
+            attributes={"orders_total": ["instance"]},
+            checks=_Checks({"instance": 3}, errors={"latency": "Bad regex"}),
+        )
+
+        assert [panel.key for panel in converted.panels] == ["orders", "queue"]
+        assert converted.dropped == ("latency: Bad regex",)
+        assert converted.variables[0]["query"].endswith(" AND metric_name IN ('orders_total')")
+
+    def test_attribute_variable_quotes_the_attribute_and_the_metric_names(self) -> None:
+        variable = attribute_variable(name="scope", label="", attribute="it's", metric_names=["b\\'x", "a", "a"])
+
+        assert variable["query"] == (
+            "SELECT DISTINCT attribute_value FROM posthog.metric_attributes WHERE attribute_key = 'it\\'s' "
+            "AND time_bucket >= toStartOfHour($__from) AND time_bucket < $__to "
+            "AND metric_name IN ('a', 'b\\\\\\'x')"
+        )
 
     @parameterized.expand(
         [
