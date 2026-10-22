@@ -117,6 +117,21 @@ describe('emailDomainWizardLogic', () => {
         expect(backend.requestsTo('integration_create').at(-1)?.body).toMatchObject({ config: { provider } })
     })
 
+    it.each([
+        ['the typed name and address', 'Thomas Obermüller', 'thomas', 'Thomas Obermüller', 'thomas@mail.acme.com'],
+        ['the suggestions when the fields are left blank', '  ', '', 'Acme', 'hello@mail.acme.com'],
+    ])('creates the sender with %s', async (_name, typedName, typedLocalPart, name, email) => {
+        const logic = mountWizard()
+
+        logic.actions.setCustomDomainInput('acme.com')
+        logic.actions.useCustomDomain()
+        logic.actions.setSenderNameInput(typedName)
+        logic.actions.setLocalPart(typedLocalPart)
+        await expectLogic(logic, () => logic.actions.createSender()).toFinishAllListeners()
+
+        expect(backend.requestsTo('integration_create').at(-1)?.body).toMatchObject({ config: { name, email } })
+    })
+
     it('refuses an address that already has a sender', async () => {
         const logic = await mountWithExistingSender()
 
