@@ -1158,6 +1158,28 @@ def test_evolve_pyarrow_schema_time_columns_reconcile_to_stored_seconds(
     assert evolved_table.column("redeem_time").to_pylist() == expected_values
 
 
+@pytest.mark.parametrize("date_type", [pa.date32(), pa.date64()])
+def test_evolve_pyarrow_schema_clamps_dates_to_clickhouse_date32_range(date_type: pa.DataType):
+    arrow_table = pa.table(
+        {
+            "ended_on": pa.array(
+                [datetime.date(9999, 12, 31), datetime.date(1, 1, 1), None, datetime.date(2024, 5, 1)],
+                type=date_type,
+            )
+        }
+    )
+
+    evolved_table = evolve_pyarrow_schema(arrow_table, None)
+
+    assert evolved_table.schema.field("ended_on").type == date_type
+    assert evolved_table.column("ended_on").to_pylist() == [
+        datetime.date(2299, 12, 31),
+        datetime.date(1900, 1, 1),
+        None,
+        datetime.date(2024, 5, 1),
+    ]
+
+
 def test_raise_on_nullability_drift_null_in_non_nullable_column_raises():
     """A batch with a null in a column the table declares non-nullable raises the reset signal,
     because neither deltalite nor delta-rs can relax an existing column to nullable in place."""

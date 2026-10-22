@@ -54,6 +54,11 @@ MAX_NUMERIC_SCALE = 32  # Maximum scale for Delta Lake
 INT64_MIN = -(2**63)
 INT64_MAX = 2**63 - 1
 
+# ClickHouse reads a parquet date column as Date32, which only spans these days. A stored value
+# outside them makes every read of the column fail, so dates are clamped to them before the write.
+CLICKHOUSE_DATE32_MIN = datetime.date(1900, 1, 1)
+CLICKHOUSE_DATE32_MAX = datetime.date(2299, 12, 31)
+
 type SupportedDltDataType = Literal["text", "bigint", "bool", "timestamp", "json", "double", "date", "time", "decimal"]
 type DecimalInput = decimal.Decimal | float | str | tuple[int, Sequence[int], int]
 
@@ -310,6 +315,20 @@ def evolve_pyarrow_schema(
             microsecond_timestamps = pc.cast(incoming_column, pa.timestamp("us"), safe=False).combine_chunks()
             incoming_table = incoming_table.set_column(
                 incoming_table.schema.get_field_index(column_name), column_name, microsecond_timestamps
+            )
+
+        # Sources emit dates such as 9999-12-31 ("no end date") or Postgres 'infinity', which ClickHouse
+        # cannot read. `skip_nulls=False` keeps a null as null instead of replacing it with the bound.
+        if pa.types.is_date(incoming_field.type):
+            clamped_dates = pc.max_element_wise(
+                pc.min_element_wise(
+                    incoming_column, pa.scalar(CLICKHOUSE_DATE32_MAX, type=incoming_field.type), skip_nulls=False
+                ),
+                pa.scalar(CLICKHOUSE_DATE32_MIN, type=incoming_field.type),
+                skip_nulls=False,
+            )
+            incoming_table = incoming_table.set_column(
+                incoming_table.schema.get_field_index(column_name), incoming_field, clamped_dates
             )
 
     if not delta_schema:
