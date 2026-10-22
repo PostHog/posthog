@@ -16,13 +16,13 @@ import { SuggestionCardShell } from './SuggestionCardShell'
 
 const CARD_BY_KIND: Record<
     TurnSuggestion['kind'],
-    { icon: JSX.Element; actionLabel: string; Body: (props: TurnSuggestionLogicProps) => JSX.Element | null }
+    { icon: JSX.Element; Body: (props: TurnSuggestionLogicProps) => JSX.Element | null }
 > = {
-    scout: { icon: <IconTelescope />, actionLabel: 'Create scout', Body: ScoutSuggestionCard },
-    notebook: { icon: <IconNotebook />, actionLabel: 'Save to notebook', Body: NotebookSuggestionCard },
-    alert: { icon: <IconBell />, actionLabel: 'Create alert', Body: AlertSuggestionCard },
-    subscription: { icon: <IconCalendar />, actionLabel: 'Subscribe', Body: SubscriptionSuggestionCard },
-    error_alert: { icon: <IconWarning />, actionLabel: 'Create alert', Body: ErrorAlertSuggestionCard },
+    scout: { icon: <IconTelescope />, Body: ScoutSuggestionCard },
+    notebook: { icon: <IconNotebook />, Body: NotebookSuggestionCard },
+    alert: { icon: <IconBell />, Body: AlertSuggestionCard },
+    subscription: { icon: <IconCalendar />, Body: SubscriptionSuggestionCard },
+    error_alert: { icon: <IconWarning />, Body: ErrorAlertSuggestionCard },
 }
 
 export function TurnSuggestionCard(logicProps: TurnSuggestionLogicProps): JSX.Element | null {
@@ -40,7 +40,7 @@ export function TurnSuggestionCard(logicProps: TurnSuggestionLogicProps): JSX.El
     if (!visible || !suggestion) {
         return null
     }
-    const { icon, actionLabel, Body } = CARD_BY_KIND[suggestion.kind]
+    const { icon, Body } = CARD_BY_KIND[suggestion.kind]
     return (
         <div className="animate-fade-in [animation-duration:600ms] motion-reduce:animate-none">
             {expanded ? (
@@ -57,9 +57,7 @@ export function TurnSuggestionCard(logicProps: TurnSuggestionLogicProps): JSX.El
                     icon={icon}
                     title={suggestion.title}
                     draftName={suggestionDraftName(suggestion)}
-                    actionLabel={actionLabel}
                     onExpand={expand}
-                    onDismiss={dismiss}
                 />
             )}
         </div>
