@@ -1,3 +1,4 @@
+import dataclasses
 from datetime import datetime
 from typing import Literal, Optional
 
@@ -21,10 +22,10 @@ from posthog.hogql.property_metadata import load_property_metadata
 from posthog.hogql.property_planner import PropertySourceKind, plan_property_access
 from posthog.hogql.restricted_properties import restricted_property_keys_for_table_type
 from posthog.hogql.type_system import (
-    FLOAT_RUNTIME_TYPE,
     convert_literal_to_runtime_type,
     normalized_runtime_type,
     parse_sql_runtime_type,
+    runtime_type_from_constant_type,
 )
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
 
@@ -168,6 +169,10 @@ class PropertySwapper(CloningVisitor):
         ast.CompareOperationOp.NotEq,
         ast.CompareOperationOp.In,
         ast.CompareOperationOp.NotIn,
+    }
+    _COMMUTATIVE_TEXT_COMPARISON_OPS: set[ast.CompareOperationOp] = {
+        ast.CompareOperationOp.Eq,
+        ast.CompareOperationOp.NotEq,
     }
 
     def __init__(
@@ -555,27 +560,30 @@ class PropertySwapper(CloningVisitor):
     def _compare_numeric_property_as_text(
         self, node: ast.CompareOperation, result: ast.CompareOperation
     ) -> ast.CompareOperation:
+        """Drop this swapper's numeric cast from a property compared to text that is not a number.
+
+        A property definition records the type of the first value a project sent, so a Numeric key can still hold
+        text. A Float64 read cannot match a text literal: the comparison matches no row, or fails with TYPE_MISMATCH
+        once a row holds a number. Reading the stored text matches what the legacy property-group read returns.
+        """
         if result.op not in self._TEXT_COMPARISON_OPS:
             return result
-        if self._has_non_numeric_text(result.right) and (
-            left := self._without_numeric_property_cast(node.left, result.left)
+        if (left := self._text_read_of_numeric_property(node.left, result.left, compared=result.right)) is not None:
+            return dataclasses.replace(result, left=left)
+        if (
+            result.op in self._COMMUTATIVE_TEXT_COMPARISON_OPS
+            and (right := self._text_read_of_numeric_property(node.right, result.right, compared=result.left))
+            is not None
         ):
-            result.left = left
-        elif (
-            result.op in (ast.CompareOperationOp.Eq, ast.CompareOperationOp.NotEq)
-            and self._has_non_numeric_text(result.left)
-            and (right := self._without_numeric_property_cast(node.right, result.right))
-        ):
-            result.right = right
+            return dataclasses.replace(result, right=right)
         return result
 
-    def _without_numeric_property_cast(self, original: ast.Expr, swapped: ast.Expr) -> ast.Expr | None:
+    def _text_read_of_numeric_property(
+        self, original: ast.Expr, swapped: ast.Expr, *, compared: ast.Expr
+    ) -> ast.Expr | None:
         if isinstance(original, ast.Alias) and isinstance(swapped, ast.Alias):
-            inner = self._without_numeric_property_cast(original.expr, swapped.expr)
-            if inner is None:
-                return None
-            swapped.expr = inner
-            return swapped
+            inner = self._text_read_of_numeric_property(original.expr, swapped.expr, compared=compared)
+            return None if inner is None else dataclasses.replace(swapped, expr=inner)
         if not (
             isinstance(original, ast.Field)
             and isinstance(swapped, ast.Call)
@@ -588,15 +596,19 @@ class PropertySwapper(CloningVisitor):
         access_plan = plan_property_access(field, self.context)
         if access_plan is None or not isinstance(access_plan.source.physical_type, ast.StringType):
             return None
+        semantic_type = runtime_type_from_constant_type(access_plan.semantic_type)
+        if semantic_type.family != "float":
+            return None
+        texts = self._string_literals(compared)
+        if not texts or all(convert_literal_to_runtime_type(text, semantic_type) is not None for text in texts):
+            return None
         return field
 
     @staticmethod
-    def _has_non_numeric_text(expr: ast.Expr) -> bool:
+    def _string_literals(expr: ast.Expr) -> list[str]:
         values = expr.exprs if isinstance(expr, ast.Tuple | ast.Array) else [expr]
         texts = [value.value for value in values if isinstance(value, ast.Constant) and isinstance(value.value, str)]
-        return 0 < len(texts) == len(values) and not all(
-            convert_literal_to_runtime_type(text, FLOAT_RUNTIME_TYPE) is not None for text in texts
-        )
+        return texts if len(texts) == len(values) else []
 
     def _move_timezone_from_field_to_constant(self, node: ast.CompareOperation) -> ast.CompareOperation | None:
         """Move toTimeZone() from the field side to the constant side of a range comparison.
