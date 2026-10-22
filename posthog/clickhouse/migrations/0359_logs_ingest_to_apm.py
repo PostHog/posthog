@@ -19,6 +19,11 @@ DB = settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE
 # The apm creates require hosts, so that a topology with no apm hosts fails the migration before the
 # drops instead of leaving no consumer.
 #
+# The ingestion-events `writable_logs34` stays. A dropped Distributed table loses the blocks it still
+# queues for the logs cluster, and no migration statement can drain it only where it exists. With the
+# MV gone nothing writes to it, so it only sends what it already holds. Drop it by hand once
+# `system.distribution_queue` shows it empty.
+#
 # The multinode stack keeps the ingest on its ingestion-events node, so this migration is cloud-only.
 operations = (
     [
@@ -31,7 +36,6 @@ operations = (
         run_sql_with_exceptions(
             f"DROP TABLE IF EXISTS {DB}.kafka_logs34_avro_mv", node_roles=[NodeRole.INGESTION_EVENTS]
         ),
-        run_sql_with_exceptions(f"DROP TABLE IF EXISTS {DB}.writable_logs34", node_roles=[NodeRole.INGESTION_EVENTS]),
     ]
     if run_mode().is_deployed_cloud
     else []
