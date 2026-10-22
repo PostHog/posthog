@@ -19,6 +19,15 @@ jest.mock('posthog-react-native', () =>
     }))
 )
 
+interface StoreMock {
+    getState: jest.Mock
+    subscribe: jest.Mock
+}
+
+interface DemoStoreMock extends StoreMock {
+    persist: { hasHydrated: jest.Mock; onFinishHydration: jest.Mock }
+}
+
 interface SetupOptions {
     internal?: boolean
     platform?: string
@@ -39,8 +48,8 @@ function setup({
     init: () => void
     auth: { status: string; host: null; projectId: null }
     demo: { enabled: boolean }
-    authStore: ReturnType<typeof jest.requireMock>
-    demoStore: ReturnType<typeof jest.requireMock>
+    authStore: StoreMock
+    demoStore: DemoStoreMock
     constructor: jest.Mock
 } {
     jest.resetModules()
