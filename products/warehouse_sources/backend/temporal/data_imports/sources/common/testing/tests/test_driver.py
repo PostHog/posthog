@@ -151,14 +151,19 @@ class TestSourceDriver:
 
         assert result.session_options == [{"redact_values": ("t",)}]
 
-    def test_a_run_nested_in_a_scripted_network_leaves_later_runs_recording_sessions(self) -> None:
+    def test_a_run_nested_in_a_scripted_network_records_its_sessions_and_leaves_later_runs_recording(self) -> None:
+        # A module imported inside the outer network used to leave every later run recording no session.
         with patch.dict(sys.modules):
-            with scripted_network([]):
+            with scripted_network([]) as outer:
                 sys.modules["_imported_while_patched"] = types.ModuleType("_imported_while_patched")
-                _driver().run("rows", [_page()])
-            result = _driver().run("rows", [_page()])
+                nested = _driver().run("rows", [_page()])
+            later = _driver().run("rows", [_page()])
 
-        assert result.session_options == [{"redact_values": ("t",)}]
+        assert (outer.session_options, nested.session_options, later.session_options) == (
+            [],
+            [{"redact_values": ("t",)}],
+            [{"redact_values": ("t",)}],
+        )
 
     def test_an_exception_in_the_script_fails_the_request_as_a_dropped_connection_does(self) -> None:
         def dropped(_request: Any) -> ScriptedResponse:

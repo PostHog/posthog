@@ -16,10 +16,11 @@ from __future__ import annotations
 
 import math
 import time
-from collections.abc import Iterator, Mapping
+import functools
+from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from contextvars import ContextVar
-from typing import Any, cast
+from typing import Any, ParamSpec, cast
 from urllib.parse import urlparse
 
 from django.conf import settings
@@ -427,6 +428,37 @@ class _NoRedirectSession(requests.Session):
         return super().send(request, **kwargs)
 
 
+_SessionOptions = ParamSpec("_SessionOptions")
+_session_observers: list[Callable[[dict[str, Any]], None]] = []
+
+
+@contextmanager
+def observe_tracked_sessions(observer: Callable[[dict[str, Any]], None]) -> Iterator[None]:
+    """Give `observer` the keyword arguments of each `make_tracked_session` call in the block.
+
+    The source test harness uses this. The innermost observer takes each call, so a nested block sees only its own
+    sessions.
+    """
+    _session_observers.append(observer)
+    try:
+        yield
+    finally:
+        _session_observers.remove(observer)
+
+
+def _observed(
+    factory: Callable[_SessionOptions, requests.Session],
+) -> Callable[_SessionOptions, requests.Session]:
+    @functools.wraps(factory)
+    def make(*args: _SessionOptions.args, **kwargs: _SessionOptions.kwargs) -> requests.Session:
+        if _session_observers:
+            _session_observers[-1](dict(kwargs))
+        return factory(*args, **kwargs)
+
+    return make
+
+
+@_observed
 def make_tracked_session(
     *,
     retry: Retry | None = None,
