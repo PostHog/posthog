@@ -31,6 +31,7 @@ zstd = { pkg-path = "zstd", pkg-group = "nodejs" }
 # node-rdkafka's librdkafka dlopens liblz4/libsasl2 at runtime on Linux; the .so files live outside the default outputs
 lz4 = { pkg-path = "lz4", pkg-group = "nodejs", outputs = ["out", "lib", "dev"], systems = ["x86_64-linux", "aarch64-linux"] }
 cyrus_sasl = { pkg-path = "cyrus_sasl", pkg-group = "nodejs", outputs = ["out", "dev"], systems = ["x86_64-linux", "aarch64-linux"] }
+gcc = { pkg-path = "gcc", pkg-group = "nodejs", systems = ["x86_64-linux", "aarch64-linux"] }
 openssl = { pkg-path = "openssl", version = "3.4.1", pkg-group = "openssl", outputs = ["bin", "man", "dev", "out"] }
 nodemon = { pkg-path = "nodemon" }
 # Rust toolchain (based on https://flox.dev/docs/cookbook/languages/rust/)
