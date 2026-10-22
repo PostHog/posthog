@@ -476,7 +476,7 @@ def _without_stale_groups(
         return outcome
     if outcome.grouping.splits_like(Grouping.from_stored(configuration.grouping)):
         return outcome
-    return replace(outcome, groups=(), overflowed=0, evicted=())
+    return replace(outcome, groups=(), overflowed=0, overflow_is_lower_bound=False, evicted=())
 
 
 _HELD_BY_MUTE: Final = {
@@ -561,15 +561,22 @@ def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now:
         rows: list[PlatformAlertEventRow] = []
         for configuration in configurations:
             outcome = by_id[str(configuration.id)]
+            turned_away = 0
             for reported in outcome.groups:
                 alert = alerts.get(
                     _InstanceKey(configuration_id=str(configuration.id), grouping_key=reported.grouping_key)
                 )
                 if alert is None:
+                    # `max_instances` fell after the source admitted this group, so it overflowed here instead.
+                    turned_away += 1
                     continue
                 group = _held_by_mute(configuration, alert, reported, now)
                 touched.append(alert)
                 alert.last_seen_at = now
+                # A hashed key's group that a check did not return arrives without labels, and its
+                # labels have not changed, so the stored ones stay.
+                if group.labels:
+                    alert.labels = group.labels
                 # Before either row is mutated, so the history row keeps the state the check found.
                 rows.append(
                     _event_row(
@@ -606,6 +613,9 @@ def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now:
                 )
             configuration.check_status = _check_status(configuration, outcome)
             configuration.consecutive_failures = outcome.consecutive_failures
+            if outcome.failure is None and not outcome.skipped:
+                configuration.overflowed_groups = outcome.overflowed + turned_away
+                configuration.overflow_is_lower_bound = outcome.overflow_is_lower_bound
             if outcome.disable:
                 configuration.enabled = False
             configuration.next_check_at = advance_schedule(
@@ -623,10 +633,18 @@ def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now:
 
         # Batched, because a grouped check writes a row per group rather than one per configuration.
         PlatformAlert.objects.for_team(team_id).bulk_update(
-            touched, ["state", "last_notified_at", "firing_started_at", "last_seen_at"], batch_size=500
+            touched, ["state", "last_notified_at", "firing_started_at", "last_seen_at", "labels"], batch_size=500
         )
         PlatformAlertConfiguration.objects.for_team(team_id).bulk_update(
-            configurations, ["check_status", "consecutive_failures", "enabled", "next_check_at"]
+            configurations,
+            [
+                "check_status",
+                "consecutive_failures",
+                "enabled",
+                "next_check_at",
+                "overflowed_groups",
+                "overflow_is_lower_bound",
+            ],
         )
         # `on_commit` rather than a statement after the block, so a caller that wraps this in its
         # own `atomic()` cannot leave history for state its rollback removed.
@@ -706,8 +724,7 @@ def upsert_configuration(upsert: PlatformAlertUpsert, *, revive: bool = False) -
         # episode nobody was told about.
         revived = existing is not None and upsert.enabled and (revive or not existing["enabled"])
         if revived:
-            defaults["consecutive_failures"] = 0
-            defaults["check_status"] = PlatformAlertConfiguration.CheckStatus.OK
+            defaults.update(_CLEAN_START)
             # After any check already running, so an outcome it read before the source came back
             # on, such as a stop, finds the row no longer due and records nothing.
             defaults["next_check_at"] = max(
@@ -723,6 +740,16 @@ def upsert_configuration(upsert: PlatformAlertUpsert, *, revive: bool = False) -
                 state=PlatformAlert.State.NOT_FIRING.value, firing_started_at=None
             )
     return created
+
+
+# What one check found about its groups. It says nothing once the alert regroups or comes back on.
+_NO_OVERFLOW: Final = {"overflowed_groups": 0, "overflow_is_lower_bound": False}
+# The state an alert that comes back on starts from, whichever path turns it back on.
+_CLEAN_START: Final = {
+    "consecutive_failures": 0,
+    "check_status": PlatformAlertConfiguration.CheckStatus.OK,
+    **_NO_OVERFLOW,
+}
 
 
 def write_edit(
@@ -757,13 +784,16 @@ def write_edit(
         "cooldown_minutes",
         "updated_at",
     ]
+    reenabled = edit.enabled and not configuration.enabled
     # An alert turned back on starts clean, as a revived copy does. A BROKEN one would otherwise stay
     # out of discovery for good.
-    if edit.enabled and not configuration.enabled:
-        configuration.consecutive_failures = 0
-        configuration.check_status = PlatformAlertConfiguration.CheckStatus.OK
+    cleared = _CLEAN_START if reenabled else _NO_OVERFLOW if regrouped else {}
+    for field, value in cleared.items():
+        setattr(configuration, field, value)
+    update_fields += list(cleared)
+    if reenabled:
         configuration.next_check_at = now + _REVIVE_FENCE
-        update_fields += ["consecutive_failures", "check_status", "next_check_at"]
+        update_fields.append("next_check_at")
     configuration.name = edit.name
     configuration.enabled = edit.enabled
     configuration.source_config = edit.source_config

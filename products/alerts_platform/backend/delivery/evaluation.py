@@ -246,7 +246,12 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
                     evaluation_key=request.evaluation_key,
                     target=target,
                     destination_id=subscribed_destination.id,
-                    announcement=replace(announced, transitions=transitions, overflowed=overflowed),
+                    announcement=replace(
+                        announced,
+                        transitions=transitions,
+                        overflowed=overflowed,
+                        overflow_is_lower_bound=request.overflow_is_lower_bound,
+                    ),
                     incident_action=action_by_event_id.get(event_id),
                     source_alert_url=request.source_alert_url,
                 )
