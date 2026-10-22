@@ -384,22 +384,31 @@ def _member_unmounted_reason(
     installation: MCPServerInstallation,
     revoked_gateway_server_ids: set[uuid.UUID],
     allowed_gateway_server_ids: set[str] | None,
+    allowed_installation_ids: set[str] | None,
 ) -> UnmountedInstallationReason | None:
     gateway_server = installation.gateway_server
     gateway_server_id = gateway_server.id if gateway_server is not None else None
-    if gateway_server is not None and not gateway_server.is_team_enabled:
-        return "server_disabled"
     if (
         installation.scope == "shared"
         and allowed_gateway_server_ids is not None
         and (gateway_server_id is None or str(gateway_server_id) not in allowed_gateway_server_ids)
     ):
         return "not_selected"
-    if gateway_server_id is not None and gateway_server_id in revoked_gateway_server_ids:
-        return "revoked"
-    if not _is_oauth_ready(installation):
-        return "needs_reconnect"
-    return None
+    health_failure: UnmountedInstallationReason | None = None
+    if gateway_server is not None and not gateway_server.is_team_enabled:
+        health_failure = "server_disabled"
+    elif gateway_server_id is not None and gateway_server_id in revoked_gateway_server_ids:
+        health_failure = "revoked"
+    elif not _is_oauth_ready(installation):
+        health_failure = "needs_reconnect"
+    # Healthy unselected installations stay in play until the personal-copy dedup has run.
+    if (
+        health_failure is not None
+        and allowed_installation_ids is not None
+        and str(installation.id) not in allowed_installation_ids
+    ):
+        return "not_selected"
+    return health_failure
 
 
 def _unmounted(installation: MCPServerInstallation, reason: UnmountedInstallationReason) -> UnmountedInstallation:
@@ -456,6 +465,11 @@ def resolve_installations_for_sandbox(
     left out, with the reason, so a run can tell its user why a connection is
     missing. The agent path reports none.
     """
+    allowed_installations = (
+        {str(installation_id) for installation_id in allowed_installation_ids}
+        if allowed_installation_ids is not None
+        else None
+    )
     try:
         base_queryset = MCPServerInstallation.objects.filter(team_id=team_id, is_enabled=True).select_related(
             "template", "gateway_server"
@@ -519,7 +533,9 @@ def resolve_installations_for_sandbox(
                 else None
             )
             for candidate in candidates:
-                reason = _member_unmounted_reason(candidate, revoked_gateway_server_ids, allowed_servers)
+                reason = _member_unmounted_reason(
+                    candidate, revoked_gateway_server_ids, allowed_servers, allowed_installations
+                )
                 if reason is None:
                     installations.append(candidate)
                 else:
@@ -549,8 +565,7 @@ def resolve_installations_for_sandbox(
                 for installation in ready
                 if installation.scope == "personal" or installation.url not in personal_urls
             ]
-        if allowed_installation_ids is not None:
-            allowed_installations = {str(installation_id) for installation_id in allowed_installation_ids}
+        if allowed_installations is not None:
             unmounted.extend(
                 _unmounted(installation, "not_selected")
                 for installation in ready

@@ -297,9 +297,22 @@ class TestGetInstallationsForSandbox(BaseTest):
         scopes = {r.scope for r in results}
         assert scopes == {"shared", "personal"}
 
-    @parameterized.expand(["needs_reconnect", "server_disabled", "revoked", "replaced_by_personal"])
+    @parameterized.expand(
+        [
+            ("needs_reconnect", None, "needs_reconnect"),
+            ("server_disabled", None, "server_disabled"),
+            ("revoked", None, "revoked"),
+            ("replaced_by_personal", None, "replaced_by_personal"),
+            ("needs_reconnect", [], "not_selected"),
+            ("server_disabled", [], "not_selected"),
+            ("revoked", [], "not_selected"),
+        ]
+    )
     def test_member_run_reports_why_a_reachable_installation_is_not_mounted(
-        self, reason: UnmountedInstallationReason
+        self,
+        reason: UnmountedInstallationReason,
+        allowed_installation_ids: list[str] | None,
+        expected_reason: UnmountedInstallationReason,
     ) -> None:
         server = self._create_gateway_server(
             name="Linear", url="https://mcp.linear.app/mcp", is_team_enabled=reason != "server_disabled"
@@ -321,11 +334,16 @@ class TestGetInstallationsForSandbox(BaseTest):
         if reason == "replaced_by_personal":
             self._create_installation(scope="personal", url=server.url, display_name="My Linear")
 
-        resolution = resolve_installations_for_sandbox(self.team.id, user_id=self.user.id, include_personal=True)
+        resolution = resolve_installations_for_sandbox(
+            self.team.id,
+            user_id=self.user.id,
+            include_personal=True,
+            allowed_installation_ids=allowed_installation_ids,
+        )
 
         assert str(left_out.id) not in {installation.id for installation in resolution.mounted}
         assert resolution.unmounted == (
-            UnmountedInstallation(id=str(left_out.id), name="Linear", scope="shared", reason=reason),
+            UnmountedInstallation(id=str(left_out.id), name="Linear", scope="shared", reason=expected_reason),
         )
 
     def test_shared_visible_to_any_team_member(self) -> None:
