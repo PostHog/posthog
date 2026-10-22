@@ -329,6 +329,7 @@ export function MultiQuestionFormInput({ form, initialAnswers = {} }: MultiQuest
                                     />
                                 ) : (
                                     <QuestionField
+                                        disabled={!active}
                                         question={q}
                                         value={answers[q.id]}
                                         onAnswer={handleSingleFieldAnswer}
