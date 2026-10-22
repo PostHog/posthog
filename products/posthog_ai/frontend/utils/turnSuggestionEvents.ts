@@ -24,6 +24,7 @@ function turnSuggestionEventProperties(
 
 export type TurnSuggestionEvent =
     | 'shown'
+    | 'expanded'
     | 'dismissed'
     | 'superseded'
     | 'accepted'

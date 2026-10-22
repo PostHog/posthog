@@ -10,23 +10,24 @@ import { ErrorAlertSuggestionCard } from './ErrorAlertSuggestionCard'
 import { NotebookSuggestionCard } from './NotebookSuggestionCard'
 import { ScoutSuggestionCard } from './ScoutSuggestionCard'
 import { SubscriptionSuggestionCard } from './SubscriptionSuggestionCard'
+import { SuggestionCardCondensed } from './SuggestionCardCondensed'
 import { SuggestionCardShell } from './SuggestionCardShell'
 
 const CARD_BY_KIND: Record<
     TurnSuggestion['kind'],
-    { icon: JSX.Element; Body: (props: TurnSuggestionLogicProps) => JSX.Element | null }
+    { icon: JSX.Element; actionLabel: string; Body: (props: TurnSuggestionLogicProps) => JSX.Element | null }
 > = {
-    scout: { icon: <IconTelescope />, Body: ScoutSuggestionCard },
-    notebook: { icon: <IconNotebook />, Body: NotebookSuggestionCard },
-    alert: { icon: <IconBell />, Body: AlertSuggestionCard },
-    subscription: { icon: <IconCalendar />, Body: SubscriptionSuggestionCard },
-    error_alert: { icon: <IconWarning />, Body: ErrorAlertSuggestionCard },
+    scout: { icon: <IconTelescope />, actionLabel: 'Create scout', Body: ScoutSuggestionCard },
+    notebook: { icon: <IconNotebook />, actionLabel: 'Save to notebook', Body: NotebookSuggestionCard },
+    alert: { icon: <IconBell />, actionLabel: 'Create alert', Body: AlertSuggestionCard },
+    subscription: { icon: <IconCalendar />, actionLabel: 'Subscribe', Body: SubscriptionSuggestionCard },
+    error_alert: { icon: <IconWarning />, actionLabel: 'Create alert', Body: ErrorAlertSuggestionCard },
 }
 
 export function TurnSuggestionCard(logicProps: TurnSuggestionLogicProps): JSX.Element | null {
     const logic = turnSuggestionLogic(logicProps)
-    const { suggestion, visible, completed, shownSuggestion } = useValues(logic)
-    const { dismiss, reportShown } = useActions(logic)
+    const { suggestion, visible, completed, expanded, shownSuggestion } = useValues(logic)
+    const { dismiss, expand, reportShown } = useActions(logic)
 
     useEffect(() => {
         // Server frames carry no event id, so a thread that loads the log and then the live tail gets the card frame twice.
@@ -38,17 +39,27 @@ export function TurnSuggestionCard(logicProps: TurnSuggestionLogicProps): JSX.El
     if (!visible || !suggestion) {
         return null
     }
-    const { icon, Body } = CARD_BY_KIND[suggestion.kind]
+    const { icon, actionLabel, Body } = CARD_BY_KIND[suggestion.kind]
     return (
         <div className="animate-fade-in [animation-duration:600ms] motion-reduce:animate-none">
-            <SuggestionCardShell
-                icon={icon}
-                title={suggestion.title}
-                description={suggestion.description}
-                onDismiss={completed ? undefined : dismiss}
-            >
-                <Body {...logicProps} />
-            </SuggestionCardShell>
+            {expanded ? (
+                <SuggestionCardShell
+                    icon={icon}
+                    title={suggestion.title}
+                    description={suggestion.description}
+                    onDismiss={completed ? undefined : dismiss}
+                >
+                    <Body {...logicProps} />
+                </SuggestionCardShell>
+            ) : (
+                <SuggestionCardCondensed
+                    icon={icon}
+                    title={suggestion.title}
+                    actionLabel={actionLabel}
+                    onExpand={expand}
+                    onDismiss={dismiss}
+                />
+            )}
         </div>
     )
 }

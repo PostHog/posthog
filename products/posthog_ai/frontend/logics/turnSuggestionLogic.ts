@@ -38,6 +38,7 @@ export interface turnSuggestionLogicValues {
     turnSuggestionAcceptedHere: number | null // runStreamLogic
     completed: boolean
     dismissed: boolean
+    expanded: boolean
     revealReady: boolean
     shownSuggestion: TurnSuggestion | null
     visible: boolean
@@ -53,6 +54,9 @@ export interface turnSuggestionLogicActions {
         turnIndex: number
     } // runStreamLogic
     dismiss: () => {
+        value: true
+    }
+    expand: () => {
         value: true
     }
     reportShown: (suggestion: TurnSuggestion) => {
@@ -94,11 +98,13 @@ export const turnSuggestionLogic: LogicWrapper<turnSuggestionLogicType> = kea<tu
     })),
     actions({
         dismiss: true,
+        expand: true,
         reveal: true,
         reportShown: (suggestion: TurnSuggestion) => ({ suggestion }),
     }),
     reducers({
         dismissed: [false, { dismiss: () => true }],
+        expanded: [false, { expand: () => true }],
         revealReady: [false, { reveal: () => true }],
         shownSuggestion: [
             null as TurnSuggestion | null,
@@ -122,6 +128,11 @@ export const turnSuggestionLogic: LogicWrapper<turnSuggestionLogicType> = kea<tu
     listeners(({ actions, values, props }) => ({
         reportShown: ({ suggestion }) => {
             captureTurnSuggestionEvent('shown', props, suggestion)
+        },
+        expand: () => {
+            if (values.suggestion) {
+                captureTurnSuggestionEvent('expanded', props, values.suggestion)
+            }
         },
         dismiss: () => {
             const { suggestion } = values
