@@ -32,6 +32,10 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.p
     ShutdownStopwatch,
     SourcePreemptedError,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.ride_out import (
+    DurableProgress,
+    RideOutConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.abandonable_iterate import (
     SourceAbandonedError,
 )
@@ -66,6 +70,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     paged_config,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.safe_point import shutdown_signal
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
     OutputLane,
     ReplaceScope,
@@ -79,6 +84,7 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
 from products.warehouse_sources.backend.types import IncrementalFieldType
 
 _PIPELINE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline"
+_PREEMPTION = "products.warehouse_sources.backend.temporal.data_imports.pipelines.common.preemption"
 _TABLE_REBUILD = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.table_rebuild"
 _SAFE_POINT = "products.warehouse_sources.backend.temporal.data_imports.pipelines.common.safe_point"
 _LANES = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.lanes"
@@ -2892,6 +2898,24 @@ def _with_preemption(
     return switch
 
 
+def _with_ride_out(
+    pipeline: PipelineV3, clock: Any, *, max_seconds: float = 3600.0, quiet_period_seconds: float = 0.0
+) -> _ShutdownSwitch:
+    switch = _with_preemption(pipeline, quiet_period_seconds=quiet_period_seconds)
+    pipeline._shutdown_stopwatch = ShutdownStopwatch(cast(Any, switch), clock=clock)
+    pipeline._ride_out = RideOutConfig(grace_seconds=7200.0, max_seconds=max_seconds)
+    pipeline._progress = DurableProgress()
+    return switch
+
+
+class _FakeClock:
+    def __init__(self) -> None:
+        self.now = 0.0
+
+    def __call__(self) -> float:
+        return self.now
+
+
 def _staged_ids(pipeline: PipelineV3) -> list[str]:
     return [
         row_id
@@ -3075,6 +3099,107 @@ class TestSourcePreemption:
             decision = pipeline._preemption_decision()
 
         assert (decision.eligible, decision.reason) == expected
+
+    @pytest.mark.parametrize(
+        "checkpoints,laned,expected_ids,expected_reason",
+        [
+            pytest.param(False, False, ["a", "b", "c"], "deadline", id="no_progress_rides_out_to_the_deadline"),
+            pytest.param(True, False, ["a", "b"], "progress", id="progress_hands_off_at_once"),
+            pytest.param(False, True, ["a", "b"], "legacy", id="laned_run_keeps_the_legacy_rule"),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_a_run_without_durable_progress_rides_out_the_shutdown(
+        self, checkpoints: bool, laned: bool, expected_ids: list[str], expected_reason: str
+    ) -> None:
+        redis = MagicMock()
+        manager = _manager()
+        clock = _FakeClock()
+        wait_ended_early: list[bool] = []
+
+        def items():
+            if checkpoints:
+                manager.save_state(_Cursor("a"))
+            yield pa.table({"id": ["a"]})
+            switch.shut_down()
+            yield pa.table({"id": ["b"]})
+            # A source backoff asks the same signal: during a ride-out it must run its full length.
+            is_shutting_down = shutdown_signal()
+            assert is_shutting_down is not None
+            wait_ended_early.append(is_shutting_down())
+            clock.now = 3600.0
+            yield pa.table({"id": ["c"]})
+            raise RuntimeError("end of the source")
+
+        pipeline = _runnable_pipeline(manager, items)
+        if laned:
+            pipeline._resource.lanes = [OutputLane(name="users_cdc")]
+        # A long quiet period keeps the preemptor out of it: the item loop makes the decision.
+        switch = _with_ride_out(pipeline, clock, quiet_period_seconds=7200.0)
+
+        await _run_expecting(pipeline, redis, WorkerShuttingDownError)
+
+        assert _staged_ids(pipeline) == expected_ids
+        assert pipeline._progress is not None
+        assert pipeline._progress.handoff_reason == expected_reason
+        assert pipeline._handoff_gate is not None
+        assert pipeline._handoff_gate.rode_out is (expected_reason == "deadline")
+        # Leaving at `b` comes before the source asks; a ride-out ran the wait in full.
+        assert wait_ended_early == ([False] if expected_reason == "deadline" else [])
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "resumable,quiet_period_seconds,before_deadline,at_deadline",
+        [
+            # A resumable source stuck in a call: past the quiet period the gate still holds it to the cap.
+            pytest.param(True, 300.0, 600.0, 3600.0, id="resumable_held_past_the_quiet_period"),
+            # A run that restarts from scratch either way keeps the whole grace period, then leaves
+            # instead of dying when it ends, which used to cost a retry attempt.
+            pytest.param(False, 300.0, 3600.0, 6300.0, id="from_scratch_keeps_the_whole_grace"),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_a_source_blocked_in_a_call_is_preempted_at_the_gate_deadline(
+        self, resumable: bool, quiet_period_seconds: float, before_deadline: float, at_deadline: float
+    ) -> None:
+        redis = MagicMock()
+        manager = _manager()
+        release = threading.Event()
+        clock = _FakeClock()
+
+        def items():
+            yield pa.table({"id": ["a"]})
+            switch.shut_down()
+            release.wait()
+            yield pa.table({"id": ["b"]})
+
+        pipeline = _runnable_pipeline(manager, items)
+        if not resumable:
+            pipeline._resumable_source_manager = None
+        switch = _with_ride_out(pipeline, clock, quiet_period_seconds=quiet_period_seconds)
+
+        with patch(f"{_PREEMPTION}.RIDE_OUT_WAIT_SLICE_SECONDS", 0.01):
+            run = asyncio.ensure_future(_run_expecting(pipeline, redis, SourcePreemptedError))
+            try:
+                await switch.seen_by_event_loop.wait()
+                clock.now = before_deadline
+                for _ in range(50):
+                    await asyncio.sleep(0.01)
+                assert not run.done()
+                clock.now = at_deadline
+                await asyncio.wait_for(run, timeout=10)
+            finally:
+                release.set()
+
+        assert _staged_ids(pipeline) == ["a"]
+        preempted = [
+            call.kwargs["preemption_reason"]
+            for call in cast(AsyncMock, pipeline._logger.ainfo).await_args_list
+            if call.args[0].startswith("Preempting the import")
+        ]
+        assert preempted == ["deadline"]
+        assert pipeline._progress is not None
+        assert pipeline._progress.handoff_reason == "preempted_deadline"
 
     @pytest.mark.parametrize("rows_reach_a_batch", [True, False], ids=["rows_staged", "rows_still_buffered"])
     @pytest.mark.asyncio

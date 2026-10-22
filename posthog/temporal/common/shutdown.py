@@ -1,12 +1,17 @@
 import signal
 import typing
 import asyncio
+import datetime
 import threading
 import contextvars
 from collections.abc import Callable
 
 from structlog import get_logger
 from temporalio import activity
+
+# The SDK cancels activities still running this long after the shutdown started, unless the worker
+# was built with another timeout.
+DEFAULT_GRACEFUL_SHUTDOWN_TIMEOUT = datetime.timedelta(minutes=5)
 
 LOGGER = get_logger(__name__)
 

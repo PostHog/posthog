@@ -38,6 +38,10 @@ from products.warehouse_sources.backend.temporal.data_imports.external_data_job 
     _transient_error_message,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.preemption import PreemptionConfig
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.ride_out import (
+    DurableProgress,
+    RideOutConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core import repartition_controller
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     SchemaColumnTypeChangedException,
@@ -1832,22 +1836,40 @@ async def test_an_interrupted_incremental_import_continues_after_its_last_queued
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("handoffs_are_free", [True, False])
-async def test_a_free_handoff_is_a_result_and_any_other_handoff_is_a_retry(handoffs_are_free: bool):
+@pytest.mark.parametrize(
+    "handoffs_are_free,made_progress",
+    [(True, False), (True, True), (False, False)],
+    ids=["free_without_progress", "free_with_progress", "retry"],
+)
+async def test_a_free_handoff_is_a_result_and_any_other_handoff_is_a_retry(
+    handoffs_are_free: bool, made_progress: bool
+):
     error = WorkerShuttingDownError("5", "import_data_activity_sync", "data-warehouse-task-queue", 2, "wf", "wt")
     inputs = dataclasses.replace(_inputs_no_reset(), handoffs_are_free=handoffs_are_free, prior_attempts=4)
+
+    async def import_then_hand_off(_inputs, _logger, progress):
+        if made_progress:
+            progress.mark("resume_commit")
+            progress.record_handoff_reason("progress")
+        raise error
 
     with (
         mock.patch.object(module, "tag_queries"),
         mock.patch.object(module, "report_heartbeat_timeout"),
         mock.patch.object(module, "aworkload_reporting", return_value=_FakeAsyncCM()),
-        mock.patch.object(module, "_import_data_with_reporting", new=mock.AsyncMock(side_effect=error)),
+        mock.patch.object(module, "_import_data_with_reporting", new=mock.AsyncMock(side_effect=import_then_hand_off)),
         mock.patch.object(module, "current_activity_attempt", return_value=2),
     ):
         if handoffs_are_free:
             result = await import_data_activity_sync(inputs)
             # The workflow adds the attempts up, so it needs the attempt number of this execution only.
-            assert result == {"should_trigger_cdp_producer": False, "handed_off": True, "handoff_attempts_used": 2}
+            assert result == {
+                "should_trigger_cdp_producer": False,
+                "handed_off": True,
+                "handoff_attempts_used": 2,
+                "handoff_made_progress": made_progress,
+                "handoff_reason": "progress" if made_progress else "unknown",
+            }
         else:
             with pytest.raises(WorkerShuttingDownError):
                 await import_data_activity_sync(inputs)
@@ -1895,6 +1917,40 @@ async def test_the_pipeline_preempts_only_with_the_setting_on_and_free_handoffs(
         await import_data_activity_sync(dataclasses.replace(_inputs_no_reset(), handoffs_are_free=handoffs_are_free))
 
     assert run_mock.await_args.kwargs["preemption"] == expected
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "ride_out_enabled,handoffs_are_free,grace,expected",
+    [
+        pytest.param(True, True, 7200, RideOutConfig(grace_seconds=7200.0, max_seconds=1800.0), id="on"),
+        # The worker falls back to a five-minute graceful shutdown when the setting is unset.
+        pytest.param(True, True, None, RideOutConfig(grace_seconds=300.0, max_seconds=1800.0), id="no_grace_period"),
+        # Holding the worker past the deadline on the retry path would cost an attempt at the hand-off.
+        pytest.param(True, False, 7200, None, id="off_when_a_handoff_uses_a_retry_attempt"),
+        pytest.param(False, True, 7200, None, id="off_by_default"),
+    ],
+)
+async def test_the_pipeline_rides_out_only_with_the_setting_on_and_free_handoffs(
+    ride_out_enabled: bool,
+    handoffs_are_free: bool,
+    grace: int | None,
+    expected: RideOutConfig | None,
+    settings,
+):
+    settings.DATA_WAREHOUSE_IMPORT_RIDE_OUT_ENABLED = ride_out_enabled
+    settings.DATA_WAREHOUSE_IMPORT_RIDE_OUT_MAX_SECONDS = 1800.0
+    settings.GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS = grace
+    source = mock.MagicMock(spec=SimpleSource)
+    source.parse_config.return_value = {}
+    source.source_for_pipeline.return_value = mock.MagicMock()
+    schema = _incremental_schema(is_incremental=True, lookback_seconds=None)
+
+    with _patched_activity_reaching_run(source, schema, workflow_run_id="wfrun-1") as run_mock:
+        await import_data_activity_sync(dataclasses.replace(_inputs_no_reset(), handoffs_are_free=handoffs_are_free))
+
+    assert run_mock.await_args.kwargs["ride_out"] == expected
+    assert isinstance(run_mock.await_args.kwargs["progress"], DurableProgress)
 
 
 @parameterized.expand(
