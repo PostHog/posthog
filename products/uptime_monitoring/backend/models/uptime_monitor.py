@@ -10,12 +10,15 @@ from django.db import models
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import UUIDModel
 
+from products.uptime_monitoring.backend.facade.contracts import (
+    DEFAULT_INTERVAL_SECONDS,
+    DEFAULT_TIMEOUT_SECONDS,
+    MAX_INTERVAL_SECONDS,
+    MAX_TIMEOUT_SECONDS,
+    MIN_INTERVAL_SECONDS,
+    MIN_TIMEOUT_SECONDS,
+)
 from products.uptime_monitoring.backend.facade.enums import UptimeMonitorMethod
-
-MIN_INTERVAL_SECONDS = 60
-MAX_INTERVAL_SECONDS = 24 * 60 * 60
-MIN_TIMEOUT_SECONDS = 1
-MAX_TIMEOUT_SECONDS = 10
 
 
 class UptimeMonitor(TeamScopedRootMixin, UUIDModel):
@@ -35,13 +38,13 @@ class UptimeMonitor(TeamScopedRootMixin, UUIDModel):
     url = models.URLField(max_length=2048)
     method = models.CharField(max_length=8, choices=Method.choices, default=Method.GET, db_default=Method.GET)
     interval_seconds = models.PositiveIntegerField(
-        default=300,
-        db_default=300,
+        default=DEFAULT_INTERVAL_SECONDS,
+        db_default=DEFAULT_INTERVAL_SECONDS,
         validators=[MinValueValidator(MIN_INTERVAL_SECONDS), MaxValueValidator(MAX_INTERVAL_SECONDS)],
     )
     timeout_seconds = models.PositiveIntegerField(
-        default=10,
-        db_default=10,
+        default=DEFAULT_TIMEOUT_SECONDS,
+        db_default=DEFAULT_TIMEOUT_SECONDS,
         validators=[MinValueValidator(MIN_TIMEOUT_SECONDS), MaxValueValidator(MAX_TIMEOUT_SECONDS)],
     )
     enabled = models.BooleanField(default=True, db_default=True)

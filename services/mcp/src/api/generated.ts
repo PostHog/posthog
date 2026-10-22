@@ -26791,6 +26791,47 @@ export namespace Schemas {
     }
 
     /**
+     * * `GET` - GET
+     * * `HEAD` - HEAD
+     */
+    export type UptimeMonitorMethodEnum = typeof UptimeMonitorMethodEnum[keyof typeof UptimeMonitorMethodEnum];
+
+
+    export const UptimeMonitorMethodEnum = {
+      Get: 'GET',
+      Head: 'HEAD',
+    } as const;
+
+    export interface CreateUptimeMonitorInput {
+      /**
+         * The http or https URL to check.
+         * @maxLength 2048
+         */
+      url: string;
+      /** Display name for the monitor. */
+      name: string;
+      /** HTTP method used for each check.
+       *
+       * * `GET` - GET
+       * * `HEAD` - HEAD */
+      method?: UptimeMonitorMethodEnum;
+      /**
+         * Seconds between checks, a whole number of minutes from 60 to 86400.
+         * @minimum 60
+         * @maximum 86400
+         */
+      interval_seconds?: number;
+      /**
+         * Seconds to wait for a response before the check fails, from 1 to 30.
+         * @minimum 1
+         * @maximum 30
+         */
+      timeout_seconds?: number;
+      /** Whether checks run for this monitor. */
+      enabled?: boolean;
+    }
+
+    /**
      * Extra text files to ship next to app.py, keyed by project-relative path (for example 'utils.py' or 'data/config.json'), each as plain text (max 1 MB).
      */
     export type CreateVersionFromSourceInputFiles = {[key: string]: string};
@@ -78844,6 +78885,41 @@ export namespace Schemas {
       results: UploadedMedia[];
     }
 
+    export interface UptimeMonitor {
+      /** Unique identifier of the monitor. */
+      id: string;
+      /** Project the monitor belongs to. */
+      team_id: number;
+      /** Display name for the monitor. */
+      name: string;
+      /** The http or https URL to check. */
+      url: string;
+      /** HTTP method used for each check.
+       *
+       * * `GET` - GET
+       * * `HEAD` - HEAD */
+      method: UptimeMonitorMethodEnum;
+      /** Seconds between checks, a whole number of minutes from 60 to 86400. */
+      interval_seconds: number;
+      /** Seconds to wait for a response before the check fails, from 1 to 30. */
+      timeout_seconds: number;
+      /** Whether checks run for this monitor. */
+      enabled: boolean;
+      /** When the monitor was created. */
+      created_at: string;
+      /** When the monitor was last changed. */
+      updated_at: string;
+    }
+
+    export interface PaginatedUptimeMonitorList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: UptimeMonitor[];
+    }
+
     export interface UserGitHubAccount {
       /**
          * GitHub account type for the installation (e.g. User or Organization).
@@ -89573,6 +89649,43 @@ export namespace Schemas {
       always_include?: boolean;
       /** Replaces the libraries this source belongs to. Omit to leave membership unchanged. An empty list removes it from every library. */
       library_ids?: string[];
+    }
+
+    export interface PatchedUpdateUptimeMonitorInput {
+      /**
+         * The http or https URL to check.
+         * @maxLength 2048
+         */
+      url?: string;
+      /**
+         * Display name for the monitor.
+         * @nullable
+         */
+      name?: string | null;
+      /** HTTP method used for each check.
+       *
+       * * `GET` - GET
+       * * `HEAD` - HEAD */
+      method?: UptimeMonitorMethodEnum | null;
+      /**
+         * Seconds between checks, a whole number of minutes from 60 to 86400.
+         * @minimum 60
+         * @maximum 86400
+         * @nullable
+         */
+      interval_seconds?: number | null;
+      /**
+         * Seconds to wait for a response before the check fails, from 1 to 30.
+         * @minimum 1
+         * @maximum 30
+         * @nullable
+         */
+      timeout_seconds?: number | null;
+      /**
+         * Whether checks run for this monitor.
+         * @nullable
+         */
+      enabled?: boolean | null;
     }
 
     /**
@@ -135564,6 +135677,17 @@ export namespace Schemas {
       image: Blob;
       /** Library to add this image to. Omit to upload without joining a library (as dashboard text cards and notebooks do). */
       purpose?: UploadedMediaCreateBodyPurpose;
+    };
+
+    export type UptimeMonitorsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
     };
 
     export type VisionAlertsListParams = {
