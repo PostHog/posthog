@@ -3,7 +3,10 @@ import { expectLogic } from 'kea-test-utils'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { newInternalTab } from 'lib/utils/newInternalTab'
-import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
+import {
+    MANAGED_TRINO_SCHEMA_SCOPE,
+    databaseTableListLogic,
+} from 'scenes/data-management/database/databaseTableListLogic'
 
 import { propertyDefinitionsList } from '~/generated/core/api'
 import { performQuery } from '~/queries/query'
@@ -577,6 +580,58 @@ describe('queryDatabaseLogic', () => {
         logic.unmount()
     })
 
+    it('combines materialization statuses with search and clears them when locating a table', async () => {
+        initKeaTests()
+        const logic = queryDatabaseLogic()
+        logic.mount()
+        const viewsLogic = dataWarehouseViewsLogic.findMounted()!
+        await expectLogic(viewsLogic).toFinishAllListeners()
+        viewsLogic.actions.loadDataWarehouseSavedQueriesSuccess(
+            [
+                ['orders_daily', 'Failed'],
+                ['orders_weekly', 'Completed'],
+                ['revenue_daily', 'Failed'],
+            ].map(([name, status]) => ({
+                id: name,
+                name,
+                status,
+                is_materialized: true,
+                columns: [],
+                managed_viewset_kind: null,
+            })) as unknown as DataWarehouseSavedQuery[]
+        )
+
+        logic.actions.toggleMaterializationStatusFilter('Failed')
+        expect(logic.values.displayedTreeData.map((item) => item.name)).toEqual(['Views'])
+        expect(logic.values.displayedTreeData[0].children!.map((item) => item.name)).toEqual([
+            'orders_daily',
+            'revenue_daily',
+        ])
+
+        logic.actions.setSearchTerm('orders')
+        expect(logic.values.displayedTreeData[0].children!.map((item) => item.name)).toEqual(['orders_daily'])
+        logic.actions.toggleMaterializationStatusFilter('Completed')
+        expect(logic.values.displayedTreeData[0].children!.map((item) => item.name)).toEqual([
+            'orders_daily',
+            'orders_weekly',
+        ])
+        logic.actions.toggleMaterializationStatusFilter('Failed')
+        expect(logic.values.displayedTreeData[0].children!.map((item) => item.name)).toEqual(['orders_weekly'])
+        logic.actions.toggleMaterializationStatusFilter('Completed')
+        expect(logic.values.materializationStatusFilters).toEqual([])
+        logic.actions.toggleMaterializationStatusFilter('Failed')
+        logic.actions.setSearchTerm('orders_weekly')
+        expect(logic.values.displayedTreeData).toEqual([])
+        logic.actions.clearSearch()
+        logic.actions.clearMaterializationStatusFilters()
+        expect(logic.values.displayedTreeData.find((item) => item.name === 'Views')!.children).toHaveLength(3)
+
+        logic.actions.toggleMaterializationStatusFilter('Failed')
+        logic.actions.locateTable('events')
+        expect(logic.values.materializationStatusFilters).toEqual([])
+        logic.unmount()
+    })
+
     it('lists only SQL metrics under a metrics section in browsing and search', async () => {
         initKeaTests()
         mockDataCatalogMetricsList.mockResolvedValueOnce({
@@ -981,7 +1036,9 @@ describe('queryDatabaseLogic', () => {
             )
         })
 
-        it('hides drafts, unsaved queries and metrics when showing a direct connection schema', () => {
+        it.each(['source-id', MANAGED_TRINO_SCHEMA_SCOPE])('hides unrelated folders for schema scope %s', (scope) => {
+            databaseTableListLogic.findMounted()?.actions.setConnection(scope)
+            logic.actions.toggleMaterializationStatusFilter('Failed')
             featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.EDITOR_DRAFTS], {
                 [FEATURE_FLAGS.EDITOR_DRAFTS]: true,
             })
@@ -1013,6 +1070,13 @@ describe('queryDatabaseLogic', () => {
             } as any)
 
             expect(logic.values.displayedTreeData.map((item) => item.name)).toEqual(['public'])
+        })
+
+        it('shows an empty native catalog without a source configuration link', () => {
+            const databaseLogic = databaseTableListLogic.findMounted()!
+            databaseLogic.actions.setConnection(MANAGED_TRINO_SCHEMA_SCOPE)
+            databaseLogic.actions.loadDatabaseSuccess({ tables: {}, joins: [] })
+            expect(logic.values.displayedTreeData.map((item) => item.name)).toEqual(['No queryable tables'])
         })
 
         it('hydrates a table restored as expanded in the displayed direct-connection tree', async () => {

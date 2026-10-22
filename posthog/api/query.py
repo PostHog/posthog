@@ -14,7 +14,14 @@ from opentelemetry import trace
 from prometheus_client import Counter
 from pydantic import BaseModel
 from rest_framework import status, viewsets
-from rest_framework.exceptions import APIException, NotAuthenticated, NotFound, Throttled, ValidationError
+from rest_framework.exceptions import (
+    APIException,
+    NotAuthenticated,
+    NotFound,
+    PermissionDenied,
+    Throttled,
+    ValidationError,
+)
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -83,7 +90,10 @@ from posthog.rate_limit import (
 from posthog.schema_migrations.upgrade import upgrade
 
 from products.access_control.backend.facade.user_access_control import UserAccessControlError
+from products.customer_analytics.backend.facade.api import validate_account_users_access
+from products.customer_analytics.backend.facade.constants import ACCOUNT_USERS_QUERY_STATUS_LABEL_PREFIX
 from products.managed_warehouse.backend.facade import query_labels as managed_warehouse_query_labels
+from products.managed_warehouse.backend.facade.query_execution import validate_managed_trino_raw_access
 from products.warehouse_sources.backend.facade.models import is_managed_warehouse_connection_ready
 
 from common.hogvm.python.utils import HogVMException
@@ -199,6 +209,7 @@ def _process_query_request(
 # API token must hold the product scope, not just query:read, to run them through
 # the generic endpoint.
 _QUERY_KIND_SCOPES: dict[str, list[str]] = {
+    "AccountUsersQuery": ["query:read", "account:read", "person:read"],
     "AccountsTableQuery": ["query:read", "account:read"],
     "ErrorTrackingFingerprintProjectionQuery": ["query:read", "error_tracking:read"],
     "ErrorTrackingReleasesQuery": ["query:read", "error_tracking:read"],
@@ -461,6 +472,26 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             show_progress or request.query_params.get("showProgress", False) == "true"
         )  # TODO: Remove this once we have a consistent naming convention
         query_status = get_query_status(team_id=self.team.pk, query_id=pk, show_progress=show_progress)
+        account_users_account_id = next(
+            (
+                label.removeprefix(ACCOUNT_USERS_QUERY_STATUS_LABEL_PREFIX)
+                for label in query_status.labels or []
+                if label.startswith(ACCOUNT_USERS_QUERY_STATUS_LABEL_PREFIX)
+            ),
+            None,
+        )
+        if account_users_account_id is not None:
+            try:
+                validate_account_users_access(
+                    self.team, request.user if isinstance(request.user, User) else None, account_users_account_id
+                )
+            except UserAccessControlError as error:
+                raise PermissionDenied(str(error)) from error
+        if managed_warehouse_query_labels.MANAGED_TRINO_RAW_QUERY_STATUS_LABEL in (query_status.labels or []):
+            try:
+                validate_managed_trino_raw_access(self.team, request.user if isinstance(request.user, User) else None)
+            except ExposedHogQLError as error:
+                raise PermissionDenied(str(error)) from error
         managed_connection_id = next(
             (
                 label.removeprefix(managed_warehouse_query_labels.MANAGED_WAREHOUSE_QUERY_STATUS_LABEL_PREFIX)

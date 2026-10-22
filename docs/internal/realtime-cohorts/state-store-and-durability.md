@@ -22,7 +22,7 @@ A column family is a separate keyspace inside the database, with its own setting
 
 | Column family             | One row per                          | Holds                                                                                                                                                                                                                                                                                        |
 | ------------------------- | ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `cf_behavioral`           | person and behavioral leaf state key | Behavioral leaf state, its eviction deadline, and replay marks: the firehose offsets already applied                                                                                                                                                                                         |
+| `cf_behavioral`           | person and behavioral leaf state key | Behavioral leaf state, its eviction deadline, and replay marks: the source offsets already applied                                                                                                                                                                                           |
 | `cf_person_records`       | person                               | The person record: matched person conditions, fingerprints, stamp, replay marks                                                                                                                                                                                                              |
 | `cf_stage2`               | cohort and person                    | The membership bit the processor registered for the pair. On the live, sweep, merge, cascade and reconcile paths it is the recomputed truth. On the seed path it is what downstream was last told. Also reconcile dirty markers, and an inventory of membership rows received through merges |
 | `cf_merge_drains_applied` | merge message                        | Marker: this merge was drained                                                                                                                                                                                                                                                               |
@@ -142,22 +142,23 @@ Nothing is dispatched to a worker, from the events consumer or a follower, until
 [Processor runtime](processor-runtime.md#startup) lists them in order.
 
 A pod owns its partitions for as long as it runs, so no slice changes owner while the pod runs.
-State never moves between pods, which is why one pod that owns every partition is the supported deployment.
-The store records the split of the partitions it was written under and refuses to open under another.
-[Processor runtime](processor-runtime.md#ownership-and-the-single-pod-deployment) explains that constraint.
+State moves between pods only in a reshard, which raises the pod count.
+The store records the split of the partitions it was written under, and opens only under a split that the recorded one covers.
+[Processor runtime](processor-runtime.md#ownership-and-the-single-pod-deployment) explains that constraint and the reshard.
 
 ### Choosing a checkpoint
 
 The restore tries the freshest local checkpoint, then up to `CHECKPOINT_IMPORT_ATTEMPT_DEPTH` remote ones from the last `CHECKPOINT_IMPORT_WINDOW_HOURS`, newest first.
 A checkpoint counts only once its `metadata.json` exists, because the sweeper and the upload both write it last.
 A local attempt without one is passed over for the attempt before it, and a remote attempt without one is unusable and does not count toward the depth.
+A remote checkpoint whose split does not cover this pod is unusable and does not count toward the depth either.
 The restore judges each candidate from its `metadata.json` and `offsets.json` before the bulk download:
 
 - its store schema must be this build's,
 - its metadata and manifest formats must be ones this build reads,
-- its manifest must belong to this pod's ordinal,
+- its manifest's split must cover this pod's, which means it owns every partition this pod owns,
 - its manifest must record a position on the events topic,
-- the broker must still hold the events the checkpoint lacks on at least one partition (see [the replay window](#the-replay-window)).
+- the broker must still hold the events the checkpoint lacks on at least one partition this pod owns (see [the replay window](#the-replay-window)).
 
 A candidate that passes is materialized in `<STORE_PATH>.restore`, a sibling of the store on the same mount.
 A local checkpoint is hard-linked there, SSTs only, with every other file copied.
@@ -176,7 +177,7 @@ When none publishes:
 | None, or only unusable ones | The store is created empty, behind the coverage fence |
 | Any that failed             | The boot blocks and retries                           |
 
-Unusable means an upload that never finished, a metadata or manifest format this build does not read, a schema mismatch while `COHORT_WIPE_ON_SCHEMA_MISMATCH` is on, or a checkpoint whose replay expired on every partition.
+Unusable means an upload that never finished, a metadata or manifest format this build does not read, a schema mismatch while `COHORT_WIPE_ON_SCHEMA_MISMATCH` is on, a split that does not cover this pod, or a checkpoint whose replay expired on every partition this pod owns.
 Older candidates are no better, so a retry cannot help.
 A failed candidate is one that could restore after a fix: a download error, a local attempt whose files cannot be read, a stage that fails validation, a schema mismatch without the wipe flag.
 A failed listing, a failed Kafka read and a local file error also block.
@@ -240,7 +241,9 @@ Checkpoints require durable restore, a bucket, and an absolute checkpoint direct
 - **One lineage per pod.**
   A pod's checkpoints live under `cohort_stream_state/<ordinal>`, locally and in object storage, where the ordinal is the number that ends the StatefulSet pod name in `POD_NAME`.
   Ordinal 0 keeps the single pod's original layout.
-  Two pods never read or write each other's checkpoints.
+  A pod writes only its own lineage.
+  A reshard child reads its parent's lineage only to take its partitions over.
+  Its first upload is full, so its lineage never names objects in its parent's lineage.
 - **Positions from the broker.**
   Each checkpoint carries `offsets.json`: for every owned slice, the committed offset of every enabled input's consumer group, or the low watermark where the group has none, so idle partitions are recorded too.
   The positions are read after a write-ahead-log flush and before the checkpoint.
@@ -324,6 +327,16 @@ Three metrics follow coverage:
 - **Merge markers and tombstones** are removed after their retention period.
 - **Orphaned behavioral rows**, left behind when a leaf's definition changes, a cohort is deleted, or a team leaves the catalog, are not collected.
   They are removed only by a merge drain or a partition wipe.
+- **RocksDB's info logs** have a size cap.
+  The info `LOG` rolls at `COHORT_MAX_LOG_FILE_SIZE_BYTES` (256 MiB), and RocksDB keeps `COHORT_KEEP_LOG_FILE_NUM` (10) files, the active one included, so the info logs use at most about 2.5 GiB.
+  Each open and each roll delete the oldest rolled files beyond that count.
+  The first boot under the cap keeps the newest 9 rolled files that an uncapped build left, and they can be much larger than 256 MiB.
+  The next 9 rolls delete them.
+  Both values must be greater than 0, or the processor does not start.
+- **Usage by file type** of the store directory and the local checkpoints is the `store_file_bytes` gauge.
+  Its `kind` label is `sst`, `wal`, `info_log`, `manifest`, `other` or `checkpoint`.
+  The `checkpoint` value counts only local checkpoint files that the live store does not share, such as SSTs that compaction replaced.
+  It is 0 when checkpoints are off.
 
 ## Tuning that matters
 
@@ -354,7 +367,8 @@ A lint rule denies direct calls to most store I/O methods, and the synchronous s
   With checkpoints enabled, the boot deletes it and restores.
 - A store directory that holds `restore.json` is a checkpoint restore in progress, not a live store.
   An image from before that marker ignores it and reopens the store at the broker's old offsets, so do not roll back while a restore is pending.
-- Changing `COHORT_POD_COUNT` makes every store written under another split refuse to open, because each records the split it was written under.
+- Changing `COHORT_POD_COUNT` without `COHORT_RESHARD_FROM_POD_COUNT` holds every boot in the ownership fence.
+  Lowering it also makes every store refuse to open, because each records the split it was written under.
   [Ownership](processor-runtime.md#ownership-and-the-single-pod-deployment) lists what to wipe.
   Wiping a store deletes every slice, including merge transfers not yet sent, whose merge offsets may already be committed.
 - Person records grow with every person seen on a team with person-property conditions, including those that match nothing, unless a time-to-live is configured.

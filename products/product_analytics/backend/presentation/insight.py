@@ -44,9 +44,10 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.monitoring import Feature, monitor
 from posthog.api.openapi_parameters import make_filters_override_param, make_variables_override_param
+from posthog.api.query_access_check import blocked_access_for_user
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
-from posthog.api.sharing_publish_gate import blocked_access_for_user, is_publicly_shared
+from posthog.api.sharing_publish_gate import is_publicly_shared
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import action
 from posthog.auth import (
@@ -1888,6 +1889,20 @@ class InsightDataChecksSerializer(serializers.Serializer):
     )
 
 
+def chart_display_filter(value: str) -> Q:
+    displays = [display for display in value.split(",") if display]
+    unknown = set(displays) - {display.value for display in schema.ChartDisplayType}
+    if not displays or unknown:
+        raise ValidationError({"display": f"Unknown chart types: {', '.join(sorted(unknown)) or value!r}."})
+    trends_display = Q(query__source__trendsFilter__display__in=displays)
+    if schema.ChartDisplayType.ACTIONS_LINE_GRAPH in displays:
+        trends_display |= Q(query__source__trendsFilter__display__isnull=True)
+    return (
+        Q(query__kind=schema.NodeKind.INSIGHT_VIZ_NODE, query__source__kind=schema.NodeKind.TRENDS_QUERY)
+        & trends_display
+    ) | Q(query__kind=schema.NodeKind.DATA_VISUALIZATION_NODE, query__display__in=displays)
+
+
 @extend_schema(extensions={"x-product": ProductKey.PRODUCT_ANALYTICS})
 @extend_schema_view(
     list=extend_schema(
@@ -1962,6 +1977,15 @@ Background calculation can be tracked using the `query_status` response field.""
                 name="exclude_bi",
                 type=OpenApiTypes.BOOL,
                 description="Exclude Business intelligence worksheets from the insight list.",
+            ),
+            OpenApiParameter(
+                name="display",
+                type=OpenApiTypes.STR,
+                description=(
+                    "Comma-separated chart types, e.g. `ActionsLineGraph,ActionsBar`. Only returns trends and SQL "
+                    "insights shown as one of them. A trends insight with no chart type set counts as "
+                    "`ActionsLineGraph`."
+                ),
             ),
             OpenApiParameter(
                 name="order",
@@ -2377,6 +2401,8 @@ class InsightViewSet(
                     )
                 else:
                     queryset = queryset.filter(legacy_filter)
+            elif key == "display":
+                queryset = queryset.filter(chart_display_filter(request.GET["display"]))
             elif key == "search":
                 term = request.GET["search"]
                 if len(term) > MAX_SEARCH_LENGTH:

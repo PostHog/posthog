@@ -144,21 +144,38 @@ class TestOptedInReviewerLogins:
 
 class TestAssignReviewersToPullRequest:
     @pytest.mark.django_db
-    def test_opted_in_reviewers_are_added_as_assignees(self, org_and_team):
+    @pytest.mark.parametrize("disable_during_lookup", [False, True])
+    def test_opted_in_reviewers_are_added_as_assignees(self, org_and_team, disable_during_lookup):
         org, team = org_and_team
         _make_reviewer(org, "opted-in", opted_in=True)
         _make_reviewer(org, "opted-out", opted_in=False)
         report = _make_report(team, ["opted-in", "opted-out"])
         github = _open_pr_github()
 
-        with patch(
-            "products.signals.backend.reviewer_pr_assignment.GitHubIntegration.first_for_team_repository",
-            return_value=github,
+        with (
+            patch(
+                "products.signals.backend.reviewer_pr_assignment.assignment_side_effects_allowed", return_value=True
+            ) as allowed,
+            patch(
+                "products.signals.backend.reviewer_pr_assignment.GitHubIntegration.first_for_team_repository",
+                return_value=github,
+            ),
         ):
+
+            def read_pr(*_args: object) -> dict[str, object]:
+                allowed.return_value = not disable_during_lookup
+                return github.get_pull_request.return_value
+
+            github.get_pull_request.side_effect = read_pr
             assigned = assign_reviewers_to_pull_request(team_id=team.id, report_id=str(report.id), pr_url=PR_URL)
 
-        assert assigned == ["opted-in"]
-        github.add_pull_request_assignees.assert_called_once_with("PostHog/posthog", 123, ["opted-in"])
+        if disable_during_lookup:
+            assert assigned == []
+            github.add_pull_request_assignees.assert_not_called()
+            github.request_pull_request_reviews.assert_not_called()
+        else:
+            assert assigned == ["opted-in"]
+            github.add_pull_request_assignees.assert_called_once_with("PostHog/posthog", 123, ["opted-in"])
 
     @pytest.mark.django_db
     def test_no_reviewers_or_assignment_work_skips_github_entirely(self, org_and_team):

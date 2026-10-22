@@ -28,7 +28,7 @@ from posthog.temporal.common.activity_context import current_activity_attempt
 from posthog.temporal.common.errors import NonReportableError
 from posthog.temporal.common.heartbeat import LivenessHeartbeater as Heartbeater
 from posthog.temporal.common.logger import get_logger
-from posthog.temporal.common.shutdown import ShutdownMonitor, WorkerShuttingDownError
+from posthog.temporal.common.shutdown import DEFAULT_GRACEFUL_SHUTDOWN_TIMEOUT, ShutdownMonitor, WorkerShuttingDownError
 from posthog.temporal.common.utils import is_stale_connection_read_only_error
 
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
@@ -64,10 +64,16 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.e
     trim_source_job_inputs,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.preemption import PreemptionConfig
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.ride_out import (
+    IMPORT_RIDE_OUT_FLAG,
+    DurableProgress,
+    RideOutConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     SchemaColumnTypeChangedException,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
+    is_invalid_version_race,
     is_transient_delta_maintenance_error,
     is_transient_object_store_error,
 )
@@ -82,6 +88,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 )
 from products.warehouse_sources.backend.temporal.data_imports.retry_limits import PROGRESSLESS_RESUMABLE_ATTEMPTS
 from products.warehouse_sources.backend.temporal.data_imports.row_tracking import setup_row_tracking
+from products.warehouse_sources.backend.temporal.data_imports.schema_flags import is_schema_flag_enabled
 from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     FAST_RETURN_PROBE_TIMEOUT,
@@ -389,8 +396,9 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
         # zombie predecessor stands down (its heartbeat timed out, but it may still be running).
         attempt=current_import_attempt(),
     ):
+        progress = DurableProgress(carry_over_counts=settings.DATA_WAREHOUSE_IMPORT_WATERMARK_CARRY_OVER_ENABLED)
         try:
-            return await _import_data_with_reporting(inputs, logger)
+            return await _import_data_with_reporting(inputs, logger, progress)
         except WorkerShuttingDownError:
             if not inputs.handoffs_are_free:
                 raise
@@ -400,6 +408,8 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
                 should_trigger_cdp_producer=False,
                 handed_off=True,
                 handoff_attempts_used=current_activity_attempt(),
+                handoff_made_progress=progress.has_progress,
+                handoff_reason=progress.handoff_reason or "unknown",
             )
         except (OperationalError, InterfaceError, InternalError, PostHogInternalDatabaseError) as e:
             # The setup phase (resolving the job/schema/source rows for this run) reads PostHog's
@@ -422,7 +432,9 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
             raise NonReportableError(POSTHOG_DATABASE_UNAVAILABLE_MESSAGE) from e
 
 
-async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: FilteringBoundLogger) -> PipelineResult:
+async def _import_data_with_reporting(
+    inputs: ImportDataActivityInputs, logger: FilteringBoundLogger, progress: DurableProgress
+) -> PipelineResult:
     async with Heartbeater(factor=30), ShutdownMonitor() as shutdown_monitor:
         await setup_row_tracking(inputs.team_id, inputs.schema_id)
 
@@ -582,6 +594,16 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
             preemption = PreemptionConfig(
                 quiet_period_seconds=settings.DATA_WAREHOUSE_IMPORT_PREEMPTION_QUIET_PERIOD_SECONDS,
                 watermark_carry_over_enabled=settings.DATA_WAREHOUSE_IMPORT_WATERMARK_CARRY_OVER_ENABLED,
+            )
+        # A deadline hand-off on the retry path would cost an attempt, so the same rule as preemption.
+        ride_out: RideOutConfig | None = None
+        if inputs.handoffs_are_free and await database_sync_to_async_pool(is_schema_flag_enabled)(
+            schema, IMPORT_RIDE_OUT_FLAG
+        ):
+            grace = settings.GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS
+            ride_out = RideOutConfig(
+                grace_seconds=float(grace) if grace is not None else DEFAULT_GRACEFUL_SHUTDOWN_TIMEOUT.total_seconds(),
+                max_seconds=settings.DATA_WAREHOUSE_IMPORT_RIDE_OUT_MAX_SECONDS,
             )
 
         if schema.should_use_incremental_field:
@@ -778,6 +800,8 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
                 resumed_incremental_value=resumed_incremental_value,
                 preemption=preemption,
                 kept_rows_synced=kept_rows_synced,
+                ride_out=ride_out,
+                progress=progress,
             )
         else:
             raise ValueError(f"Source type {model.pipeline.source_type} not supported")
@@ -1069,6 +1093,17 @@ async def _handle_import_error(
         await logger.adebug("Transient Delta maintenance/reset race - re-raising for Temporal retry")
         raise NonReportableError(error_msg) from error
 
+    # execute_with_conflict_retry (ops.py) already refreshes the table handle and retries this exact
+    # race a bounded number of times - sustained contention (most commonly a heartbeat-timed-out
+    # zombie attempt still committing against the same table during a rolling deploy, see
+    # batch_consumer.py's MAX_INTERRUPTIONS comment) can still exhaust that budget. The race is
+    # self-healing on the next attempt, same as the maintenance-path race above, so it must not be
+    # captured as a bug either.
+    if is_invalid_version_race(error):
+        await logger.awarning(error_msg)
+        await logger.adebug("Delta commit-conflict race exhausted its internal retries - re-raising for Temporal retry")
+        raise NonReportableError(error_msg) from error
+
     # DATA_WAREHOUSE_REDIS backs resumable-source checkpoints, row tracking, and sync locks — it's
     # PostHog's own instance, never anything a customer's source touches. A connectivity blip there
     # (unreachable, refusing connections while restarting) clears on its own once the instance is
@@ -1155,6 +1190,8 @@ async def _run(
     preemption: PreemptionConfig | None = None,
     on_resumable_retry_budget: bool = False,
     kept_rows_synced: int | None = None,
+    ride_out: RideOutConfig | None = None,
+    progress: DurableProgress | None = None,
 ) -> PipelineResult:
     try:
         reset_pipeline = (
@@ -1176,6 +1213,8 @@ async def _run(
             resumed_incremental_value=resumed_incremental_value,
             preemption=preemption,
             kept_rows_synced=kept_rows_synced,
+            ride_out=ride_out,
+            progress=progress,
         )
 
         result = await pipeline.run()

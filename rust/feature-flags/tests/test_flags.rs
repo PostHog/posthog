@@ -15,9 +15,10 @@ use crate::common::*;
 use feature_flags::cohorts::cohort_models::CohortType;
 use feature_flags::config::DEFAULT_TEST_CONFIG;
 use feature_flags::utils::test_utils::{
-    insert_config_in_hypercache, insert_flags_for_team_in_redis,
+    insert_active_flags, insert_config_in_hypercache, insert_flags_for_team_in_redis,
     insert_flags_with_metadata_for_team_in_redis, insert_new_team_in_redis, setup_pg_reader_client,
-    setup_redis_client, update_team_in_hypercache, TestContext,
+    setup_redis_client, unparseable_flag_json, unparseable_v1_filters, update_team_in_hypercache,
+    TestContext,
 };
 
 pub mod common;
@@ -6402,6 +6403,86 @@ async fn it_degrades_person_flags_when_the_persons_db_stops_answering() -> Resul
             })
         );
     }
+
+    Ok(())
+}
+
+#[rstest]
+#[case::no_flag_left(None, &[])]
+#[case::only_an_inactive_flag_left(Some(false), &[])]
+#[case::a_healthy_flag_left(Some(true), &["other-flag"])]
+#[tokio::test]
+async fn it_reports_errors_when_the_serving_read_skips_a_flag(
+    #[case] other_flag_active: Option<bool>,
+    #[case] expected_keys: &[&str],
+) -> Result<()> {
+    let config = DEFAULT_TEST_CONFIG.clone();
+
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
+    let team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let context = TestContext::new(None).await;
+    context.insert_new_team(Some(team.id)).await.unwrap();
+
+    let mut flags = vec![unparseable_flag_json(1, "malformed-flag", team.id)];
+    if let Some(active) = other_flag_active {
+        flags.push(json!({
+            "id": 2,
+            "key": "other-flag",
+            "active": active,
+            "deleted": false,
+            "team_id": team.id,
+            "filters": {"groups": [{"properties": [], "rollout_percentage": 100}]}
+        }));
+    }
+    insert_flags_for_team_in_redis(client, team.id, Some(Value::Array(flags).to_string())).await?;
+
+    let server = ServerHandle::for_config(config).await;
+    let payload = json!({"token": team.api_token, "distinct_id": "user_distinct_id"}).to_string();
+    let res = server.send_flags_request(payload, Some("2"), None).await;
+
+    assert_eq!(res.status(), StatusCode::OK);
+    let body = res.json::<FlagsResponse>().await?;
+    assert!(body.errors_while_computing_flags);
+    let mut keys: Vec<&str> = body.flags.keys().map(String::as_str).collect();
+    keys.sort_unstable();
+    assert_eq!(keys, expected_keys);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn it_reports_errors_when_the_postgres_fallback_omits_a_flag_python_publishes() -> Result<()>
+{
+    let config = DEFAULT_TEST_CONFIG.clone();
+
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
+    let team = insert_new_team_in_redis(client).await.unwrap();
+    let context = TestContext::new(None).await;
+    context.insert_new_team(Some(team.id)).await.unwrap();
+
+    insert_active_flags(
+        &context,
+        team.id,
+        [
+            ("omitted-flag", unparseable_v1_filters()),
+            (
+                "healthy-flag",
+                json!({"groups": [{"properties": [], "rollout_percentage": 100}]}),
+            ),
+        ],
+    )
+    .await;
+
+    let server = ServerHandle::for_config(config).await;
+    let payload = json!({"token": team.api_token, "distinct_id": "user_distinct_id"}).to_string();
+    let res = server.send_flags_request(payload, Some("2"), None).await;
+
+    assert_eq!(res.status(), StatusCode::OK);
+    let body = res.json::<FlagsResponse>().await?;
+    assert!(body.errors_while_computing_flags);
+    let keys: Vec<&str> = body.flags.keys().map(String::as_str).collect();
+    assert_eq!(keys, ["healthy-flag"]);
+    assert!(body.flags["healthy-flag"].enabled);
 
     Ok(())
 }

@@ -11,8 +11,8 @@ export function CommandBar(): JSX.Element {
     const triggerRef = useRef<HTMLButtonElement>(null)
     const { commandPaletteQuery, paletteSections } = useValues(tileCanvasLogic)
     const { openCommandPalette, closeCommandPalette, startPlacing } = useActions(tileCanvasLogic)
-    const { panel, morePanels, view } = useCanvasCommands()
-    const commands = useMemo((): CanvasCommand[] => [...panel, ...morePanels, ...view], [panel, morePanels, view])
+    const { panel, view } = useCanvasCommands()
+    const commands = useMemo((): CanvasCommand[] => [...panel, ...view], [panel, view])
 
     return (
         <div className="relative">

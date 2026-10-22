@@ -14,6 +14,7 @@ import { HogFunctionManagerService } from '../services/managers/hog-function-man
 import { HogFunctionMonitoringService } from '../services/monitoring/hog-function-monitoring.service'
 import {
     HogInvocationResultsService,
+    SENSITIVE_VARIABLES_OMITTED,
     decodeInvocationGlobals,
 } from '../services/monitoring/hog-invocation-results.service'
 import {
@@ -767,6 +768,14 @@ export class RerunPaginatorService {
                 return null
             }
             const persistedState = parsedGlobals as Record<string, any>
+            if (persistedState[SENSITIVE_VARIABLES_OMITTED]) {
+                logger.warn('⚠️', 'Skipping rerun of a sensitive email whose message data was not stored', {
+                    functionId,
+                    teamId,
+                    invocation_id: row.invocation_id,
+                })
+                return null
+            }
             const eventForFilter = persistedState.event ?? {}
             const filterGlobals: HogFunctionFilterGlobals = convertToHogFunctionFilterGlobal({
                 event: eventForFilter,
@@ -828,6 +837,8 @@ export class RerunPaginatorService {
                     ? (restoredCurrentAction as CyclotronJobInvocationHogFlow['state']['currentAction'])
                     : undefined,
                 personId: persistedState.personId,
+                // Later message steps check these before the per-worker preferences cache, which can predate them.
+                messageOptOuts: persistedState.messageOptOuts,
                 // Sticky rerun counter — mirror the hog function path so the
                 // lifecycle row producer can derive `attempts` / `is_retry`
                 // for flows too, and the `max_attempts` guard actually trips.

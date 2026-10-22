@@ -1,9 +1,10 @@
 import os
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import timedelta
 from functools import wraps
 from html import escape
-from typing import Union
+from typing import Literal, Union, cast
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
 from django.apps import apps
@@ -28,13 +29,18 @@ from prometheus_client import REGISTRY, CollectorRegistry, generate_latest, mult
 
 from posthog.api.secret_revocation import NON_PERSONAL_SECRET_PREFIXES
 from posthog.auth import AUTH_BRAND_COOKIE, apply_auth_brand_cookie, normalize_auth_brand
+from posthog.cache_utils import cache_for
 from posthog.cloud_utils import is_cloud
+from posthog.credentials_service.callers import CredentialsCaller
+from posthog.credentials_service.errors import CredentialsServiceFailure
+from posthog.credentials_service.settings_fallback import get_many_or_settings
 from posthog.email import is_email_available
 from posthog.exceptions_capture import capture_exception
 from posthog.health import is_clickhouse_connected, is_kafka_connected
 from posthog.helpers.dev_login import is_dev_login_allowed
 from posthog.models import Organization, User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
+from posthog.models.instance_setting import get_instance_settings
 from posthog.models.integration import SlackIntegration
 from posthog.models.oauth import find_oauth_access_token, find_oauth_refresh_token
 from posthog.models.personal_api_key import find_personal_api_key
@@ -180,12 +186,46 @@ def render_query(request: HttpRequest) -> HttpResponse:
     return render_template("render_query.html", request, context={"render_query_payload": payload})
 
 
+PREFLIGHT_OAUTH_CLIENT_ID_KEYS = ["HUBSPOT_APP_CLIENT_ID", "SALESFORCE_CONSUMER_KEY"]
+
+
+@cache_for(timedelta(minutes=5))
+def _preflight_oauth_client_ids() -> dict[str, str]:
+    try:
+        return get_many_or_settings(PREFLIGHT_OAUTH_CLIENT_ID_KEYS, CredentialsCaller.INTEGRATIONS)
+    except CredentialsServiceFailure:
+        logger.warning("preflight.credentials_service_unavailable", keys=PREFLIGHT_OAUTH_CLIENT_ID_KEYS)
+        return {key: cast(str, getattr(settings, key)) for key in PREFLIGHT_OAUTH_CLIENT_ID_KEYS}
+
+
+def _preflight_oauth_client_id(key: Literal["HUBSPOT_APP_CLIENT_ID", "SALESFORCE_CONSUMER_KEY"]) -> str:
+    return _preflight_oauth_client_ids()[key]
+
+
+@cache_for(timedelta(minutes=5))
+def _preflight_slack_instance_client_id() -> str:
+    return cast(str, get_instance_settings(["SLACK_APP_CLIENT_ID"])["SLACK_APP_CLIENT_ID"] or "")
+
+
+def _preflight_slack_client_id(instance_setting: str) -> str:
+    with tracer.start_as_current_span("preflight.slack_config_main"):
+        return SlackIntegration.slack_client_id(instance_setting)
+
+
 @never_cache
 def preflight_check(request: HttpRequest) -> JsonResponse:
-    with tracer.start_as_current_span("preflight.slack_config_main"):
-        slack_client_id = SlackIntegration.slack_config().get("SLACK_APP_CLIENT_ID")
-    hubspot_client_id = settings.HUBSPOT_APP_CLIENT_ID
-    salesforce_client_id = settings.SALESFORCE_CONSUMER_KEY
+    # Read the database-backed fallback on the request thread, then resolve independent credential
+    # groups concurrently so a service timeout costs at most one request timeout. HubSpot and
+    # Salesforce share one batch request.
+    slack_instance_client_id = _preflight_slack_instance_client_id()
+    with ThreadPoolExecutor(max_workers=2, thread_name_prefix="preflight-credentials") as executor:
+        slack_client_id_future = executor.submit(_preflight_slack_client_id, slack_instance_client_id)
+        oauth_client_ids_future = executor.submit(_preflight_oauth_client_ids)
+        slack_client_id = slack_client_id_future.result()
+        oauth_client_ids = oauth_client_ids_future.result()
+
+    hubspot_client_id = oauth_client_ids["HUBSPOT_APP_CLIENT_ID"]
+    salesforce_client_id = oauth_client_ids["SALESFORCE_CONSUMER_KEY"]
 
     in_cloud = is_cloud()
 

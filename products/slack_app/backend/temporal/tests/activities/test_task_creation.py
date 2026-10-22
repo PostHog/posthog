@@ -12,6 +12,7 @@ to wording in the wrapper text show up as a diff in
 """
 
 import pytest
+from unittest.mock import patch
 
 from posthog.models.integration import Integration
 
@@ -95,10 +96,23 @@ def test_artifact_delivery_mode_offers_only_what_delivery_accepts(granted_scopes
     # missing one still gets charts while dropping to message mode.
     integration = Integration(kind="slack", config={"scope": granted_scopes})
 
-    assert slack_artifact_delivery_state_updates(integration) == {
+    with patch("products.slack_app.backend.facade.api.is_slack_app_chart_links_enabled", return_value=False):
+        state = slack_artifact_delivery_state_updates(integration)
+
+    assert state == {
         "slack_artifact_delivery": expected_mode,
         "slack_chart_delivery": True,
+        "slack_chart_links": False,
     }
+
+
+def test_chart_links_ride_on_the_flag():
+    integration = Integration(kind="slack", config={"scope": "chat:write"})
+
+    with patch("products.slack_app.backend.facade.api.is_slack_app_chart_links_enabled", return_value=True):
+        state = slack_artifact_delivery_state_updates(integration)
+
+    assert state["slack_chart_links"] is True
 
 
 def test_build_description_renders_labeled_mention_for_each_author():
@@ -638,11 +652,23 @@ class TestDeriveMentionWorkflowId:
         }
         return PostHogCodeSlackMentionWorkflowInputs(**fields)
 
-    def test_confirmed_redispatch_gets_its_own_id(self):
-        original = derive_mention_workflow_id(self._inputs(untagged_followup=True))
-        confirmed = derive_mention_workflow_id(self._inputs(untagged_followup=True, untagged_followup_confirmed=True))
-        assert original != confirmed
-        assert confirmed.startswith(original)
+    @pytest.mark.parametrize(
+        "earlier, redispatch",
+        [
+            ({"untagged_followup": True}, {"untagged_followup_confirmed": True}),
+            # A confirmed reply that then needed the creator's approval is sent a third time.
+            (
+                {"untagged_followup": True, "untagged_followup_confirmed": True, "slack_event_id": None},
+                {"thread_join_approved": True},
+            ),
+        ],
+        ids=["confirmed", "join_approved"],
+    )
+    def test_redispatch_gets_its_own_id(self, earlier, redispatch):
+        original = derive_mention_workflow_id(self._inputs(**earlier))
+        again = derive_mention_workflow_id(self._inputs(**earlier, **redispatch))
+        assert original != again
+        assert again.startswith(original)
 
     def test_id_is_stable_without_a_slack_event_id(self):
         inputs = self._inputs(slack_event_id=None)
