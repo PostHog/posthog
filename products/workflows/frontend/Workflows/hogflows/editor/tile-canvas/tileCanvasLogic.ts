@@ -65,7 +65,7 @@ import { withLeavingStacks } from './tileCanvasNodes'
 
 export type TileCanvasPanelMode = HogFlowEditorMode | 'history'
 
-export type StepAddSource = 'palette' | 'command bar' | 'quick add'
+export type StepAddSource = 'palette' | 'command bar' | 'quick add' | 'drag'
 export type StepCountOf = (actionId: string) => number | undefined
 export type TemplateNameOf = (templateId: string) => string | undefined
 
@@ -174,6 +174,7 @@ export interface tileCanvasLogicValues {
     commandPaletteQuery: string | null
     countOf: StepCountOf
     drawnGraph: VisibleGraph
+    dropTargetEdgeKey: string | null
     fitRequest: number
     fitsNextLayout: boolean
     frameSpecs: PathFrameSpec[]
@@ -282,6 +283,9 @@ export interface tileCanvasLogicActions {
     collapsePath: (groupId: string) => {
         groupId: string
     }
+    dropAt: (edge: HogFlowEdge) => {
+        edge: HogFlowEdge
+    }
     fitNextLayout: () => {
         value: true
     }
@@ -350,6 +354,9 @@ export interface tileCanvasLogicActions {
     }
     selectStep: (actionId: string) => {
         actionId: string
+    }
+    setDropTargetEdgeKey: (edgeKey: string | null) => {
+        edgeKey: string | null
     }
     setLayout: (
         layout: CanvasLayout,
@@ -494,6 +501,8 @@ export const tileCanvasLogic = kea<tileCanvasLogicType>([
         startPlacing: (step: CreateActionType) => ({ step }),
         addStepAt: (step: CreateActionType, edge: HogFlowEdge) => ({ step, edge }),
         placeAt: (edge: HogFlowEdge) => ({ edge }),
+        setDropTargetEdgeKey: (edgeKey: string | null) => ({ edgeKey }),
+        dropAt: (edge: HogFlowEdge) => ({ edge }),
         selectStep: (actionId: string) => ({ actionId }),
         revealStep: (actionId: string, openPanel: boolean = true) => ({ actionId, openPanel }),
         openPanel: (mode: TileCanvasPanelMode) => ({ mode }),
@@ -533,6 +542,14 @@ export const tileCanvasLogic = kea<tileCanvasLogicType>([
                 openCommandPalette: (_, { query }) => query,
                 closeCommandPalette: () => null,
                 openQuickAdd: () => null,
+                cancel: () => null,
+            },
+        ],
+        dropTargetEdgeKey: [
+            null as string | null,
+            {
+                setDropTargetEdgeKey: (_, { edgeKey }) => edgeKey,
+                setNodeToBeAdded: () => null,
                 cancel: () => null,
             },
         ],
@@ -789,6 +806,13 @@ export const tileCanvasLogic = kea<tileCanvasLogicType>([
                 actions.setNodeToBeAdded(step)
                 actions.onDrop(undefined, edge)
                 captureStepAdded('quick add', step.type)
+            },
+            dropAt: ({ edge }) => {
+                const step = values.nodeToBeAdded
+                if (step) {
+                    actions.onDrop(undefined, edge)
+                    captureStepAdded('drag', 'data' in step ? step.data.type : step.type)
+                }
             },
             placeAt: ({ edge }) => {
                 if (values.isMovingNode || values.isCopyingNode) {
