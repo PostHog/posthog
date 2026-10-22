@@ -1,16 +1,12 @@
 import { SignalReport } from 'products/signals/frontend/inbox/types'
-import type { BriefingItemApi, HighlightItemApi } from 'products/today/frontend/generated/api.schemas'
-
-import { itemReportId } from './todayBriefingItems'
+import type { HighlightItemApi } from 'products/today/frontend/generated/api.schemas'
 
 export const VISIBLE_ROWS = 5
 
 export type TodayForYouRow =
-    | { kind: 'briefing'; key: string; item: BriefingItemApi; reportId: string | null; done: boolean }
     | { kind: 'report'; key: string; report: SignalReport; source: 'list' | 'more'; done: boolean }
     | { kind: 'highlight'; key: string; item: HighlightItemApi; position: number; done: boolean }
 
-type TodayForYouBriefingRow = Extract<TodayForYouRow, { kind: 'briefing' }>
 type TodayForYouReportRow = Extract<TodayForYouRow, { kind: 'report' }>
 
 export interface TodayForYouRows {
@@ -19,8 +15,6 @@ export interface TodayForYouRows {
 }
 
 interface TodayForYouInput {
-    showPersonalBriefing: boolean
-    briefingItems: BriefingItemApi[]
     reports: SignalReport[]
     loadedMoreReports: SignalReport[]
     highlights: HighlightItemApi[]
@@ -29,7 +23,7 @@ interface TodayForYouInput {
 }
 
 export function rowReportId(row: TodayForYouRow): string | null {
-    return row.kind === 'report' ? row.key : row.kind === 'briefing' ? row.reportId : null
+    return row.kind === 'report' ? row.key : null
 }
 
 function reportRow(report: SignalReport, source: 'list' | 'more', overrides: Record<string, string>): TodayForYouRow {
@@ -38,15 +32,7 @@ function reportRow(report: SignalReport, source: 'list' | 'more', overrides: Rec
 }
 
 export function forYouRows(input: TodayForYouInput): TodayForYouRows {
-    const reportRows: TodayForYouRow[] = input.showPersonalBriefing
-        ? input.briefingItems.map((item) => ({
-              kind: 'briefing',
-              key: item.key,
-              item,
-              reportId: itemReportId(item),
-              done: item.state !== 'open',
-          }))
-        : input.reports.map((report) => reportRow(report, 'list', input.reportStateOverrides))
+    const reportRows = input.reports.map((report) => reportRow(report, 'list', input.reportStateOverrides))
     const highlightRows: TodayForYouRow[] = input.highlights.map((item, position) => ({
         kind: 'highlight',
         key: item.key,
@@ -64,10 +50,6 @@ export function forYouReportIds(rows: TodayForYouRow[]): string[] {
         const id = rowReportId(row)
         return id ? [id] : []
     })
-}
-
-export function briefingRows(rows: TodayForYouRow[]): TodayForYouBriefingRow[] {
-    return rows.filter((row): row is TodayForYouBriefingRow => row.kind === 'briefing')
 }
 
 export function reportRows(rows: TodayForYouRow[], source: 'list' | 'more'): TodayForYouReportRow[] {

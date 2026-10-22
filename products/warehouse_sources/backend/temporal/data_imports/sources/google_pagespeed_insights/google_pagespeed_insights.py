@@ -7,10 +7,13 @@ from urllib.parse import urlencode, urlparse
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 from urllib3.util.retry import Retry
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    make_tracked_session,
+    retry_with_deadline,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_pagespeed_insights.settings import (
     PAGESPEED_ENDPOINTS,
@@ -144,7 +147,7 @@ def _redact_key(text: str) -> str:
 # `RequestException`, not subclasses, so they must be listed explicitly: a connection broken
 # mid-response (server hung up before the body was fully streamed) or a body that fails to decode is
 # transient and safe to retry on the large PageSpeed payloads, not a reason to fail the whole sync.
-@retry(
+@retry_with_deadline(
     retry=retry_if_exception_type(
         (
             PageSpeedRetryableError,
@@ -303,8 +306,6 @@ def google_pagespeed_insights_source(
         partition_mode="datetime",
         partition_format="week",
         partition_keys=[config.partition_key],
-        # One row per URL, each stamped with an analysis timestamp of ~now; rows arrive in config order.
-        sort_mode="asc",
         # PageSpeed responses are large, deeply-nested JSON documents (~0.5-1 MiB each, larger for
         # complex pages). We emit one row per URL, so keep the per-chunk byte budget below a single
         # report: the batcher then flushes after roughly every report instead of accumulating the whole

@@ -65,7 +65,14 @@ def cluster(django_db_setup) -> Iterator[ClickhouseCluster]:
             id="token_first_default_bootstraps_on_token",
         ),
         pytest.param(
-            ClickHouseUser.DEFAULT, "static-only", False, None, {}, {}, False, id="static_default_uses_password"
+            ClickHouseUser.DEFAULT,
+            "static-only",
+            False,
+            None,
+            {"user": "default", "password": "static-only"},
+            {},
+            False,
+            id="static_default_uses_password",
         ),
         pytest.param(
             ClickHouseUser.DEFAULT,

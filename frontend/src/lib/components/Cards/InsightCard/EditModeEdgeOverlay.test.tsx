@@ -83,25 +83,22 @@ describe('EditModeEdgeOverlay', () => {
         return el
     }
 
-    it('renders eight edge and corner hit areas with data attr', () => {
+    it('renders five edge and corner hit areas with data attr', () => {
         const { getAllByTitle } = render(<EditModeEdgeOverlay onEnterEditMode={() => {}} />)
 
         const zones = getAllByTitle('Drag to resize')
-        expect(zones).toHaveLength(8)
+        expect(zones).toHaveLength(5)
         zones.forEach((zone) => {
             expect(zone).toHaveAttribute('data-attr', 'dashboard-edit-mode-from-card-edge')
         })
     })
 
     it.each([
-        [0, 'n'],
-        [1, 's'],
-        [2, 'w'],
-        [3, 'e'],
-        [4, 'nw'],
-        [5, 'ne'],
-        [6, 'sw'],
-        [7, 'se'],
+        [0, 's'],
+        [1, 'w'],
+        [2, 'e'],
+        [3, 'sw'],
+        [4, 'se'],
     ])('calls onEnterEditMode with the pressed direction when zone %i is pressed', (zoneIndex, expectedEdge) => {
         const onEnterEditMode = jest.fn()
 
@@ -113,14 +110,14 @@ describe('EditModeEdgeOverlay', () => {
         expect(onEnterEditMode).toHaveBeenCalledWith(expect.anything(), expectedEdge)
     })
 
-    it('reveals all resize handles while any zone is hovered', () => {
+    it('reveals the bottom-right resize handle while any zone is hovered', () => {
         const { container, getAllByTitle } = render(<EditModeEdgeOverlay onEnterEditMode={() => {}} />)
         const zones = getAllByTitle('Drag to resize')
 
         expect(container.querySelectorAll('.handle')).toHaveLength(0)
 
         fireEvent.mouseEnter(zones[0])
-        expect(container.querySelectorAll('.handle')).toHaveLength(8)
+        expect(container.querySelectorAll('.handle')).toHaveLength(1)
 
         fireEvent.mouseLeave(zones[0])
         expect(container.querySelectorAll('.handle')).toHaveLength(0)
@@ -132,9 +129,9 @@ describe('EditModeEdgeOverlay', () => {
 
         // Enter a corner, then the adjacent edge, before leaving the corner — count must not hit zero.
         fireEvent.mouseEnter(zones[0])
-        fireEvent.mouseEnter(zones[4])
+        fireEvent.mouseEnter(zones[3])
         fireEvent.mouseLeave(zones[0])
-        expect(container.querySelectorAll('.handle')).toHaveLength(8)
+        expect(container.querySelectorAll('.handle')).toHaveLength(1)
     })
 
     describe('scrollbar pass-through', () => {
@@ -151,7 +148,7 @@ describe('EditModeEdgeOverlay', () => {
             const scrollable = fakeScrollableElement(SCROLLABLE_BASE)
             container.appendChild(scrollable)
             jest.spyOn(document, 'elementsFromPoint').mockImplementation((x: number, y: number) =>
-                x >= 0 && x <= 400 && y >= 0 && y <= 300 ? [zones[1], scrollable] : []
+                x >= 0 && x <= 400 && y >= 0 && y <= 300 ? [zones[0], scrollable] : []
             )
             return { onEnterEditMode, zones, scrollable }
         }
@@ -159,21 +156,21 @@ describe('EditModeEdgeOverlay', () => {
         it('does not enter edit mode when the press lands on a scrollbar under the zone', () => {
             const { onEnterEditMode, zones } = renderWithScrollableUnderneath()
 
-            fireEvent.mouseDown(zones[1], { clientX: 200, clientY: 292 })
+            fireEvent.mouseDown(zones[0], { clientX: 200, clientY: 292 })
             expect(onEnterEditMode).not.toHaveBeenCalled()
 
-            fireEvent.mouseDown(zones[1], { clientX: 200, clientY: 150 })
+            fireEvent.mouseDown(zones[0], { clientX: 200, clientY: 150 })
             expect(onEnterEditMode).toHaveBeenCalledTimes(1)
         })
 
         it('lets pointer events through while hovering a scrollbar and recaptures them after', () => {
             const { zones } = renderWithScrollableUnderneath()
 
-            fireEvent.mouseMove(zones[1], { clientX: 200, clientY: 292 })
-            expect(zones[1]).toHaveStyle({ pointerEvents: 'none' })
+            fireEvent.mouseMove(zones[0], { clientX: 200, clientY: 292 })
+            expect(zones[0]).toHaveStyle({ pointerEvents: 'none' })
 
             fireEvent.mouseMove(document, { clientX: 200, clientY: 150 })
-            expect(zones[1]).not.toHaveStyle({ pointerEvents: 'none' })
+            expect(zones[0]).not.toHaveStyle({ pointerEvents: 'none' })
         })
 
         it('yields every zone stacked on the point, not just the hovered one', () => {
@@ -181,18 +178,18 @@ describe('EditModeEdgeOverlay', () => {
             // Corner zones paint above edge zones near card corners. jsdom has no layout, so give the
             // sw corner and s edge zones their real overlapping geometry at the card's bottom-left.
             const rects: Array<[number, { left: number; top: number; right: number; bottom: number }]> = [
-                [1, { left: 0, top: 288, right: 400, bottom: 302 }],
-                [6, { left: -2, top: 284, right: 16, bottom: 302 }],
+                [0, { left: 0, top: 288, right: 400, bottom: 302 }],
+                [3, { left: -2, top: 284, right: 16, bottom: 302 }],
             ]
             for (const [index, rect] of rects) {
                 zones[index].getBoundingClientRect = () =>
                     ({ ...rect, width: rect.right - rect.left, height: rect.bottom - rect.top }) as DOMRect
             }
 
-            fireEvent.mouseMove(zones[6], { clientX: 8, clientY: 292 })
+            fireEvent.mouseMove(zones[3], { clientX: 8, clientY: 292 })
 
-            expect(zones[6]).toHaveStyle({ pointerEvents: 'none' })
-            expect(zones[1]).toHaveStyle({ pointerEvents: 'none' })
+            expect(zones[3]).toHaveStyle({ pointerEvents: 'none' })
+            expect(zones[0]).toHaveStyle({ pointerEvents: 'none' })
         })
     })
 

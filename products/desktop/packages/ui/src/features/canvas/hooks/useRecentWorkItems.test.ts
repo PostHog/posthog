@@ -2,7 +2,11 @@ import type { ChannelSessionFacts } from "@posthog/core/canvas/channelItems";
 import type { DashboardRecord } from "@posthog/core/canvas/dashboardSchemas";
 import type { Task } from "@posthog/shared/domain-types";
 import { describe, expect, it } from "vitest";
-import { RECENT_WORK_CAP, selectRecentWorkItems } from "./useRecentWorkItems";
+import {
+  RECENT_WORK_CAP,
+  recentWorkPageSize,
+  selectRecentWorkItems,
+} from "./useRecentWorkItems";
 
 const ME = "me-uuid";
 const OLD = 1_000;
@@ -155,4 +159,17 @@ describe("selectRecentWorkItems", () => {
       expect.objectContaining({ channelId: "canvas-channel" }),
     ]);
   });
+});
+
+describe("recentWorkPageSize", () => {
+  it.each([
+    { pins: 0, expected: RECENT_WORK_CAP },
+    { pins: 7, expected: RECENT_WORK_CAP + 7 },
+    { pins: 500, expected: 100 },
+  ])(
+    "asks for room past $pins pins, so pins cannot fill Recent's page",
+    ({ pins, expected }) => {
+      expect(recentWorkPageSize(pins)).toBe(expected);
+    },
+  );
 });

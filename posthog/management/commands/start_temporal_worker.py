@@ -55,7 +55,7 @@ from posthog.temporal.common.interceptor import is_task_queue_supported
 from posthog.temporal.common.liveness_tracker import LivenessInterceptor, get_liveness_tracker
 from posthog.temporal.common.logger import configure_logger, get_logger
 from posthog.temporal.common.shutdown import ShutdownSignalListener
-from posthog.temporal.common.worker import ManagedWorker, create_worker
+from posthog.temporal.common.worker import ActivityWorkerConfig, ManagedWorker, create_worker
 from posthog.temporal.common.zombie_exit import ZombieActivityExit
 from posthog.temporal.data_modeling import (
     ACTIVITIES as DATA_MODELING_ACTIVITIES,
@@ -111,6 +111,7 @@ from posthog.temporal.salesforce_enrichment import (
     ACTIVITIES as SALESFORCE_ENRICHMENT_ACTIVITIES,
     WORKFLOWS as SALESFORCE_ENRICHMENT_WORKFLOWS,
 )
+from posthog.temporal.session_replay.copy_recording import COPY_RECORDING_ACTIVITIES, COPY_RECORDING_WORKFLOWS
 from posthog.temporal.session_replay.count_playlist_items import (
     COUNT_PLAYLIST_ITEMS_ACTIVITIES,
     COUNT_PLAYLIST_ITEMS_WORKFLOWS,
@@ -143,6 +144,7 @@ from posthog.temporal.tests.utils.workflow import (
 )
 from posthog.temporal.usage_report import (
     ACTIVITIES as USAGE_REPORTS_ACTIVITIES,
+    AGGREGATION_ACTIVITIES as USAGE_REPORTS_AGGREGATION_ACTIVITIES,
     WORKFLOWS as USAGE_REPORTS_WORKFLOWS,
 )
 from posthog.temporal.warehouse_sources_queue_partition_management import (
@@ -155,6 +157,7 @@ from posthog.temporal.weekly_digest import (
 )
 
 from products.alerts.backend.facade.temporal import (
+    PLATFORM_AI_QUEUE_ACTIVITIES as INSIGHT_PLATFORM_AI_QUEUE_ACTIVITIES,
     PLATFORM_EVALUATION_ACTIVITIES as INSIGHT_PLATFORM_EVALUATION_ACTIVITIES,
     PLATFORM_EVALUATION_WORKFLOWS as INSIGHT_PLATFORM_EVALUATION_WORKFLOWS,
 )
@@ -226,13 +229,10 @@ from products.experiments.backend.temporal import (
     EXPERIMENT_CANARY_WORKFLOWS,
     EXPERIMENT_ENROLLMENT_CENSUS_ACTIVITIES,
     EXPERIMENT_ENROLLMENT_CENSUS_WORKFLOWS,
+    EXPERIMENT_RECALCULATION_ACTIVITY_QUEUE_ACTIVITIES,
     EXPERIMENT_SCHEDULED_RECALCULATION_ACTIVITIES,
     EXPERIMENT_SCHEDULED_RECALCULATION_WORKFLOWS,
     WORKFLOWS as EXPERIMENTS_RECALCULATION_WORKFLOWS,
-)
-from products.exports.backend.temporal.subscriptions import (
-    ACTIVITIES as SUBSCRIPTION_ACTIVITIES,
-    WORKFLOWS as SUBSCRIPTION_WORKFLOWS,
 )
 from products.growth.backend.temporal import (
     ACTIVITIES as GROWTH_ACTIVITIES,
@@ -306,6 +306,10 @@ from products.slack_app.backend.facade.temporal import (
 from products.stamphog.backend.facade.temporal import (
     ACTIVITIES as STAMPHOG_ACTIVITIES,
     WORKFLOWS as STAMPHOG_WORKFLOWS,
+)
+from products.subscriptions.backend.facade.temporal import (
+    ACTIVITIES as SUBSCRIPTION_ACTIVITIES,
+    WORKFLOWS as SUBSCRIPTION_WORKFLOWS,
 )
 from products.tasks.backend.facade.temporal import (
     ACTIVITIES as TASKS_ACTIVITIES,
@@ -462,6 +466,13 @@ _task_queue_specs = [
         EXPERIMENTS_RECALCULATION_WORKFLOWS,
         EXPERIMENTS_RECALCULATION_ACTIVITIES,
     ),
+    # The calc activity gets its own queue so that a worker with a fixed slot count caps how many
+    # recalculation ClickHouse queries run at the same time.
+    (
+        settings.EXPERIMENTS_RECALCULATION_ACTIVITY_TASK_QUEUE,
+        [],
+        EXPERIMENT_RECALCULATION_ACTIVITY_QUEUE_ACTIVITIES,
+    ),
     (
         settings.HEALTH_CHECK_TASK_QUEUE,
         HEALTH_CHECK_WORKFLOWS,
@@ -496,7 +507,7 @@ _task_queue_specs = [
     (
         settings.MAX_AI_TASK_QUEUE,
         AI_WORKFLOWS,
-        AI_ACTIVITIES + ALERT_AI_QUEUE_ACTIVITIES,
+        AI_ACTIVITIES + ALERT_AI_QUEUE_ACTIVITIES + INSIGHT_PLATFORM_AI_QUEUE_ACTIVITIES,
     ),
     (
         settings.TEST_TASK_QUEUE,
@@ -534,6 +545,7 @@ _task_queue_specs = [
     (
         settings.SESSION_REPLAY_TASK_QUEUE,
         COUNT_PLAYLIST_ITEMS_WORKFLOWS
+        + COPY_RECORDING_WORKFLOWS
         + DELETE_RECORDINGS_WORKFLOWS
         + ENFORCE_MAX_REPLAY_RETENTION_WORKFLOWS
         + RASTERIZE_RECORDING_WORKFLOWS
@@ -541,6 +553,7 @@ _task_queue_specs = [
         + SURFACING_SCORE_EXPORT_SWEEP_WORKFLOWS
         + SURFACING_SCORING_SWEEP_WORKFLOWS,
         COUNT_PLAYLIST_ITEMS_ACTIVITIES
+        + COPY_RECORDING_ACTIVITIES
         + DELETE_RECORDINGS_ACTIVITIES
         + ENFORCE_MAX_REPLAY_RETENTION_ACTIVITIES
         + RASTERIZE_RECORDING_ACTIVITIES
@@ -659,6 +672,15 @@ for task_queue_name, workflows_for_queue, activities_for_queue in _task_queue_sp
 
 WORKFLOWS_DICT = _workflows
 ACTIVITIES_DICT = _activities
+ACTIVITY_WORKER_CONFIGS = {
+    settings.BILLING_TASK_QUEUE: (
+        ActivityWorkerConfig(
+            task_queue=settings.USAGE_REPORT_AGGREGATION_TASK_QUEUE,
+            activities=USAGE_REPORTS_AGGREGATION_ACTIVITIES,
+            max_concurrent_activities=1,
+        ),
+    ),
+}
 
 
 def workflows_include_data_import_syncs(workflows: collections.abc.Iterable[type]) -> bool:
@@ -968,6 +990,7 @@ class Command(BaseCommand):
                     ),
                     enable_combined_metrics_server=not disable_combined_metrics_server,
                     enable_open_telemetry_plugin=enable_otel,
+                    activity_worker_configs=ACTIVITY_WORKER_CONFIGS.get(task_queue, ()),
                 )
             )
 

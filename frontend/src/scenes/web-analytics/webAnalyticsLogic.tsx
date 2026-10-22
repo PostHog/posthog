@@ -108,7 +108,6 @@ import {
     INITIAL_DATE_FROM,
     INITIAL_DATE_TO,
     INITIAL_INTERVAL,
-    INITIAL_WEB_ANALYTICS_FILTER,
     PathTab,
     ProductTab,
     SourceTab,
@@ -120,6 +119,7 @@ import {
     WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
     WebAnalyticsTile,
     WebVitalsPercentile,
+    cleanedPathOperators,
     eventPropertiesToPathClean,
     getWebAnalyticsBreakdownFilter,
     isContentAutopilotEnabled,
@@ -1444,13 +1444,14 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
                     ]
                 }
 
-                // Translate exact path filters to cleaned path filters
+                // Translate exact and is_not path filters to cleaned path filters
                 if (isPathCleaningEnabled) {
                     filters = filters.map((filter) => {
                         if (filter.type === PropertyFilterType.Cohort) {
                             return filter
                         }
-                        if (filter.operator !== PropertyOperator.Exact) {
+                        const cleanedPathOperator = filter.operator && cleanedPathOperators[filter.operator]
+                        if (!cleanedPathOperator) {
                             return filter
                         }
                         let propertiesToPathClean: Set<string>
@@ -1470,7 +1471,7 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
                         if (propertiesToPathClean.has(filter.key)) {
                             return {
                                 ...filter,
-                                operator: PropertyOperator.IsCleanedPathExact,
+                                operator: cleanedPathOperator,
                             }
                         }
                         return filter
@@ -3499,8 +3500,7 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
                 referrer,
                 tile_visualizations,
                 include_host_path,
-            }: Record<string, any>,
-            isInitialRestore: boolean
+            }: Record<string, any>
         ): void => {
             if (
                 ![
@@ -3549,8 +3549,6 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
                 return
             }
 
-            cache.hasRestoredWebUrl = true
-
             // Stamp the last-used timestamp for feature flag targeting (throttled to once per day per browser).
             const stampKey = `ph_last_web_analytics_stamp_${posthog.get_distinct_id()}`
             const oneDayMs = 24 * 60 * 60 * 1000
@@ -3575,18 +3573,9 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
                 }
             }
 
-            const tabSerializesFilters =
-                productTab !== ProductTab.LIVE &&
-                productTab !== ProductTab.HEALTH &&
-                productTab !== ProductTab.CONTENT_AUTOPILOT
-            const shouldResetAbsentFilters =
-                !isInitialRestore && !!values.featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_BACK_NAVIGATION_RESET]
-
             const parsedFilters = filters ? (isWebAnalyticsPropertyFilters(filters) ? filters : []) : undefined
             if (parsedFilters) {
                 applyRestoredFilters(parsedFilters)
-            } else if (shouldResetAbsentFilters && tabSerializesFilters) {
-                applyRestoredFilters(INITIAL_WEB_ANALYTICS_FILTER)
             }
             if (
                 conversionGoalActionId &&
@@ -3650,38 +3639,17 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
             if (percentile && percentile !== values.webVitalsPercentile) {
                 actions.setWebVitalsPercentile(percentile as WebVitalsPercentile)
             }
-            // Drill-down filters fold into the query the same way `filters` does, so on a
-            // back-navigation to a URL that omits one, clear it instead of leaving the newer
-            // value applied, because otherwise the shown data can't be reproduced from the URL.
             if (domain && domain !== values.domainFilter) {
                 actions.setDomainFilter(domain === 'all' ? null : domain)
-            } else if (!domain && shouldResetAbsentFilters && tabSerializesFilters && values.domainFilter !== null) {
-                actions.setDomainFilter(null)
             }
             if (device_type && device_type !== values.deviceTypeFilter) {
                 actions.setDeviceTypeFilter(device_type)
-            } else if (
-                !device_type &&
-                shouldResetAbsentFilters &&
-                tabSerializesFilters &&
-                values.deviceTypeFilter !== null
-            ) {
-                actions.setDeviceTypeFilter(null)
             }
             if (country && country !== values.countryFilter) {
                 actions.setCountryFilter(country)
-            } else if (!country && shouldResetAbsentFilters && tabSerializesFilters && values.countryFilter !== null) {
-                actions.setCountryFilter(null)
             }
             if (referrer && referrer !== values.referrerFilter) {
                 actions.setReferrerFilter(referrer)
-            } else if (
-                !referrer &&
-                shouldResetAbsentFilters &&
-                tabSerializesFilters &&
-                values.referrerFilter !== null
-            ) {
-                actions.setReferrerFilter(null)
             }
             if (tile_visualizations && !objectsEqual(tile_visualizations, values.tileVisualizations)) {
                 for (const [tileId, visualization] of Object.entries(tile_visualizations)) {
@@ -3730,10 +3698,9 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
         // into a burst of redundant URL evaluations and trip the rapid-URL-change detector. The depth
         // counter keeps the guard correct if a restore re-enters (e.g. the bots-flag redirect).
         const toAction = (params: { productTab?: ProductTab }, searchParams: Record<string, any>): void => {
-            const isInitialRestore = !cache.hasRestoredWebUrl
             cache.applyUrlStateDepth = (cache.applyUrlStateDepth ?? 0) + 1
             try {
-                applyUrlState(params, searchParams, isInitialRestore)
+                applyUrlState(params, searchParams)
             } finally {
                 cache.applyUrlStateDepth -= 1
             }

@@ -446,6 +446,18 @@ export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
                                         value: zod
                                             .unknown()
                                             .describe('Cohort comparison value (single or list, depending on usage).'),
+                                        cohort_deleted: zod
+                                            .boolean()
+                                            .optional()
+                                            .describe(
+                                                'Set to true in responses when the cohort is deleted or does not exist. The flag cannot evaluate this condition. Ignored on write.'
+                                            ),
+                                        cohort_missing: zod
+                                            .boolean()
+                                            .optional()
+                                            .describe(
+                                                'Set to true in responses when no cohort with this id exists in the project, so it cannot be restored. `cohort_deleted` is also true. Absent for a soft-deleted cohort. Ignored on write.'
+                                            ),
                                     }),
                                     zod.object({
                                         key: zod.string().describe('Property key used in this feature flag condition.'),
@@ -882,6 +894,18 @@ export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                         value: zod
                                             .unknown()
                                             .describe('Cohort comparison value (single or list, depending on usage).'),
+                                        cohort_deleted: zod
+                                            .boolean()
+                                            .optional()
+                                            .describe(
+                                                'Set to true in responses when the cohort is deleted or does not exist. The flag cannot evaluate this condition. Ignored on write.'
+                                            ),
+                                        cohort_missing: zod
+                                            .boolean()
+                                            .optional()
+                                            .describe(
+                                                'Set to true in responses when no cohort with this id exists in the project, so it cannot be restored. `cohort_deleted` is also true. Absent for a soft-deleted cohort. Ignored on write.'
+                                            ),
                                     }),
                                     zod.object({
                                         key: zod.string().describe('Property key used in this feature flag condition.'),
@@ -1013,83 +1037,6 @@ export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
             "Identifier used to bucket users into rollout percentages and variants: 'distinct_id' (user ID, the default) or 'device_id'. Using 'device_id' is incompatible with ensure_experience_continuity=True.\n\n\* `distinct_id` - User ID (default)\n\* `device_id` - Device ID"
         ),
 })
-
-/**
- * Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/feature-flags) for more information on feature flags.
- *
- * If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
- */
-export const featureFlagsCreateStaticCohortForFlagCreateBodyKeyMax = 400
-
-export const featureFlagsCreateStaticCohortForFlagCreateBodyVersionDefault = 0
-
-export const FeatureFlagsCreateStaticCohortForFlagCreateBody = /* @__PURE__ */ zod
-    .object({
-        name: zod
-            .string()
-            .optional()
-            .describe('contains the description for the flag (field name `name` is kept for backwards-compatibility)'),
-        key: zod.string().max(featureFlagsCreateStaticCohortForFlagCreateBodyKeyMax),
-        filters: zod.record(zod.string(), zod.unknown()).optional(),
-        deleted: zod.boolean().optional(),
-        active: zod.boolean().optional(),
-        archived: zod
-            .boolean()
-            .optional()
-            .describe(
-                'Whether the flag is archived. Archived flags are hidden from the flag list by default and must be disabled (`active: false`).'
-            ),
-        version: zod.number().default(featureFlagsCreateStaticCohortForFlagCreateBodyVersionDefault),
-        ensure_experience_continuity: zod.boolean().nullish(),
-        tags: zod.array(zod.unknown()).optional(),
-        evaluation_contexts: zod.array(zod.unknown()).optional(),
-        analytics_dashboards: zod.array(zod.number()).optional(),
-        has_enriched_analytics: zod.boolean().nullish(),
-        creation_context: zod
-            .enum([
-                'feature_flags',
-                'experiments',
-                'surveys',
-                'early_access_features',
-                'web_experiments',
-                'product_tours',
-            ])
-            .describe(
-                '\* `feature_flags` - feature_flags\n\* `experiments` - experiments\n\* `surveys` - surveys\n\* `early_access_features` - early_access_features\n\* `web_experiments` - web_experiments\n\* `product_tours` - product_tours'
-            )
-            .optional()
-            .describe(
-                "Indicates the origin product of the feature flag. Choices: 'feature_flags', 'experiments', 'surveys', 'early_access_features', 'web_experiments', 'product_tours'.\n\n\* `feature_flags` - feature_flags\n\* `experiments` - experiments\n\* `surveys` - surveys\n\* `early_access_features` - early_access_features\n\* `web_experiments` - web_experiments\n\* `product_tours` - product_tours"
-            ),
-        is_remote_configuration: zod.boolean().nullish(),
-        has_encrypted_payloads: zod.boolean().nullish(),
-        evaluation_runtime: zod
-            .union([
-                zod
-                    .enum(['server', 'client', 'all'])
-                    .describe('\* `server` - Server\n\* `client` - Client\n\* `all` - All'),
-                zod.enum(['']),
-                zod.null(),
-            ])
-            .optional()
-            .describe(
-                'Specifies where this feature flag should be evaluated\n\n\* `server` - Server\n\* `client` - Client\n\* `all` - All'
-            ),
-        bucketing_identifier: zod
-            .union([
-                zod
-                    .enum(['distinct_id', 'device_id'])
-                    .describe('\* `distinct_id` - User ID (default)\n\* `device_id` - Device ID'),
-                zod.enum(['']),
-                zod.null(),
-            ])
-            .optional()
-            .describe(
-                'Identifier used for bucketing users into rollout and variants\n\n\* `distinct_id` - User ID (default)\n\* `device_id` - Device ID'
-            ),
-        _create_in_folder: zod.string().optional(),
-    })
-    .describe('Serializer mixin that handles tags for objects.')
 
 /**
  * Serve a feature flag to every user.

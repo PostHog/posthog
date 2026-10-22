@@ -232,7 +232,7 @@ ORDER BY trace_id, timestamp
 ```
 
 `posthog.ai_events` has a shorter retention window than `events`; older clusters may still have metadata and metrics but no message content.
-For more detail, use the exploring LLM traces skill's [event reference](../exploring-llm-traces/references/events-and-properties.md).
+For the full `$ai_*` event schema, load the `exploring-llm-traces` skill.
 
 ## Investigation patterns
 

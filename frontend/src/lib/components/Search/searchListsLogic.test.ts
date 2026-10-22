@@ -41,6 +41,16 @@ describe('searchListsLogic', () => {
         expect(matches.find((item) => item.id === 'misc-my-tickets')?.href).toBe(urls.myTickets())
     })
 
+    it('shows only the Inbox Scouts destination', () => {
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PRODUCT_AUTONOMY]: true })
+
+        expect(
+            logic.values.productsItems
+                .filter((item) => item.displayName === 'Scouts')
+                .map((item) => ({ href: item.href, parentName: item.parentName }))
+        ).toEqual([{ href: urls.inbox('scouts'), parentName: 'Self-driving inbox' }])
+    })
+
     it.each([false, true])('gates the command-menu terminal toggle when enabled=%s', (enabled) => {
         logic.unmount()
         logic = searchListsLogic({ commandPalette: true })

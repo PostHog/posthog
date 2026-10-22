@@ -136,6 +136,21 @@ _OFFER_CRITERIA: dict[OfferKind, JsonValue] = {
     },
 }
 
+_SCOUT_RECURRING = NoulQuestion(
+    instructions="Does the conversation establish an analysis that would produce useful new results from fresh data on future scheduled runs?",
+    criteria_true=(
+        "The conversation defines an ongoing metric or a scoped analysis that can run over a new relative time window. "
+        "For an investigation, it identifies the metric to check and repeatable steps to run when that metric changes. "
+        "An explicit request to keep monitoring that defined metric also qualifies."
+    ),
+    criteria_false=(
+        "The turn only diagnoses or fixes a specific bug, incident, failed run, or historical event, even if it mentions "
+        "numbers, a weekly comparison, or an unresolved problem. Reopening the same report or checking the same fix "
+        "is not a recurring analysis. A report reference alone does not define a metric. "
+        "The conversation does not establish what fresh data a scheduled run would check."
+    ),
+)
+
 _SCOUT_MODE = ChoiceQuestion(
     instructions="If PostHog AI offered a scheduled agent that reruns the analysis in `latest_turn`, which kind of run would fit?",
     criteria={
@@ -192,6 +207,7 @@ class TurnJudgment:
     intent: TurnIntent
     offer: OfferKind
     offer_probabilities: Mapping[str, float]
+    scout_recurrence_probability: float
     scout_mode: ScoutMode
     cadence: ScoutCadence
     notebook_template: NotebookTemplate
@@ -306,6 +322,7 @@ def build_judge_questions(transcript: TurnTranscript, available: frozenset[Offer
             criteria={kind: _OFFER_CRITERIA[kind] for kind in OfferKind if kind in available},
         )
     if OfferKind.SCOUT in available:
+        questions["scout_recurring"] = _SCOUT_RECURRING
         questions["scout_mode"] = _SCOUT_MODE
     if available & {OfferKind.SCOUT, OfferKind.SUBSCRIPTION}:
         questions["cadence"] = _CADENCE
@@ -374,6 +391,7 @@ def read_judgment(result: SystemOneResult, transcript: TurnTranscript, available
         intent=TurnIntent(choices["intent"].choice),
         offer=offer,
         offer_probabilities=offer_probabilities,
+        scout_recurrence_probability=nouls["scout_recurring"].probability if "scout_recurring" in nouls else 0.0,
         scout_mode=ScoutMode(picked("scout_mode", ScoutMode.REPORT)),
         cadence=ScoutCadence(picked("cadence", ScoutCadence.WEEKLY)),
         notebook_template=NotebookTemplate(picked("notebook_template", NotebookTemplate.CONVERSATION)),

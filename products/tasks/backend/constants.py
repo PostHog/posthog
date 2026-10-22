@@ -27,11 +27,6 @@ def is_html_artifact(name: str, content_type: str) -> bool:
     return mime_type == "text/html" or name.lower().endswith((".html", ".htm"))
 
 
-SANDBOX_EVENT_INGEST_FEATURE_FLAG = "tasks-cloud-runs-sandbox-event-ingest"
-WORKFLOW_DISPATCH_SHADOW_FEATURE_FLAG = "tasks-workflow-dispatch-shadow"
-WORKFLOW_DISPATCH_ASYNC_FEATURE_FLAG = "tasks-workflow-dispatch-async"
-WORKFLOW_DISPATCH_RESTART_FEATURE_FLAG = "tasks-workflow-dispatch-restart"
-AGENT_PROXY_KEEP_STREAM_OPEN_FEATURE_FLAG = "tasks-agent-proxy-keep-stream-open"
 # Shared with the MCP server (services/mcp/src/hono/constants.ts): one flag decides both whether
 # the MCP serves product skills through `learn` and whether a sandbox launches without bundled skills.
 MCP_EXEC_SKILLS_FEATURE_FLAG = "mcp-exec-skills"
@@ -40,11 +35,9 @@ EVAL_INTERACTION_ORIGIN = "eval"
 MODAL_VM_SANDBOX_FEATURE_FLAG = "tasks-modal-vm-sandbox"
 # Gates the nightly prebaked dev-stack image bake (see logic/services/dev_stack_image.py).
 DEV_STACK_IMAGE_BAKE_FEATURE_FLAG = "tasks-dev-stack-image-bake"
-MODAL_NETWORK_ALLOWLIST_FEATURE_FLAG = "tasks-modal-network-allowlist"
 # Routes a plain default-template run onto the hogland (Firecracker) sandbox backend.
 HOGLAND_SANDBOX_FEATURE_FLAG = "tasks-hogland-sandbox"
 HOGLAND_HOTPLUG_GOLDEN_FEATURE_FLAG = "tasks-hogland-hotplug-golden"
-AGENT_RUN_OTEL_TELEMETRY_FEATURE_FLAG = "tasks-agent-run-otel-telemetry"
 PI_CLOUD_RUNTIME_FEATURE_FLAG = "pi-harness"
 REASONING_EFFORTS = model_catalog.REASONING_EFFORTS
 # Gates agent-to-agent peer messaging between cloud runs. v1 additionally requires the Pi
@@ -60,8 +53,7 @@ ANALYSIS_TARGET_REPOSITORY_STATE_KEY = "analysis_target_repository"
 ANALYSIS_TARGET_IMAGE_ID_STATE_KEY = "analysis_target_custom_image_id"
 ANALYSIS_TARGET_IMAGE_NAME_STATE_KEY = "analysis_target_custom_image_name"
 TASK_ANALYSIS_ACTIVITIES_STATE_KEY = "task_analysis_activities"
-# Run-state key the telemetry flag decision is stamped under at dispatch (temporal/client.py).
-# Consumers read the stamp, so the decision stays stable for the run's whole lifetime.
+# Dispatch stamps every cloud run, and the run-log mirror skips unstamped runs such as local ones.
 AGENT_OTEL_TELEMETRY_STATE_KEY = "agent_otel_telemetry_enabled"
 PR_LOOP_ENABLED_STATE_KEY = "pr_loop_enabled"
 # TaskRun.state marker for runs completed by the inactivity timeout; kept out of
@@ -215,22 +207,13 @@ def get_vm_sandbox_flag_payload(*, distinct_id: str, organization_id: str) -> ob
     )
 
 
-def vm_sandbox_allowed_origins(*, distinct_id: str, organization_id: str) -> set[str]:
-    """Allowed origin products from the VM-sandbox flag; empty when off (payload only resolves on match)."""
-    return vm_sandbox_allowed_origin_products(
-        get_vm_sandbox_flag_payload(distinct_id=distinct_id, organization_id=organization_id)
-    )
-
-
 MAX_CUSTOM_IMAGES_PER_TEAM = 20
 MAX_CUSTOM_IMAGES_PER_USER = 10
 TASK_SESSION_MAX_SIZE_BYTES = 10 * 1024 * 1024
 TASK_SESSION_UPLOAD_FORM_OVERHEAD_BYTES = 64 * 1024
 
-STREAM_VIA_PROXY_FEATURE_FLAG = "tasks-stream-via-proxy"
 OVERLAP_CLONE_BOOT_FEATURE_FLAG = "tasks-overlap-clone-boot"
 DESKTOP_WORKSPACE_WARM_FEATURE_FLAG = "task-cloud-desktop-workspace-warm"
-TASK_SIGNALS_CLONING_BLOBLESS_FEATURE_FLAG = "task-signals-cloning-blobless"
 # Kill switch: rtk command-output compression is on by default in cloud sandboxes;
 # enabling this flag disables it fleet-wide — over any per-run override — without
 # an image rebuild.
@@ -242,10 +225,6 @@ CODEX_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG = "posthog-code-codex-own-subscription
 # refuses, or explains one of these runs takes the name from here.
 SUBSCRIPTION_PLAN_NAMES: dict[str, str] = {"claude": "Claude plan", "codex": "ChatGPT plan"}
 CODEX_SUBSCRIPTION_EGRESS_DOMAINS: tuple[str, ...] = ("chatgpt.com",)
-# Gates whether long-running process_task runs continue-as-new to bound history/replay cost.
-CONTINUE_AS_NEW_FEATURE_FLAG = "tasks-cloud-run-continue-as-new"
-PR_BABYSIT_SNAPSHOT_FEATURE_FLAG = "tasks-pr-babysit-snapshot"
-SANDBOX_ROTATION_FEATURE_FLAG = "tasks-cloud-run-sandbox-rotation"
 
 SnapshotKind = Literal["filesystem", "directory"]
 SNAPSHOT_KIND_FILESYSTEM: SnapshotKind = "filesystem"

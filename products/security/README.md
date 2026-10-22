@@ -11,7 +11,25 @@ This product pulls them, decides them in-process, and answers the hub's question
   When the hub is down, the last snapshot stays in force. When nothing is loaded, nobody is blocked and the login email code stays required.
 - `facade.api.decide(subject, surface)` returns allow, block or exempt with the deciding rule.
   A posthog.com account is never blocked.
-- Phase 1 enforces only `email_code` exemptions. Signup, login, sessions and the AI gateway call `shadow_check`, which logs `security_access_would_block` and counts `posthog_security_access_would_block_total`, and blocks nobody.
+  A rule's scope picks the surfaces it decides. `all_access` covers `signup`, `app` and `ai_gateway`.
+- The `security-access-enforcement` flag in PostHog's own project turns refusals on per surface.
+  Its JSON payload maps each surface to a value, for example `{"signup": true, "app": false, "ai_gateway": false}`.
+  A surface refuses requests only when its value is a literal `true`.
+  Any other value, a missing payload or an unreadable flag leaves that surface logging only.
+  Turning the flag off stops every refusal at once.
+- Signup, login, sessions and the AI gateway call `facade.api.access_refused`.
+  On an enforced surface, a block refuses the request, logs `security_access_refused` and counts `posthog_security_access_refusals_total`.
+  Signup and app callers answer with the error code `access_blocked`.
+  AI gateway callers answer in their own shape: OAuth authorization returns `access_denied`, the desktop token endpoint returns `reason: "blocked"`, and the wizard endpoints return a 403 with the AI gateway block message.
+  On any other surface, a block logs `security_access_would_block`, counts `posthog_security_access_would_block_total` and refuses nobody.
+  On the app surface, staff who impersonate a blocked account get through, and the match counts as a would-block.
+  `posthog_security_access_decisions_total` counts every decision, so an empty would-block series still shows that the checks ran.
+- Exemptions do not depend on the flag.
+  `is_email_code_exempt` lets an account skip the emailed login code.
+  `is_signup_risk_exempt` lets a signup skip the WorkOS Radar verdict.
+- Every check fails open.
+  A decision that raises refuses nobody, keeps the email code and the Radar verdict, and counts `posthog_security_access_decision_errors_total`.
+- The AI gateway credential sweep (`posthog/tasks/wizard_blocklist.py`) revokes credentials for a block rule only while `ai_gateway` is enforced.
 - To drop the emailed login code for every account during an email outage, add an `everyone` rule with scope `email_code` at the hub.
   Give it an expiry. The Redis switch it replaces capped itself at 7 days; a rule without `expiresAt` stays in force until somebody revokes it.
   It applies on the next pull plus the memo window, so allow about 6 minutes.

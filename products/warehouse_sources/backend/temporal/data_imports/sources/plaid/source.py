@@ -88,7 +88,7 @@ class PlaidSource(ResumableSource[PlaidSourceConfig, PlaidResumeConfig]):
 You can find your client ID and secret in the [Plaid dashboard](https://dashboard.plaid.com/developers/keys). The access token identifies one linked Item (institution connection), obtained when a user completes Plaid Link — add one source per Item.""",
             iconPath="/static/services/plaid.png",
             docsUrl="https://posthog.com/docs/cdp/sources/plaid",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

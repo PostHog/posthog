@@ -16,7 +16,7 @@ from posthog.models.user import User
 from posthog.models.user_integration import UserIntegration
 
 from products.slack_app.backend.api import SlackUserContext
-from products.slack_app.backend.models import SlackThreadTaskMapping
+from products.slack_app.backend.models import SlackSettings, SlackThreadJoin, SlackThreadTaskMapping, ThreadJoinMode
 from products.slack_app.backend.services.run_preferences import SLACK_DEFAULT_MODEL
 from products.slack_app.backend.services.slack_messages import (
     SlackFileRef,
@@ -239,7 +239,9 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
 
         # Mention-dispatch debug pointer persisted on the new run.
         # No explicit envelope event_id → falls back to "<channel>:<ts>".
-        assert task.latest_run.state["slack_mention_workflow_id"] == "posthog-code-mention-T_SLACK:C123:1234.5678"
+        assert (
+            task.latest_run.state["slack_mention_workflow_id"] == "slack-app-mention-processing-T_SLACK:C123:1234.5678"
+        )
 
         mock_execute_workflow.assert_called_once()
         call_kwargs = mock_execute_workflow.call_args.kwargs
@@ -545,7 +547,7 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
         )
 
         task = self.Task.objects.get(team=self.team)
-        assert task.latest_run.state["slack_mention_workflow_id"] == "posthog-code-mention-T_SLACK:Ev01234567"
+        assert task.latest_run.state["slack_mention_workflow_id"] == "slack-app-mention-processing-T_SLACK:Ev01234567"
 
     @patch("products.tasks.backend.facade.temporal.dispatch_task_processing_workflow")
     @patch("posthog.models.integration.SlackIntegration")
@@ -915,7 +917,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         assert new_run.state.get("initial_prompt_override") == "do something"
 
         # Resume path also annotates the new run with the mention-dispatch pointer.
-        assert new_run.state.get("slack_mention_workflow_id") == "posthog-code-mention-T_SLACK:C123:1234.5678"
+        assert new_run.state.get("slack_mention_workflow_id") == "slack-app-mention-processing-T_SLACK:C123:1234.5678"
 
         mock_slack_instance.client.reactions_add.assert_called_once_with(
             channel="C123", timestamp="1234.5679", name="eyes"
@@ -1141,6 +1143,8 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         assert mock_signal.call_args.args == (self.task_run.id, self.task.id, self.team.id)
         signal_kwargs = mock_signal.call_args.kwargs
         assert signal_kwargs["content"] == "Bob: please retry the build"
+        # Reply suggestions get the person's own words, without the speaker prefix the agent needs.
+        assert signal_kwargs["person_message"] == "please retry the build"
         assert signal_kwargs["actor_user_id"] == bob.id
         assert signal_kwargs["message_id"] is not None
         # No "Only the person who started" denial; the message went through.
@@ -1168,6 +1172,68 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         assert signal_kwargs["content"] == "bob@test.com: ping"
         assert signal_kwargs["actor_user_id"] == bob.id
         assert signal_kwargs["message_id"] is not None
+
+    @parameterized.expand(
+        [
+            ("allow", ThreadJoinMode.ALLOW, None, True, False, True),
+            # A creator who never picked a mode is asked once per thread.
+            ("unset", None, None, False, True, True),
+            ("ask_per_person", ThreadJoinMode.ASK_PER_PERSON, None, False, True, True),
+            ("ask_per_person_already_joined", ThreadJoinMode.ASK_PER_PERSON, ["U_BOB"], True, False, True),
+            ("ask_per_person_after_someone_else_joined", ThreadJoinMode.ASK_PER_PERSON, ["U_CAROL"], False, True, True),
+            ("ask_per_thread", ThreadJoinMode.ASK_PER_THREAD, None, False, True, True),
+            ("ask_per_thread_after_someone_else_joined", ThreadJoinMode.ASK_PER_THREAD, ["U_CAROL"], True, False, True),
+            ("never", ThreadJoinMode.NEVER, None, False, False, True),
+            ("never_after_joining", ThreadJoinMode.NEVER, ["U_BOB"], True, False, True),
+            # Turning the rollout flag off brings back today's behavior, whatever was stored.
+            ("never_with_the_flag_off", ThreadJoinMode.NEVER, None, True, False, False),
+        ]
+    )
+    @patch("products.slack_app.backend.api.post_thread_join_prompt")
+    @patch("products.tasks.backend.facade.api.signal_task_run_user_message", return_value=True)
+    @patch("products.slack_app.backend.api.resolve_slack_user")
+    @patch("posthog.models.integration.SlackIntegration")
+    def test_the_thread_creators_join_mode_decides_who_reaches_the_task(
+        self,
+        _name,
+        mode,
+        joined,
+        delivered,
+        prompted,
+        flag_on,
+        mock_slack_cls,
+        mock_resolve,
+        mock_signal,
+        mock_prompt,
+    ):
+        SlackSettings.objects.create(slack_workspace_id="T_SLACK", slack_user_id="U_ALICE", thread_join_mode=mode)
+        mapping = self._create_mapping(mentioning_user="U_ALICE")
+        for slack_user_id in joined or []:
+            SlackThreadJoin.objects.for_team(self.team.id).create(
+                team=self.team, thread_mapping=mapping, slack_user_id=slack_user_id
+            )
+        bob = User.objects.create(email="bob@test.com", first_name="Bob")
+        mock_slack = MagicMock()
+        mock_slack_cls.return_value = mock_slack
+        mock_resolve.return_value = SlackUserContext(user=bob, slack_email="bob@test.com")
+
+        inputs = _make_inputs(self.integration.id, self.user.id)
+        with patch(
+            "products.slack_app.backend.logic.thread_join.is_slack_app_multiplayer_approvals_enabled",
+            return_value=flag_on,
+        ):
+            result = forward_posthog_code_followup_activity(
+                inputs, "C123", "1234.5678", "U_BOB", "<@BOT> ship it", "1234.5679"
+            )
+
+        assert result is True
+        assert mock_signal.called is delivered
+        assert mock_prompt.called is prompted
+        # A held or dropped message must not keep the reaction that says PostHog is working on it.
+        removed = [c.kwargs for c in mock_slack.client.reactions_remove.call_args_list]
+        assert ({"channel": "C123", "timestamp": "1234.5679", "name": "eyes"} in removed) is not delivered
+        if prompted:
+            assert mock_prompt.call_args.kwargs["opens_thread"] is (mode in (None, ThreadJoinMode.ASK_PER_THREAD))
 
     @patch("products.slack_app.backend.api.resolve_slack_user", return_value=None)
     @patch("posthog.models.integration.SlackIntegration")
@@ -1570,14 +1636,14 @@ class TestEventLevelDedupe(SimpleTestCase):
         slack_team_id = "T_SLACK"
         event_id = "Ev123456"
         event_id_or_fallback = event_id
-        wf_id_1 = f"posthog-code-mention-{slack_team_id}:{event_id_or_fallback}"
-        wf_id_2 = f"posthog-code-mention-{slack_team_id}:{event_id_or_fallback}"
+        wf_id_1 = f"slack-app-mention-processing-{slack_team_id}:{event_id_or_fallback}"
+        wf_id_2 = f"slack-app-mention-processing-{slack_team_id}:{event_id_or_fallback}"
         assert wf_id_1 == wf_id_2
 
     def test_different_event_ids_produce_different_workflow_ids(self):
         slack_team_id = "T_SLACK"
-        wf_id_1 = f"posthog-code-mention-{slack_team_id}:Ev111"
-        wf_id_2 = f"posthog-code-mention-{slack_team_id}:Ev222"
+        wf_id_1 = f"slack-app-mention-processing-{slack_team_id}:Ev111"
+        wf_id_2 = f"slack-app-mention-processing-{slack_team_id}:Ev222"
         assert wf_id_1 != wf_id_2
 
     def test_fallback_uses_channel_and_ts(self):
@@ -1586,8 +1652,8 @@ class TestEventLevelDedupe(SimpleTestCase):
         channel = "C123"
         ts = "1234.5678"
         event_id_or_fallback = event_id if event_id else f"{channel}:{ts}"
-        wf_id = f"posthog-code-mention-{slack_team_id}:{event_id_or_fallback}"
-        assert wf_id == "posthog-code-mention-T_SLACK:C123:1234.5678"
+        wf_id = f"slack-app-mention-processing-{slack_team_id}:{event_id_or_fallback}"
+        assert wf_id == "slack-app-mention-processing-T_SLACK:C123:1234.5678"
 
 
 class TestSafeReact(UnitTestCase):

@@ -1,10 +1,13 @@
 from posthog.test.base import BaseTest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
+
+from django.test import override_settings
 
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
+    BaseMathType,
     Breakdown,
     BreakdownFilter,
     BreakdownType,
@@ -12,13 +15,16 @@ from posthog.schema import (
     DataWarehouseNode,
     DateRange,
     EventsNode,
+    HogQLQueryModifiers,
     MultipleBreakdownType,
     PropertyMathType,
     TrendsFilter,
     TrendsQuery,
 )
 
+from posthog.clickhouse.workload import Workload
 from posthog.hogql_queries.validation.validation import QueryValidationContext
+from posthog.models.instance_setting import override_instance_config
 
 from products.product_analytics.backend.hogql_queries.trends.trend_validation_rules import (
     DisallowDaysOfWeekWithSmoothing,
@@ -374,6 +380,29 @@ class TestDisallowDaysOfWeekWithSmoothing(BaseTest):
         self.assertEqual(context.exception.get_codes(), ["days_of_week_unsupported_with_smoothing"])
 
 
+class TestRequirePropertyForPropertyMath(BaseTest):
+    @parameterized.expand(
+        [
+            ("property_math_with_property", PropertyMathType.SUM, "price"),
+            ("property_math_without_property", PropertyMathType.AVG, None),
+            ("count_math_with_empty_property", BaseMathType.TOTAL, ""),
+        ]
+    )
+    def test_allows(self, _name: str, math: PropertyMathType | BaseMathType, math_property: str | None) -> None:
+        query = TrendsQuery(series=[EventsNode(event="$pageview", math=math, math_property=math_property)])
+
+        TrendsQueryRunner(query=query, team=self.team).validate()
+
+    @parameterized.expand([(math.value, math) for math in (PropertyMathType.AVG, PropertyMathType.P99)])
+    def test_rejects_property_math_with_empty_property(self, _name: str, math: PropertyMathType) -> None:
+        query = TrendsQuery(series=[EventsNode(event="$pageview", math=math, math_property="")])
+
+        with self.assertRaises(ValidationError) as context:
+            TrendsQueryRunner(query=query, team=self.team).validate()
+
+        self.assertEqual(context.exception.get_codes(), ["property_math_requires_property"])
+
+
 class TestTrendsQueryRunnerSeriesFanOut(BaseTest):
     def test_runner_rejects_an_expansion_over_the_limit_before_it_expands_the_series(self) -> None:
         query = TrendsQuery(
@@ -412,3 +441,23 @@ class TestTrendsQueryRunnerSeriesFanOut(BaseTest):
         runner = TrendsQueryRunner(query=query, team=self.team)
 
         self.assertEqual(len(runner.series), 150)
+
+    @parameterized.expand([(False,), (True,)])
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False, CLICKHOUSE_NATIVE_EVENTS_HOST="native.example.com")
+    def test_actor_options_execute_on_the_selected_cluster(self, native: bool) -> None:
+        query = TrendsQuery(
+            series=[EventsNode(event="$pageview")],
+            dateRange=DateRange(date_from="2024-01-01", date_to="2024-01-08"),
+            breakdownFilter=BreakdownFilter(breakdown="$browser", breakdown_type=BreakdownType.EVENT),
+            modifiers=HogQLQueryModifiers(useNewEventsCluster=native, useNewEventsSchema=native),
+        )
+        with (
+            override_instance_config("CLICKHOUSE_NATIVE_EVENTS_HOST", "native.example.com"),
+            override_instance_config("CLICKHOUSE_NATIVE_EVENTS_TEAMS", [self.team.pk]),
+            patch("posthog.hogql.query.sync_execute", return_value=([], [])) as execute,
+        ):
+            result = TrendsQueryRunner(query=query, team=self.team).to_actors_query_options()
+        assert result.breakdown == []
+        execute.assert_called_once()
+        assert execute.call_args.kwargs["workload"] == (Workload.NEW_EVENTS_CLUSTER if native else Workload.DEFAULT)
+        assert ("events_json" in execute.call_args.args[0]) is native

@@ -26,7 +26,11 @@ import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { uuid } from 'lib/utils/dom'
 import { createFuse, IFuseOptions } from 'lib/utils/fuseSearch'
 import { newInternalTab } from 'lib/utils/newInternalTab'
-import { TableFieldsStatus, databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
+import {
+    MANAGED_TRINO_SCHEMA_SCOPE,
+    TableFieldsStatus,
+    databaseTableListLogic,
+} from 'scenes/data-management/database/databaseTableListLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -1777,6 +1781,7 @@ export interface queryDatabaseLogicActions {
         dataWarehouseSavedQueries: DataWarehouseSavedQuerySummary[],
         payload?:
             | (Partial<import('~/types').DataWarehouseSavedQuery> & {
+                  deferCreatedToast?: boolean
                   folder_id?: string | null
                   types: string[][]
               })
@@ -1784,6 +1789,7 @@ export interface queryDatabaseLogicActions {
     ) => {
         dataWarehouseSavedQueries: DataWarehouseSavedQuerySummary[]
         payload?: Partial<import('~/types').DataWarehouseSavedQuery> & {
+            deferCreatedToast?: boolean
             folder_id?: string | null
             types: string[][]
         }
@@ -3536,7 +3542,8 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                     return createSchemaErrorNodes('direct-connection', () => actions.refreshDatabaseSchema())
                 }
                 if (!databaseLoading && !hasLoadedTables) {
-                    return createDirectConnectionEmptyNodes(connectionId)
+                    const emptyNodes = createDirectConnectionEmptyNodes(connectionId)
+                    return connectionId === MANAGED_TRINO_SCHEMA_SCOPE ? emptyNodes.slice(0, 1) : emptyNodes
                 }
 
                 return [

@@ -5,11 +5,16 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { LogTag } from 'products/logs/frontend/components/LogTag'
 import { formatDuration } from 'products/tracing/frontend/TraceWaterfallView'
 
-import { traceDialogLogic } from './traceDialogLogic'
+import { traceViewLogic } from '../TraceView/traceViewLogic'
+import { TRACE_DIALOG_VIEW_ID, traceDialogLogic } from './traceDialogLogic'
+import { TraceDialogLogMark } from './TraceDialogLogMark'
 
 export function TraceDialogOpenedFromLog(): JSX.Element | null {
-    const { openedFrom, openedSpan, openedAtUs, timeline } = useValues(traceDialogLogic)
-    const { selectSpan, closeTraceDialog } = useActions(traceDialogLogic)
+    const { openedFrom, openedAtUs } = useValues(traceDialogLogic)
+    const { closeTraceDialog } = useActions(traceDialogLogic)
+    const view = traceViewLogic({ id: TRACE_DIALOG_VIEW_ID })
+    const { pinnedSpan: openedSpan, timeline } = useValues(view)
+    const { selectSpan } = useActions(view)
 
     if (!openedFrom) {
         return null
@@ -20,7 +25,10 @@ export function TraceDialogOpenedFromLog(): JSX.Element | null {
             className="flex flex-wrap items-center gap-2 rounded border border-accent bg-accent-highlight-secondary px-2 py-1 text-xs"
             data-attr="trace-dialog-opened-from-log"
         >
-            <span className="font-semibold">Opened from log</span>
+            <span className="flex items-center gap-1.5 font-semibold">
+                <TraceDialogLogMark severity={openedFrom.severity} />
+                Opened from log
+            </span>
             <LogTag level={openedFrom.severity} />
             <span
                 className="ph-replay-block ph-no-capture font-mono truncate flex-1 basis-60 min-w-0"

@@ -10,8 +10,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.htt
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.scaleway.settings import (
-    AUDIT_TRAIL_REGIONS,
-    INSTANCE_ZONES,
+    BILLING_CONSUMPTION_LOOKBACK_MONTHS,
+    K8S_CLUSTERS_ENDPOINT,
     PAGE_SIZE,
     SCALEWAY_ENDPOINTS,
     ScalewayEndpointConfig,
@@ -25,7 +25,7 @@ REQUEST_TIMEOUT = 60
 _UNSCOPED = "_"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass  # nosemgrep: prefer-frozen-dataclasses -- pre-existing; new field shifts the backlog finding into diff
 class ScalewayResumeConfig:
     # Index into the endpoint's scope list (regions/zones) currently being processed. The scope list
     # is static, so a positional index is a stable bookmark across a crash + retry. Stays 0 for
@@ -36,6 +36,9 @@ class ScalewayResumeConfig:
     page: int | None = None
     # Opaque cursor for the token dialect (Audit Trail): the next `page_token` to fetch.
     page_token: str | None = None
+    # The scope at `scope_index`. Billing periods and clusters are built at run time, so their positions
+    # can shift between attempts; resume finds the scope by this key instead.
+    scope_key: str | None = None
 
 
 def _get_headers(secret_key: str) -> dict[str, str]:
@@ -47,11 +50,23 @@ def _format_rfc3339(dt: datetime) -> str:
     return dt.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def _billing_periods(now: datetime) -> list[str]:
+    """The `YYYY-MM` billing periods of the consumption window, oldest first, ending with the current month."""
+    periods = []
+    year, month = now.year, now.month
+    for _ in range(BILLING_CONSUMPTION_LOOKBACK_MONTHS):
+        periods.append(f"{year:04d}-{month:02d}")
+        year, month = (year - 1, 12) if month == 1 else (year, month - 1)
+    return list(reversed(periods))
+
+
 def _scopes_for(config: ScalewayEndpointConfig) -> list[str]:
-    if config.scope == "region":
-        return AUDIT_TRAIL_REGIONS
-    if config.scope == "zone":
-        return INSTANCE_ZONES
+    if config.scope in ("region", "zone"):
+        return config.scope_values
+    if config.scope == "billing_period":
+        return _billing_periods(datetime.now(UTC))
+    if config.scope == "k8s_cluster":
+        raise ValueError("Cluster scopes come from the API, see _list_cluster_scopes")
     return [_UNSCOPED]
 
 
@@ -60,7 +75,23 @@ def _resolve_path(config: ScalewayEndpointConfig, scope: str) -> str:
         return config.path.format(region=scope)
     if config.scope == "zone":
         return config.path.format(zone=scope)
+    if config.scope == "k8s_cluster":
+        region, cluster_id = scope.split("/", 1)
+        return config.path.format(region=region, cluster_id=cluster_id)
     return config.path
+
+
+def _scope_params(config: ScalewayEndpointConfig, scope: str) -> dict[str, Any]:
+    if config.scope == "billing_period":
+        return {"billing_period": scope}
+    return {}
+
+
+def _shape_rows(config: ScalewayEndpointConfig, scope: str, items: list[dict]) -> list[dict]:
+    # Consumption rows do not say which month they belong to, so carry the requested period on each row.
+    if config.scope == "billing_period":
+        return [{**item, "billing_period": scope} for item in items]
+    return items
 
 
 def _base_params(config: ScalewayEndpointConfig, organization_id: str) -> dict[str, Any]:
@@ -140,6 +171,36 @@ def _iter_pages(
             page += 1
 
 
+def _list_cluster_scopes(
+    session: requests.Session,
+    config: ScalewayEndpointConfig,
+    organization_id: str,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[ScalewayResumeConfig],
+) -> list[str]:
+    """List every Kubernetes cluster in the endpoint's regions as `<region>/<cluster_id>` scope keys."""
+    clusters_config = SCALEWAY_ENDPOINTS[K8S_CLUSTERS_ENDPOINT]
+    params = _base_params(clusters_config, organization_id)
+    scopes: list[str] = []
+    for region in config.scope_values:
+        url = f"{BASE_URL}{_resolve_path(clusters_config, region)}"
+        for clusters, _has_more, _next_cursor in _iter_pages(session, url, params, clusters_config, logger, None, None):
+            scopes.extend(f"{region}/{cluster['id']}" for cluster in clusters)
+            # Listing yields no rows, and no cursor is staged yet, so a hand-off here only restarts the listing.
+            resumable_source_manager.safe_point()
+    return scopes
+
+
+def _resume_index(scopes: list[str], resume: ScalewayResumeConfig) -> int | None:
+    """The index of the scope to resume into, or None when the saved scope no longer exists."""
+    if resume.scope_key is None:
+        return resume.scope_index
+    try:
+        return scopes.index(resume.scope_key)
+    except ValueError:
+        return None
+
+
 def get_rows(
     secret_key: str,
     organization_id: str,
@@ -153,16 +214,27 @@ def get_rows(
     # logs and sample capture wherever it might appear.
     session = make_tracked_session(headers=_get_headers(secret_key), redact_values=(secret_key,))
     base_params = _base_params(config, organization_id)
-    scopes = _scopes_for(config)
+    if config.scope == "k8s_cluster":
+        scopes = _list_cluster_scopes(session, config, organization_id, logger, resumable_source_manager)
+    else:
+        scopes = _scopes_for(config)
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    start_index = resume.scope_index if resume is not None else 0
+    start_index = 0
+    if resume is not None:
+        resume_index = _resume_index(scopes, resume)
+        if resume_index is None:
+            # The saved cluster was deleted, or the saved billing period left the window: start over.
+            resume = None
+        else:
+            start_index = resume_index
     if start_index >= len(scopes):
         return
 
     for scope_index in range(start_index, len(scopes)):
         scope = scopes[scope_index]
         url = f"{BASE_URL}{_resolve_path(config, scope)}"
+        scope_params = {**base_params, **_scope_params(config, scope)}
         # Only the scope we resumed into consumes the saved page/token cursor; later scopes start fresh.
         if resume is not None and scope_index == start_index:
             start_page = resume.page
@@ -171,19 +243,33 @@ def get_rows(
             start_page = None
             start_token = None
 
-        for items, has_more, next_cursor in _iter_pages(
-            session, url, base_params, config, logger, start_page, start_token
-        ):
-            if items:
-                yield items
-            # Save AFTER yielding so a crash re-yields the last page rather than skipping it (merge
-            # dedupes on the primary key). Only persist when more pages remain in this scope.
-            if has_more:
-                resumable_source_manager.save_state(ScalewayResumeConfig(scope_index=scope_index, **next_cursor))
+        try:
+            for items, has_more, next_cursor in _iter_pages(
+                session, url, scope_params, config, logger, start_page, start_token
+            ):
+                if items:
+                    yield _shape_rows(config, scope, items)
+                else:
+                    # Empty regions, clusters and months return no rows, so the pipeline sees no item here.
+                    resumable_source_manager.safe_point()
+                # Save AFTER yielding so a crash re-yields the last page rather than skipping it (merge
+                # dedupes on the primary key). Only persist when more pages remain in this scope.
+                if has_more:
+                    resumable_source_manager.save_state(
+                        ScalewayResumeConfig(scope_index=scope_index, scope_key=scope, **next_cursor)
+                    )
+        except requests.HTTPError as e:
+            # A cluster deleted after it was listed answers 404; skip it instead of failing the whole table.
+            if config.scope == "k8s_cluster" and e.response is not None and e.response.status_code == 404:
+                logger.warning(f"Scaleway cluster {scope} no longer exists, skipping it")
+            else:
+                raise
 
         # Advance the bookmark to the next scope so a crash between scopes resumes correctly.
         if scope_index + 1 < len(scopes):
-            resumable_source_manager.save_state(ScalewayResumeConfig(scope_index=scope_index + 1))
+            resumable_source_manager.save_state(
+                ScalewayResumeConfig(scope_index=scope_index + 1, scope_key=scopes[scope_index + 1])
+            )
 
 
 def scaleway_source(
@@ -223,10 +309,13 @@ def probe_endpoint(secret_key: str, organization_id: str, endpoint: str) -> int:
     denial" rather than a missing scope.
     """
     config = SCALEWAY_ENDPOINTS[endpoint]
+    if config.scope == "k8s_cluster":
+        # Pools and nodes need a cluster in the path. Listing clusters needs the same Kubernetes read permission.
+        config = SCALEWAY_ENDPOINTS[K8S_CLUSTERS_ENDPOINT]
     session = make_tracked_session(headers=_get_headers(secret_key), redact_values=(secret_key,))
     scope = _scopes_for(config)[0]
     url = f"{BASE_URL}{_resolve_path(config, scope)}"
-    params = _base_params(config, organization_id)
+    params = {**_base_params(config, organization_id), **_scope_params(config, scope)}
     if config.pagination == "per_page":
         params["per_page"] = 1
     else:

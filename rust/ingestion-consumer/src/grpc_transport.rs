@@ -21,22 +21,20 @@
 //!
 //! **Failure fences the whole worker stream.** A nack, stream break, or connect
 //! failure resolves every queued and un-acked item, in enqueue order, with a
-//! [`SendError`] carrying the messages back — the callers' existing
-//! `defer_failed` path then stashes them, and the dispatcher's outstanding
-//! counts hold all newer work for those keys until the failed groups are
-//! retried (oldest first) and acked. Each fenced send also carries a
-//! [`FenceGuard`]; the worker stream keeps fencing every new arrival until all guards
-//! are dropped, which closes the gap between a send resolving and its
-//! caller stashing, where the consumer loop could otherwise enqueue a fenced
-//! key's next group and the next stream would send it first. Nothing for a
-//! fenced key can leapfrog the failure, because everything for it was either
-//! in the ledger, the queue, or fenced on arrival.
+//! [`SendError`] carrying the messages back. The batcher then requeues them
+//! at the front of their keys' queues, and holds all newer work for those
+//! keys until the failed messages are retried (oldest first) and acked. Each
+//! fenced send also carries a [`FenceGuard`]; the worker stream keeps fencing
+//! every new arrival until all guards are dropped, which closes the gap
+//! between a send resolving and its caller requeuing, where a newer send for
+//! a fenced key could otherwise be enqueued and ride the next stream first.
+//! Nothing for a fenced key can leapfrog the failure, because everything for
+//! it was either in the ledger, the queue, or fenced on arrival.
 //!
-//! Backpressure: the queue is unbounded (so enqueue stays synchronous and
-//! ordered) but the worker stream keeps at most `max_unacked` sub-batches un-acked on
-//! the stream; queue depth is bounded in practice by the consumer's
-//! `max_in_flight_batches`, whose batches cannot complete until their sends
-//! resolve.
+//! The queue is unbounded, so enqueue stays synchronous and ordered. The
+//! batcher bounds its depth: it keeps at most `INGESTION_WORKER_CONCURRENT_BATCHES`
+//! requests in flight per worker and sends nothing more until one settles,
+//! so every queued sub-batch goes on the wire at once.
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
@@ -118,7 +116,7 @@ impl PendingWorkerStreamSend {
                     messages.extend(std::mem::take(&mut err.messages));
                     match &mut failure {
                         // Keep the first failure's error; fold later guards
-                        // into it so the stream fences until all are stashed.
+                        // into it so the stream fences until all are requeued.
                         Some(first) => match (&mut first.fence_guard, err.fence_guard.take()) {
                             (Some(guard), Some(other)) => guard.merge(other),
                             (slot @ None, other) => *slot = other,
@@ -195,9 +193,6 @@ pub struct GrpcTransport {
     consumer_id: String,
     /// How each worker's stream address is derived from its HTTP URL.
     grpc_port: GrpcPort,
-    /// Max un-acked sub-batches per worker stream (aligned with the worker's
-    /// `concurrentBatches`).
-    max_unacked: usize,
     /// Fence the worker stream when un-acked work sees no ack for this long.
     ack_timeout: Duration,
     /// Bumped on Kafka partition assignment; stamped on every sub-batch so
@@ -212,13 +207,11 @@ pub struct GrpcTransport {
 }
 
 impl GrpcTransport {
-    pub fn new(grpc_port: GrpcPort, max_unacked: usize, ack_timeout: Duration) -> Self {
-        assert!(max_unacked > 0, "max_unacked must be > 0");
+    pub fn new(grpc_port: GrpcPort, ack_timeout: Duration) -> Self {
         Self {
             worker_streams: DashMap::new(),
             consumer_id: make_consumer_id(),
             grpc_port,
-            max_unacked,
             ack_timeout,
             max_body_bytes: DEFAULT_MAX_BODY_BYTES,
             // A fresh epoch for standalone construction; production wiring
@@ -236,11 +229,6 @@ impl GrpcTransport {
     /// rebalance context bumps.
     pub fn set_assignment_epoch(&mut self, epoch: AssignmentEpoch) {
         self.assignment_epoch = epoch;
-    }
-
-    /// The most sub-batches one worker stream keeps un-acked.
-    pub fn max_unacked(&self) -> usize {
-        self.max_unacked
     }
 
     /// The assignment epoch this transport stamps on sub-batches.
@@ -346,7 +334,6 @@ impl GrpcTransport {
             worker_url: Arc::from(worker_url),
             grpc_url: grpc_url(worker_url, self.grpc_port),
             consumer_id: self.consumer_id.clone(),
-            max_unacked: self.max_unacked,
             ack_timeout: self.ack_timeout,
             assignment_epoch: self.assignment_epoch.clone(),
         };
@@ -355,10 +342,12 @@ impl GrpcTransport {
     }
 
     /// Tear down a departed worker's stream. Dropping it closes its queue
-    /// sender, so the runner fences whatever is still in flight **in order**,
-    /// with the messages intact, and exits on its own. Aborting the task would
-    /// instead drop the un-acked sends unresolved, which the caller can only
-    /// recover by crashing and replaying — so let the graceful path run.
+    /// sender: the runner takes no more work, lets the sub-batches already on
+    /// the wire settle by ack or by the ack watchdog, and exits on its own.
+    /// A reaped worker that is slow rather than dead so finishes its request
+    /// instead of a survivor repeating it while it still runs. Aborting the
+    /// task would instead drop the un-acked sends unresolved, which the caller
+    /// can only recover by crashing and replaying.
     pub fn remove_worker(&self, worker_url: &str) {
         self.worker_streams.remove(worker_url);
     }
@@ -411,7 +400,6 @@ struct WorkerStreamRunner {
     worker_url: Arc<str>,
     grpc_url: String,
     consumer_id: String,
-    max_unacked: usize,
     ack_timeout: Duration,
     assignment_epoch: AssignmentEpoch,
 }
@@ -583,8 +571,9 @@ impl WorkerStreamRunner {
         }
     }
 
-    /// Send the held first item, then pull more only while the ledger has
-    /// room — the worker-aligned concurrency cap. `Err` ends the stream.
+    /// The batcher caps the requests in flight per worker, so nothing is held
+    /// back here. A closed queue stops the filling; the ledger still drains by
+    /// ack. `Err` ends the stream.
     fn fill_ledger(
         &self,
         out_tx: &mpsc::UnboundedSender<IngestStreamRequest>,
@@ -593,19 +582,17 @@ impl WorkerStreamRunner {
         ledger: &mut VecDeque<LedgerEntry>,
         next_seq: &mut u64,
     ) -> Result<(), StreamEnd> {
-        while ledger.len() < self.max_unacked {
+        loop {
             let item = match pending_first.take() {
                 Some(item) => Some(item),
                 None => match queue.try_recv() {
                     Ok(item) => Some(item),
                     Err(mpsc::error::TryRecvError::Empty) => None,
                     Err(mpsc::error::TryRecvError::Disconnected) => {
-                        return Err(if ledger.is_empty() {
-                            StreamEnd::QueueClosed
-                        } else {
-                            // Resolve the tail before exiting.
-                            self.fence(None, ledger, queue, "queue closed")
-                        });
+                        if ledger.is_empty() {
+                            return Err(StreamEnd::QueueClosed);
+                        }
+                        None
                     }
                 },
             };
@@ -655,8 +642,9 @@ impl WorkerStreamRunner {
             .record(entry.sent_at.elapsed().as_secs_f64());
     }
 
-    /// Wait for an ack, or for new work when the ledger has room. `Ok(None)`
-    /// means new work was held in `pending_first`; `Err` ends the stream.
+    /// Wait for an ack, or for new work while the queue is open. `Ok(None)`
+    /// means new work was held in `pending_first`, or the queue closed under
+    /// the wait and the ledger still drains; `Err` ends the stream.
     ///
     /// The ack-progress watchdog bounds how long the oldest un-acked
     /// sub-batch may sit unacked. Each entry carries its own deadline, armed
@@ -693,12 +681,9 @@ impl WorkerStreamRunner {
                 );
                 Err(self.fence(pending_first.take(), ledger, queue, "ack progress timeout"))
             }
-            item = queue.recv(), if ledger.len() < self.max_unacked => match item {
-                Some(item) => {
-                    *pending_first = Some(item);
-                    Ok(None)
-                }
-                None => Err(self.fence(None, ledger, queue, "queue closed")),
+            item = queue.recv(), if !queue.is_closed() => {
+                *pending_first = item;
+                Ok(None)
             }
         }
     }
@@ -755,7 +740,6 @@ impl WorkerStreamRunner {
             );
             return Err(self.fence_with(true, None, ledger, queue, "worker busy"));
         }
-        let was_full = ledger.len() >= self.max_unacked;
         let Some(index) = ledger
             .iter()
             .position(|e| e.seq == response.seq && e.acked.is_none())
@@ -802,23 +786,17 @@ impl WorkerStreamRunner {
                 messages,
             }));
         }
-        if was_full && ledger.len() < self.max_unacked && !queue.is_empty() {
-            counter!(
-                "ingestion_consumer_transport_backpressure_waits_total",
-                "worker" => self.worker_url.clone()
-            )
-            .increment(1);
-        }
         self.record_ledger_depth(ledger.len());
         Ok(())
     }
 
     /// Resolve everything outstanding as failed, **in enqueue order**: the
     /// un-acked ledger first, then anything still queued (which was enqueued
-    /// after everything in the ledger). Order matters because the callers'
-    /// `defer_failed` stashes groups by batch sequence — resolving in order
-    /// keeps every fenced key's groups stashed oldest-first, so the retry
-    /// (oldest first) is the same request that failed.
+    /// after everything in the ledger). Order matters because the batcher
+    /// requeues each failed send at the front of its keys' queues, so
+    /// resolving in order keeps every fenced key's messages queued
+    /// oldest-first and the retry (oldest first) is the same request that
+    /// failed.
     fn fence(
         &self,
         pending_first: Option<WorkerStreamItem>,
@@ -867,7 +845,7 @@ impl WorkerStreamRunner {
 
 /// A fence in progress. Every fenced send carries a [`FenceGuard`]; until all
 /// of them are dropped the worker stream fails each new arrival too, so a send
-/// enqueued before the fenced messages are stashed cannot ride the next
+/// enqueued before the fenced messages are requeued cannot ride the next
 /// stream ahead of them.
 struct Fence {
     retriable: bool,
@@ -939,7 +917,7 @@ enum StreamEnd {
     /// The transport dropped the queue sender — worker removed or shutdown.
     QueueClosed,
     /// The stream broke; the fence holds what was resolved as failed and
-    /// keeps fencing until those callers have stashed their messages.
+    /// keeps fencing until those callers have requeued their messages.
     Failed(Fence),
     /// The stream ended cleanly with nothing outstanding.
     Idle,

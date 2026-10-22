@@ -1,7 +1,6 @@
 import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
 
-import { ACCESS_TOKEN_PLACEHOLDER } from '~/common/config/constants'
 import { instrumented } from '~/common/tracing/tracing-utils'
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
@@ -13,6 +12,7 @@ import '../async-functions'
 import type {
     CyclotronJobInvocationHogFunction,
     CyclotronJobInvocationResult,
+    HogFunctionType,
     MinimalAppMetric,
     MinimalLogEntry,
 } from '../types'
@@ -345,6 +345,20 @@ export class HogExecutorAsyncService {
         )
     }
 
+    private async loadIntegrationTokenReplacements(hogFunction: HogFunctionType): Promise<[string, string][]> {
+        const integrationInputs = await this.deps.hogInputsService.loadIntegrationInputs(hogFunction)
+        return Object.values(integrationInputs).flatMap(({ value }): [string, string][] => {
+            // integration_multi inputs resolve to an array of integrations (e.g. push channels)
+            // and do not take part in the single access-token placeholder substitution.
+            if (Array.isArray(value) || !value?.access_token_raw) {
+                return []
+            }
+            return this.deps.hogInputsService
+                .acceptedAccessTokenPlaceholders(value.$integration_id)
+                .map((placeholder) => [placeholder, value.access_token_raw])
+        })
+    }
+
     @instrumented('hog-executor.executeFetch')
     async executeFetch(
         invocation: CyclotronJobInvocationHogFunction,
@@ -373,34 +387,13 @@ export class HogExecutorAsyncService {
             headers['developer-token'] = this.config.googleAdwordsDeveloperToken
         }
 
-        const integrationInputs = await this.deps.hogInputsService.loadIntegrationInputs(invocation.hogFunction)
+        const tokenReplacements = await this.loadIntegrationTokenReplacements(invocation.hogFunction)
+        const replaceTokens = (value: string): string =>
+            tokenReplacements.reduce((acc, [placeholder, token]) => acc.replaceAll(placeholder, token), value)
 
-        if (Object.keys(integrationInputs).length > 0) {
-            for (const [key, value] of Object.entries(integrationInputs)) {
-                const inputValue = value.value
-                // integration_multi inputs resolve to an array of integrations (e.g. push channels)
-                // and don't participate in the single access-token placeholder substitution below.
-                if (Array.isArray(inputValue) || !inputValue) {
-                    continue
-                }
-                const accessToken: string = inputValue.access_token_raw
-                if (!accessToken) {
-                    continue
-                }
-
-                const placeholder: string = ACCESS_TOKEN_PLACEHOLDER + invocation.hogFunction.inputs?.[key]?.value
-
-                if (placeholder && accessToken) {
-                    const replace = (val: string) => val.replaceAll(placeholder, accessToken)
-
-                    params.body = params.body ? replace(params.body) : params.body
-                    headers = Object.fromEntries(
-                        Object.entries(params.headers ?? {}).map(([key, value]) => [key, replace(value)])
-                    )
-                    params.url = replace(params.url)
-                }
-            }
-        }
+        params.body = params.body ? replaceTokens(params.body) : params.body
+        headers = Object.fromEntries(Object.entries(headers).map(([key, value]) => [key, replaceTokens(value)]))
+        params.url = replaceTokens(params.url)
 
         // Bound event-forwarding loops: a fetch back into this project's own ingestion
         // endpoint re-enters the pipeline and can re-trigger this same function. The

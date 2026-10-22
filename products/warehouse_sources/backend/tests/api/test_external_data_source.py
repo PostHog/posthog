@@ -65,6 +65,7 @@ from products.warehouse_sources.backend.presentation.views.external_data_schema 
 from products.warehouse_sources.backend.presentation.views.external_data_source.helpers import (
     DIRECT_QUERY_UNSUPPORTED_SOURCE_MESSAGE,
     INVALID_CREDENTIALS_FALLBACK_MESSAGE,
+    UNSUPPORTED_CREDENTIAL_CHARACTER_MESSAGE,
     _classify_refresh_schemas_error,
     get_credential_account_field_names,
     get_declared_field_names,
@@ -160,6 +161,7 @@ def _configure_source_mock_versioning(mock_get_source) -> None:
     mock_get_source.return_value.default_version = "v1"
     mock_get_source.return_value.get_version_deprecation.return_value = None
     mock_get_source.return_value.max_instances_per_team = None
+    mock_get_source.return_value.requires_team_feature_flag = None
     mock_get_source.return_value.connection_host_fields = []
     mock_get_source.return_value.detects_primary_keys = False
     mock_get_source.return_value.server_managed_job_input_fields.return_value = []
@@ -512,13 +514,23 @@ class TestExternalDataSource(APIBaseTest):
         assert "at least one destination" in response.json()["detail"]
         assert not ExternalDataSource.objects.filter(team_id=self.team.pk).exists()
 
+    @parameterized.expand(
+        [
+            ("unexpected_error", AttributeError("boom"), INVALID_CREDENTIALS_FALLBACK_MESSAGE),
+            (
+                "non_latin1_header_value",
+                UnicodeEncodeError("latin-1", "sk_test\u2019", 7, 8, "ordinal not in range(256)"),
+                UNSUPPORTED_CREDENTIAL_CHARACTER_MESSAGE,
+            ),
+        ]
+    )
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
-        side_effect=AttributeError("boom"),
     )
-    def test_create_surfaces_400_when_credential_probe_raises(self, _mock_validate):
+    def test_create_surfaces_400_when_credential_probe_raises(self, _name, error, expected_message, mock_validate):
         # A source whose validate_credentials raises (rather than returning (False, message)) must
         # not 500 the create request — the user gets an actionable message and no source is created.
+        mock_validate.side_effect = error
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/",
             data={
@@ -534,7 +546,7 @@ class TestExternalDataSource(APIBaseTest):
         )
 
         self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.json()["message"], INVALID_CREDENTIALS_FALLBACK_MESSAGE)
+        self.assertEqual(response.json()["message"], expected_message)
         self.assertFalse(ExternalDataSource.objects.filter(team_id=self.team.pk).exists())
 
     def test_api_version_pin_is_read_only_via_api(self):
@@ -5961,6 +5973,7 @@ class TestExternalDataSource(APIBaseTest):
         ]
         mock_source.get_endpoint_permissions.return_value = {}
         mock_source.detects_primary_keys = False
+        mock_source.requires_team_feature_flag = None
 
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/database_schema/",
@@ -6053,6 +6066,7 @@ class TestExternalDataSource(APIBaseTest):
                     "sync_type": None,
                     "supports_webhooks": False,
                     "webhook_only": False,
+                    "prefers_full_refresh": False,
                     "available_columns": [
                         {"field": "id", "label": "id", "type": "integer", "nullable": True},
                     ],
@@ -6132,6 +6146,7 @@ class TestExternalDataSource(APIBaseTest):
                     "sync_type": None,
                     "supports_webhooks": False,
                     "webhook_only": False,
+                    "prefers_full_refresh": False,
                     "available_columns": [
                         {"field": "id", "label": "id", "type": "integer", "nullable": True},
                     ],
@@ -9312,6 +9327,41 @@ class TestExternalDataSource(APIBaseTest):
             assert response.json()["message"] == limit_message
         else:
             assert response.json()["message"] != limit_message
+
+    @parameterized.expand(
+        [
+            ("create_without_flag", "", False),
+            ("create_with_flag", "", True),
+            ("database_schema_without_flag", "database_schema/", False),
+            ("database_schema_with_flag", "database_schema/", True),
+            ("setup_without_flag", "setup/", False),
+            ("setup_with_flag", "setup/", True),
+            ("store_credentials_without_flag", "store_credentials/", False),
+            ("store_credentials_with_flag", "store_credentials/", True),
+        ]
+    )
+    def test_source_behind_a_team_feature_flag(self, _name: str, path: str, flag_enabled: bool) -> None:
+        payload = {
+            "url_pattern": "https://files.example.com/orders/*.csv",
+            "access_key_id": "AKIAEXAMPLE",
+            "secret_access_key": "secret",
+            "file_format": {"selection": "infer", "csv_allow_double_quotes": "true"},
+        }
+        with patch(
+            "products.warehouse_sources.backend.presentation.views.external_data_source.helpers.feature_enabled_or_false",
+            return_value=flag_enabled,
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.pk}/external_data_sources/{path}",
+                data={"source_type": "AmazonS3", "prefix": "s3_", "payload": payload, **payload},
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        # With the flag the request reaches credential validation, which rejects the URL host
+        # before any network call.
+        expected = "The storage settings are invalid" if flag_enabled else "isn't available to connect yet"
+        assert expected in response.json()["message"]
+        assert not ExternalDataSource.objects.filter(team_id=self.team.pk, source_type="AmazonS3").exists()
 
     def test_revenue_analytics_config_created_automatically(self):
         source = self._create_external_data_source()
@@ -12974,10 +13024,10 @@ class TestExternalDataSourceSetup(APIBaseTest):
 
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.capture_exception")
     def test_setup_rejects_source_without_schema_discovery(self, mock_capture_exception):
-        # AmazonS3 doesn't implement get_schemas, so the base raises NotImplementedError.
+        # AmazonCloudWatch doesn't implement get_schemas, so the base raises NotImplementedError.
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/setup/",
-            data={"source_type": "AmazonS3", "prefix": "s3_setup_test", "payload": {}},
+            data={"source_type": "AmazonCloudWatch", "prefix": "scaffold_setup_test", "payload": {}},
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert "isn't available to connect yet" in response.json()["message"]

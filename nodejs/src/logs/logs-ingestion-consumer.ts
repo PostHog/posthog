@@ -1,4 +1,5 @@
 import { trace } from '@opentelemetry/api'
+import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 import pLimit from 'p-limit'
 import { Counter, Histogram } from 'prom-client'
@@ -48,7 +49,7 @@ import { LOGS_DLQ_OUTPUT, LOGS_OUTPUT, LogsDlqOutput, LogsOutput } from './outpu
 import { PatternMessageKeysCache } from './pattern-message-keys-cache'
 import { EMPTY_STAGE_DROP_STATS, type PipelineStage } from './pipeline/log-processing-pipeline'
 import type { RetentionRuleSource } from './retention/compile-retention-rules'
-import type { CompiledRetentionRuleSet } from './retention/evaluate-retention'
+import { type CompiledRetentionRuleSet, RETENTION_MONTH_DAYS } from './retention/evaluate-retention'
 import {
     RETENTION_EXPIRED_STAGE_NAME,
     canHoldExpiredRow,
@@ -353,6 +354,8 @@ function makeTransformStage(transform: LogRecordsTransform): PipelineStage {
         },
     }
 }
+
+type MetricTalliesByTeam = Map<number, { token: string; rules: CompiledMetricRule[]; tallies: BatchTallies }>
 
 export class LogsIngestionConsumer {
     protected name = 'LogsIngestionConsumer'
@@ -699,10 +702,14 @@ export class LogsIngestionConsumer {
         return {
             // Produce first so PII replacement counts are folded into `usageStats` before MSK usage emit
             backgroundTask: (async () => {
-                await this.processAndProduceLogMessages(
+                const metricTalliesByTeam = await this.processAndProduceLogMessages(
                     rateLimiterAllowedMessages,
                     usageStats,
                     transformationBatchBudget
+                )
+                await this.emitMetricRuleTallies(metricTalliesByTeam)
+                await this.deps.teamManager.setTeamsIngestedData(
+                    rateLimiterAllowedMessages.map((message) => message.teamId)
                 )
                 await this.emitUsageMetrics(usageStats)
                 // Best-effort flush of transformation app metrics + function logs; never block the data path
@@ -884,7 +891,7 @@ export class LogsIngestionConsumer {
      * as one OTLP payload per team after produce.
      */
     private async getMetricRuleBatchState(
-        byTeam: Map<number, { token: string; rules: CompiledMetricRule[]; tallies: BatchTallies }>,
+        byTeam: MetricTalliesByTeam,
         message: LogsIngestionMessage
     ): Promise<{ token: string; rules: CompiledMetricRule[]; tallies: BatchTallies } | null> {
         if (!this.isMetricRulesEnabledForTeam(message.teamId)) {
@@ -919,9 +926,7 @@ export class LogsIngestionConsumer {
         return state.rules.length > 0 ? state : null
     }
 
-    private async emitMetricRuleTallies(
-        byTeam: Map<number, { token: string; rules: CompiledMetricRule[]; tallies: BatchTallies }>
-    ): Promise<void> {
+    private async emitMetricRuleTallies(byTeam: MetricTalliesByTeam): Promise<void> {
         for (const [teamId, { token, rules, tallies }] of byTeam) {
             const teamIdLabel = teamId.toString()
             if (tallies.valueSkipped > 0) {
@@ -964,11 +969,8 @@ export class LogsIngestionConsumer {
         messages: LogsIngestionMessage[],
         usageStats: UsageStatsByTeam,
         transformationBatchBudget?: TransformationBatchBudget
-    ): Promise<void> {
-        const metricTalliesByTeam = new Map<
-            number,
-            { token: string; rules: CompiledMetricRule[]; tallies: BatchTallies }
-        >()
+    ): Promise<MetricTalliesByTeam> {
+        const metricTalliesByTeam: MetricTalliesByTeam = new Map()
         const limit = pLimit(MAX_CONCURRENT_MESSAGE_PROCESSES)
         let quarantined = 0
         const results = await Promise.allSettled(
@@ -1205,7 +1207,7 @@ export class LogsIngestionConsumer {
             throw failures[0].reason
         }
 
-        await this.emitMetricRuleTallies(metricTalliesByTeam)
+        return metricTalliesByTeam
     }
 
     private async produceToDlq(message: LogsIngestionMessage, error: unknown): Promise<void> {
@@ -1292,13 +1294,13 @@ export class LogsIngestionConsumer {
             if (retentionMetric) {
                 this.queueUsageMetric(teamId, retentionMetric, stats.bytesAllowed)
             }
-            // Byte-days: ingested bytes weighted by the full retention day count, only for teams that
-            // chose a retention longer than the default. The default tier is covered by `bytes_ingested`,
+            // Byte-days: ingested bytes weighted by the retention day count, only for teams that
+            // chose a retention other than the default. The default tier is covered by `bytes_ingested`,
             // so it must not be billed a second time here. Uses credit-adjusted `bytesAllowed` to
             // reconcile with `bytes_ingested`. Runs beside the per-tier metric above until billing
             // leaves fixed tiers.
             if (stats.retentionDays !== DEFAULT_LOGS_RETENTION_DAYS) {
-                this.queueUsageMetric(teamId, 'retention_byte_days', stats.bytesAllowed * stats.retentionDays)
+                this.queueRetentionByteDays(teamId, stats.bytesAllowed, stats.retentionDays)
             }
             const source = this.appSource === 'traces' ? 'apm_traces' : 'logs'
             // These records are per-flush aggregates, not one per billed thing, so there is no
@@ -1327,7 +1329,7 @@ export class LogsIngestionConsumer {
         ])
     }
 
-    private queueUsageMetric(teamId: number, metricName: string, count: number): void {
+    private queueUsageMetric(teamId: number, metricName: string, count: number, timestamp?: DateTime): void {
         if (count === 0) {
             return
         }
@@ -1339,7 +1341,22 @@ export class LogsIngestionConsumer {
             metric_kind: 'usage',
             metric_name: metricName,
             count,
+            timestamp,
         })
+    }
+
+    /**
+     * Writes one `retention_byte_days` row per 30-day month of retention, each dated at the start of
+     * its month, so each month of storage bills when it starts instead of the whole period billing
+     * on the ingest day. The usage report sums these rows by timestamp, and the `app_metrics2` TTL
+     * counts from each row's own timestamp, so future rows stay until they are billed.
+     */
+    private queueRetentionByteDays(teamId: number, bytes: number, retentionDays: number): void {
+        const now = DateTime.utc()
+        for (let offsetDays = 0; offsetDays < retentionDays; offsetDays += RETENTION_MONTH_DAYS) {
+            const days = Math.min(RETENTION_MONTH_DAYS, retentionDays - offsetDays)
+            this.queueUsageMetric(teamId, 'retention_byte_days', bytes * days, now.plus({ days: offsetDays }))
+        }
     }
 
     /**

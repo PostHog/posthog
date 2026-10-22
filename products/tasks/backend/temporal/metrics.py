@@ -132,6 +132,21 @@ TASKS_RUN_TURNS_HISTOGRAM_BUCKETS = [
 TASKS_MEMORY_PEAK_RATIO_HISTOGRAM_METRICS = ("tasks_sandbox_memory_peak_ratio",)
 TASKS_MEMORY_PEAK_RATIO_HISTOGRAM_BUCKETS = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.85, 0.9, 0.95, 1.0]
 
+TASKS_CPU_PRESSURE_RATIO_HISTOGRAM_METRICS = ("tasks_sandbox_cpu_pressure_ratio",)
+TASKS_CPU_PRESSURE_RATIO_HISTOGRAM_BUCKETS = TASKS_MEMORY_PEAK_RATIO_HISTOGRAM_BUCKETS
+
+TASKS_NETWORK_BYTES_HISTOGRAM_METRICS = ("tasks_sandbox_network_bytes",)
+TASKS_NETWORK_BYTES_HISTOGRAM_BUCKETS = [
+    1_048_576.0,
+    4_194_304.0,
+    16_777_216.0,
+    67_108_864.0,
+    268_435_456.0,
+    1_073_741_824.0,
+    4_294_967_296.0,
+    17_179_869_184.0,
+]
+
 _RUN_TOKEN_KINDS = {
     "input": "input_tokens",
     "output": "output_tokens",
@@ -383,6 +398,36 @@ def record_memory_peak_ratio(ratio: float) -> None:
         _metric_meter().create_histogram_float(
             "tasks_sandbox_memory_peak_ratio",
             "Peak sandbox memory use as a fraction of the limit, read at teardown",
+        ).record(ratio)
+    except Exception:
+        pass
+
+
+def increment_sandbox_exit_status(status: str, runtime: str) -> None:
+    try:
+        _metric_meter({"status": status, "runtime": runtime}).create_counter(
+            "tasks_sandbox_exit_status",
+            "Sandbox exit status read at cleanup, running when the sandbox was still alive, unknown when the poll failed",
+        ).add(1)
+    except Exception:
+        pass
+
+
+def record_sandbox_network_bytes(direction: str, value: int) -> None:
+    try:
+        _metric_meter({"direction": direction}).create_histogram(
+            "tasks_sandbox_network_bytes",
+            "Sandbox network bytes over non-loopback interfaces, read at teardown",
+        ).record(value)
+    except Exception:
+        pass
+
+
+def record_sandbox_cpu_pressure_ratio(ratio: float) -> None:
+    try:
+        _metric_meter().create_histogram_float(
+            "tasks_sandbox_cpu_pressure_ratio",
+            "Fraction of sandbox uptime with some task stalled on CPU, read at teardown",
         ).record(ratio)
     except Exception:
         pass
@@ -752,21 +797,24 @@ class StepTimer(ContextDecorator):
             self._span = None
         delta = dt.timedelta(milliseconds=delta_ms)
 
+        context = posthoganalytics.get_tags()
+        used_snapshot = self.used_snapshot if self.used_snapshot is not None else context.get("used_snapshot")
         attributes: Attributes = {
             "step": self.step,
-            "used_snapshot": _bool_label(self.used_snapshot),
+            "used_snapshot": _bool_label(used_snapshot if isinstance(used_snapshot, bool) else None),
             "status": "FAILED" if exc_value is not None else "COMPLETED",
         }
         if self.status_tag is not None and exc_value is None:
-            attributes["status"] = str(posthoganalytics.get_tags().get(self.status_tag, "FAILED"))
-        if self.boot_path is not None:
-            attributes["boot_path"] = self.boot_path
-        if self.origin_product is not None:
-            attributes["origin_product"] = self.origin_product
-        if self.runtime is not None:
-            attributes["runtime"] = self.runtime
-        if self.sandbox_backend is not None:
-            attributes["sandbox_backend"] = self.sandbox_backend
+            attributes["status"] = str(context.get(self.status_tag, "FAILED"))
+        for key, explicit in (
+            ("boot_path", self.boot_path),
+            ("origin_product", self.origin_product),
+            ("runtime", self.runtime),
+            ("sandbox_backend", self.sandbox_backend),
+        ):
+            value = explicit if explicit is not None else context.get(key)
+            if isinstance(value, str):
+                attributes[key] = value
 
         try:
             _metric_meter(attributes).create_histogram_timedelta(

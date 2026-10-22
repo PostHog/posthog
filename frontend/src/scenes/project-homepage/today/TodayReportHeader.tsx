@@ -15,13 +15,12 @@ import { todayShellLogic } from '~/layout/today/todayShellLogic'
 import { SignalReport } from 'products/signals/frontend/inbox/types'
 import { hasOpenImplementationPr } from 'products/signals/frontend/inbox/utils/reportActions'
 
-import { TodayActionButton } from './TodayActionButton'
-import { itemStateLabel } from './todayBriefingItems'
 import { TodayEvidenceAge } from './TodayEvidenceAge'
 import { TodayMarkedText } from './TodayMarkedText'
 import { resolveDisabledReason } from './todayNextStep'
 import { priorityTone } from './todayPriority'
 import { todayReportLogic } from './todayReportLogic'
+import { reportStateLabel } from './todayReportState'
 import { reportIcon } from './todayRowIcons'
 import { SAMPLE_REPORT_REASON } from './todaySampleReports'
 import { reportSourceLine, reportTitle } from './todaySignalReports'
@@ -107,7 +106,7 @@ export function TodayReportHeader({ report }: { report: SignalReport }): JSX.Ele
         todayReportLogic({ reportId: report.id })
     )
     const sampleReason = isSample ? SAMPLE_REPORT_REASON : null
-    const stateLabel = itemStateLabel({ state: reportState })
+    const stateLabel = reportStateLabel(reportState)
     const stateBadge = stateLabel ? (
         <Badge variant={reportState === 'done' ? 'completed' : 'default'}>{stateLabel}</Badge>
     ) : null
@@ -161,21 +160,20 @@ export function TodayReportHeader({ report }: { report: SignalReport }): JSX.Ele
                 ) : (
                     <div className="-mx-2 flex shrink-0 items-center gap-0.5">
                         {!isSample && (
-                            <TodayActionButton
+                            <Button
                                 size="sm"
                                 variant="link-muted"
-                                nativeButton={false}
                                 render={<LinkPrimitive to={urls.inboxReport('reports', report.id)} />}
                                 tooltip="Open the full report in the Inbox"
                                 data-attr="today-report-open-inbox"
                             >
                                 <IconDocument />
                                 Full report
-                            </TodayActionButton>
+                            </Button>
                         )}
                         {stateBadge ?? (
                             <>
-                                <TodayActionButton
+                                <Button
                                     size="sm"
                                     variant="link-muted"
                                     onClick={() => giveVerdict('resolve')}
@@ -185,8 +183,8 @@ export function TodayReportHeader({ report }: { report: SignalReport }): JSX.Ele
                                 >
                                     <IconCheckCircle />
                                     Resolve
-                                </TodayActionButton>
-                                <TodayActionButton
+                                </Button>
+                                <Button
                                     size="sm"
                                     variant="link-muted"
                                     onClick={() => giveVerdict('dismiss')}
@@ -196,7 +194,7 @@ export function TodayReportHeader({ report }: { report: SignalReport }): JSX.Ele
                                 >
                                     <IconHide />
                                     Dismiss
-                                </TodayActionButton>
+                                </Button>
                             </>
                         )}
                     </div>

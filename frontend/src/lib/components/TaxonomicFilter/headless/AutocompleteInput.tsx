@@ -79,10 +79,12 @@ import { PropertyDefinitionType } from '~/types'
 import { useGroupList } from '../hooks/useGroupList'
 import { hasPinnedContext, taxonomicFilterPinnedPropertiesLogic } from '../taxonomicFilterPinnedPropertiesLogic'
 import {
+    META_GROUP_TYPES,
     TaxonomicDefinitionTypes,
     TaxonomicFilterGroup,
     TaxonomicFilterGroupType,
     TaxonomicFilterValue,
+    withoutSearchOnlyGroups,
 } from '../types'
 import { useTaxonomicFilterContext } from './context'
 
@@ -1260,7 +1262,13 @@ export function useTaxonomicAutocompleteCategories(): TaxonomicAutocompleteCateg
             isActive: ctx.category === 'all',
             onSelect: () => ctx.setCategory('all'),
         }
-        const groupCats = ctx.visibleGroups.map<TaxonomicAutocompleteCategory>((group) => ({
+        // Search-only groups still feed "all", but are not offered as categories.
+        const categoryGroups = withoutSearchOnlyGroups(
+            ctx.visibleGroups,
+            (group) => group.type,
+            (type) => META_GROUP_TYPES.has(type)
+        )
+        const groupCats = categoryGroups.map<TaxonomicAutocompleteCategory>((group) => ({
             id: group.type,
             name: group.name,
             group,

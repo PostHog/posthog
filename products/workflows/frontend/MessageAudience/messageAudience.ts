@@ -58,13 +58,9 @@ export function messageAudienceUrl(audience: MessageAudience, destination: Messa
     )
 }
 
-export function captureMessageAudienceClicked(
-    source: string,
-    destination: MessageAudienceDestination,
-    extra: { succeeded?: boolean } = {}
-): void {
+export function captureMessageAudienceClicked(source: string, destination: MessageAudienceDestination): void {
     // pinned: analytics event name
-    posthog.capture('message audience clicked', { source, destination, ...extra })
+    posthog.capture('message audience clicked', { source, destination })
 }
 
 /** Why this person can't start a broadcast or workflow, if they can't: both need editor access to workflows. */
