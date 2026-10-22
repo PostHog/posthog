@@ -19,6 +19,7 @@ from django.utils import timezone
 
 import requests
 from parameterized import parameterized
+from urllib3.exceptions import MaxRetryError, NewConnectionError, ProtocolError
 
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.user import User
@@ -191,8 +192,19 @@ class TestDevTokens(APIBaseTest):
         [
             ("refused", {"return_value": _response(500)}, False),
             ("unreadable_body", {"return_value": _response(201, {"token": "phe_x"})}, False),
-            ("timeout", {"side_effect": requests.Timeout()}, True),
-            ("connection_error", {"side_effect": requests.ConnectionError()}, True),
+            ("read_timeout", {"side_effect": requests.ReadTimeout()}, True),
+            ("connection_reset", {"side_effect": requests.ConnectionError(ProtocolError("reset"))}, True),
+            ("connect_timeout", {"side_effect": requests.ConnectTimeout()}, False),
+            (
+                "connection_refused",
+                {
+                    "side_effect": requests.ConnectionError(
+                        MaxRetryError(None, "/v1/tokens", NewConnectionError(None, "refused"))
+                    )
+                },
+                False,
+            ),
+            ("invalid_url", {"side_effect": requests.exceptions.InvalidURL()}, False),
         ]
     )
     def test_failed_mint_keeps_the_reservation_only_when_ambiguous(self, _name, post_kwargs, kept):

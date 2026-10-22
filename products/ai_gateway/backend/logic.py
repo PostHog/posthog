@@ -21,6 +21,7 @@ from django.utils import timezone
 
 import requests
 import structlog
+from urllib3.exceptions import NewConnectionError
 
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.scoping import team_scope
@@ -174,14 +175,25 @@ def _log(user: User, row: DevGatewayToken, activity: str, changes: list[Change])
     )
 
 
+def _never_sent(error: requests.RequestException) -> bool:
+    if isinstance(error, requests.ConnectTimeout):
+        return True
+    if not isinstance(error, (requests.Timeout, requests.ConnectionError)):
+        return True
+    # Refused connections and DNS failures arrive as a MaxRetryError whose reason is a NewConnectionError.
+    return isinstance(getattr(error.args[0] if error.args else None, "reason", None), NewConnectionError)
+
+
 def mint(user: User, client: DevTokenClient) -> MintedDevToken:
     with team_scope(settings.DEV_GATEWAY_TEAM_ID):
         row = _reserve(user, client)
         try:
             minted = _call_mint(user, row.cap_usd)
         except requests.RequestException as e:
-            # The gateway may have minted before the failure, so the reservation keeps counting.
             logger.warning("ai_gateway_dev_mint_unreachable", token_id=str(row.id), exc_info=True)
+            # A read timeout or dropped response may follow a successful mint, so that reservation keeps counting.
+            if _never_sent(e):
+                row.delete()
             raise DevTokenRefused("mint_failed", "Couldn't reach the AI gateway. Try again in a minute.", 503) from e
         except Exception:
             row.delete()

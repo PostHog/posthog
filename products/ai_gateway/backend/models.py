@@ -10,7 +10,7 @@ class DevGatewayToken(TeamScopedRootMixin):
     """`team` is the team whose wallet pays (DEV_GATEWAY_TEAM_ID), not the user's current
     project. Only the token's sha256 is stored; the bearer is returned once at mint.
     A row exists from before the gateway call, so a concurrent mint counts it against
-    the daily cap; a failed mint deletes it. The foreign keys skip the DB constraint so
+    the daily cap; a mint the gateway refused deletes it. The foreign keys skip the DB constraint so
     creating this table takes no lock on posthog_team or posthog_user; Django still cascades.
     """
 
