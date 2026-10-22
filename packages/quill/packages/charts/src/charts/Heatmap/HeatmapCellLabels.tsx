@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react'
 
 import { useChartLayout } from '../../core/chart-context'
-import { DARK_FILL_LUMINANCE, mixColors, perceivedLuminance, toSrgbColor } from '../../core/color-utils'
+import { mixColors, prefersLightText, toSrgbColor } from '../../core/color-utils'
 import { FONT_FAMILY, measureLabelWidth } from '../../utils/text-measure'
 import type { HeatmapCellDatum } from './Heatmap'
 import type { HeatmapResolvedCellStyles } from './heatmap-cells'
@@ -112,7 +112,7 @@ export function HeatmapCellLabels({
                     text,
                     x: rect.x + rect.width / 2,
                     y: rect.y + rect.height / 2,
-                    color: perceivedLuminance(fill) < DARK_FILL_LUMINANCE ? '#ffffff' : DARK_TEXT,
+                    color: prefersLightText(fill) ? '#ffffff' : DARK_TEXT,
                 })
             }
         }
