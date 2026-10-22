@@ -10,6 +10,6 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="hogflow",
             name="disabled_from_active",
-            field=models.BooleanField(default=False),
+            field=models.BooleanField(default=False, db_default=False),
         ),
     ]

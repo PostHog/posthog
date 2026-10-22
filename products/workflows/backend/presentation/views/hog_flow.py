@@ -5647,7 +5647,9 @@ class HogFlowViewSet(
         # the apply conflicts.
         rendered: Optional[_RenderedActionEmailDesign] = None
         if operations:
-            predicts_draft = self._is_mcp_request(request) and unlocked.status == HogFlowState.ACTIVE
+            predicts_draft = self._is_mcp_request(request) and (
+                unlocked.status == HogFlowState.ACTIVE or unlocked.disabled_from_active
+            )
             if predicts_draft and unlocked.draft:
                 render_base = list(unlocked.draft.get("actions") or [])
             else:
