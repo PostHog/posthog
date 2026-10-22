@@ -4,8 +4,11 @@ The parse fails closed: a missing, malformed or unreadable payload turns the tic
 field falls back to its default, and no default is unbounded.
 """
 
+import datetime
 import dataclasses
 from typing import Any
+
+from django.utils import timezone
 
 import structlog
 
@@ -37,6 +40,8 @@ class ActivitySummaryConfig:
     emit_embeddings: bool = True
     capture_events: bool = True
     limits: RenderLimits = DEFAULT_LIMITS
+    # Summaries generated before this time are rebuilt from the full window, as after a version change.
+    rebuild_before: datetime.datetime | None = None
 
 
 DISABLED = ActivitySummaryConfig()
@@ -81,6 +86,19 @@ def parse_limits(payload: Any) -> RenderLimits:
     )
 
 
+def _timestamp(value: Any) -> datetime.datetime | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        parsed = datetime.datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=datetime.UTC)
+    # A future time would mark every new summary stale again, so it waits until the time passes.
+    return parsed if parsed <= timezone.now() else None
+
+
 def parse_config(payload: Any) -> ActivitySummaryConfig:
     if not isinstance(payload, dict) or payload.get("enabled") is not True:
         return DISABLED
@@ -100,6 +118,7 @@ def parse_config(payload: Any) -> ActivitySummaryConfig:
         emit_embeddings=_bool(payload.get("emit_embeddings"), defaults.emit_embeddings),
         capture_events=_bool(payload.get("capture_events"), defaults.capture_events),
         limits=parse_limits(payload.get("limits")),
+        rebuild_before=_timestamp(payload.get("rebuild_before")),
     )
 
 
