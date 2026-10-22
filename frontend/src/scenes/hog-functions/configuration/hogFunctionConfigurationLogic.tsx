@@ -34,6 +34,7 @@ import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { uuid } from 'lib/utils/dom'
 import { addProductIntent } from 'lib/utils/product-intents'
+import { FEATURE_FLAG_CALLED_EVENT } from 'scenes/feature-flags/flagEvaluationsTable'
 import { projectLogic } from 'scenes/projectLogic'
 import { buildSurveyExampleInvocationGlobals } from 'scenes/surveys/utils'
 import { teamLogic } from 'scenes/teamLogic'
@@ -87,6 +88,7 @@ import type { GroupType, GroupTypeIndex, HogFunctionMappingTemplateType, Project
 import type { TeamPublicType, TeamType } from '../../../types'
 import {
     FLAG_CALLS_NOT_LOADABLE,
+    exampleFlagKey,
     flagCallsOutsideEventsFilters,
     matchesOnlyFlagCallsOutsideEvents,
     performTrendsQueryWithFlagCalls,
@@ -1192,11 +1194,26 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     if (!values.lastEventQuery) {
                         return values.sampleGlobals
                     }
-                    const errorMessage =
-                        values.matchingFiltersInput &&
+                    const flagCallsNotLoadable =
+                        !!values.matchingFiltersInput &&
                         matchesOnlyFlagCallsOutsideEvents(values.currentTeam, values.matchingFiltersInput)
-                            ? `${FLAG_CALLS_NOT_LOADABLE} Showing an example $pageview event instead.`
-                            : 'No events match these filters in the last 30 days. Showing an example $pageview event instead.'
+                    // A test run applies the destination filters, so a flag call destination needs a flag call example.
+                    const fallbackGlobals = flagCallsNotLoadable
+                        ? {
+                              ...values.exampleInvocationGlobals,
+                              event: {
+                                  ...values.exampleInvocationGlobals.event,
+                                  event: FEATURE_FLAG_CALLED_EVENT,
+                                  properties: {
+                                      ...values.exampleInvocationGlobals.event.properties,
+                                      $feature_flag: exampleFlagKey(values.matchingFiltersInput ?? {}),
+                                  },
+                              },
+                          }
+                        : values.exampleInvocationGlobals
+                    const errorMessage = flagCallsNotLoadable
+                        ? `${FLAG_CALLS_NOT_LOADABLE} Showing an example ${FEATURE_FLAG_CALLED_EVENT} event instead.`
+                        : 'No events match these filters in the last 30 days. Showing an example $pageview event instead.'
                     try {
                         await breakpoint(values.sampleGlobals === null ? 10 : 1000)
                         let response = await performWideEventsQueryInTwoPhases({
@@ -1257,7 +1274,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                         if (!isBreakpoint(e)) {
                             actions.setSampleGlobalsError(e.message ?? errorMessage)
                         }
-                        return values.exampleInvocationGlobals
+                        return fallbackGlobals
                     }
                 },
             },

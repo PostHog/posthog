@@ -26,6 +26,7 @@ import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { FEATURE_FLAG_CALLED_EVENT } from 'scenes/feature-flags/flagEvaluationsTable'
 import {
     FLAG_CALLS_NOT_LOADABLE,
+    exampleFlagKey,
     matchesOnlyFlagCallsOutsideEvents,
 } from 'scenes/hog-functions/filters/flagCallsMatching'
 import { performWideEventsQueryInTwoPhases } from 'scenes/hog-functions/sampleEventsQuery'
@@ -1235,6 +1236,12 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
                                 values.workflow.name,
                                 flagCallsNotLoadable ? FEATURE_FLAG_CALLED_EVENT : '$pageview'
                             )
+                            if (flagCallsNotLoadable && values.triggerAction?.config.type === 'event') {
+                                exampleGlobals.event.properties = {
+                                    ...exampleGlobals.event.properties,
+                                    $feature_flag: exampleFlagKey(values.triggerAction.config.filters ?? {}),
+                                }
+                            }
                             actions.setNoMatchingEvents(true)
 
                             if (flagCallsNotLoadable) {

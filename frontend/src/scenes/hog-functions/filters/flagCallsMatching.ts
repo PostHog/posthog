@@ -4,10 +4,13 @@ import { performQuery } from '~/queries/query'
 import { EventsQuery, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
 import { hogql, setLatestVersionsOnQuery } from '~/queries/utils'
 import {
+    CyclotronJobFilterPropertyFilter,
+    EventPropertyFilter,
     FilterLogicalOperator,
     HogQLPropertyFilter,
     PropertyFilterType,
     PropertyGroupFilter,
+    PropertyOperator,
     TeamPublicType,
     TeamType,
     TrendResult,
@@ -99,6 +102,25 @@ export function withFlagCallCounts(
         data: series.data.map((value, index) => value + added[index]),
         count: series.count + added.reduce((sum, value) => sum + value, 0),
     }
+}
+
+/**
+ * The flag key for an example flag call: the key that an exact `$feature_flag` filter in the matchers names, so the
+ * example passes the matchers in a test run. A global filter wins over a matcher's own filter.
+ */
+export function exampleFlagKey({ events, properties }: MatchingFiltersInput): string {
+    const filters: CyclotronJobFilterPropertyFilter[] = [
+        ...(properties ?? []),
+        ...(events ?? []).flatMap((event) => event.properties ?? []),
+    ]
+    const flagKeyFilter = filters.find(
+        (filter): filter is EventPropertyFilter =>
+            filter.type === PropertyFilterType.Event &&
+            filter.key === '$feature_flag' &&
+            filter.operator === PropertyOperator.Exact
+    )
+    const value = Array.isArray(flagKeyFilter?.value) ? flagKeyFilter.value[0] : flagKeyFilter?.value
+    return value == null ? 'example-flag' : String(value)
 }
 
 function withoutFlagCalls(properties: TrendsQuery['properties']): TrendsQuery['properties'] {

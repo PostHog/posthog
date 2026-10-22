@@ -536,7 +536,11 @@ describe('hogFlowEditorTestLogic', () => {
     })
 
     describe('a trigger on feature flag calls', () => {
-        const FLAG_CALLED = { id: '$feature_flag_called', type: 'events', properties: [] }
+        const FLAG_CALLED = {
+            id: '$feature_flag_called',
+            type: 'events',
+            properties: [{ key: '$feature_flag', type: 'event', operator: 'exact', value: 'my-flag' }],
+        }
         const PAGEVIEW = { id: '$pageview', type: 'events', properties: [] }
         const NO_MATCH_IN_7_DAYS =
             'No events match these filters in the last 7 days. Using an example $pageview event instead.'
@@ -553,7 +557,16 @@ describe('hogFlowEditorTestLogic', () => {
         }
 
         it.each([
-            ['events mode', FlagEvaluationsModeEnumApi.Number0, [FLAG_CALLED], NO_MATCH_IN_7_DAYS, true, '$pageview'],
+            [
+                'events mode',
+                FlagEvaluationsModeEnumApi.Number0,
+                [FLAG_CALLED],
+                NO_MATCH_IN_7_DAYS,
+                true,
+                '$pageview',
+                undefined,
+            ],
+            // The example flag call names the flag that the trigger filters on, so a test run passes the trigger.
             [
                 'flag evaluations only mode',
                 FlagEvaluationsModeEnumApi.Number2,
@@ -561,6 +574,7 @@ describe('hogFlowEditorTestLogic', () => {
                 `${FLAG_CALLS_NOT_LOADABLE} Using an example $feature_flag_called event instead.`,
                 false,
                 '$feature_flag_called',
+                'my-flag',
             ],
             // An older pageview can still match, so the 30-day search stays available.
             [
@@ -570,10 +584,11 @@ describe('hogFlowEditorTestLogic', () => {
                 NO_MATCH_IN_7_DAYS,
                 true,
                 '$pageview',
+                undefined,
             ],
         ])(
             'explains a missing test event on the %s',
-            async (_name, mode, events, message, canTryExtendedSearch, exampleEvent) => {
+            async (_name, mode, events, message, canTryExtendedSearch, exampleEvent, exampleFlagKey) => {
                 useMocks({ get: { '/api/environments/:team_id/hog_flows/:id/': workflowTriggeredBy(events) } })
                 teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, flag_evaluations_mode: mode })
                 logic = hogFlowEditorTestLogic({ id: 'test-workflow' })
@@ -582,6 +597,7 @@ describe('hogFlowEditorTestLogic', () => {
                 await expectLogic(logic).toDispatchActions(['loadSampleGlobalsSuccess'])
                 await expectLogic(logic).toMatchValues({ sampleGlobalsError: message, canTryExtendedSearch })
                 expect(logic.values.sampleGlobals?.event?.event).toEqual(exampleEvent)
+                expect(logic.values.sampleGlobals?.event?.properties.$feature_flag).toEqual(exampleFlagKey)
             }
         )
     })

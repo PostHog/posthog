@@ -12,7 +12,15 @@ import { FlagEvaluationsModeEnumApi } from '~/generated/core/api.schemas'
 import { performQuery } from '~/queries/query'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { CyclotronJobFiltersType, HogFunctionTemplateType, HogFunctionType } from '~/types'
+import {
+    CyclotronJobFilterEvents,
+    CyclotronJobFiltersType,
+    EventPropertyFilter,
+    HogFunctionTemplateType,
+    HogFunctionType,
+    PropertyFilterType,
+    PropertyOperator,
+} from '~/types'
 
 import { FLAG_CALLS_NOT_LOADABLE } from '../filters/flagCallsMatching'
 import { performWideEventsQueryInTwoPhases } from '../sampleEventsQuery'
@@ -374,11 +382,21 @@ describe('hogFunctionConfigurationLogic', () => {
             name: '$feature_flag_called',
             type: 'events' as const,
             order: 0,
+            properties: [
+                {
+                    key: '$feature_flag',
+                    value: 'my-flag',
+                    operator: PropertyOperator.Exact,
+                    type: PropertyFilterType.Event,
+                } as EventPropertyFilter,
+            ],
         }
         const PAGEVIEW = { id: '$pageview', name: '$pageview', type: 'events' as const, order: 1 }
-        const FLAG_CALLED_TEMPLATE: HogFunctionTemplateType = { ...HOG_TEMPLATE, filters: { events: [FLAG_CALLED] } }
 
-        function mountOnMode(mode: FlagEvaluationsModeEnumApi, events = [FLAG_CALLED]): void {
+        function mountOnMode(
+            mode: FlagEvaluationsModeEnumApi,
+            events: CyclotronJobFilterEvents[] = [FLAG_CALLED]
+        ): void {
             mockApi.getTemplate.mockReturnValue(Promise.resolve({ ...HOG_TEMPLATE, filters: { events } }))
             teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, flag_evaluations_mode: mode })
             logic = hogFunctionConfigurationLogic({ templateId: 'test' })
@@ -387,7 +405,6 @@ describe('hogFunctionConfigurationLogic', () => {
 
         beforeEach(() => {
             initKeaTests()
-            mockApi.getTemplate.mockReturnValue(Promise.resolve(FLAG_CALLED_TEMPLATE))
             ;(performQuery as jest.Mock).mockReset()
             ;(performQuery as jest.Mock).mockImplementation(async (query) =>
                 query.kind === NodeKind.EventsQuery
@@ -431,12 +448,17 @@ describe('hogFunctionConfigurationLogic', () => {
                 FlagEvaluationsModeEnumApi.Number0,
                 [FLAG_CALLED],
                 'No events match these filters in the last 30 days. Showing an example $pageview event instead.',
+                '$pageview',
+                undefined,
             ],
+            // The example flag call names the flag that the destination filters on, so a test run passes the filters.
             [
                 'flag evaluations only mode',
                 FlagEvaluationsModeEnumApi.Number2,
                 [FLAG_CALLED],
-                `${FLAG_CALLS_NOT_LOADABLE} Showing an example $pageview event instead.`,
+                `${FLAG_CALLS_NOT_LOADABLE} Showing an example $feature_flag_called event instead.`,
+                '$feature_flag_called',
+                'my-flag',
             ],
             // A pageview can still match, so the notice about flag calls does not apply.
             [
@@ -444,8 +466,10 @@ describe('hogFunctionConfigurationLogic', () => {
                 FlagEvaluationsModeEnumApi.Number2,
                 [FLAG_CALLED, PAGEVIEW],
                 'No events match these filters in the last 30 days. Showing an example $pageview event instead.',
+                '$pageview',
+                undefined,
             ],
-        ])('explains a missing test event on the %s', async (_name, mode, events, message) => {
+        ])('explains a missing test event on the %s', async (_name, mode, events, message, exampleEvent, flagKey) => {
             mountOnMode(mode, events)
             await expectLogic(logic).toDispatchActions(['loadTemplateSuccess'])
 
@@ -454,6 +478,8 @@ describe('hogFunctionConfigurationLogic', () => {
             }).toDispatchActions(['loadSampleGlobalsSuccess'])
 
             expect(logic.values.sampleGlobalsError).toEqual(message)
+            expect(logic.values.sampleGlobals?.event.event).toEqual(exampleEvent)
+            expect(logic.values.sampleGlobals?.event.properties.$feature_flag).toEqual(flagKey)
         })
     })
 })

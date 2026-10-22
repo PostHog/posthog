@@ -2,6 +2,7 @@ import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
+import { matchingFiltersToPropertyGroup } from 'scenes/hog-functions/filters/matchingFilters'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { FlagEvaluationsModeEnumApi } from '~/generated/core/api.schemas'
@@ -51,10 +52,10 @@ describe('triggerVolumeLogic', () => {
         'estimates a trigger on feature flag calls on the %s mode',
         async (_name, mode, total, peakPerDay, excludesFlagCalls) => {
             teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, flag_evaluations_mode: mode })
-            const logic = triggerVolumeLogic({
-                id: 'trigger_node',
-                filters: { events: [{ id: '$feature_flag_called', type: 'events', name: '$feature_flag_called' }] },
-            })
+            const filters = {
+                events: [{ id: '$feature_flag_called', type: 'events' as const, name: '$feature_flag_called' }],
+            }
+            const logic = triggerVolumeLogic({ id: 'trigger_node', filters })
             logic.mount()
 
             await expectLogic(logic).toDispatchActions(['loadVolumeSuccess'])
@@ -63,9 +64,9 @@ describe('triggerVolumeLogic', () => {
             const trendsQuery = (performQuery as jest.Mock).mock.calls
                 .map(([query]) => query)
                 .find((query) => query.kind === NodeKind.TrendsQuery)
-            expect(JSON.stringify(trendsQuery.properties).includes("event != '$feature_flag_called'")).toBe(
-                excludesFlagCalls
-            )
+            const trendsProperties = JSON.stringify(trendsQuery.properties)
+            expect(trendsProperties).toContain(JSON.stringify(matchingFiltersToPropertyGroup(filters)))
+            expect(trendsProperties.includes("event != '$feature_flag_called'")).toBe(excludesFlagCalls)
         }
     )
 })

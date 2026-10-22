@@ -3,7 +3,11 @@ import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 import { FlagEvaluationsModeEnumApi } from '~/generated/core/api.schemas'
 import { CyclotronJobFilterPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
-import { flagCallsOutsideEventsFilters, withFlagCallCounts } from './flagCallsMatching'
+import {
+    flagCallsOutsideEventsFilters,
+    matchesOnlyFlagCallsOutsideEvents,
+    withFlagCallCounts,
+} from './flagCallsMatching'
 import { MatchingFiltersInput, matchingFiltersToPropertyGroup } from './matchingFilters'
 
 const FLAG_CALLED = { id: '$feature_flag_called', name: '$feature_flag_called', type: 'events' as const, order: 0 }
@@ -37,6 +41,14 @@ describe('flagCallsMatching', () => {
         expect(flagCallsOutsideEventsFilters(FLAG_EVALUATIONS_ONLY_TEAM, input)).toEqual(
             expected ? matchingFiltersToPropertyGroup(expected) : null
         )
+    })
+
+    it.each<[string, MatchingFiltersInput, boolean]>([
+        ['only flag call matchers', { events: [FLAG_CALLED] }, true],
+        ['a flag call and an action matcher', { events: [FLAG_CALLED], actions: [ACTION] }, false],
+        ['no event matcher', { events: [], actions: [] }, false],
+    ])('matches only flag calls: %s', (_name, input, expected) => {
+        expect(matchesOnlyFlagCallsOutsideEvents(FLAG_EVALUATIONS_ONLY_TEAM, input)).toBe(expected)
     })
 
     it('adds flag call counts to the trends days they fall on', () => {
