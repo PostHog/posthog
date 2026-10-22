@@ -1,7 +1,9 @@
 use std::collections::HashSet;
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
+use std::sync::Arc;
 use std::time::Duration;
 
+use k8s_awareness::ZonedMembers;
 use kube::Client;
 use tokio::sync::mpsc::Sender;
 use tokio::sync::watch;
@@ -22,8 +24,60 @@ pub struct EndpointConfig {
     pub http2_windows: Http2Windows,
 }
 
+/// Keep traffic on endpoints in this pod's zone while enough of them are
+/// ready. Cross-zone replies are billed per byte, and the router's replica
+/// replies are its largest flow.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ZoneAffinity {
+    /// This pod's zone, for example `us-east-1c`.
+    pub zone: String,
+    /// Fewest ready same-zone endpoints that keep the affinity on. Below it,
+    /// discovery hands every zone to the balancer.
+    pub min_endpoints: usize,
+}
+
+/// Which endpoints discovery hands to the balancer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DiscoveryScope {
+    /// Every ready endpoint: zone affinity is off, or too few same-zone
+    /// endpoints are ready.
+    AllZones,
+    /// Only ready endpoints in this pod's zone.
+    LocalZone,
+}
+
+impl DiscoveryScope {
+    fn as_str(self) -> &'static str {
+        match self {
+            DiscoveryScope::AllZones => "all_zones",
+            DiscoveryScope::LocalZone => "local_zone",
+        }
+    }
+}
+
+/// Pick the endpoint IPs for the balancer. With zone affinity, the result is
+/// the ready endpoints in the affinity zone when there are at least
+/// `min_endpoints` of them; otherwise it is every ready endpoint, so a thin or
+/// empty local zone never leaves the router without backends.
+pub fn select_members(
+    members: &ZonedMembers,
+    affinity: Option<&ZoneAffinity>,
+) -> (HashSet<IpAddr>, DiscoveryScope) {
+    if let Some(affinity) = affinity {
+        let local: HashSet<IpAddr> = members
+            .iter()
+            .filter(|(_, zone)| zone.as_deref() == Some(affinity.zone.as_str()))
+            .map(|(ip, _)| *ip)
+            .collect();
+        if local.len() >= affinity.min_endpoints.max(1) {
+            return (local, DiscoveryScope::LocalZone);
+        }
+    }
+    (members.keys().copied().collect(), DiscoveryScope::AllZones)
+}
+
 /// Feeds replica endpoints into a tonic balance channel, driven by the shared
-/// EndpointSlice membership watch ([`k8s_awareness::watch_service_members`]).
+/// EndpointSlice membership watch ([`k8s_awareness::watch_service_members_with_zone`]).
 /// This crate only owns the transport side: diffing the member set into
 /// `Change::Insert`/`Change::Remove`, building tonic `Endpoint`s, and exposing
 /// readiness.
@@ -33,6 +87,7 @@ pub struct EndpointDiscovery {
     service_name: String,
     port: u16,
     endpoint_config: EndpointConfig,
+    zone_affinity: Option<ZoneAffinity>,
     tx: Sender<Change<SocketAddr, Endpoint>>,
     ready_tx: watch::Sender<bool>,
     cancel: CancellationToken,
@@ -66,6 +121,7 @@ impl EndpointDiscovery {
         service_name: String,
         port: u16,
         endpoint_config: EndpointConfig,
+        zone_affinity: Option<ZoneAffinity>,
         cancel: CancellationToken,
     ) -> (Channel, DiscoveryReadiness, Self) {
         let (channel, tx) = Channel::balance_channel::<SocketAddr>(DISCOVERY_CHANNEL_BUFFER);
@@ -77,6 +133,7 @@ impl EndpointDiscovery {
             service_name,
             port,
             endpoint_config,
+            zone_affinity,
             tx,
             ready_tx,
             cancel,
@@ -111,6 +168,7 @@ impl EndpointDiscovery {
                 keepalive_timeout: None,
                 http2_windows: Http2Windows::default(),
             },
+            zone_affinity: None,
             tx,
             ready_tx,
             cancel: CancellationToken::new(),
@@ -123,17 +181,20 @@ impl EndpointDiscovery {
             service = %self.service_name,
             namespace = %self.namespace,
             port = self.port,
+            zone_affinity = ?self.zone_affinity,
             "starting EndpointSlice discovery"
         );
 
-        let (mut members, _watch_task) = k8s_awareness::watch_service_members(
+        let (mut members, _watch_task) = k8s_awareness::watch_service_members_with_zone(
             self.client.clone(),
             self.namespace.clone(),
             self.service_name.clone(),
             self.cancel.clone(),
         );
 
+        let service_label: Arc<str> = Arc::from(self.service_name.as_str());
         let mut active_addrs: HashSet<SocketAddr> = HashSet::new();
+        let mut scope: Option<DiscoveryScope> = None;
 
         loop {
             tokio::select! {
@@ -148,10 +209,29 @@ impl EndpointDiscovery {
                         warn!("EndpointSlice membership watch closed");
                         break;
                     }
-                    let desired: HashSet<SocketAddr> = members
-                        .borrow_and_update()
-                        .iter()
-                        .map(|ip| SocketAddr::new(*ip, self.port))
+                    let (ips, selected) =
+                        select_members(&members.borrow_and_update(), self.zone_affinity.as_ref());
+                    if scope != Some(selected) {
+                        info!(
+                            service = %self.service_name,
+                            scope = selected.as_str(),
+                            endpoints = ips.len(),
+                            "discovery scope changed"
+                        );
+                        scope = Some(selected);
+                    }
+                    if self.zone_affinity.is_some() {
+                        // 1 while a thin local zone forces calls to every zone.
+                        let fallback = selected == DiscoveryScope::AllZones;
+                        metrics::gauge!(
+                            "personhog_router_discovery_zone_fallback",
+                            "service" => Arc::clone(&service_label),
+                        )
+                        .set(if fallback { 1.0 } else { 0.0 });
+                    }
+                    let desired: HashSet<SocketAddr> = ips
+                        .into_iter()
+                        .map(|ip| SocketAddr::new(ip, self.port))
                         .collect();
                     self.sync_active(&desired, &mut active_addrs).await;
                 }
@@ -211,14 +291,15 @@ pub fn build_discovered_endpoint(addr: SocketAddr, config: &EndpointConfig) -> E
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashSet;
-    use std::net::SocketAddr;
+    use std::collections::{HashMap, HashSet};
+    use std::net::{IpAddr, SocketAddr};
 
+    use k8s_awareness::ZonedMembers;
     use tokio::sync::mpsc;
     use tonic::transport::Endpoint;
     use tower::discover::Change;
 
-    use super::EndpointDiscovery;
+    use super::{select_members, DiscoveryScope, EndpointDiscovery, ZoneAffinity};
 
     // ── helpers ──────────────────────────────────────────────────────────────
 
@@ -255,6 +336,76 @@ mod tests {
                 Change::Insert(_, _) => None,
             })
             .collect()
+    }
+
+    fn ip(s: &str) -> IpAddr {
+        s.parse().unwrap()
+    }
+
+    /// Two replicas in us-east-1a, two in us-east-1c, one with no zone.
+    fn members() -> ZonedMembers {
+        HashMap::from([
+            (ip("10.0.1.1"), Some("us-east-1a".to_string())),
+            (ip("10.0.1.2"), Some("us-east-1a".to_string())),
+            (ip("10.0.3.1"), Some("us-east-1c".to_string())),
+            (ip("10.0.3.2"), Some("us-east-1c".to_string())),
+            (ip("10.0.9.9"), None),
+        ])
+    }
+
+    fn affinity(zone: &str, min_endpoints: usize) -> ZoneAffinity {
+        ZoneAffinity {
+            zone: zone.to_string(),
+            min_endpoints,
+        }
+    }
+
+    // ── select_members ────────────────────────────────────────────────────────
+
+    #[test]
+    fn select_members_prefers_local_zone() {
+        let all = ["10.0.1.1", "10.0.1.2", "10.0.3.1", "10.0.3.2", "10.0.9.9"];
+        let cases: [(&str, Option<ZoneAffinity>, &[&str], DiscoveryScope); 5] = [
+            ("affinity off", None, &all, DiscoveryScope::AllZones),
+            (
+                "enough local replicas",
+                Some(affinity("us-east-1c", 2)),
+                &["10.0.3.1", "10.0.3.2"],
+                DiscoveryScope::LocalZone,
+            ),
+            (
+                "too few local replicas",
+                Some(affinity("us-east-1c", 3)),
+                &all,
+                DiscoveryScope::AllZones,
+            ),
+            (
+                "no local replicas",
+                Some(affinity("us-east-1b", 1)),
+                &all,
+                DiscoveryScope::AllZones,
+            ),
+            (
+                "min 0 still needs one local replica",
+                Some(affinity("us-east-1b", 0)),
+                &all,
+                DiscoveryScope::AllZones,
+            ),
+        ];
+        for (name, affinity, expected, expected_scope) in cases {
+            let (selected, scope) = select_members(&members(), affinity.as_ref());
+            let expected: HashSet<IpAddr> = expected.iter().map(|s| ip(s)).collect();
+            assert_eq!(selected, expected, "{name}");
+            assert_eq!(scope, expected_scope, "{name}");
+        }
+    }
+
+    #[test]
+    fn select_members_empty_set_stays_empty() {
+        let (selected, scope) =
+            select_members(&ZonedMembers::new(), Some(&affinity("us-east-1c", 2)));
+        assert!(selected.is_empty());
+        assert_eq!(scope, DiscoveryScope::AllZones);
     }
 
     // ── sync_active ───────────────────────────────────────────────────────────

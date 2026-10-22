@@ -2,6 +2,9 @@
 //!
 //! Watches the EndpointSlices of one Service and publishes the set of ready
 //! endpoint IPs on a `tokio::sync::watch` channel whenever membership changes.
+//! [`watch_service_members_with_zone`] publishes the same members with the
+//! zone each EndpointSlice reports for them, for consumers that prefer
+//! same-zone pods.
 //! This is the single shared implementation of a pattern that previously lived
 //! as diverging copies in personhog-router and ingestion-consumer; consumers
 //! subscribe and map IPs onto whatever they balance over (worker URLs, tonic
@@ -38,6 +41,10 @@ use tracing::{info, warn};
 /// failing watcher degrades to a slow retry rather than a hot loop.
 const WATCHER_RESTART_BACKOFF: Duration = Duration::from_secs(1);
 
+/// Ready endpoint IPs, each with the zone its EndpointSlice reports
+/// (`endpoint.zone`), or `None` when the slice carries no zone.
+pub type ZonedMembers = HashMap<IpAddr, Option<String>>;
+
 /// Watch `service_name`'s EndpointSlices in `namespace`, publishing the ready
 /// endpoint IPs on every membership change until `cancel` fires.
 ///
@@ -50,18 +57,45 @@ pub fn watch_service_members(
     service_name: String,
     cancel: CancellationToken,
 ) -> (watch::Receiver<HashSet<IpAddr>>, JoinHandle<()>) {
-    let (tx, rx) = watch::channel(HashSet::new());
+    spawn_watch(client, namespace, service_name, cancel, |members| {
+        members.into_keys().collect()
+    })
+}
+
+/// Like [`watch_service_members`], but each ready IP comes with the zone its
+/// EndpointSlice reports, so a subscriber can prefer endpoints in its own zone.
+pub fn watch_service_members_with_zone(
+    client: Client,
+    namespace: String,
+    service_name: String,
+    cancel: CancellationToken,
+) -> (watch::Receiver<ZonedMembers>, JoinHandle<()>) {
+    spawn_watch(client, namespace, service_name, cancel, |members| members)
+}
+
+fn spawn_watch<T>(
+    client: Client,
+    namespace: String,
+    service_name: String,
+    cancel: CancellationToken,
+    project: fn(ZonedMembers) -> T,
+) -> (watch::Receiver<T>, JoinHandle<()>)
+where
+    T: Default + PartialEq + Send + Sync + 'static,
+{
+    let (tx, rx) = watch::channel(T::default());
     let handle = tokio::spawn(async move {
-        run(client, namespace, service_name, tx, cancel).await;
+        run(client, namespace, service_name, tx, project, cancel).await;
     });
     (rx, handle)
 }
 
-async fn run(
+async fn run<T: PartialEq>(
     client: Client,
     namespace: String,
     service_name: String,
-    tx: watch::Sender<HashSet<IpAddr>>,
+    tx: watch::Sender<T>,
+    project: fn(ZonedMembers) -> T,
     cancel: CancellationToken,
 ) {
     let api: Api<EndpointSlice> = Api::namespaced(client, &namespace);
@@ -74,9 +108,10 @@ async fn run(
         "starting EndpointSlice membership watch"
     );
 
-    // Ready addresses per slice name. Kept across watcher restarts: a fresh
-    // watcher re-lists from `Init`, which clears and repopulates it.
-    let mut slices: HashMap<String, HashSet<IpAddr>> = HashMap::new();
+    // Ready addresses (with their zone) per slice name. Kept across watcher
+    // restarts: a fresh watcher re-lists from `Init`, which clears and
+    // repopulates it.
+    let mut slices: HashMap<String, ZonedMembers> = HashMap::new();
 
     // The `kube` watcher reconnects internally on errors, so a `None` only
     // surfaces when the stream is definitively closed. Re-enter the watcher
@@ -96,6 +131,7 @@ async fn run(
                     match item {
                         Some(Ok(event)) => {
                             if let Some(desired) = apply_event(event, &mut slices) {
+                                let desired = project(desired);
                                 // Don't wake subscribers for no-op reconciles.
                                 tx.send_if_modified(|current| {
                                     if *current == desired {
@@ -139,9 +175,10 @@ async fn run(
     }
 }
 
-/// Parse an EndpointSlice into the set of ready endpoint IPs.
-fn extract_ready_ips(slice: &EndpointSlice) -> HashSet<IpAddr> {
-    let mut addrs = HashSet::new();
+/// Parse an EndpointSlice into its ready endpoint IPs, each with the zone
+/// the slice reports for that endpoint.
+fn extract_ready_members(slice: &EndpointSlice) -> ZonedMembers {
+    let mut addrs = HashMap::new();
     for endpoint in slice.endpoints.iter() {
         let ready = endpoint
             .conditions
@@ -153,7 +190,7 @@ fn extract_ready_ips(slice: &EndpointSlice) -> HashSet<IpAddr> {
         }
         for addr_str in &endpoint.addresses {
             if let Ok(ip) = addr_str.parse::<IpAddr>() {
-                addrs.insert(ip);
+                addrs.insert(ip, endpoint.zone.clone());
             }
         }
     }
@@ -174,11 +211,11 @@ fn slice_key(slice: &EndpointSlice) -> String {
 /// where the last published set keeps serving until `InitDone`).
 fn apply_event(
     event: Event<EndpointSlice>,
-    slices: &mut HashMap<String, HashSet<IpAddr>>,
-) -> Option<HashSet<IpAddr>> {
+    slices: &mut HashMap<String, ZonedMembers>,
+) -> Option<ZonedMembers> {
     match event {
         Event::Apply(slice) | Event::InitApply(slice) => {
-            slices.insert(slice_key(&slice), extract_ready_ips(&slice));
+            slices.insert(slice_key(&slice), extract_ready_members(&slice));
         }
         Event::Delete(slice) => {
             slices.remove(&slice_key(&slice));
@@ -190,7 +227,13 @@ fn apply_event(
         Event::InitDone => {}
     }
 
-    Some(slices.values().flatten().copied().collect())
+    Some(
+        slices
+            .values()
+            .flatten()
+            .map(|(ip, zone)| (*ip, zone.clone()))
+            .collect(),
+    )
 }
 
 #[cfg(test)]
@@ -204,6 +247,10 @@ mod tests {
         s.parse().unwrap()
     }
 
+    fn ips(members: &ZonedMembers) -> HashSet<IpAddr> {
+        members.keys().copied().collect()
+    }
+
     fn endpoint(addresses: &[&str], ready: Option<bool>) -> K8sEndpoint {
         K8sEndpoint {
             addresses: addresses.iter().map(|s| s.to_string()).collect(),
@@ -212,6 +259,13 @@ mod tests {
                 ..Default::default()
             }),
             ..Default::default()
+        }
+    }
+
+    fn zoned_endpoint(address: &str, zone: Option<&str>) -> K8sEndpoint {
+        K8sEndpoint {
+            zone: zone.map(str::to_string),
+            ..endpoint(&[address], Some(true))
         }
     }
 
@@ -228,7 +282,7 @@ mod tests {
     }
 
     #[test]
-    fn test_extract_ready_ips_ready_semantics() {
+    fn test_extract_ready_members_ready_semantics() {
         // ready=true and absent conditions are in; ready=false and garbage
         // addresses are out. Conditions present with nil ready also count as
         // ready, per the K8s spec.
@@ -247,8 +301,28 @@ mod tests {
             ],
         );
         assert_eq!(
-            extract_ready_ips(&s),
+            ips(&extract_ready_members(&s)),
             HashSet::from([ip("10.0.0.1"), ip("10.0.0.3"), ip("10.0.0.4")])
+        );
+    }
+
+    #[test]
+    fn test_extract_ready_members_keeps_zone() {
+        let s = slice(
+            "s1",
+            vec![
+                zoned_endpoint("10.0.0.1", Some("us-east-1a")),
+                zoned_endpoint("10.0.0.2", Some("us-east-1c")),
+                zoned_endpoint("10.0.0.3", None),
+            ],
+        );
+        assert_eq!(
+            extract_ready_members(&s),
+            HashMap::from([
+                (ip("10.0.0.1"), Some("us-east-1a".to_string())),
+                (ip("10.0.0.2"), Some("us-east-1c".to_string())),
+                (ip("10.0.0.3"), None),
+            ])
         );
     }
 
@@ -261,18 +335,21 @@ mod tests {
             &mut slices,
         )
         .unwrap();
-        assert_eq!(desired, HashSet::from([ip("10.0.0.1")]));
+        assert_eq!(ips(&desired), HashSet::from([ip("10.0.0.1")]));
 
         let desired = apply_event(
             Event::Apply(slice("s2", vec![endpoint(&["10.0.0.2"], Some(true))])),
             &mut slices,
         )
         .unwrap();
-        assert_eq!(desired, HashSet::from([ip("10.0.0.1"), ip("10.0.0.2")]));
+        assert_eq!(
+            ips(&desired),
+            HashSet::from([ip("10.0.0.1"), ip("10.0.0.2")])
+        );
 
         // Deleting one slice must not clobber the other slice's addresses.
         let desired = apply_event(Event::Delete(slice("s1", vec![])), &mut slices).unwrap();
-        assert_eq!(desired, HashSet::from([ip("10.0.0.2")]));
+        assert_eq!(ips(&desired), HashSet::from([ip("10.0.0.2")]));
     }
 
     #[test]
@@ -294,6 +371,6 @@ mod tests {
             &mut slices,
         );
         let desired = apply_event(Event::InitDone, &mut slices).unwrap();
-        assert_eq!(desired, HashSet::from([ip("10.0.0.9")]));
+        assert_eq!(ips(&desired), HashSet::from([ip("10.0.0.9")]));
     }
 }

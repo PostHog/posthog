@@ -16,7 +16,9 @@ use personhog_coordination::coordinator::{Coordinator, CoordinatorConfig};
 use personhog_coordination::routing_table::{RoutingTable, RoutingTableConfig, StashHandler};
 use personhog_coordination::store::PersonhogStore;
 use personhog_coordination::strategy::StickyBalancedStrategy;
-use personhog_router::backend::discovery::{DiscoveryReadiness, EndpointConfig, EndpointDiscovery};
+use personhog_router::backend::discovery::{
+    DiscoveryReadiness, EndpointConfig, EndpointDiscovery, ZoneAffinity,
+};
 use personhog_router::backend::{
     ChannelBackend, DnsBackendConfig, LeaderBackend, LeaderBackendConfig, StashTable,
 };
@@ -162,6 +164,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let monitor_guard = manager.monitor_background();
 
+    if config.replica_zone_affinity_enabled && config.replica_zone_affinity().is_none() {
+        tracing::warn!(
+            "REPLICA_ZONE_AFFINITY_ENABLED is set but POD_ZONE is empty; calling replicas in every zone"
+        );
+    }
+
     let (replica_backend, discovery_readiness) = build_channel_backend(
         BackendSpec {
             role: "replica",
@@ -172,6 +180,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             namespace: Config::resolve_replica_namespace,
             port: config.replica_port,
             timeout: config.backend_timeout(),
+            zone_affinity: config.replica_zone_affinity(),
         },
         &config,
         replica_discovery_handle,
@@ -192,6 +201,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 namespace: Config::resolve_identity_namespace,
                 port: config.identity_port,
                 timeout: config.identity_timeout(),
+                zone_affinity: None,
             },
             &config,
             identity_discovery_handle,
@@ -484,6 +494,8 @@ struct BackendSpec {
     namespace: fn(&Config) -> Result<String, String>,
     port: u16,
     timeout: Duration,
+    /// Prefer pods in this router's zone (k8s mode only).
+    zone_affinity: Option<ZoneAffinity>,
 }
 
 /// Build a channel backend; in k8s mode this also starts its EndpointSlice
@@ -495,6 +507,12 @@ async fn build_channel_backend(
     discovery_handle: Option<Handle>,
 ) -> (Arc<ChannelBackend>, Option<DiscoveryReadiness>) {
     let role = spec.role;
+    if spec.zone_affinity.is_some() && spec.discovery_mode == DiscoveryMode::Dns {
+        tracing::warn!(
+            role,
+            "zone affinity needs k8s discovery mode; dns mode ignores it"
+        );
+    }
     match spec.discovery_mode {
         DiscoveryMode::Dns => (
             Arc::new(ChannelBackend::new_dns(
@@ -533,6 +551,7 @@ async fn build_channel_backend(
                     keepalive_timeout: config.backend_keepalive_timeout(),
                     http2_windows: config.backend_http2_windows(),
                 },
+                spec.zone_affinity,
                 discovery_handle.shutdown_token(),
             );
 

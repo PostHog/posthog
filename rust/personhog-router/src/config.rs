@@ -3,6 +3,8 @@ use std::str::FromStr;
 
 use envconfig::Envconfig;
 pub use personhog_common::h2_window::{Http2Windows, WindowSize};
+
+use crate::backend::discovery::ZoneAffinity;
 use personhog_coordination::authority::AuthorityClock;
 use personhog_coordination::coordinator::REVOKE_TIMEOUT as COORDINATOR_REVOKE_TIMEOUT;
 use std::net::SocketAddr;
@@ -106,6 +108,21 @@ pub struct Config {
     /// gRPC port on replica pods (k8s mode only)
     #[envconfig(default = "50051")]
     pub replica_port: u16,
+
+    /// Send replica calls only to replicas in this pod's zone (k8s mode
+    /// only). Needs `pod_zone`. While fewer than `replica_zone_min_endpoints`
+    /// same-zone replicas are ready, the router calls every zone.
+    #[envconfig(default = "false")]
+    pub replica_zone_affinity_enabled: bool,
+
+    /// Availability zone of this pod, for example `us-east-1c`. The chart
+    /// sets it on each zonal Deployment.
+    #[envconfig(default = "")]
+    pub pod_zone: String,
+
+    /// Fewest ready same-zone replicas that keep replica zone affinity on.
+    #[envconfig(default = "2")]
+    pub replica_zone_min_endpoints: usize,
 
     /// Forward identity and lifecycle RPCs to personhog-identity. Off, the
     /// router answers those service names with UNIMPLEMENTED.
@@ -437,6 +454,30 @@ mod tests {
     /// cannot change what these tests assert.
     fn default_config() -> Config {
         Config::init_from_hashmap(&std::collections::HashMap::new()).expect("defaults")
+    }
+
+    #[test]
+    fn replica_zone_affinity_needs_the_flag_and_a_zone() {
+        let cases = [
+            ("defaults", false, "", None),
+            ("flag without zone", true, "", None),
+            ("zone without flag", false, "us-east-1c", None),
+            (
+                "flag and zone",
+                true,
+                " us-east-1c ",
+                Some(ZoneAffinity {
+                    zone: "us-east-1c".to_string(),
+                    min_endpoints: 2,
+                }),
+            ),
+        ];
+        for (name, enabled, zone, expected) in cases {
+            let mut config = default_config();
+            config.replica_zone_affinity_enabled = enabled;
+            config.pod_zone = zone.to_string();
+            assert_eq!(config.replica_zone_affinity(), expected, "{name}");
+        }
     }
 
     fn leased(lease_ttl: i64, heartbeat_interval_secs: u64) -> Config {
@@ -1060,6 +1101,16 @@ impl Config {
 
     pub fn stash_max_wait(&self) -> Duration {
         Duration::from_millis(self.stash_max_wait_ms)
+    }
+
+    /// Replica zone affinity, or `None` when it is off or the pod zone is
+    /// unknown (then the router calls replicas in every zone).
+    pub fn replica_zone_affinity(&self) -> Option<ZoneAffinity> {
+        let zone = self.pod_zone.trim();
+        (self.replica_zone_affinity_enabled && !zone.is_empty()).then(|| ZoneAffinity {
+            zone: zone.to_string(),
+            min_endpoints: self.replica_zone_min_endpoints,
+        })
     }
 
     /// Resolve the replica service namespace from config or the service account mount.
