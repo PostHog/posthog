@@ -566,6 +566,9 @@ class GroupOutcome:
     labels: dict[str, str] = field(default_factory=dict)
     # What a mute held back, so history separates a muted fire from a check that said nothing.
     muted_notification: str = ""
+    # What the source's own stack sent beside this verdict, which the platform stores and returns
+    # without reading, so a delivery on the HogFunction path can send what the source sent.
+    source_detail: dict[str, Any] = field(default_factory=dict)
 
 
 @frozen
@@ -582,6 +585,8 @@ class CheckFailure:
     notified: bool
     firing_episode: FiringEpisode | None = None
     muted_notification: str = ""
+    # As on `GroupOutcome`: what the source's stack sends beside the failure, stored unread.
+    source_detail: dict[str, Any] = field(default_factory=dict)
 
 
 @frozen
@@ -645,6 +650,7 @@ class PlatformAlertOutcome:
         disable: bool = False,
         skipped: bool = False,
         schedule_group: str | None = None,
+        source_detail: dict[str, Any] | None = None,
     ) -> PlatformAlertOutcome:
         """A check of a source that does not group: its one verdict on the empty key, or its failure."""
         failure = (
@@ -654,6 +660,7 @@ class PlatformAlertOutcome:
                 notified=notified,
                 firing_episode=firing_episode,
                 muted_notification=muted_notification,
+                source_detail=source_detail or {},
             )
             if failed
             else None
@@ -670,6 +677,7 @@ class PlatformAlertOutcome:
                     firing_episode=firing_episode,
                     value=value,
                     muted_notification=muted_notification,
+                    source_detail=source_detail or {},
                 ),
             )
         )
@@ -742,6 +750,7 @@ class AnnouncedTransition:
     occurred_at: datetime
     # The evaluation this transition came from, so a source can read back what it put in the key.
     evaluation_key: str = ""
+    source_detail: dict[str, Any] = field(default_factory=dict)
 
 
 @frozen
@@ -1238,6 +1247,12 @@ class MessageLink:
 
 
 @frozen
+class MessageImage:
+    url: str
+    alt_text: str
+
+
+@frozen
 class SourceDescription:
     """What a source says about one transition, in the words its own product uses.
 
@@ -1253,6 +1268,9 @@ class SourceDescription:
     context: tuple[str, ...] = ()
     # Where the data behind the alert is, such as the matching logs.
     data_link: MessageLink | None = None
+    # Slack elements that act on the alert from the message, such as a snooze menu, beside the
+    # buttons. They are Slack's own Block Kit, so every other provider leaves them out.
+    slack_elements: tuple[dict[str, Any], ...] = ()
 
 
 class SourceDescriber(Protocol):
@@ -1263,6 +1281,17 @@ class SourceDescriber(Protocol):
     """
 
     def __call__(self, *, project_id: int, transition: AnnouncedTransition) -> SourceDescription: ...
+
+
+class SourceImageResolver(Protocol):
+    """The picture a message shows for a transition, such as an insight's chart, or None.
+
+    Runs on the send path like a describer, but it may read storage: a picture's URL can open it
+    without a login, so the source stores the picture by id and mints the URL as the message goes.
+    A provider that cannot show a picture leaves it out.
+    """
+
+    def __call__(self, *, team_id: int, transition: AnnouncedTransition) -> MessageImage | None: ...
 
 
 class LegacyWebhookBody(Protocol):
