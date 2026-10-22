@@ -88,8 +88,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/ai-observability/clusters': ['AIObservabilityClusters', 'aiObservabilityClusters'],
     '/ai-observability/clusters/:runId': ['AIObservabilityClusters', 'aiObservabilityClusters'],
     [AI_OBSERVABILITY_CLUSTER_URL_PATTERN]: ['AIObservabilityCluster', 'aiObservabilityCluster'],
-    '/ai-evals/datasets': ['AIObservabilityDatasets', 'aiObservabilityDatasets'],
-    '/ai-evals/datasets/:id': ['AIObservabilityDataset', 'aiObservabilityDataset'],
+    '/ai-evals/evaluations/offline/datasets/:id': ['AIObservabilityDataset', 'aiObservabilityDataset'],
     '/ai-evals/taggers': ['AIObservabilityTags', 'aiObservabilityTags'],
     '/ai-evals/taggers/:id': ['AIObservabilityTag', 'aiObservabilityTag'],
     '/ai-evals/evaluations': ['AIObservabilityEvaluations', 'aiObservabilityEvaluations'],
@@ -411,6 +410,10 @@ export const productRedirects: Record<
     },
     '/ai-evals': (_params, searchParams, hashParams) =>
         combineUrl(urls.aiObservabilityEvaluations(), searchParams, hashParams).url,
+    '/ai-evals/datasets': (_params, searchParams, hashParams) =>
+        combineUrl(urls.aiObservabilityDatasets(), { ...searchParams, tab: 'datasets' }, hashParams).url,
+    '/ai-evals/datasets/:id': (params, searchParams, hashParams) =>
+        combineUrl(urls.aiObservabilityDataset(params.id), searchParams, hashParams).url,
     '/ai-evals/evaluations/offline': (_params, searchParams, hashParams) =>
         combineUrl(urls.aiObservabilityOfflineEvaluations(), searchParams, hashParams).url,
     '/ai-evals/tags': (_params, searchParams, hashParams) =>
@@ -468,7 +471,7 @@ export const productRedirects: Record<
     '/llm-analytics/clusters/:runId/:clusterId': (params, searchParams, hashParams) =>
         combineUrl(urls.aiObservabilityCluster(params.runId, params.clusterId), searchParams, hashParams).url,
     '/llm-analytics/datasets': (_params, searchParams, hashParams) =>
-        combineUrl(urls.aiObservabilityDatasets(), searchParams, hashParams).url,
+        combineUrl(urls.aiObservabilityDatasets(), { ...searchParams, tab: 'datasets' }, hashParams).url,
     '/llm-analytics/datasets/:id': (params, searchParams, hashParams) =>
         combineUrl(urls.aiObservabilityDataset(params.id), searchParams, hashParams).url,
     '/llm-analytics/tags': (_params, searchParams, hashParams) =>
@@ -1379,13 +1382,13 @@ export const productUrls = {
         return `/ai-observability/sessions/${id}${stringifiedParams ? `?${stringifiedParams}` : ''}`
     },
     aiObservabilityPlayground: (): string => '/ai-observability/playground',
-    aiObservabilityDatasets: (): string => '/ai-evals/datasets',
+    aiObservabilityDatasets: (): string => '/ai-evals/evaluations/offline/experiments?tab=datasets',
     aiObservabilityDataset: (
         id: string,
         params?: {
             item?: string
         }
-    ): string => combineUrl(`/ai-evals/datasets/${id}`, params).url,
+    ): string => combineUrl(`/ai-evals/evaluations/offline/datasets/${id}`, params).url,
     aiObservabilityTags: (): string => '/ai-evals/taggers',
     aiObservabilityTag: (id: string): string => `/ai-evals/taggers/${id}`,
     aiObservabilityEvaluations: (): string => '/ai-evals/evaluations',
@@ -2338,7 +2341,6 @@ export type ProductTreePath =
     | 'Dashboards'
     | 'Data catalog'
     | 'Data warehouse'
-    | 'Datasets'
     | 'Early access features'
     | 'Endpoints'
     | 'Engineering analytics'
@@ -2605,42 +2607,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         ],
     },
     {
-        path: 'Datasets',
-        intents: [ProductKey.LLM_DATASETS],
-        category: ProductItemCategory.AI_ENGINEERING,
-        type: 'llm_datasets',
-        iconType: 'llm_datasets' as FileSystemIconType,
-        iconColor: ['var(--color-product-llm-datasets-light)', 'var(--color-product-llm-datasets-dark)'],
-        href: urls.aiObservabilityDatasets(),
-        searchKeywords: ['test sets', 'golden set'],
-        flag: FEATURE_FLAGS.LLM_ANALYTICS_DATASETS,
-        tags: ['beta'],
-        sceneKey: 'AIObservabilityDatasets',
-        sceneKeys: [
-            'AIObservability',
-            'AIObservabilityTrace',
-            'AIObservabilitySession',
-            'AIObservabilityUsers',
-            'AIObservabilityPlayground',
-            'AIObservabilityDatasets',
-            'AIObservabilityDataset',
-            'AIObservabilityEvaluations',
-            'AIObservabilityScorers',
-            'AIObservabilityScorer',
-            'AIObservabilityOfflineExperiments',
-            'AIObservabilityOfflineExperiment',
-            'AIObservabilityOfflineScorerHistory',
-            'AIObservabilityEvaluation',
-            'AIObservabilityEvaluationTemplates',
-            'AIObservabilityTags',
-            'AIObservabilityTag',
-            'AIObservabilityPrompts',
-            'AIObservabilityPrompt',
-            'AIObservabilityClusters',
-            'AIObservabilityCluster',
-        ],
-    },
-    {
         path: 'ETL',
         displayLabel: 'ELT',
         intents: [ProductKey.DATA_WAREHOUSE],
@@ -2735,19 +2701,20 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     },
     {
         path: 'Evaluations',
-        intents: [ProductKey.LLM_EVALUATIONS],
+        intents: [ProductKey.LLM_EVALUATIONS, ProductKey.LLM_DATASETS],
         category: ProductItemCategory.AI_ENGINEERING,
         type: 'llm_evaluations',
         iconType: 'llm_evaluations' as FileSystemIconType,
         iconColor: ['var(--color-product-llm-evaluations-light)', 'var(--color-product-llm-evaluations-dark)'],
         href: urls.aiObservabilityEvaluations(),
-        searchKeywords: ['llm judge', 'llm as a judge', 'grading'],
+        searchKeywords: ['llm judge', 'llm as a judge', 'grading', 'datasets', 'test sets', 'golden set'],
         searchTabs: [
             {
                 name: 'Offline evals',
                 href: urls.aiObservabilityOfflineEvaluations(),
                 flag: FEATURE_FLAGS.AI_OBSERVABILITY_OFFLINE_EVALUATIONS,
             },
+            { name: 'Datasets', href: urls.aiObservabilityDatasets(), flag: FEATURE_FLAGS.LLM_ANALYTICS_DATASETS },
             { name: 'Scorers', href: urls.aiObservabilityScorers() },
         ],
         sceneKey: 'AIObservabilityEvaluations',
@@ -3289,7 +3256,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconType: 'tracing',
         iconColor: ['var(--color-product-tracing-light)', 'var(--color-product-tracing-dark)'] as FileSystemIconColor,
         href: urls.tracing(),
-        searchKeywords: ['apm', 'spans', 'latency'],
+        searchKeywords: ['traces', 'distributed tracing', 'apm', 'spans', 'latency'],
         searchTabs: [{ name: 'SQL', href: urls.tracing('sql'), flag: FEATURE_FLAGS.TRACING_SCENE_TABS }],
         flag: FEATURE_FLAGS.TRACING,
         sceneKey: 'Tracing',

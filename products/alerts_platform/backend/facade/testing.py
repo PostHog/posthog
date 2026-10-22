@@ -22,7 +22,12 @@ from products.alerts_platform.backend.facade.contracts import (
 )
 from products.alerts_platform.backend.logic.platform_alert_events import PlatformAlertEventRow, insert_events
 from products.alerts_platform.backend.logic.platform_reads import instance_view
-from products.alerts_platform.backend.models import PlatformAlert, PlatformAlertConfiguration, PlatformAlertDeliveryPath
+from products.alerts_platform.backend.models import (
+    PlatformAlert,
+    PlatformAlertConfiguration,
+    PlatformAlertDeliveryPath,
+    PlatformAlertThread,
+)
 
 
 def _configuration_snapshot(row: PlatformAlertConfiguration) -> PlatformConfigurationSnapshot:
@@ -77,11 +82,14 @@ def start_firing(
     team_id: int,
     at: datetime,
     delivered_via: DeliveryPath | None = None,
+    sent_natively: bool = False,
     grouping_key: str = "",
 ) -> None:
     """Put a configuration's instance inside a firing, as live delivery can leave one.
 
     With `delivered_via`, the firing's first delivery took that path, so its resolve takes it too.
+    With `sent_natively`, a native transport sent the firing, as live delivery does for an alert
+    its source owns.
     """
     PlatformAlert.objects.update_or_create(
         team_id=team_id,
@@ -96,6 +104,15 @@ def start_firing(
             grouping_key=grouping_key,
             episode_started_at=at,
             path=delivered_via.value,
+        )
+    if sent_natively:
+        PlatformAlertThread.objects.for_team(team_id).create(
+            team_id=team_id,
+            configuration_id=configuration_id,
+            grouping_key=grouping_key,
+            provider="slack",
+            channel_target="C0",
+            episode_started_at=at,
         )
 
 

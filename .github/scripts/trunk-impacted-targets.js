@@ -182,9 +182,6 @@ const DESKTOP = 'desktop'
 // from services/mcp sources. The same pair STANDALONE_TREES gives cli/ itself.
 const CLI_ARTIFACTS = 'cli-artifacts'
 
-// The hogbox preview-environment workflows, which read the hogbox tooling.
-const HOGBOX_PREVIEW = 'hogbox-preview'
-
 // Bot, report, sync, and canary workflows plus the scripts they run. None of
 // them is a required check, so a break costs a bot action rather than a merge
 // gate, and one shared lane keeps a script and the workflow that runs it
@@ -321,10 +318,6 @@ const TRIPWIRE_RULES = [
     // the rust lanes on top of deploy: those PR checks parse it, even though
     // only the image builds act on what it maps.
     ['.github/rust-images.yml', [RUST, DEPLOY]],
-    // The hogbox preview environment gates no check, and its deploys read the
-    // hogbox tooling, which owns a lane already.
-    ['.github/workflows/hogbox-preview-env.yml', HOGBOX_PREVIEW],
-    ['.github/workflows/hogbox-preview-cleanup.yml', HOGBOX_PREVIEW],
     // CI scripts held to the workflows that run them: the backend test-timing
     // pair and the IDOR coverage check run only in ci-backend and its timing
     // workflow, while report_test_timings is read by the backend, frontend,
@@ -332,6 +325,8 @@ const TRIPWIRE_RULES = [
     ['.github/scripts/optimize_test_durations.py', PYTHON],
     ['.github/scripts/test_optimize_test_durations.py', PYTHON],
     ['.github/scripts/check-idor-model-coverage.py', PYTHON],
+    // ci-backend's events_json leg and its test selection read this list.
+    ['.github/new-events-schema-targets.txt', PYTHON],
     ['.github/scripts/report_test_timings.py', FULLSTACK],
     ['.github/scripts/test_report_test_timings.py', FULLSTACK],
     // Bot, report, sync, and canary workflows. None is a required check; each
@@ -1737,11 +1732,6 @@ function addHobbyLane(targets) {
     return true
 }
 
-function addHogboxPreviewLane(targets) {
-    targets.add('tools:hogbox-preview')
-    return true
-}
-
 function addCliArtifactLanes(targets) {
     targets.add('cli')
     targets.add('svc:mcp')
@@ -1871,7 +1861,6 @@ const DOMAIN_LANES = new Map([
     [FULLSTACK, addFullstackLanes],
     [DEPLOY, addDeployLane],
     [HOBBY, addHobbyLane],
-    [HOGBOX_PREVIEW, addHogboxPreviewLane],
     [CLI_ARTIFACTS, addCliArtifactLanes],
     [DESKTOP, addDesktopLanes],
     [REPO_AUTOMATION, laneOf('repo-automation')],
@@ -2994,7 +2983,6 @@ module.exports = {
     DESKTOP,
     FULLSTACK,
     HOBBY,
-    HOGBOX_PREVIEW,
     JAVASCRIPT,
     NATIVE_BINDING_CONSUMER_LANES,
     NODE,

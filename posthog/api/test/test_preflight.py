@@ -1,22 +1,83 @@
 import os
 from datetime import datetime
-from typing import cast
+from functools import partial
+from typing import Literal, cast
 
 import pytest
 from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog.cloud_utils import TEST_clear_instance_license_cache
+from posthog.credentials_service.client import CredentialsServiceClient
+from posthog.credentials_service.errors import (
+    CredentialsServiceFailure,
+    CredentialsServiceUnreachableError,
+    SecretInRecoveryError,
+    SecretMissingError,
+)
+from posthog.credentials_service.instance_settings import get_many_or_instance_settings
+from posthog.credentials_service.settings_fallback import get_many_or_settings
 from posthog.helpers.dev_login import is_dev_login_allowed
 from posthog.models.instance_setting import set_instance_setting
+from posthog.models.integration import SlackIntegration
 from posthog.models.organization import Organization
 from posthog.models.organization_invite import OrganizationInvite
+from posthog.views import _preflight_oauth_client_id
+
+
+class TestPreflightCredentials(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (f"{key}_{name}", key, result, expected)
+            for key in ("HUBSPOT_APP_CLIENT_ID", "SALESFORCE_CONSUMER_KEY", "SLACK_APP_CLIENT_ID")
+            for name, result, expected in (
+                ("service_value", "service-id", "service-id"),
+                ("missing", SecretMissingError(key), "old-id"),
+                ("unreachable", CredentialsServiceUnreachableError("service unavailable"), "old-id"),
+                ("recovery", SecretInRecoveryError(key), "old-id"),
+            )
+        ]
+    )
+    def test_public_client_id(
+        self,
+        _name: str,
+        key: Literal["HUBSPOT_APP_CLIENT_ID", "SALESFORCE_CONSUMER_KEY", "SLACK_APP_CLIENT_ID"],
+        result: str | CredentialsServiceFailure,
+        expected: str,
+    ) -> None:
+        client = Mock(spec=CredentialsServiceClient)
+        if isinstance(result, CredentialsServiceFailure):
+            client.get.side_effect = result
+            client.get_many.side_effect = result
+        else:
+            client.get.return_value = result
+            client.get_many.return_value = {key: result}
+
+        with (
+            self.settings(HUBSPOT_APP_CLIENT_ID="old-id", SALESFORCE_CONSUMER_KEY="old-id"),
+            patch.dict(os.environ, {key: ""}),
+            patch("posthog.credentials_service.instance_settings.credentials_service_enabled", return_value=True),
+            patch("posthog.credentials_service.instance_settings.get_instance_setting", return_value="old-id"),
+            patch(
+                "posthog.models.integration.slack.get_instance_settings",
+                return_value={"SLACK_APP_CLIENT_ID": "old-id"},
+            ),
+            patch("posthog.views.get_many_or_settings", side_effect=partial(get_many_or_settings, client=client)),
+            patch(
+                "posthog.models.integration.slack.get_many_or_instance_settings",
+                side_effect=partial(get_many_or_instance_settings, client=client),
+            ),
+        ):
+            actual = (
+                SlackIntegration.slack_client_id() if key == "SLACK_APP_CLIENT_ID" else _preflight_oauth_client_id(key)
+            )
+            assert actual == expected
 
 
 class TestPreflight(APIBaseTest, QueryMatchingTest):

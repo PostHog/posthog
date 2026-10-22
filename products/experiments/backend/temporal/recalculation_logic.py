@@ -24,7 +24,7 @@ from posthog.schema import ExperimentQuery
 from posthog.clickhouse.cancel import cancel_query_on_cluster
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
-from posthog.clickhouse.query_tagging import Feature, Product, tag_queries, tags_context
+from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.event_usage import groups
 from posthog.exceptions import ClickHouseAtCapacity
 from posthog.exceptions_capture import capture_exception
@@ -742,16 +742,21 @@ def _calculate_experiment_metric_for_recalculation_sync(
                 max_execution_time=METRIC_CALC_MAX_EXECUTION_TIME_SECONDS,
             )
 
+            # Deferred: recalculation.py imports temporal.models, whose package __init__ imports this module.
+            from products.experiments.backend.recalculation import recalculation_clickhouse_user  # noqa: PLC0415
+
             # Attribute CH load back to this team + product so query_log analysis can tell whose recalc is
             # expensive without reverse-engineering the trigger string.
-            tag_queries(
+            with tags_context(
                 trigger="warming/experiment_metrics_recalculation",
                 team_id=state.team_id,
                 product=Product.EXPERIMENTS,
                 feature=Feature.CACHE_WARMUP,
                 client_query_id=client_query_id,
-            )
-            result = runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+                # Also covers the precompute inserts, which run inside this context.
+                ch_user=recalculation_clickhouse_user(str(experiment.team.organization_id)),
+            ):
+                result = runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
             result_dict = sanitize_non_finite(result.model_dump(mode="json"))
 
             with transaction.atomic():

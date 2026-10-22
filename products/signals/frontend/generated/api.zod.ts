@@ -858,12 +858,10 @@ export const SignalsReportsRefundCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Set a report's suggested reviewers (full-replacement PUT), whether or not the report already
- * has any. Appends a new latest-wins `suggested_reviewers` status row — the same write the artefact
- * PUT performs, but addressed by report so a report with zero reviewers (and thus no artefact yet)
- * can still be assigned one. App-only: agents append reviewers via the artefacts POST instead.
+ * Apply a human reviewer edit, including on reports without a reviewer artefact.
  * @summary Set a report's suggested reviewers
  */
+export const signalsReportsReviewersUpdateBodyActionDefault = `replace`
 export const signalsReportsReviewersUpdateBodyContentItemGithubLoginMax = 200
 
 export const signalsReportsReviewersUpdateBodyContentItemGithubNameMax = 200
@@ -872,50 +870,109 @@ export const signalsReportsReviewersUpdateBodyContentItemReasonMax = 500
 
 export const signalsReportsReviewersUpdateBodyContentMax = 10
 
-export const SignalsReportsReviewersUpdateBody = /* @__PURE__ */ zod
-    .object({
-        content: zod
-            .array(
-                zod
-                    .object({
-                        github_login: zod
-                            .string()
-                            .max(signalsReportsReviewersUpdateBodyContentItemGithubLoginMax)
-                            .optional()
-                            .describe(
-                                'GitHub login (case-insensitive). Stored lowercased. Required unless `user_uuid` is given.'
-                            ),
-                        user_uuid: zod
-                            .uuid()
-                            .optional()
-                            .describe(
-                                "PostHog user UUID. Must be an org member on this team; a linked GitHub account is not required. Required unless `github_login` is given. If supplied together with `github_login`, the user's own identity wins."
-                            ),
-                        github_name: zod
-                            .string()
-                            .max(signalsReportsReviewersUpdateBodyContentItemGithubNameMax)
-                            .optional()
-                            .describe(
-                                'Optional human-readable display name. Not backfilled from GitHub by the server.'
-                            ),
-                        reason: zod
-                            .string()
-                            .max(signalsReportsReviewersUpdateBodyContentItemReasonMax)
-                            .nullish()
-                            .describe(
-                                'Optional short evidence for why this reviewer was chosen. Omitted entries keep the prior reason for reviewers already on the report.'
-                            ),
-                    })
-                    .describe(
-                        'Single entry in a PUT body for a `suggested_reviewers` artefact.\n\nEach entry must identify a reviewer by at least one of `github_login` or `user_uuid`. A\n`user_uuid` only has to name an org member on this team — a member with no linked GitHub\naccount is stored by uuid and routes like any other reviewer.'
-                    )
-            )
-            .max(signalsReportsReviewersUpdateBodyContentMax)
-            .describe('Full replacement list of reviewers. Empty list clears the artefact. At most 10 entries.'),
-    })
-    .describe(
-        "PUT body for replacing a `suggested_reviewers` artefact's content.\n\nOnly `suggested_reviewers` artefacts may be modified via this endpoint;\nthe viewset enforces the type check before validation runs."
-    )
+export const signalsReportsReviewersUpdateBodyTargetsItemGithubLoginMax = 200
+
+export const signalsReportsReviewersUpdateBodyTargetsItemGithubNameMax = 200
+
+export const signalsReportsReviewersUpdateBodyTargetsItemReasonMax = 500
+
+export const signalsReportsReviewersUpdateBodyTargetsMax = 10
+
+export const SignalsReportsReviewersUpdateBody = /* @__PURE__ */ zod.object({
+    action: zod
+        .enum(['add', 'remove', 'replace', 'confirm'])
+        .describe('\* `add` - Add\n\* `remove` - Remove\n\* `replace` - Replace\n\* `confirm` - Confirm')
+        .default(signalsReportsReviewersUpdateBodyActionDefault)
+        .describe(
+            'Add or remove only the supplied people, replace the list, or explicitly confirm it.\n\n\* `add` - Add\n\* `remove` - Remove\n\* `replace` - Replace\n\* `confirm` - Confirm'
+        ),
+    expected_reviewers: zod
+        .object({
+            reviewers_id: zod
+                .uuid()
+                .nullable()
+                .describe('Current reviewer artefact ID, or null before the first list.'),
+            corrections_id: zod
+                .uuid()
+                .nullable()
+                .describe('Current corrections artefact ID, or null before corrections are stored.'),
+        })
+        .optional()
+        .describe('State from the last read. Required for replacement and confirmation when corrections are enabled.'),
+    content: zod
+        .array(
+            zod
+                .object({
+                    github_login: zod
+                        .string()
+                        .max(signalsReportsReviewersUpdateBodyContentItemGithubLoginMax)
+                        .optional()
+                        .describe(
+                            'GitHub login (case-insensitive). Stored lowercased. Required unless `user_uuid` is given.'
+                        ),
+                    user_uuid: zod
+                        .uuid()
+                        .optional()
+                        .describe(
+                            "PostHog user UUID. Must be an org member on this team; a linked GitHub account is not required. Required unless `github_login` is given. If supplied together with `github_login`, the user's own identity wins."
+                        ),
+                    github_name: zod
+                        .string()
+                        .max(signalsReportsReviewersUpdateBodyContentItemGithubNameMax)
+                        .optional()
+                        .describe('Optional human-readable display name. Not backfilled from GitHub by the server.'),
+                    reason: zod
+                        .string()
+                        .max(signalsReportsReviewersUpdateBodyContentItemReasonMax)
+                        .nullish()
+                        .describe(
+                            'Optional short evidence for why this reviewer was chosen. Omitted entries keep the prior reason for reviewers already on the report.'
+                        ),
+                })
+                .describe(
+                    'Single entry in a PUT body for a `suggested_reviewers` artefact.\n\nEach entry must identify a reviewer by at least one of `github_login` or `user_uuid`. A\n`user_uuid` only has to name an org member on this team — a member with no linked GitHub\naccount is stored by uuid and routes like any other reviewer.'
+                )
+        )
+        .max(signalsReportsReviewersUpdateBodyContentMax)
+        .describe('People to add, remove, or keep in a replacement. Send an empty list for confirmation.'),
+    targets: zod
+        .array(
+            zod
+                .object({
+                    github_login: zod
+                        .string()
+                        .max(signalsReportsReviewersUpdateBodyTargetsItemGithubLoginMax)
+                        .optional()
+                        .describe(
+                            'GitHub login (case-insensitive). Stored lowercased. Required unless `user_uuid` is given.'
+                        ),
+                    user_uuid: zod
+                        .uuid()
+                        .optional()
+                        .describe(
+                            "PostHog user UUID. Must be an org member on this team; a linked GitHub account is not required. Required unless `github_login` is given. If supplied together with `github_login`, the user's own identity wins."
+                        ),
+                    github_name: zod
+                        .string()
+                        .max(signalsReportsReviewersUpdateBodyTargetsItemGithubNameMax)
+                        .optional()
+                        .describe('Optional human-readable display name. Not backfilled from GitHub by the server.'),
+                    reason: zod
+                        .string()
+                        .max(signalsReportsReviewersUpdateBodyTargetsItemReasonMax)
+                        .nullish()
+                        .describe(
+                            'Optional short evidence for why this reviewer was chosen. Omitted entries keep the prior reason for reviewers already on the report.'
+                        ),
+                })
+                .describe(
+                    'Single entry in a PUT body for a `suggested_reviewers` artefact.\n\nEach entry must identify a reviewer by at least one of `github_login` or `user_uuid`. A\n`user_uuid` only has to name an org member on this team — a member with no linked GitHub\naccount is stored by uuid and routes like any other reviewer.'
+                )
+        )
+        .max(signalsReportsReviewersUpdateBodyTargetsMax)
+        .optional()
+        .describe('Explicit add or remove targets. When supplied, content is only a fallback for older servers.'),
+})
 
 /**
  * Transition a report to a new state. The model validates allowed transitions, except that a
@@ -999,8 +1056,40 @@ export const SignalsReportsStateCreateBody = /* @__PURE__ */ zod.object({
  * Append an artefact to a report (see artefact_type for the writable types). Everything is append-only: log entries (code reference, commit, task run, note) accumulate, while status types (safety / actionability / priority judgments, repo selection, suggested reviewers, channel assignments) are latest-wins — appending a new version supersedes the previous one as the report's canonical status. Content is validated against the type's schema.
  * @summary Append an artefact to a report
  */
+export const signalsReportArtefactsCreateBodyReviewerOutcomeDefault = `selected`
+export const signalsReportArtefactsCreateBodyReviewerRetryReasonMax = 500
+
 export const SignalsReportArtefactsCreateBody = /* @__PURE__ */ zod
     .object({
+        expected_reviewers: zod
+            .object({
+                reviewers_id: zod
+                    .uuid()
+                    .nullable()
+                    .describe('Current reviewer artefact ID, or null before the first list.'),
+                corrections_id: zod
+                    .uuid()
+                    .nullable()
+                    .describe('Current corrections artefact ID, or null before corrections are stored.'),
+            })
+            .optional()
+            .describe(
+                'Report reviewer_assignment.state read before selection began. Required when reviewer corrections are enabled.'
+            ),
+        reviewer_outcome: zod
+            .enum(['selected', 'no_suitable_owner', 'lookup_failed'])
+            .describe(
+                '\* `selected` - Selected\n\* `no_suitable_owner` - No suitable owner\n\* `lookup_failed` - Lookup failed'
+            )
+            .default(signalsReportArtefactsCreateBodyReviewerOutcomeDefault)
+            .describe(
+                'A successful selection, a deliberate empty result, or an unavailable lookup.\n\n\* `selected` - Selected\n\* `no_suitable_owner` - No suitable owner\n\* `lookup_failed` - Lookup failed'
+            ),
+        reviewer_retry_reason: zod
+            .string()
+            .max(signalsReportArtefactsCreateBodyReviewerRetryReasonMax)
+            .optional()
+            .describe('Reason the reviewer lookup failed.'),
         claim_id: zod
             .uuid()
             .optional()
@@ -1310,7 +1399,7 @@ export const signalsScoutCreateBodyConfigOneRepositoriesItemMax = 255
 
 export const signalsScoutCreateBodyConfigOneRepositoriesMax = 10
 
-export const signalsScoutCreateBodyConfigOneWriteScopesMax = 13
+export const signalsScoutCreateBodyConfigOneWriteScopesMax = 14
 
 export const signalsScoutCreateBodyConfigOnePrecheckQueryMax = 10000
 
@@ -1416,7 +1505,7 @@ export const SignalsScoutCreateBody = /* @__PURE__ */ zod
                     .max(signalsScoutCreateBodyConfigOneWriteScopesMax)
                     .optional()
                     .describe(
-                        "Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run."
+                        "Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `ticket:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. `ticket:write` lets the scout update tickets, manage saved views, and add private notes. Scouts cannot send public replies, compose emails, change existing notes, or change customer identity fields. Ticket changes can start workflows that message customers. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run."
                     ),
                 lifecycle_locked: zod
                     .boolean()
@@ -1617,7 +1706,7 @@ export const signalsScoutConfigCreateBodyRepositoriesItemMax = 255
 
 export const signalsScoutConfigCreateBodyRepositoriesMax = 10
 
-export const signalsScoutConfigCreateBodyWriteScopesMax = 13
+export const signalsScoutConfigCreateBodyWriteScopesMax = 14
 
 export const signalsScoutConfigCreateBodyPrecheckQueryMax = 10000
 
@@ -1681,7 +1770,7 @@ export const SignalsScoutConfigCreateBody = /* @__PURE__ */ zod
             .max(signalsScoutConfigCreateBodyWriteScopesMax)
             .optional()
             .describe(
-                "Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run."
+                "Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `ticket:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. `ticket:write` lets the scout update tickets, manage saved views, and add private notes. Scouts cannot send public replies, compose emails, change existing notes, or change customer identity fields. Ticket changes can start workflows that message customers. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run."
             ),
         lifecycle_locked: zod
             .boolean()
@@ -1858,7 +1947,7 @@ export const signalsScoutConfigUpdateBodyRepositoriesItemMax = 255
 
 export const signalsScoutConfigUpdateBodyRepositoriesMax = 10
 
-export const signalsScoutConfigUpdateBodyWriteScopesMax = 13
+export const signalsScoutConfigUpdateBodyWriteScopesMax = 14
 
 export const signalsScoutConfigUpdateBodyPrecheckQueryMax = 10000
 
@@ -2020,7 +2109,7 @@ export const SignalsScoutConfigUpdateBody = /* @__PURE__ */ zod
             .max(signalsScoutConfigUpdateBodyWriteScopesMax)
             .optional()
             .describe(
-                "Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run."
+                "Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `experiment:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `ticket:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. `ticket:write` lets the scout update tickets, manage saved views, and add private notes. Scouts cannot send public replies, compose emails, change existing notes, or change customer identity fields. Ticket changes can start workflows that message customers. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run."
             ),
         precheck_query: zod
             .string()
@@ -2404,6 +2493,9 @@ export const SignalsScoutRecordCheckResultBody = /* @__PURE__ */ zod
  * Rewrite a report's title/summary, append a note or fresh evidence, set its suggested reviewers, and/or point it at another repository. Can target ANY of the project's inbox reports, not just scout-authored ones — so the edit is attributed to this scout. Reviewers and repository are how you rescue a report that surfaced routed to no one or against the wrong codebase: each replaces what the report holds and re-runs autostart, so a report that was missing a qualifying reviewer or a repository can open a draft PR. The response carries the repository the report holds after the edit, and the call fails when a repository it named did not land. Set `actionability` and/or `priority` (each with its explanation) when new evidence changed your judgment: each replaces the report's decision and re-runs autostart, without changing the report's inbox status. Title/summary edits are best-effort: the pipeline may later re-research them. Set `supersedes_implementation` alongside a rewrite when the fix changed. Verified automated predecessor PRs close only after the replacement completes with verified open PRs.
  * @summary Edit an existing report for a run
  */
+export const signalsScoutEditReportBodyReviewerOutcomeDefault = `selected`
+export const signalsScoutEditReportBodyReviewerRetryReasonMax = 500
+
 export const signalsScoutEditReportBodyTitleMax = 300
 
 export const signalsScoutEditReportBodySummaryMax = 20000
@@ -2454,6 +2546,35 @@ export const signalsScoutEditReportBodyLinksMax = 10
 
 export const SignalsScoutEditReportBody = /* @__PURE__ */ zod
     .object({
+        expected_reviewers: zod
+            .object({
+                reviewers_id: zod
+                    .uuid()
+                    .nullable()
+                    .describe('Current reviewer artefact ID, or null before the first list.'),
+                corrections_id: zod
+                    .uuid()
+                    .nullable()
+                    .describe('Current corrections artefact ID, or null before corrections are stored.'),
+            })
+            .optional()
+            .describe(
+                'Report reviewer_assignment.state read before selection began. Required when reviewer corrections are enabled.'
+            ),
+        reviewer_outcome: zod
+            .enum(['selected', 'no_suitable_owner', 'lookup_failed'])
+            .describe(
+                '\* `selected` - Selected\n\* `no_suitable_owner` - No suitable owner\n\* `lookup_failed` - Lookup failed'
+            )
+            .default(signalsScoutEditReportBodyReviewerOutcomeDefault)
+            .describe(
+                'A successful selection, a deliberate empty result, or an unavailable lookup.\n\n\* `selected` - Selected\n\* `no_suitable_owner` - No suitable owner\n\* `lookup_failed` - Lookup failed'
+            ),
+        reviewer_retry_reason: zod
+            .string()
+            .max(signalsScoutEditReportBodyReviewerRetryReasonMax)
+            .optional()
+            .describe('Reason the reviewer lookup failed.'),
         report_id: zod.string().describe('Id of the report to edit (must belong to this project).'),
         title: zod
             .string()
@@ -2535,7 +2656,7 @@ export const SignalsScoutEditReportBody = /* @__PURE__ */ zod
             .max(signalsScoutEditReportBodySuggestedReviewersMax)
             .optional()
             .describe(
-                'Optional reviewers to set on the report (each a `github_login` and\/or `user_uuid`), replacing any existing list. Use this to route a report that surfaced with no reviewer — it re-runs autostart, so a report that was missing a qualifying reviewer can now open a draft PR. An empty list is a no-op (existing reviewers are left untouched, never cleared).'
+                'Optional reviewers to set on the report (each a `github_login` and\/or `user_uuid`), replacing any existing list. Use this to route a report that surfaced with no reviewer — it re-runs autostart, so a report that was missing a qualifying reviewer can now open a draft PR. An empty list clears automatic reviewers when correction rules are enabled. Pins, exclusions, and confirmed lists are preserved. Pass expected_reviewers from the report reviewer_assignment.state read before selection.'
             ),
         repository: zod
             .string()

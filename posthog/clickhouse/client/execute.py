@@ -488,7 +488,8 @@ def sync_execute(
         elif tags.kind == "request" and "api/" in tags_id and "capture" not in tags_id:
             # process requests made to API from the PH app
             ch_user = ClickHouseUser.APP
-        elif tags.feature == Feature.CACHE_WARMUP:
+        # A ch_user tag wins, so warming work such as experiment recalculation can run as its own user.
+        elif tags.feature == Feature.CACHE_WARMUP and not tags.ch_user:
             ch_user = ClickHouseUser.CACHE_WARMUP
 
     # update tags if inside temporal (should not). Only meaningful inside a Temporal activity,
