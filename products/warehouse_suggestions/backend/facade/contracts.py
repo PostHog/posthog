@@ -148,6 +148,8 @@ class Suggestion:
     dismissal_note: str | None
     created_asset: dict[str, Any] | None
     asset_outcome: WarehouseSuggestionAssetOutcome | None
+    realized_seconds_saved_per_month: float | None
+    realized_bytes_saved_per_month: float | None
     can_act: bool
 
 

@@ -1,4 +1,4 @@
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import replace
 from datetime import datetime, timedelta
 from functools import cached_property
@@ -30,9 +30,19 @@ from ...facade.enums import (
     WarehouseSuggestionSubjectKind,
 )
 from ..reads import Subject, SubjectReads
-from .base import DAYS_PER_MONTH, MILLISECONDS_PER_SECOND, Candidate, CandidateContext, CandidateResult, Rejection
+from .base import (
+    DAYS_PER_MONTH,
+    MILLISECONDS_PER_SECOND,
+    Candidate,
+    CandidateContext,
+    CandidateResult,
+    RealizedSavings,
+    Rejection,
+)
 
 SECONDS_PER_MONTH = DAYS_PER_MONTH * 24 * 60 * 60
+READ_SECONDS_PER_MONTH = "read_seconds_per_month"
+READ_BYTES_PER_MONTH = "read_bytes_per_month"
 
 
 @frozen
@@ -47,7 +57,7 @@ class SavingsEstimate:
 
 
 @frozen
-class RefreshCost:
+class QueryCost:
     seconds: float
     read_bytes: float
 
@@ -110,8 +120,8 @@ class MaterializeCandidate(Candidate):
                     score_inputs={
                         "seconds_saved_per_month": outcome.estimate.seconds_saved,
                         "bytes_saved_per_month": outcome.estimate.bytes_saved,
-                        "read_seconds_per_month": outcome.estimate.read_seconds,
-                        "read_bytes_per_month": outcome.estimate.read_bytes,
+                        READ_SECONDS_PER_MONTH: outcome.estimate.read_seconds,
+                        READ_BYTES_PER_MONTH: outcome.estimate.read_bytes,
                         "refresh_interval_seconds": outcome.estimate.interval.total_seconds(),
                     },
                 )
@@ -128,6 +138,26 @@ class MaterializeCandidate(Candidate):
         if reads is not None and (accepted_at is None or reads.last_read_at > accepted_at):
             return WarehouseSuggestionAssetOutcome.LIVE
         return WarehouseSuggestionAssetOutcome.UNUSED
+
+    def realized_savings(
+        self,
+        context: CandidateContext,
+        subject: Subject,
+        accepted_at: datetime | None,
+        score_inputs: Mapping[str, float],
+    ) -> RealizedSavings | None:
+        saved_query = context.inventory.saved_queries.get(subject.id)
+        if saved_query is None or not saved_query.materializes:
+            return None
+        if accepted_at is None or accepted_at >= context.reads.window.starts_at:
+            return None
+        if READ_SECONDS_PER_MONTH not in score_inputs or READ_BYTES_PER_MONTH not in score_inputs:
+            return None
+        cost_after = _monthly_cost_after(context, subject)
+        return RealizedSavings(
+            seconds=score_inputs[READ_SECONDS_PER_MONTH] - cost_after.seconds,
+            read_bytes=score_inputs[READ_BYTES_PER_MONTH] - cost_after.read_bytes,
+        )
 
     def is_resolved(self, context: CandidateContext, subject: Subject) -> bool:
         saved_query = context.inventory.saved_queries.get(subject.id)
@@ -246,20 +276,20 @@ def _with_refresh_mode(
     )
 
 
-def refresh_cost(context: CandidateContext, saved_query_id: UUID, reads: SubjectReads) -> RefreshCost:
+def refresh_cost(context: CandidateContext, saved_query_id: UUID, reads: SubjectReads) -> QueryCost:
     refreshes = context.reads.refreshes.get(saved_query_id)
     if refreshes is not None and refreshes.runs > 0:
-        return RefreshCost(
+        return QueryCost(
             seconds=refreshes.duration_ms / MILLISECONDS_PER_SECOND / refreshes.runs,
             read_bytes=refreshes.read_bytes / refreshes.runs,
         )
-    return RefreshCost(
+    return QueryCost(
         seconds=reads.alone_duration_ms_p90 / MILLISECONDS_PER_SECOND, read_bytes=reads.alone_read_bytes_p90
     )
 
 
 def estimate_savings(
-    context: CandidateContext, reads: SubjectReads, interval: timedelta, refresh: RefreshCost
+    context: CandidateContext, reads: SubjectReads, interval: timedelta, refresh: QueryCost
 ) -> SavingsEstimate:
     rules = context.rules.materialize
     scale = context.month_scale
@@ -282,6 +312,17 @@ def estimate_savings(
         bytes_saved=bytes_saved,
         clears_a_floor=clears_time or clears_bytes,
         score=max(seconds_saved / rules.min_seconds_saved, bytes_saved / rules.min_bytes_saved),
+    )
+
+
+def _monthly_cost_after(context: CandidateContext, subject: Subject) -> QueryCost:
+    reads = context.reads.reads_of(subject)
+    refreshes = context.reads.refreshes.get(subject.id)
+    duration_ms = (reads.human_duration_ms if reads else 0) + (refreshes.duration_ms if refreshes else 0)
+    read_bytes = (reads.human_read_bytes if reads else 0) + (refreshes.read_bytes if refreshes else 0)
+    return QueryCost(
+        seconds=duration_ms / MILLISECONDS_PER_SECOND * context.month_scale,
+        read_bytes=read_bytes * context.month_scale,
     )
 
 

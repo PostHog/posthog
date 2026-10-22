@@ -74,6 +74,12 @@ def inlining_could_deny_a_reader(team_id: int, saved_query_id: UUID) -> bool:
 
 
 @frozen
+class RealizedSavings:
+    seconds: float
+    read_bytes: float
+
+
+@frozen
 class CandidateContext:
     team_id: int
     reads: TeamReads
@@ -139,6 +145,15 @@ class Candidate(ABC):
     def asset_outcome(
         self, context: CandidateContext, subject: Subject, accepted_at: datetime | None
     ) -> WarehouseSuggestionAssetOutcome: ...
+
+    def realized_savings(
+        self,
+        context: CandidateContext,
+        subject: Subject,
+        accepted_at: datetime | None,
+        score_inputs: Mapping[str, float],
+    ) -> RealizedSavings | None:
+        return None
 
     def draft(
         self,

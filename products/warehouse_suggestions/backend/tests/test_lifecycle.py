@@ -26,6 +26,7 @@ from products.warehouse_suggestions.backend.facade.enums import (
 from products.warehouse_suggestions.backend.logic.candidates.base import CandidateContext
 from products.warehouse_suggestions.backend.logic.candidates.registry import CANDIDATES
 from products.warehouse_suggestions.backend.logic.lifecycle import _pick_in_turns, apply_run
+from products.warehouse_suggestions.backend.logic.reads import SubjectRefreshes
 from products.warehouse_suggestions.backend.logic.suggestions import transition_to
 from products.warehouse_suggestions.backend.models import WarehouseSuggestion
 from products.warehouse_suggestions.backend.tests.factories import busy_reads, context, team_reads, view, view_subject
@@ -33,6 +34,7 @@ from products.warehouse_suggestions.backend.tests.factories import busy_reads, c
 from .test_accept import REPORT
 
 NOW = datetime(2026, 10, 7, 9, tzinfo=UTC)
+READ_COST_BEFORE = {"read_seconds_per_month": 5000.0, "read_bytes_per_month": 5e12}
 PAYLOADS: dict[WarehouseSuggestionKind, SuggestionPayload] = {
     WarehouseSuggestionKind.CERTIFY: CertifyPayload(subject_name="orders"),
     WarehouseSuggestionKind.DEPRECATE: DeprecatePayload(
@@ -288,6 +290,42 @@ class TestApplyRun(BaseTest):
         apply_run(later, self.team, [], NOW, surface=False)
 
         assert WarehouseSuggestion.objects.for_team(self.team.pk).get().asset_outcome == expected
+
+    @parameterized.expand(
+        [
+            ("whole_window_after_acceptance", timedelta(days=40), READ_COST_BEFORE, (4300.0, 5e12 - 1e12 - 1e9)),
+            ("window_still_holds_reads_from_before", timedelta(days=2), READ_COST_BEFORE, (None, None)),
+            ("scored_before_read_cost_was_kept", timedelta(days=40), {}, (None, None)),
+        ]
+    )
+    def test_records_the_savings_an_accepted_materialization_realized(
+        self,
+        _name: str,
+        accepted_ago: timedelta,
+        score_inputs: dict[str, float],
+        expected: tuple[float | None, float | None],
+    ) -> None:
+        view_id = uuid4()
+        ctx = self._context(view_id)
+        apply_run(
+            ctx, self.team, [self._draft(ctx, WarehouseSuggestionKind.MATERIALIZE, view_id, 1)], NOW, surface=False
+        )
+        WarehouseSuggestion.objects.for_team(self.team.pk).update(
+            status=WarehouseSuggestionStatus.ACCEPTED, reviewed_at=NOW - accepted_ago, score_inputs=score_inputs
+        )
+        later = context(
+            team_reads(
+                {view_subject(view_id): busy_reads(human_duration_ms=100_000, human_read_bytes=10**9)},
+                refreshes={view_id: SubjectRefreshes(runs=30, duration_ms=600_000, read_bytes=10**12)},
+            ),
+            views=[view(view_id, materializes=True)],
+            team_id=self.team.pk,
+        )
+
+        apply_run(later, self.team, [], NOW, surface=False)
+
+        row = WarehouseSuggestion.objects.for_team(self.team.pk).get()
+        assert (row.realized_seconds_saved_per_month, row.realized_bytes_saved_per_month) == expected
 
 
 CERTIFY = WarehouseSuggestionKind.CERTIFY

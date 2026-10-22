@@ -46,6 +46,8 @@ class WarehouseSuggestion(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
     asset_outcome = models.CharField(
         max_length=16, choices=WarehouseSuggestionAssetOutcome.choices, null=True, blank=True
     )
+    realized_seconds_saved_per_month = models.FloatField(null=True, blank=True)
+    realized_bytes_saved_per_month = models.FloatField(null=True, blank=True)
     run_id = models.CharField(max_length=255, blank=True)
 
     class Meta:
