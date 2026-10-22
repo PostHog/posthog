@@ -53,11 +53,16 @@ fn revoke_hook(
 fn assign_hook(
     settlement: Arc<dyn Settlement>,
     assignment_epoch: AssignmentEpoch,
+    revoked_partitions: Arc<Mutex<Vec<TopicPartition>>>,
 ) -> PartitionHook {
     Box::new(move |partitions| {
         // Also covers a loss with no revoke callback (an error rebalance, a fenced member).
         settlement.forget_partitions(partitions);
         assignment_epoch.bump();
+        revoked_partitions
+            .lock()
+            .unwrap()
+            .extend_from_slice(partitions);
     })
 }
 
@@ -73,7 +78,11 @@ fn wire_rebalance_hooks(
         Arc::clone(settlement),
         Arc::clone(&revoked_partitions),
     ));
-    context.set_on_assign(assign_hook(Arc::clone(settlement), assignment_epoch));
+    context.set_on_assign(assign_hook(
+        Arc::clone(settlement),
+        assignment_epoch,
+        Arc::clone(&revoked_partitions),
+    ));
     revoked_partitions
 }
 
@@ -742,7 +751,12 @@ mod tests {
             BudgetLimits::new(NonZeroU64::new(1), None, 0.5).expect("valid limits"),
         ));
         let epoch = AssignmentEpoch::new();
-        let on_assign = assign_hook(Arc::clone(&settlement), epoch.clone());
+        let revoked_partitions = Arc::new(Mutex::new(Vec::new()));
+        let on_assign = assign_hook(
+            Arc::clone(&settlement),
+            epoch.clone(),
+            Arc::clone(&revoked_partitions),
+        );
         let p0 = TopicPartition::new("events", 0);
         let one_event = [(
             MessageOffset(10),
@@ -764,6 +778,11 @@ mod tests {
         assert!(settlement.take_all().is_none());
         assert_eq!(ledger.generation(&p0), 1);
         assert_eq!(epoch.current(), 2);
+        assert_eq!(
+            *revoked_partitions.lock().unwrap(),
+            vec![p0.clone()],
+            "the poller drops what it buffered from the lost assignment"
+        );
         assert_eq!(
             settlement
                 .charge(&p0, 1, &one_event)
