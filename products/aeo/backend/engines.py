@@ -13,6 +13,7 @@ joined back to the prompt via `aeo_prompt_id` / `aeo_run_id`.
 
 from __future__ import annotations
 
+import threading
 from dataclasses import field
 from typing import Any, Protocol
 from urllib.parse import urlparse
@@ -97,12 +98,27 @@ class CitationEngine(Protocol):
     def run(self, prompt: str, *, trace_id: str, custom_properties: dict[str, str]) -> CitationCheck: ...
 
 
-def _session() -> requests.Session:
+class _ThreadSessions:
+    """One requests.Session per thread. A run calls engines from a thread pool, and
+    requests does not document Session as safe to share across threads."""
+
+    def __init__(self, *, trust_env: bool) -> None:
+        self._local = threading.local()
+        self._trust_env = trust_env
+
+    def get(self) -> requests.Session:
+        session: requests.Session | None = getattr(self._local, "session", None)
+        if session is None:
+            session = requests.Session()
+            session.trust_env = self._trust_env
+            self._local.session = session
+        return session
+
+
+def _gateway_sessions() -> _ThreadSessions:
     # trust_env=False keeps in-cluster gateway calls off any egress proxy, and
-    # the session reuses connections across a run's many sequential calls.
-    session = requests.Session()
-    session.trust_env = False
-    return session
+    # each thread's session reuses connections across its calls.
+    return _ThreadSessions(trust_env=False)
 
 
 def gateway_post_json(
@@ -343,7 +359,7 @@ class ClaudeWebSearchEngine:
         if gateway is None:
             raise ValueError("AI gateway is not configured (AI_GATEWAY_URL / AI_GATEWAY_API_KEY)")
         self._gateway = gateway
-        self._session = _session()
+        self._sessions = _gateway_sessions()
 
     def run(self, prompt: str, *, trace_id: str, custom_properties: dict[str, str]) -> CitationCheck:
         payload = {
@@ -369,7 +385,9 @@ class ClaudeWebSearchEngine:
             **(ai_gateway_headers(trace_id=trace_id, properties=custom_properties) or {}),
         }
         try:
-            body = gateway_post_json(self._session, self._gateway.url.rstrip("/") + "/messages", headers, payload)
+            body = gateway_post_json(
+                self._sessions.get(), self._gateway.url.rstrip("/") + "/messages", headers, payload
+            )
         except requests.RequestException as e:
             return CitationCheck(engine=self.name, model=self.model, trace_id=trace_id, error=_request_error(e))
         parsed = parse_anthropic_citations(body)
@@ -397,7 +415,7 @@ class OpenAIWebSearchEngine:
         if gateway is None:
             raise ValueError("AI gateway is not configured (AI_GATEWAY_URL / AI_GATEWAY_API_KEY)")
         self._gateway = gateway
-        self._session = _session()
+        self._sessions = _gateway_sessions()
 
     def run(self, prompt: str, *, trace_id: str, custom_properties: dict[str, str]) -> CitationCheck:
         payload = {
@@ -411,7 +429,9 @@ class OpenAIWebSearchEngine:
             **(ai_gateway_headers(trace_id=trace_id, properties=custom_properties) or {}),
         }
         try:
-            body = gateway_post_json(self._session, self._gateway.url.rstrip("/") + "/responses", headers, payload)
+            body = gateway_post_json(
+                self._sessions.get(), self._gateway.url.rstrip("/") + "/responses", headers, payload
+            )
         except requests.RequestException as e:
             return CitationCheck(engine=self.name, model=self.model, trace_id=trace_id, error=_request_error(e))
         if (error := openai_response_error(body)) is not None:
@@ -440,13 +460,13 @@ class ExaAnswerEngine:
     model = "exa-answer"
 
     def __init__(self) -> None:
-        self._session = requests.Session()
+        self._sessions = _ThreadSessions(trust_env=True)
 
     def run(self, prompt: str, *, trace_id: str, custom_properties: dict[str, str]) -> CitationCheck:
         headers = {"x-api-key": settings.EXA_API_KEY}
         try:
             body = gateway_post_json(
-                self._session,
+                self._sessions.get(),
                 EXA_ANSWER_URL,
                 headers,
                 {"query": prompt, "text": False},

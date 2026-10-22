@@ -55,8 +55,12 @@ class _StubEngine:
 
 
 @pytest.mark.parametrize("via_child_environment", [False, True])
-def test_run_records_checks_and_rotates_without_a_team_scope(team: Team, settings, via_child_environment: bool) -> None:
+@pytest.mark.parametrize("concurrency", [1, 4])
+def test_run_records_checks_and_rotates_without_a_team_scope(
+    team: Team, settings, via_child_environment: bool, concurrency: int
+) -> None:
     settings.AEO_TARGET_DOMAINS = ["posthog.com"]
+    settings.AEO_RUN_CONCURRENCY = concurrency
     runner_team = (
         Team.objects.create(organization=team.organization, name="child env", parent_team=team)
         if via_child_environment
@@ -74,3 +78,21 @@ def test_run_records_checks_and_rotates_without_a_team_scope(team: Team, setting
     assert checks.filter(cited=True).count() == 4
     assert {c.prompt_topic for c in checks} == {"t0", "t1"}
     assert len({c.prompt_id for c in checks}) == 4
+
+
+class _CrashingEngine(_StubEngine):
+    def run(self, prompt: str, *, trace_id: str, custom_properties: dict[str, str]) -> CitationCheck:
+        if prompt == "q1?":
+            raise RuntimeError("unexpected engine bug")
+        return super().run(prompt, trace_id=trace_id, custom_properties=custom_properties)
+
+
+def test_one_prompt_crashing_does_not_end_the_run(team: Team, settings) -> None:
+    settings.AEO_RUN_CONCURRENCY = 2
+    settings.AEO_MAX_PROMPTS_PER_RUN = 3
+    upsert_prompts(team, [PromptCandidate(text=f"q{i}?", source="imported", topic="t") for i in range(3)])
+
+    summary, _ = run_citation_checks(team, engines=[_CrashingEngine()])
+
+    assert (summary.prompts, summary.rows_written, summary.engine_failures) == (3, 2, 1)
+    assert sorted(AEOCitationCheck.objects.for_team(team.id).values_list("prompt_text", flat=True)) == ["q0?", "q2?"]

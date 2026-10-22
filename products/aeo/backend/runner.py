@@ -15,6 +15,7 @@ gateway-key owner's project, not the checked team's, and carries the
 from __future__ import annotations
 
 import uuid
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Optional
 
 from django.conf import settings
@@ -32,8 +33,6 @@ from products.aeo.backend.facade.contracts import CitationRunSummary
 from products.aeo.backend.models import AEOCitationCheck, AEOPrompt
 
 logger = structlog.get_logger(__name__)
-
-DEFAULT_MAX_PROMPTS_PER_RUN = 50
 
 
 def run_citation_checks(
@@ -54,7 +53,7 @@ def run_citation_checks(
         logger.warning("aeo_citation_run_no_engines", team_id=team.id)
         return _empty_summary(team, "no engines configured (AI_GATEWAY_URL/AI_GATEWAY_API_KEY, EXA_API_KEY)"), []
 
-    prompts = select_prompts(team, DEFAULT_MAX_PROMPTS_PER_RUN if limit is None else limit)
+    prompts = select_prompts(team, settings.AEO_MAX_PROMPTS_PER_RUN if limit is None else limit)
     if not prompts:
         logger.warning("aeo_citation_run_no_prompts", team_id=team.id)
         return _empty_summary(team, "no active prompts — run `seed_aeo_prompts` first"), []
@@ -68,8 +67,9 @@ def run_citation_checks(
     rows_written = 0
     write_failures = 0
 
-    for prompt in prompts:
-        prompt_rows: list[AEOCitationCheck] = []
+    def check_prompt(prompt: AEOPrompt) -> tuple[AEOPrompt, list[dict[str, Any]], int]:
+        fields_per_engine: list[dict[str, Any]] = []
+        failures = 0
         for engine in engines:
             trace_id = str(uuid.uuid4())
             check = engine.run(
@@ -85,7 +85,7 @@ def run_citation_checks(
                 },
             )
             if check.error is not None:
-                engine_failures += 1
+                failures += 1
                 logger.warning(
                     "aeo_citation_check_failed",
                     team_id=team.id,
@@ -93,33 +93,56 @@ def run_citation_checks(
                     prompt_id=str(prompt.id),
                     error=check.error,
                 )
-            fields = {
-                **build_check_fields(
-                    check=check,
-                    run_id=run_id,
-                    prompt_id=str(prompt.id),
-                    prompt_text=prompt.prompt,
-                    prompt_source=prompt.prompt_source,
-                    prompt_hash=prompt.prompt_hash,
-                    target_domains=target_domains,
-                ),
-                "prompt_topic": prompt.topic,
-            }
-            prompt_rows.append(AEOCitationCheck(team_id=canonical_team_id, **fields))
-            checks.append(fields)
+            fields_per_engine.append(
+                {
+                    **build_check_fields(
+                        check=check,
+                        run_id=run_id,
+                        prompt_id=str(prompt.id),
+                        prompt_text=prompt.prompt,
+                        prompt_source=prompt.prompt_source,
+                        prompt_hash=prompt.prompt_hash,
+                        target_domains=target_domains,
+                    ),
+                    "prompt_topic": prompt.topic,
+                }
+            )
+        return prompt, fields_per_engine, failures
 
-        if record and prompt_rows:
-            # Write per prompt so a mid-run crash keeps the completed checks.
+    # Engine calls are network-bound and run in worker threads. Database writes stay on
+    # this thread, so the workers never open their own Django connections.
+    with ThreadPoolExecutor(max_workers=max(1, settings.AEO_RUN_CONCURRENCY)) as pool:
+        futures = {pool.submit(check_prompt, prompt): prompt for prompt in prompts}
+        for done, future in enumerate(as_completed(futures), start=1):
             try:
-                # The fail-closed manager refuses writes without a team scope, and none of the callers
-                # (the Celery task, the management command) run inside one.
-                with team_scope(canonical_team_id):
-                    AEOCitationCheck.objects.bulk_create(prompt_rows)
-                rows_written += len(prompt_rows)
-                AEOPrompt.objects.for_team(team.id).filter(id=prompt.id).update(last_checked_at=timezone.now())
+                prompt, fields_per_engine, failures = future.result()
             except Exception as e:
-                write_failures += len(prompt_rows)
-                logger.exception("aeo_citation_write_failed", team_id=team.id, run_id=run_id, error=str(e)[:300])
+                # One prompt's unexpected engine error must not end a run that takes hours.
+                engine_failures += len(engines)
+                logger.exception(
+                    "aeo_citation_prompt_crashed",
+                    team_id=team.id,
+                    prompt_id=str(futures[future].id),
+                    error=str(e)[:300],
+                )
+                continue
+            engine_failures += failures
+            checks.extend(fields_per_engine)
+            if record and fields_per_engine:
+                prompt_rows = [AEOCitationCheck(team_id=canonical_team_id, **fields) for fields in fields_per_engine]
+                # Write per prompt so a mid-run crash keeps the completed checks.
+                try:
+                    # The fail-closed manager refuses writes without a team scope, and none of the callers
+                    # (the Celery task, the management command) run inside one.
+                    with team_scope(canonical_team_id):
+                        AEOCitationCheck.objects.bulk_create(prompt_rows)
+                    rows_written += len(prompt_rows)
+                    AEOPrompt.objects.for_team(team.id).filter(id=prompt.id).update(last_checked_at=timezone.now())
+                except Exception as e:
+                    write_failures += len(prompt_rows)
+                    logger.exception("aeo_citation_write_failed", team_id=team.id, run_id=run_id, error=str(e)[:300])
+            if done % 100 == 0:
+                logger.info("aeo_citation_run_progress", team_id=team.id, run_id=run_id, done=done, total=len(prompts))
 
     summary = CitationRunSummary(
         team_id=team.id,
