@@ -265,6 +265,9 @@ class PlatformAlertCheckInput:
     owned_by_platform: bool = False
     instances: tuple[InstanceCheckState, ...] = ()
     grouping: Grouping = field(default_factory=Grouping)
+    # The calendar half of the schedule, so a source can tell when its own cadence has moved.
+    recurrence_unit: str | None = None
+    anchor_time: str | None = None
 
     def admit(self, grouping_keys: Sequence[str], *, now: datetime) -> GroupAdmission:
         """The groups a check may report, from keys in the source's priority order.
@@ -356,6 +359,9 @@ class PlatformAlertUpsert:
     snooze_until: datetime | None
     recurrence_unit: str | None = None
     anchor_time: str | None = None
+    # Written only when the upsert creates the copy. An existing copy keeps the grouping its own
+    # edits set, because a source row stores none.
+    grouping: Grouping = Grouping()
 
 
 @frozen
@@ -375,11 +381,13 @@ class PlatformOwnershipHandover:
 class HandbackRefusal(StrEnum):
     """Why the platform keeps an alert its source asked for back."""
 
-    # Firing episodes are keyed per stack, so a firing alert stays until it resolves.
+    # The platform keys its incidents by episode, which the source's own stack cannot address, so a
+    # firing alert stays until it resolves.
     FIRING = "firing"
     # A platform check may be running and could record or notify after the handback.
     CHECK_DUE = "check_due"
-    # A handback carries one alert on an interval cadence. A calendar schedule or grouped alerts stay.
+    # A handback carries one alert. Grouped alerts stay, and so does a calendar schedule its source
+    # does not run.
     NOT_PORTABLE = "not_portable"
 
 
@@ -391,16 +399,20 @@ class PlatformHandback:
     last_notified_at: datetime | None
     consecutive_failures: int
     next_check_at: datetime | None
+    # False when the platform switched the copy off, such as for a configuration it cannot run.
+    enabled: bool = True
 
 
 @frozen
 class PlatformAlertRuntime:
-    """Where an alert the platform owns stands, for a source whose API still shows the alert."""
+    """Where an alert the platform owns stands, and how it splits into instances, for a source whose
+    API still shows the alert."""
 
     state: PlatformAlertState
     last_notified_at: datetime | None
     consecutive_failures: int
     next_check_at: datetime | None
+    grouping: Grouping
 
 
 @frozen
@@ -424,6 +436,35 @@ class PlatformAlertHistory:
     last_checked_at: datetime
     # None when the last check in the window succeeded.
     last_error_message: str | None
+
+
+@frozen
+class PlatformLastCheck:
+    """The newest check of an alert the platform owns."""
+
+    checked_at: datetime
+    # None when the check measured nothing.
+    value: float | None
+
+
+@frozen
+class PlatformCheckEntry:
+    """One check of an alert the platform owns, as a source lists its checks."""
+
+    occurred_at: datetime
+    evaluation_key: str
+    state: PlatformAlertState
+    value: float | None
+    # None when the check succeeded.
+    error_message: str | None
+
+
+@frozen
+class PlatformCheckPage:
+    """A page of an alert's checks, newest first, and how many checks the window holds."""
+
+    total: int
+    checks: tuple[PlatformCheckEntry, ...]
 
 
 @frozen
@@ -526,6 +567,9 @@ class GroupOutcome:
     labels: dict[str, str] = field(default_factory=dict)
     # What a mute held back, so history separates a muted fire from a check that said nothing.
     muted_notification: str = ""
+    # What the source's own stack sent beside this verdict, which the platform stores and returns
+    # without reading, so a delivery on the HogFunction path can send what the source sent.
+    source_detail: dict[str, Any] = field(default_factory=dict)
 
 
 @frozen
@@ -542,6 +586,8 @@ class CheckFailure:
     notified: bool
     firing_episode: FiringEpisode | None = None
     muted_notification: str = ""
+    # As on `GroupOutcome`: what the source's stack sends beside the failure, stored unread.
+    source_detail: dict[str, Any] = field(default_factory=dict)
 
 
 @frozen
@@ -565,6 +611,8 @@ class PlatformAlertOutcome:
     skipped: bool = False
     # New groups `max_instances` had no room for, which the delivery names so a cap is never silent.
     overflowed: int = 0
+    # The source cut its results before admission, so `overflowed` counts only the groups it saw.
+    overflow_is_lower_bound: bool = False
     # Resting instances whose slot a new group took. The write deletes them before it creates rows.
     evicted: tuple[str, ...] = ()
     error_message: str | None = None
@@ -575,6 +623,10 @@ class PlatformAlertOutcome:
     # A team's checks with the same group are due in one slot, so a source that answers them with
     # one query can do so. None spreads the configuration by its own id.
     schedule_group: str | None = None
+    # The id the source's own stack times this configuration's checks by. The platform then checks
+    # at the minute that stack does, because a metric read at another minute can breach where the
+    # source's own check does not. None times the checks by the configuration's own id.
+    schedule_key: str | None = None
     # The grouping the check ran under. An edit can change it while the check is in flight, and the
     # groups of a stale check are keyed for a grouping the configuration no longer has, so they are
     # dropped. None when the outcome carries no groups to drop.
@@ -599,6 +651,7 @@ class PlatformAlertOutcome:
         disable: bool = False,
         skipped: bool = False,
         schedule_group: str | None = None,
+        source_detail: dict[str, Any] | None = None,
     ) -> PlatformAlertOutcome:
         """A check of a source that does not group: its one verdict on the empty key, or its failure."""
         failure = (
@@ -608,6 +661,7 @@ class PlatformAlertOutcome:
                 notified=notified,
                 firing_episode=firing_episode,
                 muted_notification=muted_notification,
+                source_detail=source_detail or {},
             )
             if failed
             else None
@@ -624,6 +678,7 @@ class PlatformAlertOutcome:
                     firing_episode=firing_episode,
                     value=value,
                     muted_notification=muted_notification,
+                    source_detail=source_detail or {},
                 ),
             )
         )
@@ -696,6 +751,7 @@ class AnnouncedTransition:
     occurred_at: datetime
     # The evaluation this transition came from, so a source can read back what it put in the key.
     evaluation_key: str = ""
+    source_detail: dict[str, Any] = field(default_factory=dict)
 
 
 @frozen
@@ -717,6 +773,7 @@ class EvaluationAnnouncement:
     # Groups the configuration had no room for. The first message names them, so a cap never drops
     # a group without anyone being told.
     overflowed: int = 0
+    overflow_is_lower_bound: bool = False
 
 
 @frozen
@@ -759,6 +816,7 @@ class AlertDeliveryRequest:
     source_alert_url: str | None = None
     owned_by_platform: bool = False
     overflowed: int = 0
+    overflow_is_lower_bound: bool = False
     # How many activities the delivery workflow splits an evaluation into, by `MAX_TRANSITIONS_PER_DELIVERY`,
     # and which of them one activity sends. The workflow sets `part`.
     parts: int = 1
@@ -806,6 +864,7 @@ class PlatformAlertSnapshot:
     firing_started_at: datetime | None
     last_notified_at: datetime | None
     snooze_until: datetime | None
+    labels: dict[str, str] = field(default_factory=dict)
 
 
 @frozen
@@ -834,6 +893,8 @@ class PlatformAlertConfigurationView:
     grouping: Grouping
     snooze_until: datetime | None
     check_status: str
+    overflowed_groups: int
+    overflow_is_lower_bound: bool
     owner: str
     created_at: datetime
     updated_at: datetime
@@ -870,6 +931,10 @@ class PlatformAlertNotEditable(Exception):
     """A configuration the platform does not own, so its source's own API writes it."""
 
 
+class UnknownPlatformAlertGroup(LookupError):
+    """A grouping key the configuration has no instance for."""
+
+
 class SourceEditMirror(Protocol):
     """Writes an edit made through the platform API onto the source's own row.
 
@@ -886,17 +951,48 @@ class SourceEditMirror(Protocol):
     ) -> Callable[[PlatformAlertConfigurationEdit], None] | None: ...
 
 
+class PlatformAlertCreateRefused(Exception):
+    """A create the source refuses as a whole, such as one past its per-team limit."""
+
+
+class SourceCreate(Protocol):
+    """Creates an alert through the platform API on a source that keeps its own row for it.
+
+    Runs in the create's transaction. It writes the source's row and the platform's copy, both owned
+    by the platform, the way the source hands over an alert it created itself, and returns the id of
+    the source's row. The copy carries that id as `legacy_configuration_id`. It raises
+    `PlatformAlertCreateRefused` when the source refuses the create.
+    """
+
+    def __call__(self, *, team_id: int, edit: PlatformAlertConfigurationEdit, created_by_id: int | None) -> UUID: ...
+
+
+class SourceDelete(Protocol):
+    """Deletes an alert the platform owns through the platform API, on a source that keeps its own row.
+
+    It removes the source's row and the platform's copy, and closes the alert's open incidents
+    before either goes, while the destinations the resolves go to still exist. So it runs outside
+    any transaction. It raises `PlatformAlertNotEditable` when the source's row belongs to another
+    team than the copy, because the platform API checked access to the copy's team only.
+    """
+
+    def __call__(self, *, team_id: int, legacy_configuration_id: UUID) -> None: ...
+
+
 @frozen
 class SourceConfigSpec:
     """A source kind's schema for `source_config` and its rules for a whole edit.
 
     `model` validates `source_config`. `validate` raises `InvalidPlatformAlertEdit` for a rule that
-    spans fields, such as one that reads `enabled`. `mirror` runs in the edit's transaction.
+    spans fields, such as one that reads `enabled`. `mirror` runs in the edit's transaction. Without
+    `create` or `delete`, the API cannot create or delete alerts of the kind.
     """
 
     model: type[BaseModel]
     validate: Callable[[PlatformAlertConfigurationEdit], None]
     mirror: SourceEditMirror | None = None
+    create: SourceCreate | None = None
+    delete: SourceDelete | None = None
     # Where the source's incident destinations listen for a close, and the alert's page in the
     # source's product. A control-plane close needs both to address its resolve.
     incident_event_ids: Mapping[str, str] | None = None
@@ -1010,6 +1106,35 @@ class AlertDestinationData(TypedDict):
     in_app_url: NotRequired[str]
 
 
+# The transitions a destination can send about. `CHECK` announces nothing, so no destination hears it.
+DESTINATION_EVENT_KINDS: Final = frozenset(
+    {AlertEventKind.FIRING, AlertEventKind.RESOLVED, AlertEventKind.ERRORED, AlertEventKind.BROKEN}
+)
+
+
+@frozen
+class NewAlertDestination:
+    """One destination to add to an alert the platform owns the destinations of."""
+
+    data: AlertDestinationData
+    event_kinds: tuple[AlertEventKind, ...]
+    enabled: bool = True
+    legacy_hog_function_ids: tuple[UUID, ...] = ()
+
+
+@frozen
+class StoredAlertDestination:
+    """One `AlertDestination` row, with its configuration decrypted."""
+
+    id: UUID
+    configuration_id: UUID
+    data: AlertDestinationData
+    event_kinds: tuple[AlertEventKind, ...]
+    enabled: bool
+    consecutive_failures: int
+    legacy_hog_function_ids: tuple[UUID, ...]
+
+
 class AlertDestinationValidationError(Exception):
     """A destination payload the platform refuses. Callers at an HTTP boundary translate
     this into their own framework's validation error."""
@@ -1057,11 +1182,17 @@ class AlertDestinationConfig:
 
 @frozen
 class AlertDestinationGroup:
-    """The HogFunctions that together make up one destination a person configured."""
+    """One destination an alert delivers to: the HogFunctions a person configured, or a destination
+    with none, such as an insight alert's subscriber email."""
 
     hog_function_ids: tuple[UUID, ...]
     data: AlertDestinationData
     fully_enabled: bool
+
+    @property
+    def receives_emitted_events(self) -> bool:
+        """Whether the source's emitted internal events reach it. Only a HogFunction listens to them."""
+        return bool(self.hog_function_ids)
 
 
 @frozen
@@ -1117,6 +1248,12 @@ class MessageLink:
 
 
 @frozen
+class MessageImage:
+    url: str
+    alt_text: str
+
+
+@frozen
 class SourceDescription:
     """What a source says about one transition, in the words its own product uses.
 
@@ -1132,6 +1269,9 @@ class SourceDescription:
     context: tuple[str, ...] = ()
     # Where the data behind the alert is, such as the matching logs.
     data_link: MessageLink | None = None
+    # Slack elements that act on the alert from the message, such as a snooze menu, beside the
+    # buttons. They are Slack's own Block Kit, so every other provider leaves them out.
+    slack_elements: tuple[dict[str, Any], ...] = ()
 
 
 class SourceDescriber(Protocol):
@@ -1142,6 +1282,17 @@ class SourceDescriber(Protocol):
     """
 
     def __call__(self, *, project_id: int, transition: AnnouncedTransition) -> SourceDescription: ...
+
+
+class SourceImageResolver(Protocol):
+    """The picture a message shows for a transition, such as an insight's chart, or None.
+
+    Runs on the send path like a describer, but it may read storage: a picture's URL can open it
+    without a login, so the source stores the picture by id and mints the URL as the message goes.
+    A provider that cannot show a picture leaves it out.
+    """
+
+    def __call__(self, *, team_id: int, transition: AnnouncedTransition) -> MessageImage | None: ...
 
 
 class LegacyWebhookBody(Protocol):
@@ -1183,6 +1334,10 @@ class LegacyEventEmission:
     sends_message: bool
     # The source emits the incident event for this action too, when it is set.
     incident_action: IncidentAction | None
+
+    @property
+    def event_count(self) -> int:
+        return int(self.sends_message) + int(self.incident_action is not None)
 
 
 class LegacyEventEmitter(Protocol):
@@ -1366,3 +1521,19 @@ class SourceCorrespondence(Protocol):
     intentional_divergences: tuple[IntentionalDivergence, ...]
 
     def verdicts_for(self, checks: Sequence[PlatformCheck]) -> Mapping[CheckRef, SourceVerdict]: ...
+
+
+@frozen
+class DestinationSend:
+    """One message sent to one destination, on either delivery path, with how it went.
+
+    `destination_id` is the HogFunction the send was for, which names its event kind.
+    `error` is set only for a failed native send. A HogFunction failure has none, because its log
+    lines can quote credential-bearing inputs.
+    """
+
+    destination_id: str
+    sent_at: datetime
+    path: DeliveryPath
+    succeeded: bool
+    error: str | None

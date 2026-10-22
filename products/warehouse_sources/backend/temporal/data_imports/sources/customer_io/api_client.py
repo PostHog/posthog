@@ -10,14 +10,17 @@ from typing import Any
 
 import requests
 import structlog
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     ExternalWebhookInfo,
     WebhookCreationResult,
     WebhookDeletionResult,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    make_tracked_session,
+    retry_with_deadline,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.customer_io.constants import (
     CIO_AUTO_WEBHOOK_NAME,
     CIO_EU_BASE_URL,
@@ -115,7 +118,7 @@ def validate_credentials(api_key: str, region: str | None) -> tuple[bool, str | 
     return True, None
 
 
-@retry(
+@retry_with_deadline(
     retry=retry_if_exception_type((ListEndpointRetryableError, requests.ReadTimeout, requests.ConnectionError)),
     stop=stop_after_attempt(5),
     wait=wait_exponential_jitter(initial=1, max=30),

@@ -64,7 +64,9 @@ from ..facade.api import (
     run_duration_histogram_query,
     run_impact_query,
     run_latency_heatmap_query,
+    run_service_health_query,
     run_symbol_stats_query,
+    service_health_byte_cap_message,
 )
 from ..has_spans_query_runner import team_has_spans
 from ..logic import (
@@ -79,6 +81,11 @@ from ..logic import (
 )
 from ..sparkline_query_runner import TraceSpansSparklineQueryRunner
 from .date_window import normalize_tracing_date_range
+from .service_health_serializers import (
+    ServiceHealthRequestSerializer,
+    ServiceHealthResponseSerializer,
+    service_health_params,
+)
 
 # Matches FEATURE_FLAGS.TRACING_AI_EVENTS in the frontend.
 TRACING_AI_EVENTS_FEATURE_FLAG = "tracing-ai-events"
@@ -384,11 +391,34 @@ class _TracingTraceRequestSerializer(serializers.Serializer):
     )
 
 
-class _TracingServiceNamesQuerySerializer(serializers.Serializer):
-    search = serializers.CharField(required=False, help_text="Search filter for service names.")
+class _TracingDateQueryParamsSerializer(serializers.Serializer):
     dateRange = serializers.CharField(
         required=False,
-        help_text='JSON-encoded date range, e.g. \'{"date_from": "-1h"}\'.',
+        help_text='JSON-encoded date range object, e.g. {"date_from": "-1h"}. Malformed JSON returns 400. '
+        "Or pass date_from and date_to.",
+    )
+    date_from = serializers.CharField(required=False, help_text="Range start: -1h, -7d or ISO 8601. Defaults to -1h.")
+    date_to = serializers.CharField(required=False, help_text='Range end, same format. Omit for "now".')
+
+
+class _TracingServiceNamesQuerySerializer(_TracingDateQueryParamsSerializer):
+    search = serializers.CharField(required=False, help_text="Search filter for service names.")
+
+
+def _date_range_from_query_params(request: Request) -> dict:
+    raw = request.GET.get("dateRange")
+    if raw:
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            parsed = None
+        if not isinstance(parsed, dict):
+            example = json.dumps({"date_from": "-1h"})
+            message = f"dateRange must be a JSON object such as {example}, or pass date_from and date_to. Got {raw!r}."
+            raise serializers.ValidationError({"dateRange": message})
+        return normalize_tracing_date_range(parsed)
+    return normalize_tracing_date_range(
+        {"date_from": request.GET.get("date_from"), "date_to": request.GET.get("date_to")}
     )
 
 
@@ -469,7 +499,7 @@ class _TracingErrorCountsResponseSerializer(serializers.Serializer):
     )
 
 
-class _TracingAttributesQuerySerializer(serializers.Serializer):
+class _TracingAttributesQuerySerializer(_TracingDateQueryParamsSerializer):
     search = serializers.CharField(required=False, help_text="Search filter for attribute names.")
     search_values = serializers.BooleanField(
         required=False,
@@ -514,7 +544,7 @@ class SpanPropertyType(models.TextChoices):
     SPAN_RESOURCE_ATTRIBUTE = "span_resource_attribute", "span_resource_attribute"
 
 
-class _TracingValuesQuerySerializer(serializers.Serializer):
+class _TracingValuesQuerySerializer(_TracingDateQueryParamsSerializer):
     key = serializers.CharField(help_text="The attribute key to get values for.")
     attribute_type = serializers.ChoiceField(
         choices=SpanPropertyType.choices,
@@ -1245,11 +1275,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
     def service_names(self, request: Request, *args, **kwargs) -> Response:
         tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
         search = request.GET.get("search", "")
-        try:
-            raw_date_range = json.loads(request.GET.get("dateRange", '{"date_from": "-1h"}'))
-        except json.JSONDecodeError:
-            raw_date_range = {"date_from": "-1h"}
-        date_range = self.get_model(normalize_tracing_date_range(raw_date_range), DateRange)
+        date_range = self.get_model(_date_range_from_query_params(request), DateRange)
 
         results = run_service_names_query(team=self.team, date_range=date_range, search=search)
         return Response({"results": results}, status=status.HTTP_200_OK)
@@ -1703,6 +1729,36 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             status=status.HTTP_200_OK,
         )
 
+    @validated_request(
+        ServiceHealthRequestSerializer,
+        responses={200: OpenApiResponse(response=ServiceHealthResponseSerializer)},
+    )
+    @action(detail=False, methods=["POST"], required_scopes=["tracing:read"])
+    def service_health(self, request: ValidatedRequest, *args, **kwargs) -> Response:
+        tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
+        params = service_health_params(request.validated_data)
+        try:
+            result = run_service_health_query(team=self.team, params=params)
+        except CHQueryErrorTooManyBytes:
+            return Response(
+                {"detail": service_health_byte_cap_message(team=self.team, params=params)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        self._report_usage(
+            request,
+            "tracing service health queried",
+            {
+                "compare": params.compare.value,
+                "span_scope": params.span_scope.value,
+                "has_environment": bool(params.environment),
+                "service_names_count": len(params.service_names),
+                "services_count": result["summary"]["services"],
+                "truncated": result["truncated"],
+            },
+        )
+        return Response(ServiceHealthResponseSerializer(instance=result).data, status=status.HTTP_200_OK)
+
     @extend_schema(
         request=_TracingTreeRequestSerializer,
         responses={200: _TracingTreeResponseSerializer},
@@ -1973,11 +2029,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         limit = int(request.GET.get("limit", "100"))
         offset = int(request.GET.get("offset", "0"))
 
-        try:
-            raw_date_range = json.loads(request.GET.get("dateRange", "{}"))
-        except json.JSONDecodeError:
-            raw_date_range = {}
-        date_range = self.get_model(normalize_tracing_date_range(raw_date_range), DateRange)
+        date_range = self.get_model(_date_range_from_query_params(request), DateRange)
 
         attribute_type = request.GET.get("attribute_type", "span_attribute")
         if attribute_type not in ("span_attribute", "span_resource_attribute"):
@@ -2007,11 +2059,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         limit = int(request.GET.get("limit", "100"))
         offset = int(request.GET.get("offset", "0"))
 
-        try:
-            raw_date_range = json.loads(request.GET.get("dateRange", "{}"))
-        except json.JSONDecodeError:
-            raw_date_range = {}
-        date_range = self.get_model(normalize_tracing_date_range(raw_date_range), DateRange)
+        date_range = self.get_model(_date_range_from_query_params(request), DateRange)
 
         attribute_type = request.GET.get("attribute_type", "span_attribute")
         if attribute_type not in ("span", "span_attribute", "span_resource_attribute"):
