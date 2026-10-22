@@ -160,6 +160,7 @@ def _register_all_emitters() -> None:
     from products.signals.backend.emission.canny_posts import CANNY_CONFIG
     from products.signals.backend.emission.checkly_error_groups import CHECKLY_CONFIG
     from products.signals.backend.emission.conversations_tickets import CONVERSATIONS_TICKETS_CONFIG
+    from products.signals.backend.emission.cronitor_issues import CRONITOR_CONFIG
     from products.signals.backend.emission.datadog_error_issues import DATADOG_ERROR_ISSUES_CONFIG
     from products.signals.backend.emission.datadog_error_logs import DATADOG_ERROR_LOGS_CONFIG
     from products.signals.backend.emission.datadog_error_spans import DATADOG_ERROR_SPANS_CONFIG
@@ -167,6 +168,7 @@ def _register_all_emitters() -> None:
     from products.signals.backend.emission.datadog_monitor_alerts import DATADOG_MONITOR_ALERTS_CONFIG
     from products.signals.backend.emission.dixa_conversations import DIXA_CONFIG
     from products.signals.backend.emission.dynamics365_cases import DYNAMICS365_CONFIG
+    from products.signals.backend.emission.dynatrace_problems import DYNATRACE_CONFIG
     from products.signals.backend.emission.featurebase_posts import FEATUREBASE_CONFIG
     from products.signals.backend.emission.firehydrant_incidents import FIREHYDRANT_CONFIG
     from products.signals.backend.emission.freshdesk_tickets import FRESHDESK_CONFIG
@@ -182,6 +184,7 @@ def _register_all_emitters() -> None:
     from products.signals.backend.emission.honeybadger_faults import HONEYBADGER_CONFIG
     from products.signals.backend.emission.hubspot_tickets import HUBSPOT_CONFIG
     from products.signals.backend.emission.incident_io_incidents import INCIDENT_IO_CONFIG
+    from products.signals.backend.emission.instatus_incidents import INSTATUS_CONFIG
     from products.signals.backend.emission.intercom_conversations import INTERCOM_CONFIG
     from products.signals.backend.emission.jira_issues import JIRA_ISSUES_CONFIG
     from products.signals.backend.emission.judgeme_reviews_reviews import JUDGEME_REVIEWS_CONFIG
@@ -210,6 +213,7 @@ def _register_all_emitters() -> None:
     from products.signals.backend.emission.solarwinds_service_desk_incidents import SOLARWINDS_SERVICE_DESK_CONFIG
     from products.signals.backend.emission.sonarqube_issues import SONARQUBE_CONFIG
     from products.signals.backend.emission.squadcast_incidents import SQUADCAST_CONFIG
+    from products.signals.backend.emission.statuspage_incidents import STATUSPAGE_CONFIG
     from products.signals.backend.emission.tenable_vulnerability_management_vulnerabilities import (
         TENABLE_VULNERABILITY_MANAGEMENT_CONFIG,
     )
@@ -287,6 +291,10 @@ def _register_all_emitters() -> None:
     register_signal_source(ExternalDataSourceType.GRAFANAIRM, "incidents", GRAFANA_IRM_CONFIG)
     register_signal_source(ExternalDataSourceType.XMATTERS, "incidents", XMATTERS_CONFIG)
     register_signal_source(ExternalDataSourceType.BETTERSTACK, "incidents", BETTERSTACK_CONFIG)
+    register_signal_source(ExternalDataSourceType.DYNATRACE, "problems", DYNATRACE_CONFIG)
+    register_signal_source(ExternalDataSourceType.STATUSPAGE, "incidents", STATUSPAGE_CONFIG)
+    register_signal_source(ExternalDataSourceType.CRONITOR, "issues", CRONITOR_CONFIG)
+    register_signal_source(ExternalDataSourceType.INSTATUS, "incidents", INSTATUS_CONFIG)
     # Data quality / observability (record kind: incident)
     register_signal_source(ExternalDataSourceType.MONTECARLO, "alerts", MONTE_CARLO_CONFIG)
     register_signal_source(ExternalDataSourceType.BIGEYE, "Issues", BIGEYE_CONFIG)
