@@ -21,7 +21,7 @@ import { VisualReviewTabs } from '../components/VisualReviewTabs'
 import { VisualReviewTrail } from '../components/VisualReviewTrail'
 import type { QuarantinedIdentifierEntryApi, SnapshotHistoryEntryApi } from '../generated/api.schemas'
 import { repoFullNameFromParams, runPath, splitRepoFullName } from '../lib/repoPaths'
-import { mergeQueueSourcePrNumber } from '../lib/runPredicates'
+import { mergeQueueBatchLeaderPrNumber } from '../lib/runPredicates'
 import {
     ThemePair,
     VisualReviewSnapshotHistorySceneLogicProps,
@@ -187,7 +187,6 @@ interface QuarantineVariant {
     identifier: string
     label: string | null
     quarantineEntry: QuarantinedIdentifierEntryApi | null
-    loading: boolean
     onUnquarantine: () => void
 }
 
@@ -208,13 +207,8 @@ function QuarantineBanner({
 }): JSX.Element {
     const expires = quarantineEntry.expires_at ? new Date(quarantineEntry.expires_at) : null
     const sourceRun = quarantineEntry.source_run ?? null
-    const mergeQueuePrNumber = sourceRun ? mergeQueueSourcePrNumber(sourceRun.branch) : null
-    const prNumber = mergeQueuePrNumber ?? sourceRun?.pr_number
-    const prLink = prNumber ? (
-        <Link to={`https://github.com/${repoFullName}/pull/${prNumber}`} target="_blank" className="font-mono">
-            #{prNumber}
-        </Link>
-    ) : null
+    const batchLeaderPrNumber = sourceRun ? mergeQueueBatchLeaderPrNumber(sourceRun.branch) : null
+    const pullUrl = (prNumber: number): string => `https://github.com/${repoFullName}/pull/${prNumber}`
     const openConfirmation = (): void => {
         LemonDialog.open({
             title: `Unquarantine ${label ? `(${label})` : 'this identifier'}?`,
@@ -230,32 +224,21 @@ function QuarantineBanner({
         })
     }
     return (
-        <LemonBanner
-            type="warning"
-            // No `action` here — extend lives inline below so the user can
-            // see "what was wrong" first (the source-run link) before
-            // choosing to extend or unquarantine.
-        >
+        <LemonBanner type="warning">
             <div className="text-sm flex flex-col gap-1">
                 <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                     <span>
                         <span className="font-semibold">Quarantined{label && ` (${label})`}:</span>{' '}
                         {quarantineEntry.reason || 'no reason given'}
                     </span>
-                    {expires && (
-                        <>
-                            <span aria-hidden>·</span>
-                            <span>
-                                until {expires.toLocaleDateString()}{' '}
-                                <span className="text-muted">({dayjs(expires).fromNow()})</span>
-                            </span>
-                        </>
-                    )}
-                    {!expires && (
-                        <>
-                            <span aria-hidden>·</span>
-                            <span className="text-muted">no expiry set</span>
-                        </>
+                    <span aria-hidden>·</span>
+                    {expires ? (
+                        <span>
+                            until {expires.toLocaleDateString()}{' '}
+                            <span className="text-muted">({dayjs(expires).fromNow()})</span>
+                        </span>
+                    ) : (
+                        <span className="text-muted">no expiry set</span>
                     )}
                     {quarantineEntry.created_by && (
                         <>
@@ -266,8 +249,13 @@ function QuarantineBanner({
                 </div>
                 {sourceRun && (
                     <div className="text-xs text-muted flex flex-wrap items-center gap-x-2 gap-y-0.5">
-                        {mergeQueuePrNumber ? (
-                            <span>Failed in the merge queue for {prLink}</span>
+                        {batchLeaderPrNumber ? (
+                            <span>
+                                Failed in a merge queue batch led by{' '}
+                                <Link to={pullUrl(batchLeaderPrNumber)} target="_blank" className="font-mono">
+                                    #{batchLeaderPrNumber}
+                                </Link>
+                            </span>
                         ) : (
                             <>
                                 <span>Failed on</span>
@@ -282,10 +270,16 @@ function QuarantineBanner({
                         >
                             {sourceRun.commit_sha.slice(0, 8)}
                         </Link>
-                        {!mergeQueuePrNumber && prLink && (
+                        {sourceRun.pr_number && (
                             <>
                                 <span aria-hidden>·</span>
-                                {prLink}
+                                <Link to={pullUrl(sourceRun.pr_number)} target="_blank">
+                                    {batchLeaderPrNumber ? (
+                                        'All PRs in the batch'
+                                    ) : (
+                                        <span className="font-mono">#{sourceRun.pr_number}</span>
+                                    )}
+                                </Link>
                             </>
                         )}
                         <span aria-hidden>·</span>
@@ -362,25 +356,23 @@ export function VisualReviewSnapshotHistoryScene(): JSX.Element {
     const firstSeen = history.length > 0 ? history[history.length - 1].created_at : null
     const baselineUpdates = Math.max(0, history.length - 1)
     const hasThemePair = primaryTheme !== null && siblingIdentifier !== null
-    const variants: QuarantineVariant[] = [
-        {
+    const loadedVariants: QuarantineVariant[] = []
+    if (!quarantineEntryLoading) {
+        loadedVariants.push({
             identifier,
             label: hasThemePair ? primaryTheme : null,
             quarantineEntry,
-            loading: quarantineEntryLoading,
             onUnquarantine: unquarantineIdentifier,
-        },
-    ]
-    if (hasThemePair) {
-        variants.push({
+        })
+    }
+    if (hasThemePair && !siblingQuarantineEntryLoading) {
+        loadedVariants.push({
             identifier: siblingIdentifier,
             label: primaryTheme === 'light' ? 'dark' : 'light',
             quarantineEntry: siblingQuarantineEntry,
-            loading: siblingQuarantineEntryLoading,
             onUnquarantine: unquarantineSibling,
         })
     }
-    const loadedVariants = variants.filter((variant) => !variant.loading)
 
     if (repoNotFound) {
         return <NotFound object="visual review repo" />
