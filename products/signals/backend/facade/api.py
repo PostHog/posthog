@@ -29,6 +29,12 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.client import async_connect
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.signals.backend.activity_summary import read as activity_summary_read
+from products.signals.backend.activity_summary.read import (
+    ActivitySummaryFocusArea as ActivitySummaryFocusArea,
+    ActivitySummaryVersionView as ActivitySummaryVersionView,
+    ActivitySummaryView as ActivitySummaryView,
+)
 from products.signals.backend.artefact_schemas import (
     # Re-exported so the Slack mention handler can label the task it starts from a report's
     # notification thread without naming the relationship vocabulary itself.
@@ -197,6 +203,18 @@ def get_inbox_summary(*, team_id: int, user: object | None = None, service_auth:
         pull_requests=tuple(pull_requests),
         people=people if participation_complete else None,
     )
+
+
+def get_activity_summary(*, team: Team, user_id: int) -> ActivitySummaryView | None:
+    """The user's own activity summary in this project, or None when the flag payload does not enroll the team."""
+    return activity_summary_read.get_summary(team, user_id)
+
+
+def list_activity_summary_versions(
+    *, team: Team, user_id: int, limit: int, version: int | None = None
+) -> list[ActivitySummaryVersionView] | None:
+    """The user's own summary versions, newest first, or None when the flag payload does not enroll the team."""
+    return activity_summary_read.list_versions(team, user_id, limit=limit, version=version)
 
 
 @frozen
