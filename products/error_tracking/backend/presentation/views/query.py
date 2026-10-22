@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from typing import Literal, cast
 
 from django.utils.timezone import now
@@ -209,6 +210,7 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     )
     @action(methods=["POST"], detail=False, url_path="issue", required_scopes=["error_tracking:read"])
     def issue(self, request: ValidatedRequest, **kwargs: object) -> Response:
+        started_at = time.monotonic()
         params = dict(request.validated_data)
         issue_id = str(params["issueId"])
         date_range = build_date_range(params.get("dateRange"))
@@ -253,7 +255,12 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             if include_sparkline:
                 payload["sparkline"] = []
             return self._issue_response(
-                request, issue_id, payload, include_breakdown=include_breakdown, include_sparkline=include_sparkline
+                request,
+                issue_id,
+                payload,
+                started_at=started_at,
+                include_breakdown=include_breakdown,
+                include_sparkline=include_sparkline,
             )
         issue = cast(dict[str, object], raw_results[0])
         event_properties = self._issue_event_properties(
@@ -291,7 +298,12 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         if include_breakdown:
             payload["breakdown"] = self._issue_breakdown(request, issue_id, date_range, filter_test_accounts)
         return self._issue_response(
-            request, issue_id, payload, include_breakdown=include_breakdown, include_sparkline=include_sparkline
+            request,
+            issue_id,
+            payload,
+            started_at=started_at,
+            include_breakdown=include_breakdown,
+            include_sparkline=include_sparkline,
         )
 
     def _issue_response(
@@ -300,10 +312,13 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         issue_id: str,
         payload: dict[str, object],
         *,
+        started_at: float,
         include_breakdown: bool,
         include_sparkline: bool,
     ) -> Response:
+        summary_started_at = time.monotonic()
         summary_read = read_issue_summary(self.team.id, issue_id)
+        summary_finished_at = time.monotonic()
         if summary_read.summary is not None:
             payload["summary"] = summary_payload(summary_read.summary)
         payload["summary_status"] = summary_read.status.value
@@ -314,6 +329,9 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             include_breakdown=include_breakdown,
             include_sparkline=include_sparkline,
             summary_status=summary_read.status.value,
+            # Shows whether starting generation before the ClickHouse queries would shorten first reads.
+            facts_ms=round((summary_started_at - started_at) * 1000),
+            summary_wait_ms=round((summary_finished_at - summary_started_at) * 1000),
         )
         return Response(payload)
 

@@ -904,6 +904,9 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
                 **expected_properties,
             }
         ]
+        if endpoint == "issue":
+            assert isinstance(read_events[0]["facts_ms"], int)
+            assert isinstance(read_events[0]["summary_wait_ms"], int)
 
     @parameterized.expand(
         [
