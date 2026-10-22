@@ -89,7 +89,6 @@ export class InternalLogsVerifier {
         this.isTeamAllowed = buildIntegerMatcher(enabledTeams, false)
     }
 
-    /** Returns the signed source of an internal batch, or undefined for a batch to bill. */
     internalSource(signature: string | undefined, teamId: number, payload: Buffer | null): string | undefined {
         if (signature === undefined) {
             return undefined
