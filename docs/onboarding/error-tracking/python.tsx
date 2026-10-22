@@ -237,7 +237,7 @@ export const getPythonSteps = (ctx: OnboardingComponentsContext): StepDefinition
                             />
                             <Markdown>
                                 {dedent`
-                                    An exception that one of your exception handlers turns into a response doesn't reach the middleware. To report it, call \`posthog.capture_exception(exc)\` in the handler. See the [ASGI middleware docs](https://posthog.com/docs/libraries/python#asgi-request-middleware).
+                                    The middleware still captures an exception that an \`@app.exception_handler(Exception)\` catch-all handles. A handler for a specific exception class, such as \`@app.exception_handler(ValueError)\`, turns that exception into a response before the middleware sees it. To report those exceptions, call \`posthog.capture_exception(exc)\` in the handler. See the [ASGI middleware docs](https://posthog.com/docs/libraries/python#asgi-request-middleware).
                                 `}
                             </Markdown>
                         </Tab.Panel>
