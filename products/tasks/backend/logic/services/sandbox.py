@@ -653,7 +653,10 @@ class SandboxBase(ABC):
                 f"git clone --no-checkout --single-branch{blob_filter}{depth_flag}{branch_flag} "
                 f"{shlex.quote(repo_url)} {shlex.quote(repo)}"
             ),
-            checkout=f"cd {shlex.quote(repo)} && git -c checkout.workers=0 checkout -q -f",
+            checkout=(
+                f"cd {shlex.quote(repo)} && "
+                "{ ! git rev-parse -q --verify HEAD > /dev/null || git -c checkout.workers=0 checkout -q -f; }"
+            ),
         )
         clone_command = f"MODE=fresh && {fresh_clone_command}"
         if shallow:
@@ -679,6 +682,9 @@ class SandboxBase(ABC):
                 ),
                 checkout=(
                     'git -c checkout.workers=0 checkout -q -f -B "$BRANCH" --track "origin/$BRANCH" && '
+                    "git for-each-ref --format='delete %(refname)' refs/heads refs/remotes | "
+                    '{ grep -vxF -e "delete refs/heads/$BRANCH" -e "delete refs/remotes/origin/$BRANCH" || true; } | '
+                    "git update-ref --no-deref --stdin && "
                     'git remote set-head origin "$BRANCH"'
                 ),
             )
