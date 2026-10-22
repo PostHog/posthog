@@ -255,7 +255,7 @@ function DestinationEmailTemplaterForm({
                                     srcDoc={value}
                                     sandbox=""
                                     title="Email template preview"
-                                    className="flex-1 min-h-40"
+                                    className="flex-1 min-h-80"
                                 />
                             </>
                         )}
@@ -810,7 +810,7 @@ function NativeEmailTemplaterForm({
                                     srcDoc={value}
                                     sandbox=""
                                     title="Email template preview"
-                                    className="flex-1 min-h-40"
+                                    className="flex-1 min-h-80"
                                 />
                             </>
                         )}
