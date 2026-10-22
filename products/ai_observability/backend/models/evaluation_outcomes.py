@@ -69,9 +69,9 @@ class EvaluationReportOutcomeDefinition:
 # String comparison is deliberate: an unregistered JSON bool property extracts as the
 # string 'true', which the bool literal cannot compare against, while a registered
 # Boolean property coerces correctly against the string form.
-_NOT_SKIPPED_PREDICATE = "(isNull(properties.$ai_evaluation_skipped) OR properties.$ai_evaluation_skipped != 'true')"
+NOT_SKIPPED_PREDICATE = "(isNull(properties.$ai_evaluation_skipped) OR properties.$ai_evaluation_skipped != 'true')"
 
-_APPLICABLE_PREDICATE = (
+APPLICABLE_PREDICATE = (
     "(isNull(properties.$ai_evaluation_applicable) OR properties.$ai_evaluation_applicable != 'false')"
 )
 
@@ -83,13 +83,13 @@ def _boolean_definition(true_is_failure: bool) -> EvaluationReportOutcomeDefinit
     return EvaluationReportOutcomeDefinition(
         outcomes=("pass", "fail", "na"),
         outcome_predicates={
-            "pass": f"properties.$ai_evaluation_result = {pass_literal} AND {_APPLICABLE_PREDICATE}",
-            "fail": f"properties.$ai_evaluation_result = {fail_literal} AND {_APPLICABLE_PREDICATE}",
+            "pass": f"properties.$ai_evaluation_result = {pass_literal} AND {APPLICABLE_PREDICATE}",
+            "fail": f"properties.$ai_evaluation_result = {fail_literal} AND {APPLICABLE_PREDICATE}",
             "na": "properties.$ai_evaluation_applicable = 'false'",
         },
         event_predicate=(
             "(properties.$ai_evaluation_result_type = 'boolean' OR isNull(properties.$ai_evaluation_result_type)) "
-            f"AND {_NOT_SKIPPED_PREDICATE}"
+            f"AND {NOT_SKIPPED_PREDICATE}"
         ),
         result_expression="properties.$ai_evaluation_result",
         applicable_expression="properties.$ai_evaluation_applicable",
@@ -102,7 +102,7 @@ def _sentiment_definition(true_is_failure: bool) -> EvaluationReportOutcomeDefin
     return EvaluationReportOutcomeDefinition(
         outcomes=SENTIMENT_LABELS,
         outcome_predicates={label: f"properties.$ai_sentiment_label = '{label}'" for label in SENTIMENT_LABELS},
-        event_predicate=f"properties.$ai_evaluation_result_type = 'sentiment' AND {_NOT_SKIPPED_PREDICATE}",
+        event_predicate=f"properties.$ai_evaluation_result_type = 'sentiment' AND {NOT_SKIPPED_PREDICATE}",
         result_expression="properties.$ai_sentiment_label",
         applicable_expression="NULL",
         score_expression="properties.$ai_sentiment_score",
@@ -141,7 +141,7 @@ def _categorical_definition(output_config: dict | None) -> EvaluationReportOutco
             "fail": failed_predicate,
             "na": "properties.$ai_evaluation_applicable = 'false'",
         },
-        event_predicate=f"properties.$ai_evaluation_result_type = 'categorical' AND {_NOT_SKIPPED_PREDICATE}",
+        event_predicate=f"properties.$ai_evaluation_result_type = 'categorical' AND {NOT_SKIPPED_PREDICATE}",
         result_expression=categories_expression,
         applicable_expression="properties.$ai_evaluation_applicable",
         score_expression="NULL",
@@ -163,7 +163,7 @@ def _numeric_definition(output_config: dict | None) -> EvaluationReportOutcomeDe
     return EvaluationReportOutcomeDefinition(
         outcomes=("pass", "fail", "na"),
         outcome_predicates={"pass": passed, "fail": failed, "na": "properties.$ai_evaluation_applicable = 'false'"},
-        event_predicate=f"properties.$ai_evaluation_result_type = 'numeric' AND {_NOT_SKIPPED_PREDICATE}",
+        event_predicate=f"properties.$ai_evaluation_result_type = 'numeric' AND {NOT_SKIPPED_PREDICATE}",
         result_expression=score,
         applicable_expression="properties.$ai_evaluation_applicable",
         score_expression=score,

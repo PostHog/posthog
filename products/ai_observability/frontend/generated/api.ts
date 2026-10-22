@@ -45,12 +45,16 @@ import type {
     EvaluationConfigApi,
     EvaluationConfigSetActiveKeyRequestApi,
     EvaluationDirectoryApi,
+    EvaluationOverviewDetailsApi,
     EvaluationReportApi,
     EvaluationReportUpdateApi,
     EvaluationRunRequestApi,
     EvaluationRunResponseApi,
     EvaluationsBackfillsListParams,
     EvaluationsListParams,
+    EvaluationsOverviewApi,
+    EvaluationsOverviewDetailsRetrieveParams,
+    EvaluationsOverviewRetrieveParams,
     ExperimentReceiptApi,
     ExperimentSubmissionApi,
     InstrumentationCheckActionApi,
@@ -1461,6 +1465,71 @@ export const evaluationsDestroy = async (projectId: string, id: string, options?
     return apiMutator<unknown>(getEvaluationsDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getEvaluationsOverviewDetailsRetrieveUrl = (
+    projectId: string,
+    id: string,
+    params?: EvaluationsOverviewDetailsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/evaluations/${id}/overview_details/?${stringifiedParams}`
+        : `/api/projects/${projectId}/evaluations/${id}/overview_details/`
+}
+
+/**
+ * One evaluation's latest failures and score histogram over a period, for the overview's drawer.
+ */
+export const evaluationsOverviewDetailsRetrieve = async (
+    projectId: string,
+    id: string,
+    params?: EvaluationsOverviewDetailsRetrieveParams,
+    options?: RequestInit
+): Promise<EvaluationOverviewDetailsApi> => {
+    return apiMutator<EvaluationOverviewDetailsApi>(getEvaluationsOverviewDetailsRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getEvaluationsOverviewRetrieveUrl = (projectId: string, params?: EvaluationsOverviewRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/evaluations/overview/?${stringifiedParams}`
+        : `/api/projects/${projectId}/evaluations/overview/`
+}
+
+/**
+ * Each evaluation's results over a period, compared with the period of equal length before it.
+ */
+export const evaluationsOverviewRetrieve = async (
+    projectId: string,
+    params?: EvaluationsOverviewRetrieveParams,
+    options?: RequestInit
+): Promise<EvaluationsOverviewApi> => {
+    return apiMutator<EvaluationsOverviewApi>(getEvaluationsOverviewRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
     })
 }
 

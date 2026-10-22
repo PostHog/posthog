@@ -13328,6 +13328,15 @@ export namespace Schemas {
       limit: number;
     }
 
+    export type AttentionReasonsEnum = typeof AttentionReasonsEnum[keyof typeof AttentionReasonsEnum];
+
+
+    export const AttentionReasonsEnum = {
+      Errored: 'errored',
+      Silent: 'silent',
+      Worse: 'worse',
+    } as const;
+
     export interface AttributeBreakdownRow {
       count: number;
       error_count: number;
@@ -19188,6 +19197,15 @@ export namespace Schemas {
       limit: number;
     }
 
+    export type BucketStatusEnum = typeof BucketStatusEnum[keyof typeof BucketStatusEnum];
+
+
+    export const BucketStatusEnum = {
+      None: 'none',
+      Dip: 'dip',
+      Normal: 'normal',
+    } as const;
+
     /**
      * * `distinct_id` - User ID (default)
      * * `device_id` - Device ID
@@ -22252,6 +22270,23 @@ export namespace Schemas {
       max_selections?: number | null;
       /** Optional passing categories. Omit or set null for neutral scores. Each scorer version keeps its own rule. */
       passing_rule?: CategoricalScorePassingRule | null;
+    }
+
+    export interface CategoryCount {
+      key: string;
+      label: string;
+      count: number;
+      /** Percentage of the previous period's graded runs with this category, or null when it graded too few to compare. */
+      previousShare: number | null;
+    }
+
+    export interface CategoriesSummary {
+      kind: 'categories';
+      multiple: boolean;
+      /** Sorted by count, most frequent first. */
+      categories: CategoryCount[];
+      /** Multiple-selection runs that returned no category. */
+      noCategoriesCount: number;
     }
 
     export interface CdcEnableResponse {
@@ -43549,6 +43584,43 @@ export namespace Schemas {
       readonly evaluation_count: number;
     }
 
+    export interface EvaluationFailure {
+      timestamp: string;
+      /** The evaluator's reasoning, cut to about 1,000 characters. */
+      reasoning: string | null;
+      /** The generation the run graded. Null for trace and session runs. */
+      targetEventId: string | null;
+      traceId: string | null;
+    }
+
+    export interface ScoreScale {
+      min: number;
+      max: number;
+    }
+
+    export interface ScoreBucket {
+      label: string;
+      count: number;
+    }
+
+    export interface ScoreHistogram {
+      scale: ScoreScale;
+      /** One bucket per integer on a small integer scale, else ten equal buckets across the scale. */
+      buckets: ScoreBucket[];
+    }
+
+    export interface EvaluationOverviewDetails {
+      /** Start of the period, in the project's timezone. */
+      start: string;
+      /** End of the period, exclusive. */
+      end: string;
+      evaluationId: string;
+      /** The latest failed runs in the period, newest first. Null when the evaluation has no passing rule. */
+      recentFailures: EvaluationFailure[] | null;
+      /** Scores in the period. Null unless the evaluation is numeric with configured bounds. */
+      scoreDistribution: ScoreHistogram | null;
+    }
+
     /**
      * * `scheduled` - Scheduled
      * * `every_n` - Every N
@@ -43945,6 +44017,95 @@ export namespace Schemas {
       readonly created_at: string;
     }
 
+    export interface PassFailCounts {
+      passed: number;
+      failed: number;
+    }
+
+    export interface ScoreDistribution {
+      mean: number;
+      /** The configured score bounds, or null when the evaluation sets none. */
+      scale: ScoreScale | null;
+    }
+
+    export interface PassRateSummary {
+      kind: 'pass_rate';
+      passed: number;
+      failed: number;
+      /** Counts in the previous period, or null when it graded too few to compare. */
+      previous: PassFailCounts | null;
+      /** The score of numeric evaluations with a passing rule. */
+      score: ScoreDistribution | null;
+    }
+
+    export interface ScoreSummary {
+      kind: 'score';
+      /** Null when the current period scored nothing. */
+      score: ScoreDistribution | null;
+      previousMean: number | null;
+    }
+
+    export interface SentimentSummary {
+      kind: 'sentiment';
+      positive: number;
+      neutral: number;
+      negative: number;
+      previousNegativeShare: number | null;
+    }
+
+    export interface EvaluationResultTrend {
+      /** Headline value per bucket, aligned with the overview's `buckets`. Null where nothing was graded. */
+      values: (number | null)[];
+      /** Graded runs per bucket. */
+      volume: number[];
+    }
+
+    export type ResultChangeUnitEnum = typeof ResultChangeUnitEnum[keyof typeof ResultChangeUnitEnum];
+
+
+    export const ResultChangeUnitEnum = {
+      Pp: 'pp',
+      Points: 'points',
+    } as const;
+
+    export interface ResultChange {
+      /** Signed difference against the previous period, rounded for display. */
+      value: number;
+      unit: ResultChangeUnitEnum;
+      /** What changed when it is not the headline, such as a category label. */
+      subject: string | null;
+    }
+
+    export interface EvaluationResult {
+      id: string;
+      name: string;
+      directoryName: string | null;
+      evaluationType: string;
+      outputType: string;
+      enabled: boolean;
+      /** Why the evaluation stopped with an error, as an evaluation status reason, or null when it has none. */
+      statusReason: string | null;
+      createdBy: string | null;
+      gradedCount: number;
+      /** Graded runs in the previous period, or null when none. */
+      previousGradedCount: number | null;
+      notApplicableCount: number;
+      /** Runs skipped before scoring. */
+      skippedCount: number;
+      /** The latest graded run in the current or previous period. */
+      lastRunAt: string | null;
+      summary: PassRateSummary | ScoreSummary | CategoriesSummary | SentimentSummary;
+      trend: EvaluationResultTrend;
+      /** Change against the previous period, or null when not comparable. */
+      change: ResultChange | null;
+      lowEvidence: boolean;
+      attentionReasons: AttentionReasonsEnum[];
+      /** Each bucket against the previous period. A bucket with too few graded runs to judge is never a dip. */
+      bucketStatus: BucketStatusEnum[];
+      /** Key of the category a categorical evaluation's trend follows. */
+      trackedCategory: string | null;
+    }
+
     export interface EvaluationRunEvaluation {
       /** UUID of the evaluation being run. */
       id: string;
@@ -43977,6 +44138,71 @@ export namespace Schemas {
       evaluation: EvaluationRunEvaluation;
       /** UUID of the event being evaluated. */
       target_event_id: string;
+    }
+
+    export type EvaluationsOverviewIntervalEnum = typeof EvaluationsOverviewIntervalEnum[keyof typeof EvaluationsOverviewIntervalEnum];
+
+
+    export const EvaluationsOverviewIntervalEnum = {
+      Hour: 'hour',
+      Day: 'day',
+    } as const;
+
+    /**
+     * The same figure for both periods, over only the evaluations with results in both.
+     */
+    export interface PeriodComparison {
+      current: number;
+      previous: number;
+    }
+
+    export interface OverviewSentiment {
+      evaluationId: string;
+      negativeShare: number;
+      previousShare: number | null;
+    }
+
+    export interface OverviewTotals {
+      graded: number;
+      /** Graded runs in each period, over evaluations with results in both. Null when none has. */
+      gradedComparison: PeriodComparison | null;
+      gradedTrend: number[];
+      sentiment: OverviewSentiment | null;
+    }
+
+    export interface PassRateOverviewEntry {
+      evaluationId: string;
+      rate: number;
+      lowEvidence: boolean;
+    }
+
+    export interface PassRateOverview {
+      /** Enabled pass rate evaluations, lowest rate first. */
+      entries: PassRateOverviewEntry[];
+      /** Median of the per-evaluation pass rates without low evidence. */
+      median: number | null;
+      /** Median pass rate in each period, over evaluations with results in both. Null when none has. */
+      medianComparison: PeriodComparison | null;
+      /** Median pass rate per bucket, aligned with `buckets`. */
+      medianTrend: (number | null)[];
+    }
+
+    export interface EvaluationsOverview {
+      /** Start of the period, in the project's timezone. */
+      start: string;
+      /** End of the period, exclusive. */
+      end: string;
+      previousStart: string;
+      /** End of the previous period. While the current period runs, the previous one stops at the same point, so both cover the same length of time. */
+      previousEnd: string;
+      /** `hour` for a period of two days or less, else `day`. */
+      interval: EvaluationsOverviewIntervalEnum;
+      /** Start of each bucket, in the project's timezone. Every series is aligned with it. The first bucket can start before `start`. */
+      buckets: string[];
+      evaluations: EvaluationResult[];
+      /** Totals over the enabled evaluations. */
+      totals: OverviewTotals;
+      passRateOverview: PassRateOverview;
     }
 
     export interface EventDefinitionBasic {
@@ -129258,6 +129484,40 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type EvaluationsOverviewDetailsRetrieveParams = {
+    /**
+     * Start of the period: a date for the whole day in the project's timezone, or an ISO 8601 datetime. Defaults to 13 days before `date_to`.
+     */
+    date_from?: string;
+    /**
+     * End of the period: a date includes that whole day, a datetime is an exclusive instant. Defaults to today.
+     */
+    date_to?: string;
+    /**
+     * Skip the result cached for the last five minutes and compute it again.
+     */
+    refresh?: boolean;
+    };
+
+    export type EvaluationsOverviewRetrieveParams = {
+    /**
+     * Start of the period: a date for the whole day in the project's timezone, or an ISO 8601 datetime. Defaults to 13 days before `date_to`.
+     */
+    date_from?: string;
+    /**
+     * End of the period: a date includes that whole day, a datetime is an exclusive instant. Defaults to today.
+     */
+    date_to?: string;
+    /**
+     * Only these evaluations. Defaults to every evaluation the user can see.
+     */
+    evaluation_ids?: string[];
+    /**
+     * Skip the result cached for the last five minutes and compute it again.
+     */
+    refresh?: boolean;
     };
 
     export type EventDefinitionsListParams = {

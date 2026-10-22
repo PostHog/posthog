@@ -1,0 +1,117 @@
+from datetime import UTC, datetime
+
+from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
+
+from parameterized import parameterized
+
+from products.ai_observability.backend.facade import contracts
+from products.ai_observability.backend.facade.api import get_evaluation_overview_details
+from products.ai_observability.backend.logic.evaluations.overview_details import score_buckets
+from products.ai_observability.backend.models.evaluations import Evaluation
+
+START = datetime(2026, 3, 8, tzinfo=UTC)
+END = datetime(2026, 3, 11, tzinfo=UTC)
+
+
+@parameterized.expand(
+    [
+        ("small integer scale", 1, 5, None, ("1", "2", "3", "4", "5")),
+        ("zero to one", 0, 1, None, tuple(f"{index / 10:g}-{(index + 1) / 10:g}" for index in range(10))),
+        ("whole step on a short scale", 0, 1, 1, ("0", "1")),
+        ("fractional step", 1, 5, 0.5, tuple(f"{1 + index * 0.4:g}-{1 + (index + 1) * 0.4:g}" for index in range(10))),
+        ("wide integer scale", 0, 100, None, tuple(f"{index * 10}-{(index + 1) * 10}" for index in range(10))),
+    ]
+)
+def test_score_buckets(_name: str, low: float, high: float, step: float | None, labels: tuple[str, ...]) -> None:
+    buckets = score_buckets(contracts.ScoreScale(min=low, max=high), step)
+    assert buckets is not None and buckets.labels == labels
+
+
+class TestEvaluationOverviewDetails(ClickhouseTestMixin, BaseTest):
+    def _evaluation(self, output_type: str, output_config: dict) -> Evaluation:
+        return Evaluation.objects.create(
+            team=self.team,
+            name=output_type,
+            evaluation_type="hog",
+            evaluation_config={"source": "return true"},
+            output_type=output_type,
+            output_config=output_config,
+        )
+
+    def _run(self, evaluation: Evaluation, timestamp: str, **properties: object) -> None:
+        _create_event(
+            team=self.team,
+            event="$ai_evaluation",
+            distinct_id="user-1",
+            timestamp=timestamp,
+            properties={"$ai_evaluation_id": str(evaluation.id), **properties},
+        )
+
+    def test_failures_and_score_distribution(self) -> None:
+        judge = self._evaluation("boolean", {})
+        relevance = self._evaluation(
+            "numeric", {"min": 1, "max": 5, "passing_rule": {"operator": "gte", "threshold": 4}}
+        )
+        fraction = self._evaluation("numeric", {"min": 0, "max": 1})
+        for hour in range(7):
+            self._run(
+                judge,
+                f"2026-03-09T1{hour}:00:00Z",
+                **{
+                    "$ai_evaluation_result": False,
+                    "$ai_evaluation_reasoning": "x" * 2000 if hour == 6 else f"reason {hour}",
+                    "$ai_target_event_id": f"generation-{hour}",
+                    "$ai_trace_id": f"trace-{hour}",
+                },
+            )
+        self._run(judge, "2026-03-09T20:00:00Z", **{"$ai_evaluation_result": True})
+        self._run(judge, "2026-03-09T21:00:00Z", **{"$ai_evaluation_result": False, "$ai_evaluation_skipped": True})
+        self._run(judge, "2026-03-01T10:00:00Z", **{"$ai_evaluation_result": False})
+        numeric = {"$ai_evaluation_result_type": "numeric"}
+        for score in (1, 4, 4, 5, 4.4):
+            self._run(relevance, "2026-03-09T10:00:00Z", **numeric, **{"$ai_evaluation_numeric_result": score})
+        # Float division puts 0.3, 0.6 and 0.7 just under their bucket's lower edge.
+        for score in (0.0, 0.3, 0.6, 0.7, 1.0):
+            self._run(fraction, "2026-03-09T10:00:00Z", **numeric, **{"$ai_evaluation_numeric_result": score})
+        flush_persons_and_events()
+
+        judge_details = get_evaluation_overview_details(self.team, None, str(judge.id), START, END)
+        relevance_details = get_evaluation_overview_details(self.team, None, str(relevance.id), START, END)
+        fraction_details = get_evaluation_overview_details(self.team, None, str(fraction.id), START, END)
+
+        assert judge_details.recent_failures is not None
+        assert [failure.trace_id for failure in judge_details.recent_failures] == [
+            "trace-6",
+            "trace-5",
+            "trace-4",
+            "trace-3",
+            "trace-2",
+        ]
+        assert judge_details.recent_failures[0].reasoning == "x" * 999 + "…"
+        assert judge_details.recent_failures[1].target_event_id == "generation-5"
+        assert judge_details.score_distribution is None
+        assert relevance_details.recent_failures is not None
+        assert [failure.timestamp.hour for failure in relevance_details.recent_failures] == [10]
+        assert relevance_details.score_distribution == contracts.ScoreHistogram(
+            scale=contracts.ScoreScale(min=1, max=5),
+            buckets=[
+                contracts.ScoreBucket(label="1", count=1),
+                contracts.ScoreBucket(label="2", count=0),
+                contracts.ScoreBucket(label="3", count=0),
+                contracts.ScoreBucket(label="4", count=3),
+                contracts.ScoreBucket(label="5", count=1),
+            ],
+        )
+        assert fraction_details.score_distribution is not None
+        assert [bucket.count for bucket in fraction_details.score_distribution.buckets] == [
+            1,
+            0,
+            0,
+            1,
+            0,
+            0,
+            1,
+            1,
+            0,
+            1,
+        ]
