@@ -132,7 +132,7 @@ def blocked_access_for_subscribed_dashboard_tile(
     uac = user_access_control or UserAccessControl(user=user, team=team)
     if uac.is_organization_admin:
         return None
-    if not dashboard_has_active_full_subscription(team_id=team.id, dashboard_id=dashboard_id):
+    if not dashboard_has_active_full_subscription(dashboard_id):
         return None
     blocked = blocked_access_for_user(user, team, [query])
     if not blocked:

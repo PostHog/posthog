@@ -2726,7 +2726,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
             return
         if is_publicly_shared(instance):
             exposure = "publicly shared"
-        elif dashboard_has_active_full_subscription(team_id=instance.team_id, dashboard_id=instance.id):
+        elif dashboard_has_active_full_subscription(instance.id):
             exposure = "delivered by a subscription"
         else:
             return

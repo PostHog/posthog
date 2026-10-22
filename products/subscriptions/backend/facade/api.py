@@ -140,14 +140,14 @@ def dashboard_ids_with_subscriptions(dashboard_ids: Collection[int]) -> set[int]
     )
 
 
-def insight_has_active_subscription(*, team_id: int, insight_id: int) -> bool:
+def insight_has_active_subscription(insight_id: int) -> bool:
     """Whether an enabled subscription delivers this insight, directly or as a dashboard tile."""
-    return queries.insight_has_active_subscription(team_id=team_id, insight_id=insight_id)
+    return queries.insight_has_active_subscription(insight_id)
 
 
-def dashboard_has_active_full_subscription(*, team_id: int, dashboard_id: int) -> bool:
+def dashboard_has_active_full_subscription(dashboard_id: int) -> bool:
     """Whether an enabled subscription delivers every insight on this dashboard."""
-    return queries.dashboard_has_active_full_subscription(team_id=team_id, dashboard_id=dashboard_id)
+    return queries.dashboard_has_active_full_subscription(dashboard_id)
 
 
 def blocked_access_for_subscribed_dashboard_tile(

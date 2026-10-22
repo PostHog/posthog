@@ -896,10 +896,7 @@ class InsightSerializer(InsightBasicSerializer):
             and instance.team.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL)
             # org admins have full access, so skip the gate for a faster save
             and not (self.user_access_control and self.user_access_control.is_organization_admin)
-            and (
-                is_publicly_shared(instance)
-                or insight_has_active_subscription(team_id=instance.team_id, insight_id=instance.id)
-            )
+            and (is_publicly_shared(instance) or insight_has_active_subscription(instance.id))
         ):
             blocked = blocked_access_for_user(self.context["request"].user, instance.team, [new_query])
             if blocked:

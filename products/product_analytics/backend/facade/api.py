@@ -233,10 +233,7 @@ def save_saved_insight_query(
         if (
             insight.team.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL)
             and not access_control.is_organization_admin
-            and (
-                is_publicly_shared(insight)
-                or insight_has_active_subscription(team_id=insight.team_id, insight_id=insight.id)
-            )
+            and (is_publicly_shared(insight) or insight_has_active_subscription(insight.id))
         ):
             blocked = blocked_access_for_user(user, insight.team, [query])
             if blocked:
