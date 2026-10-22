@@ -16,7 +16,6 @@ use crate::settlement::{Commit, Settlement};
 pub(crate) struct ContinuousPolling {
     collector: Collector,
     settlement: Arc<dyn Settlement>,
-    outstanding: Outstanding,
     uncommitted: UncommittedCharges,
     processed: ProcessedTimestamps,
     limits: ChargeLimit,
@@ -30,7 +29,6 @@ impl ContinuousPolling {
         Self {
             collector: Collector::new(parts.limits),
             settlement: parts.settlement,
-            outstanding: Outstanding::default(),
             uncommitted: UncommittedCharges::default(),
             processed: ProcessedTimestamps::new(parts.group_id),
             limits,
@@ -69,12 +67,11 @@ impl PollingStrategy for ContinuousPolling {
                 completion.offsets.len()
             );
         }
-        let Some(topic_partition) = self.outstanding.completed(completion) else {
-            counter!("ingestion_consumer_stale_group_completions_total").increment(1);
+        let Some(topic_partition) = self.uncommitted.topic_partition(completion.partition) else {
             return Ok(());
         };
         self.settlement
-            .settle_run(&topic_partition, completion.generation, &completion.offsets)?;
+            .settle_run(topic_partition, completion.generation, &completion.offsets)?;
         counter!("ingestion_consumer_messages_processed_total")
             .increment(completion.offsets.len() as u64);
         self.commit_due = true;
@@ -87,26 +84,30 @@ impl PollingStrategy for ContinuousPolling {
 
     fn revoked(&mut self, topic_partitions: &[TopicPartition]) {
         let building = self.collector.remove_partitions(topic_partitions) as u64;
-        let in_flight = self.outstanding.revoked(topic_partitions);
         self.uncommitted.revoked(topic_partitions);
         self.processed.revoked(topic_partitions);
-        report_revoked(building + in_flight);
+        report_revoked(building);
     }
 
     fn shutdown(&mut self) {
         self.accepting_new_batches = false;
+        self.commit_due = true;
         self.collector.discard();
     }
 
     fn submitted(&mut self, poll: InFlightPoll) {
-        self.outstanding.submitted(&poll);
         self.uncommitted.charged(&poll);
         self.processed.submitted(&poll);
     }
 
     fn next_step(&mut self, now: Instant) -> Option<Step> {
         if std::mem::take(&mut self.commit_due) {
-            if let Some(commit) = self.settlement.take_due(now.into_std()) {
+            let commit = if self.accepting_new_batches {
+                self.settlement.take_due(now.into_std())
+            } else {
+                self.settlement.take_all()
+            };
+            if let Some(commit) = commit {
                 self.uncommitted.committed(&commit);
                 self.processed.committed(&commit);
                 return Some(Step::Commit(commit));
@@ -115,73 +116,7 @@ impl PollingStrategy for ContinuousPolling {
         if let Some(collected) = self.collector.take_ready(now) {
             return Some(Step::Submit(collected));
         }
-        (!self.accepting_new_batches && self.outstanding.is_empty()).then_some(Step::Stop)
-    }
-}
-
-#[derive(Default)]
-struct Outstanding {
-    partitions: HashMap<Partition, OutstandingPartition>,
-}
-
-struct OutstandingPartition {
-    topic_partition: TopicPartition,
-    generation: u64,
-    messages: u64,
-}
-
-impl Outstanding {
-    fn is_empty(&self) -> bool {
-        self.partitions.is_empty()
-    }
-
-    /// A new generation replaces the partition's count: completions of the
-    /// old one are stale.
-    fn submitted(&mut self, poll: &InFlightPoll) {
-        for (topic_partition, deliveries) in &poll.partitions {
-            let partition = self
-                .partitions
-                .entry(Partition(topic_partition.partition))
-                .or_insert_with(|| OutstandingPartition {
-                    topic_partition: topic_partition.clone(),
-                    generation: deliveries.generation,
-                    messages: 0,
-                });
-            if partition.generation != deliveries.generation {
-                partition.generation = deliveries.generation;
-                partition.messages = 0;
-            }
-            partition.messages += u64::from(deliveries.delivered);
-        }
-    }
-
-    /// Returns the partition when the completion belongs to its current
-    /// generation.
-    fn completed(&mut self, completion: &GroupCompletion) -> Option<TopicPartition> {
-        let partition = self.partitions.get_mut(&completion.partition)?;
-        if partition.generation != completion.generation {
-            return None;
-        }
-        partition.messages = partition
-            .messages
-            .saturating_sub(completion.offsets.len() as u64);
-        let topic_partition = partition.topic_partition.clone();
-        if partition.messages == 0 {
-            self.partitions.remove(&completion.partition);
-        }
-        Some(topic_partition)
-    }
-
-    /// Returns the messages dropped.
-    fn revoked(&mut self, revoked: &[TopicPartition]) -> u64 {
-        revoked
-            .iter()
-            .filter_map(|topic_partition| {
-                self.partitions
-                    .remove(&Partition(topic_partition.partition))
-            })
-            .map(|partition| partition.messages)
-            .sum()
+        (!self.accepting_new_batches && self.uncommitted.is_empty()).then_some(Step::Stop)
     }
 }
 
@@ -248,9 +183,10 @@ impl ProcessedTimestamps {
     }
 }
 
+/// Keyed by partition number, because a completion carries no topic.
 #[derive(Default)]
 struct UncommittedCharges {
-    partitions: HashMap<TopicPartition, Charge>,
+    partitions: HashMap<Partition, (TopicPartition, Charge)>,
     total: Charge,
 }
 
@@ -259,16 +195,33 @@ impl UncommittedCharges {
         self.total
     }
 
+    fn is_empty(&self) -> bool {
+        self.total == Charge::ZERO
+    }
+
+    /// `None` once the partition is revoked, until its next charge.
+    fn topic_partition(&self, partition: Partition) -> Option<&TopicPartition> {
+        self.partitions
+            .get(&partition)
+            .map(|(topic_partition, _)| topic_partition)
+    }
+
     fn charged(&mut self, poll: &InFlightPoll) {
         for (topic_partition, &charge) in &poll.uncommitted {
-            let previous = self.partitions.insert(topic_partition.clone(), charge);
-            self.replace(previous, charge);
+            let previous = self.partitions.insert(
+                Partition(topic_partition.partition),
+                (topic_partition.clone(), charge),
+            );
+            self.replace(previous.map(|(_, charge)| charge), charge);
         }
     }
 
     fn committed(&mut self, commit: &Commit) {
         for (topic_partition, &charge) in &commit.uncommitted {
-            if let Some(partition) = self.partitions.get_mut(topic_partition) {
+            if let Some((_, partition)) = self
+                .partitions
+                .get_mut(&Partition(topic_partition.partition))
+            {
                 let previous = std::mem::replace(partition, charge);
                 self.replace(Some(previous), charge);
             }
@@ -277,8 +230,10 @@ impl UncommittedCharges {
 
     fn revoked(&mut self, revoked: &[TopicPartition]) {
         for topic_partition in revoked {
-            let previous = self.partitions.remove(topic_partition);
-            self.replace(previous, Charge::ZERO);
+            let previous = self
+                .partitions
+                .remove(&Partition(topic_partition.partition));
+            self.replace(previous.map(|(_, charge)| charge), Charge::ZERO);
         }
     }
 
