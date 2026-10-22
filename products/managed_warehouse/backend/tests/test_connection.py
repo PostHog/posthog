@@ -12,7 +12,7 @@ from django.test.utils import CaptureQueriesContext
 from parameterized import parameterized
 
 from posthog.hogql.direct_connection import get_direct_connection_source
-from posthog.hogql.errors import ExposedHogQLError
+from posthog.hogql.errors import ExposedHogQLError, QueryError
 from posthog.hogql.query import HogQLQueryExecutor
 
 from posthog.models import Organization, Team
@@ -50,6 +50,7 @@ from products.managed_warehouse.backend.models import DuckgresServer, ManagedWar
 from products.managed_warehouse.backend.presentation import views as managed_warehouse
 from products.warehouse_sources.backend.facade.models import (
     MANAGED_WAREHOUSE_PROJECT_READER_CREDENTIAL_KIND,
+    DataWarehouseCredential,
     DataWarehouseTable,
     ExternalDataSchema,
     ExternalDataSource,
@@ -751,22 +752,43 @@ class TestReconcileManagedWarehouseTables:
         team = Team.objects.create(organization=org)
         source = _ensure(team)
         name = "ext_db__lake.billing.invoices"
-        ExternalDataSchema.objects.create(team=team, source=source, name=name, should_sync=True)
+        shared_names = ["ext_db__lake.billing.shared_a", "ext_db__lake.billing.shared_b"]
+        for schema_name in [name, *shared_names]:
+            ExternalDataSchema.objects.create(team=team, source=source, name=schema_name, should_sync=True)
         reconcile_managed_trino_schemas(
             source_id=source.id,
             source_schemas=[
                 SourceSchema(
-                    name=name,
+                    name=schema_name,
                     supports_incremental=False,
                     supports_append=False,
                     columns=[("id", "bigint", False)],
                     source_catalog="ext_db__lake",
                     source_schema="billing",
-                    source_table_name="invoices",
+                    source_table_name=schema_name.rsplit(".", 1)[1],
                 )
+                for schema_name in [name, *shared_names]
             ],
             team_id=team.id,
+            table_locations={
+                name: "s3://example-bucket/dlt/modeling/eu_invoices",
+                **dict.fromkeys(shared_names, "s3://example-bucket/dlt/modeling/eu_shared"),
+            },
         )
+        credential = DataWarehouseCredential.objects.create(team=team, access_key="key", access_secret="secret")
+        for warehouse_name, url_pattern in [
+            ("eu_invoices", "https://example-bucket.s3.eu-central-1.amazonaws.com/dlt/modeling/eu_invoices/"),
+            ("eu_shared", "s3://example-bucket/dlt/modeling/eu_shared"),
+            ("eu_unmapped", "https://example-bucket.s3.amazonaws.com/dlt/modeling/eu_unmapped"),
+        ]:
+            DataWarehouseTable.objects.create(
+                team=team,
+                name=warehouse_name,
+                format=DataWarehouseTable.TableFormat.Delta,
+                url_pattern=url_pattern,
+                credential=credential,
+                columns={"id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "schema_valid": True}},
+            )
         membership = ManagedWarehouseTeamMembership(
             team_id=team.pk,
             organization_id=str(org.pk),
@@ -800,8 +822,25 @@ class TestReconcileManagedWarehouseTables:
                 expansion_mode=TrinoExpansionMode.DJANGO,
                 bypass_warehouse_access_control=True,
             )
+            mapped = compile_hogql_to_trino_sql(
+                team.pk,
+                HogQLQuery(query="SELECT count() FROM eu_invoices"),
+                team=team,
+                expansion_mode=TrinoExpansionMode.DJANGO,
+                bypass_warehouse_access_control=True,
+            )
+            for unmapped in ("eu_shared", "eu_unmapped"):
+                with pytest.raises(QueryError, match="TRINO_TABLE_LOCATOR_MISSING"):
+                    compile_hogql_to_trino_sql(
+                        team.pk,
+                        HogQLQuery(query=f"SELECT count() FROM {unmapped}"),
+                        team=team,
+                        expansion_mode=TrinoExpansionMode.DJANGO,
+                        bypass_warehouse_access_control=True,
+                    )
 
         assert 'FROM "ext_db__lake"."billing"."invoices"' in compiled.sql
+        assert 'FROM "ext_db__lake"."billing"."invoices"' in mapped.sql
         assert not Database.create_for(team=team).has_table(name)
         assert Database.create_for(team=team, connection_id=str(source.id)).has_table(name)
 
@@ -822,6 +861,7 @@ class TestReconcileManagedWarehouseTables:
             [("org_example",), ("ext_db__lake",)],
             [("posthog", "events")],
             [("posthog", "events", "id", "bigint", "YES")],
+            [("CREATE TABLE t (\n   id bigint\n)\nWITH (\n   location = 's3://bucket/events/'\n)",)],
         ]
         connection = MagicMock(catalog="org_example")
         connection.cursor.return_value = cursor
@@ -844,6 +884,8 @@ class TestReconcileManagedWarehouseTables:
         assert external.table is not None
         assert external.table.name == "ext_db__lake.posthog.events"
         assert external.table.options["direct_trino_catalog"] == "ext_db__lake"
+        assert external.table.options["direct_trino_location"] == "s3://bucket/events"
+        assert "direct_trino_location" not in schema.table.options
         source.refresh_from_db()
         assert source.job_inputs == {}
         assert source.is_dynamic_managed_warehouse

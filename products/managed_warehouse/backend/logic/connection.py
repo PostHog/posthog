@@ -420,6 +420,7 @@ def _reconcile_managed_warehouse_source(*, team_id: int, organization_id: str | 
 
     excluded_schemas = internal_schemas()
     unavailable_catalogs: frozenset[str] = frozenset()
+    table_locations: dict[str, str] = {}
 
     try:
         if use_trino:
@@ -430,6 +431,7 @@ def _reconcile_managed_warehouse_source(*, team_id: int, organization_id: str | 
             trino_discovery = discover_managed_trino_schemas(str(organization_id), team_id)
             discovered = trino_discovery.schemas
             unavailable_catalogs = trino_discovery.unavailable_catalogs
+            table_locations = trino_discovery.table_locations
         else:
             discovered = _discover_postgres_schemas(source, organization_id, team_id, source_api_version)
     except Exception:
@@ -485,6 +487,7 @@ def _reconcile_managed_warehouse_source(*, team_id: int, organization_id: str | 
                 source_schemas=source_schemas,
                 team_id=team_id,
                 retained_catalogs=unavailable_catalogs,
+                table_locations=table_locations,
             )
         else:
             reconcile_postgres_schemas(source=source, source_schemas=source_schemas, team_id=team_id)
