@@ -32,10 +32,14 @@ import {
     Team,
 } from '../../types'
 import { CdpInternalEventSchema } from '../schema'
+import { counterHogflowCohortLookupFailure } from '../services/hogflows/actions/conditional_branch'
+import { BatchCohortMembership } from '../services/hogflows/batch-cohort-membership'
 import {
+    bytecodeReferencesCohorts,
     hasEventOrActionTarget,
     matchesWaitUntilCondition,
     runFilterBytecode,
+    waitConditionReferencesCohorts,
 } from '../services/hogflows/hogflow-utils'
 import { CyclotronPerson, HogFlowInvocationContext, HogFunctionInvocationGlobals, PinnedConversionGoal } from '../types'
 import {
@@ -324,10 +328,13 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             return fg
         }
 
+        // Shared by the watcher and parked-job paths, so a person both paths check is looked up once.
+        const cohortMembership = new BatchCohortMembership(this.cohortMembershipRepository)
+
         // Claimed before the parked-job work and independently of it: a watcher's run may have
         // finished long ago, so gating this on the flow still having something parked would put back
         // exactly the blind spot watchers exist to remove.
-        const conversionsCounted = await this.claimConversionWatchers(indexed, filterGlobalsFor)
+        const conversionsCounted = await this.claimConversionWatchers(indexed, filterGlobalsFor, cohortMembership)
         counterHogflowMatcherConversionsCounted.inc(conversionsCounted)
 
         // Build the set of actionable flows from the in-memory hogflow cache (same pattern as
@@ -361,22 +368,38 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         }
         counterHogflowMatcherCandidatesEvaluated.inc(candidates.length)
 
-        const matchedJobs: MatchedJob[] = []
-        for (const candidate of candidates) {
+        const prepared = candidates.flatMap((candidate) => {
             const hogflow = hogflows[candidate.functionId]
             if (!hogflow) {
-                continue
+                return []
             }
-
             const candidateGlobals = collectCandidateGlobals(candidate, byDistinctId, byPersonId)
             if (candidateGlobals.length === 0) {
-                continue
+                return []
             }
-
             const action = candidate.actionId
                 ? hogflow.actions.find((a: HogFlowAction) => a.id === candidate.actionId)
                 : undefined
+            const waitNeedsCohorts = action?.type === 'wait_until_condition' && waitConditionReferencesCohorts(action)
+            const conversionNeedsCohorts = conversionEventsReferenceCohorts(hogflow)
+            return [{ candidate, hogflow, action, candidateGlobals, waitNeedsCohorts, conversionNeedsCohorts }]
+        })
 
+        await cohortMembership.load(
+            prepared
+                .filter((p) => p.waitNeedsCohorts || p.conversionNeedsCohorts)
+                .flatMap((p) => p.candidateGlobals.map((g) => ({ teamId: p.candidate.teamId, personId: g.person?.id })))
+        )
+
+        const matchedJobs: MatchedJob[] = []
+        for (const {
+            candidate,
+            hogflow,
+            action,
+            candidateGlobals,
+            waitNeedsCohorts,
+            conversionNeedsCohorts,
+        } of prepared) {
             // Any single matching event is enough. Stop early once both flags are set.
             let stepMatched = false
             let stepMatchedEventName: string | undefined
@@ -386,14 +409,24 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             let conversionDistinctId: string | undefined
             let conversionEventName: string | undefined
             let conversionEventUuid: string | undefined
+            let cohortLookupSkipped = false
             for (const globals of candidateGlobals) {
-                const filterGlobals = filterGlobalsFor(globals)
+                const cohortIds =
+                    waitNeedsCohorts || conversionNeedsCohorts
+                        ? cohortMembership.cohortIdsFor(candidate.teamId, globals.person?.id)
+                        : undefined
+                // Without membership a cohort check can only throw, so only the checks that need no
+                // membership run. They are OR'd with the cohort checks, so their match is still real.
+                const membershipUnknown = cohortIds === null
+                cohortLookupSkipped ||= membershipUnknown
+                const filterGlobals = withCohortIds(filterGlobalsFor(globals), cohortIds)
                 if (!stepMatched && action?.type === 'wait_until_condition') {
                     if (
-                        await matchesWaitUntilCondition(action, filterGlobals, {
-                            hogFlowId: hogflow.id,
-                            actionId: action.id,
-                        })
+                        await matchesWaitUntilCondition(
+                            membershipUnknown ? waitWithoutCohortChecks(action) : action,
+                            filterGlobals,
+                            { hogFlowId: hogflow.id, actionId: action.id }
+                        )
                     ) {
                         stepMatched = true
                         stepMatchedEventName = globals.event.event
@@ -401,7 +434,10 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                         stepMatchedEventTimestamp = globals.event.timestamp
                     }
                 }
-                if (!conversionMatched && (await this.evaluateConversionEvents(hogflow, filterGlobals))) {
+                if (
+                    !conversionMatched &&
+                    (await this.evaluateConversionEvents(hogflow, filterGlobals, membershipUnknown))
+                ) {
                     conversionMatched = true
                     // Remember who converted (and via which event) so we can emit $workflows_conversion.
                     conversionDistinctId = globals.event.distinct_id
@@ -411,6 +447,9 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                 if (stepMatched && conversionMatched) {
                     break
                 }
+            }
+            if (cohortLookupSkipped) {
+                counterHogflowCohortLookupFailure.labels('matcher_skipped').inc()
             }
 
             // Collect a job when its wait step matched OR a conversion matched. Conversion matches are
@@ -449,11 +488,18 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         })
     }
 
-    private async evaluateConversionEvents(hogflow: HogFlow, filterGlobals: FilterGlobals): Promise<boolean> {
+    private async evaluateConversionEvents(
+        hogflow: HogFlow,
+        filterGlobals: FilterGlobals,
+        skipCohortChecks: boolean
+    ): Promise<boolean> {
         const conversionEvents = hogflow.conversion?.events ?? []
         const context = { hogFlowId: hogflow.id }
         for (const eventConfig of conversionEvents) {
             if (!hasEventOrActionTarget(eventConfig)) {
+                continue
+            }
+            if (skipCohortChecks && bytecodeReferencesCohorts(eventConfig.filters?.bytecode)) {
                 continue
             }
             if (await runFilterBytecode(eventConfig.filters?.bytecode, filterGlobals, context)) {
@@ -614,7 +660,8 @@ export class CdpHogflowSubscriptionMatcherConsumer<
      */
     private async claimConversionWatchers(
         indexed: IndexedBatch,
-        filterGlobalsFor: (globals: HogFunctionInvocationGlobals) => FilterGlobals
+        filterGlobalsFor: (globals: HogFunctionInvocationGlobals) => FilterGlobals,
+        cohortMembership: BatchCohortMembership
     ): Promise<number> {
         const { distinctTeamIds, distinctIds, personTeamIds, personIds, byDistinctId, byPersonId } = indexed
 
@@ -641,6 +688,24 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         }
         counterHogflowMatcherWatchersEvaluated.inc(found.rows.length)
 
+        const globalsByRow = new Map(
+            found.rows.map((row) => [
+                row,
+                collectCandidateGlobals(
+                    { teamId: row.team_id, distinctId: row.distinct_id, personId: row.person_id },
+                    byDistinctId,
+                    byPersonId
+                ),
+            ])
+        )
+        await cohortMembership.load(
+            found.rows
+                .filter((row) => goalReferencesCohorts(row.goal))
+                .flatMap((row) =>
+                    (globalsByRow.get(row) ?? []).map((g) => ({ teamId: row.team_id, personId: g.person?.id }))
+                )
+        )
+
         const converted: {
             row: any
             distinctId?: string
@@ -655,13 +720,19 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                 counterHogflowMatcherWatchersSkipped.inc()
                 continue
             }
-            const candidateGlobals = collectCandidateGlobals(
-                { teamId: row.team_id, distinctId: row.distinct_id, personId: row.person_id },
-                byDistinctId,
-                byPersonId
-            )
-            for (const globals of candidateGlobals) {
-                const conversionType = await matchesPinnedGoal(row.goal, filterGlobalsFor(globals), row.function_id)
+            const needsCohorts = goalReferencesCohorts(row.goal)
+            for (const globals of globalsByRow.get(row) ?? []) {
+                const cohortIds = needsCohorts
+                    ? cohortMembership.cohortIdsFor(row.team_id, globals.person?.id)
+                    : undefined
+                if (cohortIds === null) {
+                    counterHogflowCohortLookupFailure.labels('matcher_skipped').inc()
+                }
+                const conversionType = await matchesPinnedGoal(
+                    cohortIds === null ? goalWithoutCohortChecks(row.goal) : row.goal,
+                    withCohortIds(filterGlobalsFor(globals), cohortIds),
+                    row.function_id
+                )
                 if (conversionType) {
                     converted.push({
                         row,
@@ -1313,6 +1384,51 @@ function hasWaitUntilOrConversion(hogflow: HogFlow): boolean {
     }
     const conversionEvents = hogflow.conversion?.events
     return Array.isArray(conversionEvents) && conversionEvents.length > 0
+}
+
+function conversionEventsReferenceCohorts(hogflow: HogFlow): boolean {
+    return (hogflow.conversion?.events ?? []).some(
+        (eventConfig) => hasEventOrActionTarget(eventConfig) && bytecodeReferencesCohorts(eventConfig.filters?.bytecode)
+    )
+}
+
+function goalReferencesCohorts(goal: PinnedConversionGoal | null | undefined): boolean {
+    if (!goal || typeof goal !== 'object') {
+        return false
+    }
+    return bytecodeReferencesCohorts(goal.properties) || (goal.events ?? []).some(bytecodeReferencesCohorts)
+}
+
+function waitWithoutCohortChecks(
+    action: Extract<HogFlowAction, { type: 'wait_until_condition' }>
+): Extract<HogFlowAction, { type: 'wait_until_condition' }> {
+    const condition = action.config.condition
+    return {
+        ...action,
+        config: {
+            ...action.config,
+            events: (action.config.events ?? []).filter(
+                (eventConfig) => !bytecodeReferencesCohorts(eventConfig.filters?.bytecode)
+            ),
+            condition: bytecodeReferencesCohorts(
+                (condition?.filters as { bytecode?: unknown } | null | undefined)?.bytecode
+            )
+                ? { filters: null }
+                : condition,
+        },
+    }
+}
+
+function goalWithoutCohortChecks(goal: PinnedConversionGoal): PinnedConversionGoal {
+    return {
+        ...(bytecodeReferencesCohorts(goal.properties) ? {} : { properties: goal.properties }),
+        events: (goal.events ?? []).filter((bytecode) => !bytecodeReferencesCohorts(bytecode)),
+    }
+}
+
+// The inCohort and notInCohort STL functions read the cohort_ids global.
+function withCohortIds(filterGlobals: FilterGlobals, cohortIds: number[] | null | undefined): FilterGlobals {
+    return cohortIds ? { ...filterGlobals, cohort_ids: cohortIds } : filterGlobals
 }
 
 // A pinned goal converts when the property branch matches, or any event branch does. The two are

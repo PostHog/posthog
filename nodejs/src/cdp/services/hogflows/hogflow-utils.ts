@@ -185,6 +185,37 @@ export async function runFilterBytecode(
     }
 }
 
+// Operation.CALL_GLOBAL from @posthog/hogvm, which is a const enum and can't be imported
+// under isolatedModules
+const CALL_GLOBAL = 2
+
+// Scans the compiled bytecode so expression-authored inCohort(...) calls count too. Matches the
+// call encoding [CALL_GLOBAL, name, argCount] rather than the bare name: string constants and
+// property chains put their text in the same flat array, and a stray match here would couple an
+// unrelated condition's run to the behavioral cohorts DB.
+export function bytecodeReferencesCohorts(bytecode: unknown): boolean {
+    if (!Array.isArray(bytecode)) {
+        return false
+    }
+    return bytecode.some(
+        (op, index) =>
+            (op === 'inCohort' || op === 'notInCohort') &&
+            bytecode[index - 1] === CALL_GLOBAL &&
+            typeof bytecode[index + 1] === 'number'
+    )
+}
+
+export function waitConditionReferencesCohorts(
+    action: Extract<HogFlowAction, { type: 'wait_until_condition' }>
+): boolean {
+    return (
+        (action.config.events ?? []).some((eventConfig) => bytecodeReferencesCohorts(eventConfig.filters?.bytecode)) ||
+        bytecodeReferencesCohorts(
+            (action.config.condition?.filters as { bytecode?: unknown } | null | undefined)?.bytecode
+        )
+    )
+}
+
 // `events` and the property-based `condition` are OR'd: a step can wait on either,
 // and either matching wakes the job. The condition is evaluated on every incoming
 // event, which is what makes property-based waits event-driven rather than polled.

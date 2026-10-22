@@ -53,6 +53,22 @@ describe('PostgresCohortMembershipRepository', () => {
         expect(result.sort()).toEqual([101, 104])
     })
 
+    it('returns the cohorts of each requested person in one lookup, scoped to the team', async () => {
+        const teamId = 2
+        const member = new UUIDT().toString()
+        const personWithoutRows = new UUIDT().toString()
+        await insertCohortMemberships(postgres, [
+            { team_id: teamId, cohort_id: 101, person_id: member, in_cohort: true },
+            { team_id: teamId, cohort_id: 102, person_id: member, in_cohort: false },
+            { team_id: teamId + 1, cohort_id: 103, person_id: member, in_cohort: true },
+            { team_id: teamId + 1, cohort_id: 103, person_id: personWithoutRows, in_cohort: true },
+        ])
+
+        const result = await repository.getMemberCohortIdsForPersons(teamId, [member, personWithoutRows])
+
+        expect(Object.fromEntries(result)).toEqual({ [member]: [101], [personWithoutRows]: [] })
+    })
+
     it('returns an empty set for a person the pipeline never wrote a row for', async () => {
         const result = await repository.getMemberCohortIds(2, new UUIDT().toString())
 

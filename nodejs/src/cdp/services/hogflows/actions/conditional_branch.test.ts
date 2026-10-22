@@ -198,6 +198,10 @@ describe('action.conditional_branch', () => {
                 return Promise.resolve(this.memberCohortIds)
             }
 
+            getMemberCohortIdsForPersons(): Promise<Map<string, number[]>> {
+                return Promise.reject(new Error('not used by branches'))
+            }
+
             getCohortMembership(): Promise<StoredCohortMembership | null> {
                 return Promise.reject(new Error('not used by branches'))
             }
@@ -376,6 +380,7 @@ describe('action.conditional_branch', () => {
             }
             const stubCohortMembershipRepository: CohortMembershipRepository = {
                 getMemberCohortIds: () => Promise.resolve([]),
+                getMemberCohortIdsForPersons: () => Promise.resolve(new Map()),
                 getCohortMembership: () => Promise.resolve(null),
             }
             handler = new ConditionalBranchHandler(stubCohortMembershipRepository)

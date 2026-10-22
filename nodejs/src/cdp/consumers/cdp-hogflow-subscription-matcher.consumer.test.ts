@@ -54,6 +54,11 @@ const personPropertyBytecode = (key: string, value: string): any[] => [
     11,
 ]
 
+// Bytecode for inCohort(42, cohort_ids), which a realtime cohort filter compiles to.
+const COHORT_ID = 42
+const inCohortBytecode = (): any[] => ['_H', 1, 33, COHORT_ID, 32, 'cohort_ids', 1, 1, 2, 'inCohort', 2]
+const COHORT_PERSON_UUID = '0192a5b4-0000-7000-8000-000000000001'
+
 const makeHogFlow = (overrides: Partial<HogFlow> & { id: string; waitUntil?: boolean }): HogFlow => {
     const { id, team_id, waitUntil = true, ...rest } = overrides
     const waitAction = {
@@ -127,6 +132,8 @@ class MatcherUnderTest extends CdpHogflowSubscriptionMatcherConsumer {
     public moveRows: MockRow[] = []
     public resumeRows: { id: string; status: string; state?: Buffer | null }[] = []
     public updateRowCount = 0
+    // The cohorts every looked-up person is a member of, or the error the lookup fails with.
+    public memberCohortIds: number[] | Error = []
 
     constructor() {
         // Non-empty URL satisfies the constructor's fail-fast guard; the real Pool (mocked
@@ -176,6 +183,13 @@ class MatcherUnderTest extends CdpHogflowSubscriptionMatcherConsumer {
                 })
             ),
         }
+        ;(this as any).cohortMembershipRepository = {
+            getMemberCohortIdsForPersons: jest.fn((_teamId: number, personUuids: string[]) =>
+                this.memberCohortIds instanceof Error
+                    ? Promise.reject(this.memberCohortIds)
+                    : Promise.resolve(new Map(personUuids.map((id) => [id, this.memberCohortIds as number[]])))
+            ),
+        }
         // Stub hogFlowManager
         ;(this as any).hogFlowManager = {
             getHogFlowsForTeams: jest.fn().mockResolvedValue({}),
@@ -198,6 +212,10 @@ class MatcherUnderTest extends CdpHogflowSubscriptionMatcherConsumer {
 
     public get queueAppMetricMock(): jest.Mock {
         return (this as any).hogFunctionMonitoringService.queueAppMetric
+    }
+
+    public get cohortLookupMock(): jest.Mock {
+        return (this as any).cohortMembershipRepository.getMemberCohortIdsForPersons
     }
 
     public get queueConversionEventMock(): jest.Mock {
@@ -1593,6 +1611,21 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
             )
         })
 
+        it.each<[string, number[] | Error, number]>([
+            ['a member of the goal cohort', [COHORT_ID], 1],
+            ['not a member of the goal cohort', [COHORT_ID + 1], 0],
+            ['a person whose membership lookup fails', new Error('behavioral cohorts DB unavailable'), 0],
+        ])('counts a cohort goal conversion for %s', async (_name, memberCohortIds, conversions) => {
+            matcher.memberCohortIds = memberCohortIds
+            matcher.watcherRows = [watcher({ person_id: COHORT_PERSON_UUID, goal: { properties: inCohortBytecode() } })]
+
+            await matcher.runWake([
+                makeGlobals({ person: { id: COHORT_PERSON_UUID, properties: {}, name: 'User 1', url: '' } }),
+            ])
+
+            expect(matcher.queueAppMetricMock).toHaveBeenCalledTimes(conversions)
+        })
+
         it('counts only the watchers the delete actually claimed', async () => {
             // Two instances can evaluate the same watcher in the same moment; the one whose DELETE
             // removed the row owns the count. Counting an unclaimed row would double-count the run.
@@ -1677,6 +1710,9 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
         const eventShapedCondition = {
             filters: { bytecode: eventBytecode('special_event'), events: [{ id: 'special_event' }] },
         }
+        const cohortCondition = {
+            filters: { bytecode: inCohortBytecode(), properties: [{ key: 'id', type: 'cohort', value: COHORT_ID }] },
+        }
 
         const wakeWith = (event: string, properties: Record<string, any> = {}): HogFunctionInvocationGlobals =>
             makeGlobals({ event: { ...makeGlobals({}).event, event, properties } })
@@ -1684,12 +1720,18 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
         const actionEvent = (): HogFunctionInvocationGlobals => wakeWith('action_event')
         const propertyEvent = (): HogFunctionInvocationGlobals => wakeWith('some_event', { plan: 'growth' })
         const unrelatedEvent = (): HogFunctionInvocationGlobals => wakeWith('unrelated_event', { plan: 'starter' })
+        const cohortPersonEvent = (event: string): HogFunctionInvocationGlobals => ({
+            ...wakeWith(event),
+            person: { id: COHORT_PERSON_UUID, properties: {}, name: 'User 1', url: '' },
+        })
 
         interface WakeCase {
             name: string
             config: Record<string, any>
             event: () => HogFunctionInvocationGlobals
             woken: boolean
+            // Set only for a wait that checks cohort membership. Every other wait must not look it up.
+            memberCohortIds?: number[] | Error
         }
 
         const cases: WakeCase[] = [
@@ -1754,7 +1796,35 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
                 event: () => wakeWith('special_event'),
                 woken: true,
             },
+            {
+                name: 'cohort condition + member of the cohort',
+                config: { condition: cohortCondition },
+                event: () => cohortPersonEvent('unrelated_event'),
+                memberCohortIds: [COHORT_ID],
+                woken: true,
+            },
+            {
+                name: 'event + cohort condition + matching event + failed membership lookup',
+                config: { events: [eventEntry], condition: cohortCondition },
+                event: () => cohortPersonEvent('wakeup_event'),
+                memberCohortIds: new Error('behavioral cohorts DB unavailable'),
+                woken: true,
+            },
             // ---- combinations that must NOT wake ----
+            {
+                name: 'cohort condition + not a member of the cohort',
+                config: { condition: cohortCondition },
+                event: () => cohortPersonEvent('unrelated_event'),
+                memberCohortIds: [COHORT_ID + 1],
+                woken: false,
+            },
+            {
+                name: 'cohort condition + failed membership lookup',
+                config: { condition: cohortCondition },
+                event: () => cohortPersonEvent('unrelated_event'),
+                memberCohortIds: new Error('behavioral cohorts DB unavailable'),
+                woken: false,
+            },
             {
                 name: 'event only + unrelated event',
                 config: { events: [eventEntry] },
@@ -1851,7 +1921,8 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
             expect(matcher.calls.find((c) => c.sql.startsWith('UPDATE cyclotron_jobs'))).toBeDefined()
         })
 
-        it.each(cases)('$name -> woken: $woken', async ({ config, event, woken }) => {
+        it.each(cases)('$name -> woken: $woken', async ({ config, event, woken, memberCohortIds }) => {
+            matcher.memberCohortIds = memberCohortIds ?? []
             matcher.findRows = [
                 {
                     id: 'job-1',
@@ -1894,6 +1965,7 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
             } else {
                 expect(update).toBeUndefined()
             }
+            expect(matcher.cohortLookupMock).toHaveBeenCalledTimes(memberCohortIds ? 1 : 0)
         })
     })
 

@@ -36,6 +36,7 @@ import { RerunJobManager } from './rerun/rerun-job.manager'
 import { RerunRequest } from './rerun/rerun-job.types'
 import { HogFlowAction } from './schema/hogflow'
 import { BatchExportHogFunctionService, NotFoundError, ParseError } from './services/batch-export-hog-function.service'
+import { CohortMembershipRepository } from './services/cohorts/cohort-membership-repository'
 import type { CyclotronV2JobProducer } from './services/cyclotron-v2'
 import { HogExecutorAsyncService, HogExecutorExecuteAsyncOptions } from './services/hog-executor-async.service'
 import { MAX_ASYNC_STEPS } from './services/hog-executor.service'
@@ -50,7 +51,7 @@ import { HogFlowExecutorService, createHogFlowInvocation } from './services/hogf
 import { HogFlowManagerService } from './services/hogflows/hogflow-manager.service'
 import { checkHogFlowQuotaLimits } from './services/hogflows/hogflow-quota-limiting'
 import { TRANSACTIONAL_EMAIL_EVENT } from './services/hogflows/hogflow-sensitivity'
-import { matchesWaitUntilCondition } from './services/hogflows/hogflow-utils'
+import { matchesWaitUntilCondition, waitConditionReferencesCohorts } from './services/hogflows/hogflow-utils'
 import { IdempotencyKeys } from './services/hogflows/idempotency-keys'
 import { WorkflowStepResumeSchema } from './services/hogflows/step-resume.service'
 import {
@@ -173,6 +174,7 @@ export class CdpApi {
     private hogFlowManager: HogFlowManagerService
 
     private hogFlowExecutor: HogFlowExecutorService
+    private cohortMembershipRepository: CohortMembershipRepository
     private hogWatcher: HogWatcherService
     private hogWatcherMirror: HogWatcherService
     private hogTransformer: HogTransformerService
@@ -212,6 +214,7 @@ export class CdpApi {
         this.hogExecutorAsync = services.hogExecutorAsync
         this.hogInputsService = services.hogInputsService
         this.hogFlowExecutor = services.hogFlowExecutor
+        this.cohortMembershipRepository = services.cohortMembershipRepository
         this.nativeDestinationExecutorService = services.nativeDestinationExecutorService
         this.segmentDestinationExecutorService = services.segmentDestinationExecutorService
         this.hogWatcher = services.hogWatcher
@@ -899,10 +902,30 @@ export class CdpApi {
                 ? compoundConfiguration.actions?.find((a: HogFlowAction) => a.id === current_action_id)
                 : undefined
             if (currentAction?.type === 'wait_until_condition' && invocation.state.currentAction) {
-                const matched = await matchesWaitUntilCondition(currentAction, filterGlobals, {
-                    hogFlowId: isNewHogFlow ? 'new' : id,
-                    actionId: currentAction.id,
-                })
+                // The matcher evaluates a cohort condition with the person's membership, so the test does too.
+                let waitFilterGlobals: typeof filterGlobals | null = filterGlobals
+                if (waitConditionReferencesCohorts(currentAction)) {
+                    const personId = globals.person?.id
+                    try {
+                        const cohortIds = personId
+                            ? await this.cohortMembershipRepository.getMemberCohortIds(team.id, personId)
+                            : []
+                        waitFilterGlobals = { ...filterGlobals, cohort_ids: cohortIds }
+                    } catch (error) {
+                        waitFilterGlobals = null
+                        logs.push({
+                            level: 'warn',
+                            timestamp: DateTime.now(),
+                            message: `Could not look up cohort membership for the wait conditions (${String(error)})`,
+                        })
+                    }
+                }
+                const matched =
+                    waitFilterGlobals !== null &&
+                    (await matchesWaitUntilCondition(currentAction, waitFilterGlobals, {
+                        hogFlowId: isNewHogFlow ? 'new' : id,
+                        actionId: currentAction.id,
+                    }))
                 if (matched) {
                     invocation.state.currentAction.eventMatched = true
                     invocation.state.currentAction.eventMatchedEvent = globals.event.event

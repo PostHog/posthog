@@ -6,7 +6,7 @@ import { CohortMembershipRepository } from '~/cdp/services/cohorts/cohort-member
 import { CyclotronJobInvocationHogFlow, CyclotronJobInvocationResult, HogFunctionFilters } from '~/cdp/types'
 import { filterFunctionInstrumented } from '~/cdp/utils/hog-function-filtering'
 
-import { findContinueAction, findNextAction, isEvaluableCondition } from '../hogflow-utils'
+import { bytecodeReferencesCohorts, findContinueAction, findNextAction, isEvaluableCondition } from '../hogflow-utils'
 import { ActionHandler, ActionHandlerOptions, ActionHandlerResult } from './action.interface'
 import { calculatedScheduledAt } from './delay'
 
@@ -45,9 +45,11 @@ export const counterHogflowRekeyWake = new Counter({
 // 'aborted' means every attempt failed and the run stopped. Sustained 'aborted' readings mean the
 // behavioral cohorts DB is unreachable from the workers, and every cohort branch is stopping runs.
 // 'exit_check_skipped' is a cohort trigger's exit check that could not run, so the run carried on.
+// 'matcher_skipped' is a matcher check of a parked wait or a conversion goal that could not run, so
+// that event did not wake the run or count a conversion.
 export const counterHogflowCohortLookupFailure = new Counter({
     name: 'cdp_hogflow_cohort_lookup_failure_total',
-    help: 'Cohort membership lookups that failed in a conditional_branch, a wait or a cohort trigger exit check, by outcome.',
+    help: 'Cohort membership lookups that failed in a conditional_branch, a wait, a cohort trigger exit check or the subscription matcher, by outcome.',
     labelNames: ['outcome'],
 })
 
@@ -233,25 +235,8 @@ function retryOrFailCohortLookup(
     throw error
 }
 
-// Operation.CALL_GLOBAL from @posthog/hogvm, which is a const enum and can't be imported
-// under isolatedModules
-const CALL_GLOBAL = 2
-
-// Scans the compiled bytecode so expression-authored inCohort(...) calls count too. Matches the
-// call encoding [CALL_GLOBAL, name, argCount] rather than the bare name: string constants and
-// property chains put their text in the same flat array, and a stray match here would couple an
-// unrelated condition's run to the behavioral cohorts DB.
 function conditionReferencesCohorts(condition: { filters?: unknown }): boolean {
-    const bytecode = (condition.filters as HogFunctionFilters | null | undefined)?.bytecode
-    if (!Array.isArray(bytecode)) {
-        return false
-    }
-    return bytecode.some(
-        (op, index) =>
-            (op === 'inCohort' || op === 'notInCohort') &&
-            bytecode[index - 1] === CALL_GLOBAL &&
-            typeof bytecode[index + 1] === 'number'
-    )
+    return bytecodeReferencesCohorts((condition.filters as HogFunctionFilters | null | undefined)?.bytecode)
 }
 
 // True when this wait is being evaluated at or past the max_wait_duration it parked against.
@@ -295,8 +280,9 @@ export async function checkConditions(
         // Loaded only when evaluation actually reaches a cohort condition, so a run whose earlier
         // condition matches never touches the behavioral cohorts DB. A lookup failure throws here
         // on purpose, and the handler retries and then aborts instead of guessing non-membership; the
-        // inCohort/notInCohort STL functions read the resulting cohort_ids global. The matcher does
-        // not watch cohort membership, so a wait gated on a cohort advances at its deadline.
+        // inCohort/notInCohort STL functions read the resulting cohort_ids global. The matcher checks a
+        // cohort condition on each event and person update, but not on a membership change, so a
+        // wait gated only on a cohort can still advance at its deadline.
         const cohortGlobals =
             loadMemberCohortIds && conditionReferencesCohorts(condition)
                 ? { cohort_ids: await loadMemberCohortIds() }

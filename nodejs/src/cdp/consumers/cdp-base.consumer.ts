@@ -14,6 +14,7 @@ import {
     createCdpCoreServices,
 } from '../cdp-services'
 import type { CdpConfig } from '../config'
+import { CohortMembershipRepository } from '../services/cohorts/cohort-membership-repository'
 import { HogExecutorAsyncService } from '../services/hog-executor-async.service'
 import { HogInputsService } from '../services/hog-inputs.service'
 import { HogFlowExecutorService } from '../services/hogflows/hogflow-executor.service'
@@ -58,6 +59,7 @@ export abstract class CdpConsumerBase<TConfig extends CdpConsumerBaseConfig = Cd
     hogExecutorAsync: HogExecutorAsyncService
     hogInputsService: HogInputsService
     hogFlowExecutor: HogFlowExecutorService
+    cohortMembershipRepository: CohortMembershipRepository
     hogMasker: HogMaskerService
     hogWatcher: HogWatcherService
     hogWatcherMirror: HogWatcherService
@@ -102,6 +104,7 @@ export abstract class CdpConsumerBase<TConfig extends CdpConsumerBaseConfig = Cd
         this.recipientsManager = services.recipientsManager
         this.recipientPreferencesService = services.recipientPreferencesService
         this.hogFlowExecutor = services.hogFlowExecutor
+        this.cohortMembershipRepository = services.cohortMembershipRepository
         this.emailService = services.emailService
         this.hogFunctionMonitoringService = services.hogFunctionMonitoringService
         this.cdpUsageReporter = services.cdpUsageReporter

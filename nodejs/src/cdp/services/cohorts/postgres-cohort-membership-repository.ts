@@ -45,6 +45,29 @@ export class PostgresCohortMembershipRepository implements CohortMembershipRepos
         return result.rows.map((row) => Number(row.cohort_id))
     }
 
+    async getMemberCohortIdsForPersons(teamId: number, personUuids: string[]): Promise<Map<string, number[]>> {
+        const memberCohortIds = new Map(personUuids.map((personUuid) => [personUuid.toLowerCase(), [] as number[]]))
+        if (memberCohortIds.size === 0) {
+            return memberCohortIds
+        }
+        const result = await this.withTimeout(
+            this.postgres.query<{ person_id: string; cohort_id: string }>(
+                PostgresUse.BEHAVIORAL_COHORTS_RW,
+                `SELECT person_id, cohort_id
+                 FROM cohort_membership
+                 WHERE team_id = $1
+                   AND person_id = ANY($2::uuid[])
+                   AND in_cohort = true`,
+                [teamId, [...memberCohortIds.keys()]],
+                'fetchCohortMembershipsForPersons'
+            )
+        )
+        for (const row of result.rows) {
+            memberCohortIds.get(row.person_id)?.push(Number(row.cohort_id))
+        }
+        return memberCohortIds
+    }
+
     async getCohortMembership(
         teamId: number,
         personUuid: string,
