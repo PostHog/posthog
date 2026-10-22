@@ -15,6 +15,8 @@ from posthog.schema import (
     DashboardFilter,
     DatabaseSchemaQuery,
     DatabaseSchemaQueryResponse,
+    DataTableNode,
+    DataVisualizationNode,
     DataWarehouseViewLink,
     HogLanguage,
     HogQLAutocomplete,
@@ -27,6 +29,7 @@ from posthog.schema import (
     HogQLVariable,
     HogQuery,
     HogQueryResponse,
+    InsightVizNode,
     QuerySchemaRoot,
     QueryTiming,
 )
@@ -53,7 +56,7 @@ from posthog.hogql.metadata import get_hogql_metadata
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.timings import HogQLTimings
 
-from posthog.clickhouse.query_tagging import get_query_tag_value, tag_queries
+from posthog.clickhouse.query_tagging import AccessMethod, get_query_tag_value, tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.dataclasses import frozen
 from posthog.event_usage import AnalyticsProps
@@ -61,21 +64,17 @@ from posthog.exceptions import DatabaseSchemaUnavailable
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import (
     NATIVE_EVENTS_CLUSTER_QUERY_TYPES,
-    NEVER_ENQUEUED_EXECUTION_MODES,
     CacheMissResponse,
     ExecutionMode,
     QueryResponse,
     QueryRunner,
     get_query_runner_or_none,
+    native_route_can_run,
     query_node_modifiers,
     unwrapped_source,
 )
 from posthog.models import Team, User
-from posthog.models.event.new_events_schema import (
-    events_route_is_explicit,
-    native_events_async_enabled,
-    native_events_cluster_ineligibility,
-)
+from posthog.models.event.new_events_schema import events_route_is_explicit, native_events_cluster_ineligibility
 from posthog.schema_migrations.upgrade import upgrade
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl, UserAccessControlError
@@ -499,11 +498,11 @@ def native_events_cluster_modifiers_for_user(
             return None
         node = getattr(node, "source", None)
     # A queued query would fail while async native execution is off, so it keeps the legacy cluster.
-    if execution_mode not in NEVER_ENQUEUED_EXECUTION_MODES and not native_events_async_enabled():
+    if not native_route_can_run(execution_mode):
         return None
-    runnable: object = query
-    while isinstance(runnable, BaseModel) and not isinstance(runnable, NATIVE_EVENTS_CLUSTER_QUERY_TYPES):
-        runnable = getattr(runnable, "source", None)
+    runnable: BaseModel = query
+    while isinstance(runnable, (InsightVizNode, DataTableNode, DataVisualizationNode)):
+        runnable = runnable.source
     if not isinstance(runnable, NATIVE_EVENTS_CLUSTER_QUERY_TYPES):
         return None
     modifiers = query_node_modifiers(query)
@@ -539,7 +538,7 @@ def native_events_cluster_modifiers_for_insight(
         team,
         user,
         query,
-        is_query_service=get_query_tag_value("access_method") == "personal_api_key",
+        is_query_service=get_query_tag_value("access_method") == AccessMethod.PERSONAL_API_KEY,
         execution_mode=execution_mode,
     )
 

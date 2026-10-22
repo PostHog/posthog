@@ -10,6 +10,8 @@ from parameterized import parameterized
 from posthog.schema import (
     ActorsQuery,
     EventsNode,
+    FunnelsActorsQuery,
+    FunnelsQuery,
     GroupsQuery,
     HogQLQuery,
     HogQLQueryModifiers,
@@ -76,6 +78,13 @@ class TestNewEventsClusterRouting(SimpleTestCase):
                 None,
             ),
             ("unsupported_kind", GroupsQuery(group_type_index=0), None),
+            (
+                "unsupported_actor_wrapper",
+                FunnelsActorsQuery(
+                    source=FunnelsQuery(series=[EventsNode(event="$pageview"), EventsNode(event="$pageleave")])
+                ),
+                None,
+            ),
             (
                 "explicit_schema_choice",
                 TrendsQuery(
