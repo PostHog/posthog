@@ -31,6 +31,9 @@ DEGRADED_SYNC_KEY = "degraded_sync"
 
 UNRESOLVED_DEPENDENCIES_KEY = "unresolved"
 
+# properties key on a TABLE node for a warehouse table that a notebook cell saves.
+NOTEBOOK_SOURCE_KEY = "notebook"
+
 MAX_SYNC_ERROR_LENGTH = 500
 
 

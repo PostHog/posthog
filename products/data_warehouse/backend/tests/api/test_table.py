@@ -476,13 +476,15 @@ class TestTable(APIBaseTest):
         table = DataWarehouseTable.objects.create(
             name="test_table", format="Parquet", team=self.team, team_id=self.team.pk, columns={}
         )
-        response = self.client.delete(f"/api/projects/{self.team.pk}/warehouse_tables/{table.id}")
+        with patch("products.data_warehouse.backend.presentation.views.table.delete_notebook_table_node") as drop_node:
+            response = self.client.delete(f"/api/projects/{self.team.pk}/warehouse_tables/{table.id}")
 
         assert response.status_code == 204
 
         table.refresh_from_db()
 
         assert table.deleted is True
+        drop_node.assert_called_once_with(self.team.pk, str(table.id))
 
     def test_delete_table_with_source(self):
         source = ExternalDataSource.objects.create(team=self.team, team_id=self.team.pk)
