@@ -1,7 +1,9 @@
 from collections.abc import Collection
 from datetime import datetime
 
-from django.db.models import Count, Max
+from django.db.models import Count, Max, QuerySet
+
+from posthog.models.team import Team
 
 from products.subscriptions.backend.facade.contracts import FailedDeliveryCount
 from products.subscriptions.backend.models.subscription import Subscription, SubscriptionDelivery
@@ -35,6 +37,15 @@ def subscription_ids_in_team(*, team_id: int, subscription_ids: Collection[int])
     return set(Subscription.objects.filter(team_id=team_id, id__in=subscription_ids).values_list("id", flat=True))
 
 
+def _active_subscriptions_in_project_of(team_id: int) -> QuerySet[Subscription]:
+    """Enabled subscriptions in every environment of the project that `team_id` belongs to.
+    Insights and dashboards live on the project's root team while a subscription keeps the
+    environment it was created in, so a per-environment filter would miss deliveries."""
+    project_ids = Team.objects.filter(id=team_id).values("project_id")
+    # nosemgrep: environment-model-scoped-by-project -- the delivered artifact is project-level
+    return Subscription.objects.filter(team__project_id__in=project_ids, deleted=False, enabled=True)
+
+
 def insight_has_active_subscription(*, team_id: int, insight_id: int) -> bool:
     """Decide if an enabled subscription delivers this insight.
 
@@ -46,8 +57,11 @@ def insight_has_active_subscription(*, team_id: int, insight_id: int) -> bool:
 
     A disabled or deleted subscription does not count. Enabling or restoring it runs the
     subscription save check on the requester.
+
+    `team_id` is the insight's team. A subscription is stored on the environment it was created
+    in, so the lookup spans every environment of that team's project.
     """
-    active = Subscription.objects.filter(team_id=team_id, deleted=False, enabled=True)
+    active = _active_subscriptions_in_project_of(team_id)
     if active.filter(insight_id=insight_id).exists():
         return True
     if active.filter(dashboard_export_insights=insight_id).exists():
@@ -67,10 +81,12 @@ def dashboard_has_active_full_subscription(*, team_id: int, dashboard_id: int) -
     deliver a tile outside its selection. A selection whose insights are all deleted counts as no
     selection, because the delivery then exports every live tile. A disabled or deleted
     subscription does not count. Enabling or restoring it runs the subscription save check on the
-    requester.
+    requester. `team_id` is the dashboard's team; the lookup spans every environment of that
+    team's project because a subscription is stored on its own environment.
     """
     return (
-        Subscription.objects.filter(team_id=team_id, deleted=False, enabled=True, dashboard_id=dashboard_id)
+        _active_subscriptions_in_project_of(team_id)
+        .filter(dashboard_id=dashboard_id)
         .exclude(dashboard_export_insights__deleted=False)
         .exists()
     )
