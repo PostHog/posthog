@@ -1138,6 +1138,36 @@ class TestScoutTrialReportCapture(APIBaseTest):
         # One lookup filters the production list and one covers every edited report.
         assert fetch_report_ids.call_count == 2
 
+    @parameterized.expand([None, "false", "true"])
+    def test_inbox_listing_preserves_unlisted_filter_for_private_reports(self, include_unlisted: str | None) -> None:
+        config = self.scout_run.scout_config
+        assert config is not None
+        config.output_destinations = {"inbox": False}
+        config.save(update_fields=["output_destinations"])
+        hidden = SignalReport.objects.create(team=self.team, title="Hidden source report", status="ready")
+        visible = SignalReport.objects.create(team=self.team, title="Visible source report", status="ready")
+        self.scout_run.emitted_report_ids = [str(hidden.id)]
+        self.scout_run.save(update_fields=["emitted_report_ids"])
+        edit_report_sync(
+            team=self.team,
+            author=ScoutRunReportAuthor(run=self.scout_run),
+            report_id=str(hidden.id),
+            title="Private revision of hidden report",
+        )
+        private_id = self._emit()
+        query = {} if include_unlisted is None else {"include_unlisted": include_unlisted}
+        with (
+            patch("products.signals.backend.views.trial_store_for_request", return_value=self.store),
+            patch("products.signals.backend.views.fetch_source_products_for_reports", return_value={}),
+            patch("products.signals.backend.views.fetch_implementation_prs_for_reports", return_value={}),
+        ):
+            result = self.client.get(f"/api/projects/{self.team.id}/signals/reports/", query)
+        assert result.status_code == 200, result.json()
+        expected = {str(visible.id), str(hidden.id), private_id} if include_unlisted == "true" else {str(visible.id)}
+        assert {row["id"] for row in result.json()["results"]} == expected
+        assert result.json()["count"] == len(expected)
+        assert self.store.invalid_reason() is None
+
     @parameterized.expand(
         [
             ("view", {"view": "actionable"}),

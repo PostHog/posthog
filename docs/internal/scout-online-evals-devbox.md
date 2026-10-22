@@ -137,7 +137,8 @@ their saved rubric judges. Comparison exports include each run's full trace and
 private results alongside the saved judge report. Check the export's per-run
 errors before treating a trace as complete. Trials isolate their report and
 memory writes; the underlying restored project must remain stable for the whole
-comparison.
+comparison. Inbox reads preserve `include_unlisted` for both existing reports
+and private trial reports, so a scout can search the complete inbox for duplicates.
 Before planning or launching, `check` verifies the frozen files, scout state,
 local routing, governed metric fields and event counts/minimum/maximum timestamps.
 It reads the restored database without repairing it. Event property-level fidelity
