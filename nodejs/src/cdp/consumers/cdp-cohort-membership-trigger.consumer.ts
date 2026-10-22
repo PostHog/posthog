@@ -8,6 +8,7 @@ import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
 import { captureException } from '~/common/utils/posthog'
+import { isValidTeamId } from '~/common/utils/team-manager'
 
 import { HealthCheckResult, PluginsServerConfig } from '../../types'
 import { HogFlow } from '../schema/hogflow'
@@ -22,7 +23,7 @@ import { CyclotronJobInvocation, HogFunctionInvocationGlobals } from '../types'
 import { convertBatchHogFlowRequestToHogFunctionInvocationGlobals } from '../utils'
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
 import { CohortMembershipChange, CohortMembershipChangeSchema } from './cdp-cohort-membership.consumer'
-import { counterParseError } from './metrics'
+import { readMessage } from './message-parsing'
 
 export const counterCohortMembershipTriggerSkipped = new Counter({
     name: 'cdp_cohort_membership_trigger_skipped',
@@ -159,12 +160,10 @@ export class CdpCohortMembershipTriggerConsumer extends CdpConsumerBase {
     public async _parseKafkaBatch(messages: Message[]): Promise<HogFunctionInvocationGlobals[]> {
         const changes: CohortMembershipChange[] = []
         for (const message of messages) {
-            let change: CohortMembershipChange
-            try {
-                change = CohortMembershipChangeSchema.parse(parseJSON(message.value!.toString()))
-            } catch (e) {
-                logger.error('Error parsing cohort membership change', e)
-                counterParseError.labels({ error: e.message }).inc()
+            const change = readMessage('Error parsing cohort membership change', () =>
+                CohortMembershipChangeSchema.parse(parseJSON(message.value!.toString()))
+            )
+            if (!change) {
                 continue
             }
 
@@ -172,6 +171,10 @@ export class CdpCohortMembershipTriggerConsumer extends CdpConsumerBase {
             // on them would put every existing member through the workflow when a cohort is built.
             if (change.origin) {
                 counterCohortMembershipTriggerSkipped.labels({ reason: 'backfill' }).inc()
+                continue
+            }
+            if (!isValidTeamId(change.team_id)) {
+                counterCohortMembershipTriggerSkipped.labels({ reason: 'invalid_team_id' }).inc()
                 continue
             }
             changes.push(change)

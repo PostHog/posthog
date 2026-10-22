@@ -14,7 +14,7 @@ import { JobQueue } from '../services/job-queue/job-queue.interface'
 import { CyclotronJobInvocation, CyclotronPerson, HogFunctionInvocationGlobals, HogFunctionTypeType } from '../types'
 import { getPersonDisplayName } from '../utils'
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
-import { counterParseError } from './metrics'
+import { assertTeamId, readMessage } from './message-parsing'
 
 export class CdpPersonUpdatesConsumer extends CdpConsumerBase {
     protected name = 'CdpPersonUpdatesConsumer'
@@ -82,26 +82,30 @@ export class CdpPersonUpdatesConsumer extends CdpConsumerBase {
         const globals: HogFunctionInvocationGlobals[] = []
         await Promise.all(
             messages.map(async (message) => {
-                try {
-                    const data = parseJSON(message.value!.toString()) as ClickHousePerson
+                const data = readMessage('Error parsing message', () =>
+                    assertTeamId(parseJSON(message.value!.toString()) as ClickHousePerson)
+                )
+                if (!data) {
+                    return
+                }
 
-                    const [teamHogFunctions, team] = await Promise.all([
-                        this.hogFunctionManager.getHogFunctionsForTeam(data.team_id, this.hogTypes),
-                        this.deps.teamManager.getTeam(data.team_id),
-                    ])
+                // Outside readMessage: a lookup error fails the batch, so the consumer reads the batch again.
+                const [teamHogFunctions, team] = await Promise.all([
+                    this.hogFunctionManager.getHogFunctionsForTeam(data.team_id, this.hogTypes),
+                    this.deps.teamManager.getTeam(data.team_id),
+                ])
 
-                    const filteredHogFunctions = teamHogFunctions.filter(
-                        (fn) => fn.filters?.source === 'person-updates'
-                    )
+                const filteredHogFunctions = teamHogFunctions.filter((fn) => fn.filters?.source === 'person-updates')
 
-                    if (!filteredHogFunctions.length || !team) {
-                        return
-                    }
+                if (!filteredHogFunctions.length || !team) {
+                    return
+                }
 
-                    globals.push(convertClickhousePersonToInvocationGlobals(data, team, this.config.SITE_URL))
-                } catch (e) {
-                    logger.error('Error parsing message', e)
-                    counterParseError.labels({ error: e.message }).inc()
+                const invocationGlobals = readMessage('Error parsing message', () =>
+                    convertClickhousePersonToInvocationGlobals(data, team, this.config.SITE_URL)
+                )
+                if (invocationGlobals) {
+                    globals.push(invocationGlobals)
                 }
             })
         )

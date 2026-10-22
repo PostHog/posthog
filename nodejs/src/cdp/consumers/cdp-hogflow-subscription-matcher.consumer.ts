@@ -46,7 +46,7 @@ import {
 } from '../utils'
 import { convertToHogFunctionFilterGlobal } from '../utils/hog-function-filtering'
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
-import { counterParseError } from './metrics'
+import { readMessage } from './message-parsing'
 
 // A waker only needs signals that arrive after a job parks, never history. auto.offset.reset=latest
 // makes a fresh consumer group start at the tip instead of replaying the (unconsumable at prod
@@ -829,7 +829,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
     ): Promise<HogFunctionInvocationGlobals[]> {
         const events = await Promise.all(
             messages.map(async (message) => {
-                const parsed = skipIfMalformed(errorLog, () => parse(message))
+                const parsed = readMessage(errorLog, () => parse(message))
                 if (!parsed) {
                     return null
                 }
@@ -849,7 +849,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                     counterHogflowMatcherEventSkipped.labels({ reason: 'no_team' }).inc()
                     return null
                 }
-                return skipIfMalformed(errorLog, () => parsed.toGlobals(team))
+                return readMessage(errorLog, () => parsed.toGlobals(team))
             })
         )
         return events.filter((globals): globals is HogFunctionInvocationGlobals => globals !== null)
@@ -908,39 +908,36 @@ export class CdpHogflowSubscriptionMatcherConsumer<
     public _parsePersonDistinctIdBatch(messages: Message[]): PersonDistinctIdMove[] {
         const moves: PersonDistinctIdMove[] = []
         for (const message of messages) {
-            const move = skipIfMalformed(
-                'Error parsing person distinct id message',
-                (): PersonDistinctIdMove | null => {
-                    const data = parseJSON(message.value!.toString()) as ClickHousePersonDistinctId2
-                    // version > 0 is a repoint (identify/merge). version 0 is the distinct_id's first mapping
-                    // to a person, which a wait parked before the person resolved needs to acquire its anchor:
-                    // person wakes are keyed on person_id alone, so a job left with a null anchor is
-                    // unwakeable by any person-property change. processMoveBatch scopes version 0 to exactly
-                    // those jobs, which is what keeps this off the insert firehose.
-                    if (data.version === undefined || data.version === null || data.version < 0) {
-                        return null
-                    }
-                    // A distinct_id being deleted can't wake anything, and must never re-point a wait at a
-                    // person that is going away.
-                    if (data.is_deleted) {
-                        return null
-                    }
-                    if (!data.distinct_id || !data.person_id) {
-                        counterHogflowMatcherEventSkipped.labels({ reason: 'no_identifiers' }).inc()
-                        return null
-                    }
-                    if (!isValidTeamId(data.team_id)) {
-                        counterHogflowMatcherEventSkipped.labels({ reason: 'invalid_team_id' }).inc()
-                        return null
-                    }
-                    return {
-                        teamId: data.team_id,
-                        distinctId: data.distinct_id,
-                        newPersonId: data.person_id,
-                        version: data.version,
-                    }
+            const move = readMessage('Error parsing person distinct id message', (): PersonDistinctIdMove | null => {
+                const data = parseJSON(message.value!.toString()) as ClickHousePersonDistinctId2
+                // version > 0 is a repoint (identify/merge). version 0 is the distinct_id's first mapping
+                // to a person, which a wait parked before the person resolved needs to acquire its anchor:
+                // person wakes are keyed on person_id alone, so a job left with a null anchor is
+                // unwakeable by any person-property change. processMoveBatch scopes version 0 to exactly
+                // those jobs, which is what keeps this off the insert firehose.
+                if (data.version === undefined || data.version === null || data.version < 0) {
+                    return null
                 }
-            )
+                // A distinct_id being deleted can't wake anything, and must never re-point a wait at a
+                // person that is going away.
+                if (data.is_deleted) {
+                    return null
+                }
+                if (!data.distinct_id || !data.person_id) {
+                    counterHogflowMatcherEventSkipped.labels({ reason: 'no_identifiers' }).inc()
+                    return null
+                }
+                if (!isValidTeamId(data.team_id)) {
+                    counterHogflowMatcherEventSkipped.labels({ reason: 'invalid_team_id' }).inc()
+                    return null
+                }
+                return {
+                    teamId: data.team_id,
+                    distinctId: data.distinct_id,
+                    newPersonId: data.person_id,
+                    version: data.version,
+                }
+            })
             if (move) {
                 moves.push(move)
             }
@@ -1276,19 +1273,6 @@ function convertClickhousePersonToWakeGlobals(
             elements_chain: '',
         },
         person,
-    }
-}
-
-// If the step throws, this logs the error and counts it as a parse error. It then returns null, and the
-// caller skips the message. Wrap only a step that cannot fail for a transient reason. A lookup error must
-// fail the batch instead, so that Kafka delivers the batch again.
-function skipIfMalformed<T>(errorLog: string, step: () => T): T | null {
-    try {
-        return step()
-    } catch (e) {
-        logger.error(errorLog, e)
-        counterParseError.labels({ error: e.message }).inc()
-        return null
     }
 }
 

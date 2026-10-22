@@ -20,7 +20,7 @@ import {
     HogFunctionTypeType,
 } from '../types'
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
-import { counterParseError } from './metrics'
+import { assertTeamId, readMessage } from './message-parsing'
 
 // Filter source / trigger type each kind of warehouse row matches against.
 const TRIGGER_TYPE_BY_TABLE_TYPE = {
@@ -152,26 +152,29 @@ export class CdpDatawarehouseEventsConsumer extends CdpConsumerBase {
 
         await Promise.all(
             messages.map(async (message) => {
-                try {
-                    const kafkaEvent = parseJSON(message.value!.toString()) as unknown
-                    const event = CdpDataWarehouseEventSchema.parse(kafkaEvent)
+                const event = readMessage('Error parsing message', () =>
+                    assertTeamId(CdpDataWarehouseEventSchema.parse(parseJSON(message.value!.toString())))
+                )
+                if (!event) {
+                    return
+                }
 
-                    const [teamHogFunctions, teamHogFlows, team] = await Promise.all([
-                        this.hogFunctionManager.getHogFunctionsForTeam(event.team_id, this.hogTypes),
-                        this.hogFlowManager.getHogFlowsForTeam(event.team_id),
-                        this.deps.teamManager.getTeam(event.team_id),
-                    ])
+                // Outside readMessage: a lookup error fails the batch, so the consumer reads the batch again.
+                const [teamHogFunctions, teamHogFlows, team] = await Promise.all([
+                    this.hogFunctionManager.getHogFunctionsForTeam(event.team_id, this.hogTypes),
+                    this.hogFlowManager.getHogFlowsForTeam(event.team_id),
+                    this.deps.teamManager.getTeam(event.team_id),
+                ])
 
-                    if ((!teamHogFunctions.length && !teamHogFlows.length) || !team) {
-                        return
-                    }
+                if ((!teamHogFunctions.length && !teamHogFlows.length) || !team) {
+                    return
+                }
 
-                    events.push(
-                        convertDataWarehouseEventToHogFunctionInvocationGlobals(event, team, this.config.SITE_URL)
-                    )
-                } catch (e) {
-                    logger.error('Error parsing message', e)
-                    counterParseError.labels({ error: e.message }).inc()
+                const globals = readMessage('Error parsing message', () =>
+                    convertDataWarehouseEventToHogFunctionInvocationGlobals(event, team, this.config.SITE_URL)
+                )
+                if (globals) {
+                    events.push(globals)
                 }
             })
         )

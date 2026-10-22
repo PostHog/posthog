@@ -21,7 +21,7 @@ import { JobQueue } from '../services/job-queue/job-queue.interface'
 import { CyclotronJobInvocation, HogFunctionInvocationGlobals, HogFunctionTypeType } from '../types'
 import { convertInternalEventToHogFunctionInvocationGlobals } from '../utils'
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
-import { counterParseError } from './metrics'
+import { assertTeamId, readMessage } from './message-parsing'
 
 /**
  * Whether a GitHub delivery is a write PostHog's own GitHub App made, resolved from the `own_app`
@@ -183,30 +183,29 @@ export class CdpInternalEventsConsumer extends CdpConsumerBase {
         const events: HogFunctionInvocationGlobals[] = []
         await Promise.all(
             messages.map(async (message) => {
-                try {
-                    const kafkaEvent = parseJSON(message.value!.toString()) as unknown
-                    const event = CdpInternalEventSchema.parse(kafkaEvent)
+                const event = readMessage('Error parsing message', () =>
+                    assertTeamId(CdpInternalEventSchema.parse(parseJSON(message.value!.toString())))
+                )
+                if (!event) {
+                    return
+                }
 
-                    const [teamHogFunctions, teamHogFlows, team] = await Promise.all([
-                        this.hogFunctionManager.getHogFunctionsForTeam(event.team_id, this.hogTypes),
-                        this.hogFlowManager.getHogFlowsForTeam(event.team_id),
-                        this.deps.teamManager.getTeam(event.team_id),
-                    ])
+                // Outside readMessage: a lookup error fails the batch, so the consumer reads the batch again.
+                const [teamHogFunctions, teamHogFlows, team] = await Promise.all([
+                    this.hogFunctionManager.getHogFunctionsForTeam(event.team_id, this.hogTypes),
+                    this.hogFlowManager.getHogFlowsForTeam(event.team_id),
+                    this.deps.teamManager.getTeam(event.team_id),
+                ])
 
-                    if ((!teamHogFunctions.length && !teamHogFlows.length) || !team) {
-                        return
-                    }
+                if ((!teamHogFunctions.length && !teamHogFlows.length) || !team) {
+                    return
+                }
 
-                    events.push(convertInternalEventToHogFunctionInvocationGlobals(event, team, this.config.SITE_URL))
-                } catch (e) {
-                    // A dependency outage is not a poison message. Rethrowing fails the batch, so the
-                    // offsets stay put and the consumer retries, instead of dropping every event of a
-                    // team for the length of a Postgres blip.
-                    if (e?.isRetriable === true) {
-                        throw e
-                    }
-                    logger.error('Error parsing message', e)
-                    counterParseError.labels({ error: e.message }).inc()
+                const globals = readMessage('Error parsing message', () =>
+                    convertInternalEventToHogFunctionInvocationGlobals(event, team, this.config.SITE_URL)
+                )
+                if (globals) {
+                    events.push(globals)
                 }
             })
         )

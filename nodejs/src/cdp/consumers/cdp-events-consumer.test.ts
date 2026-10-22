@@ -2,9 +2,10 @@ import '../../../tests/helpers/mocks/consumer.mock'
 import { createMockJobQueue } from '../../../tests/helpers/mocks/job-queue.mock'
 import { mockProducerObserver } from '../../../tests/helpers/mocks/producer.mock'
 
+import { Message } from 'node-rdkafka'
+
 import { HogFlow } from '~/cdp/schema/hogflow'
 import { GroupReadRepository } from '~/common/groups/repositories/group-repository.interface'
-import { DependencyUnavailableError } from '~/common/utils/db/error'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 
 import { createCdpConsumerDeps } from '../../../tests/helpers/cdp'
@@ -129,42 +130,37 @@ describe('CdpEventsConsumer', () => {
         })
 
         it.each([
-            [
-                'rethrows a retriable team lookup error so the batch is retried',
-                new DependencyUnavailableError('connection reset', 'Postgres', new Error('reset')),
-                true,
-            ],
-            ['drops the message on a non-retriable team lookup error', new Error('event shape is wrong'), false],
-        ])('%s', async (_name, error, shouldRethrow) => {
-            jest.spyOn(processor['deps'].teamManager, 'getTeam').mockRejectedValue(error)
-            const messages = [createKafkaMessage(createIncomingEvent(team.id, {}))]
+            {
+                // handlePostgresError does not mark this transient replica error as retriable.
+                lookup: 'the team lookup',
+                spy: () => jest.spyOn(processor['deps'].teamManager, 'getTeam'),
+                error: new Error('canceling statement due to conflict with recovery'),
+            },
+            {
+                lookup: 'the hog function lookup',
+                spy: () => jest.spyOn(processor['hogFunctionManager'], 'getHogFunctionsForTeam'),
+                error: new Error('canceling statement due to conflict with recovery'),
+            },
+            {
+                lookup: 'the hog flow lookup',
+                spy: () => jest.spyOn(processor['hogFlowManager'], 'getHogFlowsForTeam'),
+                error: new Error('canceling statement due to conflict with recovery'),
+            },
+        ])(
+            'fails the batch when $lookup throws "$error.message", and queues the event when the batch is read again',
+            async ({ spy, error }) => {
+                spy().mockRejectedValueOnce(error)
+                const handleBatch = (processor['kafkaConsumer'].connect as jest.Mock).mock.calls[0][0]
+                const messages = [createKafkaMessage(createIncomingEvent(team.id, {}))]
 
-            if (shouldRethrow) {
-                await expect(processor._parseKafkaBatch(messages)).rejects.toThrow(error)
-            } else {
-                await expect(processor._parseKafkaBatch(messages)).resolves.toEqual([])
+                await expect(handleBatch(messages)).rejects.toBe(error)
+                expect(mockQueueInvocations).not.toHaveBeenCalled()
+
+                const { backgroundTask } = await handleBatch(messages)
+                await backgroundTask
+                expect(mockQueueInvocations).toHaveBeenCalledWith([expect.objectContaining({ teamId: team.id })])
             }
-        })
-
-        it('lets a retriable failure escape the batch handler, and processes the batch on a later attempt', async () => {
-            // The consumer stores offsets only after this handler resolves, so the handler
-            // rejecting is what leaves the batch unacknowledged. A try/catch added around
-            // _parseKafkaBatch here would swallow the rejection and silently restore the old
-            // drop-everything behaviour, which the unit assertion above cannot see.
-            const error = new DependencyUnavailableError('connection reset', 'Postgres', new Error('reset'))
-            const getTeam = jest.spyOn(processor['deps'].teamManager, 'getTeam').mockRejectedValue(error)
-            const handleBatch = (processor['kafkaConsumer'].connect as jest.Mock).mock.calls[0][0]
-            const messages = [createKafkaMessage(createIncomingEvent(team.id, {}))]
-
-            await expect(handleBatch(messages)).rejects.toThrow(error)
-            expect(mockQueueInvocations).not.toHaveBeenCalled()
-
-            getTeam.mockRestore()
-            const { backgroundTask } = await handleBatch(messages)
-            await backgroundTask
-
-            expect(mockQueueInvocations).toHaveBeenCalledWith([expect.objectContaining({ teamId: team.id })])
-        })
+        )
     })
 
     describe('general event processing', () => {
@@ -756,18 +752,34 @@ describe('CdpEventsConsumer', () => {
                 expect(mockProducerObserver.getProducedKafkaMessagesForTopic('cdp_events_dlq_test')).toHaveLength(0)
             })
 
-            it('parks a message it cannot parse', async () => {
+            it.each([
+                {
+                    name: 'a message that is not an event object',
+                    bad: (): Message => createKafkaMessage('not json at all'),
+                },
+                {
+                    name: 'an event whose properties are not JSON',
+                    bad: (teamId: number): Message =>
+                        createKafkaMessage(createIncomingEvent(teamId, { properties: '{' })),
+                },
+                ...[undefined, null, 'abc', 1.5, 3_000_000_000].map((badTeamId) => ({
+                    name: `an event with team_id ${badTeamId}`,
+                    bad: (teamId: number): Message =>
+                        createKafkaMessage({ ...createIncomingEvent(teamId, {}), team_id: badTeamId }),
+                })),
+            ])('parks $name and processes the rest of the batch', async ({ bad }) => {
                 await insertHogFunction({
                     ...HOG_EXAMPLES.simple_fetch,
                     ...HOG_INPUTS_EXAMPLES.simple_fetch,
                     ...HOG_FILTERS_EXAMPLES.no_filters,
                 })
 
-                await handleBatch([createKafkaMessage('not json at all')])
+                await handleBatch([bad(team.id), createKafkaMessage(createIncomingEvent(team.id, {}))])
 
                 const parked = mockProducerObserver.getProducedKafkaMessagesForTopic('cdp_events_dlq_test')
                 expect(parked).toHaveLength(1)
                 expect(parked[0].headers).toMatchObject({ dlq_step: 'parse' })
+                expect(mockQueueInvocations).toHaveBeenCalledWith([expect.objectContaining({ teamId: team.id })])
             })
 
             it('fails the batch when the record cannot be written, so the offsets stay put', async () => {
@@ -795,23 +807,6 @@ describe('CdpEventsConsumer', () => {
                 } finally {
                     mockProducerObserver.resetKafkaProducer()
                 }
-            })
-
-            it('parks a message whose failure was not an Error, with a reason a person can read', async () => {
-                // A thrown string carries no `message`. An undefined reason fails the produce, so
-                // the partition stalls on the very message the record exists to keep.
-                await insertHogFunction({
-                    ...HOG_EXAMPLES.simple_fetch,
-                    ...HOG_INPUTS_EXAMPLES.simple_fetch,
-                    ...HOG_FILTERS_EXAMPLES.no_filters,
-                })
-                jest.spyOn(processor['hogFunctionManager'], 'getHogFunctionsForTeam').mockRejectedValue('kaboom' as any)
-
-                await handleBatch([createKafkaMessage(createIncomingEvent(team.id, {}))])
-
-                const parked = mockProducerObserver.getProducedKafkaMessagesForTopic('cdp_events_dlq_test')
-                expect(parked).toHaveLength(1)
-                expect(parked[0].headers).toMatchObject({ dlq_step: 'parse', dlq_reason: 'kaboom' })
             })
 
             it('fails the batch on a dependency outage while parsing, rather than parking every event', async () => {

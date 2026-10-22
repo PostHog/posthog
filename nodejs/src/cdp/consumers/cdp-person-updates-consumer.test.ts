@@ -23,6 +23,7 @@ describe('CDP Person Updates Consumer', () => {
     let hub: Hub
     let team: Team
     let hogFunction: HogFunctionType
+    let mockQueueInvocations: jest.MockedFunction<any>
 
     const insertHogFunction = async (hogFunction: Partial<HogFunctionType>) => {
         const item = await _insertHogFunction(hub.postgres, team.id, hogFunction)
@@ -39,6 +40,7 @@ describe('CDP Person Updates Consumer', () => {
 
         const mockJobQueue = createMockJobQueue()
         processor = new CdpPersonUpdatesConsumer(hub, createCdpConsumerDeps(hub), mockJobQueue)
+        mockQueueInvocations = mockJobQueue.queueInvocations
         await processor.start()
 
         hogFunction = createHogFunction({
@@ -71,6 +73,48 @@ describe('CDP Person Updates Consumer', () => {
             const events = await processor._parseKafkaBatch([createKafkaMessage(createClickhousePerson(999999, {}))])
             expect(events).toHaveLength(0)
         })
+
+        it.each([
+            {
+                lookup: 'the team lookup',
+                spy: () => jest.spyOn(processor['deps'].teamManager, 'getTeam'),
+                error: new Error('canceling statement due to conflict with recovery'),
+            },
+            {
+                lookup: 'the hog function lookup',
+                spy: () => jest.spyOn(processor['hogFunctionManager'], 'getHogFunctionsForTeam'),
+                error: new Error('canceling statement due to conflict with recovery'),
+            },
+        ])(
+            'should fail the batch when $lookup throws "$error.message", and queue the person when the batch is read again',
+            async ({ spy, error }) => {
+                spy().mockRejectedValueOnce(error)
+                const handleBatch = (processor['kafkaConsumer'].connect as jest.Mock).mock.calls[0][0]
+                const messages = [createKafkaMessage(createClickhousePerson(team.id, {}))]
+
+                await expect(handleBatch(messages)).rejects.toBe(error)
+                expect(mockQueueInvocations).not.toHaveBeenCalled()
+
+                const { backgroundTask } = await handleBatch(messages)
+                await backgroundTask
+                expect(mockQueueInvocations).toHaveBeenCalledWith([expect.objectContaining({ teamId: team.id })])
+            }
+        )
+
+        it.each([
+            { name: 'properties that are not JSON', person: { properties: '{' } },
+            ...[undefined, null, 'abc', 1.5, 3_000_000_000].map((teamId) => ({
+                name: `team_id ${teamId}`,
+                person: { team_id: teamId },
+            })),
+        ])('should skip a person with $name and keep the rest', async ({ person }) => {
+            const events = await processor._parseKafkaBatch([
+                createKafkaMessage({ ...createClickhousePerson(team.id, {}), ...person }),
+                createKafkaMessage(createClickhousePerson(team.id, {})),
+            ])
+            expect(events).toHaveLength(1)
+        })
+
         it('should parse a valid message with an existing team and hog function ', async () => {
             const event = createClickhousePerson(team.id, {
                 id: 'person-id-1',
