@@ -43,7 +43,7 @@ def cancel_query_on_cluster(team_id: int, client_query_id: str) -> None:
         except Exception:
             logger.exception("Failed to resolve native query cancellation eligibility")
             native_enabled = False
-        if not native_enabled:
+        if not native_host or not native_enabled:
             _cancel_legacy_query(team_id, client_query_id)
             return
 
