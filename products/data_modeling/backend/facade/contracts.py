@@ -60,6 +60,8 @@ class SavedQueryDefinition:
     is_managed: bool
     origin: str | None
     created_at: datetime
+    refreshes_incrementally: bool = False
+    calls_decision_functions: bool = False
 
 
 @dataclass(frozen=True)

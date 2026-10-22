@@ -2585,6 +2585,22 @@ class SignalReportCheck(UUIDModel):
         return self.status not in self.OPEN_STATUSES
 
 
+class SignalReportMonitoringAttempt(UUIDModel):
+    # Attempt evidence belongs to the report's environment, not its canonical project.
+    objects = EnvironmentScopedManager()
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    report = models.ForeignKey(SignalReport, on_delete=models.CASCADE, related_name="monitoring_attempts")
+    monitoring_started_at = models.DateTimeField()
+    check_versions = models.JSONField(default=dict)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["report", "monitoring_started_at"], name="signals_attempt_period_uniq")
+        ]
+
+
 # ── Signals scout (headless cross-source explorer) ──────────────────────────────
 #
 # Core tables backing the Signals scout:
@@ -3864,6 +3880,8 @@ class UserActivitySummary(TeamScopedRootMixin, UUIDModel):
     # The number of the latest successful update, and of its `UserActivitySummaryVersion` row. 0 before the first.
     # `db_default` lets a pod on the earlier release insert a row without this column during a deploy.
     version = models.PositiveIntegerField(default=0, db_default=0)
+    # Skips for too few units since the last good update. The skip backoff doubles with each one.
+    consecutive_skips = models.PositiveSmallIntegerField(default=0)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -3947,7 +3965,7 @@ class UserActivitySummaryQueueState(TeamScopedRootMixin, UUIDModel):
             models.UniqueConstraint(fields=["team", "user"], name="signals_activity_queue_team_user"),
         ]
         indexes = [
-            # The queue order of `select_pairs`: pairs with no summary, then most pending units, then oldest summary.
+            # Covers the pairs with pending units, which are the only pairs `select_pairs` reads.
             models.Index(
                 models.ExpressionWrapper(models.Q(summarized_at__isnull=False), output_field=models.BooleanField()),
                 models.F("pending_units").desc(),

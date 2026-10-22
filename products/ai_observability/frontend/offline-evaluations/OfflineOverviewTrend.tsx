@@ -43,7 +43,7 @@ export function OfflineOverviewTrend(
             ) : trend ? (
                 <>
                     <div className="flex flex-wrap items-center gap-2">
-                        <h3 className="mb-0 min-w-0 truncate">
+                        <h3 className="mb-0 min-w-0 break-words">
                             <Link
                                 to={
                                     combineUrl(urls.aiObservabilityOfflineScorerHistory(props.scorerId), {
@@ -55,7 +55,7 @@ export function OfflineOverviewTrend(
                                 }
                                 data-attr="offline-score-view-history"
                             >
-                                {trend.definition.name}
+                                {trend.definition.short_name || trend.definition.name}
                             </Link>
                         </h3>
                         <LemonTag type="muted">{trend.definition.kind}</LemonTag>

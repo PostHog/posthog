@@ -20,12 +20,12 @@ from products.signals.backend.models import (
 from products.signals.backend.reviewer_correction_notes import (
     MAX_CORRECTION_LOGINS,
     ReviewerCorrection,
-    _actor_name,
     _build_note_content,
     _logins_already_told,
     _renderable,
     forward_reviewer_correction_note,
 )
+from products.signals.backend.scout_note_actor import render_actor
 from products.skills.backend.models.skills import LLMSkill
 
 SCOUT_SKILL = "signals-scout-error-tracking"
@@ -78,18 +78,41 @@ class TestReviewerCorrectionNoteContent(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("both_names", "Ada", "Lovelace", "Ada Lovelace"),
-            ("first_name_only", "Ada", "", "Ada"),
-            ("no_name_falls_back", "", "", "someone"),
-            ("whitespace_is_normalized", " Ada\n\nRemoved: ", "x ", "Ada Removed: x"),
-            ("backticks_are_stripped", "`Ada`", "", "Ada"),
-            ("capped", "A" * 80, "", "A" * 60),
+            (
+                "full_identity",
+                "Ada",
+                "Lovelace",
+                "ada@example.com",
+                "ada-l",
+                "Ada Lovelace (ada@example.com, GitHub @ada-l)",
+            ),
+            ("no_github_login", "Ada", "Lovelace", "ada@example.com", None, "Ada Lovelace (ada@example.com)"),
+            ("first_name_only", "Ada", "", "ada@example.com", None, "Ada (ada@example.com)"),
+            ("no_name_uses_the_email", "", "", "ada@example.com", None, "ada@example.com"),
+            ("no_name_with_login", "", "", "ada@example.com", "ada-l", "ada@example.com (GitHub @ada-l)"),
+            ("nothing_identifies_them", "", "", "", None, "someone"),
+            ("whitespace_is_normalized", " Ada\n\nRemoved: ", "x ", "", None, "Ada Removed: x"),
+            (
+                "backticks_are_stripped",
+                "`Ada`",
+                "",
+                "a`da@example.com",
+                "ada`-l",
+                "Ada (ada@example.com, GitHub @ada-l)",
+            ),
+            ("name_capped", "A" * 80, "", "", None, "A" * 60),
         ]
     )
-    def test_the_editors_name_is_sanitized(self, _name: str, first: str, last: str, expected: str) -> None:
-        # The name reaches a prompt every scout reads, so it stays one line and bounded. Backticks go
+    def test_the_actor_is_rendered_on_one_bounded_line(
+        self, _name: str, first: str, last: str, email: str, login: str | None, expected: str
+    ) -> None:
+        # The actor reaches a prompt every scout reads, so it stays one line and bounded. Backticks go
         # because `_logins_already_told` reads backtick spans back as suppression state.
-        assert _actor_name(User(first_name=first, last_name=last)) == expected
+        user = User(first_name=first, last_name=last, email=email)
+        assert render_actor(user, github_login=login) == expected
+
+    def test_no_user_is_named_as_someone(self) -> None:
+        assert render_actor(None) == "someone"
 
     def test_the_note_names_the_editor(self) -> None:
         content = _build_note_content(
@@ -314,7 +337,7 @@ class TestReviewerCorrectionScoutNotes(APIBaseTest):
         report = self._create_report()
 
         with patch(
-            "products.signals.backend.reviewer_correction_notes.get_org_member_github_logins_by_user_uuid",
+            "products.signals.backend.scout_note_actor.get_org_member_github_logins_by_user_uuid",
             return_value={str(self.user.uuid): "octocat"},
         ):
             self._forward(report, removed=("octocat", "someone-else"))
@@ -331,7 +354,9 @@ class TestReviewerCorrectionScoutNotes(APIBaseTest):
 
         self._forward(report, added=("octocat",))
 
-        assert self._correction_notes()[0].content.startswith("Inbox routing correction: Ada Lovelace changed")
+        assert self._correction_notes()[0].content.startswith(
+            f"Inbox routing correction: Ada Lovelace ({self.user.email}) changed"
+        )
 
     def test_a_child_environment_correction_stays_off_the_notes_channel(self) -> None:
         self._create_skill()
