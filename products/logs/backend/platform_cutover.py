@@ -68,32 +68,38 @@ def _logs_check_owed(alert_id: UUID, at: datetime) -> bool:
     )
 
 
-def cut_over_team(team_id: int, *, now: datetime | None = None) -> tuple[AlertCutover, ...]:
+def cut_over_team(team_id: int, *, now: datetime | None = None, dry_run: bool = False) -> tuple[AlertCutover, ...]:
     """Hands every logs alert of one team to the platform, or says why one stays.
 
     No destination holds an alert back: delivery sends a customized one through its HogFunction.
+    A dry run decides each alert exactly as a real run would, then rolls its transaction back.
     """
     return tuple(
-        AlertCutover(alert_id=alert_id, skipped=_cut_over_alert(alert_id, now)) for alert_id in _team_alert_ids(team_id)
+        AlertCutover(alert_id=alert_id, skipped=_cut_over_alert(alert_id, now, dry_run=dry_run))
+        for alert_id in _team_alert_ids(team_id)
     )
 
 
-def _cut_over_alert(alert_id: UUID, now: datetime | None) -> CutoverSkip | None:
+def _cut_over_alert(alert_id: UUID, now: datetime | None, *, dry_run: bool) -> CutoverSkip | None:
     with transaction.atomic():
-        alert = LogsAlertConfiguration.objects.select_for_update().get(id=alert_id)
-        # Read after the lock, so a check that became due while earlier alerts moved is seen as due.
-        at = now or timezone.now()
-        if alert.platform_owned:
-            return CutoverSkip.ALREADY_MOVED
-        if in_an_environment(alert):
-            return CutoverSkip.ENVIRONMENT
-        if alert.state in FIRING_STATES:
-            return CutoverSkip.FIRING
-        if _logs_check_owed(alert.id, at):
-            return CutoverSkip.CHECK_DUE
-
-        if not hand_over(alert, at):
-            return CutoverSkip.PLATFORM_FIRING
+        try:
+            alert = LogsAlertConfiguration.objects.select_for_update().get(id=alert_id)
+            # Read after the lock, so a check that became due while earlier alerts moved is seen as due.
+            at = now or timezone.now()
+            if alert.platform_owned:
+                return CutoverSkip.ALREADY_MOVED
+            if in_an_environment(alert):
+                return CutoverSkip.ENVIRONMENT
+            if alert.state in FIRING_STATES:
+                return CutoverSkip.FIRING
+            if _logs_check_owed(alert.id, at):
+                return CutoverSkip.CHECK_DUE
+            if not hand_over(alert, at):
+                return CutoverSkip.PLATFORM_FIRING
+        finally:
+            # After the last query, because a block marked for rollback refuses queries.
+            if dry_run:
+                transaction.set_rollback(True)
     return None
 
 
