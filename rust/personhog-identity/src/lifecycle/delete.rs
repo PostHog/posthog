@@ -117,6 +117,10 @@ const STATUS_SKIPPED_CONFLICT: &str = "skipped_conflict";
 
 const STEPS_TOTAL: &str = "personhog_lifecycle_delete_steps_total";
 const OUTCOMES_TOTAL: &str = "personhog_lifecycle_delete_outcomes_total";
+/// Victims whose tombstone landed above sealed + 1: the row moved past the
+/// seal before the unmap, through a direct Postgres writer or a changelog
+/// record the sealing leader never emitted. The fence covers neither.
+const TOMBSTONES_ABOVE_SEAL_TOTAL: &str = "personhog_lifecycle_delete_tombstones_above_seal_total";
 
 /// Call after a step's transaction commits — a commit means the step CAS was
 /// won, so each transition is counted exactly once across concurrent drivers.
@@ -664,22 +668,28 @@ async fn unmap(
         FROM {lop_table} lop
         WHERE lop.op_id = $1 AND lop.status = 'sealed'
           AND p.team_id = $2 AND p.id = lop.person_id
-        RETURNING p.id, p.version
+        RETURNING p.id, p.version, (lop.sealed->>'version')::bigint
         "#,
         person_table = tables.person,
         lop_table = tables.lifecycle_op_person,
     );
-    let tombstoned_persons: Vec<(i64, i64)> =
+    let tombstoned_persons: Vec<(i64, i64, Option<i64>)> =
         sqlx::query_as(&query_tag!("delete_unmap_tombstone_persons", tombstone_sql))
             .bind(op.op_id)
             .bind(team_id)
             .fetch_all(&mut *tx)
             .await?;
+    let above_seal = tombstoned_persons
+        .iter()
+        .filter(|(_, version, sealed)| sealed.is_some_and(|sealed| *version > sealed + 1))
+        .count();
 
     // The committed version joins the seal so the release carries it to the
     // leader and the outcome reports it, under the same step CAS.
-    let (tombstoned_ids, tombstone_versions): (Vec<i64>, Vec<i64>) =
-        tombstoned_persons.into_iter().unzip();
+    let (tombstoned_ids, tombstone_versions): (Vec<i64>, Vec<i64>) = tombstoned_persons
+        .into_iter()
+        .map(|(id, version, _)| (id, version))
+        .unzip();
     mirrored_query!(
         tables.is_validation(),
         op = "delete_unmap_record_tombstone_versions",
@@ -709,6 +719,15 @@ async fn unmap(
     }
     tx.commit().await?;
     record_transition(DeleteStep::Sealed.as_str(), DeleteStep::Unmapped.as_str());
+    if above_seal > 0 {
+        tracing::warn!(
+            op_id = %op.op_id,
+            team_id,
+            persons = above_seal,
+            "delete tombstones landed above sealed + 1; the rows moved after the seal"
+        );
+        common_metrics::inc(TOMBSTONES_ABOVE_SEAL_TOTAL, &[], above_seal as u64);
+    }
     Ok(())
 }
 

@@ -744,6 +744,13 @@ async fn a_committed_release_honors_the_sagas_tombstone_version() {
         .await
         .expect_err("a tombstone at the seal is refused");
     assert_eq!(status.code(), Code::InvalidArgument);
+    assert!(
+        harness
+            .fences
+            .get(&PersonCacheKey { team_id, person_id })
+            .is_some(),
+        "a refused release leaves the fence"
+    );
 
     // The saga tombstoned three versions past the seal because a direct
     // Postgres write slipped in; the death document must not sit below it.

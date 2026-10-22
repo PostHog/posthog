@@ -502,6 +502,14 @@ impl LifecycleLeader for SimLeader {
                         "person_uuid must be a valid UUID for a committed release",
                     ));
                 }
+                if request
+                    .tombstone_version
+                    .is_some_and(|version| version <= sealed_version)
+                {
+                    return Err(Status::invalid_argument(
+                        "tombstone_version must be above sealed_version for a committed release",
+                    ));
+                }
                 let mark_status = self
                     .mark_status(op_id, request.team_id, request.person_id)
                     .await;
@@ -541,14 +549,6 @@ impl LifecycleLeader for SimLeader {
                             "uuid-mismatch",
                         ));
                     }
-                }
-                if request
-                    .tombstone_version
-                    .is_some_and(|version| version <= sealed_version)
-                {
-                    return Err(Status::invalid_argument(
-                        "tombstone_version must be above sealed_version for a committed release",
-                    ));
                 }
                 let base_version = current
                     .as_ref()

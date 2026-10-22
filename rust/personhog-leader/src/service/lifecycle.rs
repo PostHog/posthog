@@ -273,12 +273,17 @@ impl PersonHogLeaderService {
                 .unwrap_or(0)
                 .max(release.sealed_version),
         );
-        let death_version = base_version
-            .checked_add(1)
-            .ok_or_else(|| {
-                Status::invalid_argument("sealed_version leaves no room for the death version")
-            })?
-            .max(release.tombstone_version.unwrap_or(0));
+        let death_version = base_version.checked_add(1).ok_or_else(|| {
+            Status::invalid_argument("sealed_version leaves no room for the death version")
+        })?;
+        let floored_by_tombstone = release
+            .tombstone_version
+            .is_some_and(|tombstone_version| tombstone_version > death_version);
+        let death_version = if floored_by_tombstone {
+            release.tombstone_version.unwrap_or(death_version)
+        } else {
+            death_version
+        };
         let death = CachedPerson {
             id: release.person_id,
             uuid: release.person_uuid.clone(),
@@ -306,6 +311,10 @@ impl PersonHogLeaderService {
         // writer confirms, and PG answers from then on.
         self.fences.remove(&cache_key);
         counter!("personhog_leader_fences_total", "action" => "released_committed").increment(1);
+        if floored_by_tombstone {
+            counter!("personhog_leader_fences_total", "action" => "death_floored_by_tombstone")
+                .increment(1);
+        }
         Ok(())
     }
 
