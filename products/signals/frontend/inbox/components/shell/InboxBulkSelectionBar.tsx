@@ -60,7 +60,7 @@ export function InboxBulkSelectionBar({ reports }: { reports: SignalReport[] }):
                     }
                     data-attr="inbox-bulk-resolve"
                 >
-                    {isMonitoring ? 'Stop monitoring' : 'Resolve'}
+                    Resolve
                 </LemonButton>
                 <LemonButton
                     type="secondary"

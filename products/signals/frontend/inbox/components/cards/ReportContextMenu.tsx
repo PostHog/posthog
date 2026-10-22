@@ -317,9 +317,7 @@ function ReportContextMenuItems({
                         <ContextMenuSubTrigger asChild data-attr="inbox-report-context-menu-resolve">
                             <ButtonPrimitive menuItem>
                                 <IconCheckCircle />
-                                <span>
-                                    {report.status === SignalReportStatus.MONITORING ? 'Stop monitoring' : 'Resolve'}
-                                </span>
+                                Resolve
                                 <IconChevronRight className="ml-auto size-3" />
                             </ButtonPrimitive>
                         </ContextMenuSubTrigger>
@@ -332,11 +330,7 @@ function ReportContextMenuItems({
                                         ? STOP_MONITORING_REASON_OPTIONS
                                         : RESOLVE_REASON_OPTIONS
                                 }
-                                noteTooltip={
-                                    report.status === SignalReportStatus.MONITORING
-                                        ? 'Stop monitoring and write a note'
-                                        : 'Resolve and write a note'
-                                }
+                                noteTooltip="Resolve and write a note"
                                 dataAttrPrefix="inbox-report-context-menu-resolve"
                                 onPick={pickResolveReason}
                                 onPickWithNote={openResolveDialog}

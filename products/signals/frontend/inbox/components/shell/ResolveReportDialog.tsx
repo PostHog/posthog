@@ -61,11 +61,9 @@ export function openResolveReportDialog({
     const isSelection = selectedCount !== undefined
     const isPlural = (selectedCount ?? 1) > 1
     const reasonOptions = isMonitoring ? STOP_MONITORING_REASON_OPTIONS : RESOLVE_REASON_OPTIONS
-    const title = isMonitoring
-        ? 'Stop monitoring?'
-        : isSelection
-          ? `Resolve ${selectedCount} ${isPlural ? 'reports' : 'report'}?`
-          : `Resolve report "${reportTitle?.trim() ? reportTitle : 'Untitled report'}"?`
+    const title = isSelection
+        ? `Resolve ${selectedCount} ${isPlural ? 'reports' : 'report'}?`
+        : `Resolve report "${reportTitle?.trim() ? reportTitle : 'Untitled report'}"?`
     const description = isMonitoring
         ? `This stops remaining follow-up checks and resolves the report. PostHog will not record an automatic verification result or update the report's evidence.${hasOpenPr ? ' The pull request opened for this report will be closed.' : ''}`
         : isPlural
@@ -75,16 +73,7 @@ export function openResolveReportDialog({
             }`
     const primaryButtonProps = {
         children:
-            copy?.submitLabel ??
-            (isMonitoring
-                ? hasOpenPr
-                    ? 'Stop monitoring and close PR'
-                    : 'Stop monitoring'
-                : hasOpenPr
-                  ? 'Resolve and close PR'
-                  : isPlural
-                    ? 'Resolve reports'
-                    : 'Resolve report'),
+            copy?.submitLabel ?? (hasOpenPr ? 'Resolve and close PR' : isPlural ? 'Resolve reports' : 'Resolve report'),
         'data-attr': submitDataAttr,
     }
 
@@ -97,10 +86,7 @@ export function openResolveReportDialog({
         initialValues: { reason: initialReason ?? null, note: '' },
         content: (
             <div className="flex flex-col gap-3">
-                <LemonField
-                    name="reason"
-                    label={isMonitoring ? 'Why are you stopping monitoring?' : 'How was this report handled?'}
-                >
+                <LemonField name="reason" label="How was this report handled?">
                     {({ value, onChange }) =>
                         hotkeys ? (
                             <HotkeyRadio value={value} onChange={onChange} options={reasonOptions} />

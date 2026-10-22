@@ -168,7 +168,7 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
 
     const resolve: ReportDetailAction = {
         key: 'resolve',
-        label: report.status === SignalReportStatus.MONITORING ? 'Stop monitoring' : 'Resolve',
+        label: 'Resolve',
         icon: <IconCheckCircle />,
         loading: isResolving,
         tooltip:
