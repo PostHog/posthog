@@ -1383,7 +1383,8 @@ mod tests {
             empty_group_type_cache(),
             None,
         )
-        .with_enabled_only_flag_keys(enabled_only_flag_keys);
+        .with_enabled_only_flag_keys(enabled_only_flag_keys)
+        .with_detailed_analysis(true);
 
         let rollout_flag = mock!(FeatureFlag, id: 1, key: "rollout_flag".mock_into());
         let person_flag = mock!(FeatureFlag,
@@ -1673,6 +1674,21 @@ mod tests {
             assert!(!details.enabled, "{key}");
             assert_eq!(details.reason.code, "dependency_failed", "{key}");
         }
+
+        let dependency_row = |key: &str| {
+            let conditions = result.flags[key].conditions.as_ref().unwrap();
+            conditions[0].properties[0].clone()
+        };
+        let failed_dependency = dependency_row("dependent_with_catch_all_flag");
+        assert_eq!(
+            failed_dependency.explanation,
+            "Flag dependency '2' failed to evaluate"
+        );
+        assert!(!failed_dependency.matched);
+        assert_eq!(
+            dependency_row("healthy_dependent_flag").explanation,
+            "Flag dependency '1' satisfied the required value true"
+        );
     }
 
     #[tokio::test]
@@ -8222,7 +8238,7 @@ mod tests {
             Arc::new(GroupTypeCacheManager::new(stalled_db.clone(), None, None)),
             Some(HashMap::from([("project".to_string(), json!("p1"))])),
         )
-        .with_persons_db_deadline(Some(deadline));
+        .with_persons_db_deadline(Some(tokio::time::Instant::now() + deadline));
 
         let rollout_flag = mock!(FeatureFlag, id: 1, key: "rollout_flag".mock_into());
         let person_flag = mock!(FeatureFlag,
@@ -8500,6 +8516,7 @@ mod tests {
                 dependency_stages: vec![vec![1, 2]],
                 flags_with_missing_deps: vec![],
                 transitive_deps: HashMap::from([(1, HashSet::new()), (2, HashSet::new())]),
+                ..Default::default()
             }),
             cohorts: None,
         };
@@ -8593,6 +8610,7 @@ mod tests {
                 dependency_stages: vec![vec![1], vec![2]],
                 flags_with_missing_deps: vec![],
                 transitive_deps: HashMap::from([(1, HashSet::new()), (2, HashSet::from([1]))]),
+                ..Default::default()
             }),
             ..Default::default()
         };
@@ -8698,6 +8716,7 @@ mod tests {
                 dependency_stages: vec![vec![1], vec![2]],
                 flags_with_missing_deps: vec![],
                 transitive_deps: HashMap::from([(1, HashSet::new()), (2, HashSet::from([1]))]),
+                ..Default::default()
             }),
             cohorts: None,
         };
@@ -8797,6 +8816,7 @@ mod tests {
                 dependency_stages: vec![vec![1], vec![2]],
                 flags_with_missing_deps: vec![],
                 transitive_deps: HashMap::from([(1, HashSet::new()), (2, HashSet::from([1]))]),
+                ..Default::default()
             }),
             cohorts: None,
         };
@@ -8993,6 +9013,7 @@ mod tests {
                     (2, HashSet::from([1])),
                     (3, HashSet::from([1, 2])),
                 ]),
+                ..Default::default()
             }),
             cohorts: None,
         };
@@ -10231,6 +10252,7 @@ mod tests {
                     (2, HashSet::from([3])),
                     (3, HashSet::new()),
                 ]),
+                ..Default::default()
             }),
             ..Default::default()
         };
@@ -10320,6 +10342,7 @@ mod tests {
                 dependency_stages: vec![vec![1, 2]],
                 flags_with_missing_deps: vec![1],
                 transitive_deps: HashMap::from([(1, HashSet::new()), (2, HashSet::new())]),
+                ..Default::default()
             }),
             ..Default::default()
         };

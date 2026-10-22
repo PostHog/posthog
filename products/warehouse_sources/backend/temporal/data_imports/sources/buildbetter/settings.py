@@ -19,9 +19,17 @@ SENTENCE_INDEX = "sentence_index"
 TOPIC_ID = "topic_id"
 TAG_ID = "tag_id"
 TYPE_ID = "type_id"
+SPEAKER = "speaker"
+
+BUILDBETTER_API_VERSION_V1 = "v1"
+BUILDBETTER_API_VERSION_V3 = "v3"
 
 BUILDBETTER_API_URL = "https://api.buildbetter.app/v1/graphql"
 BUILDBETTER_DEFAULT_PAGE_SIZE = 1000
+
+BUILDBETTER_REST_API_URL = "https://api.buildbetter.app/v3/rest"
+# The recordings list caps `limit` at 100
+BUILDBETTER_REST_PAGE_SIZE = 100
 
 
 def _incremental_datetime_field(name: str) -> list[IncrementalField]:
@@ -196,3 +204,24 @@ ENDPOINTS = tuple(BUILDBETTER_ENDPOINTS.keys())
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     name: config.incremental_fields for name, config in BUILDBETTER_ENDPOINTS.items()
 }
+
+# Tables the v3 pin reads from the REST API, with their primary keys there. REST identifies a
+# recording by its public UUID and a participant by its speaker number. BuildBetter has no REST
+# endpoints for the other tables, so they stay on GraphQL under every version.
+BUILDBETTER_V3_REST_PRIMARY_KEYS: dict[str, list[str]] = {
+    "interviews": [ID],
+    "interview_attendees": [INTERVIEW_ID, SPEAKER],
+    "interview_sentences": [INTERVIEW_ID, SENTENCE_INDEX],
+}
+
+
+def uses_rest_api(endpoint_name: str, api_version: str) -> bool:
+    if api_version not in (BUILDBETTER_API_VERSION_V1, BUILDBETTER_API_VERSION_V3):
+        raise ValueError(f"Unsupported BuildBetter API version: {api_version}")
+    return api_version == BUILDBETTER_API_VERSION_V3 and endpoint_name in BUILDBETTER_V3_REST_PRIMARY_KEYS
+
+
+def incremental_fields_for_version(api_version: str) -> dict[str, list[IncrementalField]]:
+    # The REST recordings list filters only on `recorded_at`, which misses recordings imported or
+    # transcribed after the fact, so the REST tables are full refresh.
+    return {name: [] if uses_rest_api(name, api_version) else fields for name, fields in INCREMENTAL_FIELDS.items()}

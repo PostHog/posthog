@@ -10,6 +10,7 @@ import {
     isTrendsResult,
 } from '@/ui-apps/components/infer-visualization'
 import {
+    buildProportionBarSeries,
     formatDate,
     formatDuration,
     formatNumber,
@@ -18,6 +19,7 @@ import {
     getSeriesLabel,
     insightQueryProperties,
     normalizeFunnelSteps,
+    toTableResult,
 } from '@/ui-apps/components/utils'
 
 import { insightResults, queryPayload } from '../fixtures/insight-fixtures'
@@ -74,6 +76,9 @@ describe('insight visualizations', () => {
                 ['RetentionQuery', 'retention'],
                 ['PathsQuery', 'paths'],
                 ['HogQLQuery', 'table'],
+                ['WebStatsTableQuery', 'table'],
+                ['WebOverviewQuery', 'table'],
+                ['WebVitalsPathBreakdownQuery', 'table'],
             ] as const)('falls back to %s when results are empty', (kind, expected) => {
                 expect(inferVisualizationType(queryPayload([], kind))).toBe(expected)
             })
@@ -234,6 +239,99 @@ describe('insight visualizations', () => {
             })
         })
 
+        describe('toTableResult', () => {
+            it('flattens web stats tuples and hides UI-only columns', () => {
+                const columns = [
+                    'context.columns.breakdown_value',
+                    'context.columns.visitors',
+                    'context.columns.bounce_rate',
+                    'context.columns.ui_fill_fraction',
+                    'context.columns.cross_sell',
+                ]
+                const rows = [
+                    ['/pricing', [1200, 1100], [0.42, 0.5], 1, ''],
+                    [['US', 'Chicago'], [300, null], [0.1, null], 0.25, ''],
+                ]
+                expect(toTableResult({ kind: 'WebStatsTableQuery', breakdownBy: 'Page' }, rows, columns)).toEqual({
+                    columns: ['Page', 'Visitors', 'Bounce rate'],
+                    results: [
+                        ['/pricing', 1200, '42.0%'],
+                        ['US, Chicago', 300, '10.0%'],
+                    ],
+                })
+            })
+
+            it('maps web overview items to metric rows', () => {
+                const items = [
+                    { key: 'visitors', kind: 'unit', value: 1500, changeFromPreviousPct: 12 },
+                    { key: 'session duration', kind: 'duration_s', value: 95, changeFromPreviousPct: -3 },
+                    { key: 'bounce rate', kind: 'percentage', value: 41.25, changeFromPreviousPct: null },
+                ]
+                expect(toTableResult({ kind: 'WebOverviewQuery' }, items, undefined)).toEqual({
+                    columns: ['Metric', 'Value', 'Change'],
+                    results: [
+                        ['Visitors', '1.5K', '+12%'],
+                        ['Session duration', '1m 35s', '-3%'],
+                        ['Bounce rate', '41.3%', null],
+                    ],
+                })
+            })
+
+            it.each([
+                ['LCP', 'p90', 2873.4, '2873 ms'],
+                ['CLS', 'p75', 0.314, '0.31'],
+            ])('maps %s web vitals bands to path rows, worst first', (metric, percentile, poorValue, poorCell) => {
+                const results = [
+                    {
+                        good: [{ path: '/', value: 0.01 }],
+                        needs_improvements: [],
+                        poor: [{ path: '/pricing', value: poorValue }],
+                    },
+                ]
+                expect(
+                    toTableResult({ kind: 'WebVitalsPathBreakdownQuery', metric, percentile }, results, undefined)
+                ).toEqual({
+                    columns: ['Path', `${metric} (${percentile})`, 'Rating'],
+                    results: [
+                        ['/pricing', poorCell, 'Poor'],
+                        ['/', metric === 'CLS' ? '0.01' : '0 ms', 'Good'],
+                    ],
+                })
+            })
+        })
+
+        describe('buildProportionBarSeries', () => {
+            it.each([
+                [
+                    'one part per row',
+                    [
+                        { label: 'Chrome', aggregated_value: 3 },
+                        { label: 'Safari', aggregated_value: 5 },
+                    ],
+                    [
+                        { label: 'Chrome', data: [3] },
+                        { label: 'Safari', data: [5] },
+                    ],
+                ],
+                [
+                    'no part for the previous period of a compare',
+                    [
+                        { label: 'Chrome', aggregated_value: 3, compare_label: 'current' },
+                        { label: 'Chrome', aggregated_value: 2, compare_label: 'previous' },
+                        { label: 'Safari', aggregated_value: 5, compare_label: 'current' },
+                    ],
+                    [
+                        { label: 'Chrome', data: [3] },
+                        { label: 'Safari', data: [5] },
+                    ],
+                ],
+            ])('draws %s', (_name, results, expected) => {
+                expect(
+                    buildProportionBarSeries(results, () => 'red').map(({ label, data }) => ({ label, data }))
+                ).toEqual(expected)
+            })
+        })
+
         describe('getDisplayType', () => {
             it('defaults to ActionsLineGraph when the query or filter is missing', () => {
                 expect(getDisplayType(undefined)).toBe('ActionsLineGraph')
@@ -249,18 +347,27 @@ describe('insight visualizations', () => {
 
         describe('insightQueryProperties', () => {
             it.each([
-                [
-                    'bare trends without a display',
-                    { kind: 'TrendsQuery' },
-                    { queryKind: 'TrendsQuery', display: 'ActionsLineGraph' },
-                ],
+                ['bare trends without a display', { kind: 'TrendsQuery' }, { queryKind: 'TrendsQuery' }],
                 [
                     'trends wrapped in InsightVizNode',
                     {
                         kind: 'InsightVizNode',
                         source: { kind: 'TrendsQuery', trendsFilter: { display: 'BoldNumber' } },
                     },
-                    { queryKind: 'InsightVizNode', querySourceKind: 'TrendsQuery', display: 'BoldNumber' },
+                    {
+                        queryKind: 'InsightVizNode',
+                        querySourceKind: 'TrendsQuery',
+                        display: 'BoldNumber',
+                    },
+                ],
+                [
+                    'SQL insight with its display on the wrapper node',
+                    { kind: 'DataVisualizationNode', display: 'ActionsBar', source: { kind: 'HogQLQuery' } },
+                    {
+                        queryKind: 'DataVisualizationNode',
+                        querySourceKind: 'HogQLQuery',
+                        display: 'ActionsBar',
+                    },
                 ],
             ])('%s', (_, query, expected) => {
                 expect(insightQueryProperties(query)).toEqual(expected)

@@ -1,8 +1,6 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -17,7 +15,6 @@ function buildNode(id: string, overrides: Partial<DataModelingNode> = {}): DataM
         id,
         name: id,
         type: 'matview',
-        dag: 'dag-1',
         created_at: '2024-01-01T00:00:00Z',
         updated_at: '2024-01-01T00:00:00Z',
         upstream_count: 0,
@@ -69,8 +66,8 @@ describe('modelsSceneLogic', () => {
                 '/api/environments/:team_id/data_modeling_edges/': {
                     count: 2,
                     results: [
-                        { id: 'e1', source_id: 'broken', target_id: 'child', dag: 'dag-1' },
-                        { id: 'e2', source_id: 'child', target_id: 'grandchild', dag: 'dag-1' },
+                        { id: 'e1', source_id: 'broken', target_id: 'child' },
+                        { id: 'e2', source_id: 'child', target_id: 'grandchild' },
                     ],
                 },
                 '/api/environments/:team_id/warehouse_saved_queries/': {
@@ -91,12 +88,6 @@ describe('modelsSceneLogic', () => {
         initKeaTests()
     })
 
-    /** Flags outlive a test, so each test that cares states the value it needs. */
-    const setFlag = (flag: (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS], value: boolean): void => {
-        featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags(value ? [flag] : [], { [flag]: value })
-    }
-
     afterEach(() => {
         logic?.unmount()
     })
@@ -106,7 +97,7 @@ describe('modelsSceneLogic', () => {
         ['/models?tab=models', 'models'],
         ['/models?tab=lineage', 'lineage'],
         ['/models?tab=nope', 'overview'],
-        ['/models?tab=data-quality', 'overview'],
+        ['/models?tab=data-quality', 'data-quality'],
     ])('%s opens the %s tab', async (path, tab) => {
         await mount(path)
         expect(logic.values.activeTab).toEqual(tab)
@@ -123,21 +114,6 @@ describe('modelsSceneLogic', () => {
         router.actions.push('/models')
         expect(logic.values.activeTab).toEqual('overview')
         expect(logic.values.lineageTabVisited).toBe(true)
-    })
-
-    it('opens the data quality tab once its flag is on', async () => {
-        setFlag(FEATURE_FLAGS.DATA_QUALITY_CHECKS, true)
-        await mount('/models?tab=data-quality')
-        expect(logic.values.activeTab).toEqual('data-quality')
-    })
-
-    it('opens a data quality deep link after feature flags load', async () => {
-        await mount('/models?tab=data-quality')
-        expect(logic.values.activeTab).toEqual('overview')
-
-        setFlag(FEATURE_FLAGS.DATA_QUALITY_CHECKS, true)
-
-        expect(logic.values.activeTab).toEqual('data-quality')
     })
 
     it('counts models whose last run failed and models that are suspended', async () => {

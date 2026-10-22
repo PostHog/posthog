@@ -211,4 +211,26 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "quote": "Aggregate market data by currency conversion (default USD): total_market_cap, total_volume_24h, total_volume_24h_reported, altcoin_market_cap, altcoin_volume_24h, altcoin_volume_24h_reported and the conversion timestamp.",
         },
     },
+    "liquidations_by_cryptocurrency_latest": {
+        "description": "Latest perpetual and futures liquidations per cryptocurrency over rolling 1-hour, 4-hour and 24-hour windows, aggregated across every exchange that trades its derivatives. Coins with no liquidations in any window are left out.",
+        "docs_url": "https://pro.coinmarketcap.com/api/documentation/pro-api-reference/derivatives/latest-liquidations-by-cryptocurrency.md",
+        "columns": {
+            "crypto_id": "The unique CoinMarketCap ID for this cryptocurrency.",
+            "name": "The name of this cryptocurrency.",
+            "symbol": "The ticker symbol for this cryptocurrency.",
+            "slug": "The web URL friendly shorthand version of this cryptocurrency name.",
+            "cmc_rank": "The cryptocurrency's CoinMarketCap rank by market cap.",
+            "quotes": "One entry per requested currency conversion (default USD only): crypto_id and symbol of the conversion currency, total_liquidations, long_liquidations and short_liquidations for each of the rolling 1h, 4h and 24h windows, and last_updated.",
+        },
+    },
+    "liquidations_by_exchange_latest": {
+        "description": "Latest perpetual and futures liquidations per derivatives exchange over rolling 1-hour, 4-hour and 24-hour windows. Only exchanges with an integrated liquidation feed and at least one liquidation in a window are included.",
+        "docs_url": "https://pro.coinmarketcap.com/api/documentation/pro-api-reference/derivatives/latest-liquidations-by-exchange.md",
+        "columns": {
+            "exchange_id": "The unique CoinMarketCap ID for this exchange.",
+            "name": "The name of this exchange.",
+            "slug": "The web URL friendly shorthand version of this exchange name.",
+            "quotes": "One entry per requested currency conversion (default USD only): crypto_id and symbol of the conversion currency, total_liquidations, long_liquidations and short_liquidations for each of the rolling 1h, 4h and 24h windows, and last_updated.",
+        },
+    },
 }

@@ -26,7 +26,7 @@
 # ---------------------------------------------------------
 #
 # Digest-pinned because the runtime stage copies its `node` binary out of this stage.
-FROM node:24.13.0-bookworm-slim@sha256:4660b1ca8b28d6d1906fd644abe34b2ed81d15434d26d845ef0aced307cf4b6f AS node-base
+FROM node:24.22.1-bookworm-slim@sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205 AS node-base
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
@@ -55,6 +55,7 @@ COPY common/replay-shared/ common/replay-shared/
 COPY common/tailwind/ common/tailwind/
 COPY packages/quill/ packages/quill/
 COPY packages/llm-normalizer/ packages/llm-normalizer/
+COPY packages/agent/packages/agent-contracts/src/ packages/agent/packages/agent-contracts/src/
 COPY products/ products/
 COPY docs/onboarding/ docs/onboarding/
 RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store-v24 \
@@ -70,7 +71,7 @@ RUN bin/turbo --filter=@posthog/frontend build
 # Isolated stage for sourcemap upload - keeps secrets and external network calls
 # out of the main build cache. This stage produces no artifacts for the final image.
 #
-FROM node:24.13.0-bookworm-slim AS sourcemap-upload
+FROM node:24.22.1-bookworm-slim AS sourcemap-upload
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
@@ -180,7 +181,7 @@ RUN cd /code/common/plugin_transpiler && \
 #
 # ---------------------------------------------------------
 #
-FROM ghcr.io/astral-sh/uv:0.12.13 AS uv
+FROM ghcr.io/astral-sh/uv:0.13.4 AS uv
 
 # Same as pyproject.toml so that uv can pick it up and doesn't need to download a different Python version.
 FROM python:3.14.7-slim-bookworm@sha256:9ab8d9c8514b44f90cf0029dd42fdd7e9e211e639c8b995304cc04568dee900f AS posthog-build
@@ -250,6 +251,10 @@ COPY --from=frontend-build /code/frontend/src/products.json /code/frontend/src/p
 # Make sure we build the static files
 RUN SKIP_SERVICE_VERSION_REQUIREMENTS=1 STATIC_COLLECTION=1 DATABASE_URL='postgres:///' REDIS_URL='redis:///' python manage.py collectstatic --noinput
 
+# Render the wizard tool catalog from the warehouse source declarations. Web workers serve this file,
+# so they never import every source module, and a source module that fails to import fails the build.
+RUN SKIP_SERVICE_VERSION_REQUIREMENTS=1 STATIC_COLLECTION=1 DATABASE_URL='postgres:///' REDIS_URL='redis:///' python manage.py render_wizard_tool_catalog
+
 # Strip JS sourcemaps (~2.8GB) from the artifacts that ship in the final image — but ONLY when the
 # isolated sourcemap-upload stage confirmed a real upload to error tracking (status "uploaded"). If the
 # upload failed or no secret was provided, the .map files are kept so the only remaining copy isn't
@@ -304,6 +309,8 @@ ENV LANG=C.UTF-8
 # libxmlsec1-openssl provides the OpenSSL crypto backend that libxmlsec1-dev used to pull in.
 RUN apt-get update && \
     apt-get install -y --no-install-recommends --allow-downgrades \
+    # Upgrades the CA bundle that the pinned base image freezes.
+    "ca-certificates" \
     # The deploy chart's asset-upload hook runs in this image and downloads s5cmd with curl.
     "curl" \
     "git" \
@@ -396,13 +403,14 @@ COPY --chown=posthog:posthog ee ee/
 COPY --chown=posthog:posthog common/hogvm common/hogvm/
 COPY --chown=posthog:posthog common/migration_utils common/migration_utils/
 COPY --chown=posthog:posthog products products/
+COPY --from=posthog-build --chown=posthog:posthog /code/products/wizard/tool-catalog.json /code/products/wizard/tool-catalog.json
 # Stamphog ships the review engine + owners resolver from this checkout into its sandbox at
 # runtime (products/stamphog/backend/temporal/activities.py), so both must exist in the image as
-# source. The engine arrives with products/ above, and only packages/owners-yaml needs its own COPY. This
+# source, the engine with its default policy files. The engine arrives with products/ above, and only packages/owners-yaml needs its own COPY. This
 # differs from the installation of owners-yaml into the venv as a library: the sandbox receives
 # files copied into a checkout, and not an import.
 COPY --chown=posthog:posthog packages/owners-yaml packages/owners-yaml/
-RUN test -f products/stamphog/packages/pr-approval-agent/review_local.py && test -d packages/owners-yaml/owners_yaml
+RUN test -f products/stamphog/packages/pr-approval-agent/review_local.py && test -f products/stamphog/packages/pr-approval-agent/defaults/policy.yml && test -d packages/owners-yaml/owners_yaml
 # Generated MCP tool catalog, read at runtime from BASE_DIR by the OAuth consent page
 # (posthog/api/oauth/mcp_resource_scopes.py) and the tasks permission broker. The rest of
 # services/ is a Node build (Dockerfile.node) and deliberately stays out of this image.

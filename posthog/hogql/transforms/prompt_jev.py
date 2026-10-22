@@ -32,7 +32,6 @@ from posthog.llm.system_one import (
     SystemOneRequestFailed,
 )
 from posthog.llm.system_one_client import GatewaySystemOneClient, build_system_one_client
-from posthog.ph_client import feature_enabled_or_false
 
 if TYPE_CHECKING:
     from posthog.hogql.context import HogQLContext
@@ -492,18 +491,6 @@ class PromptJevPlanner(CloningVisitor):
 def validate_prompt_jev_access(team: "Team") -> None:
     if settings.CLICKHOUSE_USE_HTTP or team.pk in settings.CLICKHOUSE_USE_HTTP_PER_TEAM:
         raise QueryError("jev requires the native ClickHouse connection. Ask your administrator to configure it.")
-    if not feature_enabled_or_false(
-        "hogql-prompt-jev",
-        str(team.uuid),
-        groups={"organization": str(team.organization_id), "project": str(team.pk)},
-        group_properties={
-            "organization": {"id": str(team.organization_id)},
-            "project": {"id": str(team.pk)},
-        },
-        only_evaluate_locally=True,
-        send_feature_flag_events=False,
-    ):
-        raise QueryError("jev is not enabled for this project. Contact support to request access.")
     if _is_over_ai_credit_budget(team):
         raise QueryError(OUT_OF_AI_CREDITS_MESSAGE)
 

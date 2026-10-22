@@ -23,6 +23,7 @@ function check(overrides: Partial<SignalReportCheckApi>): SignalReportCheckApi {
         expires_at: '2026-10-27T09:00:00Z',
         last_run_at: null,
         last_outcome: null,
+        last_outcome_reason: null,
         dispatched_at: null,
         consecutive_errors: 0,
         created_at: '2026-09-20T09:00:00Z',
@@ -56,6 +57,14 @@ const everyState: SignalReportCheckApi[] = [
         last_run_at: '2026-09-27T09:00:00Z',
     }),
     check({
+        id: 'inconclusive',
+        status: 'inconclusive',
+        title: 'The iOS crash no longer reproduces',
+        last_run_at: '2026-09-27T09:00:00Z',
+        last_outcome: 'inconclusive',
+        last_outcome_reason: 'needs_manual_verification',
+    }),
+    check({
         id: 'expired',
         status: 'expired',
         title: 'Confirm the retry budget holds',
@@ -72,6 +81,7 @@ const everyState: SignalReportCheckApi[] = [
 const explanations = new Map([
     ['passed', '11 rageclicks in the last 14 days. Expected at most 20, was 64 when set.'],
     ['failed', '14 new events after the fix, on the same stack frame.'],
+    ['inconclusive', 'The crash only shows on a physical device, which no tool here can reach.'],
 ])
 
 function ChecksSection({ checks }: { checks: SignalReportCheckApi[] }): JSX.Element {
@@ -122,4 +132,56 @@ export const Running: Story = {
 export const NarrowRail: Story = {
     parameters: { railWidth: 'narrow' },
     args: { checks: everyState },
+}
+
+export const Monitoring: Story = {
+    args: {
+        checks: [
+            check({
+                id: 'monitoring-scheduled',
+                kind: 'metric_threshold',
+                config: { comparison: { operator: 'lte', value: 0 } },
+                soak_minutes: 1440,
+                run_interval_minutes: 360,
+                next_run_at: '2026-09-21T21:00:00Z',
+                monitoring_timing: {
+                    state: 'scheduled',
+                    started_at: '2026-09-21T00:00:00Z',
+                    ends_at: '2026-09-22T00:00:00Z',
+                    next_measurement_at: '2026-09-21T21:00:00Z',
+                },
+            }),
+            check({
+                id: 'monitoring-ended',
+                title: 'The export backlog stays clear',
+                kind: 'metric_threshold',
+                config: { comparison: { operator: 'lte', value: 0 } },
+                soak_minutes: 1440,
+                next_run_at: '2026-09-21T00:00:00Z',
+                monitoring_timing: {
+                    state: 'window_ended',
+                    started_at: '2026-09-20T00:00:00Z',
+                    ends_at: '2026-09-21T00:00:00Z',
+                    next_measurement_at: null,
+                },
+            }),
+            check({
+                id: 'monitoring-paused',
+                title: 'No new reports of the export timeout',
+                soak_minutes: 1440,
+                next_run_at: '2026-09-22T00:00:00Z',
+                monitoring_timing: {
+                    state: 'paused',
+                    started_at: '2026-09-21T00:00:00Z',
+                    ends_at: '2026-09-22T00:00:00Z',
+                    next_measurement_at: null,
+                },
+            }),
+        ],
+    },
+}
+
+export const MonitoringNarrowRail: Story = {
+    ...Monitoring,
+    parameters: { railWidth: 'narrow' },
 }

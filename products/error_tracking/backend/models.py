@@ -105,7 +105,12 @@ class ErrorTrackingIssue(UUIDTModel):
                 fields=["team", "-state_updated_at"],
                 name="et_issue_team_state_idx",
                 condition=models.Q(state_updated_at__isnull=False),
-            )
+            ),
+            models.Index(
+                fields=["team", "-created_at"],
+                name="et_issue_active_created_idx",
+                condition=models.Q(status="active"),
+            ),
         ]
 
     def merge(
@@ -695,15 +700,6 @@ class ErrorTrackingStackFrame(UUIDTModel):
             # Recent-frames-per-team scans, such as the source maps recommendation. Without
             # created_at in the index, a 24h window has to visit every frame the team ever stored.
             models.Index(fields=["team", "created_at"], name="et_frame_team_created_at_idx"),
-            # Covers the source maps recommendation's count of recent JavaScript frames. The
-            # predicate holds the language test, so Postgres answers the count from the index
-            # and never detoasts the wide `contents` column.
-            models.Index(
-                fields=["team", "created_at"],
-                include=["resolved"],
-                condition=models.Q(contents__lang="javascript"),
-                name="et_frame_team_created_js_idx",
-            ),
         ]
 
         constraints = [
@@ -986,7 +982,7 @@ class ErrorTrackingAlert(TeamScopedRootMixin, UUIDTModel):
     enabled = models.BooleanField(default=True)
     triggers = models.JSONField(default=list)  # list of Trigger values
     # Same property-filter shape hog functions store, with the compiled HogQL bytecode
-    # embedded under "bytecode" (see posthog.cdp.filters.compile_filters_bytecode).
+    # embedded under "bytecode" (see products.cdp.backend.filters.compile_filters_bytecode).
     filters = models.JSONField(default=dict, blank=True)
     # Minimum seconds between thread-opening notifications per (alert, issue).
     # Replies into an existing thread are never throttled. 0 disables the throttle.

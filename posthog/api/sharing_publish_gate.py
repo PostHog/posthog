@@ -15,9 +15,11 @@ from rest_framework import serializers
 
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.errors import TableAccessDeniedError
+from posthog.hogql.escape_sql import backquote_escape_chars_map
 from posthog.hogql.modifiers import create_default_modifiers_for_user
 from posthog.hogql.printer import prepare_ast_for_printing
 
+from posthog.api.property_filter_access_gate import table_blocking_property_filters
 from posthog.constants import AvailableFeature
 from posthog.hogql_queries.query_runner import get_query_runner_or_none
 from posthog.models import Team, User
@@ -64,7 +66,63 @@ def blocked_access_for_publisher(user: User, team: Team, config: SharingConfigur
     the same resolution the read path uses. Non-access compile errors don't gate.
     Empty list = safe to publish.
     """
-    return blocked_access_for_user(user, team, _queries_exposed_by(config))
+    blocked = blocked_access_for_user(user, team, _queries_exposed_by(config))
+    # A dashboard's own filters and tile overrides run inside every tile, and they could have
+    # been saved before the dashboard was shared, when the save-time check did not apply.
+    if config.dashboard is not None:
+        leaves = dashboard_filter_leaves(config.dashboard.filters)
+        for overrides in config.dashboard.tiles.values_list("filters_overrides", flat=True):
+            leaves += dashboard_filter_leaves(overrides)
+        if (table := table_blocking_property_filters(user, team, leaves)) and table not in blocked:
+            blocked = sorted([*blocked, table])
+    return blocked
+
+
+def dashboard_filter_leaves(filters: Any) -> list[dict[str, Any]]:
+    """The property filters of a dashboard filter set, plus its breakdowns as HogQL filters, in
+    the shape `table_blocking_property_filters` checks. A leaf without a string type is skipped,
+    since the check cannot classify it."""
+    if not isinstance(filters, dict):
+        return []
+    properties = filters.get("properties")
+    leaves = [
+        leaf
+        for leaf in (properties if isinstance(properties, list) else [])
+        if isinstance(leaf, dict) and isinstance(leaf.get("type"), str)
+    ]
+    breakdown_filter = filters.get("breakdown_filter")
+    if not isinstance(breakdown_filter, dict):
+        return leaves
+    breakdowns = breakdown_filter.get("breakdowns")
+    pairs = [
+        (breakdown.get("type"), breakdown.get("property"))
+        for breakdown in (breakdowns if isinstance(breakdowns, list) else [])
+        if isinstance(breakdown, dict)
+    ]
+    pairs.append((breakdown_filter.get("breakdown_type"), breakdown_filter.get("breakdown")))
+    for breakdown_type, value in pairs:
+        # A funnel breakdown is a list of values, each read like a single breakdown.
+        for key in value if isinstance(value, list) else [value]:
+            if isinstance(breakdown_type, str) and isinstance(key, str):
+                if expr := _breakdown_as_hogql(breakdown_type, key):
+                    leaves.append({"type": "hogql", "key": expr})
+    return leaves
+
+
+def _breakdown_as_hogql(breakdown_type: str, key: str) -> str | None:
+    """The expression a breakdown reads, as the trends breakdown builds it, for the breakdown
+    types that can reach a warehouse table. None for the types that cannot."""
+    if breakdown_type in ("hogql", "event_metadata"):
+        return key
+    if breakdown_type == "data_warehouse":
+        chain = key.split(".")
+    elif breakdown_type == "data_warehouse_person_property":
+        chain = ["person", *key.split(".")]
+    else:
+        return None
+    # Every part is quoted, so a part that reads as a keyword, such as `null`, stays a field name,
+    # and a part the printer would refuse does not raise here.
+    return ".".join("`" + "".join(backquote_escape_chars_map.get(c, c) for c in part) + "`" for part in chain)
 
 
 def blocked_access_for_user(user: User, team: Team, queries: list[dict[str, Any]]) -> list[str]:

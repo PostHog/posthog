@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -33,6 +34,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class OpenFDASource(ResumableSource[OpenFDASourceConfig, OpenFDAResumeConfig]):
+    codebase_detection = detect(env=("^(OPEN_FDA|OPENFDA)_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://open.fda.gov/apis/"
 
@@ -46,7 +49,7 @@ class OpenFDASource(ResumableSource[OpenFDASourceConfig, OpenFDAResumeConfig]):
             name=ExternalDataSourceType.OPENFDA,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="openFDA",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Pull U.S. FDA drug, device, and food data — adverse event reports, recalls, drug labeling, 510(k) clearances, and the NDC directory — into the PostHog Data warehouse.
 
 An API key is optional but recommended. Without one, openFDA limits you to 1,000 requests/day per IP; with one, 120,000 requests/day. Get a free key from the [openFDA API basics page](https://open.fda.gov/apis/authentication/).""",

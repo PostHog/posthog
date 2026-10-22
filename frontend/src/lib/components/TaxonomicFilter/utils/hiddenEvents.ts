@@ -31,8 +31,7 @@ const HIDDEN_EVENT_NAMES = EVENTS_HIDDEN_IN_QUERY_BUILDERS.map(({ name }) => nam
  * Names the Events group adds to its own exclusions.
  *
  * Empty when the team's `flag_evaluations_mode` is Events or missing, or when the picker passes
- * `includeHiddenEvents`. Surfaces that browse captured events (the activity explorer, live events, a
- * group's event feed, ingestion triggers) and the experiment pickers pass it.
+ * `includeHiddenEvents`. `TaxonomicFilterProps.includeHiddenEvents` says which pickers pass it.
  *
  * For an organization on mode 1, the team API reports Events while the
  * `FLAG_EVALUATIONS_READS_FORCE_EVENTS` instance setting is on, so its pickers show these events again.
@@ -45,6 +44,28 @@ export function hiddenEventNames(
         return []
     }
     return HIDDEN_EVENT_NAMES
+}
+
+/** The https link in the move notices flag's payload, or null while there is no announcement to link to. */
+export function moveAnnouncementUrl(payload: unknown): string | null {
+    const url = typeof payload === 'object' && payload !== null && 'url' in payload ? payload.url : null
+    if (typeof url !== 'string') {
+        return null
+    }
+    try {
+        const { protocol, host } = new URL(url)
+        return protocol === 'https:' && host ? url : null
+    } catch {
+        return null
+    }
+}
+
+/** The hidden events that a mode 0 action or cohort editor warns about. Empty until the move is announced. */
+export function eventsWithMoveNotice(
+    flagEvaluationsMode: FlagEvaluationsModeEnumApi | undefined,
+    moveNoticesEnabled: boolean
+): string[] {
+    return moveNoticesEnabled && (flagEvaluationsMode ?? EVENTS_MODE) === EVENTS_MODE ? HIDDEN_EVENT_NAMES : []
 }
 
 /**

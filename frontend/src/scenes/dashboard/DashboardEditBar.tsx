@@ -2,7 +2,7 @@ import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import type { ReactNode } from 'react'
 
-import { IconCalendar, IconLive } from '@posthog/icons'
+import { IconCalendar } from '@posthog/icons'
 import { LemonSelect, Tooltip } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
@@ -30,6 +30,7 @@ import { BreakdownFilter, NodeKind } from '~/queries/schema/schema-general'
 import { InsightLogicProps, IntervalType } from '~/types'
 
 import { DashboardMetricLabelFilter } from 'products/metrics/frontend/components/DashboardMetricLabelFilter'
+import { DashboardMetricVariables } from 'products/metrics/frontend/components/dashboardVariables/DashboardMetricVariables'
 
 interface DashboardEditBarProps {
     showDateFilter?: boolean
@@ -244,7 +245,7 @@ export function DashboardEditBar({ showDateFilter = true, className }: Dashboard
 
             <VariablesForDashboard />
             <div className={clsx('content-end', { 'h-[61px]': hasVariables })}>
-                <DashboardEditBarAdvancedFilters />
+                <DashboardEditBarAdvancedFilters showCompareFilter={showDateFilter} />
             </div>
             {controlsEnabled && (
                 <DashboardControlSlot
@@ -253,10 +254,6 @@ export function DashboardEditBar({ showDateFilter = true, className }: Dashboard
                     className={clsx('content-end', { 'h-[61px]': hasVariables })}
                 >
                     <div className="flex min-h-[30px] flex-wrap items-center gap-1 border-l border-primary pl-2">
-                        <span className="flex items-center gap-1 text-xs font-semibold text-secondary">
-                            <IconLive className="text-sm" />
-                            Metrics
-                        </span>
                         <DashboardMetricLabelFilter
                             metricFilters={effectiveEditBarFilters.metricFilters}
                             onChange={(metricFilters) => {
@@ -269,6 +266,17 @@ export function DashboardEditBar({ showDateFilter = true, className }: Dashboard
                                 setMetricFilters(metricFilters)
                             }}
                         />
+                    </div>
+                </DashboardControlSlot>
+            )}
+            {controlsEnabled && (
+                <DashboardControlSlot
+                    control="metricVariables"
+                    hasValue={(effectiveEditBarFilters.metricVariables?.length ?? 0) > 0}
+                    className={clsx('content-end', { 'h-[61px]': hasVariables })}
+                >
+                    <div className="flex min-h-[30px] flex-wrap items-end gap-1 border-l border-primary pl-2">
+                        <DashboardMetricVariables />
                     </div>
                 </DashboardControlSlot>
             )}

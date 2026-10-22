@@ -1,11 +1,3 @@
-"""Access control coverage for the non-core data warehouse viewsets.
-
-Covers managed viewsets, the data_warehouse stats/provisioning endpoints, model paths,
-data modeling jobs, and lineage — each gated under warehouse_view (reads) or
-warehouse_view:write (write actions). Verifies viewer/editor/none rejection and
-acceptance for the endpoints that actually get traffic.
-"""
-
 from datetime import timedelta
 
 import pytest
@@ -286,13 +278,17 @@ class TestDataWarehouseViewSetAccessControl(WarehouseAccessControlTestMixin):
         )
         self.client.force_login(self.viewer_user)
 
-        summary_response = self.client.get(self._path("managed-warehouse-data-status/"))
-        detail_response = self.client.get(
-            self._path(f"managed-warehouse-source-schemas/?source_id={blocked_source.id}")
-        )
-        allowed_detail_response = self.client.get(
-            self._path(f"managed-warehouse-source-schemas/?source_id={allowed_source.id}")
-        )
+        with patch(
+            "products.data_warehouse.backend.presentation.views.data_warehouse.managed_warehouse.is_enabled",
+            return_value=True,
+        ):
+            summary_response = self.client.get(self._path("managed-warehouse-data-status/"))
+            detail_response = self.client.get(
+                self._path(f"managed-warehouse-source-schemas/?source_id={blocked_source.id}")
+            )
+            allowed_detail_response = self.client.get(
+                self._path(f"managed-warehouse-source-schemas/?source_id={allowed_source.id}")
+            )
 
         self.assertEqual(summary_response.status_code, status.HTTP_200_OK)
         self.assertEqual(

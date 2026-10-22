@@ -6,9 +6,12 @@ from urllib.parse import urlparse
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    make_tracked_session,
+    retry_with_deadline,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sync_window import SyncWindow
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -132,13 +135,19 @@ def validate_credentials(host: str, api_key: Optional[str]) -> tuple[bool, str |
     return True, None
 
 
-def _flatten_result_sets(data: Any, requested_window: SyncWindow[str]) -> list[dict[str, Any]]:
-    """Flatten Allocation/Assets result sets (dicts keyed by allocation/asset name) into rows.
+def _flatten_result_sets(
+    data: Any, requested_window: SyncWindow[str], result_set_key: Optional[str] = None
+) -> list[dict[str, Any]]:
+    """Flatten result sets (dicts keyed by allocation/asset/cloud cost name) into rows.
 
-    Windows with no data (e.g. beyond ETL retention) come back as ``data: [null]``,
-    so null/non-dict sets are skipped rather than treated as errors.
+    Windows with no data (e.g. beyond ETL retention) come back as ``data: [null]``
+    (or ``cloudCosts: null`` for Cloud Cost), so null/non-dict sets are skipped
+    rather than treated as errors.
     """
     rows: list[dict[str, Any]] = []
+    if result_set_key is not None:
+        sets = data.get("sets") if isinstance(data, dict) else None
+        data = [s.get(result_set_key) for s in sets if isinstance(s, dict)] if isinstance(sets, list) else None
     if not isinstance(data, list):
         return rows
     for result_set in data:
@@ -178,7 +187,7 @@ def get_rows(
     session = _get_session(api_key)
     url = f"{base_url}{config.path}"
 
-    @retry(
+    @retry_with_deadline(
         retry=retry_if_exception_type((KubecostRetryableError, requests.ReadTimeout, requests.ConnectionError)),
         stop=stop_after_attempt(MAX_RETRY_ATTEMPTS),
         wait=wait_exponential_jitter(initial=2, max=90),
@@ -225,7 +234,7 @@ def get_rows(
     while day <= today:
         window = _day_window(day)
         data = call(f"{window.start},{window.end}")
-        rows = _flatten_result_sets(data, window)
+        rows = _flatten_result_sets(data, window, config.result_set_key)
         if rows:
             yield rows
 

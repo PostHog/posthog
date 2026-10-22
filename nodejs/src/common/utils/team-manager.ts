@@ -59,6 +59,22 @@ export class TeamManager {
         return team?.available_features.includes(feature) || false
     }
 
+    // `ingested_event` means "this project received data", so logs, traces and metrics set it too.
+    public async setTeamsIngestedData(teamIds: Iterable<number>): Promise<void> {
+        await Promise.all(
+            [...new Set(teamIds)].map(async (teamId) => {
+                try {
+                    const team = await this.getTeam(teamId)
+                    if (team) {
+                        await this.setTeamIngestedEvent(team, {})
+                    }
+                } catch (error) {
+                    logger.error('⚠️', 'Failed to set ingested_event', { teamId, error })
+                }
+            })
+        )
+    }
+
     public async setTeamIngestedEvent(team: Team, properties: Properties): Promise<void> {
         if (!team.ingested_event) {
             // The cached team can be stale long after the first write, so this fires repeatedly for

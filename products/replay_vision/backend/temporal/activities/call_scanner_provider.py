@@ -8,13 +8,14 @@ Each step validates its own output and re-prompts once on failure; required step
 """
 
 import re
+import json
 import math
 import time
 import asyncio
 import functools
 import dataclasses
 from collections import Counter
-from collections.abc import Awaitable, Callable, Iterable
+from collections.abc import Awaitable, Callable, Iterable, Sequence
 from dataclasses import dataclass, replace
 from datetime import timedelta
 from typing import Any, TypeVar
@@ -28,24 +29,29 @@ from google.genai import (
     Client as GoogleGenAIClient,
     types,
 )
-from posthoganalytics.ai.gemini import genai
 from pydantic import BaseModel, ValidationError
 from temporalio import activity
 
 from posthog.dataclasses import frozen
 from posthog.models import Team
 from posthog.temporal.common.heartbeat import Heartbeater
+from posthog.temporal.session_replay.rasterize_recording.types import NavigationChange, navigation_from_export_context
 
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.replay_vision.backend.consent import is_ai_data_processing_approved
 from products.replay_vision.backend.distinct_ids import replay_vision_distinct_id
+from products.replay_vision.backend.gemini_client import AI_PRODUCT, replay_gemini_client
 from products.replay_vision.backend.learned_rules import ScanRules, load_scan_rules
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.tags import slugify_tag
 from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.errors import ConsentWithdrawnError, FailureKind, ScannerFailureError
 from products.replay_vision.backend.temporal.events_tool import build_events_index
-from products.replay_vision.backend.temporal.gemini import classify_gemini_error, describe_gemini_error, gemini_api_key
+from products.replay_vision.backend.temporal.gemini import (
+    classify_gemini_error,
+    describe_gemini_error,
+    is_gateway_refusal,
+)
 from products.replay_vision.backend.temporal.lookups import (
     LookupPlan,
     render_lookup_results,
@@ -62,6 +68,7 @@ from products.replay_vision.backend.temporal.metrics import (
     record_provider_call,
     record_tool_round,
 )
+from products.replay_vision.backend.temporal.navigation import navigation_timeline
 from products.replay_vision.backend.temporal.network_capture import SessionNetworkPayload
 from products.replay_vision.backend.temporal.network_tool import NetworkIndex, build_network_index
 from products.replay_vision.backend.temporal.pii_check import keep_unrequested_pii_out
@@ -80,13 +87,13 @@ from products.replay_vision.backend.temporal.scanners.base import (
     SignalFinding,
     SignalsResponse,
     TextSegment,
+    render_signals_instruction,
 )
 from products.replay_vision.backend.temporal.scanners.classifier import ClassifierScanner
 from products.replay_vision.backend.temporal.scanners.experiment import ExperimentScanner
 from products.replay_vision.backend.temporal.state import load_scanner_llm_inputs, load_session_network
 from products.replay_vision.backend.temporal.types import (
     CallScannerProviderInputs,
-    NavigationEntry,
     ScannerCallOutput,
     ScannerLlmInputs,
     ScannerSnapshot,
@@ -159,25 +166,17 @@ async def _call_scanner_provider(inputs: CallScannerProviderInputs) -> ScannerCa
     if not await sync_to_async(is_ai_data_processing_approved)(inputs.team_id):
         raise ConsentWithdrawnError("AI data processing consent was withdrawn before this recording could be analyzed")
 
-    if inputs.snapshot_override is not None:
-        snapshot = inputs.snapshot_override
-        team_name, llm_inputs, network_payload = await asyncio.gather(
-            sync_to_async(_load_team_name)(inputs.team_id),
-            _load_llm_inputs(inputs.observation_id),
-            _load_network_payload(inputs.observation_id),
-        )
-    else:
-        snapshot, team_name, llm_inputs, network_payload = await asyncio.gather(
-            sync_to_async(_load_snapshot)(inputs.observation_id, inputs.team_id),
-            sync_to_async(_load_team_name)(inputs.team_id),
-            _load_llm_inputs(inputs.observation_id),
-            _load_network_payload(inputs.observation_id),
-        )
+    snapshot, team_name, llm_inputs, network_payload = await asyncio.gather(
+        sync_to_async(_load_snapshot)(inputs.observation_id, inputs.team_id),
+        sync_to_async(_load_team_name)(inputs.team_id),
+        _load_llm_inputs(inputs.observation_id),
+        _load_network_payload(inputs.observation_id),
+    )
     scanner: BaseScanner = scanner_from_snapshot(snapshot)
     scanner = await _inject_known_freeform_tags(scanner, inputs)
     scanner = await _inject_learned_rules(scanner, snapshot, inputs.team_id)
     scanner = await _apply_experiment_scan_context(scanner, inputs)
-    video_clock = await sync_to_async(_load_video_clock)(
+    video_clock, navigation = await sync_to_async(_load_render)(
         inputs.team_id, inputs.exported_asset_id, llm_inputs.metadata.duration_seconds
     )
     return await run_scan(
@@ -189,8 +188,11 @@ async def _call_scanner_provider(inputs: CallScannerProviderInputs) -> ScannerCa
         mime_type=inputs.mime_type,
         team_id=inputs.team_id,
         video_clock=video_clock,
+        navigation=navigation,
         network_payload=network_payload,
-        trace_id=_scan_trace_id(inputs),
+        # The observation id, so every step, the lookup round, and retry of a scan reads as a single LLM
+        # analytics conversation and the observation id doubles as the trace search key.
+        trace_id=str(inputs.observation_id),
     )
 
 
@@ -198,8 +200,11 @@ async def _call_scanner_provider(inputs: CallScannerProviderInputs) -> ScannerCa
 _UNCUT_TOLERANCE_S = 2.0
 
 
-def _load_video_clock(team_id: int, exported_asset_id: int, session_duration_s: float | None) -> VideoClock:
-    """The clock for the video this scan is about to read, from the asset the rasterizer rendered.
+def _load_render(
+    team_id: int, exported_asset_id: int, session_duration_s: float | None
+) -> tuple[VideoClock, list[NavigationChange]]:
+    """The clock for the video this scan is about to read, and the page and tab changes it shows, from the asset
+    the rasterizer rendered.
 
     An asset predating the cut map leaves the clock unknown. The model cites video seconds, so assuming
     nothing was cut would put every citation early by the cut time, which is the failure this conversion
@@ -207,9 +212,11 @@ def _load_video_clock(team_id: int, exported_asset_id: int, session_duration_s: 
     nothing. Refuse rather than emit timestamps we know we cannot place.
     """
     asset = ExportedAsset.objects.filter(team_id=team_id, pk=exported_asset_id).first()
-    clock = video_clock_from_export_context(asset.export_context if asset else None)
+    export_context = asset.export_context if asset else None
+    navigation = navigation_from_export_context(export_context)
+    clock = video_clock_from_export_context(export_context)
     if clock is not None:
-        return clock
+        return clock, navigation
 
     video_duration_s = (asset.export_context or {}).get("video_duration_s") if asset else None
     # Compared both ways: a shorter video lost stretches, and one longer than its own session does not
@@ -219,7 +226,7 @@ def _load_video_clock(team_id: int, exported_asset_id: int, session_duration_s: 
         and session_duration_s
         and abs(session_duration_s - video_duration_s) <= _UNCUT_TOLERANCE_S
     ):
-        return VideoClock(spans=())
+        return VideoClock(spans=()), navigation
 
     logger.warning(
         "replay_vision.video_clock.missing_cut_map",
@@ -232,14 +239,6 @@ def _load_video_clock(team_id: int, exported_asset_id: int, session_duration_s: 
         "The rendered video has no inactivity map, so cited moments cannot be placed in the recording",
         kind=FailureKind.INTERNAL_ERROR,
     )
-
-
-def _navigation_on_video_clock(entry: NavigationEntry, clock: VideoClock) -> dict[str, Any]:
-    """Navigation timeline `t` values, moved onto the clock the model cites in."""
-    payload = entry.model_dump()
-    payload["vid_t"] = int(clock.session_ms_to_video_s(entry.rec_t * 1000))
-    del payload["rec_t"]
-    return payload
 
 
 def _signal_on_session_clock(signal: SignalFinding, clock: VideoClock) -> SignalFinding:
@@ -262,21 +261,20 @@ async def run_scan(
     mime_type: str,
     team_id: int,
     video_clock: VideoClock,
+    navigation: Sequence[NavigationChange] = (),
     network_payload: SessionNetworkPayload | None = None,
     trace_id: str | None = None,
 ) -> ScannerCallOutput:
     """Run the scanner conversation over an already-uploaded video, independent of where the inputs came from.
 
-    The activity path above loads the snapshot and inputs from the observation row and Redis; the golden-dataset
-    eval suite (products/replay_vision/evals) feeds this same function from files on disk so prompt changes are
-    tested against the exact production pipeline. `scanner` is required (no snapshot fallback) so no caller can
+    `scanner` is required (no snapshot fallback) so no caller can
     silently skip the known-freeform-tags injection. The production activity checks AI data-processing consent
-    before calling this; any other caller must do the same before recording data reaches the provider (the eval
-    suite is covered because dataset collection is consent-gated and time-boxed).
+    before calling this; any other caller must do the same before recording data reaches the provider.
     """
     # Built before the preamble so one object decides both the wording and what a network lookup returns, which
     # keeps the prompt from promising network data the scan does not carry.
     network_index = build_network_index(network_payload, llm_inputs.metadata.start_time, video_clock)
+    navigation_entries, navigation_dropped = navigation_timeline(navigation)
     duration_ms = int(llm_inputs.metadata.duration_seconds * 1000)
     scanner = scanner.bind_session(video_clock, duration_ms)
 
@@ -285,8 +283,8 @@ async def run_scan(
         session_metadata=llm_inputs.metadata.as_prompt_dict(),
         touch=llm_inputs.metadata.touch,
         session_identity=llm_inputs.identity.as_prompt_dict(),
-        navigation=[_navigation_on_video_clock(entry, video_clock) for entry in llm_inputs.navigation],
-        navigation_dropped=llm_inputs.navigation_dropped,
+        navigation=[entry.model_dump() for entry in navigation_entries],
+        navigation_dropped=navigation_dropped,
         events_truncated=llm_inputs.events_truncated,
         product_context=llm_inputs.product_context,
         event_descriptions=llm_inputs.event_descriptions,
@@ -333,15 +331,6 @@ def _identity_values(identity: SessionIdentity) -> list[str]:
     """The values `<session_identity>` lets a scanner name when its question asks who the session belongs to."""
     values = [identity.person_email, identity.person_name, identity.person_organization]
     return [value for value in [*values, *(group.name for group in identity.groups)] if value]
-
-
-def _scan_trace_id(inputs: CallScannerProviderInputs) -> str:
-    """LLM analytics trace id for one scan: the observation id, so every step, the lookup round, and retry of
-    a scan reads as a single conversation and the observation id doubles as the trace search key. Evaluation
-    re-runs (snapshot_override) get a fresh id so they don't interleave with the real scan's trace."""
-    if inputs.snapshot_override is not None:
-        return str(uuid4())
-    return str(inputs.observation_id)
 
 
 def _resolve_citations(
@@ -428,33 +417,30 @@ def _is_taglike(slug: str) -> bool:
 
 
 async def _apply_experiment_scan_context(scanner: BaseScanner, inputs: CallScannerProviderInputs) -> BaseScanner:
-    """Give an experiment scanner the variant and experiment description the workflow resolved.
+    """Give an experiment scanner the experiment description the workflow resolved.
 
     Scan-time context, never persisted (see `ExperimentScanner`). A no-op for the other types.
-    When the inputs carry neither field — a prompt evaluation re-scanning a rated session, or a
-    history from before attribution shipped — the source observation's persisted attribution
-    stands in, so an evaluation tests the prompt with its experiment block rather than without.
-    Best effort there: a lookup failure must not fail the scan, and a pre-attribution row simply
-    has nothing persisted to inject."""
+    The session's variant is never injected: the prompt stays blind to it, and the workflow stores
+    it beside the model output. When the inputs carry no attribution, the source observation's
+    persisted attribution stands in. Best effort there: a lookup failure must not fail the scan,
+    and a row without attribution simply has nothing persisted to inject."""
     if not isinstance(scanner, ExperimentScanner):
         return scanner
-    variant, context = inputs.experiment_variant, inputs.experiment_context
-    if variant is None and context is None:
+    context = inputs.experiment_context
+    if context is None and inputs.experiment_variant is None:
         try:
-            variant, context = await sync_to_async(_load_persisted_experiment_context)(
+            context = await sync_to_async(_load_persisted_experiment_context)(
                 inputs.observation_id, inputs.team_id, scanner.experiment_id
             )
         except Exception:
             logger.warning("replay_vision.call_scanner_provider.experiment_context_fallback_failed", exc_info=True)
             return scanner
-        if variant is None and context is None:
-            return scanner
-    return scanner.model_copy(update={"experiment_context": context, "session_variant": variant})
+    if context is None:
+        return scanner
+    return scanner.model_copy(update={"experiment_context": context})
 
 
-def _load_persisted_experiment_context(
-    observation_id: UUID, team_id: int, experiment_id: int
-) -> tuple[str | None, dict[str, Any] | None]:
+def _load_persisted_experiment_context(observation_id: UUID, team_id: int, experiment_id: int) -> dict[str, Any] | None:
     # Deferred: the experiments replay facade pulls in the recordings query modules, which circle
     # back into this package's importers.
     from products.experiments.backend.facade.replay import experiment_prompt_context  # noqa: PLC0415
@@ -466,9 +452,9 @@ def _load_persisted_experiment_context(
     )
     variant = result.get("experiment_variant") if isinstance(result, dict) else None
     if not isinstance(variant, str):
-        return None, None
+        return None
     context = experiment_prompt_context(Team.objects.get(pk=team_id), experiment_id=experiment_id)
-    return variant, dataclasses.asdict(context) if context is not None else None
+    return dataclasses.asdict(context) if context is not None else None
 
 
 def apply_known_freeform_tags(scanner: BaseScanner, tags: list[str]) -> BaseScanner:
@@ -604,20 +590,14 @@ async def _run_mission(
     Caching is best-effort: a video too short to cache (or any cache hiccup) falls back to sending it inline, and a
     cached run that fails for a non-validation reason is retried inline once before giving up.
     """
-    api_key = gemini_api_key()
     # Attribute every scanner generation to Replay Vision in LLM analytics so costs and traces roll up to the product.
-    client = genai.AsyncClient(
-        api_key=api_key,
-        # Privacy mode keeps the recording's content out of the internal project, where it could not be deleted with the recording.
-        posthog_privacy_mode=True,
-        posthog_properties={
-            "ai_product": "replay_vision",
-            "feature": "scanner",
-            "scanner_type": snapshot.scanner_type.value,
-            "team_id": team_id,
-        },
-    )
-    cache_client = GoogleGenAIClient(api_key=api_key)
+    properties = {
+        "ai_product": AI_PRODUCT,
+        "feature": "scanner",
+        "scanner_type": snapshot.scanner_type.value,
+        "team_id": team_id,
+    }
+
     model = f"models/{snapshot.model}"
     metric_labels = {
         "provider": snapshot.provider,
@@ -642,7 +622,6 @@ async def _run_mission(
             record(scanner_type, snapshot.model)
         return run_lookups(plan, events_index=events_index, network_index=network_index)
 
-    cache = await _maybe_create_video_cache(cache_client, model, video_part, preamble_text)
     signal_duration_s = video_clock.citable_duration_s(llm_inputs.metadata.duration_seconds)
     network_available = network_index.has_requests()
     steps: list[MissionStep] = []
@@ -656,13 +635,16 @@ async def _run_mission(
             )
         elif step.name == STEP_SIGNALS:
             step = replace(
-                step, validate=functools.partial(_validate_signal_timestamps, duration_seconds=signal_duration_s)
+                step,
+                instruction=render_signals_instruction(_last_video_second(signal_duration_s)),
+                validate=functools.partial(_validate_signal_timestamps, duration_seconds=signal_duration_s),
             )
         steps.append(step)
 
+    gemini = await replay_gemini_client(team_id, properties=properties)
     run = functools.partial(
         _run_steps,
-        client=client,
+        client=gemini,
         model=model,
         steps=steps,
         video_part=video_part,
@@ -672,11 +654,14 @@ async def _run_mission(
         trace_id=trace_id,
         look_up=look_up,
     )
+    cache = None
     try:
+        cache = await _maybe_create_video_cache(gemini.raw, model, video_part, preamble_text)
         step_outputs = await _run_mission_attempts(run=run, cache=cache, model=snapshot.model)
     finally:
         if cache is not None:
-            await _delete_video_cache(cache_client, cache.name)
+            await _delete_video_cache(gemini.raw, cache.name)
+        await gemini.aclose()
 
     finalized, signals = scanner.assemble(step_outputs)
     return _MissionOutcome(
@@ -686,6 +671,13 @@ async def _run_mission(
         key_moment_video_s=getattr(step_outputs.get(STEP_CORE), "key_moment_t", None),
         core_response=step_outputs.get(STEP_CORE),
     )
+
+
+def _last_video_second(duration_seconds: float | None) -> int | None:
+    """The largest whole second `_validate_signal_timestamps` accepts, or None when it accepts none."""
+    if duration_seconds is None or not math.isfinite(duration_seconds) or duration_seconds <= 0:
+        return None
+    return math.floor(duration_seconds)
 
 
 def _validate_signal_timestamps(output: BaseModel, *, duration_seconds: float | None) -> str | None:
@@ -730,10 +722,10 @@ async def _run_pass(*, run: Any, cache: Any | None, model: str) -> dict[str, Bas
     except ScannerFailureError:
         raise  # a required step genuinely couldn't be satisfied, so re-running won't help.
     except Exception as exc:
-        # Transient provider errors belong to the Temporal activity retry, which backs off across the quota
-        # window; an immediate inline re-run would just re-spend the video tokens against a provider that is
-        # still rate-limiting or down, and would multiply with the other retry layers.
-        if classify_gemini_error(exc) is FailureKind.PROVIDER_TRANSIENT:
+        # Retryable errors go to the Temporal retry, which backs off; an inline re-run would re-spend the video
+        # tokens. A gateway refusal would refuse the inline run too.
+        kind = classify_gemini_error(exc)
+        if (kind is not None and kind.is_retryable) or is_gateway_refusal(exc):
             raise
         # The cached request failed some other way (a stale cache reference, an unrecognized error), so retry
         # inline once. Capture the cause: this fallback fires often enough that we need to know whether it's
@@ -786,7 +778,11 @@ async def _run_steps(
             convo.append(types.Part(text=instruction))
             result = await run_step(step=step, convo=convo)
         except Exception as exc:
-            if step.required:
+            # A gateway refusal that repeats on every attempt (e.g. a 413) fails the pass even on an optional step.
+            # One that can clear (rate limit, budget cap) skips the step instead: a Temporal retry would re-spend
+            # the core step's video tokens, and a capped budget would refuse the retry too.
+            kind = classify_gemini_error(exc)
+            if step.required or (is_gateway_refusal(exc) and not (kind and kind.is_retryable)):
                 raise
             # A provider error arrives here, not as an empty output, and must not sink a paid-for scan.
             logger.warning("replay_vision.call_scanner_provider.optional_step_failed", step=step.name, error=str(exc))
@@ -886,6 +882,19 @@ async def _run_step(
         started = time.monotonic()
         try:
             response = await _generate(convo)
+        except ValueError as exc:
+            if not _is_runaway_number(exc):
+                record_provider_call(**metric_labels, outcome="provider_error", seconds=time.monotonic() - started)
+                raise
+            # The SDK parses the JSON answer inside `generate_content`, so a number the model never stopped writing
+            # raises here instead of reaching validation. It is bad output, so re-prompt rather than re-run inline.
+            last_error = "a number in the response had thousands of digits"
+            last_was_empty = False
+            record_provider_call(**metric_labels, outcome="validation_failed", seconds=time.monotonic() - started)
+            logger.warning("replay_vision.call_scanner_provider.runaway_number", step=step.name, attempt=attempt + 1)
+            if attempt < _MAX_LLM_ATTEMPTS - 1:
+                convo.append(types.Part(text=_RUNAWAY_NUMBER_CORRECTION))
+            continue
         except Exception:
             record_provider_call(**metric_labels, outcome="provider_error", seconds=time.monotonic() - started)
             raise
@@ -906,6 +915,17 @@ async def _run_step(
             # The cap counts thoughts, so the usual "respond with raw JSON" correction would only re-run the
             # same reasoning into the same wall. Name the cause so the re-prompt asks for less thinking.
             error = "the response ran out of output tokens before the JSON was complete; reason more briefly"
+        answer = response.candidates[0].content
+        if parsed is not None and _has_control_chars(parsed.model_dump(mode="json")):
+            if attempt < _MAX_LLM_ATTEMPTS - 1:
+                parsed, error = None, _CONTROL_CHARS_ERROR
+            else:
+                # Postgres cannot store some of these characters, so a lost letter is better than a lost observation.
+                logger.warning("replay_vision.call_scanner_provider.control_chars_dropped", step=step.name)
+                scrubbed = json.dumps(_strip_control_chars(json.loads(text)), ensure_ascii=False)
+                parsed, error = _parse_and_validate(step, scrubbed)
+                # Later steps re-read this turn, so they get the cleaned answer rather than the broken characters.
+                answer = types.Content(role="model", parts=[types.Part(text=scrubbed)])
         record_provider_call(
             **metric_labels,
             outcome="ok" if error is None else "output_cap_hit" if capped else "validation_failed",
@@ -913,7 +933,7 @@ async def _run_step(
         )
 
         if error is None:
-            convo.append(response.candidates[0].content)  # carry the answer into the next turn
+            convo.append(answer)  # carry the answer into the next turn
             return _StepResult(output=parsed)
 
         last_error = error
@@ -949,6 +969,45 @@ async def _run_step(
         provider_refused=last_was_empty,
     )
     return _StepResult(output=None, provider_refused=last_was_empty)
+
+
+_RUNAWAY_NUMBER_CORRECTION = (
+    "\n\nYour previous answer could not be read: a number in it ran on for thousands of digits. Write every "
+    "number as a short value, such as whole seconds of video time. Respond with raw JSON only."
+)
+
+
+def _is_runaway_number(exc: ValueError) -> bool:
+    return "integer string conversion" in str(exc)
+
+
+# The model sometimes writes an accented letter as a wrong `\u` escape, which decodes to a control character.
+# Tab, newline and carriage return are left out because a real answer can contain them.
+_CONTROL_CHARS_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]")
+_CONTROL_CHARS_ERROR = (
+    "the answer contains control characters where letters belong; write accented and non-English letters "
+    "directly, never as \\u escapes"
+)
+
+
+def _has_control_chars(value: Any) -> bool:
+    if isinstance(value, str):
+        return _CONTROL_CHARS_RE.search(value) is not None
+    if isinstance(value, dict):
+        return any(_has_control_chars(key) or _has_control_chars(item) for key, item in value.items())
+    if isinstance(value, list):
+        return any(_has_control_chars(item) for item in value)
+    return False
+
+
+def _strip_control_chars(value: Any) -> Any:
+    if isinstance(value, str):
+        return _CONTROL_CHARS_RE.sub("", value)
+    if isinstance(value, dict):
+        return {_strip_control_chars(key): _strip_control_chars(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_strip_control_chars(item) for item in value]
+    return value
 
 
 def _hit_output_cap(response: Any) -> bool:

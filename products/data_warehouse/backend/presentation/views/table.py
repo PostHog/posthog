@@ -44,6 +44,25 @@ from products.warehouse_sources.backend.facade.api import (
     build_file_upload_url_pattern,
     hosted_upload_s3_path,
 )
+from products.warehouse_sources.backend.facade.contracts import (
+    FileUploadSourceError,
+    UnreadableUploadError,
+    UploadedFileRef,
+)
+from products.warehouse_sources.backend.facade.file_upload_sources import (
+    can_replace_file,
+    create_file_upload_source,
+    discard_unused_upload,
+    file_upload_sources_enabled,
+    has_file_upload_source,
+    hosted_upload_in_use,
+    is_legacy_upload_url,
+    is_safe_upload_filename,
+    read_upload_in_place,
+    replace_file_upload,
+    sanitize_upload_filename,
+    upload_format_for_table_format,
+)
 from products.warehouse_sources.backend.facade.hogql import (
     CLICKHOUSE_HOGQL_MAPPING,
     SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING,
@@ -59,6 +78,7 @@ from products.warehouse_sources.backend.facade.types import (
     DataWarehouseTableCreatedVia,
     DataWarehouseTableFormat,
     ExternalDataSourceAccessMethod,
+    UploadedFileFormat,
 )
 from products.warehouse_sources.backend.presentation.views.external_data_source.source_setup import (
     SimpleExternalDataSourceSerializers,
@@ -112,6 +132,44 @@ def _file_read_error_message(file_format: str) -> str:
     return f"Couldn't read the columns from your file. {hint}".strip()
 
 
+def _missing_upload_response(team_id: int, upload: UploadedFileRef) -> response.Response | None:
+    """A 400 when the upload isn't in the team's folder, so no table points at a file that fails every query."""
+    try:
+        if get_s3_client().exists(build_file_upload_s3_path(team_id, upload.upload_id, upload.filename)):
+            return None
+    except Exception as e:
+        capture_exception(e)
+        return response.Response(
+            status=status.HTTP_400_BAD_REQUEST,
+            data={"message": "Could not verify the uploaded file. Please try uploading it again."},
+        )
+    return response.Response(
+        status=status.HTTP_400_BAD_REQUEST,
+        data={"message": "Uploaded file not found. Please upload the file again."},
+    )
+
+
+def _store_upload(team_id: int, file: Any, safe_filename: str) -> str | None:
+    """Write a received file to a new upload in the team's folder. Returns its upload id, or None on failure."""
+    upload_id = str(uuid.uuid4())
+    try:
+        with get_s3_client().open(build_file_upload_s3_path(team_id, upload_id, safe_filename), "wb") as destination:
+            for chunk in file.chunks():
+                destination.write(chunk)
+    except Exception as e:
+        capture_exception(e)
+        return None
+    return upload_id
+
+
+def _unreadable_upload_response(file_format: str) -> response.Response:
+    # The raw read failure is opaque to users, so they get format-specific guidance on what to check.
+    return response.Response(
+        status=status.HTTP_400_BAD_REQUEST,
+        data={"message": _file_read_error_message(file_format)},
+    )
+
+
 def _delete_hosted_upload_file(table: DataWarehouseTable) -> None:
     """Best-effort removal of a self-managed table's backing file from PostHog's own bucket.
 
@@ -134,10 +192,23 @@ def _delete_hosted_upload_file(table: DataWarehouseTable) -> None:
         .exists()
     ):
         return
+    # A file upload source can read the same file, and it deletes the file itself when it is deleted.
+    if hosted_upload_in_use(table.team_id, table.url_pattern, exclude_table_id=table.pk):
+        return
     try:
         get_s3_client().rm(path)
     except Exception as e:
         capture_exception(e)
+
+
+def _is_legacy_upload_table(table: DataWarehouseTable) -> bool:
+    """Whether the legacy `file` action could have made the table: no source, no credential, and a
+    file in the team's own `managed/` folder."""
+    return (
+        table.external_data_source_id is None
+        and table.credential_id is None
+        and is_legacy_upload_url(table.team_id, table.url_pattern or "")
+    )
 
 
 def _discard_failed_upload(table: DataWarehouseTable) -> None:
@@ -478,12 +549,21 @@ class FileUploadResponseSerializer(serializers.Serializer):
     size_bytes = serializers.IntegerField(help_text="Size of the stored file in bytes.")
 
 
-class CreateTableFromUploadSerializer(serializers.Serializer):
+class UploadedFileSerializer(serializers.Serializer):
     upload_id = serializers.UUIDField(help_text="Id returned by upload_file for the stored file.")
     filename = serializers.CharField(help_text="Sanitized filename returned by upload_file.")
     file_format = serializers.ChoiceField(
-        choices=SUPPORTED_FILE_FORMATS, help_text="How the uploaded file is read: 'csv', 'json', or 'parquet'."
+        choices=UploadedFileFormat.choices, help_text="How the uploaded file is read: 'csv', 'json', or 'parquet'."
     )
+
+    def validate_filename(self, filename: str) -> str:
+        # upload_file only ever returns a safe name, so anything else did not come from it.
+        if not is_safe_upload_filename(filename):
+            raise serializers.ValidationError("Use the filename that upload_file returned.")
+        return filename
+
+
+class CreateTableFromUploadSerializer(UploadedFileSerializer):
     table_name = serializers.CharField(help_text="Name the resulting table is queried by in HogQL.")
 
     def validate_table_name(self, table_name: str) -> str:
@@ -535,6 +615,13 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
             return response.Response(
                 status=status.HTTP_400_BAD_REQUEST, data={"message": "Can't delete a sourced table"}
             )
+        # Before its first sync, a table made from an upload has no source of its own yet, but its
+        # source still imports it. Deleting only the table would leave that source writing to it.
+        if has_file_upload_source(self.team_id, instance.pk):
+            return response.Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "This table is imported from an uploaded file. Delete its source to delete it."},
+            )
 
         instance.soft_delete()
         _delete_hosted_upload_file(instance)
@@ -547,6 +634,10 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
 
         credential_data = validated_data.pop("credential", None)
         if credential_data:
+            if instance.credential is None:
+                raise serializers.ValidationError(
+                    {"credential": "This table reads from PostHog's own storage, so it has no credential to change."}
+                )
             access_key = credential_data.get("access_key")
             access_secret = credential_data.get("access_secret")
 
@@ -742,20 +833,12 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
 
         # Django strips path separators via os.path.basename in UploadedFile._set_name; restricting
         # further to safe characters is defense-in-depth for the S3 key.
-        safe_filename = re.sub(r"[^a-zA-Z0-9._-]", "_", file.name or "")
-        if not safe_filename or safe_filename.startswith("."):
+        safe_filename = sanitize_upload_filename(file.name or "")
+        if safe_filename is None:
             return response.Response(status=status.HTTP_400_BAD_REQUEST, data={"message": "Invalid filename"})
 
-        upload_id = uuid.uuid4()
-        path = build_file_upload_s3_path(self.team_id, str(upload_id), safe_filename)
-
-        try:
-            s3 = get_s3_client()
-            with s3.open(path, "wb") as destination:
-                for chunk in file.chunks():
-                    destination.write(chunk)
-        except Exception as e:
-            capture_exception(e)
+        upload_id = _store_upload(self.team_id, file, safe_filename)
+        if upload_id is None:
             return response.Response(status=status.HTTP_400_BAD_REQUEST, data={"message": "Failed to upload file"})
 
         return response.Response(
@@ -784,6 +867,9 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
         S3/GCS bucket. The read location is always derived from the caller's own team, so a client-supplied
         `upload_id` can only resolve inside that team's folder, and the table carries no credential (reads
         fall back to the node role, never a user-supplied key).
+
+        For a team with object storage sources, the table also gets a file upload source. Its first
+        sync imports the file and turns the same table row into a managed table.
         """
         # Both settings back the table: the bucket resolves the S3 read path, the domain builds the
         # queryable url_pattern. Missing either would create a table whose every query fails.
@@ -809,20 +895,16 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
                 data={"message": "A table or view with this name already exists. Choose a different name."},
             )
 
-        # Confirm the object is actually there before creating a table that would fail every query.
-        upload_path = build_file_upload_s3_path(self.team_id, upload_id, filename)
+        upload = UploadedFileRef(upload_id=upload_id, filename=filename, file_format=file_format)
+        missing = _missing_upload_response(self.team_id, upload)
+        if missing is not None:
+            return missing
         try:
-            if not get_s3_client().exists(upload_path):
-                return response.Response(
-                    status=status.HTTP_400_BAD_REQUEST,
-                    data={"message": "Uploaded file not found. Please upload the file again."},
-                )
-        except Exception as e:
-            capture_exception(e)
-            return response.Response(
-                status=status.HTTP_400_BAD_REQUEST,
-                data={"message": "Could not verify the uploaded file. Please try uploading it again."},
-            )
+            read_settings = read_upload_in_place(self.team_id, table_name, upload)
+        except UnreadableUploadError:
+            return _unreadable_upload_response(file_format)
+        except FileUploadSourceError as e:
+            return response.Response(status=status.HTTP_400_BAD_REQUEST, data={"message": str(e)})
 
         table = DataWarehouseTable(
             team_id=self.team_id,
@@ -831,34 +913,18 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
             url_pattern=build_file_upload_url_pattern(self.team_id, upload_id, filename),
             created_by=request.user if isinstance(request.user, User) else None,
             created_via=resolve_created_via(request),
+            columns=dict(read_settings.columns),
+            options=(
+                {"csv_allow_double_quotes": read_settings.allow_double_quotes}
+                if read_settings.allow_double_quotes is not None
+                else {}
+            ),
         )
 
-        # An upload carries no quote preference, unlike a self-managed source where the user picks
-        # one, so store a detected setting rather than leave the read to a ClickHouse default.
-        if table._is_csv_format():
-            try:
-                allow_double_quotes = table.detect_csv_double_quotes_setting()
-            except Exception as err:
-                capture_exception(err)
-                allow_double_quotes = None
-            if allow_double_quotes is None:
-                return response.Response(
-                    status=status.HTTP_400_BAD_REQUEST,
-                    data={"message": _file_read_error_message(file_format)},
-                )
-            table.options = {"csv_allow_double_quotes": allow_double_quotes}
-
-        try:
-            table.columns = table.get_columns()
-        except Exception as err:
-            # The raw column-detection failure is a ClickHouse error that's opaque to users, so keep it
-            # in error tracking and hand back plain, format-specific guidance on what to check instead.
-            capture_exception(err)
-            return response.Response(
-                status=status.HTTP_400_BAD_REQUEST,
-                data={"message": _file_read_error_message(file_format)},
-            )
         table.save()
+        if file_upload_sources_enabled(self.team_id):
+            # The table reads the file in place until the source's first sync imports it.
+            create_file_upload_source(self.team_id, table.pk, upload, read_settings)
 
         validate_data_warehouse_table_columns.delay(self.team_id, str(table.id))
 
@@ -866,6 +932,96 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
             status=status.HTTP_201_CREATED,
             data=TableSerializer(table, context=self.get_serializer_context()).data,
         )
+
+    @extend_schema(
+        request=UploadedFileSerializer,
+        responses={202: TableSerializer},
+        summary="Replace the file of a table made from an uploaded file",
+        description=(
+            "Point a table made from an uploaded file at a new upload, then import it with one full "
+            "refresh. Upload the new file with upload_file first. The table keeps its id and its name, "
+            "and its rows are replaced when the sync finishes. The old file is deleted only after that "
+            "sync succeeds. The sync bills its rows like any other import."
+        ),
+    )
+    @action(methods=["POST"], detail=True, required_scopes=["warehouse_table:write"])
+    def replace_file(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        table: DataWarehouseTable = self.get_object()
+        if not settings.DATAWAREHOUSE_BUCKET or not settings.DATAWAREHOUSE_BUCKET_DOMAIN:
+            return response.Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "Object storage must be available to replace a table's file."},
+            )
+
+        serializer = UploadedFileSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        file_format = serializer.validated_data["file_format"]
+
+        if not can_replace_file(self.team_id, table.pk):
+            return response.Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "Only a table made from an uploaded file can have its file replaced."},
+            )
+
+        upload = UploadedFileRef(
+            upload_id=str(serializer.validated_data["upload_id"]),
+            filename=serializer.validated_data["filename"],
+            file_format=file_format,
+        )
+        missing = _missing_upload_response(self.team_id, upload)
+        if missing is not None:
+            return missing
+        return self._replace_file_with_upload(table, upload, status.HTTP_202_ACCEPTED)
+
+    def _replace_file_with_upload(
+        self, table: DataWarehouseTable, upload: UploadedFileRef, success_status: int
+    ) -> response.Response:
+        # Read the new file in place first, so a file the import can't read never replaces a working one.
+        try:
+            read_settings = read_upload_in_place(self.team_id, table.name, upload)
+        except UnreadableUploadError:
+            return _unreadable_upload_response(upload.file_format)
+        except FileUploadSourceError as e:
+            return response.Response(status=status.HTTP_400_BAD_REQUEST, data={"message": str(e)})
+
+        try:
+            replace_file_upload(self.team_id, table.pk, upload, read_settings)
+        except FileUploadSourceError as e:
+            return response.Response(status=status.HTTP_400_BAD_REQUEST, data={"message": str(e)})
+
+        table.refresh_from_db()
+        return response.Response(
+            status=success_status,
+            data=TableSerializer(table, context=self.get_serializer_context()).data,
+        )
+
+    def _replace_file_from_legacy_upload(
+        self, table: DataWarehouseTable, file: Any, safe_filename: str, table_format: str
+    ) -> response.Response:
+        """Store a file the legacy `file` action received as an upload, and import it into the table's source.
+
+        A file upload source can only read the upload folder, so the file goes there and not over the
+        table's file. The table reads its current file until the sync of the new one finishes.
+        """
+        file_format = upload_format_for_table_format(table_format)
+        if file_format is None or not settings.DATAWAREHOUSE_BUCKET_DOMAIN:
+            return response.Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={
+                    "message": "This table imports its file, so upload a CSV with a header row, newline-delimited "
+                    "JSON, or Parquet file."
+                },
+            )
+        upload_id = _store_upload(self.team_id, file, safe_filename)
+        if upload_id is None:
+            return response.Response(status=status.HTTP_400_BAD_REQUEST, data={"message": "Failed to upload file"})
+        upload = UploadedFileRef(upload_id=upload_id, filename=safe_filename, file_format=file_format)
+        result = self._replace_file_with_upload(table, upload, status.HTTP_201_CREATED)
+        if result.status_code != status.HTTP_201_CREATED:
+            # The upload exists only for this request. A refused replace leaves nothing that reads it,
+            # so it would never be cleaned up. A source that already points at it keeps it.
+            discard_unused_upload(self.team_id, upload)
+        return result
 
     @action(
         methods=["POST"],
@@ -896,8 +1052,8 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
         # Sanitize filename — Django strips path separators via os.path.basename
         # in UploadedFile._set_name, but we further restrict to safe characters
         # as defense-in-depth for the S3 key and url_pattern.
-        safe_filename = re.sub(r"[^a-zA-Z0-9._-]", "_", file.name)
-        if not safe_filename or safe_filename.startswith("."):
+        safe_filename = sanitize_upload_filename(file.name or "")
+        if safe_filename is None:
             return response.Response(
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"message": "Invalid filename"},
@@ -929,12 +1085,31 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
         table_query = DataWarehouseTable.objects.exclude(deleted=True).filter(team_id=team_id, name=table_name)
         if table_query.exists():
             table = table_query.first()
+        if table is not None:
+            # The table is found by name, not through `get_object`, so check access to it here.
+            self.check_object_permissions(request, table)
+        # A table that a file upload source imports, or that the migration moved to one, takes the new file
+        # through that source.
+        imports_through_source = table is not None and can_replace_file(team_id, table.pk)
+        # Re-uploading may otherwise only replace the file of a table this action made itself. Any other
+        # table with the name reads data this upload must not overwrite or repoint.
+        if table is not None and not imports_through_source and not _is_legacy_upload_table(table):
+            return response.Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={
+                    "message": f"A table named '{table_name}' already exists, and it wasn't made by uploading "
+                    "a file here. Choose a different name."
+                },
+            )
 
         if file.size > 52428800:  # 50MB in bytes
             return response.Response(
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"message": f"File size exceeds maximum allowed size of 50MB"},
             )
+
+        if table is not None and imports_through_source:
+            return self._replace_file_from_legacy_upload(table, file, safe_filename, file_format)
 
         created_table = table is None
 

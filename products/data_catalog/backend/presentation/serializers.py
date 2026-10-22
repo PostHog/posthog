@@ -13,7 +13,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.schema_enums import IntervalType
 
 from ..facade import api
-from ..facade.api import MAX_DESCRIPTION_LENGTH, METRIC_NAME_MAX_LENGTH
+from ..facade.api import DESCRIPTION_TOO_LONG_MESSAGE, MAX_DESCRIPTION_LENGTH, METRIC_NAME_MAX_LENGTH
 from ..facade.enums import CreatedSource
 from ..facade.models import Metric, RelationshipProposal, TableCertification
 
@@ -183,10 +183,12 @@ class MetricSerializer(serializers.ModelSerializer):
             },
             "display_name": {"help_text": "Human-friendly label. Mutable, unlike name."},
             "description": {
-                "help_text": "What the metric means and what it serves, in 1-3 short sentences: the business "
-                "meaning plus any load-bearing inclusions/exclusions or grain. Never narrate or restate the "
-                "query - the definition carries the mechanics; put rationale for query choices in 'reasoning'.",
+                "help_text": "What the number is, in 1-2 short sentences under 300 characters: its meaning and "
+                "grain plus any inclusion or exclusion that changes it. Leave out source tables or views, lineage, "
+                "column lists, and comparisons with other metrics. Never narrate the query - the definition carries "
+                "the mechanics; put the query's design decisions in 'reasoning'.",
                 "max_length": MAX_DESCRIPTION_LENGTH,
+                "error_messages": {"max_length": DESCRIPTION_TOO_LONG_MESSAGE},
             },
             "unit": {"help_text": "Unit of the result, e.g. usd, percent, cents."},
             "ai_model": {"help_text": "Model that generated the metric, if AI-authored."},
@@ -195,7 +197,12 @@ class MetricSerializer(serializers.ModelSerializer):
                 "min_value": 0.0,
                 "max_value": 1.0,
             },
-            "reasoning": {"help_text": "AI author's reasoning, surfaced as review context."},
+            "reasoning": {
+                "help_text": "Why the definition is shaped this way, in 1-3 short sentences. Name the main design "
+                "decisions and trade-offs: the source table or view, a filter or exclusion, the grain, an "
+                "approximation. Leave out the use case, who asked, run results, validation figures, and edit "
+                "history."
+            },
         }
 
     @extend_schema_field(serializers.CharField(allow_null=True))
@@ -210,6 +217,52 @@ class MetricSerializer(serializers.ModelSerializer):
         if drift_map is not None and obj.id in drift_map:
             return drift_map[obj.id]
         return api.compute_drift([obj])[obj.id]
+
+
+@extend_schema_serializer(component_name="DataCatalogMetricCreate")
+class MetricCreateSerializer(MetricSerializer):
+    """Create input. ``overwrite`` exists only here, because PATCH addresses an existing metric by its URL name."""
+
+    overwrite = serializers.BooleanField(
+        required=False,
+        default=False,
+        write_only=True,
+        help_text="Replace the fields of the live metric that already holds this name. When false, a taken name "
+        "returns 409 with code 'metric_name_taken' and the existing metric stays unchanged. Overwriting an "
+        "approved metric with a changed name, description, unit, or definition resets it to 'proposed'.",
+    )
+
+    class Meta(MetricSerializer.Meta):
+        fields = [*MetricSerializer.Meta.fields, "overwrite"]
+
+
+@extend_schema_serializer(component_name="DataCatalogMetricNameConflictExisting")
+class MetricNameConflictExistingSerializer(serializers.Serializer):
+    """The live metric that holds the name a create was sent with."""
+
+    name = serializers.CharField(help_text="Name of the existing metric.")
+    status = serializers.CharField(help_text="Lifecycle state of the existing metric: 'proposed' or 'approved'.")
+
+
+@extend_schema_serializer(component_name="DataCatalogMetricNameConflictExtra")
+class MetricNameConflictExtraSerializer(serializers.Serializer):
+    existing_metric = MetricNameConflictExistingSerializer(
+        help_text="The metric that holds the name. Send overwrite true to replace it."
+    )
+
+
+@extend_schema_serializer(component_name="DataCatalogMetricNameConflict")
+class MetricNameConflictSerializer(serializers.Serializer):
+    """The 409 body of a create whose name a live metric already holds."""
+
+    type = serializers.CharField(help_text="Error class the API attaches to every error body.")
+    code = serializers.CharField(help_text="Always 'metric_name_taken'.")
+    detail = serializers.CharField(help_text="Human-readable reason, safe to show as is.")
+    attr = serializers.CharField(allow_null=True, help_text="Always null: the conflict is not tied to one field.")
+    extra = MetricNameConflictExtraSerializer(
+        required=False,
+        help_text="Absent when the existing metric is hidden from the caller because it reads a table they cannot access.",
+    )
 
 
 @extend_schema_serializer(component_name="DataCatalogMetricBulkNamesRequest")

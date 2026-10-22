@@ -28,6 +28,7 @@ from posthog.schema import LogEntryPropertyFilter, RecordingsQuery
 
 from posthog.hogql.errors import QueryError
 
+from posthog.errors import wrap_clickhouse_query_error
 from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded
 from posthog.models import Organization, SessionRecording, User
 from posthog.models.team import Team
@@ -1174,6 +1175,30 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         )
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {"results": []}
+
+    @parameterized.expand(
+        [
+            ("aborted", 236, status.HTTP_503_SERVICE_UNAVAILABLE),
+            ("query_was_cancelled", 394, status.HTTP_503_SERVICE_UNAVAILABLE),
+            ("timeout_exceeded", 159, status.HTTP_504_GATEWAY_TIMEOUT),
+            ("cluster_memory_limit", 241, 513),
+        ]
+    )
+    def test_get_matching_events_clickhouse_failure_status(self, _name: str, code: int, expected_status: int) -> None:
+        query_params = [
+            f'session_ids=["{str(uuid7())}"]',
+            'events=[{"id": "$pageview", "type": "events", "order": 0, "name": "$pageview"}]',
+        ]
+        with patch(
+            "posthog.session_recordings.session_recording_api.ReplayFiltersEventsSubQuery.get_event_ids_for_session",
+            side_effect=wrap_clickhouse_query_error(ServerException("ClickHouse failed", code=code)),
+        ):
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/session_recordings/matching_events?{'&'.join(query_params)}"
+            )
+        assert response.status_code == expected_status
+        if expected_status == status.HTTP_503_SERVICE_UNAVAILABLE:
+            assert response.headers["Retry-After"].isdigit()
 
     def test_get_matching_events_with_query(self) -> None:
         """both sessions have a pageview, but only the specified session returns a single UUID for the pageview events"""

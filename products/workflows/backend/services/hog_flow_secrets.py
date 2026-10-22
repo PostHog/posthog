@@ -2,6 +2,11 @@ from copy import deepcopy
 from typing import Any, Optional
 
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
+from products.cdp.backend.validation import (
+    exposes_secret_dictionary_keys,
+    masked_dictionary_secret,
+    restore_masked_dictionary_entries,
+)
 
 # Function/email/sms steps (and function-shaped triggers) can carry secret inputs - API keys, auth
 # headers - declared `secret: true` on their template's inputs_schema. We split those values out of
@@ -97,6 +102,14 @@ def recover_or_drop_masked_inputs(inputs: Any, secret_keys: set[str], existing: 
                 inputs[key] = stored
             else:
                 inputs.pop(key, None)
+        elif isinstance(value, dict):
+            # The same goes for the per-entry mask of a secret dictionary: each masked entry takes its
+            # stored value back, and an entry with nothing stored is dropped.
+            restored, missing = restore_masked_dictionary_entries(value, existing.get(key))
+            if isinstance(restored.get("value"), dict):
+                for entry in missing:
+                    restored["value"].pop(entry, None)
+            inputs[key] = restored
 
 
 def mask_secret_action_inputs(
@@ -105,8 +118,12 @@ def mask_secret_action_inputs(
     # Replace every set secret input with the {"secret": True} presence marker for read-back. Mutates
     # the given action dicts (must be a copy - callers deepcopy first). A value counts as set if it
     # lives in the encrypted map or, for legacy rows written before the split, still sits in plaintext.
+    # A secret dictionary paired with a plain one (a webhook's secret headers) keeps its entry names,
+    # so the editor can list them and a save changes one entry without wiping the others.
     for flow_action in actions:
-        secret_keys = secret_keys_for_action(flow_action, template_cache)
+        template = _function_template_for_action(flow_action, template_cache)
+        schemas = (template.inputs_schema or []) if template else []
+        secret_keys = {schema["key"] for schema in schemas if schema.get("secret")}
         if not secret_keys:
             continue
         inputs = (flow_action.get("config") or {}).get("inputs")
@@ -115,8 +132,15 @@ def mask_secret_action_inputs(
         action_id = flow_action.get("id")
         action_secrets = secrets_by_action.get(action_id, {}) if isinstance(action_id, str) else {}
         for key in secret_keys:
-            if action_secrets.get(key) or inputs.get(key):
-                inputs[key] = {"secret": True}
+            stored = action_secrets.get(key) or inputs.get(key)
+            if not stored:
+                continue
+            schema = next(s for s in schemas if s.get("key") == key)
+            inputs[key] = (
+                masked_dictionary_secret(stored)
+                if exposes_secret_dictionary_keys(schema, schemas)
+                else {"secret": True}
+            )
     return actions
 
 
@@ -133,6 +157,55 @@ def mask_derived_trigger(content: dict, template_cache: Optional[TemplateCache] 
     )
     if trigger_action is not None:
         content["trigger"] = trigger_action.get("config")
+
+
+def mask_trigger_config(
+    actions: Any, trigger: Any, secrets_by_action: dict[str, dict], template_cache: Optional[TemplateCache] = None
+) -> Any:
+    # Mask the standalone `trigger` field. Both the minimal and (crucially) the summary serializer
+    # return `trigger` while the summary omits `actions`, so it can't be re-derived from masked actions
+    # there - a function-shaped trigger's secret would otherwise leak on the MCP list endpoint. Mask
+    # from the workflow's own trigger action (or the stored trigger config as a fallback for legacy
+    # rows whose actions may be empty).
+    trigger_action = next(
+        (a for a in (actions or []) if isinstance(a, dict) and a.get("type") == "trigger"),
+        None,
+    )
+    trigger_action = (
+        deepcopy(trigger_action)
+        if trigger_action is not None
+        else {"type": "trigger", "config": deepcopy(trigger) if trigger else {}}
+    )
+    masked = mask_secret_action_inputs([trigger_action], secrets_by_action, template_cache)
+    return masked[0].get("config")
+
+
+def mask_workflow_fields(
+    fields: dict[str, Any],
+    *,
+    live_actions: Any,
+    live_trigger: Any,
+    encrypted_inputs: Optional[dict],
+    draft_encrypted_inputs: Optional[dict],
+    template_cache: TemplateCache,
+    mask_trigger: bool = True,
+) -> None:
+    """Replace each set secret input in the `actions`, `trigger` and `draft` entries of `fields` with
+    the {"secret": True} presence marker. Rewrites the entries of `fields`, never the values they
+    point to, so the stored workflow stays unchanged."""
+    live_secrets = encrypted_inputs or {}
+    if isinstance(fields.get("actions"), list):
+        fields["actions"] = mask_secret_action_inputs(deepcopy(fields["actions"]), live_secrets, template_cache)
+    if mask_trigger and "trigger" in fields:
+        fields["trigger"] = mask_trigger_config(live_actions, live_trigger, live_secrets, template_cache)
+    draft = fields.get("draft")
+    if isinstance(draft, dict) and isinstance(draft.get("actions"), list):
+        draft = deepcopy(draft)
+        draft["actions"] = mask_secret_action_inputs(
+            draft["actions"], merge_secret_maps(live_secrets, draft_encrypted_inputs), template_cache
+        )
+        mask_derived_trigger(draft, template_cache)
+        fields["draft"] = draft
 
 
 def strip_secrets_from_content(content: dict, template_cache: Optional[TemplateCache] = None) -> dict[str, dict]:

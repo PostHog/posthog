@@ -9,6 +9,7 @@ import type { ScoreDefinitionApi } from '../generated/api.schemas'
 import { AIObservabilityScorerScene } from './AIObservabilityScorerScene'
 
 const definition: ScoreDefinitionApi = {
+    tags: [],
     id: 'b4f331fe-7d3b-4bbe-9f88-52e1b0a8b000',
     name: 'Answer quality',
     description: 'How well the response answers the question, scored from 0 to 1.',
@@ -19,6 +20,7 @@ const definition: ScoreDefinitionApi = {
     config: { min: 0, max: 1, passing_rule: { operator: 'gte', threshold: 0.8 } },
     created_by: null,
     created_at: '2026-01-01T00:00:00Z',
+    updated_by: null,
     updated_at: '2026-01-02T00:00:00Z',
     team: 997,
 }

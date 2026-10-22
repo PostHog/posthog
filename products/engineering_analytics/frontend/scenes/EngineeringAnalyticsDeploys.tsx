@@ -6,7 +6,7 @@ import { dayjs } from 'lib/dayjs'
 
 import { CIAnalyticsLoadError } from '../components/CIAnalyticsLoadError'
 import { ConnectGitHubSource } from '../components/ConnectGitHubSource'
-import { ScopeBar, ScopeDateFilter, SourceScopeChip } from '../components/ScopeBar'
+import { ScopeDateFilter } from '../components/ScopeBar'
 import { ScopePanel } from '../components/ScopePanel'
 import { DoraDeploymentFrequency } from './DoraDeploymentFrequency'
 import { DoraDeploymentHealth } from './DoraDeploymentHealth'
@@ -28,7 +28,6 @@ export function EngineeringAnalyticsDeploys(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-4">
-            <ScopeBar repoSlot={<SourceScopeChip />} showDate={false} />
             {dora?.latest_deploy_status_at && (
                 <span className="text-xs text-tertiary" data-attr="engineering-analytics-dora-freshness">
                     Latest deploy status synced {dayjs(dora.latest_deploy_status_at).fromNow()}.
