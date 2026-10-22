@@ -13,11 +13,13 @@ from posthog.ph_client import ph_scoped_capture
 from posthog.utils import absolute_uri, get_instance_region
 
 from products.account_audits.backend.models import AccountAuditAdmission
+from products.account_audits.backend.task_profiles import ACCOUNT_AUDIT
 from products.notebooks.backend.facade import api as notebooks_facade
 from products.notebooks.backend.facade.content import convert_notebook_content_to_markdown
 from products.skills.backend.facade.api import SkillPrompt
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.billing import get_task_run_cost
+from products.tasks.backend.facade.profiles import RunOptions
 
 logger = logging.getLogger(__name__)
 COMPLETION_GRACE = timedelta(minutes=3)
@@ -45,15 +47,15 @@ def create_audit_task(*, team_id: int, user_id: int, skill: SkillPrompt, noteboo
             "with PostHog MCP, even if the skill asks you to create a notebook. "
             "Read the saved notebook before you return its short ID as notebook_short_id."
         ),
-        origin_product=tasks_facade.TaskOriginProduct.ACCOUNT_AUDIT,
+        profile=ACCOUNT_AUDIT,
         user_id=user_id,
-        repository=None,
+        options=RunOptions(
+            mcp_scopes=("user:read", "query:read", "insight:read", "notebook:read", "notebook:write"),
+            model="claude-sonnet-5",
+            output_schema=AccountAuditOutput.model_json_schema(),
+        ),
         create_pr=False,
-        internal=True,
         sandbox_environment_id=str(environment_id),
-        posthog_mcp_scopes=["user:read", "query:read", "insight:read", "notebook:read", "notebook:write"],
-        model="claude-sonnet-5",
-        output_schema=AccountAuditOutput,
         sandbox_timeout_seconds=3 * 60 * 60,
         extra_run_state={"audit_skill_version": skill.version},
     )

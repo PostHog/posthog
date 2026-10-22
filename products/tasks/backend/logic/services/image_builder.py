@@ -8,6 +8,7 @@ from products.tasks.backend.constants import (
     vm_sandbox_default_base_origin_products,
     vm_sandbox_origin_rollout_percentages,
 )
+from products.tasks.backend.facade.profiles import Repository, RunOptions
 from products.tasks.backend.logic.services.image_spec import (
     SANDBOX_IMAGE_SPEC_PATH,
     SandboxImageSpec,
@@ -15,6 +16,7 @@ from products.tasks.backend.logic.services.image_spec import (
     parse_image_spec_yaml,
 )
 from products.tasks.backend.models import SandboxCustomImage, Task, TaskRun
+from products.tasks.backend.task_profiles import IMAGE_BUILDER
 
 logger = logging.getLogger(__name__)
 
@@ -127,15 +129,17 @@ def ensure_image_builder_task(image: SandboxCustomImage, user_id: int) -> Task:
         team=image.team,
         title=f"Custom image: {image.name}",
         description=f"Image-builder session for custom sandbox image '{image.name}'",
-        origin_product=Task.OriginProduct.IMAGE_BUILDER,
+        profile=IMAGE_BUILDER,
         user_id=user_id,
-        repository=image.repository or None,
+        options=RunOptions(
+            adapter="claude",
+            model=IMAGE_BUILDER_MODEL,
+            reasoning_effort=IMAGE_BUILDER_REASONING_EFFORT,
+            repositories=(Repository(name=image.repository),) if image.repository else (),
+        ),
         create_pr=False,
         mode="interactive",
         interaction_origin="desktop",
-        runtime_adapter="claude",
-        model=IMAGE_BUILDER_MODEL,
-        reasoning_effort=IMAGE_BUILDER_REASONING_EFFORT,
         pending_user_message=build_image_builder_prompt(image),
         custom_image_builder_id=str(image.id),
     )

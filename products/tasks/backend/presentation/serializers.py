@@ -58,6 +58,7 @@ from products.tasks.backend.facade.contracts import (
 )
 from products.tasks.backend.facade.enums import TaskChannelWriteType
 from products.tasks.backend.facade.model_catalogue import TASK_RUN_GATEWAY_PRODUCT, ModelChoice, available_model_choices
+from products.tasks.backend.facade.profiles import profile_for_origin
 from products.tasks.backend.facade.run_config import (
     ALL_INITIAL_PERMISSION_MODE_CHOICES,
     CODEX_INITIAL_PERMISSION_MODE_CHOICES,
@@ -988,39 +989,7 @@ class TaskWriteSerializer(serializers.Serializer):
 
     def validate_origin_product(self, value):
         """Reject internal-only origins that are set by server-side flows, never by API callers."""
-        reserved_origins = {
-            tasks_facade.TaskOriginProduct.SPACE_SETUP,
-            tasks_facade.TaskOriginProduct.IMAGE_BUILDER,
-            tasks_facade.TaskOriginProduct.EXPERIMENTS,
-            tasks_facade.TaskOriginProduct.SIGNALS_SCOUT,
-            tasks_facade.TaskOriginProduct.SIGNALS_SCOUT_SUGGESTIONS,
-            tasks_facade.TaskOriginProduct.SUPPORT_REPLY,
-            # Only the autoresearch training loop creates these, in-process. Nothing legitimately
-            # sets the origin from outside, so reserve it before anything starts depending on it.
-            tasks_facade.TaskOriginProduct.AUTORESEARCH,
-            # Routes the run's LLM traffic to the unbilled `onboarding` gateway product, so a
-            # forged origin would be free model access. Only create_wizard_cloud_run sets it,
-            # behind its own rate limits and daily cap.
-            tasks_facade.TaskOriginProduct.ONBOARDING,
-            tasks_facade.TaskOriginProduct.ACCOUNT_AUDIT,
-            # Exempt from the Desktop code-access gate on run endpoints, so a forged origin
-            # would bypass the waitlist. Only the signals scout-chat endpoint sets it.
-            tasks_facade.TaskOriginProduct.SIGNALS_CHAT,
-            # Attributes the task to a workflow, which the workflow_tasks endpoint proves
-            # via its service JWT. A forged origin would fake that provenance.
-            tasks_facade.TaskOriginProduct.WORKFLOW,
-            # Maps to the mintable `review_hog` gateway product, so a forged origin would
-            # mint an internally funded scoped token. Only ReviewHog's executor sets it.
-            tasks_facade.TaskOriginProduct.REVIEW_HOG,
-            tasks_facade.TaskOriginProduct.TASK_ANALYSIS,
-            # Maps to the mintable `slack_app` gateway product. Only the Slack app's server flows set it.
-            tasks_facade.TaskOriginProduct.SLACK,
-            # Internal business-knowledge sandbox runs. Only that product's sandbox endpoint sets it.
-            tasks_facade.TaskOriginProduct.BUSINESS_KNOWLEDGE,
-            # Maps to the billed `posthog_ai` gateway product. Only the metrics dashboard import sets it.
-            tasks_facade.TaskOriginProduct.METRICS_IMPORT,
-        }
-        if value in reserved_origins:
+        if not profile_for_origin(value).public:
             raise serializers.ValidationError(f"origin_product '{value}' is reserved for server-created tasks")
         return value
 

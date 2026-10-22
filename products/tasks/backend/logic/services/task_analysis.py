@@ -24,6 +24,7 @@ from products.tasks.backend.constants import (
     TASK_ANALYSIS_ACTIVITIES_STATE_KEY,
 )
 from products.tasks.backend.facade.contracts import TaskAnalysisError
+from products.tasks.backend.facade.profiles import RunOptions
 from products.tasks.backend.logic.services.staged_artifacts import (
     RUN_ARTIFACT_TTL_DAYS,
     build_task_artifact_entry,
@@ -31,6 +32,7 @@ from products.tasks.backend.logic.services.staged_artifacts import (
     tag_task_artifact,
 )
 from products.tasks.backend.models import SandboxCustomImage, Task, TaskRun
+from products.tasks.backend.task_profiles import TASK_ANALYSIS
 
 logger = structlog.get_logger(__name__)
 
@@ -262,20 +264,20 @@ def create_task_analysis(*, team: Team, user_id: int, target_task: Task, target_
                 team=team,
                 title=f"Task analysis: {target_task.title[:120]}",
                 description=prompt,
-                origin_product=Task.OriginProduct.TASK_ANALYSIS,
+                profile=TASK_ANALYSIS,
                 user_id=user_id,
-                repository=None,
+                options=RunOptions(
+                    adapter=TASK_ANALYSIS_RUNTIME_ADAPTER,
+                    model=TASK_ANALYSIS_MODEL,
+                    mcp_scopes="read_only",
+                ),
                 create_pr=False,
                 mode="background",
                 start_workflow=False,
                 origin_key=origin_key,
-                posthog_mcp_scopes="read_only",
-                runtime_adapter=TASK_ANALYSIS_RUNTIME_ADAPTER,
-                model=TASK_ANALYSIS_MODEL,
                 pending_user_message=prompt,
                 extra_run_state=extra_run_state,
                 inactivity_timeout_seconds=TASK_ANALYSIS_INACTIVITY_TIMEOUT_SECONDS,
-                internal=True,
             )
     except IntegrityError:
         claimed = find_existing_analysis_task(team_id=team.id, target_run_id=str(target_run.id))

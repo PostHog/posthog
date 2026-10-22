@@ -8,8 +8,8 @@ from typing import TypeVar
 from pydantic import BaseModel
 
 from products.review_hog.backend.reviewer.constants import REVIEW_MCP_SCOPES
+from products.review_hog.backend.task_profiles import REVIEW
 from products.tasks.backend.facade.agents import CustomPromptSandboxContext, MultiTurnSession
-from products.tasks.backend.facade.api import TaskOriginProduct
 from products.tasks.backend.facade.contracts import SessionFile
 
 _ModelT = TypeVar("_ModelT", bound=BaseModel)
@@ -79,8 +79,7 @@ async def _run_prompt(
             origin_key=_origin_key(workflow_id_prefix),
             # ReviewHog-attributed and internal (pipeline plumbing, not a user-facing task); the step
             # lands on $ai_generation as ai_stage for per-stage cost attribution.
-            origin_product=TaskOriginProduct.REVIEW_HOG,
-            internal=True,
+            profile=REVIEW,
             ai_stage=step_name or None,
             json_retry_prompt=JSON_RETRY_PROMPT,
             files=files,
@@ -206,8 +205,7 @@ async def start_sandbox_session(
             workflow_id_prefix=workflow_id_prefix,
             origin_key=_origin_key(workflow_id_prefix),
             # Same attribution trio as _run_prompt: ReviewHog-origin, internal, step as ai_stage.
-            origin_product=TaskOriginProduct.REVIEW_HOG,
-            internal=True,
+            profile=REVIEW,
             ai_stage=step_name or None,
             json_retry_prompt=JSON_RETRY_PROMPT,
         )

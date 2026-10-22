@@ -23,6 +23,7 @@ from products.notebooks.backend.models import Notebook
 from products.signals.backend.models import SignalScoutRun
 from products.signals.backend.scout_harness.tool_catalogue import get_scout_tool_catalogue
 from products.signals.backend.scout_harness.tool_policy import SANDBOX_HARNESS_OPERATIONS
+from products.signals.backend.task_profiles import SCOUT
 from products.tasks.backend.models import Task
 
 DISPATCH = "products.tasks.backend.logic.services.workflow_dispatch.enqueue_or_start_workflow"
@@ -70,9 +71,8 @@ class TestScoutToolPolicyAPI(APIBaseTest):
                 team=self.team,
                 title="Synthetic scout run",
                 description="Synthetic scout run",
-                origin_product=Task.OriginProduct.SIGNALS_SCOUT,
+                profile=SCOUT,
                 user_id=self.user.id,
-                mcp_builtin_agent_key="scout",
                 mcp_tool_allowlist=allowlist if isinstance(allowlist, list) else None,
             )
         if allowlist is not None and not isinstance(allowlist, list):
@@ -147,7 +147,7 @@ class TestScoutToolPolicyAPI(APIBaseTest):
                     team=self.team,
                     title="Other scout",
                     description="Other scout",
-                    origin_product=Task.OriginProduct.SIGNALS_SCOUT,
+                    profile=SCOUT,
                     user_id=self.user.id,
                 )
             other_run = other_task.latest_run

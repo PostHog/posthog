@@ -109,8 +109,10 @@ from products.metrics.backend.facade.enums import (
     PanelImportOutcome,
     PanelProgressState,
 )
+from products.metrics.backend.task_profiles import DASHBOARD_IMPORT
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.contracts import TaskRunDTO, TaskRunInputFile
+from products.tasks.backend.facade.profiles import RunOptions
 
 logger = structlog.get_logger(__name__)
 
@@ -120,7 +122,7 @@ AGENT_MODEL = "claude-sonnet-5"
 AGENT_RUNTIME_ADAPTER = "claude"
 # The PostHog MCP server reads the user and the project to start a session, so it needs user:read and
 # project:read. The rest lets the agent read metrics, logs and traces. Nothing lets it write.
-AGENT_MCP_SCOPES = ["metrics:read", "logs:read", "tracing:read", "user:read", "project:read"]
+AGENT_MCP_SCOPES = ("metrics:read", "logs:read", "tracing:read", "user:read", "project:read")
 # Read tools that the internal scopes unlock but the conversion never needs. The input can carry planted
 # instructions, so hide every tool that reads other data of the user.
 AGENT_HIDDEN_TOOLS = [
@@ -579,16 +581,16 @@ class DashboardImporter:
                 team=self._team,
                 title=f"Import dashboard: {state.dashboard_name}"[:255],
                 description=prompt,
-                origin_product=tasks_facade.TaskOriginProduct.METRICS_IMPORT,
+                profile=DASHBOARD_IMPORT,
                 user_id=self._user.id,
-                repository=None,
+                options=RunOptions(
+                    mcp_scopes=AGENT_MCP_SCOPES,
+                    model=AGENT_MODEL,
+                    adapter=AGENT_RUNTIME_ADAPTER,
+                    output_schema=AgentImportOutput.model_json_schema(),
+                ),
                 create_pr=False,
-                internal=True,
                 sandbox_environment_id=str(environment_id),
-                posthog_mcp_scopes=AGENT_MCP_SCOPES,
-                model=AGENT_MODEL,
-                runtime_adapter=AGENT_RUNTIME_ADAPTER,
-                output_schema=AgentImportOutput,
                 extra_run_state={
                     "mcp_exclude_tools": AGENT_HIDDEN_TOOLS,
                     "config_snapshot": {"connectors": {"mcp_installation_ids": []}},

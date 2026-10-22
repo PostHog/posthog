@@ -17,12 +17,16 @@ class SignalsConfig(AppConfig):
         #   SignalTeamConfig audit-log entries (ModelActivityMixin only emits the signal; this
         #   is the consumer).
         # receivers: post_save receiver that closes a report's implementation PR on suppression/snooze.
+        from products.tasks.backend.facade.profiles import register_task_profiles
+
         from . import (
             activity_logging,  # noqa: F401
             receivers,  # noqa: F401
             spend_receivers,
+            task_profiles,
         )
 
+        register_task_profiles(task_profiles.PROFILES)
         receivers.connect_task_run_assignment_sync()
         spend_receivers.connect_spend_receivers()
         self._register_signal_emission_gate()

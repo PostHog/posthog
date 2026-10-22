@@ -8,7 +8,10 @@ class ConversationsConfig(AppConfig):
     verbose_name = "Support"
 
     def ready(self) -> None:
-        from . import signals  # noqa: F401
+        from products.tasks.backend.facade.profiles import register_task_profiles
+
+        from . import signals, task_profiles  # noqa: F401
         from .learning_provider import register_conversations_learning_provider
 
+        register_task_profiles(task_profiles.PROFILES)
         register_conversations_learning_provider()

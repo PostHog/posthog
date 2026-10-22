@@ -11,6 +11,7 @@ from posthog.models.user import User
 from posthog.temporal.oauth import RESEARCH_WITHHELD_SCOPES, PosthogMcpScopes, resolve_scopes
 
 from products.tasks.backend.exceptions import TaskInvalidStateError
+from products.tasks.backend.facade.profiles import get_task_profile
 from products.tasks.backend.models import (
     INTERACTIVE_SIGNALS_AI_STAGE_BY_ORIGIN,
     TASK_OWNERSHIP_VERSION_STATE_KEY,
@@ -26,11 +27,11 @@ from products.tasks.backend.temporal.oauth import (
 
 
 @pytest.mark.parametrize(
-    ("origin_product", "application"),
+    ("origin_product", "internal", "application"),
     [
-        (Task.OriginProduct.SIGNALS_SCOUT, "signals"),
-        (Task.OriginProduct.SUPPORT_REPLY, "array"),
-        (Task.OriginProduct.WORKFLOW, "array"),
+        (Task.OriginProduct.SIGNALS_SCOUT, False, "signals"),
+        (Task.OriginProduct.SUPPORT_REPLY, True, "array"),
+        (Task.OriginProduct.WORKFLOW, False, "array"),
     ],
 )
 @patch("products.tasks.backend.temporal.oauth.is_builtin_agent_enforcement_enabled", return_value=True)
@@ -39,6 +40,7 @@ def test_built_in_agent_origins_use_restricted_oauth_scope(
     mock_create: MagicMock,
     mock_enforcement: MagicMock,
     origin_product: Task.OriginProduct,
+    internal: bool,
     application: str,
 ) -> None:
     task = MagicMock(
@@ -46,6 +48,7 @@ def test_built_in_agent_origins_use_restricted_oauth_scope(
         created_by=MagicMock(),
         team_id=123,
         origin_product=origin_product,
+        internal=internal,
     )
 
     assert create_oauth_access_token(task) == "token"
@@ -71,6 +74,7 @@ def test_posthog_ai_task_keeps_member_token_and_posthog_ai_oauth_application(
         created_by=MagicMock(),
         team_id=123,
         origin_product=Task.OriginProduct.POSTHOG_AI,
+        internal=False,
     )
 
     assert create_oauth_access_token(task) == "token"
@@ -95,6 +99,7 @@ def test_built_in_agent_origin_keeps_member_token_until_gateway_flag_rollout(
         created_by=MagicMock(),
         team_id=123,
         origin_product=Task.OriginProduct.SUPPORT_REPLY,
+        internal=True,
     )
 
     assert create_oauth_access_token(task) == "token"
@@ -124,6 +129,7 @@ def test_array_task_mints_only_slack_runs_with_the_slack_provenance_marker(
         created_by=MagicMock(),
         team_id=123,
         origin_product=origin_product,
+        internal=False,
     )
 
     assert create_oauth_access_token(task) == "token"
@@ -255,16 +261,14 @@ def test_oauth_token_can_disable_task_creator_fallback() -> None:
 
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    ("origin_product", "agent_key"),
+    ("profile_key", "agent_key"),
     [
-        (Task.OriginProduct.SIGNALS_SCOUT, "scout"),
-        (Task.OriginProduct.SUPPORT_REPLY, "support"),
-        (Task.OriginProduct.WORKFLOW, "workflow"),
+        ("signals.scout", "scout"),
+        ("conversations.support_reply", "support"),
+        ("workflow", "workflow"),
     ],
 )
-def test_server_created_task_persists_trusted_mcp_agent_marker(
-    origin_product: Task.OriginProduct, agent_key: MCPBuiltInAgentKey
-) -> None:
+def test_server_created_task_persists_trusted_mcp_agent_marker(profile_key: str, agent_key: MCPBuiltInAgentKey) -> None:
     organization = Organization.objects.create(name=f"agent-marker-{agent_key}")
     team = Team.objects.create(organization=organization, name="agent-marker-team")
     creator = User.objects.create(email=f"agent-marker-{agent_key}@example.com")
@@ -274,9 +278,8 @@ def test_server_created_task_persists_trusted_mcp_agent_marker(
         team=team,
         title="Agent task",
         description="Run the agent",
-        origin_product=origin_product,
+        profile=get_task_profile(profile_key),
         user_id=creator.id,
-        mcp_builtin_agent_key=agent_key,
         mcp_credential_owner_id=owner.id,
     )
 
@@ -310,22 +313,12 @@ def test_reserved_origin_without_matching_server_marker_is_untrusted() -> None:
         team=team,
         title="Unstamped",
         description="No agent marker",
-        origin_product=Task.OriginProduct.USER_CREATED,
+        profile=get_task_profile("user"),
         user_id=creator.id,
         mcp_credential_owner_id=creator.id,
     )
     assert unstamped.state == {}
     assert unstamped.mcp_credential_owner_id is None
-
-    with pytest.raises(ValueError, match="does not match task origin"):
-        Task.create_without_run(
-            team=team,
-            title="Mismatch",
-            description="Mismatched marker",
-            origin_product=Task.OriginProduct.SUPPORT_REPLY,
-            user_id=creator.id,
-            mcp_builtin_agent_key="scout",
-        )
 
 
 @pytest.mark.django_db

@@ -29,6 +29,7 @@ from products.signals.backend.scout_harness.trial_launch import (
     assert_trial_work_enabled,
 )
 from products.signals.backend.scout_harness.trial_state import ScoutTrialStore
+from products.signals.backend.task_profiles import SCOUT_SUGGESTIONS
 from products.signals.backend.temporal.agentic import get_or_create_signals_sandbox_env
 from products.signals.backend.trial_judging import (
     JUDGE_PROMPT_VERSION as JUDGE_PROMPT_VERSION,
@@ -42,6 +43,7 @@ from products.signals.backend.trial_judging import (
 from products.signals.backend.trial_judging_types import TrialJudgeVerdicts, TrialRunEvidence, TrialRunJudgment
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.contracts import TaskRunDTO, TaskRunInputFile
+from products.tasks.backend.facade.profiles import RunOptions
 
 JUDGE_MAX_RUNTIME_SECONDS = 30 * 60
 JUDGE_SANDBOX_ENVIRONMENT = "SIGNALS_SCOUT_TRIAL_JUDGE"
@@ -169,26 +171,26 @@ class _JudgeRun:
                 title="[sandbox_prompt:scout_trial_judge] Assess a saved scout run",
                 description=self.prompt,
                 # Reuse rubric generation's repo-less internal sandbox policy.
-                origin_product=tasks_facade.TaskOriginProduct.SIGNALS_SCOUT_SUGGESTIONS,
+                profile=SCOUT_SUGGESTIONS,
                 origin_key=self.origin_key,
                 user_id=self.snapshot.user_id,
+                options=RunOptions(
+                    mcp_scopes=(),
+                    model=self.snapshot.judge_model,
+                    adapter="codex",
+                    reasoning_effort="xhigh",
+                    permission_mode="full-access",
+                    output_schema=TrialJudgeVerdicts.model_json_schema(),
+                ),
                 create_pr=False,
                 mode="background",
-                internal=True,
                 sandbox_environment_id=environment_id,
-                posthog_mcp_scopes=[],
-                model=self.snapshot.judge_model,
-                runtime_adapter="codex",
-                reasoning_effort="xhigh",
-                initial_permission_mode="full-access",
                 github_read_access=False,
                 sandbox_timeout_seconds=JUDGE_MAX_RUNTIME_SECONDS + 120,
                 inactivity_timeout_seconds=JUDGE_MAX_RUNTIME_SECONDS,
                 ai_stage="scout:trial_judge",
-                mcp_builtin_agent_key="scout",
                 mcp_gateway_server_ids=[],
                 before_task_dispatch=self.bind_before_dispatch,
-                output_schema=TrialJudgeVerdicts.model_json_schema(),
             )
         except IntegrityError:
             # Task creation rolls back before this lookup; its unique origin key owns dispatch.

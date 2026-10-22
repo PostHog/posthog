@@ -21,7 +21,7 @@ from products.signals.backend.agent_runtime import STEP_REPO_SELECTION, resolve_
 from products.signals.backend.models import SignalReportArtefact
 from products.signals.backend.repo_corrections import wrong_repo_corrections_block
 from products.signals.backend.report_generation.source_repository import source_repository_from_signals
-from products.tasks.backend.facade import api as tasks_facade
+from products.signals.backend.task_profiles import REPO_SELECTION
 from products.tasks.backend.facade.repo_selection import (
     REPO_SELECTION_DUMMY_REPOSITORY,
     RepoSelectionRejectedError,
@@ -112,7 +112,7 @@ async def select_repository_for_team(
             team_id=team_id,
             user_id=user_id,
             context=request_section,
-            origin_product=tasks_facade.TaskOriginProduct.SIGNAL_REPORT,
+            profile=REPO_SELECTION,
             # Report generation runs in the background, so its repository cache refresh yields first.
             priority=Priority.BATCH,
             step_name=step_name,
