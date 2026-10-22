@@ -25,6 +25,15 @@ from products.event_definitions.backend.models.property_definition import effect
 logger = structlog.get_logger(__name__)
 
 
+def person_email_property_keys(team: Team) -> tuple[str, ...]:
+    has_title_cased_email = (
+        PropertyDefinition.objects.alias(effective_project_id=effective_project_id_expr())
+        .filter(effective_project_id=team.project_id, type=PropertyDefinition.Type.PERSON, name="Email")
+        .exists()
+    )
+    return ("email", "Email") if has_title_cased_email else ("email",)
+
+
 class ActorStrategy:
     field: str
     origin: str
@@ -148,9 +157,7 @@ class PersonStrategy(ActorStrategy):
 
         search = self.query.search.strip() if self.query.search else None
         if search:
-            searched_properties = (
-                ["email", "Email", "name"] if self._has_title_cased_email_property() else ["email", "name"]
-            )
+            searched_properties = [*person_email_property_keys(self.team), "name"]
             where_exprs.append(
                 ast.Or(
                     exprs=[
@@ -175,13 +182,6 @@ class PersonStrategy(ActorStrategy):
                 )
             )
         return where_exprs
-
-    def _has_title_cased_email_property(self) -> bool:
-        return (
-            PropertyDefinition.objects.alias(effective_project_id=effective_project_id_expr())
-            .filter(effective_project_id=self.team.project_id, type=PropertyDefinition.Type.PERSON, name="Email")
-            .exists()
-        )
 
     def order_by(self) -> Optional[list[ast.OrderExpr]]:
         if self.query.orderBy not in [["person"], ["person DESC"], ["person ASC"]]:
