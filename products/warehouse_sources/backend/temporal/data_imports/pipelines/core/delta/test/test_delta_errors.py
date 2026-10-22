@@ -216,6 +216,28 @@ class TestIsTransientDeltaMaintenanceError:
             # "not found" outside the log directory must not match, because a data file missing for some
             # other reason is a real failure to capture, not this specific log-commit race.
             ("file_not_found_outside_delta_log", deltalake.exceptions.DeltaError("File not found: some/file"), False),
+            # The same purge-vs-concurrent-read race caught by the kernel's log-segment contiguity
+            # check instead of a single file lookup: `_purge_s3_prefix_once`'s bulk delete removes a
+            # batch of `_delta_log` commit files in no guaranteed order, so a concurrent listing can
+            # see a run of them already gone from the middle of the sequence.
+            (
+                "delta_log_gap_from_concurrent_purge",
+                deltalake.exceptions.DeltaError(
+                    "Kernel error: Generic delta kernel error: Expected contiguous commit files, but found "
+                    "gap: ParsedLogPath { ... version: 10, file_type: Commit } -> ParsedLogPath "
+                    "{ ... version: 15, file_type: Commit }"
+                ),
+                True,
+            ),
+            # Same race, but the batch happened to take the checkpoint file a `_last_checkpoint` hint
+            # still points to.
+            (
+                "delta_log_dangling_checkpoint_hint_from_concurrent_purge",
+                deltalake.exceptions.DeltaError(
+                    "Kernel error: Invalid Checkpoint: Had a _last_checkpoint hint but didn't find any checkpoints"
+                ),
+                True,
+            ),
             # A reset or repartition swap replaced `_delta_log` under a handle that a prior write (or
             # note_deltalite_commit) had already advanced further: `update_incremental` refuses to apply
             # the now-lower-numbered log as an increment. Same reset-vs-stale-handle race as the missing

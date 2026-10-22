@@ -199,6 +199,20 @@ def is_transient_delta_maintenance_error(error: BaseException) -> bool:
     if "_delta_log/" in text and "not found" in text:
         return True
 
+    # A third shape of the same reset-vs-concurrent-read race, caught by the kernel's log-segment
+    # listing instead of a single file lookup: `_purge_s3_prefix_once` lists the table's live
+    # `_delta_log` files once and bulk-deletes them in one `_rm` call, which S3 does not guarantee to
+    # apply in any particular order across keys. A concurrent open that lists the directory (or reads
+    # `_last_checkpoint` and fetches the checkpoint it names) mid-delete can see an arbitrary subset of
+    # that batch already gone — a run of consecutive commit files missing from the middle of the
+    # sequence ("Expected contiguous commit files, but found gap"), or a `_last_checkpoint` hint whose
+    # checkpoint file the same batch already removed ("Had a _last_checkpoint hint but didn't find any
+    # checkpoints"). Moments later the purge finishes and the next reader opens a fresh, consistent log.
+    if "Expected contiguous commit files" in text:
+        return True
+    if "Had a _last_checkpoint hint but didn't find any checkpoints" in text:
+        return True
+
     # Yet another shape of the same reset-vs-stale-handle race: `DeltaTableRef._refresh_cached_table`
     # calls `update_incremental()` on a delta-rs handle that a prior write or `note_deltalite_commit`
     # already advanced to some version. If `reset_table` (or a repartition swap) replaces `_delta_log`
