@@ -397,12 +397,18 @@ def _media_page(client: InstagramClient, url: str, logger: FilteringBoundLogger)
     body = client.get(_with_query_param(url, "fields", MEDIA_PAGE_SAFE_FIELDS))
     rows = body.get("data")
     for row in rows if isinstance(rows, list) else []:
-        if not isinstance(row, dict) or not row.get("id") or not client.has_request_budget():
+        if not isinstance(row, dict) or not row.get("id"):
             continue
+        if not client.has_request_budget():
+            # Without a cursor the checkpoint stays on this page, so a resumed attempt reads it again.
+            body.pop("paging", None)
+            break
         media_id = str(row["id"])
         try:
             extra = client.get(client.build_url(media_id, {"fields": MEDIA_REFUSABLE_FIELDS}))
         except InstagramBadRequestError as error:
+            if error.code != META_VIDEO_NOT_FOUND_ERROR_CODE:
+                raise
             logger.warning(f"Instagram: skipping refusable fields for media {media_id}: {error}")
             continue
         row.update({name: value for name, value in extra.items() if name != "id"})

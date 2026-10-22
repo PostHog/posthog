@@ -354,7 +354,10 @@ class TestInstagramEdges:
         assert result.rows[0]["timestamp"] == "2024-03-01T18:10:00+00:00"
         assert result.params("after") == [None, "CUR"]
 
-    def test_a_media_page_meta_refuses_for_one_video_is_read_again_without_the_refusable_fields(self) -> None:
+    @pytest.mark.parametrize("second_post_code,fails", [(9005, False), (100, True)])
+    def test_a_media_page_meta_refuses_for_one_video_is_read_again_without_the_refusable_fields(
+        self, second_post_code: int, fails: bool
+    ) -> None:
         video_not_found = ScriptedResponse(status=400, json={"error": {"code": 9005, "message": "not found"}})
         result = _drive(
             "media",
@@ -362,14 +365,17 @@ class TestInstagramEdges:
                 video_not_found,
                 ScriptedResponse(json=_page([{"id": "1"}, {"id": "2"}])),
                 ScriptedResponse(json={"id": "1", "owner": {"id": "o1"}}),
-                video_not_found,
+                ScriptedResponse(status=400, json={"error": {"code": second_post_code, "message": "no"}}),
             ],
         )
 
-        assert result.raised is None
-        assert result.rows == [{"id": "1", "owner": {"id": "o1"}}, {"id": "2"}]
         assert result.params("fields")[1] == MEDIA_PAGE_SAFE_FIELDS
         assert result.paths[2:] == ["/v23.0/1", "/v23.0/2"]
+        if fails:
+            assert isinstance(result.raised, InstagramBadRequestError)
+        else:
+            assert result.raised is None
+            assert result.rows == [{"id": "1", "owner": {"id": "o1"}}, {"id": "2"}]
 
     def test_media_stops_when_the_cursor_is_missing_even_though_next_is_present(self) -> None:
         result = _drive("media", [ScriptedResponse(json={"data": [{"id": "1"}], "paging": {"next": "https://x/next"}})])
