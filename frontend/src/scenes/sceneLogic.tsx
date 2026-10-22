@@ -19,7 +19,7 @@ import { useEffect, useState } from 'react'
 import api from 'lib/api'
 import type { SupportTicketExceptionEvent } from 'lib/components/Support/supportLogic'
 import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
-import { playGoldRings, shouldPlayGoldRings } from 'lib/holidayGoldRings'
+import { isGoldRingsActive, playGoldRings, watchForGoldRingsContent } from 'lib/holidayGoldRings'
 import { trackFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Spinner } from 'lib/lemon-ui/Spinner'
@@ -77,18 +77,33 @@ interface MountedSceneLogic {
 
 const generateTabId = (): string => crypto?.randomUUID?.()?.split('-')?.pop() || `${Date.now()}-${Math.random()}`
 
-function checkGoldRingsAfterScenePaint(navigation: string, enabled: boolean): void {
-    window.requestAnimationFrame(() => {
+function checkGoldRingsAfterScenePaint(navigation: string, enabled: boolean): () => void {
+    if (!isGoldRingsActive(new Date(), enabled)) {
+        return () => undefined
+    }
+
+    let stopWatching = (): void => undefined
+    const animationFrame = window.requestAnimationFrame(() => {
         if (router.values.location.pathname + router.values.location.search !== navigation) {
             return
         }
 
         const mainContent = document.getElementById('main-content')
         const pageContent = mainContent?.querySelector<HTMLElement>('.scene-content') ?? mainContent
-        if (shouldPlayGoldRings(new Date(), enabled, pageContent?.innerText ?? '')) {
-            playGoldRings()
+        if (pageContent) {
+            stopWatching = watchForGoldRingsContent(
+                pageContent,
+                enabled,
+                () => router.values.location.pathname + router.values.location.search === navigation,
+                playGoldRings
+            )
         }
     })
+
+    return () => {
+        window.cancelAnimationFrame(animationFrame)
+        stopWatching()
+    }
 }
 
 /**
@@ -927,15 +942,17 @@ export const sceneLogic = kea<sceneLogicType>([
                 cache.lastTrackedScene = { sceneId, sceneKey }
             }
 
-            if (exportedScene) {
-                const navigation = router.values.location.pathname + router.values.location.search
-                if (cache.lastGoldRingsNavigation !== navigation) {
-                    cache.lastGoldRingsNavigation = navigation
-                    checkGoldRingsAfterScenePaint(
-                        navigation,
-                        values.featureFlags[FEATURE_FLAGS.CHRISTMAS_GOLD_RINGS] === true
-                    )
-                }
+            const navigation = router.values.location.pathname + router.values.location.search
+            if (cache.lastGoldRingsNavigation !== navigation) {
+                cache.lastGoldRingsNavigation = navigation
+                cache.disposables.add(
+                    () =>
+                        checkGoldRingsAfterScenePaint(
+                            navigation,
+                            values.featureFlags[FEATURE_FLAGS.CHRISTMAS_GOLD_RINGS] === true
+                        ),
+                    'gold-rings'
+                )
             }
         },
         openScene: ({ sceneId, sceneKey, params, method }) => {
