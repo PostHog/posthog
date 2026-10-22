@@ -107,6 +107,7 @@ class LogAnalyticsWorkspaceSource(ResumableSource[ConfigType, AzureLogAnalyticsR
         return {
             "400 Client Error: Bad Request for url: https://login.microsoftonline.com": "Microsoft Entra ID rejected the app credentials. Check the tenant ID, client ID and client secret, then reconnect.",
             "401 Client Error: Unauthorized for url: https://login.microsoftonline.com": "Microsoft Entra ID rejected the app credentials. Check the client ID and client secret, then reconnect.",
+            "403 Client Error: Forbidden for url: https://login.microsoftonline.com": "Microsoft Entra ID refused to issue a token for the app. Check that the app registration can sign in to this tenant, then reconnect.",
             "401 Client Error: Unauthorized for url: https://api.loganalytics.azure.com": "Log Analytics rejected the access token. Check that the app registration is still enabled, then reconnect.",
             "403 Client Error: Forbidden for url: https://api.loganalytics.azure.com": "The app cannot query this workspace. Give its service principal the Log Analytics Reader role on the workspace, or read access to the table, then reconnect.",
             "404 Client Error: Not Found for url: https://api.loganalytics.azure.com": "No Log Analytics workspace has this workspace ID. Check the workspace ID, then reconnect.",
