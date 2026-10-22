@@ -442,7 +442,16 @@ export const seriesBreakdownLogic = kea<seriesBreakdownLogicType>([
                 }
             },
         ],
-        chartData: [(s) => [s.seriesBreakdownData, s.xData, s.yData, s.effectiveVisualizationType], sqlChartData],
+        chartData: [
+            (s) => [s.seriesBreakdownData, s.xData, s.yData, s.effectiveVisualizationType],
+            (
+                seriesBreakdownData: BreakdownSeriesData<number | null>,
+                xData: AxisSeries<string> | null,
+                yData: AxisSeries<number | null>[],
+                effectiveVisualizationType: ChartDisplayType
+            ): Pick<SqlChartProps, 'xData' | 'yData'> =>
+                sqlChartData(seriesBreakdownData, xData, yData, effectiveVisualizationType),
+        ],
     }),
     listeners(({ actions }) => ({
         addSeriesBreakdown: ({ columnName }) => {
