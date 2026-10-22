@@ -561,24 +561,37 @@ class TestNewEventsSchemaArraySubcolumnsClickhouse(_NewEventsSchemaArraySubcolum
 
     @parameterized.expand(
         [
-            (f"{storage}_{name}", storage, predicate, expected)
+            (f"{storage}_{name}", storage, predicate, expected, reads_text)
             for storage in ("native", "legacy_json", "legacy_property_group", "legacy_materialized_column")
-            for name, predicate, expected in [
-                ("text_equals", "properties.step = 'template'", ["template"]),
+            for name, predicate, expected, reads_text in [
+                ("text_equals", "properties.step = 'template'", ["template"], True),
+                ("reversed_text_equals", "'template' = properties.step", ["template"], True),
                 (
                     "text_not_equals",
                     "properties.step != 'template'",
                     ["domain", "int_5", "text_5", "missing", "text_nan"],
+                    True,
                 ),
-                ("text_in", "properties.step IN ('template', 'domain')", ["template", "domain"]),
-                ("text_and_number_in", "properties.step IN ('template', '5')", ["template", "int_5", "text_5"]),
-                ("number_equals", "properties.step = '5'", ["int_5", "text_5"]),
-                ("non_finite_text", "properties.step = 'nan'", ["text_nan"]),
+                ("text_in", "properties.step IN ('template', 'domain')", ["template", "domain"], True),
+                (
+                    "text_and_number_in",
+                    "properties.step IN ('template', '5')",
+                    ["template", "int_5", "text_5"],
+                    True,
+                ),
+                (
+                    "text_and_number_not_in",
+                    "properties.step NOT IN ('template', '5')",
+                    ["domain", "missing", "text_nan"],
+                    True,
+                ),
+                ("number_equals", "properties.step = '5'", ["int_5", "text_5"], False),
+                ("non_finite_text", "properties.step = 'nan'", ["text_nan"], True),
             ]
         ]
     )
     def test_numeric_property_compared_to_text_matches_text(
-        self, _name: str, storage: str, predicate: str, expected: list[str]
+        self, _name: str, storage: str, predicate: str, expected: list[str], reads_text: bool
     ) -> None:
         native = storage == "native"
         context = self._context(use_new_events_schema=native, event_properties={"step": {"type": "Numeric"}})
@@ -626,6 +639,8 @@ class TestNewEventsSchemaArraySubcolumnsClickhouse(_NewEventsSchemaArraySubcolum
             },
         )
         assert [row[0] for row in result] == expected
+        if native:
+            assert ("CAST(events.properties.step, 'Nullable(String)')" in printed) == reads_text, printed
 
     @parameterized.expand(
         [
@@ -1208,6 +1223,11 @@ class TestPropertyTypes(BaseTest):
         # Without an explicit string parser, a Numeric property is still cast to Float.
         printed = self._print_select("select properties.$screen_width from events")
         assert "accurateCastOrNull" in printed
+
+    def test_persons_numeric_property_compared_to_text_casts_every_read(self):
+        printed = self._print_select("select count() from persons where properties.tickets = 'x'")
+        cast_read = "accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw("
+        assert 0 < printed.count(cast_read) == printed.count("JSONExtractRaw("), printed
 
     def test_numeric_property_cast_when_explicitly_stringified_inside_parser(self):
         # toString resets the suppression, so the inner Numeric property is cast again.
