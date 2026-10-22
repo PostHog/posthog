@@ -218,9 +218,12 @@ ingestion).
 - **A shared presenter renders in both thread skins.** `ThreadView`'s `skin` prop (`'lemon' | 'quill'`) sets
   `ThreadSkinContext`; `quill` is the PostHog Desktop chat layout, on behind the `phai-quill` flag (and `today-rail-nav`).
   `Activity`, `ThreadRow` message and separator rows, `ThreadActivityGroup`, `RunAlertActivity`, `PullRequestCard`, `RunContext` and
-  `TurnFeedbackActions` read `useQuillThread()` and dispatch to their `components/quill/` skin at the top of the
+  `TurnFeedbackActions` and `AssistantFailureMessage` read `useQuillThread()` and dispatch to their `components/quill/` skin at the top of the
   component. Behavior both skins need (open state, group windowing, ratings) lives in a shared hook
   (`useActivityDisclosure`, `useActivityGroup`, `useTurnRating`), never in one skin. Tool renderers never branch on skin.
+  A thread `ThreadView` does not render (Max's legacy thread) enters the skin through `QuillThreadSkin` and draws its
+  messages with the plain-prop `QuillHumanBubble` / `QuillAssistantBubble` (`api/primitives`). A story or test pins a
+  subtree's skin with `ThreadSkinOverrideContext`; product code lets the flags decide.
   Grouping is the one rule that differs by skin, and `ThreadView` picks it.
   The lemon thread folds every activity run (`groupThreadActivity`).
   The quill thread folds only runs of two or more calls, like Desktop (`groupToolRuns`).

@@ -31,6 +31,30 @@ import {
     LemonSkeleton,
     Tooltip,
 } from '@posthog/lemon-ui'
+import {
+    Button,
+    Card,
+    CardContent,
+    CardHeader,
+    CardTitle,
+    ChatBubble,
+    ChatBubbleContent,
+    ChatMarker,
+    ChatMarkerContent,
+    ChatMessage,
+    ChatMessageContent,
+    ChatMessageFooter,
+    ChatTask,
+    ChatTaskList,
+    ChatTaskListContent,
+    ChatTaskListCount,
+    ChatTaskListLabel,
+    ChatTaskListProgress,
+    ChatTaskListTrigger,
+    Input,
+    Skeleton,
+    Text,
+} from '@posthog/quill'
 
 import {
     InsightBreakdownSummary,
@@ -40,6 +64,7 @@ import {
 import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
 import { NotFound } from 'lib/components/NotFound'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { cn } from 'lib/utils/css-classes'
 import { pluralize } from 'lib/utils/strings'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -68,6 +93,7 @@ import { PendingApproval, RecordingUniversalFilters, Region } from '~/types'
 import {
     AGENT_TOOL_APPLY_BACK_CONTEXT_ITEM,
     getThinkingMessageFromResponse,
+    type MessageRatingOrNull,
     messageRatingsLogic,
     runStreamLogic,
     useAttachedContext,
@@ -78,11 +104,18 @@ import {
     ContextUsageChip,
     MarkdownMessage,
     MessageTemplate,
+    QuillAssistantBubble,
+    QuillAssistantMarkdown,
+    QuillCopyButton,
+    QuillFooterButton,
+    QuillHumanBubble,
+    QuillThreadSkin,
     ReasoningAnswer,
     RecordingsWidget,
     ThreadView,
     TurnTrailerActions,
     type TurnTrailer,
+    useQuillThread,
     useThreadSkin,
 } from 'products/posthog_ai/frontend/api/primitives'
 import { LogEntry } from 'products/posthog_ai/frontend/lib/parse-logs'
@@ -126,10 +159,47 @@ function isErrorMessage(message: ThreadMessage): boolean {
     return message.type !== 'human' && (message.status === 'error' || message.type === 'ai/failure')
 }
 
+/**
+ * Fences a lemon component that has no quill skin yet, so PostHog's own colours survive inside the quill
+ * thread. Renders the children bare in the lemon thread.
+ */
+function NotQuill({ children, className }: { children: React.ReactNode; className?: string }): JSX.Element {
+    const quill = useQuillThread()
+    if (!quill) {
+        return <>{children}</>
+    }
+    return (
+        <div data-not-quill className={cn('min-w-0 max-w-full', className)}>
+            {children}
+        </div>
+    )
+}
+
+/** A short assistant-side note (a feedback nudge, a retry notice): a lemon bubble, or quill ghost prose. */
+function AssistantNote({
+    children,
+    boxClassName,
+}: {
+    children: React.ReactNode
+    /** Lemon only: extra classes on the bubble's box. */
+    boxClassName?: string
+}): JSX.Element {
+    const quill = useQuillThread()
+    if (quill) {
+        return <QuillAssistantBubble>{children}</QuillAssistantBubble>
+    }
+    return (
+        <MessageTemplate type="ai" boxClassName={boxClassName}>
+            {children}
+        </MessageTemplate>
+    )
+}
+
 export function Thread({ className }: { className?: string }): JSX.Element | null {
     const { conversation, sandboxConversationKey, isConvertedConversation } = useValues(maxThreadLogic)
     const { panelId } = useValues(maxLogic)
     const threadSkin = useThreadSkin()
+    const quill = threadSkin === 'quill'
     const isSandboxRuntime = conversation?.agent_runtime === 'sandbox'
     const isPiTask = isPiTaskRuntime(conversation?.task?.runtime)
 
@@ -145,8 +215,10 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
         active: panelId === SIDE_PANEL_PANEL_ID && rendersSandboxThread,
     })
 
+    // The quill thread spaces its rows like PostHog Desktop; the lemon thread keeps its tighter rhythm.
     const containerClassName = cn(
-        '@container/thread flex flex-col items-stretch w-full max-w-180 self-center gap-1.5 grow mx-auto',
+        '@container/thread flex flex-col items-stretch w-full max-w-180 self-center grow mx-auto',
+        quill ? 'gap-4' : 'gap-1.5',
         className
     )
 
@@ -191,22 +263,39 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
         if (!sandboxConversationKey) {
             return null
         }
-        return (
-            <div className={containerClassName}>
+        const converted = (
+            <>
                 <LegacyThread showTrailers={false} />
-                <LemonDivider dashed label="Message history was converted to the new format" className="my-3" />
+                {quill ? (
+                    <ChatMarker variant="separator" className="before:min-w-4 after:min-w-4">
+                        <ChatMarkerContent className="max-w-[80%] shrink">
+                            Message history was converted to the new format
+                        </ChatMarkerContent>
+                    </ChatMarker>
+                ) : (
+                    <LemonDivider dashed label="Message history was converted to the new format" className="my-3" />
+                )}
                 <BindLogic
                     logic={runStreamLogic}
                     props={{ streamKey: sandboxConversationKey, conversationId: sandboxConversationKey }}
                 >
                     <ThreadView virtualized={false} renderTurnTrailer={renderTurnTrailer} skin={threadSkin} />
                 </BindLogic>
-            </div>
+            </>
+        )
+        return quill ? (
+            <QuillThreadSkin className={containerClassName}>{converted}</QuillThreadSkin>
+        ) : (
+            <div className={containerClassName}>{converted}</div>
         )
     }
 
     // Pure LangGraph conversation.
-    return (
+    return quill ? (
+        <QuillThreadSkin className={containerClassName}>
+            <LegacyThread showTrailers />
+        </QuillThreadSkin>
+    ) : (
         <div className={containerClassName}>
             <LegacyThread showTrailers />
         </div>
@@ -340,38 +429,44 @@ function LegacyThread({ showTrailers }: { showTrailers: boolean }): JSX.Element 
                                 (ticketSummaryData.discarded ? (
                                     <p className="m-0 ml-1 mt-1 text-xs text-muted italic">Ticket creation discarded</p>
                                 ) : (
-                                    <TicketPrompt
-                                        conversationId={conversationId}
-                                        traceId={traceId}
-                                        summary={ticketSummaryData.summary}
-                                    />
+                                    <NotQuill>
+                                        <TicketPrompt
+                                            conversationId={conversationId}
+                                            traceId={traceId}
+                                            summary={ticketSummaryData.summary}
+                                        />
+                                    </NotQuill>
                                 ))}
                         </React.Fragment>
                     )
                 })
             })()}
             {showTrailers && conversationId && isPromptVisible && !streamingActive && (
-                <MessageTemplate type="ai">
+                <AssistantNote>
                     <div className="flex flex-col gap-2">
                         <span className="text-xs text-muted">How is PostHog AI doing? (optional)</span>
                         <FeedbackDisplay conversationId={conversationId} />
                     </div>
-                </MessageTemplate>
+                </AssistantNote>
             )}
             {showTrailers && conversationId && isDetailedFeedbackVisible && !streamingActive && (
-                <FeedbackPrompt conversationId={conversationId} traceId={traceId} />
+                <NotQuill>
+                    <FeedbackPrompt conversationId={conversationId} traceId={traceId} />
+                </NotQuill>
             )}
             {showTrailers && conversationId && isThankYouVisible && !streamingActive && (
-                <MessageTemplate type="ai">
+                <AssistantNote>
                     <p className="m-0 text-sm text-secondary">Thanks for your feedback and using PostHog AI!</p>
-                </MessageTemplate>
+                </AssistantNote>
             )}
             {showTrailers && conversationId && ticketPromptData.needed && (
-                <TicketPrompt
-                    conversationId={conversationId}
-                    traceId={traceId}
-                    initialText={ticketPromptData.initialText}
-                />
+                <NotQuill>
+                    <TicketPrompt
+                        conversationId={conversationId}
+                        traceId={traceId}
+                        initialText={ticketPromptData.initialText}
+                    />
+                </NotQuill>
             )}
         </>
     ) : conversationId ? (
@@ -480,6 +575,7 @@ function MessageContainer({
     children: React.ReactNode
     className?: string
 }): JSX.Element {
+    const quill = useQuillThread()
     return (
         <div
             className={cn(
@@ -489,7 +585,8 @@ function MessageContainer({
                 // keystroke latency grow with thread length. `auto 100px` is only the pre-first-render
                 // estimate; after a message renders once, the browser remembers its real size.
                 '[content-visibility:auto] [contain-intrinsic-size:auto_100px]',
-                groupType === 'human' ? 'flex-row-reverse ml-4 @md/thread:ml-10 ' : 'mr-4 @md/thread:mr-10',
+                // The quill bubbles align themselves and cap their own width, so the row stays full width.
+                !quill && (groupType === 'human' ? 'flex-row-reverse ml-4 @md/thread:ml-10 ' : 'mr-4 @md/thread:mr-10'),
                 className
             )}
         >
@@ -526,6 +623,7 @@ const Message = React.memo(function Message({
         webSearchResultsByToolUseId,
     } = useValues(maxThreadLogic)
     const { conversationId } = useValues(maxLogic)
+    const quill = useQuillThread()
 
     const groupType = message.type === 'human' ? 'human' : 'ai'
     const key = message.id || 'no-id'
@@ -551,16 +649,17 @@ const Message = React.memo(function Message({
             return null
         }
         return matchingApprovals.map((approval) => (
-            <DangerousOperationApprovalCard
-                key={`approval-${approval.proposal_id}`}
-                operation={{
-                    status: 'pending_approval',
-                    proposalId: approval.proposal_id,
-                    toolName: approval.tool_name,
-                    preview: approval.preview,
-                    payload: approval.payload as Record<string, any>,
-                }}
-            />
+            <NotQuill key={`approval-${approval.proposal_id}`}>
+                <DangerousOperationApprovalCard
+                    operation={{
+                        status: 'pending_approval',
+                        proposalId: approval.proposal_id,
+                        toolName: approval.tool_name,
+                        preview: approval.preview,
+                        payload: approval.payload as Record<string, any>,
+                    }}
+                />
+            </NotQuill>
         ))
     }, [conversationId, message, pendingApprovalsData, resolvedApprovalStatuses])
 
@@ -588,6 +687,51 @@ const Message = React.memo(function Message({
                         const maybeCommand = MAX_SLASH_COMMANDS.find(
                             (cmd) => cmd.name === message.content.split(' ', 1)[0]
                         )
+                        const contextSummary = message.ui_context && Object.keys(message.ui_context).length > 0 && (
+                            <ContextSummary
+                                insights={message.ui_context.insights}
+                                dashboards={message.ui_context.dashboards}
+                                events={message.ui_context.events}
+                                actions={message.ui_context.actions}
+                                notebooks={message.ui_context.notebooks}
+                                useCurrentPageContext={false}
+                            />
+                        )
+                        const humanContent = maybeCommand ? (
+                            <div className="flex items-center">
+                                <Tooltip
+                                    title={
+                                        <>
+                                            This is a PostHog AI command:
+                                            <br />
+                                            <i>{maybeCommand.description}</i>
+                                        </>
+                                    }
+                                >
+                                    <span className="text-base mr-1.5">{maybeCommand.icon}</span>
+                                </Tooltip>
+                                <span className="font-mono">{message.content}</span>
+                            </div>
+                        ) : (
+                            <MarkdownMessage content={message.content || '*No text.*'} id={message.id || 'no-text'} />
+                        )
+
+                        if (quill) {
+                            return (
+                                <QuillHumanBubble
+                                    key={key}
+                                    copyText={message.content || undefined}
+                                    before={contextSummary || undefined}
+                                    className={cn(
+                                        'w-full',
+                                        message.status === 'error' &&
+                                            '[&_[data-slot=bubble-content]]:border-destructive-foreground'
+                                    )}
+                                >
+                                    {humanContent}
+                                </QuillHumanBubble>
+                            )
+                        }
 
                         return (
                             <MessageTemplate
@@ -595,37 +739,8 @@ const Message = React.memo(function Message({
                                 type="human"
                                 boxClassName={message.status === 'error' ? 'border-danger' : undefined}
                             >
-                                {message.ui_context && Object.keys(message.ui_context).length > 0 && (
-                                    <ContextSummary
-                                        insights={message.ui_context.insights}
-                                        dashboards={message.ui_context.dashboards}
-                                        events={message.ui_context.events}
-                                        actions={message.ui_context.actions}
-                                        notebooks={message.ui_context.notebooks}
-                                        useCurrentPageContext={false}
-                                    />
-                                )}
-                                {maybeCommand ? (
-                                    <div className="flex items-center">
-                                        <Tooltip
-                                            title={
-                                                <>
-                                                    This is a PostHog AI command:
-                                                    <br />
-                                                    <i>{maybeCommand.description}</i>
-                                                </>
-                                            }
-                                        >
-                                            <span className="text-base mr-1.5">{maybeCommand.icon}</span>
-                                        </Tooltip>
-                                        <span className="font-mono">{message.content}</span>
-                                    </div>
-                                ) : (
-                                    <MarkdownMessage
-                                        content={message.content || '*No text.*'}
-                                        id={message.id || 'no-text'}
-                                    />
-                                )}
+                                {contextSummary}
+                                {humanContent}
                             </MessageTemplate>
                         )
                     } else if (isAssistantMessage(message)) {
@@ -817,12 +932,13 @@ const Message = React.memo(function Message({
                             )
                         } else if (isNotebookArtifactContent(message.content)) {
                             return (
-                                <NotebookArtifactAnswer
-                                    key={key}
-                                    content={message.content}
-                                    status={message.status}
-                                    artifactId={message.artifact_id}
-                                />
+                                <NotQuill key={key} className="w-full">
+                                    <NotebookArtifactAnswer
+                                        content={message.content}
+                                        status={message.status}
+                                        artifactId={message.artifact_id}
+                                    />
+                                </NotQuill>
                             )
                         }
                         return null
@@ -832,7 +948,7 @@ const Message = React.memo(function Message({
                     return null // We currently skip other types of messages
                 })()}
                 {isLastInGroup && message.status === 'error' && (
-                    <MessageTemplate type="ai" boxClassName="border-warning">
+                    <AssistantNote boxClassName="border-warning">
                         <div className="flex items-center gap-1.5">
                             <IconWarning className="text-xl text-warning" />
                             <i>
@@ -840,7 +956,7 @@ const Message = React.memo(function Message({
                                 failed.
                             </i>
                         </div>
-                    </MessageTemplate>
+                    </AssistantNote>
                 )}
             </div>
         </MessageContainer>
@@ -854,6 +970,17 @@ function MessageGroupSkeleton({
     groupType: 'human' | 'ai'
     className?: string
 }): JSX.Element {
+    const quill = useQuillThread()
+    if (quill) {
+        return (
+            <MessageContainer className={clsx('items-center', className)} groupType={groupType}>
+                <Skeleton
+                    className={cn('h-10 w-3/5 rounded-lg', groupType === 'human' ? 'ml-auto' : 'mr-auto')}
+                    aria-label="Loading messages"
+                />
+            </MessageContainer>
+        )
+    }
     return (
         <MessageContainer className={clsx('items-center', className)} groupType={groupType}>
             <LemonSkeleton className="h-10 w-3/5 rounded-lg border" />
@@ -872,6 +999,7 @@ const TextAnswer = React.forwardRef<HTMLDivElement, TextAnswerProps>(function Te
     { message, interactable, isFinalGroup, withActions = true },
     ref
 ) {
+    const quill = useQuillThread()
     const retriable = !!(interactable && isFinalGroup)
 
     const action = withActions
@@ -912,6 +1040,26 @@ const TextAnswer = React.forwardRef<HTMLDivElement, TextAnswerProps>(function Te
         )
     }
 
+    if (quill) {
+        return (
+            <ChatMessage align="start" ref={ref} data-message-type="ai" className="w-full">
+                <ChatMessageContent className="gap-1">
+                    <ChatBubble
+                        variant="ghost"
+                        className={cn(
+                            message.status === 'error' && '[&_[data-slot=bubble-content]]:border-destructive-foreground'
+                        )}
+                    >
+                        <ChatBubbleContent>
+                            <QuillAssistantMarkdown content={message.content || ''} id={message.id || 'in-progress'} />
+                        </ChatBubbleContent>
+                    </ChatBubble>
+                    {action}
+                </ChatMessageContent>
+            </ChatMessage>
+        )
+    }
+
     return (
         <MessageTemplate
             type="ai"
@@ -931,8 +1079,27 @@ interface AssistantMessageFormProps {
 
 function AssistantMessageForm({ form, linksOnly }: AssistantMessageFormProps): JSX.Element {
     const { askMax } = useActions(maxThreadLogic)
+    const quill = useQuillThread()
 
     const options = linksOnly ? form.options.filter((option) => option.href) : form.options
+
+    if (quill) {
+        return (
+            <div className="flex flex-wrap gap-1.5">
+                {options.map((option) => (
+                    <Button
+                        key={option.value}
+                        size="sm"
+                        variant={option.variant === 'primary' ? 'primary' : 'outline'}
+                        onClick={!option.href ? () => askMax(option.value) : undefined}
+                        render={option.href ? <LinkPrimitive to={option.href} target="_blank" /> : undefined}
+                    >
+                        {option.value}
+                    </Button>
+                ))}
+            </div>
+        )
+    }
 
     return (
         // ml-1 is because buttons have radius of 0.375rem, while messages of 0.65rem, where diff = 0.25rem
@@ -963,8 +1130,15 @@ interface PlanningAnswerProps {
     isLastPlanningMessage?: boolean
 }
 
+const PLAN_STEP_STATUS: Record<string, 'pending' | 'active' | 'done' | 'failed'> = {
+    completed: 'done',
+    in_progress: 'active',
+    failed: 'failed',
+}
+
 function PlanningAnswer({ toolCall, isLastPlanningMessage = true }: PlanningAnswerProps): JSX.Element {
     const [isExpanded, setIsExpanded] = useState(isLastPlanningMessage)
+    const quill = useQuillThread()
 
     useLayoutEffect(() => {
         setIsExpanded(isLastPlanningMessage)
@@ -988,6 +1162,34 @@ function PlanningAnswer({ toolCall, isLastPlanningMessage = true }: PlanningAnsw
     const completedCount = steps.filter((step) => step.status === 'completed').length
     const totalCount = steps.length
     const hasMultipleSteps = steps.length > 1
+
+    if (quill) {
+        return (
+            <ChatTaskList
+                value={completedCount}
+                total={totalCount}
+                open={isExpanded}
+                onOpenChange={setIsExpanded}
+                className="opacity-80"
+            >
+                <ChatTaskListTrigger
+                    disabled={!hasMultipleSteps}
+                    aria-label={isExpanded ? 'Collapse plan' : 'Expand plan'}
+                >
+                    <ChatTaskListProgress />
+                    <ChatTaskListLabel>Planning</ChatTaskListLabel>
+                    <ChatTaskListCount />
+                </ChatTaskListTrigger>
+                <ChatTaskListContent>
+                    {steps.map((step, index) => (
+                        <ChatTask key={index} status={PLAN_STEP_STATUS[step.status] ?? 'pending'}>
+                            {step.description}
+                        </ChatTask>
+                    ))}
+                </ChatTaskListContent>
+            </ChatTaskList>
+        )
+    }
 
     return (
         <div className="flex flex-col text-xs">
@@ -1170,6 +1372,7 @@ interface MultiVisualizationAnswerProps {
 
 export function MultiVisualizationAnswer({ message, className }: MultiVisualizationAnswerProps): JSX.Element | null {
     const { visualizations } = message
+    const quill = useQuillThread()
     const insights = useMemo(() => {
         return visualizations
             .map((visualization, index) => {
@@ -1229,6 +1432,31 @@ export function MultiVisualizationAnswer({ message, className }: MultiVisualizat
                     </div>
                 ))}
             </div>
+        )
+    }
+
+    if (quill) {
+        return (
+            <Card size="sm" className={cn('w-full max-w-full', className)}>
+                <CardHeader className="flex flex-row items-center justify-between gap-2">
+                    <CardTitle>{pluralize(visualizations.length, 'insight')} analyzed</CardTitle>
+                    {visualizations.length > 1 && (
+                        <Button variant="outline" size="sm" onClick={openModal} tooltip="View all insights in detail">
+                            <IconExpand />
+                            Expand
+                        </Button>
+                    )}
+                </CardHeader>
+                <CardContent className="flex flex-col gap-2">
+                    {/* The charts keep PostHog's own colours inside the quill card. */}
+                    <div data-not-quill className="min-w-0">
+                        {renderMosaic()}
+                    </div>
+                    {message.commentary && (
+                        <QuillAssistantMarkdown content={message.commentary} id="multi-viz-commentary" />
+                    )}
+                </CardContent>
+            </Card>
         )
     }
 
@@ -1317,6 +1545,18 @@ function MultiVisualizationModal({ insights: messages }: MultiVisualizationModal
 
 function RetriableFailureActions(): JSX.Element {
     const { retryLastMessage } = useActions(maxThreadLogic)
+    const quill = useQuillThread()
+
+    if (quill) {
+        return (
+            <div>
+                <Button variant="outline" size="sm" onClick={() => retryLastMessage()}>
+                    <IconRefresh />
+                    Try again
+                </Button>
+            </div>
+        )
+    }
 
     return (
         <LemonButton
@@ -1332,19 +1572,30 @@ function RetriableFailureActions(): JSX.Element {
     )
 }
 
-function SuccessActions({
-    retriable,
-    hideRatingAndRetry,
-    content,
-}: {
+interface SuccessActionsProps {
     retriable: boolean
     hideRatingAndRetry?: boolean
     content?: string | null
-}): JSX.Element {
+}
+
+/**
+ * The rating and free-text feedback of one LangGraph answer, keyed by its trace. Both skins of
+ * `SuccessActions` read it, so the `$ai_metric` and `$ai_feedback` events stay the same whichever is on.
+ */
+function useAnswerRating(): {
+    traceId: string | null
+    rating: MessageRatingOrNull
+    submitRating: (newRating: 'good' | 'bad') => void
+    feedback: string
+    setFeedback: (feedback: string) => void
+    feedbackInputStatus: 'hidden' | 'pending' | 'submitted'
+    closeFeedback: () => void
+    submitFeedback: () => void
+    traceUrl: string | null
+} {
     const { traceId: logicTraceId } = useValues(maxThreadLogic)
     const { ratingForKey } = useValues(messageRatingsLogic)
     const { setRating } = useActions(messageRatingsLogic)
-    const { retryLastMessage } = useActions(maxThreadLogic)
     const { user } = useValues(userLogic)
     const { isDev, preflight } = useValues(preflightLogic)
     const contextTraceId = useTraceId()
@@ -1374,6 +1625,130 @@ function SuccessActions({
         posthog.captureTraceFeedback(traceId, feedback)
         setFeedbackInputStatus('submitted')
     }
+
+    const traceUrl =
+        (user?.is_staff || isDev) && traceId
+            ? `${preflight?.region === Region.EU ? 'https://us.posthog.com/project/2' : ''}${urls.aiObservabilityTrace(traceId)}`
+            : null
+
+    return {
+        traceId,
+        rating,
+        submitRating,
+        feedback,
+        setFeedback,
+        feedbackInputStatus,
+        closeFeedback: () => setFeedbackInputStatus('hidden'),
+        submitFeedback,
+        traceUrl,
+    }
+}
+
+function SuccessActions(props: SuccessActionsProps): JSX.Element {
+    return useQuillThread() ? <QuillSuccessActions {...props} /> : <LemonSuccessActions {...props} />
+}
+
+/** The quill answer footer: the same affordances as the lemon row, drawn like a sandbox turn's footer. */
+function QuillSuccessActions({ retriable, hideRatingAndRetry, content }: SuccessActionsProps): JSX.Element {
+    const { retryLastMessage } = useActions(maxThreadLogic)
+    const {
+        rating,
+        submitRating,
+        feedback,
+        setFeedback,
+        feedbackInputStatus,
+        closeFeedback,
+        submitFeedback,
+        traceUrl,
+    } = useAnswerRating()
+
+    return (
+        <div className="flex flex-col gap-2">
+            <ChatMessageFooter className="min-h-5 items-center gap-1 ps-0">
+                {content && <QuillCopyButton value={stripMarkdown(content)} label="Copy answer" />}
+                {!hideRatingAndRetry && rating !== 'bad' && (
+                    <QuillFooterButton label="Good answer" onClick={() => submitRating('good')}>
+                        {rating === 'good' ? <IconThumbsUpFilled /> : <IconThumbsUp />}
+                    </QuillFooterButton>
+                )}
+                {!hideRatingAndRetry && rating !== 'good' && (
+                    <QuillFooterButton label="Bad answer" onClick={() => submitRating('bad')}>
+                        {rating === 'bad' ? <IconThumbsDownFilled /> : <IconThumbsDown />}
+                    </QuillFooterButton>
+                )}
+                {!hideRatingAndRetry && retriable && (
+                    <QuillFooterButton label="Try again" onClick={() => retryLastMessage()}>
+                        <IconRefresh />
+                    </QuillFooterButton>
+                )}
+                {traceUrl && (
+                    <Button
+                        variant="default"
+                        size="icon-xs"
+                        aria-label="View trace in AI observability"
+                        tooltip="View trace in AI observability"
+                        className="text-muted-foreground hover:text-foreground"
+                        render={<LinkPrimitive to={traceUrl} />}
+                    >
+                        <IconEye />
+                    </Button>
+                )}
+            </ChatMessageFooter>
+            {!hideRatingAndRetry && feedbackInputStatus !== 'hidden' && (
+                <div className="flex max-w-4/5 flex-col gap-2 rounded-lg border border-border p-3">
+                    <div className="flex items-center gap-1">
+                        <Text size="sm" weight="medium" className="grow">
+                            {feedbackInputStatus === 'pending'
+                                ? 'What disappointed you about the answer?'
+                                : 'Thank you for your feedback!'}
+                        </Text>
+                        <QuillFooterButton label="Close" onClick={closeFeedback}>
+                            <IconX />
+                        </QuillFooterButton>
+                    </div>
+                    {feedbackInputStatus === 'pending' && (
+                        <form
+                            className="flex items-center gap-1.5"
+                            onSubmit={(event) => {
+                                event.preventDefault()
+                                submitFeedback()
+                            }}
+                        >
+                            <Input
+                                aria-label="What disappointed you about the answer?"
+                                placeholder="Help us improve PostHog AI…"
+                                value={feedback}
+                                onChange={(event) => setFeedback(event.target.value)}
+                                autoFocus
+                            />
+                            <Button
+                                type="submit"
+                                variant="primary"
+                                disabledReason={!feedback ? 'Please type a few words!' : undefined}
+                            >
+                                Submit
+                            </Button>
+                        </form>
+                    )}
+                </div>
+            )}
+        </div>
+    )
+}
+
+function LemonSuccessActions({ retriable, hideRatingAndRetry, content }: SuccessActionsProps): JSX.Element {
+    const { retryLastMessage } = useActions(maxThreadLogic)
+    const {
+        traceId,
+        rating,
+        submitRating,
+        feedback,
+        setFeedback,
+        feedbackInputStatus,
+        closeFeedback,
+        submitFeedback,
+        traceUrl,
+    } = useAnswerRating()
 
     return (
         <>
@@ -1414,9 +1789,9 @@ function SuccessActions({
                         onClick={() => retryLastMessage()}
                     />
                 )}
-                {(user?.is_staff || isDev) && traceId && (
+                {traceUrl && traceId && (
                     <LemonButton
-                        to={`${preflight?.region === Region.EU ? 'https://us.posthog.com/project/2' : ''}${urls.aiObservabilityTrace(traceId)}`}
+                        to={traceUrl}
                         icon={<IconEye />}
                         type="tertiary"
                         size="xsmall"
@@ -1432,14 +1807,7 @@ function SuccessActions({
                                 ? 'What disappointed you about the answer?'
                                 : 'Thank you for your feedback!'}
                         </h4>
-                        <LemonButton
-                            icon={<IconX />}
-                            type="tertiary"
-                            size="xsmall"
-                            onClick={() => {
-                                setFeedbackInputStatus('hidden')
-                            }}
-                        />
+                        <LemonButton icon={<IconX />} type="tertiary" size="xsmall" onClick={closeFeedback} />
                     </div>
                     {feedbackInputStatus === 'pending' && (
                         <div className="flex w-full gap-1.5 items-center mt-1.5">
