@@ -377,12 +377,14 @@ function unambiguousPersonCandidates(
 
 /**
  * A group property follows its set's group type, so a retarget moves it with the set. That holds only
- * for a property on the group type its source aggregates on. Older flags can hold a group property on
- * another group type, a shape the API now rejects on write. The evaluator reads the property's own
- * group type, so moving such a property would change which group the filter reads. The property
- * therefore keeps the index that the agent sends or the source holds, and the API rejects the write.
- * When the source holds the key on more than one group type and the agent sends no index, the index
- * stays unset, so the API rejects the write as well.
+ * for a property on the group type its source aggregates on, and for a property with no index, because
+ * the evaluator reads that property on its set's group type. A person-aggregated source aggregates on
+ * no group type, so each of its group properties sits on another group type. Older flags can also hold
+ * such a property in a group-aggregated source. The evaluator reads the property's own group type, so
+ * moving such a property would change which group the filter reads. The property therefore keeps the
+ * index that the agent sends or the source holds, and the API reports the mismatch when that index
+ * differs from its set's. When the source holds the key on more than one group type and the agent
+ * sends no index, this returns undefined, and the property stays as the agent sent it.
  */
 function groupTypeIndexFor(
     prop: FlagProperty,
@@ -390,18 +392,20 @@ function groupTypeIndexFor(
     sourceAggregation: number | null | undefined,
     setGroupTypeIndex: number
 ): number | undefined {
-    if (!isPresentGroupIndex(sourceAggregation)) {
+    if (sourceAggregation === undefined) {
         return setGroupTypeIndex
     }
+    const otherGroupType = (index: number | null | undefined): number | undefined =>
+        isPresentGroupIndex(index) && index !== sourceAggregation ? index : undefined
     if (isPresentGroupIndex(prop.group_type_index)) {
-        return prop.group_type_index === sourceAggregation ? setGroupTypeIndex : prop.group_type_index
+        return otherGroupType(prop.group_type_index) ?? setGroupTypeIndex
     }
     const storedGroupFilters = usableCandidates(candidates, (type) => type === 'group')
-    if (storedGroupFilters.every((stored) => stored.group_type_index === sourceAggregation)) {
+    if (storedGroupFilters.every((stored) => otherGroupType(stored.group_type_index) === undefined)) {
         return setGroupTypeIndex
     }
-    const stored = pickTyping(storedGroupFilters, prop)?.group_type_index
-    return stored === sourceAggregation ? setGroupTypeIndex : (stored ?? undefined)
+    const typing = pickTyping(storedGroupFilters, prop)
+    return typing ? (otherGroupType(typing.group_type_index) ?? setGroupTypeIndex) : undefined
 }
 
 /** `sourceAggregation` is null for a person-aggregated source and undefined when there is no source. */
@@ -445,9 +449,13 @@ function mergeProperty(
 
     if (out.type === 'group' && isPresentGroupIndex(setGroupTypeIndex)) {
         const groupTypeIndex = groupTypeIndexFor(out, candidates, sourceAggregation, setGroupTypeIndex)
-        if (isPresentGroupIndex(groupTypeIndex)) {
-            out.group_type_index = groupTypeIndex
+        // An unset index on a typed group property saves wherever the API does not enforce the
+        // mismatch rule, and the evaluator then reads it on the set's group type. An untyped
+        // property fails the API's serde guard under every enforcement setting.
+        if (groupTypeIndex === undefined) {
+            return incoming
         }
+        out.group_type_index = groupTypeIndex
     }
 
     return out
@@ -473,14 +481,14 @@ function holdsGroupProperty(propsByKey: Map<string, FlagProperty[]> | undefined,
 
 function explicitGroupPropertyIndex(
     group: FlagConditionGroup,
-    personSetProps: (Map<string, FlagProperty[]> | undefined)[]
+    storedSetProps: (Map<string, FlagProperty[]> | undefined)[]
 ): number | undefined {
     const properties = Array.isArray(group.properties) ? group.properties : []
     const typed = properties.filter(
         (prop): prop is FlagProperty & { group_type_index: number } =>
             prop?.type === 'group' && isPresentGroupIndex(prop.group_type_index)
     )
-    if (personSetProps.some((propsByKey) => typed.every((prop) => holdsGroupProperty(propsByKey, prop)))) {
+    if (storedSetProps.some((propsByKey) => typed.every((prop) => holdsGroupProperty(propsByKey, prop)))) {
         return undefined
     }
     const unique = [...new Set(typed.map((prop) => prop.group_type_index))]
@@ -557,9 +565,15 @@ function typeSetProperties(
             // The set either moved from one of the matched sets or copies its filters in place. Each
             // reading types the property from a different person set. Only a type that every reading
             // gives is safe.
-            const fromSource = mergeProperty(prop, candidates, undefined, setGroupTypeIndex, null)
+            const fromSource = mergeProperty(prop, candidates, undefined, setGroupTypeIndex, sourceSet?.aggregation)
             const allAgree = matchedSets.every((matched) => {
-                const fromMatched = mergeProperty(prop, matched.propsByKey.get(key), undefined, setGroupTypeIndex, null)
+                const fromMatched = mergeProperty(
+                    prop,
+                    matched.propsByKey.get(key),
+                    undefined,
+                    setGroupTypeIndex,
+                    matched.aggregation
+                )
                 return hasSameTypeAndGroupIndex(fromMatched, fromSource)
             })
             return allAgree ? fromSource : prop
