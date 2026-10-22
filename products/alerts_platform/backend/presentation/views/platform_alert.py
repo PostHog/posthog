@@ -232,6 +232,8 @@ class PlatformAlertConfigurationListQuerySerializer(serializers.Serializer):
 # also needs read access to that product. `alert:read` alone must not reveal it.
 SOURCE_KIND_RESOURCE: dict[str, APIScopeObject] = {
     PlatformAlertConfigurationSourceKind.LOGS.value: "logs",
+    PlatformAlertConfigurationSourceKind.WAREHOUSE_SOURCE.value: "external_data_source",
+    PlatformAlertConfigurationSourceKind.WAREHOUSE_DESTINATION.value: "external_data_source",
 }
 
 # Kinds the read API does not serve. An insight copy shows its insight's bound and firing state,
@@ -278,7 +280,8 @@ def _typed_edit_serializer(
     source: SourceKind, spec: SourceConfigSpec
 ) -> type[PlatformAlertConfigurationEditSerializer]:
     """The edit serializer for one source kind, whose `source_config` is described by the source's model."""
-    prefix = source.value.capitalize()
+    # Pascal case, so a kind like `warehouse_source` names its schema component `WarehouseSource...`.
+    prefix = "".join(part.capitalize() for part in source.value.split("_"))
     source_config_field = extend_schema_field(spec.model)(  # type: ignore[arg-type]
         type(f"{prefix}PlatformAlertSourceConfigField", (serializers.JSONField,), {})
     )

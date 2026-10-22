@@ -74059,6 +74059,8 @@ export namespace Schemas {
     /**
      * * `logs` - Logs
      * * `insight` - Insight
+     * * `warehouse_source` - Warehouse source
+     * * `warehouse_destination` - Warehouse destination
      */
     export type PlatformAlertConfigurationSourceKindEnum = typeof PlatformAlertConfigurationSourceKindEnum[keyof typeof PlatformAlertConfigurationSourceKindEnum];
 
@@ -74066,6 +74068,8 @@ export namespace Schemas {
     export const PlatformAlertConfigurationSourceKindEnum = {
       Logs: 'logs',
       Insight: 'insight',
+      WarehouseSource: 'warehouse_source',
+      WarehouseDestination: 'warehouse_destination',
     } as const;
 
     /**
@@ -74146,7 +74150,9 @@ export namespace Schemas {
       /** Product whose data the alert evaluates.
        *
        * * `logs` - Logs
-       * * `insight` - Insight */
+       * * `insight` - Insight
+       * * `warehouse_source` - Warehouse source
+       * * `warehouse_destination` - Warehouse destination */
       readonly source_kind: PlatformAlertConfigurationSourceKindEnum;
       /** Source-specific settings. The shape depends on source_kind. The bound the alert is evaluated against is under the condition key. */
       readonly source_config: PlatformAlertConfigurationSourceConfig;
@@ -90600,7 +90606,10 @@ export namespace Schemas {
       created_at: string | null;
     }
 
-    export type PlatformAlertConfigurationCreate = LogsPlatformAlertConfigurationCreate;
+    /**
+     * Product whose data the alert evaluates. It cannot change after the create.
+     */
+    export type WarehouseDestinationPlatformAlertConfigurationCreateSourceKind = typeof WarehouseDestinationPlatformAlertConfigurationCreateSourceKind[keyof typeof WarehouseDestinationPlatformAlertConfigurationCreateSourceKind];
 
     export type PlatformAlertConfigurationEdit = InsightPlatformAlertConfigurationEdit | LogsPlatformAlertConfigurationEdit;
 
@@ -116908,6 +116917,108 @@ export namespace Schemas {
       readonly period_end: string;
       /** One entry per UTC day from `period_start` through today, in order, zero-filled for days without spend. */
       readonly days: readonly VisionSpendDay[];
+    }
+
+    /**
+     * * `slack` - slack
+     * * `webhook` - webhook
+     * * `teams` - teams
+     * * `discord` - discord
+     * * `pagerduty` - pagerduty
+     */
+    export type WarehouseAlertDestinationTypeEnum = typeof WarehouseAlertDestinationTypeEnum[keyof typeof WarehouseAlertDestinationTypeEnum];
+
+
+    export const WarehouseAlertDestinationTypeEnum = {
+      Slack: 'slack',
+      Webhook: 'webhook',
+      Teams: 'teams',
+      Discord: 'discord',
+      Pagerduty: 'pagerduty',
+    } as const;
+
+    export interface WarehouseAlertCreateDestination {
+      /** Notification destination type.
+       *
+       * * `slack` - slack
+       * * `webhook` - webhook
+       * * `teams` - teams
+       * * `discord` - discord
+       * * `pagerduty` - pagerduty */
+      type: WarehouseAlertDestinationTypeEnum;
+      /** Integration ID for the Slack workspace. Required when type=slack. */
+      slack_workspace_id?: number;
+      /** Slack channel ID. Required when type=slack. */
+      slack_channel_id?: string;
+      /** Human-readable channel name for display. */
+      slack_channel_name?: string;
+      /** HTTPS endpoint to post to. Required for webhook, teams and discord. */
+      webhook_url?: string;
+      /** Integration key of a PagerDuty Events API v2 integration. Required when type=pagerduty. */
+      pagerduty_routing_key?: string;
+      /** Severity PagerDuty records on the incident. Used when type=pagerduty.
+       *
+       * * `critical` - critical
+       * * `error` - error
+       * * `warning` - warning
+       * * `info` - info */
+      pagerduty_severity?: PagerDutySeverityEnum;
+      /** PagerDuty service region of the account. Used when type=pagerduty.
+       *
+       * * `us` - us
+       * * `eu` - eu */
+      pagerduty_region?: PagerDutyRegionEnum;
+    }
+
+    export interface WarehouseAlertDeleteDestination {
+      /**
+         * HogFunction IDs of one destination, as the list endpoint returns them. They are deleted together.
+         * @minItems 1
+         * @maxItems 100
+         */
+      hog_function_ids: string[];
+    }
+
+    export interface WarehouseAlertDestination {
+      /** HogFunction IDs that make up this destination, one per alert event kind it handles. Send them all to the delete endpoint to remove the destination. */
+      hog_function_ids: string[];
+      /** Notification destination type.
+       *
+       * * `slack` - slack
+       * * `webhook` - webhook
+       * * `teams` - teams
+       * * `discord` - discord
+       * * `pagerduty` - pagerduty */
+      type: WarehouseAlertDestinationTypeEnum;
+      /** Whether every HogFunction of the destination is enabled, so it notifies for every event kind. */
+      enabled: boolean;
+      /** Integration ID of the Slack workspace. Set when type=slack. */
+      slack_workspace_id?: number;
+      /** Slack channel ID. Set when type=slack. */
+      slack_channel_id?: string;
+      /** Human-readable Slack channel name. Set when type=slack. */
+      slack_channel_name?: string;
+      /** Webhook endpoint reduced to scheme and host. The path, query and userinfo carry the secret. */
+      webhook_url?: string;
+      /** PagerDuty integration key reduced to its last four characters. */
+      pagerduty_routing_key?: string;
+      /** Severity of the PagerDuty incident.
+       *
+       * * `critical` - critical
+       * * `error` - error
+       * * `warning` - warning
+       * * `info` - info */
+      pagerduty_severity?: PagerDutySeverityEnum;
+      /** PagerDuty service region the events go to.
+       *
+       * * `us` - us
+       * * `eu` - eu */
+      pagerduty_region?: PagerDutyRegionEnum;
+    }
+
+    export interface WarehouseAlertDestinationCreated {
+      /** HogFunction IDs created for the destination, one per event kind. */
+      hog_function_ids: string[];
     }
 
     export interface WarehouseConnection {
