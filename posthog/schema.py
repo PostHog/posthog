@@ -47,6 +47,7 @@ from posthog.schema_enums import (
     AssistantGenericPropertyFilterType as AssistantGenericPropertyFilterType,
     AssistantLifecycleStatus as AssistantLifecycleStatus,
     AssistantMessageType as AssistantMessageType,
+    AssistantMetricsNodeKind as AssistantMetricsNodeKind,
     AssistantNavigateUrl as AssistantNavigateUrl,
     AssistantNumericValuePropertyFilterOperator as AssistantNumericValuePropertyFilterOperator,
     AssistantRetentionDisplayType as AssistantRetentionDisplayType,
@@ -124,6 +125,8 @@ from posthog.schema_enums import (
     ExecutionTarget as ExecutionTarget,
     ExperimentApiBreakdownAttributionType as ExperimentApiBreakdownAttributionType,
     ExperimentApiPropertyBreakdownType as ExperimentApiPropertyBreakdownType,
+    ExperimentExposureHealthCheckKey as ExperimentExposureHealthCheckKey,
+    ExperimentExposureHealthCheckStatus as ExperimentExposureHealthCheckStatus,
     ExperimentExposureHealthFindingActionKind as ExperimentExposureHealthFindingActionKind,
     ExperimentExposureHealthFindingCode as ExperimentExposureHealthFindingCode,
     ExperimentExposureHealthFindingSeverity as ExperimentExposureHealthFindingSeverity,
@@ -1600,26 +1603,6 @@ class ExperimentExposureTimeSeries(BaseModel):
     days: list[str]
     exposure_counts: list[float]
     variant: str
-
-
-class ExperimentMaxBayesianContext(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    chance_to_win: float
-    credible_interval: list[float] = Field(..., max_length=2, min_length=2)
-    key: str
-    significant: bool
-
-
-class ExperimentMaxFrequentistContext(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    confidence_interval: list[float] = Field(..., max_length=2, min_length=2)
-    key: str
-    p_value: float
-    significant: bool
 
 
 class ExperimentMetricOutlierHandling(BaseModel):
@@ -3855,7 +3838,7 @@ class AssistantBIVisualizationNode(BaseModel):
 
 
 class AssistantBareInsightQuery(BaseModel):
-    kind: InsightNodeKind
+    kind: InsightNodeKind | AssistantMetricsNodeKind
 
 
 class AssistantBreakdownFilter(BaseModel):
@@ -5377,6 +5360,14 @@ class CohortPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    cohort_deleted: bool | None = Field(
+        default=None,
+        description=("Set by the feature flag API when the cohort is deleted or does not exist."),
+    )
+    cohort_missing: bool | None = Field(
+        default=None,
+        description=("Set by the feature flag API when the cohort does not exist, so it cannot be restored."),
+    )
     cohort_name: str | None = None
     key: Literal["id"] = "id"
     label: str | None = None
@@ -5808,6 +5799,30 @@ class ExperimentApiRetentionStart(BaseModel):
     )
 
 
+class ExperimentExposureHealthCheck(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: ExperimentExposureHealthCheckKey = Field(..., description="Stable identifier of the check.")
+    name: str = Field(..., description="What the check looks at, as the health panel lists it.")
+    reason: str | None = Field(
+        ...,
+        description=(
+            "Why the check did not look, for the statuses not_applicable and"
+            " not_checked, for example 'Runs after launch'. Null for passed and"
+            " finding."
+        ),
+    )
+    status: ExperimentExposureHealthCheckStatus = Field(
+        ...,
+        description=(
+            "passed: no problem found. finding: a finding in `health_findings`."
+            " not_applicable: the check doesn't cover the experiment's state."
+            " not_checked: an input was missing or the check failed."
+        ),
+    )
+
+
 class ExperimentExposureHealthFinding(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5855,6 +5870,12 @@ class ExperimentExposureQueryResponse(BaseModel):
     )
     bias_risk: BiasRisk | None = None
     date_range: DateRange
+    health_checks: list[ExperimentExposureHealthCheck] | None = Field(
+        default=None,
+        description=(
+            "The result of each check behind `health_findings`, so that a check that did not run is not read as passed."
+        ),
+    )
     health_findings: list[ExperimentExposureHealthFinding] | None = Field(
         default=None,
         description=(
@@ -7505,6 +7526,12 @@ class QueryResponseAlternative19(BaseModel):
     )
     bias_risk: BiasRisk | None = None
     date_range: DateRange
+    health_checks: list[ExperimentExposureHealthCheck] | None = Field(
+        default=None,
+        description=(
+            "The result of each check behind `health_findings`, so that a check that did not run is not read as passed."
+        ),
+    )
     health_findings: list[ExperimentExposureHealthFinding] | None = Field(
         default=None,
         description=(
@@ -7651,7 +7678,8 @@ class QueryStatus(BaseModel):
         default=None,
         description=(
             "Stable machine-readable code for the error, when known: the DRF exception"
-            " code, or the ClickHouse error name."
+            " code, the ClickHouse error name, the HogQL error code, or"
+            " `unhandled_<exception class>` for a failure that no handler classified."
         ),
     )
     error_message: str | None = None
@@ -12603,6 +12631,12 @@ class CachedExperimentExposureQueryResponse(BaseModel):
         description=("What triggered the calculation of the query, leave empty if user/immediate"),
     )
     date_range: DateRange
+    health_checks: list[ExperimentExposureHealthCheck] | None = Field(
+        default=None,
+        description=(
+            "The result of each check behind `health_findings`, so that a check that did not run is not read as passed."
+        ),
+    )
     health_findings: list[ExperimentExposureHealthFinding] | None = Field(
         default=None,
         description=(
@@ -20487,7 +20521,6 @@ class MaxBillingContext(BaseModel):
     billing_period: MaxBillingContextBillingPeriod | None = None
     billing_plan: str | None = None
     has_active_subscription: bool
-    is_deactivated: bool | None = None
     products: list[MaxProductInfo]
     projected_total_amount_usd: str | None = None
     projected_total_amount_usd_after_discount: str | None = None
@@ -26393,6 +26426,18 @@ class WebVitalsQueryResponse(BaseModel):
     )
 
 
+class AccountUsersQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    accountId: str = Field(..., description="ID of the account whose users to list.")
+    kind: Literal["AccountUsersQuery"] = "AccountUsersQuery"
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    response: ActorsQueryResponse | None = None
+    tags: QueryLogTags | None = None
+    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+
+
 class AccountsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -29208,7 +29253,15 @@ class MetricsHistogramQuery(BaseModel):
         description=("Defaults to the last 24 hours when omitted; dashboard date filters override it"),
     )
     filters: list[MetricsQueryFilter] | None = None
-    interval: str | None = Field(default=None, description="Bucket size; auto-picked from the range when omitted")
+    interval: str | None = Field(
+        default=None,
+        description=(
+            "Bucket size; auto-picked from the range when omitted. A dashboard variable"
+            " reference such as `$window` pins the interval to its single duration"
+            " value (15s, 30s, 1m, 5m, 15m, 30m, 1h, 6h, 1d, 1w). Variable intervals"
+            " that exceed 500 buckets require a larger value or shorter date range."
+        ),
+    )
     kind: Literal["MetricsHistogramQuery"] = "MetricsHistogramQuery"
     metricName: str
     metricType: MetricsOtelType | None = Field(
@@ -29228,7 +29281,7 @@ class MetricsHistogramQuery(BaseModel):
     )
     variables: dict[str, MetricsVariableValue] | None = Field(
         default=None,
-        description=("Values of the dashboard variables that the filters refer to as `$name`."),
+        description=("Values of the dashboard variables that the filters or interval refer to as `$name`."),
     )
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
@@ -29255,7 +29308,12 @@ class MetricsQuery(BaseModel):
         description=(
             "Bucket size, one of: second_15, second_30, minute, minute_5, minute_15,"
             " minute_30, hour, hour_6, day, week; auto-picked from the range when"
-            " omitted. Coarsened when the range would need more than 10,000 buckets."
+            " omitted. Fixed intervals are coarsened above 500 buckets. A dashboard"
+            " variable reference such as `$window` pins the interval to its single"
+            " duration value (15s, 30s, 1m, 5m, 15m, 30m, 1h, 6h, 1d, 1w). Variable"
+            " intervals that exceed 500 buckets require a larger value or shorter date"
+            " range, so the step stays consistent with PromQL lookbacks using that"
+            " variable."
         ),
     )
     kind: Literal["MetricsQuery"] = "MetricsQuery"
@@ -29280,7 +29338,9 @@ class MetricsQuery(BaseModel):
     tags: QueryLogTags | None = None
     variables: dict[str, MetricsVariableValue] | None = Field(
         default=None,
-        description=("Values of the dashboard variables that the PromQL, SQL or filters refer to as `$name`."),
+        description=(
+            "Values of the dashboard variables that the PromQL, SQL, filters or interval refer to as `$name`."
+        ),
     )
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
@@ -32005,6 +32065,10 @@ class DatabaseSchemaQuery(BaseModel):
         default=None,
         description="Optional direct external data source id for schema introspection",
     )
+    executionTarget: ExecutionTarget | None = Field(
+        default=None,
+        description=("Select the native managed Trino catalog instead of the default PostHog catalog."),
+    )
     includeFields: bool | None = Field(
         default=None,
         description=("When false, skip serializing each table's fields (`fields` comes back empty). Defaults to true."),
@@ -33022,6 +33086,7 @@ class ActorsQuery(BaseModel):
         | ExperimentActorsQuery
         | StickinessActorsQuery
         | PathsV2ActorsQuery
+        | AccountUsersQuery
         | HogQLQuery
         | None
     ) = None

@@ -750,14 +750,13 @@ class TestInsightDataChecks(ClickhouseTestMixin, APIBaseTest):
     @parameterized.expand(
         [
             ("unknown_event", [{"kind": "EventsNode", "event": "never sent"}], 1_000_000_000, "no_events"),
-            ("action_series", [{"kind": "ActionsNode", "id": 1}], 1_000_000_000, "unsupported"),
             ("read_limit_reached_while_sizing", ONE_STEP, 1, "inconclusive"),
         ]
     )
     def test_reports_why_nothing_was_checked(
-        self, _name: str, series: list[dict[str, Any]], max_bytes_read_per_shard: int, expected: str
+        self, _name: str, series: list[dict[str, Any]], max_bytes_read: int, expected: str
     ) -> None:
-        with patch(f"{CHECKS_MODULE}.MAX_BYTES_READ_PER_SHARD", max_bytes_read_per_shard):
+        with patch(f"{CHECKS_MODULE}.MAX_BYTES_READ", max_bytes_read):
             result = self._check(self._query(series))
 
         assert result.status == expected

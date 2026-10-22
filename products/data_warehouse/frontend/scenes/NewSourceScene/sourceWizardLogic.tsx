@@ -2505,6 +2505,8 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                             schema.sync_type = 'cdc'
                         } else if (schema.supports_webhooks) {
                             schema.sync_type = 'webhook'
+                        } else if (schema.prefers_full_refresh) {
+                            schema.sync_type = 'full_refresh'
                         } else if (schema.incremental_available && !hasIncrementalMergeKey(schema)) {
                             schema.sync_type = 'full_refresh'
                         } else if (schema.incremental_available || schema.append_available) {

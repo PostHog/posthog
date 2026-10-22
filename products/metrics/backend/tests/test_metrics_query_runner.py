@@ -44,7 +44,8 @@ class TestMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def _runner(self, query: MetricsQuery) -> MetricsQueryRunner:
         return MetricsQueryRunner(query=query, team=self.team)
 
-    def test_translates_schema_node_to_facade_request(self) -> None:
+    @parameterized.expand([("fixed", "minute"), ("dashboard_variable", "$window")])
+    def test_translates_schema_node_to_facade_request(self, _name: str, interval: str) -> None:
         query = MetricsQuery(
             clauses=[
                 MetricsQueryClause(
@@ -58,11 +59,21 @@ class TestMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 )
             ],
             dateRange=DateRange(date_from="2026-09-19T00:00:00Z", date_to="2026-09-19T01:00:00Z"),
-            interval="minute",
+            interval=interval,
             formula=None,
         )
 
-        request = self._runner(query)._to_request()
+        runner = self._runner(query)
+        runner.apply_dashboard_filters(
+            DashboardFilter(
+                metricVariables=[
+                    MetricsDashboardVariable(
+                        name="window", source="custom", current=MetricsDashboardVariableSelection(values=["1m"])
+                    )
+                ]
+            )
+        )
+        request = runner._to_request()
 
         clause = request.clauses[0]
         assert clause.metric_name == "http_requests_total"
@@ -218,23 +229,32 @@ class TestMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 assert expected_message in response.json()["detail"]
             build_runner.assert_not_called()
 
-    def test_insight_saves_with_metrics_query(self) -> None:
+    @parameterized.expand([("web", {}), ("mcp", {"X-PostHog-Client": "mcp"})])
+    def test_insight_saves_with_metrics_query(self, _name: str, client_headers: dict[str, str]) -> None:
+        query = {
+            "kind": "MetricsQuery",
+            "clauses": [{"name": "a", "metricName": "queue_depth", "aggregation": "sum"}],
+            "dateRange": {"date_from": "-24h"},
+        }
         response = self.client.post(
             f"/api/projects/{self.team.pk}/insights/",
-            {
-                "name": "queue depth",
-                "saved": True,
-                "query": {
-                    "kind": "MetricsQuery",
-                    "clauses": [{"name": "a", "metricName": "queue_depth", "aggregation": "sum"}],
-                    "dateRange": {"date_from": "-24h"},
-                },
-            },
+            {"name": "queue depth", "saved": True, "query": query},
             format="json",
+            headers=client_headers,
         )
 
         assert response.status_code == 201, response.json()
         assert response.json()["query"]["kind"] == "MetricsQuery"
+
+        update_response = self.client.patch(
+            f"/api/projects/{self.team.pk}/insights/{response.json()['id']}/",
+            {"query": query},
+            format="json",
+            headers=client_headers,
+        )
+
+        assert update_response.status_code == 200, update_response.json()
+        assert update_response.json()["query"] == response.json()["query"]
 
     def test_validate_query_runner_access_granted(self) -> None:
         query = MetricsQuery(clauses=[MetricsQueryClause(name="a", metricName="queue_depth", aggregation="sum")])

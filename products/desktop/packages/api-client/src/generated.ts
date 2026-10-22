@@ -368,6 +368,52 @@ export namespace Schemas {
         table_name: string;
         type?: string | undefined;
     };
+    export type ActorsQueryResponse = {
+        columns: Array<unknown>;
+        error?: (string | null) | undefined;
+        hasMore?: (boolean | null) | undefined;
+        /**
+         * Generated HogQL query.
+         */
+        hogql: string;
+        limit: number;
+        missing_actors_count?: (number | null) | undefined;
+        modifiers?: (HogQLQueryModifiers | null) | undefined;
+        offset: number;
+        query_status?: (QueryStatus | null) | undefined;
+        resolved_compare_date_range?:
+            | (ResolvedDateRangeResponse | null)
+            | undefined;
+        resolved_date_range?: (ResolvedDateRangeResponse | null) | undefined;
+        results: Array<Array<unknown>>;
+        timings?: (Array<QueryTiming> | null) | undefined;
+        types?: (Array<string> | null) | undefined;
+        used_data_warehouse_sources?:
+            | (Array<DataWarehouseSourceUsage> | null)
+            | undefined;
+        warnings?:
+            | (Array<
+                  DataWarehouseSyncWarning | AccessControlFilterWarning
+              > | null)
+            | undefined;
+    };
+    export type QueryLogTags = Partial<{
+        name: string | null;
+        presetId: string | null;
+        productKey: string | null;
+        scene: string | null;
+    }>;
+    export type AccountUsersQuery = {
+        /**
+         * ID of the account whose users to list.
+         */
+        accountId: string;
+        kind?: string | undefined;
+        modifiers?: (HogQLQueryModifiers | null) | undefined;
+        response?: (ActorsQueryResponse | null) | undefined;
+        tags?: (QueryLogTags | null) | undefined;
+        version?: (number | null) | undefined;
+    };
     export type AccountsQueryResponse = {
         columns: Array<unknown>;
         error?: (string | null) | undefined;
@@ -398,12 +444,6 @@ export namespace Schemas {
               > | null)
             | undefined;
     };
-    export type QueryLogTags = Partial<{
-        name: string | null;
-        presetId: string | null;
-        productKey: string | null;
-        scene: string | null;
-    }>;
     export type AccountsQuery = Partial<{
         allRolesUnassigned: boolean | null;
         assignedOnly: boolean | null;
@@ -852,6 +892,8 @@ export namespace Schemas {
             | undefined;
     };
     export type CohortPropertyFilter = {
+        cohort_deleted?: (boolean | null) | undefined;
+        cohort_missing?: (boolean | null) | undefined;
         cohort_name?: (string | null) | undefined;
         key?: string | undefined;
         label?: (string | null) | undefined;
@@ -1728,35 +1770,6 @@ export namespace Schemas {
             | WorkflowVariablePropertyFilter
             | BehavioralPropertyFilter
         >;
-    };
-    export type ActorsQueryResponse = {
-        columns: Array<unknown>;
-        error?: (string | null) | undefined;
-        hasMore?: (boolean | null) | undefined;
-        /**
-         * Generated HogQL query.
-         */
-        hogql: string;
-        limit: number;
-        missing_actors_count?: (number | null) | undefined;
-        modifiers?: (HogQLQueryModifiers | null) | undefined;
-        offset: number;
-        query_status?: (QueryStatus | null) | undefined;
-        resolved_compare_date_range?:
-            | (ResolvedDateRangeResponse | null)
-            | undefined;
-        resolved_date_range?: (ResolvedDateRangeResponse | null) | undefined;
-        results: Array<Array<unknown>>;
-        timings?: (Array<QueryTiming> | null) | undefined;
-        types?: (Array<string> | null) | undefined;
-        used_data_warehouse_sources?:
-            | (Array<DataWarehouseSourceUsage> | null)
-            | undefined;
-        warnings?:
-            | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
-              > | null)
-            | undefined;
     };
     export type Compare = "current" | "previous";
     export type BreakdownType =
@@ -4343,6 +4356,7 @@ export namespace Schemas {
             | ExperimentActorsQuery
             | StickinessActorsQuery
             | PathsV2ActorsQuery
+            | AccountUsersQuery
             | HogQLQuery
             | null;
         tags: QueryLogTags | null;
@@ -6380,18 +6394,18 @@ export namespace Schemas {
      */
     export type DashboardTileBadgeEnum = "winner" | "cheeky-hog";
     /**
-     * * `activity_events_list` - activity_events_list
-     * * `canvas_app` - canvas_app
-     * * `conversations_recent_tickets` - conversations_recent_tickets
-     * * `error_tracking_list` - error_tracking_list
-     * * `experiment_results` - experiment_results
-     * * `experiments_list` - experiments_list
-     * * `logs_list` - logs_list
-     * * `notebook_widget` - notebook_widget
-     * * `session_replay_list` - session_replay_list
-     * * `survey_results` - survey_results
+     * * `activity_events_list` - Activity Events List
+     * * `canvas_app` - Canvas App
+     * * `conversations_recent_tickets` - Conversations Recent Tickets
+     * * `error_tracking_list` - Error Tracking List
+     * * `experiment_results` - Experiment Results
+     * * `experiments_list` - Experiments List
+     * * `logs_list` - Logs List
+     * * `notebook_widget` - Notebook Widget
+     * * `session_replay_list` - Session Replay List
+     * * `survey_results` - Survey Results
      */
-    export type DashboardPatchWidgetOpenApiWidgetTypeEnum =
+    export type DashboardWidgetTypeEnum =
         | "activity_events_list"
         | "canvas_app"
         | "conversations_recent_tickets"
@@ -6550,7 +6564,7 @@ export namespace Schemas {
         | CanvasAppWidgetConfig;
     export type DashboardPatchWidgetOpenApi = Partial<{
         id: string;
-        widget_type: DashboardPatchWidgetOpenApiWidgetTypeEnum;
+        widget_type: DashboardWidgetTypeEnum;
         config: DashboardWidgetConfig;
         name: string | null;
         description: string;
@@ -8728,6 +8742,12 @@ export namespace Schemas {
      * * `opt_in` - Opt In
      */
     export type EmailTrackingConsentModeEnum = "off" | "opt_out" | "opt_in";
+    export type EmailUtmParams = Partial<{
+        utm_source: string;
+        utm_medium: string;
+        utm_campaign: string;
+        utm_content: string;
+    }>;
     export type EngineEnum =
         | "duckdb"
         | "postgres"
@@ -9048,6 +9068,10 @@ export namespace Schemas {
                    * Boolean output only. Omit for numeric, categorical, and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail.
                    */
                   true_is_failure: boolean;
+                  /**
+                   * Boolean decision-model judges only. Minimum probability of true required for a true result, inclusive. Omit or set null to use 0.5. Applies to new runs; historical results are unchanged.
+                   */
+                  decision_threshold: number | null;
                   /**
                    * Inclusive minimum numeric score. Omit for no lower bound. Required for numeric decision models.
                    */
@@ -9444,6 +9468,8 @@ export namespace Schemas {
          * Cohort comparison value (single or list, depending on usage).
          */
         value: unknown;
+        cohort_deleted?: boolean | undefined;
+        cohort_missing?: boolean | undefined;
     };
     /**
      * * `flag` - flag
@@ -9727,6 +9753,8 @@ export namespace Schemas {
      * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
      * * `multiple_variants_share` - Multiple Variants Share
      * * `no_metric` - No Metric
+     * * `metric_event_not_ingested` - Metric Event Not Ingested
+     * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
      * * `srm` - Sample Ratio Mismatch
      * * `zero_exposures` - Zero Exposures
      * * `forced_variant_release_condition` - Forced Variant Release Condition
@@ -9734,6 +9762,7 @@ export namespace Schemas {
      * * `split_changed_mid_run` - Split Changed Mid Run
      * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
      * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
+     * * `new_flag_no_traffic` - New Flag No Traffic
      */
     export type ExperimentHealthFindingCodeEnum =
         | "flag_off_while_running"
@@ -9743,13 +9772,16 @@ export namespace Schemas {
         | "bias_risk_multiple_excluded"
         | "multiple_variants_share"
         | "no_metric"
+        | "metric_event_not_ingested"
+        | "exposure_criteria_cannot_match"
         | "srm"
         | "zero_exposures"
         | "forced_variant_release_condition"
         | "flag_variants_mismatch"
         | "split_changed_mid_run"
         | "bucketing_changed_mid_run"
-        | "release_conditions_changed_mid_run";
+        | "release_conditions_changed_mid_run"
+        | "new_flag_no_traffic";
     /**
      * * `critical` - Critical severity
      * * `warning` - Warning severity
@@ -9789,6 +9821,8 @@ export namespace Schemas {
          * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
          * * `multiple_variants_share` - Multiple Variants Share
          * * `no_metric` - No Metric
+         * * `metric_event_not_ingested` - Metric Event Not Ingested
+         * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
          * * `srm` - Sample Ratio Mismatch
          * * `zero_exposures` - Zero Exposures
          * * `forced_variant_release_condition` - Forced Variant Release Condition
@@ -9796,6 +9830,7 @@ export namespace Schemas {
          * * `split_changed_mid_run` - Split Changed Mid Run
          * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
          * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
+         * * `new_flag_no_traffic` - New Flag No Traffic
          */
         code: ExperimentHealthFindingCodeEnum;
         /**
@@ -9831,11 +9866,98 @@ export namespace Schemas {
          */
         diagnostic_ref: string | null;
     };
+    /**
+     * * `flag_state` - Flag State
+     * * `flag_history` - Flag History
+     * * `split_changed_mid_run` - Split Changed Mid Run
+     * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
+     * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
+     * * `flag_variants_mismatch` - Flag Variants Mismatch
+     * * `forced_variant_release_condition` - Forced Variant Release Condition
+     * * `new_flag_no_traffic` - New Flag No Traffic
+     * * `no_metric` - No Metric
+     * * `metric_event_not_ingested` - Metric Event Not Ingested
+     * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
+     * * `zero_exposures` - Zero Exposures
+     * * `srm` - Srm
+     * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
+     * * `multiple_variants_share` - Multiple Variants Share
+     */
+    export type ExperimentHealthCheckKeyEnum =
+        | "flag_state"
+        | "flag_history"
+        | "split_changed_mid_run"
+        | "bucketing_changed_mid_run"
+        | "release_conditions_changed_mid_run"
+        | "flag_variants_mismatch"
+        | "forced_variant_release_condition"
+        | "new_flag_no_traffic"
+        | "no_metric"
+        | "metric_event_not_ingested"
+        | "exposure_criteria_cannot_match"
+        | "zero_exposures"
+        | "srm"
+        | "bias_risk_multiple_excluded"
+        | "multiple_variants_share";
+    /**
+     * * `passed` - Passed
+     * * `finding` - Finding
+     * * `not_applicable` - Not Applicable
+     * * `not_checked` - Not Checked
+     */
+    export type ExperimentHealthCheckStatusEnum =
+        | "passed"
+        | "finding"
+        | "not_applicable"
+        | "not_checked";
+    export type ExperimentHealthCheckResult = {
+        /**
+         * Stable identifier of the check. A check can report several finding codes, so the key is not a finding code.
+         *
+         * * `flag_state` - Flag State
+         * * `flag_history` - Flag History
+         * * `split_changed_mid_run` - Split Changed Mid Run
+         * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
+         * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
+         * * `flag_variants_mismatch` - Flag Variants Mismatch
+         * * `forced_variant_release_condition` - Forced Variant Release Condition
+         * * `new_flag_no_traffic` - New Flag No Traffic
+         * * `no_metric` - No Metric
+         * * `metric_event_not_ingested` - Metric Event Not Ingested
+         * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
+         * * `zero_exposures` - Zero Exposures
+         * * `srm` - Srm
+         * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
+         * * `multiple_variants_share` - Multiple Variants Share
+         */
+        key: ExperimentHealthCheckKeyEnum;
+        /**
+         * What the check looks at, for example 'Feature flag variants'.
+         */
+        name: string;
+        /**
+         * passed: the check found no problem. finding: the check reported a finding in `findings`. not_applicable: the check does not cover the experiment's current state, for example a check of the changes since launch on a draft. not_checked: the check covers the experiment, but it could not read an input or it failed, so a problem it looks for can be present without a finding.
+         *
+         * * `passed` - Passed
+         * * `finding` - Finding
+         * * `not_applicable` - Not Applicable
+         * * `not_checked` - Not Checked
+         */
+        status: ExperimentHealthCheckStatusEnum;
+        /**
+         * Why the check did not look, for the statuses not_applicable and not_checked, for example 'Runs after launch'. Null for passed and finding.
+         */
+        reason: string | null;
+    };
     export type ExperimentHealth = {
         /**
-         * Problems that the health checks found in the experiment's configuration and its feature flag. Empty when every check passed.
+         * Problems that the health checks found in the experiment's configuration and its feature flag. Empty when no check found a problem. An empty list does not mean that every check ran: read `checks`.
          */
         findings: Array<ExperimentHealthFinding>;
+        /**
+         * The result of each health check, in the order the checks run. The checks that read the exposure counts are not here: the exposure query returns them as `health_checks`.
+         */
+        checks: Array<ExperimentHealthCheckResult>;
     };
     /**
      * Full experiment representation for the detail, create, and update endpoints.
@@ -10163,7 +10285,36 @@ export namespace Schemas {
          */
         tags?: Array<string> | undefined;
     };
+    export type ExperimentExposureHealthCheckKey =
+        | "zero_exposures"
+        | "srm"
+        | "bias_risk_multiple_excluded"
+        | "multiple_variants_share";
+    export type ExperimentExposureHealthCheckStatus =
+        | "passed"
+        | "finding"
+        | "not_applicable"
+        | "not_checked";
+    export type ExperimentExposureHealthCheck = {
+        /**
+         * Stable identifier of the check.
+         */
+        key: ExperimentExposureHealthCheckKey;
+        /**
+         * What the check looks at, as the health panel lists it.
+         */
+        name: string;
+        /**
+         * Why the check did not look, for the statuses not_applicable and not_checked, for example 'Runs after launch'. Null for passed and finding.
+         */
+        reason: string | null;
+        /**
+         * passed: no problem found. finding: a finding in `health_findings`. not_applicable: the check doesn't cover the experiment's state. not_checked: an input was missing or the check failed.
+         */
+        status: ExperimentExposureHealthCheckStatus;
+    };
     export type ExperimentExposureHealthFindingActionKind =
+        | "open_feature_flag"
         | "edit_exposure_criteria"
         | "adjust_distribution"
         | "use_first_seen_variant";
@@ -10222,6 +10373,9 @@ export namespace Schemas {
     export type ExperimentExposureQueryResponse = {
         bias_risk?: (BiasRisk | null) | undefined;
         date_range: DateRange;
+        health_checks?:
+            | (Array<ExperimentExposureHealthCheck> | null)
+            | undefined;
         health_findings?:
             | (Array<ExperimentExposureHealthFinding> | null)
             | undefined;
@@ -10916,6 +11070,7 @@ export namespace Schemas {
      * * `IncidentIo` - IncidentIo
      * * `Pingdom` - Pingdom
      * * `Cloudflare` - Cloudflare
+     * * `CloudflareD1` - CloudflareD1
      * * `CosmosDB` - CosmosDB
      * * `PlanetScaleMySQL` - PlanetScaleMySQL
      * * `PlanetScalePostgres` - PlanetScalePostgres
@@ -11181,6 +11336,7 @@ export namespace Schemas {
      * * `ReplyIo` - ReplyIo
      * * `RetailExpress` - RetailExpress
      * * `Retently` - Retently
+     * * `Retreaver` - Retreaver
      * * `RevolutMerchant` - RevolutMerchant
      * * `RocketChat` - RocketChat
      * * `Rocketlane` - Rocketlane
@@ -11632,6 +11788,7 @@ export namespace Schemas {
      * * `AwsCostAndUsageReport` - AwsCostAndUsageReport
      * * `AwsCostAnomalyDetection` - AwsCostAnomalyDetection
      * * `AwsCostExplorer` - AwsCostExplorer
+     * * `AwsDocumentDB` - AwsDocumentDB
      * * `AwsGlueDataCatalog` - AwsGlueDataCatalog
      * * `AwsGuardduty` - AwsGuardduty
      * * `AwsHealth` - AwsHealth
@@ -12119,6 +12276,9 @@ export namespace Schemas {
      * * `GoogleAdMob` - GoogleAdMob
      * * `Klar` - Klar
      * * `ConectoCRM` - ConectoCRM
+     * * `CloudflareR2` - CloudflareR2
+     * * `Particle` - Particle
+     * * `FileUpload` - FileUpload
      */
     export type ExternalDataSourceTypeEnum =
         | "Ashby"
@@ -12319,6 +12479,7 @@ export namespace Schemas {
         | "IncidentIo"
         | "Pingdom"
         | "Cloudflare"
+        | "CloudflareD1"
         | "CosmosDB"
         | "PlanetScaleMySQL"
         | "PlanetScalePostgres"
@@ -12584,6 +12745,7 @@ export namespace Schemas {
         | "ReplyIo"
         | "RetailExpress"
         | "Retently"
+        | "Retreaver"
         | "RevolutMerchant"
         | "RocketChat"
         | "Rocketlane"
@@ -13035,6 +13197,7 @@ export namespace Schemas {
         | "AwsCostAndUsageReport"
         | "AwsCostAnomalyDetection"
         | "AwsCostExplorer"
+        | "AwsDocumentDB"
         | "AwsGlueDataCatalog"
         | "AwsGuardduty"
         | "AwsHealth"
@@ -13521,7 +13684,10 @@ export namespace Schemas {
         | "Testomatio"
         | "GoogleAdMob"
         | "Klar"
-        | "ConectoCRM";
+        | "ConectoCRM"
+        | "CloudflareR2"
+        | "Particle"
+        | "FileUpload";
     /**
      * * `web` - web
      * * `api` - api
@@ -13730,6 +13896,7 @@ export namespace Schemas {
          * * `IncidentIo` - IncidentIo
          * * `Pingdom` - Pingdom
          * * `Cloudflare` - Cloudflare
+         * * `CloudflareD1` - CloudflareD1
          * * `CosmosDB` - CosmosDB
          * * `PlanetScaleMySQL` - PlanetScaleMySQL
          * * `PlanetScalePostgres` - PlanetScalePostgres
@@ -13995,6 +14162,7 @@ export namespace Schemas {
          * * `ReplyIo` - ReplyIo
          * * `RetailExpress` - RetailExpress
          * * `Retently` - Retently
+         * * `Retreaver` - Retreaver
          * * `RevolutMerchant` - RevolutMerchant
          * * `RocketChat` - RocketChat
          * * `Rocketlane` - Rocketlane
@@ -14446,6 +14614,7 @@ export namespace Schemas {
          * * `AwsCostAndUsageReport` - AwsCostAndUsageReport
          * * `AwsCostAnomalyDetection` - AwsCostAnomalyDetection
          * * `AwsCostExplorer` - AwsCostExplorer
+         * * `AwsDocumentDB` - AwsDocumentDB
          * * `AwsGlueDataCatalog` - AwsGlueDataCatalog
          * * `AwsGuardduty` - AwsGuardduty
          * * `AwsHealth` - AwsHealth
@@ -14933,6 +15102,9 @@ export namespace Schemas {
          * * `GoogleAdMob` - GoogleAdMob
          * * `Klar` - Klar
          * * `ConectoCRM` - ConectoCRM
+         * * `CloudflareR2` - CloudflareR2
+         * * `Particle` - Particle
+         * * `FileUpload` - FileUpload
          */
         source_type: ExternalDataSourceTypeEnum;
         /**
@@ -15434,7 +15606,7 @@ export namespace Schemas {
          */
         type: HogFlowActionTypeEnum;
         /**
-         * Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel|internal-event, filters?}. An active event trigger must name at least one event, action or property filter; with filters.source 'person-updates' that means at least one property filter. internal-event requires filters.events naming one or more allowed event ids, and runs once for each matching event on the internal-events stream. Runs are person-less, so person-dependent steps are rejected. $slack_message_received takes filters: {properties: [<cond>]} over the message properties (channel, user, bot_id, text, subtype, is_thread_reply), and requires an exact-match channel filter; without one it runs on every message in every connected channel. $github_event_received takes filters: {properties: [<cond>]} over the delivery properties (repository, event_type, action, sender, bot_sender, own_app, author_association, actor_access, title, body, review_state, branch, repository_visibility), and requires exact-match repository and event_type filters; without them it runs on every delivery from every connected repository. webhook and manual triggers also require template_id: 'template-source-webhook', and tracking_pixel requires template_id: 'template-source-webhook-pixel'. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} to reference a cohort. batch triggers may set filters.audience_type: 'persons' (default) or 'accounts'. An accounts audience fans out one run per customer analytics account and takes account filters instead: properties entries of type 'account_custom_property' (key = definition id), plus tag_names: [<str>], assignment_status: 'all'|'assigned'|'unassigned', and assigned_to_user_ids: [<int>] when assignment_status is 'assigned'. all_roles_unassigned remains accepted for workflows saved before assignment_status was added. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open pixel is injected, links are not rewritten, and the send skips ESP-level open/click tracking, so opens and clicks are not recorded for that step (delivery/bounce/unsubscribe still are). Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: waits a fixed span or until a per-person/-event date — set EXACTLY ONE of delay_duration or delay_until. {delay_duration: '<number><unit>'} where unit is s|m|h|d. Fractions OK ('1.5d'=36h). Per-unit max s<=60, m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. delay_until: {expression: '<SQL>', offset?: '<±number><unit>'} waits until the date expression evaluates to (an ISO string, unix seconds, or a date value all resolve to the same instant); offset is a signed duration shifting it ('-1d' a day before, '2h' two hours after). expression is compiled server-side, so any bytecode sent with it is discarded. A person property is person.properties.<key>; an event property is properties.<key>, as the 'event.' prefix resolves to nothing and aborts the run. Optional timezone (IANA name), use_person_timezone (read $geoip_time_zone) and fallback_timezone decide which zone a date with no offset of its own is read in; a date that states an offset, and unix seconds, ignore them. Default UTC. Optional sibling max_delay_duration (default 30d, same '<number><unit>' format) caps how far past the step's start the wait may run. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages are relative weights, so they should sum to 100 but a total above or below that still splits traffic in the given proportions. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}.
+         * Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel|internal-event, filters?}. An active event trigger must name at least one event, action or property filter; with filters.source 'person-updates' that means at least one property filter. internal-event requires filters.events naming one or more allowed event ids, and runs once for each matching event on the internal-events stream. Runs are person-less, so person-dependent steps are rejected. $slack_message_received takes filters: {properties: [<cond>]} over the message properties (channel, user, bot_id, text, subtype, is_thread_reply), and requires an exact-match channel filter; without one it runs on every message in every connected channel. $github_event_received takes filters: {properties: [<cond>]} over the delivery properties (repository, event_type, action, sender, bot_sender, own_app, author_association, actor_access, title, body, review_state, branch, repository_visibility), and requires exact-match repository and event_type filters; without them it runs on every delivery from every connected repository. webhook and manual triggers also require template_id: 'template-source-webhook', and tracking_pixel requires template_id: 'template-source-webhook-pixel'. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} to reference a cohort. batch triggers may set filters.audience_type: 'persons' (default) or 'accounts'. An accounts audience fans out one run per customer analytics account and takes account filters instead: properties entries of type 'account_custom_property' (key = definition id), plus tag_names: [<str>], assignment_status: 'all'|'assigned'|'unassigned', and assigned_to_user_ids: [<int>] when assignment_status is 'assigned'. all_roles_unassigned remains accepted for workflows saved before assignment_status was added. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open pixel is injected, links are not rewritten, and the send skips ESP-level open/click tracking, so opens and clicks are not recorded for that step (delivery/bounce/unsubscribe still are). Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: waits a fixed span or until a per-person/-event date — set EXACTLY ONE of delay_duration or delay_until. {delay_duration: '<number><unit>'} where unit is s|m|h|d, at most 365d, 24h, 60m or 60s. Fractions OK ('1.5d'=36h). A larger value is rejected. delay_until: {expression: '<SQL>', offset?: '<±number><unit>'} waits until the date expression evaluates to (an ISO string, unix seconds, or a date value all resolve to the same instant); offset is a signed duration shifting it ('-1d' a day before, '2h' two hours after). expression is compiled server-side, so any bytecode sent with it is discarded. A person property is person.properties.<key>; an event property is properties.<key>, as the 'event.' prefix resolves to nothing and aborts the run. Optional timezone (IANA name), use_person_timezone (read $geoip_time_zone) and fallback_timezone decide which zone a date with no offset of its own is read in; a date that states an offset, and unix seconds, ignore them. Default UTC. Optional sibling max_delay_duration (default 30d, at most 365d, same '<number><unit>' format) caps how far past the step's start the wait may run. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages are relative weights, so they should sum to 100 but a total above or below that still splits traffic in the given proportions. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same format as delay, at most 30d). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}.
          */
         config:
             | Record<string, unknown>
@@ -15538,6 +15710,10 @@ export namespace Schemas {
          * Mixin for serializers to add user access control fields
          */
         description?: string | undefined;
+        /**
+         * Mixin for serializers to add user access control fields
+         */
+        tags?: Array<string> | undefined;
         version: number;
         /**
          * Mixin for serializers to add user access control fields
@@ -15635,6 +15811,10 @@ export namespace Schemas {
         id: string;
         name: string | null;
         description: string;
+        /**
+         * Tags for organizing workflows, for example by team or use case. Sorted by name.
+         */
+        tags: Array<string>;
         version: number;
         status: HogFlowStateEnum & unknown;
         origin_product: HogFlowOriginProductEnum | NullEnum;
@@ -15698,6 +15878,10 @@ export namespace Schemas {
          * Mixin for serializers to add user access control fields
          */
         description?: string | undefined;
+        /**
+         * Mixin for serializers to add user access control fields
+         */
+        tags?: Array<string> | undefined;
         version: number;
         /**
          * Mixin for serializers to add user access control fields
@@ -16687,12 +16871,14 @@ export namespace Schemas {
      * * `later` - Skipped for later
      * * `other` - Other
      * * `provisioned` - Account provisioned by a partner
+     * * `connector` - Signed up through an OAuth connector
      */
     export type OnboardingSkippedReasonEnum =
         | "delegated"
         | "later"
         | "other"
-        | "provisioned";
+        | "provisioned"
+        | "connector";
     /**
      * * `1` - member
      * * `8` - administrator
@@ -18919,7 +19105,7 @@ export namespace Schemas {
         active_realtime_notification_types: Array<string>;
         pending_invites: Array<PendingInvite>;
         /**
-         * True if the user has at least one Personal API Key or passkey, or a third-party OAuth application that can currently act as them, and has not yet acknowledged that access. Used to gate a one-shot review screen on first post-provisioning login. Becomes False once the user POSTs to `/api/users/@me/credentials_review_complete/`. Read-only.
+         * True if the user belongs to an organization that a partner provisioned, has not yet acknowledged the access on their account, and has at least one Personal API Key or passkey, or a third-party OAuth application that can currently act as them. Used to gate a one-shot review screen on first post-provisioning login. Becomes False once the user POSTs to `/api/users/@me/credentials_review_complete/`. Read-only.
          */
         requires_credential_review: boolean;
     };
@@ -19012,6 +19198,7 @@ export namespace Schemas {
         output_config: Partial<{
             allows_na: boolean;
             true_is_failure: boolean;
+            decision_threshold: number | null;
             min: number | null;
             max: number | null;
             step: number | null;
@@ -19152,6 +19339,7 @@ export namespace Schemas {
         id: string;
         name: string | null;
         description: string;
+        tags: Array<string>;
         version: number;
         status: HogFlowStateEnum;
         origin_product: HogFlowOriginProductEnum | NullEnum;
@@ -19786,6 +19974,8 @@ export namespace Schemas {
     export type TeamWorkflowsConfig = Partial<{
         capture_workflows_engagement_events: boolean;
         email_tracking_consent_mode: EmailTrackingConsentModeEnum;
+        email_utm_tags_enabled: boolean;
+        email_utm_params: EmailUtmParams;
         workflow_task_rate_limit_per_day: number | null;
         workflow_task_team_rate_limit_per_day: number | null;
         replay_vision_scan_rate_limit_per_day: number | null;
@@ -20686,6 +20876,15 @@ export namespace Schemas {
      * * `link` - link
      */
     export type SurveyLinkQuestionSchemaTypeEnum = "link";
+    export type SurveyQuestionTranslationSchema = Partial<{
+        question: string;
+        description: string;
+        buttonText: string;
+        lowerBoundLabel: string;
+        upperBoundLabel: string;
+        choices: Array<string>;
+        link: string;
+    }>;
     export type SurveyLinkQuestionSchema = {
         id?: string | undefined;
         type: SurveyLinkQuestionSchemaTypeEnum;
@@ -20697,10 +20896,14 @@ export namespace Schemas {
         descriptionContentType?: DescriptionContentTypeEnum | undefined;
         optional?: boolean | undefined;
         buttonText?: string | undefined;
+        translations?:
+            | Record<string, SurveyQuestionTranslationSchema>
+            | undefined;
         /**
          * HTTPS or mailto URL for link questions.
          */
         link: string;
+        branching?: (SurveyBranchingSchema | null) | undefined;
     };
     /**
      * * `multiple_choice` - multiple_choice
@@ -20717,6 +20920,9 @@ export namespace Schemas {
         descriptionContentType?: DescriptionContentTypeEnum | undefined;
         optional?: boolean | undefined;
         buttonText?: string | undefined;
+        translations?:
+            | Record<string, SurveyQuestionTranslationSchema>
+            | undefined;
         /**
          * Array of choice options. Multiple selections allowed. No branching logic supported.
          */
@@ -20739,6 +20945,11 @@ export namespace Schemas {
         descriptionContentType?: DescriptionContentTypeEnum | undefined;
         optional?: boolean | undefined;
         buttonText?: string | undefined;
+        translations?:
+            | Record<string, SurveyQuestionTranslationSchema>
+            | undefined;
+        validation?: (Array<SurveyQuestionValidationRule> | null) | undefined;
+        branching?: (SurveyBranchingSchema | null) | undefined;
     };
     /**
      * * `rating` - rating
@@ -20760,10 +20971,14 @@ export namespace Schemas {
         descriptionContentType?: DescriptionContentTypeEnum | undefined;
         optional?: boolean | undefined;
         buttonText?: string | undefined;
+        translations?:
+            | Record<string, SurveyQuestionTranslationSchema>
+            | undefined;
         display?: SurveyRatingQuestionSchemaDisplayEnum | undefined;
         scale?: number | undefined;
         lowerBoundLabel?: string | undefined;
         upperBoundLabel?: string | undefined;
+        isNpsQuestion?: boolean | undefined;
         branching?: (SurveyBranchingSchema | null) | undefined;
     };
     /**
@@ -20781,6 +20996,9 @@ export namespace Schemas {
         descriptionContentType?: DescriptionContentTypeEnum | undefined;
         optional?: boolean | undefined;
         buttonText?: string | undefined;
+        translations?:
+            | Record<string, SurveyQuestionTranslationSchema>
+            | undefined;
         /**
          * Array of choice options. Choice indices (0, 1, 2, ...) are used for branching logic.
          */
@@ -20795,6 +21013,26 @@ export namespace Schemas {
         | SurveyRatingQuestionSchema
         | SurveySingleChoiceQuestionSchema
         | SurveyMultipleChoiceQuestionSchema;
+    /**
+     * * `min_length` - min_length
+     * * `max_length` - max_length
+     * * `email` - email
+     */
+    export type SurveyQuestionValidationRuleTypeEnum =
+        | "min_length"
+        | "max_length"
+        | "email";
+    export type SurveyQuestionValidationRule = {
+        /**
+         * Validation rule type for open-text questions.
+         *
+         * * `min_length` - min_length
+         * * `max_length` - max_length
+         * * `email` - email
+         */
+        type: SurveyQuestionValidationRuleTypeEnum;
+        value?: (number | null) | undefined;
+    };
     export type SurveySerializerCreateUpdateOnly = {
         id: string;
         name: string;
@@ -22185,6 +22423,7 @@ export namespace Endpoints {
                 origin_product: "broadcasts" | "loops" | "transactional_emails";
                 search: string;
                 status: "active" | "archived" | "draft";
+                tags: string;
                 trigger: string;
                 type: string;
                 updated_at: string;

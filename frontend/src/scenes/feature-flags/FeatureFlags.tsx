@@ -57,6 +57,11 @@ import {
     FeatureFlagType,
 } from '~/types'
 
+import {
+    cohortCanBeRestored,
+    deletedCohortDisabledReason,
+    deletedCohortFilters,
+} from 'products/feature_flags/frontend/deletedCohortFilters'
 import { featureFlagsEmptyState } from 'products/feature_flags/frontend/emptyState/featureFlagsEmptyState'
 import {
     ARCHIVE_UNAVAILABLE_DISABLED_REASON,
@@ -112,9 +117,11 @@ function FeatureFlagStatusCell({ featureFlag }: { featureFlag: FeatureFlagType }
     const { featureFlagsUpdating } = useValues(flagLogic)
 
     const isUpdating = featureFlag.id ? featureFlagsUpdating[featureFlag.id] : false
+    const deletedCohorts = deletedCohortFilters(featureFlag.filters)
+    const cohortMissing = !deletedCohorts.every(cohortCanBeRestored)
 
     return (
-        <div className="flex justify-start gap-1">
+        <div className="flex flex-wrap justify-start gap-1">
             {isUpdating ? (
                 <LemonTag type="muted" className="uppercase">
                     <span className="inline-flex items-center gap-1">
@@ -139,27 +146,45 @@ function FeatureFlagStatusCell({ featureFlag }: { featureFlag: FeatureFlagType }
                     Disabled
                 </LemonTag>
             )}
-            {featureFlag.status === 'STALE' && (
-                <Tooltip
-                    title={
-                        <>
-                            <div className="text-sm">This flag is likely safe to remove</div>
-                            <div className="text-xs">
-                                Not called in 30+ days or fully rolled out. Make sure to remove any references in your
-                                code before deleting it.
-                            </div>
-                        </>
+            {deletedCohorts.length > 0 && (
+                <WarningStatusTag
+                    label={cohortMissing ? 'Missing cohort' : 'Deleted cohort'}
+                    heading={
+                        cohortMissing
+                            ? 'A release condition targets a cohort that does not exist in this project'
+                            : 'A release condition targets a deleted cohort'
                     }
-                    placement="left"
-                >
-                    <span>
-                        <LemonTag type="warning" className="uppercase cursor-default">
-                            Stale
-                        </LemonTag>
-                    </span>
-                </Tooltip>
+                    detail="The flag can't evaluate that condition. Open the flag to update its release conditions."
+                />
+            )}
+            {featureFlag.status === 'STALE' && (
+                <WarningStatusTag
+                    label="Stale"
+                    heading="This flag is likely safe to remove"
+                    detail="Not called in 30+ days or fully rolled out. Make sure to remove any references in your code before deleting it."
+                />
             )}
         </div>
+    )
+}
+
+function WarningStatusTag({ label, heading, detail }: { label: string; heading: string; detail: string }): JSX.Element {
+    return (
+        <Tooltip
+            title={
+                <>
+                    <div className="text-sm">{heading}</div>
+                    <div className="text-xs">{detail}</div>
+                </>
+            }
+            placement="left"
+        >
+            <span>
+                <LemonTag type="warning" className="uppercase cursor-default">
+                    {label}
+                </LemonTag>
+            </span>
+        </Tooltip>
     )
 }
 
@@ -174,6 +199,7 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
     const [isQuickSurveyModalOpen, setIsQuickSurveyModalOpen] = useState(false)
     const configFormat = featureFlagConfigFormat(featureFlag.filters)
     const isV1Config = configFormat === 'v1'
+    const deletedCohortReason = deletedCohortDisabledReason(deletedCohortFilters(featureFlag.filters))
 
     const tryInInsightsUrl = (featureFlag: FeatureFlagType): string => {
         const query: InsightVizNode = {
@@ -281,7 +307,9 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
                                           ? 'Unarchive this flag before enabling it.'
                                           : configFormat === 'unsupported'
                                             ? UNSUPPORTED_CONFIG_DISABLED_REASON
-                                            : undefined
+                                            : !featureFlag.active
+                                              ? deletedCohortReason
+                                              : undefined
                                 }
                             >
                                 {featureFlag.active ? 'Disable' : 'Enable'}
@@ -318,7 +346,9 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
                                             ? 'Updating…'
                                             : !canArchiveFeatureFlag(featureFlag.filters)
                                               ? ARCHIVE_UNAVAILABLE_DISABLED_REASON
-                                              : undefined
+                                              : featureFlag.archived
+                                                ? deletedCohortReason
+                                                : undefined
                                     }
                                 >
                                     {featureFlag.archived ? 'Unarchive' : 'Archive'}

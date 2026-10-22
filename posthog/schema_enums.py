@@ -373,6 +373,11 @@ class AssistantMessageType(StrEnum):
     AI_TASK_EXECUTION = "ai/task_execution"
 
 
+class AssistantMetricsNodeKind(StrEnum):
+    METRICS_QUERY = "MetricsQuery"
+    METRICS_HISTOGRAM_QUERY = "MetricsHistogramQuery"
+
+
 class AssistantNavigateUrl(StrEnum):
     ACTIONS = "actions"
     ACTIVITY = "activity"
@@ -1115,6 +1120,11 @@ class DatabaseSchemaManagedViewTableKind(StrEnum):
     REVENUE_ANALYTICS_SUBSCRIPTION = "revenue_analytics_subscription"
 
 
+class ExecutionTarget(StrEnum):
+    DEFAULT = "default"
+    MANAGED_TRINO = "managed_trino"
+
+
 class DatabaseSchemaTableCertificationStatus(StrEnum):
     CERTIFIED = "certified"
     DEPRECATED = "deprecated"
@@ -1429,7 +1439,22 @@ class ManualMetricType(StrEnum):
     MEAN_SUM_OR_AVG = "mean_sum_or_avg"
 
 
+class ExperimentExposureHealthCheckKey(StrEnum):
+    ZERO_EXPOSURES = "zero_exposures"
+    SRM = "srm"
+    BIAS_RISK_MULTIPLE_EXCLUDED = "bias_risk_multiple_excluded"
+    MULTIPLE_VARIANTS_SHARE = "multiple_variants_share"
+
+
+class ExperimentExposureHealthCheckStatus(StrEnum):
+    PASSED = "passed"
+    FINDING = "finding"
+    NOT_APPLICABLE = "not_applicable"
+    NOT_CHECKED = "not_checked"
+
+
 class ExperimentExposureHealthFindingActionKind(StrEnum):
+    OPEN_FEATURE_FLAG = "open_feature_flag"
     EDIT_EXPOSURE_CRITERIA = "edit_exposure_criteria"
     ADJUST_DISTRIBUTION = "adjust_distribution"
     USE_FIRST_SEEN_VARIANT = "use_first_seen_variant"
@@ -1553,6 +1578,7 @@ class FileSystemIconType(StrEnum):
     LOGS = "logs"
     TRACING = "tracing"
     METRICS = "metrics"
+    UPTIME_MONITORING = "uptime_monitoring"
     WORKFLOWS = "workflows"
     BROADCASTS = "broadcasts"
     NOTEBOOK = "notebook"
@@ -1770,11 +1796,6 @@ class HogQLAlertEvaluation(StrEnum):
     LAST_ROW = "last_row"
     FIRST_ROW = "first_row"
     ANY_ROW = "any_row"
-
-
-class ExecutionTarget(StrEnum):
-    DEFAULT = "default"
-    MANAGED_TRINO = "managed_trino"
 
 
 class BounceRatePageViewMode(StrEnum):
@@ -2421,6 +2442,7 @@ class NodeKind(StrEnum):
     USAGE_METRICS_QUERY = "UsageMetricsQuery"
     ACCOUNTS_QUERY = "AccountsQuery"
     ACCOUNTS_TABLE_QUERY = "AccountsTableQuery"
+    ACCOUNT_USERS_QUERY = "AccountUsersQuery"
     ENDPOINTS_USAGE_OVERVIEW_QUERY = "EndpointsUsageOverviewQuery"
     ENDPOINTS_USAGE_TABLE_QUERY = "EndpointsUsageTableQuery"
     ENDPOINTS_USAGE_TRENDS_QUERY = "EndpointsUsageTrendsQuery"
@@ -2696,6 +2718,7 @@ class ProductKey(StrEnum):
     TEAMS = "teams"
     TOOLBAR = "toolbar"
     TRACING = "tracing"
+    UPTIME_MONITORING = "uptime_monitoring"
     METRICS = "metrics"
     VISUAL_REVIEW = "visual_review"
     WEB_ANALYTICS = "web_analytics"
