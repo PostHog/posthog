@@ -26,7 +26,7 @@ export function TodayMoreMenu(): JSX.Element {
     const { isHelpMenuOpen } = useValues(helpMenuLogic)
     const { setHelpMenuOpen } = useActions(helpMenuLogic)
     const { statusPageUrl } = useValues(posthogStatusLogic)
-    const { statusSeverity, statusText, healthText, moreItemSeverity, moreSeverity, moreLabel } =
+    const { statusSeverity, statusText, healthSeverity, healthText, moreSeverity, moreLabel } =
         useValues(todayRailStatusLogic)
 
     return (
@@ -64,13 +64,7 @@ export function TodayMoreMenu(): JSX.Element {
                     render={todayMenuLinkItem(urls.health())}
                     description={
                         healthText && (
-                            <span
-                                className={
-                                    SEVERITY_TEXT_CLASS[
-                                        moreItemSeverity.health === 'ok' ? 'none' : moreItemSeverity.health
-                                    ]
-                                }
-                            >
+                            <span className={SEVERITY_TEXT_CLASS[healthSeverity === 'ok' ? 'none' : healthSeverity]}>
                                 {healthText}
                             </span>
                         )
