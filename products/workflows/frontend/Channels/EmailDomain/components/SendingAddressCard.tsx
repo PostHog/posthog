@@ -138,15 +138,21 @@ function BouncePrefixField(props: EmailDomainWizardLogicProps): JSX.Element {
 }
 
 export function SendingAddressCard(props: EmailDomainWizardLogicProps): JSX.Element {
-    const { fromAddress } = useValues(emailDomainWizardLogic(props))
+    const { fromAddress, senderName, suggestedSenderName } = useValues(emailDomainWizardLogic(props))
+    const fromName = senderName.trim() || suggestedSenderName
     return (
         <section className="rounded-lg border bg-accent-highlight-secondary p-5 flex flex-col gap-4">
             <div className="flex flex-col gap-1">
                 <span className="text-sm text-secondary">Emails will come from</span>
-                <span className="font-mono text-xl @md:text-2xl font-semibold break-all">{fromAddress}</span>
+                <span className="text-xl @md:text-2xl font-semibold break-all">
+                    <span>{fromName}</span>{' '}
+                    <span className="font-mono">
+                        &lt;<span>{fromAddress}</span>&gt;
+                    </span>
+                </span>
             </div>
-            <SenderIdentityFields {...props} />
             <SendPrefixPicker {...props} />
+            <SenderIdentityFields {...props} />
             <BouncePrefixField {...props} />
         </section>
     )
