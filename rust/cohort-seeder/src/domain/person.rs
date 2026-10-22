@@ -1136,6 +1136,7 @@ mod tests {
                 elements_chain: None,
                 source_offset: 0,
                 source_partition: -1,
+                source_topic_id: 0,
                 redirected_from: None,
                 redirect_hops: 0,
             };

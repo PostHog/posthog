@@ -151,6 +151,7 @@ type CommitFuture =
 
 #[derive(Debug, Clone, Copy)]
 pub struct ShufflerSettings {
+    pub source_topic_id: u8,
     pub max_inflight_forwards: usize,
     pub commit_interval: Duration,
     pub queue_full_backoff: Duration,
@@ -366,6 +367,7 @@ impl EventShuffler {
             event: CohortStreamEvent::from_clickhouse(
                 *event,
                 person_id,
+                self.settings.source_topic_id,
                 partition.0,
                 source_offset.0,
             ),

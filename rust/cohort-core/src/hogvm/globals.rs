@@ -242,6 +242,7 @@ mod tests {
             elements_chain: Some("a:href=\"/x\"".to_string()),
             source_offset: 0,
             source_partition: 0,
+            source_topic_id: 0,
             redirected_from: None,
             redirect_hops: 0,
         }

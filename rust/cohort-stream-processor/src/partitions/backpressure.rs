@@ -102,6 +102,7 @@ mod tests {
                 elements_chain: None,
                 source_offset: cse_offset,
                 source_partition: 0,
+                source_topic_id: 0,
                 redirected_from: None,
                 redirect_hops: 0,
             }),

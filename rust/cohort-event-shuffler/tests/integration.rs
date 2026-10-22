@@ -298,7 +298,7 @@ async fn shuffler_forwards_only_gated_events_with_stable_partitioning() {
         producer,
         team_index,
         handle,
-        config.shuffler_settings(),
+        config.shuffler_settings().unwrap(),
     );
     tokio::spawn(async move { shuffler.process().await });
 
@@ -366,6 +366,7 @@ async fn shuffler_forwards_only_gated_events_with_stable_partitioning() {
         first.properties.as_deref(),
         Some(r#"{"$current_url":"/pricing"}"#)
     );
+    assert_eq!(first.source_topic_id, 0);
     assert_eq!(first.source_partition, 0);
     assert_eq!(
         first.source_offset, 0,
@@ -484,7 +485,7 @@ async fn shuffler_commits_via_drain_on_graceful_shutdown() {
         producer,
         team_index,
         handle,
-        config.shuffler_settings(),
+        config.shuffler_settings().unwrap(),
     );
     let task = tokio::spawn(async move { shuffler.process().await });
 
@@ -593,7 +594,7 @@ async fn shuffler_retries_forwards_parked_on_queue_full() {
         producer,
         team_index,
         handle,
-        config.shuffler_settings(),
+        config.shuffler_settings().unwrap(),
     );
     tokio::spawn(async move { shuffler.process().await });
 

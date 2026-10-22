@@ -29,7 +29,7 @@ use uuid::Uuid;
 pub use cohort_core::fingerprint::CatalogFingerprint;
 use cohort_core::seed::ScannedAtMs;
 
-use crate::stage1::state::{dedup_is_replay, dedup_record, AppliedOffsets};
+use crate::stage1::state::{dedup_is_replay, dedup_record, AppliedOffsets, SourcePartition};
 use crate::stage1::transition::TransitionKind;
 
 /// The record-level argMax key: last-write-wins ordered by event time then source offset. "Fresh"
@@ -222,12 +222,12 @@ impl PersonRecord {
     }
 
     /// Origin-aware replay check, sharing the row-level implementation so the two cannot drift.
-    pub fn is_replay_for(&self, origin: Option<&Uuid>, sp: i32, so: i64) -> bool {
+    pub fn is_replay_for(&self, origin: Option<&Uuid>, sp: SourcePartition, so: i64) -> bool {
         dedup_is_replay(&self.applied_offsets, &self.redirect_dedup, origin, sp, so)
     }
 
     /// Origin-aware offset advance, sharing the row-level implementation.
-    pub fn record_for(&mut self, origin: Option<&Uuid>, sp: i32, so: i64) {
+    pub fn record_for(&mut self, origin: Option<&Uuid>, sp: SourcePartition, so: i64) {
         dedup_record(
             &mut self.applied_offsets,
             &mut self.redirect_dedup,
@@ -340,12 +340,12 @@ impl PriorRecord {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct DedupCoords {
     pub origin: Option<Uuid>,
-    pub sp: i32,
+    pub sp: SourcePartition,
     pub so: i64,
 }
 
 impl DedupCoords {
-    pub fn new(origin: Option<Uuid>, sp: i32, so: i64) -> Self {
+    pub fn new(origin: Option<Uuid>, sp: SourcePartition, so: i64) -> Self {
         Self { origin, sp, so }
     }
 }
@@ -624,9 +624,11 @@ fn seed_stamp_floor(scanned_at: ScannedAtMs, live_margin_ms: i64) -> Stamp {
 /// ([`crate::store::ttl_filter`]) so its version guard shares this codec's constant.
 pub(crate) const FORMAT_VERSION: u8 = 1;
 
-/// Reserved flag byte; nonzero is a typed error so a future flag can be added without silently
-/// misinterpreting an old reader.
-const FLAGS: u8 = 0;
+/// Flag bit: every replay-dedup entry starts with a `u8` source topic id. Without it, every entry is
+/// a `clickhouse_events_json` partition. The encoder sets it only when a mark comes from another
+/// topic, so a record without one keeps the layout that a binary without topic ids reads. Any other
+/// bit is a typed error, so a future flag cannot be misread by an old reader.
+const FLAG_TOPIC_IDS: u8 = 0x01;
 
 /// Byte offset of `last_seen_ms`. The TTL compaction filter ([`crate::store::ttl_filter`]) reads only
 /// this field, at this fixed offset, without a full decode, so it must never move. Visible to that
@@ -644,8 +646,8 @@ pub enum PersonRecordCodecError {
     },
     #[error("person record format version {found} is not {expected}")]
     BadVersion { found: u8, expected: u8 },
-    #[error("person record flags {found:#04x} are not zero (reserved)")]
-    NonZeroFlags { found: u8 },
+    #[error("person record flags {found:#04x} set an unknown bit")]
+    UnknownFlags { found: u8 },
     #[error("person record {section} is not sorted-distinct")]
     NotSorted { section: &'static str },
     #[error("person record has {trailing} trailing bytes")]
@@ -658,20 +660,27 @@ pub enum PersonRecordCodecError {
 /// Layout (all integers big-endian, all length-prefixed sections `u32` count then fixed entries):
 /// ```text
 /// off 0   u8   format_version = 1
-///     1   u8   flags = 0
+///     1   u8   flags: FLAG_TOPIC_IDS or 0
 ///     2   i64  last_seen_ms
 ///    10   i64  stamp.ms
 ///    18   i64  stamp.offset
 ///    26   16B  props_fingerprint (raw digest-prefix bytes)
 ///    42   16B  catalog_fingerprint
 ///    58   u32 N, N × 16B                    matched (sorted, distinct)
-///    ..   u32 M, M × (i32 partition, i64 offset)          applied_offsets (sorted by partition)
-///    ..   u32 K, K × (uuid 16B, u32 C, C × (i32, i64))    redirect_dedup (sorted by uuid)
+///    ..   u32 M, M × ([u8 topic_id,] i32 partition, i64 offset)   applied_offsets (sorted)
+///    ..   u32 K, K × (uuid 16B, u32 C, C × entry)                  redirect_dedup (sorted by uuid)
 /// ```
+///
+/// Entries sort by `(topic_id, partition)`.
 fn encode(record: &PersonRecord) -> Vec<u8> {
+    let topic_ids = record.applied_offsets.has_other_topics()
+        || record
+            .redirect_dedup
+            .values()
+            .any(AppliedOffsets::has_other_topics);
     let mut out = Vec::with_capacity(58 + 4 + record.matched.len() * 16);
     out.push(FORMAT_VERSION);
-    out.push(FLAGS);
+    out.push(if topic_ids { FLAG_TOPIC_IDS } else { 0 });
     // `last_seen_ms` must land at the fixed offset the TTL filter reads without a full decode.
     debug_assert_eq!(out.len(), LAST_SEEN_MS_OFFSET);
     out.extend_from_slice(&record.last_seen_ms.to_be_bytes());
@@ -685,18 +694,18 @@ fn encode(record: &PersonRecord) -> Vec<u8> {
         out.extend_from_slice(hash);
     }
 
-    encode_applied_offsets(&mut out, &record.applied_offsets);
+    encode_applied_offsets(&mut out, &record.applied_offsets, topic_ids);
 
     write_u32(&mut out, record.redirect_dedup.len());
     for (ancestor, offsets) in &record.redirect_dedup {
         out.extend_from_slice(ancestor.as_bytes());
-        encode_applied_offsets(&mut out, offsets);
+        encode_applied_offsets(&mut out, offsets, topic_ids);
     }
 
     out
 }
 
-/// Deserialize a record. Total: any short buffer at any boundary, a bad version, nonzero flags, an
+/// Deserialize a record. Total: any short buffer at any boundary, a bad version, an unknown flag, an
 /// unsorted/duplicate section, or trailing bytes yields a typed error. Never panics.
 fn decode(bytes: &[u8]) -> Result<PersonRecord, PersonRecordCodecError> {
     let mut cur = Cursor::new(bytes);
@@ -709,9 +718,10 @@ fn decode(bytes: &[u8]) -> Result<PersonRecord, PersonRecordCodecError> {
         });
     }
     let flags = cur.take_u8("flags")?;
-    if flags != FLAGS {
-        return Err(PersonRecordCodecError::NonZeroFlags { found: flags });
+    if flags & !FLAG_TOPIC_IDS != 0 {
+        return Err(PersonRecordCodecError::UnknownFlags { found: flags });
     }
+    let topic_ids = flags & FLAG_TOPIC_IDS != 0;
 
     let last_seen_ms = cur.take_i64("last_seen_ms")?;
     let stamp = Stamp {
@@ -731,7 +741,7 @@ fn decode(bytes: &[u8]) -> Result<PersonRecord, PersonRecordCodecError> {
         return Err(PersonRecordCodecError::NotSorted { section: "matched" });
     }
 
-    let applied_offsets = decode_applied_offsets(&mut cur, "applied_offsets")?;
+    let applied_offsets = decode_applied_offsets(&mut cur, "applied_offsets", topic_ids)?;
 
     let redirect_count = cur.take_u32("redirect_dedup.count")? as usize;
     let mut redirect_dedup: BTreeMap<Uuid, AppliedOffsets> = BTreeMap::new();
@@ -746,7 +756,7 @@ fn decode(bytes: &[u8]) -> Result<PersonRecord, PersonRecordCodecError> {
             });
         }
         prev_ancestor = Some(ancestor);
-        let offsets = decode_applied_offsets(&mut cur, "redirect_dedup.offsets")?;
+        let offsets = decode_applied_offsets(&mut cur, "redirect_dedup.offsets", topic_ids)?;
         redirect_dedup.insert(ancestor, offsets);
     }
 
@@ -767,33 +777,43 @@ fn decode(bytes: &[u8]) -> Result<PersonRecord, PersonRecordCodecError> {
     })
 }
 
-/// Encode an [`AppliedOffsets`] as `u32` count then `(i32 partition, i64 offset)` entries, in the
-/// map's already-sorted partition order.
-fn encode_applied_offsets(out: &mut Vec<u8>, offsets: &AppliedOffsets) {
+/// Encode an [`AppliedOffsets`] as `u32` count then `([u8 topic_id,] i32 partition, i64 offset)`
+/// entries, in the map's already-sorted order.
+fn encode_applied_offsets(out: &mut Vec<u8>, offsets: &AppliedOffsets, topic_ids: bool) {
     let entries = offsets.entries();
     write_u32(out, entries.len());
-    for (partition, offset) in entries {
-        out.extend_from_slice(&partition.to_be_bytes());
+    for (source, offset) in entries {
+        if topic_ids {
+            out.push(source.topic_id);
+        }
+        out.extend_from_slice(&source.partition.to_be_bytes());
         out.extend_from_slice(&offset.to_be_bytes());
     }
 }
 
-/// Decode an [`AppliedOffsets`], verifying the partitions are strictly ascending (canonical).
+/// Decode an [`AppliedOffsets`], verifying the source partitions are strictly ascending
+/// (canonical).
 fn decode_applied_offsets(
     cur: &mut Cursor<'_>,
     section: &'static str,
+    topic_ids: bool,
 ) -> Result<AppliedOffsets, PersonRecordCodecError> {
     let count = cur.take_u32(section)? as usize;
-    let mut entries: Vec<(i32, i64)> = Vec::with_capacity(count.min(1024));
-    let mut prev: Option<i32> = None;
+    let mut entries: Vec<(SourcePartition, i64)> = Vec::with_capacity(count.min(1024));
+    let mut prev: Option<SourcePartition> = None;
     for _ in 0..count {
-        let partition = cur.take_i32(section)?;
+        let topic_id = if topic_ids {
+            cur.take_u8(section)?
+        } else {
+            SourcePartition::CLICKHOUSE_EVENTS_JSON_TOPIC_ID
+        };
+        let source = SourcePartition::new(topic_id, cur.take_i32(section)?);
         let offset = cur.take_i64(section)?;
-        if prev.is_some_and(|p| partition <= p) {
+        if prev.is_some_and(|p| source <= p) {
             return Err(PersonRecordCodecError::NotSorted { section });
         }
-        prev = Some(partition);
-        entries.push((partition, offset));
+        prev = Some(source);
+        entries.push((source, offset));
     }
     Ok(AppliedOffsets::from_sorted_entries(entries))
 }
@@ -898,10 +918,14 @@ mod tests {
         Uuid::from_u128(n)
     }
 
+    fn events_json(partition: i32) -> SourcePartition {
+        SourcePartition::clickhouse_events_json(partition)
+    }
+
     fn applied(entries: &[(i32, i64)]) -> AppliedOffsets {
         let mut applied = AppliedOffsets::default();
         for &(partition, offset) in entries {
-            applied.record(partition, offset);
+            applied.record(events_json(partition), offset);
         }
         applied
     }
@@ -1035,7 +1059,7 @@ mod tests {
     }
 
     fn coords() -> DedupCoords {
-        DedupCoords::new(None, 5, 100)
+        DedupCoords::new(None, events_json(5), 100)
     }
 
     #[test]
@@ -1045,7 +1069,7 @@ mod tests {
         let decision = decide(
             &present(record.clone()),
             Stamp::new(record.stamp.ms + 1_000, 0),
-            DedupCoords::new(None, 5, 100),
+            DedupCoords::new(None, events_json(5), 100),
             record.props_fingerprint,
             record.catalog_fingerprint,
         );
@@ -1060,7 +1084,7 @@ mod tests {
             decide(
                 &present(record.clone()),
                 record.stamp,
-                DedupCoords::new(None, 5, 1_000),
+                DedupCoords::new(None, events_json(5), 1_000),
                 record.props_fingerprint,
                 record.catalog_fingerprint,
             ),
@@ -1071,7 +1095,7 @@ mod tests {
             decide(
                 &present(record.clone()),
                 Stamp::new(record.stamp.ms - 1, i64::MAX),
-                DedupCoords::new(None, 5, 1_000),
+                DedupCoords::new(None, events_json(5), 1_000),
                 record.props_fingerprint,
                 record.catalog_fingerprint,
             ),
@@ -1085,7 +1109,7 @@ mod tests {
         let decision = decide(
             &present(record.clone()),
             Stamp::new(record.stamp.ms + 1, 0),
-            DedupCoords::new(None, 5, 1_000),
+            DedupCoords::new(None, events_json(5), 1_000),
             record.props_fingerprint,
             record.catalog_fingerprint,
         );
@@ -1103,7 +1127,7 @@ mod tests {
             decide(
                 &present(record.clone()),
                 fresh,
-                DedupCoords::new(None, 5, 1_000),
+                DedupCoords::new(None, events_json(5), 1_000),
                 other_props,
                 record.catalog_fingerprint,
             ),
@@ -1115,7 +1139,7 @@ mod tests {
             decide(
                 &present(record.clone()),
                 fresh,
-                DedupCoords::new(None, 5, 1_000),
+                DedupCoords::new(None, events_json(5), 1_000),
                 record.props_fingerprint,
                 other_catalog,
             ),
@@ -1127,7 +1151,7 @@ mod tests {
             decide(
                 &present(record.clone()),
                 fresh,
-                DedupCoords::new(None, 5, 1_000),
+                DedupCoords::new(None, events_json(5), 1_000),
                 other_props,
                 other_catalog,
             ),
@@ -1161,7 +1185,7 @@ mod tests {
         let decision = decide(
             &present(record.clone()),
             Stamp::new(record.stamp.ms - 5, 0), // also stale
-            DedupCoords::new(None, 5, 100),     // and a replay
+            DedupCoords::new(None, events_json(5), 100), // and a replay
             record.props_fingerprint,
             record.catalog_fingerprint,
         );
@@ -1174,7 +1198,11 @@ mod tests {
         prior.last_seen_ms = 1_000;
         prior.applied_offsets = applied(&[(5, 10)]);
         let event = Stamp::new(500, 7); // older than the stamp, newer last_seen
-        let next = apply_stale(&prior, Stamp::new(2_000, 7), DedupCoords::new(None, 5, 20));
+        let next = apply_stale(
+            &prior,
+            Stamp::new(2_000, 7),
+            DedupCoords::new(None, events_json(5), 20),
+        );
         let _ = event;
         assert_eq!(next.stamp, prior.stamp, "stamp unchanged by a stale event");
         assert_eq!(next.matched, prior.matched, "matched set unchanged");
@@ -1187,7 +1215,7 @@ mod tests {
             "last_seen advances to the event ms"
         );
         assert!(
-            next.applied_offsets.is_replay(5, 20),
+            next.applied_offsets.is_replay(events_json(5), 20),
             "the stale event still records its offset",
         );
     }
@@ -1208,7 +1236,7 @@ mod tests {
         let mut prior = sample_record();
         prior.last_seen_ms = 1_000;
         let event = Stamp::new(9_000, 3);
-        let next = apply_skip_eval(&prior, event, DedupCoords::new(None, 5, 20));
+        let next = apply_skip_eval(&prior, event, DedupCoords::new(None, events_json(5), 20));
         assert_eq!(
             next.stamp, event,
             "the fresh stamp is adopted (load-bearing for argMax)"
@@ -1218,7 +1246,7 @@ mod tests {
             "no eval ⇒ matched set unchanged"
         );
         assert_eq!(next.last_seen_ms, 9_000);
-        assert!(next.applied_offsets.is_replay(5, 20));
+        assert!(next.applied_offsets.is_replay(events_json(5), 20));
     }
 
     #[test]
@@ -1237,7 +1265,7 @@ mod tests {
             &catalog,
             &prior,
             event,
-            DedupCoords::new(None, 5, 20),
+            DedupCoords::new(None, events_json(5), 20),
             new_props,
             new_catalog,
         );
@@ -1263,7 +1291,7 @@ mod tests {
         assert_eq!(next.props_fingerprint, new_props);
         assert_eq!(next.catalog_fingerprint, new_catalog);
         assert_eq!(next.last_seen_ms, 9_000);
-        assert!(next.applied_offsets.is_replay(5, 20));
+        assert!(next.applied_offsets.is_replay(events_json(5), 20));
     }
 
     #[test]
@@ -1633,15 +1661,15 @@ mod tests {
         record.absorb_ancestor(p_old, &carrier);
 
         assert!(
-            record.redirect_dedup[&p_old].is_replay(5, 100),
+            record.redirect_dedup[&p_old].is_replay(events_json(5), 100),
             "P_old becomes an ancestor under its own uuid",
         );
         assert!(
-            record.redirect_dedup[&grandparent].is_replay(9, 42),
+            record.redirect_dedup[&grandparent].is_replay(events_json(9), 42),
             "the grandparent carries forward under its own origin, keyed not unioned",
         );
         assert!(
-            !record.applied_offsets.is_replay(5, 100),
+            !record.applied_offsets.is_replay(events_json(5), 100),
             "the ancestor's offsets never fold into the main map",
         );
     }
@@ -1653,17 +1681,17 @@ mod tests {
         record.redirect_dedup.clear();
         let ancestor = uuid(0xA11CE);
 
-        record.record_for(None, 5, 100);
-        assert!(record.is_replay_for(None, 5, 100));
+        record.record_for(None, events_json(5), 100);
+        assert!(record.is_replay_for(None, events_json(5), 100));
         assert!(
             record.redirect_dedup.is_empty(),
             "a direct event touches only the main map"
         );
 
-        record.record_for(Some(&ancestor), 5, 200);
-        assert!(record.is_replay_for(Some(&ancestor), 5, 200));
+        record.record_for(Some(&ancestor), events_json(5), 200);
+        assert!(record.is_replay_for(Some(&ancestor), events_json(5), 200));
         assert!(
-            !record.is_replay_for(None, 5, 150),
+            !record.is_replay_for(None, events_json(5), 150),
             "recording into the ancestor map must not advance the main map",
         );
     }
@@ -1684,10 +1712,24 @@ mod tests {
 
     // --- codec ---
 
+    fn record_with_an_ancestor_mark_from_another_topic() -> PersonRecord {
+        let mut record = sample_record();
+        record
+            .redirect_dedup
+            .get_mut(&uuid(0xA11CE))
+            .unwrap()
+            .record(SourcePartition::new(1, 9), 7);
+        record
+    }
+
     #[test]
     fn record_round_trips_through_the_codec() {
-        let record = sample_record();
-        assert_eq!(PersonRecord::decode(&record.encode()).unwrap(), record);
+        for record in [
+            sample_record(),
+            record_with_an_ancestor_mark_from_another_topic(),
+        ] {
+            assert_eq!(PersonRecord::decode(&record.encode()).unwrap(), record);
+        }
     }
 
     #[test]
@@ -1736,7 +1778,7 @@ mod tests {
         let mut record = sample_record();
         record.last_seen_ms = 0x0102_0304_0506_0708;
         let bytes = record.encode();
-        assert_eq!(&bytes[0..2], &[FORMAT_VERSION, FLAGS]);
+        assert_eq!(&bytes[0..2], &[FORMAT_VERSION, 0]);
         assert_eq!(
             i64::from_be_bytes(
                 bytes[LAST_SEEN_MS_OFFSET..LAST_SEEN_MS_OFFSET + 8]
@@ -1795,18 +1837,65 @@ mod tests {
     }
 
     #[test]
+    fn a_mark_from_another_topic_prefixes_every_entry_with_its_topic_id() {
+        let mut redirect = BTreeMap::new();
+        redirect.insert(uuid(0), applied(&[(7, 8)]));
+        let mut record = PersonRecord {
+            last_seen_ms: 1,
+            stamp: Stamp::new(2, 3),
+            props_fingerprint: PropsFingerprint(4),
+            catalog_fingerprint: CatalogFingerprint(5),
+            matched: MatchedSet::empty(),
+            applied_offsets: applied(&[(5, 100)]),
+            redirect_dedup: redirect,
+        };
+        record.applied_offsets.record(SourcePartition::new(1, 3), 9);
+
+        let mut expected = Vec::new();
+        expected.push(1u8); // format_version
+        expected.push(FLAG_TOPIC_IDS);
+        expected.extend_from_slice(&1i64.to_be_bytes()); // last_seen_ms
+        expected.extend_from_slice(&2i64.to_be_bytes()); // stamp.ms
+        expected.extend_from_slice(&3i64.to_be_bytes()); // stamp.offset
+        expected.extend_from_slice(&4u128.to_le_bytes()); // props_fingerprint
+        expected.extend_from_slice(&5u128.to_le_bytes()); // catalog_fingerprint
+        expected.extend_from_slice(&0u32.to_be_bytes()); // matched count
+        expected.extend_from_slice(&2u32.to_be_bytes()); // applied count
+        expected.push(0); // applied[0].topic_id
+        expected.extend_from_slice(&5i32.to_be_bytes()); // applied[0].partition
+        expected.extend_from_slice(&100i64.to_be_bytes()); // applied[0].offset
+        expected.push(1); // applied[1].topic_id
+        expected.extend_from_slice(&3i32.to_be_bytes()); // applied[1].partition
+        expected.extend_from_slice(&9i64.to_be_bytes()); // applied[1].offset
+        expected.extend_from_slice(&1u32.to_be_bytes()); // redirect count
+        expected.extend_from_slice(uuid(0).as_bytes()); // ancestor uuid
+        expected.extend_from_slice(&1u32.to_be_bytes()); // ancestor offset count
+        expected.push(0); // ancestor[0].topic_id
+        expected.extend_from_slice(&7i32.to_be_bytes()); // ancestor[0].partition
+        expected.extend_from_slice(&8i64.to_be_bytes()); // ancestor[0].offset
+
+        assert_eq!(record.encode(), expected);
+        assert_eq!(PersonRecord::decode(&expected).unwrap(), record);
+    }
+
+    #[test]
     fn decode_truncation_at_every_boundary_errs_never_panics() {
-        let bytes = sample_record().encode();
-        for k in 0..bytes.len() {
-            let result = PersonRecord::decode(&bytes[..k]);
-            assert!(
-                result.is_err(),
-                "a buffer truncated to {k} of {} bytes must fail to decode",
-                bytes.len(),
-            );
+        for record in [
+            sample_record(),
+            record_with_an_ancestor_mark_from_another_topic(),
+        ] {
+            let bytes = record.encode();
+            for k in 0..bytes.len() {
+                let result = PersonRecord::decode(&bytes[..k]);
+                assert!(
+                    result.is_err(),
+                    "a buffer truncated to {k} of {} bytes must fail to decode",
+                    bytes.len(),
+                );
+            }
+            // The full buffer decodes.
+            assert!(PersonRecord::decode(&bytes).is_ok());
         }
-        // The full buffer decodes.
-        assert!(PersonRecord::decode(&bytes).is_ok());
     }
 
     #[test]
@@ -1823,12 +1912,12 @@ mod tests {
     }
 
     #[test]
-    fn decode_rejects_nonzero_flags() {
+    fn decode_rejects_unknown_flags() {
         let mut bytes = sample_record().encode();
         bytes[1] = 0x80;
         assert_eq!(
             PersonRecord::decode(&bytes),
-            Err(PersonRecordCodecError::NonZeroFlags { found: 0x80 }),
+            Err(PersonRecordCodecError::UnknownFlags { found: 0x80 }),
         );
     }
 
