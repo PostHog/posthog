@@ -3263,9 +3263,12 @@ jobs:
               with:
                   node-version-file: .nvmrc
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
+            # A single `npm ci` on an empty npm cache intermittently fails with EEXIST or ENOENT on a
+            # `_cacache/tmp` file, with no other process using the cache.
             - name: Install canvas builder dependencies
               if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Core' }}
               shell: bash
+              retry: 2
               run: |
                   if [[ -f products/canvas/packages/canvas_builder/package.json ]]; then
                       npm ci --ignore-scripts --omit=dev --no-audit --no-fund --prefix products/canvas/packages/canvas_builder
