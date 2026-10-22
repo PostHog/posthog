@@ -3,6 +3,12 @@ import type { ReactElement } from 'react'
 import { DescriptionList, formatDate } from '@posthog/mcp-ui'
 import { Badge, Button, Card, CardContent } from '@posthog/quill'
 
+import type {
+    ErrorTrackingIssueSummaryApi,
+    IssueSummaryCategoryEnumApi,
+    IssueSummaryStatusEnumApi,
+} from '../../frontend/generated/api.schemas'
+
 export interface ExternalIssue {
     external_url: string
     integration?: { display_name?: string }
@@ -47,18 +53,7 @@ export function formatBreakdownValues(values: ErrorIssueBreakdownValue[] | undef
     return (values ?? []).map(({ value, count }) => `${value} (${count})`).join(', ')
 }
 
-export type ErrorIssueSummaryCategory = 'own_code' | 'third_party' | 'network' | 'bots' | 'expected' | 'unclear'
-
-export interface ErrorIssueSummary {
-    what_happened: string
-    likely_cause: string
-    who_is_affected: string
-    suggested_next_step: string
-    category?: ErrorIssueSummaryCategory
-    generated_at: string
-}
-
-const summaryCategoryLabels: Record<ErrorIssueSummaryCategory, string> = {
+const summaryCategoryLabels: Record<IssueSummaryCategoryEnumApi, string> = {
     own_code: 'Own code',
     third_party: 'Third party',
     network: 'Network',
@@ -76,8 +71,8 @@ export interface ErrorIssueData {
     assignee?: { id: string; type: string } | null
     external_issues?: ExternalIssue[]
     breakdown?: ErrorIssueBreakdown
-    summary?: ErrorIssueSummary
-    summary_status?: 'ready' | 'generating' | 'unavailable'
+    summary?: ErrorTrackingIssueSummaryApi
+    summary_status?: IssueSummaryStatusEnumApi
     _posthogUrl?: string
 }
 

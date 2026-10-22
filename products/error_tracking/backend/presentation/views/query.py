@@ -97,24 +97,19 @@ class IssueSummaryRead:
 def read_issue_summary(team_id: int, issue_id: str) -> IssueSummaryRead:
     """Return the stored summary, or wait a bounded time for a first one. A summary failure never fails the read."""
     try:
-        return _read_issue_summary(team_id, issue_id)
+        # A stale stored summary returns at once while a newer one generates in the background.
+        summary = summaries_facade.get_issue_summary(team_id, issue_id)
+        started_at = now()
+        started = summaries_facade.start_issue_summary_generation(team_id, issue_id)
+        if summary is None and not started:
+            return IssueSummaryRead(status=IssueSummaryStatus.UNAVAILABLE, summary=None)
+        if summary is None:
+            summary = summaries_facade.wait_for_issue_summary(
+                team_id, issue_id, checked_after=started_at, timeout_seconds=ISSUE_SUMMARY_WAIT_SECONDS
+            )
     except Exception as error:
         capture_exception(error, {"team_id": team_id, "issue_id": issue_id})
         return IssueSummaryRead(status=IssueSummaryStatus.UNAVAILABLE, summary=None)
-
-
-def _read_issue_summary(team_id: int, issue_id: str) -> IssueSummaryRead:
-    # A stale stored summary returns at once while a newer one generates in the background.
-    stored = summaries_facade.get_issue_summary(team_id, issue_id)
-    started_at = now()
-    started = summaries_facade.start_issue_summary_generation(team_id, issue_id)
-    if stored is not None:
-        return IssueSummaryRead(status=IssueSummaryStatus.READY, summary=stored)
-    if not started:
-        return IssueSummaryRead(status=IssueSummaryStatus.UNAVAILABLE, summary=None)
-    summary = summaries_facade.wait_for_issue_summary(
-        team_id, issue_id, checked_after=started_at, timeout_seconds=ISSUE_SUMMARY_WAIT_SECONDS
-    )
     if summary is None:
         return IssueSummaryRead(status=IssueSummaryStatus.GENERATING, summary=None)
     return IssueSummaryRead(status=IssueSummaryStatus.READY, summary=summary)
