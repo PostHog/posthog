@@ -181,6 +181,21 @@ const SOURCE_PRODUCT_META: Partial<Record<SourceProduct, SourceProductMeta>> = {
   canny: { Icon: MegaphoneIcon, color: "var(--blue-9)", label: "Canny" },
   asknicely: { Icon: StarIcon, color: "var(--green-9)", label: "AskNicely" },
   retently: { Icon: StarIcon, color: "var(--teal-9)", label: "Retently" },
+  usersnap: { Icon: StarIcon, color: "var(--orange-9)", label: "Usersnap" },
+  typeform: { Icon: StarIcon, color: "var(--gray-9)", label: "Typeform" },
+  qualtrics: { Icon: StarIcon, color: "var(--blue-9)", label: "Qualtrics" },
+  surveymonkey: {
+    Icon: StarIcon,
+    color: "var(--green-9)",
+    label: "SurveyMonkey",
+  },
+  formbricks: { Icon: StarIcon, color: "var(--purple-9)", label: "Formbricks" },
+  survicate: { Icon: StarIcon, color: "var(--teal-9)", label: "Survicate" },
+  surveysparrow: {
+    Icon: StarIcon,
+    color: "var(--amber-9)",
+    label: "SurveySparrow",
+  },
   appfigures: { Icon: StarIcon, color: "var(--blue-9)", label: "Appfigures" },
   appfollow: { Icon: StarIcon, color: "var(--green-9)", label: "AppFollow" },
   judgeme_reviews: {

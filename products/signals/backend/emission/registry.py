@@ -167,6 +167,7 @@ def _register_all_emitters() -> None:
     from products.signals.backend.emission.dixa_conversations import DIXA_CONFIG
     from products.signals.backend.emission.featurebase_posts import FEATUREBASE_CONFIG
     from products.signals.backend.emission.firehydrant_incidents import FIREHYDRANT_CONFIG
+    from products.signals.backend.emission.formbricks_responses import FORMBRICKS_CONFIG
     from products.signals.backend.emission.freshdesk_tickets import FRESHDESK_CONFIG
     from products.signals.backend.emission.freshservice_tickets import FRESHSERVICE_CONFIG
     from products.signals.backend.emission.frill_ideas import FRILL_CONFIG
@@ -191,6 +192,7 @@ def _register_all_emitters() -> None:
     from products.signals.backend.emission.pganalyze_issues import PGANALYZE_ISSUES_CONFIG
     from products.signals.backend.emission.plain_threads import PLAIN_CONFIG
     from products.signals.backend.emission.productboard_notes import PRODUCTBOARD_CONFIG
+    from products.signals.backend.emission.qualtrics_survey_responses import QUALTRICS_CONFIG
 
     # Tier-2 security scanners
     from products.signals.backend.emission.rapid7_insightvm_vulnerabilities import RAPID7_INSIGHTVM_CONFIG
@@ -205,6 +207,11 @@ def _register_all_emitters() -> None:
     from products.signals.backend.emission.solarwinds_service_desk_incidents import SOLARWINDS_SERVICE_DESK_CONFIG
     from products.signals.backend.emission.sonarqube_issues import SONARQUBE_CONFIG
     from products.signals.backend.emission.squadcast_incidents import SQUADCAST_CONFIG
+    from products.signals.backend.emission.surveymonkey_survey_responses import SURVEYMONKEY_CONFIG
+    from products.signals.backend.emission.surveysparrow_responses import SURVEYSPARROW_CONFIG
+    from products.signals.backend.emission.survicate_responses import SURVICATE_CONFIG
+    from products.signals.backend.emission.typeform_responses import TYPEFORM_CONFIG
+    from products.signals.backend.emission.usersnap_feedbacks import USERSNAP_CONFIG
     from products.signals.backend.emission.uservoice_suggestions import USERVOICE_CONFIG
     from products.signals.backend.emission.xmatters_incidents import XMATTERS_CONFIG
     from products.signals.backend.emission.zendesk_tickets import ZENDESK_TICKETS_CONFIG
@@ -277,6 +284,14 @@ def _register_all_emitters() -> None:
     # Data quality / observability (record kind: incident)
     register_signal_source(ExternalDataSourceType.MONTECARLO, "alerts", MONTE_CARLO_CONFIG)
     register_signal_source(ExternalDataSourceType.BIGEYE, "Issues", BIGEYE_CONFIG)
+    # Tier-2 surveys (record kind: feedback)
+    register_signal_source(ExternalDataSourceType.USERSNAP, "feedbacks", USERSNAP_CONFIG)
+    register_signal_source(ExternalDataSourceType.TYPEFORM, "responses", TYPEFORM_CONFIG)
+    register_signal_source(ExternalDataSourceType.QUALTRICS, "survey_responses", QUALTRICS_CONFIG)
+    register_signal_source(ExternalDataSourceType.SURVEYMONKEY, "survey_responses", SURVEYMONKEY_CONFIG)
+    register_signal_source(ExternalDataSourceType.FORMBRICKS, "responses", FORMBRICKS_CONFIG)
+    register_signal_source(ExternalDataSourceType.SURVICATE, "responses", SURVICATE_CONFIG)
+    register_signal_source(ExternalDataSourceType.SURVEYSPARROW, "responses", SURVEYSPARROW_CONFIG)
 
 
 _register_all_emitters()

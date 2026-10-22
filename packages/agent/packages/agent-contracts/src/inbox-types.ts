@@ -48,6 +48,7 @@ const CONVERSATION = "Monitor incoming support conversations";
 const ERROR = "Surface new and reopened errors";
 const FINDING = "Surface new security and code-quality findings";
 const FEEDBACK = "Turn product feedback and feature requests into inputs";
+const SURVEY = "Turn open-ended survey answers into inputs";
 const REVIEW = "Monitor new app and product reviews";
 const SEARCH = "Fix pages that rank in Google but lose clicks";
 
@@ -364,6 +365,69 @@ export const EXTERNAL_INBOX_SOURCES = [
     description: FEEDBACK,
     dwSourceType: "Retently",
     requiredTables: ["feedback"],
+    recordKind: "feedback",
+    setup: "dynamic",
+  },
+  {
+    product: "usersnap",
+    label: "Usersnap",
+    description: FEEDBACK,
+    dwSourceType: "Usersnap",
+    requiredTables: ["feedbacks"],
+    recordKind: "feedback",
+    setup: "dynamic",
+  },
+  {
+    product: "typeform",
+    label: "Typeform",
+    description: SURVEY,
+    dwSourceType: "Typeform",
+    requiredTables: ["responses"],
+    recordKind: "feedback",
+    setup: "dynamic",
+  },
+  {
+    product: "qualtrics",
+    label: "Qualtrics",
+    description: SURVEY,
+    dwSourceType: "Qualtrics",
+    requiredTables: ["survey_responses"],
+    recordKind: "feedback",
+    setup: "dynamic",
+  },
+  {
+    product: "surveymonkey",
+    label: "SurveyMonkey",
+    description: SURVEY,
+    dwSourceType: "SurveyMonkey",
+    requiredTables: ["survey_responses"],
+    recordKind: "feedback",
+    setup: "dynamic",
+  },
+  {
+    product: "formbricks",
+    label: "Formbricks",
+    description: SURVEY,
+    dwSourceType: "Formbricks",
+    requiredTables: ["responses"],
+    recordKind: "feedback",
+    setup: "dynamic",
+  },
+  {
+    product: "survicate",
+    label: "Survicate",
+    description: SURVEY,
+    dwSourceType: "Survicate",
+    requiredTables: ["responses"],
+    recordKind: "feedback",
+    setup: "dynamic",
+  },
+  {
+    product: "surveysparrow",
+    label: "SurveySparrow",
+    description: SURVEY,
+    dwSourceType: "SurveySparrow",
+    requiredTables: ["responses"],
     recordKind: "feedback",
     setup: "dynamic",
   },
