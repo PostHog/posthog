@@ -12,9 +12,15 @@ export const FLAG_EVALUATIONS_TABLE = 'posthog.flag_evaluations'
 export const FEATURE_FLAG_CALLED_EVENT = '$feature_flag_called'
 
 const EVENTS_MODE = FlagEvaluationsModeEnumApi.Number0
+const FLAG_EVALUATIONS_ONLY_MODE = FlagEvaluationsModeEnumApi.Number2
 
 export function readsFlagEvaluationsTable(team: TeamPublicType | TeamType | null): boolean {
     return (team?.flag_evaluations_mode ?? EVENTS_MODE) !== EVENTS_MODE
+}
+
+/** Whether ingestion writes the team's flag calls to flag_evaluations instead of `events`. */
+export function storesFlagCallsOutsideEvents(team: TeamPublicType | TeamType | null): boolean {
+    return team?.flag_evaluations_mode === FLAG_EVALUATIONS_ONLY_MODE
 }
 
 /**

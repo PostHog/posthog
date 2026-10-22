@@ -36,6 +36,7 @@ const mockAIObservabilityScoreDefinitionsPartialUpdate =
 const mockScoreDefinition: ScoreDefinition = {
     tags: [],
     id: 'score_def_1',
+    short_name: '',
     name: 'Quality',
     description: 'Reusable quality scorer',
     kind: 'categorical',
@@ -76,7 +77,12 @@ describe('aiObservabilityScoreDefinitionsLogic', () => {
         mockAIObservabilityScoreDefinitionsPartialUpdate.mockResolvedValue(mockScoreDefinition)
     })
 
-    it('loads score definitions on mount using the default filters', async () => {
+    it.each([
+        { orderBy: undefined, expectedOrder: '-updated_at' },
+        { orderBy: 'invalid', expectedOrder: '-updated_at' },
+        { orderBy: 'name', expectedOrder: 'name' },
+    ])('loads scorers with sort $expectedOrder for URL sort $orderBy', async ({ orderBy, expectedOrder }) => {
+        router.actions.push(urls.aiObservabilityScorers(), { order_by: orderBy })
         const logic = aiObservabilityScoreDefinitionsLogic()
         logic.mount()
 
@@ -86,10 +92,15 @@ describe('aiObservabilityScoreDefinitionsLogic', () => {
             search: undefined,
             kind: undefined,
             archived: false,
-            order_by: 'name',
+            order_by: expectedOrder,
             offset: 0,
             limit: SCORE_DEFINITIONS_PER_PAGE,
         })
+        expect(logic.values.sorting).toEqual(
+            expectedOrder === 'name' ? { columnKey: 'name', order: 1 } : { columnKey: 'updated_at', order: -1 }
+        )
+        await expectLogic(logic, () => logic.actions.setFilters({ search: 'quality' })).toFinishAllListeners()
+        expect(router.values.searchParams.order_by).toBe(expectedOrder === '-updated_at' ? undefined : expectedOrder)
     })
 
     it.each(['saved', 'url'])('waits for the project before restoring %s tag filters', async (source) => {
@@ -136,14 +147,14 @@ describe('aiObservabilityScoreDefinitionsLogic', () => {
             created_by: 42,
             kind: 'categorical',
             archived: 'true',
-            order_by: 'name',
+            order_by: '-updated_at',
         })
         expect(mockAIObservabilityScoreDefinitionsList).toHaveBeenLastCalledWith(String(MOCK_DEFAULT_TEAM.id), {
             search: 'quality',
             created_by: 42,
             kind: 'categorical',
             archived: true,
-            order_by: 'name',
+            order_by: '-updated_at',
             offset: 0,
             limit: SCORE_DEFINITIONS_PER_PAGE,
         })
