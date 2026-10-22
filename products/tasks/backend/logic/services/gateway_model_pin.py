@@ -14,6 +14,8 @@ SDK_IMPLICIT_MODELS: tuple[str, ...] = ("claude-haiku-4-5", "claude-sonnet-4-5")
 _GATEWAY_RESTRICTED_MODEL_PRODUCTS: dict[str, frozenset[str]] = {
     "deepseek-ai/deepseek-v4-flash-0731": frozenset({"posthog_code", "review_hog"}),
     "deepseek-ai/deepseek-v4.1-flash-1017-fast": frozenset({"posthog_code", "review_hog", "signals_scout"}),
+    # Excluded from every first-party pin; posthog_code admits it through DESKTOP_AGENT_MODELS.
+    "zai-org/glm-5.2": frozenset({"posthog_code"}),
     "zai-org/glm-5.3": frozenset({"posthog_code", "review_hog"}),
     "zai-org/glm-5.3-flash": frozenset({"posthog_code", "review_hog"}),
 }
