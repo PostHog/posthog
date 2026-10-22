@@ -21,7 +21,7 @@ export function WatchPanel({
     summaryActions?: React.ReactNode
 }): JSX.Element | null {
     const { logicProps, sessionRecordingId } = useValues(sessionRecordingPlayerLogic)
-    const { sidebarOpen } = useValues(playerSettingsLogic)
+    const { sidebarOpen, watchDebugDock } = useValues(playerSettingsLogic)
     if (!sessionRecordingId) {
         return null
     }
@@ -34,7 +34,7 @@ export function WatchPanel({
             {vision && <SummarizeRecordingBar extraActions={summaryActions} />}
             <RecordingOverviewDisclosure />
             <RecordingCommentsList sessionId={sessionRecordingId} />
-            {sidebarOpen && <RecordingDebugSection />}
+            {sidebarOpen && watchDebugDock === 'bottom' && <RecordingDebugSection />}
             <RecordingSections />
         </div>
     )

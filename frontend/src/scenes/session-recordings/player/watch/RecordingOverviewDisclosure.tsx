@@ -4,7 +4,8 @@ import { IconChevronDown, IconChevronRight } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
-import { PlayerSidebarOverviewTab } from 'scenes/session-recordings/player/sidebar/PlayerSidebarOverviewTab'
+
+import { RecordingOverviewPanels } from './RecordingOverviewPanels'
 
 /** The sidebar's Overview behind a disclosure, remembered across recordings. */
 export function RecordingOverviewDisclosure(): JSX.Element {
@@ -25,8 +26,8 @@ export function RecordingOverviewDisclosure(): JSX.Element {
                 Overview
             </LemonButton>
             {open && (
-                <div className="border rounded overflow-hidden" data-attr="watch-panel-overview">
-                    <PlayerSidebarOverviewTab />
+                <div className="border rounded overflow-hidden">
+                    <RecordingOverviewPanels />
                 </div>
             )}
         </div>

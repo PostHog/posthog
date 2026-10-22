@@ -22,6 +22,7 @@ import { RecordingsUniversalFiltersEmbed } from '../filters/RecordingsUniversalF
 import { playerSettingsLogic } from '../player/playerSettingsLogic'
 import { SessionRecordingPlayer } from '../player/SessionRecordingPlayer'
 import { playlistFiltersLogic } from './playlistFiltersLogic'
+import { isNewReplayLayout } from './replayLayout'
 import { ReplayListColumn } from './ReplayListColumn'
 import { ReplayListColumnWithPicks } from './ReplayListColumnWithPicks'
 import { SessionRecordingPlaylistLogicProps, sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic'
@@ -91,7 +92,7 @@ function PlaylistColumn({ picksInList, ...props }: LayoutProps): JSX.Element {
     if (isPlaylistCollapsed) {
         return <Playlist {...props} />
     }
-    if (replayLayout === 'watch') {
+    if (isNewReplayLayout(replayLayout)) {
         const logicKey = props.logicKey ?? 'playlist'
         return picksInList ? (
             <ReplayListColumnWithPicks logicKey={logicKey} recordingsList={<Playlist {...props} />} />

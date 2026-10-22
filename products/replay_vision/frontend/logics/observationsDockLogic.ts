@@ -535,7 +535,7 @@ export const observationsDockLogic = kea<observationsDockLogicType>([
             showObservations: () => {
                 // In the watch layout the observations live in the list column's Moments segment, which follows the
                 // tab change on its own; opening the sidebar there would switch the page into Debug mode instead.
-                if (values.replayLayout !== 'watch') {
+                if (values.replayLayout === 'classic') {
                     actions.setSidebarOpen(true)
                 }
                 actions.setTab(SessionRecordingSidebarTab.OBSERVATIONS)

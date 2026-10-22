@@ -5,8 +5,12 @@ import { LemonMenuItem, LemonMenuItems } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 
 import { RecordingUniversalFilters } from '~/types'
 
-import { useAutoplayMenuItems, useLayoutMenuItems, useTimestampFormatMenuItems } from './listViewMenuItems'
-import { useHideRecordingsMenuItems } from './listViewMenuItems'
+import {
+    useAutoplayMenuItems,
+    useHideRecordingsMenuItems,
+    useLayoutMenuItems,
+    useTimestampFormatMenuItems,
+} from './listViewMenuItems'
 import {
     RecordingSort,
     preferredRecordingsSortStorage,
@@ -83,7 +87,6 @@ export function useWatchViewMenuItems(
             'data-attr': 'list-sort-direction-asc',
         },
     ]
-    // Only "hide watched by me" stays; hiding what anyone watched was dropped for low use.
     const showItems: LemonMenuItem[] = [
         ...(canFilterByRelevance
             ? [
@@ -100,9 +103,7 @@ export function useWatchViewMenuItems(
                   },
               ]
             : []),
-        ...hideItems.filter(
-            (item) => (item as { 'data-attr'?: string })['data-attr'] !== 'hide-viewed-recordings-hide-any-user'
-        ),
+        ...hideItems,
     ]
 
     return [{ title: 'Sort by', items: sortItems }, { items: directionItems }, { title: 'Show', items: showItems }]

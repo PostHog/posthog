@@ -30,6 +30,8 @@ import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSett
 import { OngoingRecordingsGroup } from 'scenes/session-recordings/playlist/OngoingRecordingsGroup'
 import { playlistFiltersLogic } from 'scenes/session-recordings/playlist/playlistFiltersLogic'
 import { ReplayFilterBar } from 'scenes/session-recordings/playlist/ReplayFilterBar'
+import { isNewReplayLayout } from 'scenes/session-recordings/playlist/replayLayout'
+import { ReplayListHeader } from 'scenes/session-recordings/playlist/ReplayListHeader'
 import { SessionRecordingPreview } from 'scenes/session-recordings/playlist/SessionRecordingPreview'
 import { SessionRecordingPreviewCompact } from 'scenes/session-recordings/playlist/SessionRecordingPreviewCompact'
 import { sessionRecordingsPlaylistLogic } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
@@ -109,8 +111,7 @@ export function Playlist({
 
     const notebookNode = useNotebookNode()
     const embedded = !!notebookNode
-    // The watch layout folds the filter button, the sort menu and the selection controls into one header row.
-    const watchFilterBar = replayLayout === 'watch' && !notebookNode && type !== 'collection'
+    const watchFilterBar = isNewReplayLayout(replayLayout) && !notebookNode && type !== 'collection'
 
     // bound outside here
     const {
@@ -153,14 +154,14 @@ export function Playlist({
     }
 
     const renderRow = ({ item, isActive }: { item: SessionRecordingType; isActive: boolean }): JSX.Element =>
-        replayLayout === 'watch' ? (
+        isNewReplayLayout(replayLayout) ? (
             <SessionRecordingPreviewCompact recording={item} isActive={isActive} selectable />
         ) : (
             <SessionRecordingPreview recording={item} isActive={isActive} selectable />
         )
 
     // Still-ingesting recordings fold above the results in the watch layout, so the list opens on finished ones.
-    const ongoingRecordings = replayLayout === 'watch' ? otherRecordings.filter((r) => r.ongoing) : []
+    const ongoingRecordings = isNewReplayLayout(replayLayout) ? otherRecordings.filter((r) => r.ongoing) : []
     const finishedRecordings =
         ongoingRecordings.length > 0 ? otherRecordings.filter((r) => !r.ongoing) : otherRecordings
 
@@ -305,8 +306,6 @@ export function Playlist({
                         totalFiltersCount={totalFiltersCount}
                         currentSessionRecordingId={activeSessionRecordingId}
                         onReload={() => maybeLoadSessionRecordings()}
-                        collapseButton={collapseButton}
-                        type="filters"
                     />
                 </div>
             )}
@@ -357,6 +356,13 @@ export function Playlist({
                 >
                     <div className="flex flex-col relative w-full bg-bg-light overflow-hidden h-full Playlist__list">
                         <div className="relative">
+                            {watchFilterBar && (
+                                <ReplayListHeader
+                                    filters={filters}
+                                    setFilters={setFilters}
+                                    collapseButton={collapseButton}
+                                />
+                            )}
                             {!watchFilterBar && (
                                 <DraggableToNotebook href={urls.replay(ReplayTabs.Home, filters)}>
                                     <div className="shrink-0 bg-bg-3000 flex justify-between items-center gap-0.5 whitespace-nowrap border-b">

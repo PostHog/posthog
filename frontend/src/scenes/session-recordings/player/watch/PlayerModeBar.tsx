@@ -11,7 +11,6 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { IconWindow } from 'scenes/session-recordings/player/icons'
 import { parseUrl } from 'scenes/session-recordings/player/player-meta/PlayerMeta'
-import { PlayerMetaExperimentTags } from 'scenes/session-recordings/player/player-meta/PlayerMetaExperimentTags'
 import {
     InsertInNotebookPlaylistButton,
     MenuActions,
@@ -122,12 +121,11 @@ export function PlayerModeBar(): JSX.Element {
                         )}
                     </>
                 )}
-                <PlayerMetaExperimentTags />
                 <div className="flex-1 min-w-4" />
                 <div className="flex items-center gap-0.5">
                     {sessionRecordingId && <MenuActions size={size} extraItems={chromeItems} />}
                     <SetPlaybackSpeed />
-                    {mode === 'debug' && <InspectDOM />}
+                    <InspectDOM />
                     <InsertInNotebookPlaylistButton size={size} />
                     <PlayerShareMenu />
                 </div>
