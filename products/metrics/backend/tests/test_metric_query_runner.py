@@ -1,4 +1,5 @@
 import datetime as dt
+from types import SimpleNamespace
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -13,6 +14,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.hogql import ast
+from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
@@ -24,6 +26,7 @@ from products.metrics.backend.facade.contracts import MetricFilter, MetricGroupB
 from products.metrics.backend.facade.enums import AttributeScope, FilterOp, MetricAggregation, MetricRangeFunction
 from products.metrics.backend.metric_query_runner import (
     _INTERVAL_LADDER,
+    _QUERY_SETTINGS,
     MetricQueryRunner,
     _align_to_interval,
     attribute_field,
@@ -2060,3 +2063,25 @@ class TestBuildMetricQueryRunner(APIBaseTest):
             interval=interval,
         )
         self.assertIs(type(runner), expected)
+
+
+class TestQuerySettingsPassthrough(APIBaseTest):
+    def test_query_settings_reach_execute_hogql_query(self):
+        anchor = timezone.now().replace(microsecond=0)
+        custom = HogQLGlobalSettings(max_execution_time=7, timeout_overflow_mode="throw")
+        with patch(
+            "products.metrics.backend.metric_query_runner.execute_hogql_query",
+            return_value=SimpleNamespace(results=[]),
+        ) as execute:
+            MetricQueryRunner(
+                team=self.team,
+                metric_name="m1",
+                aggregation="sum",
+                date_from=anchor - dt.timedelta(hours=1),
+                date_to=anchor,
+                query_settings=custom,
+            ).run()
+        merged = execute.call_args.kwargs["settings"]
+        assert merged.max_execution_time == 7
+        assert merged.timeout_overflow_mode == "throw"
+        assert merged.max_bytes_to_read == _QUERY_SETTINGS.max_bytes_to_read
