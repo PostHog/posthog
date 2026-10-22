@@ -108,6 +108,14 @@ function isRequest(msg: JSONRPCMessage): msg is JSONRPCRequest {
     )
 }
 
+const SDK_MINTED_CONVERSATION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
+
+function echoedConversationId(request: JSONRPCRequest): string | undefined {
+    const value = (request.params?.arguments as { conversation_id?: unknown } | undefined)?.conversation_id
+    const id = typeof value === 'string' ? value.trim().toLowerCase() : undefined
+    return id && SDK_MINTED_CONVERSATION_ID.test(id) ? id : undefined
+}
+
 type JsonRpcResultResponse = { jsonrpc: typeof JSONRPC_VERSION; id: number | string; result: unknown }
 type JsonRpcErrorResponse = {
     jsonrpc: typeof JSONRPC_VERSION
@@ -259,6 +267,12 @@ class McpDispatcher {
         const hasInit = !singleModern && requests.some((r) => r.method === Method.Initialize)
         if (hasInit) {
             props.mcpSessionId = randomUUID()
+        }
+
+        // A sessionless agent's context store keys on its conversation, so read the id before state resolves.
+        // Only the shape the analytics SDK mints counts, because the SDK replaces any other id with a new one.
+        if (!props.mcpSessionId && requests.length === 1 && requests[0]!.method === Method.ToolsCall) {
+            props.mcpConversationId = echoedConversationId(requests[0]!) ?? props.mcpConversationId
         }
 
         const needsState = requests.some((r) => TRACKED_METHODS.has(r.method))
