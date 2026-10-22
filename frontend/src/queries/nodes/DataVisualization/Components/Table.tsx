@@ -425,7 +425,7 @@ export const Table = (props: TableProps): JSX.Element => {
                 embedded={props.embedded}
                 allowContentScroll={!!props.embedded}
                 virtualized={virtualized}
-                virtualizedColumnWidth={isTransposed && tabularColumns.length > 50 ? 192 : undefined}
+                virtualizedColumnWidth={(virtualized || isTransposed) && tabularColumns.length > 50 ? 192 : undefined}
                 tableLayout={virtualized ? 'fixed' : 'auto'}
                 tableStyle={virtualized ? { minWidth: `${tabularColumns.length * 12}rem` } : undefined}
             />

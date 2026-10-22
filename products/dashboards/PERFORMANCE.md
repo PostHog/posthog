@@ -154,6 +154,10 @@ Mode changes and virtualization must not accidentally invalidate queries or star
 A fast network response can still cause a slow interface if parsing, state propagation, or rendering is expensive.
 A slow request does not explain a delayed local drag unless the interaction actually waits for it.
 
+SQL result tables in dashboard cards use row virtualization inside the tile's scroll area.
+Tables with more than 50 columns also use column virtualization with fixed column widths, unless pinned columns require the full column layout.
+Image exports keep the full table layout. Virtualization limits rendered cells; it does not reduce query results or data preparation.
+
 ## Measure the affected experience
 
 Respect the user's constraints on runtime checks, tests, and publishing.
