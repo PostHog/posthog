@@ -71,6 +71,19 @@ CREATE TABLE posthog.ai_events (
   _offset UInt64,
   _partition UInt64
 ) ENGINE = Distributed('ai_events', 'posthog', 'sharded_ai_events', cityHash64(concat(toString(team_id), '-', trace_id, '-', toString(toDate(timestamp)))));
+CREATE TABLE posthog.app_metrics2 (
+  team_id Int64,
+  timestamp DateTime64(6, 'UTC'),
+  app_source LowCardinality(String),
+  app_source_id String,
+  instance_id String,
+  metric_kind LowCardinality(String),
+  metric_name LowCardinality(String),
+  count SimpleAggregateFunction(sum, Int64),
+  _timestamp DateTime,
+  _offset UInt64,
+  _partition UInt64
+) ENGINE = Distributed('aux', 'posthog', 'sharded_app_metrics2', rand());
 CREATE TABLE posthog.billing_usage_records (
   schema_version UInt8,
   record_id String,
@@ -916,19 +929,6 @@ CREATE TABLE posthog.sharded_app_metrics (
   _offset UInt64,
   _partition UInt64
 ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/{shard}/posthog.sharded_app_metrics', '{replica}') ORDER BY (team_id, plugin_config_id, job_id, category, toStartOfHour(timestamp), error_type, error_uuid) PARTITION BY toYYYYMM(timestamp) SETTINGS index_granularity = 8192;
-CREATE TABLE posthog.sharded_app_metrics2 (
-  team_id Int64,
-  timestamp DateTime64(6, 'UTC'),
-  app_source LowCardinality(String),
-  app_source_id String,
-  instance_id String,
-  metric_kind LowCardinality(String),
-  metric_name LowCardinality(String),
-  count SimpleAggregateFunction(sum, Int64),
-  _timestamp DateTime,
-  _offset UInt64,
-  _partition UInt64
-) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/{shard}/posthog.sharded_app_metrics2', '{replica}') ORDER BY (team_id, app_source, app_source_id, instance_id, toStartOfHour(timestamp), metric_kind, metric_name) PARTITION BY toYYYYMM(timestamp) TTL toDate(timestamp) + toIntervalDay(90) SETTINGS index_granularity = 8192;
 CREATE TABLE posthog.sharded_distinct_id_usage (
   team_id Int64,
   distinct_id String,
@@ -2968,19 +2968,6 @@ CREATE TABLE posthog.app_metrics (
   _offset UInt64,
   _partition UInt64
 ) ENGINE = Distributed('posthog', 'posthog', 'sharded_app_metrics', rand());
-CREATE TABLE posthog.app_metrics2 (
-  team_id Int64,
-  timestamp DateTime64(6, 'UTC'),
-  app_source LowCardinality(String),
-  app_source_id String,
-  instance_id String,
-  metric_kind LowCardinality(String),
-  metric_name LowCardinality(String),
-  count SimpleAggregateFunction(sum, Int64),
-  _timestamp DateTime,
-  _offset UInt64,
-  _partition UInt64
-) ENGINE = Distributed('posthog', 'posthog', 'sharded_app_metrics2', rand());
 CREATE TABLE posthog.distinct_id_usage (
   team_id Int64,
   distinct_id String,

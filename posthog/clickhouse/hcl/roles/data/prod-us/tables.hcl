@@ -1572,13 +1572,6 @@ SQL
     }
   }
 
-  patch_table "sharded_app_metrics2" {
-    engine "replicated_aggregating_merge_tree" {
-      zoo_path     = "/clickhouse/tables/reshard/{shard}/posthog.sharded_app_metrics2"
-      replica_name = "{replica}"
-    }
-  }
-
   patch_table "sharded_heatmaps" {
     engine "replicated_merge_tree" {
       zoo_path     = "/clickhouse/tables/reshard/{shard}/posthog.heatmaps"
