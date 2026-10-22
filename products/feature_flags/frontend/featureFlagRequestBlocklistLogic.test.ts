@@ -58,6 +58,16 @@ describe('featureFlagRequestBlocklistLogic', () => {
         expect(logic.values.blockedHosts).toEqual(['saved.example.com', 'draft.example.com'])
     })
 
+    it.each([
+        ['no edits', () => {}, false],
+        ['an edit back to the saved list', () => logic.actions.setBlockedHosts(['saved.example.com']), false],
+        ['an added IP address', () => logic.actions.setBlockedIps(['203.0.113.7']), true],
+    ])('reports unsaved changes after %s', (_, edit, expected) => {
+        edit()
+
+        expect(logic.values.hasUnsavedChanges).toBe(expected)
+    })
+
     it('shows the saved lists after a blocklist save', async () => {
         logic.actions.setBlockedHosts(['EXAMPLE.com'])
 
