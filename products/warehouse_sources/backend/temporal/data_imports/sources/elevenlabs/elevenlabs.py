@@ -16,6 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     BasePaginator,
+    PageNumberPaginator,
     SinglePagePaginator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
@@ -179,6 +180,8 @@ class ElevenLabsCursorPaginator(BasePaginator):
 
 
 def _paginator(config: ElevenLabsEndpointConfig) -> BasePaginator:
+    if config.page_number_param is not None:
+        return PageNumberPaginator(base_page=1, page_param=config.page_number_param)
     if config.cursor_param is None or config.cursor_response_key is None:
         return SinglePagePaginator()
     return ElevenLabsCursorPaginator(config.cursor_param, config.cursor_response_key)
@@ -196,6 +199,12 @@ def _client_config(api_key: str, paginator: BasePaginator) -> ClientConfig:
         # across a cross-origin 3xx, so following one could replay the key to another origin.
         "session": make_tracked_session(redact_values=(api_key,), allow_redirects=False),
     }
+
+
+_INVALID_API_KEY_MESSAGE = (
+    "Your ElevenLabs API key is invalid or has been revoked. Create a new key in your "
+    "ElevenLabs account settings, then try again."
+)
 
 
 def validate_credentials(api_key: str, schema_name: Optional[str] = None) -> tuple[bool, str | None]:
@@ -230,11 +239,7 @@ def validate_credentials(api_key: str, schema_name: Optional[str] = None) -> tup
     if status == 200:
         return True, None
     if status == 401:
-        return (
-            False,
-            "Your ElevenLabs API key is invalid or has been revoked. Create a new key in your "
-            "ElevenLabs account settings, then try again.",
-        )
+        return False, _INVALID_API_KEY_MESSAGE
     if status == 403:
         if schema_name is None:
             return True, None
@@ -243,7 +248,7 @@ def validate_credentials(api_key: str, schema_name: Optional[str] = None) -> tup
     # error: the key was rejected and retrying sends the same request, so treat it as an invalid key
     # rather than a transient "try again". 429 is a rate limit and stays retryable below.
     if 400 <= status < 500 and status != 429:
-        return False, "Invalid ElevenLabs API key"
+        return False, _INVALID_API_KEY_MESSAGE
     # A 429/5xx/unexpected status leaves the key unverified. Don't accept it — surface it so the user
     # can retry, rather than saving a source that only fails on its first sync.
     return False, f"Could not verify the ElevenLabs API key (status {status}). Please try again."

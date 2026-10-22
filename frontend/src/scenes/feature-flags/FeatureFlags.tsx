@@ -15,6 +15,7 @@ import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/Pr
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
@@ -56,6 +57,11 @@ import {
     FeatureFlagType,
 } from '~/types'
 
+import {
+    cohortCanBeRestored,
+    deletedCohortDisabledReason,
+    deletedCohortFilters,
+} from 'products/feature_flags/frontend/deletedCohortFilters'
 import { featureFlagsEmptyState } from 'products/feature_flags/frontend/emptyState/featureFlagsEmptyState'
 import {
     ARCHIVE_UNAVAILABLE_DISABLED_REASON,
@@ -63,6 +69,7 @@ import {
     canArchiveFeatureFlag,
     featureFlagConfigFormat,
     featureFlagConfigFormatLabel,
+    featureFlagDeleteOptions,
     isRulesV2FeatureFlagConfig,
     isV1FeatureFlagConfig,
     rulesV2CreateDisabledReason,
@@ -79,6 +86,7 @@ import { FLAGS_PER_PAGE, FeatureFlagsTab, featureFlagsLogic, flagMatchesType } f
 import { BULK_ARCHIVE_MAX_FLAGS, flagSelectionLogic } from './flagSelectionLogic'
 import { OverlayForNewFeatureFlagMenu } from './NewFeatureFlagMenu'
 import ProjectsGrid from './projects-grid/ProjectsGrid'
+import { QuillFeatureFlagsActions } from './QuillFeatureFlagsActions'
 
 // "Feature Flags open feedback" in project 2: https://us.posthog.com/project/2/surveys/01a08364-0b1f-0000-5d00-170b29838bc5
 // Button-only: its URL condition never matches, so this button is the survey's sole entry point.
@@ -109,9 +117,11 @@ function FeatureFlagStatusCell({ featureFlag }: { featureFlag: FeatureFlagType }
     const { featureFlagsUpdating } = useValues(flagLogic)
 
     const isUpdating = featureFlag.id ? featureFlagsUpdating[featureFlag.id] : false
+    const deletedCohorts = deletedCohortFilters(featureFlag.filters)
+    const cohortMissing = !deletedCohorts.every(cohortCanBeRestored)
 
     return (
-        <div className="flex justify-start gap-1">
+        <div className="flex flex-wrap justify-start gap-1">
             {isUpdating ? (
                 <LemonTag type="muted" className="uppercase">
                     <span className="inline-flex items-center gap-1">
@@ -136,27 +146,45 @@ function FeatureFlagStatusCell({ featureFlag }: { featureFlag: FeatureFlagType }
                     Disabled
                 </LemonTag>
             )}
-            {featureFlag.status === 'STALE' && (
-                <Tooltip
-                    title={
-                        <>
-                            <div className="text-sm">This flag is likely safe to remove</div>
-                            <div className="text-xs">
-                                Not called in 30+ days or fully rolled out. Make sure to remove any references in your
-                                code before deleting it.
-                            </div>
-                        </>
+            {deletedCohorts.length > 0 && (
+                <WarningStatusTag
+                    label={cohortMissing ? 'Missing cohort' : 'Deleted cohort'}
+                    heading={
+                        cohortMissing
+                            ? 'A release condition targets a cohort that does not exist in this project'
+                            : 'A release condition targets a deleted cohort'
                     }
-                    placement="left"
-                >
-                    <span>
-                        <LemonTag type="warning" className="uppercase cursor-default">
-                            Stale
-                        </LemonTag>
-                    </span>
-                </Tooltip>
+                    detail="The flag can't evaluate that condition. Open the flag to update its release conditions."
+                />
+            )}
+            {featureFlag.status === 'STALE' && (
+                <WarningStatusTag
+                    label="Stale"
+                    heading="This flag is likely safe to remove"
+                    detail="Not called in 30+ days or fully rolled out. Make sure to remove any references in your code before deleting it."
+                />
             )}
         </div>
+    )
+}
+
+function WarningStatusTag({ label, heading, detail }: { label: string; heading: string; detail: string }): JSX.Element {
+    return (
+        <Tooltip
+            title={
+                <>
+                    <div className="text-sm">{heading}</div>
+                    <div className="text-xs">{detail}</div>
+                </>
+            }
+            placement="left"
+        >
+            <span>
+                <LemonTag type="warning" className="uppercase cursor-default">
+                    {label}
+                </LemonTag>
+            </span>
+        </Tooltip>
     )
 }
 
@@ -171,6 +199,7 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
     const [isQuickSurveyModalOpen, setIsQuickSurveyModalOpen] = useState(false)
     const configFormat = featureFlagConfigFormat(featureFlag.filters)
     const isV1Config = configFormat === 'v1'
+    const deletedCohortReason = deletedCohortDisabledReason(deletedCohortFilters(featureFlag.filters))
 
     const tryInInsightsUrl = (featureFlag: FeatureFlagType): string => {
         const query: InsightVizNode = {
@@ -278,7 +307,9 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
                                           ? 'Unarchive this flag before enabling it.'
                                           : configFormat === 'unsupported'
                                             ? UNSUPPORTED_CONFIG_DISABLED_REASON
-                                            : undefined
+                                            : !featureFlag.active
+                                              ? deletedCohortReason
+                                              : undefined
                                 }
                             >
                                 {featureFlag.active ? 'Disable' : 'Enable'}
@@ -315,7 +346,9 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
                                             ? 'Updating…'
                                             : !canArchiveFeatureFlag(featureFlag.filters)
                                               ? ARCHIVE_UNAVAILABLE_DISABLED_REASON
-                                              : undefined
+                                              : featureFlag.archived
+                                                ? deletedCohortReason
+                                                : undefined
                                     }
                                 >
                                     {featureFlag.archived ? 'Unarchive' : 'Archive'}
@@ -323,7 +356,7 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
                             </AccessControlAction>
                         )}
 
-                        {featureFlag.id && isV1Config && (
+                        {featureFlag.id && configFormat !== 'unsupported' && (
                             <AccessControlAction
                                 resourceType={AccessControlResourceType.FeatureFlag}
                                 minAccessLevel={AccessControlLevel.Editor}
@@ -337,6 +370,7 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
                                                 endpoint: `projects/${currentProjectId}/feature_flags`,
                                                 object: { id: featureFlag.id },
                                                 label: featureFlag.key,
+                                                ...featureFlagDeleteOptions(featureFlag, loadFeatureFlags),
                                                 callback: () => loadFeatureFlags(),
                                             }).catch((e) => {
                                                 lemonToast.error(`Failed to delete feature flag: ${e.detail}`)
@@ -813,6 +847,7 @@ export function FeatureFlags(): JSX.Element {
     const showRequestUsageTab = !!enabledFeatureFlags[FEATURE_FLAGS.FEATURE_FLAG_REQUEST_USAGE]
     const showRulesV2Editor = !!enabledFeatureFlags[FEATURE_FLAGS.FEATURE_FLAG_RULES_V2_EDITOR]
     const { currentTeam } = useValues(teamLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     return (
         <SceneContent className="feature_flags">
@@ -823,61 +858,70 @@ export function FeatureFlags(): JSX.Element {
                     type: 'feature_flag',
                 }}
                 actions={
-                    <>
-                        <FeedbackSurveyButton
-                            surveyId={FEATURE_FLAGS_FEEDBACK_SURVEY_ID}
-                            data-attr="feature-flags-feedback-button"
+                    todayRailNav ? (
+                        <QuillFeatureFlagsActions
+                            feedbackSurveyId={FEATURE_FLAGS_FEEDBACK_SURVEY_ID}
+                            showRulesV2Editor={showRulesV2Editor}
+                            rulesV2DisabledReason={rulesV2CreateDisabledReason(currentTeam, enabledFeatureFlags)}
+                            newFeatureFlagUrl={newFeatureFlagUrl}
                         />
-                        {showRulesV2Editor && (
+                    ) : (
+                        <>
+                            <FeedbackSurveyButton
+                                surveyId={FEATURE_FLAGS_FEEDBACK_SURVEY_ID}
+                                data-attr="feature-flags-feedback-button"
+                            />
+                            {showRulesV2Editor && (
+                                <AccessControlAction
+                                    resourceType={AccessControlResourceType.FeatureFlag}
+                                    minAccessLevel={AccessControlLevel.Editor}
+                                >
+                                    <LemonButton
+                                        type="secondary"
+                                        size="small"
+                                        to={urls.featureFlagNew({ format: 'rules_v2' })}
+                                        disabledReason={rulesV2CreateDisabledReason(currentTeam, enabledFeatureFlags)}
+                                        data-attr="new-rules-v2-feature-flag"
+                                    >
+                                        New rules v2 flag
+                                    </LemonButton>
+                                </AccessControlAction>
+                            )}
                             <AccessControlAction
                                 resourceType={AccessControlResourceType.FeatureFlag}
                                 minAccessLevel={AccessControlLevel.Editor}
                             >
-                                <LemonButton
-                                    type="secondary"
-                                    size="small"
-                                    to={urls.featureFlagNew({ format: 'rules_v2' })}
-                                    disabledReason={rulesV2CreateDisabledReason(currentTeam, enabledFeatureFlags)}
-                                    data-attr="new-rules-v2-feature-flag"
+                                <Shortcut
+                                    name="NewFeatureFlag"
+                                    keybind={[keyBinds.new]}
+                                    intent="New feature flag"
+                                    interaction="click"
+                                    scope={Scene.FeatureFlags}
                                 >
-                                    New rules v2 flag
-                                </LemonButton>
+                                    <LemonButton
+                                        type="primary"
+                                        to={newFeatureFlagUrl}
+                                        data-attr="new-feature-flag"
+                                        size="small"
+                                        icon={<IconPlusSmall />}
+                                        sideAction={{
+                                            dropdown: {
+                                                placement: 'bottom-end',
+                                                className: 'new-feature-flag-overlay',
+                                                actionable: true,
+                                                closeOnClickInside: false,
+                                                overlay: <OverlayForNewFeatureFlagMenu />,
+                                            },
+                                            'data-attr': 'new-feature-flag-dropdown',
+                                        }}
+                                        tooltip="New feature flag"
+                                    >
+                                        New
+                                    </LemonButton>
+                                </Shortcut>
                             </AccessControlAction>
-                        )}
-                        <AccessControlAction
-                            resourceType={AccessControlResourceType.FeatureFlag}
-                            minAccessLevel={AccessControlLevel.Editor}
-                        >
-                            <Shortcut
-                                name="NewFeatureFlag"
-                                keybind={[keyBinds.new]}
-                                intent="New feature flag"
-                                interaction="click"
-                                scope={Scene.FeatureFlags}
-                            >
-                                <LemonButton
-                                    type="primary"
-                                    to={newFeatureFlagUrl}
-                                    data-attr="new-feature-flag"
-                                    size="small"
-                                    icon={<IconPlusSmall />}
-                                    sideAction={{
-                                        dropdown: {
-                                            placement: 'bottom-end',
-                                            className: 'new-feature-flag-overlay',
-                                            actionable: true,
-                                            closeOnClickInside: false,
-                                            overlay: <OverlayForNewFeatureFlagMenu />,
-                                        },
-                                        'data-attr': 'new-feature-flag-dropdown',
-                                    }}
-                                    tooltip="New feature flag"
-                                >
-                                    New
-                                </LemonButton>
-                            </Shortcut>
-                        </AccessControlAction>
-                    </>
+                        </>
+                    )
                 }
             />
             <LemonTabs

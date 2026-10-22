@@ -1,7 +1,6 @@
 """Public Python interface for creating and retrieving one-off exports."""
 
 import io
-from collections.abc import Collection
 from datetime import datetime, timedelta
 
 from django.conf import settings
@@ -16,6 +15,7 @@ from temporalio.common import WorkflowIDReusePolicy
 
 from posthog.hogql.constants import LimitContext
 
+from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Team, User
 from posthog.storage import object_storage
 from posthog.temporal.common.client import async_connect
@@ -30,7 +30,6 @@ from products.exports.backend.models.exported_asset import (
     save_content as _save_content,
     save_content_from_file as _save_content_from_file,
 )
-from products.exports.backend.models.subscription import Subscription
 from products.exports.backend.tasks.failure_handler import (
     InvalidExportContext as InvalidExportContext,
     RetryableExportError as RetryableExportError,
@@ -123,42 +122,6 @@ def save_export_asset_content_from_file(
     _save_content_from_file(asset, file_path, max_database_bytes=max_database_bytes)
 
 
-def delete_insight_subscriptions(*, project_id: int, insight_ids: Collection[int]) -> None:
-    # nosemgrep: environment-model-scoped-by-project -- insights are project-level, so deleting one removes its subscriptions in every environment
-    for subscription in Subscription.objects.filter(team__project_id=project_id, insight_id__in=insight_ids):
-        subscription.delete()
-
-
-def insight_ids_with_subscriptions(insight_ids: Collection[int]) -> set[int]:
-    """Which of the given insights have a subscription that has not been deleted.
-
-    Paused subscriptions (enabled=False) count: disabling delivery does not withdraw the intent
-    to deliver this insight again.
-    """
-    # Caller-supplied ids that are already team-scoped by the caller's own query; this only maps
-    # ids to ids and returns no row data.
-    # nosemgrep: idor-lookup-without-team
-    return set(
-        Subscription.objects.filter(insight_id__in=insight_ids, deleted=False).values_list("insight_id", flat=True)
-    )
-
-
-def dashboard_ids_with_subscriptions(dashboard_ids: Collection[int]) -> set[int]:
-    """Which of the given dashboards have a subscription that has not been deleted.
-
-    Paused subscriptions (enabled=False) count: disabling delivery does not withdraw the intent
-    to deliver this dashboard again.
-    """
-    # Caller-supplied ids that are already team-scoped by the caller's own query; this only maps
-    # ids to ids and returns no row data.
-    # nosemgrep: idor-lookup-without-team
-    return set(
-        Subscription.objects.filter(dashboard_id__in=dashboard_ids, deleted=False).values_list(
-            "dashboard_id", flat=True
-        )
-    )
-
-
 # The limit contexts an export writer can pin, keyed by the string it stores in export_context.
 # The API rejects this key from clients, so only PostHog's own writers reach this map.
 _PINNABLE_EXPORT_LIMIT_CONTEXTS = {"posthog_ai": LimitContext.POSTHOG_AI}
@@ -169,6 +132,20 @@ def export_limit_context(export_context: dict | None) -> LimitContext:
     if isinstance(requested, str):
         return _PINNABLE_EXPORT_LIMIT_CONTEXTS.get(requested, LimitContext.QUERY)
     return LimitContext.QUERY
+
+
+# The execution modes an insight export can warm its cache with. Async modes return no result on a
+# cache miss, so the render page would recompute inside its load timeout.
+_EXPORT_EXECUTION_MODES = frozenset(
+    {ExecutionMode.CALCULATE_BLOCKING_ALWAYS, ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE}
+)
+
+
+def export_execution_mode(export_context: dict | None) -> ExecutionMode:
+    requested = (export_context or {}).get("execution_mode")
+    if requested in _EXPORT_EXECUTION_MODES:
+        return ExecutionMode(requested)
+    return ExecutionMode.CALCULATE_BLOCKING_ALWAYS
 
 
 def _validate_adhoc_export_context(export_context: dict) -> None:
@@ -266,7 +243,10 @@ def _create_png_export_asset(
     dashboard_id: int | None = None,
     is_system: bool = False,
     expires_after: datetime | None = None,
+    execution_mode: ExecutionMode = ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
 ) -> ExportedAsset:
+    if execution_mode not in _EXPORT_EXECUTION_MODES:
+        raise ValueError(f"Unsupported execution mode for an export: {execution_mode}")
     if created_by is None:
         # Access control below resolves against created_by; a principal-less render would
         # silently skip it, so service callers must attribute the render to a real user.
@@ -294,6 +274,8 @@ def _create_png_export_asset(
             dashboard, "viewer"
         ):
             raise ValueError("Dashboard not found")
+    if execution_mode != ExecutionMode.CALCULATE_BLOCKING_ALWAYS:
+        export_context = {**(export_context or {}), "execution_mode": execution_mode.value}
 
     asset = ExportedAsset.objects.create(
         team=team,
@@ -317,6 +299,7 @@ def create_png_export(
     query: dict | None = None,
     is_system: bool = False,
     expires_after: datetime | None = None,
+    execution_mode: ExecutionMode = ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
 ) -> int:
     """Check access and create the PNG asset that ``ExportAssetWorkflow`` renders, without rendering it.
 
@@ -326,6 +309,13 @@ def create_png_export(
 
     Pass exactly one of a saved ``insight_id`` or an ad hoc ``query``. A query must be an
     InsightVizNode or a DataVisualizationNode over HogQL. A request that breaks a rule raises ``ValueError``.
+
+    ``execution_mode`` sets how a saved insight warms its cache before the render. The default,
+    ``CALCULATE_BLOCKING_ALWAYS``, recomputes the insight on every render.
+    ``RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE`` uses a recent cached result, and computes and waits
+    only when the cache is stale. Use it where a slightly older chart is acceptable and query load
+    matters, such as link previews. Other modes raise ``ValueError``. An ad hoc query always renders
+    with the recent cache.
     """
     return _create_png_export_asset(
         team=team,
@@ -334,6 +324,7 @@ def create_png_export(
         export_context={"source": query} if query is not None else None,
         is_system=is_system,
         expires_after=expires_after,
+        execution_mode=execution_mode,
     ).id
 
 

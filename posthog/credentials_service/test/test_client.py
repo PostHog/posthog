@@ -10,6 +10,7 @@ from django.test import SimpleTestCase, override_settings
 import jwt
 import requests
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 
 from posthog.credentials_service.callers import CredentialsCaller
 from posthog.credentials_service.client import (
@@ -193,6 +194,28 @@ class TestCredentialsServiceClient(SimpleTestCase):
         ):
             with pytest.raises(CredentialsServiceUnreachableError):
                 self.secrets.get(KEY, CALLER)
+
+    @parameterized.expand(
+        [
+            ("answered", None, "ok"),
+            ("unreachable", requests.ConnectionError("credentials service is down"), "error"),
+        ]
+    )
+    def test_records_request_latency_by_result(self, _name: str, raised: Exception | None, result: str) -> None:
+        labels = {"caller": str(CALLER), "result": result}
+        before = REGISTRY.get_sample_value("posthog_credentials_service_request_duration_seconds_count", labels) or 0
+        patched = (
+            patch(POST, side_effect=raised)
+            if raised
+            else patch(POST, return_value=FakeResponse(body({KEY: steady("sec")})))
+        )
+        with patched:
+            try:
+                self.secrets.get(KEY, CALLER)
+            except CredentialsServiceUnreachableError:
+                pass
+        after = REGISTRY.get_sample_value("posthog_credentials_service_request_duration_seconds_count", labels)
+        assert after == before + 1
 
     # The base type is the whole contract a caller depends on: catch one thing, and a subclass
     # added later is covered without every call site being revisited.

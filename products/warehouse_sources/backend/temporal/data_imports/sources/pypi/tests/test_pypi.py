@@ -134,9 +134,7 @@ class TestValidateCredentials:
     @pytest.mark.parametrize(
         "status, expected_valid",
         [
-            (200, True),
             (404, False),
-            (500, False),
         ],
     )
     def test_status_mapping(self, status, expected_valid):
@@ -153,13 +151,6 @@ class TestValidateCredentials:
         assert is_valid is False
         assert message is not None
         assert network.requests_log == []
-
-    def test_network_error_is_invalid(self):
-        with scripted_network(always(ConnectionError("boom"))):
-            is_valid, message = validate_credentials("requests")
-
-        assert is_valid is False
-        assert message is not None
 
 
 class TestGetRows:

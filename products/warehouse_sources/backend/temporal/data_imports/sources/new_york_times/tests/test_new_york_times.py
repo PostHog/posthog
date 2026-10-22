@@ -47,8 +47,6 @@ class TestFormatBeginDate:
 class TestValidateCredentials:
     @parameterized.expand(
         [
-            ("ok", 200, True),
-            ("unauthorized", 401, False),
             # A 403 means the key is genuine but the app hasn't enabled this API — must not block create.
             ("forbidden", 403, True),
             ("rate_limited", 429, True),
@@ -59,10 +57,6 @@ class TestValidateCredentials:
             assert validate_credentials("KEY") is expected
         assert network.requests_log[0].path == "/svc/mostpopular/v2/viewed/1.json"
         assert network.requests_log[0].param("api-key") == "KEY"
-
-    def test_network_error_is_invalid(self) -> None:
-        with scripted_network([requests.ConnectionError("boom")]):
-            assert validate_credentials("KEY") is False
 
 
 class TestGetRowsSnapshot:

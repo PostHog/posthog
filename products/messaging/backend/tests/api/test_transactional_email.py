@@ -97,7 +97,7 @@ class TestTransactionalEmail(APIBaseTest):
         response = self._psak_client(["hog_flow:write"]).post(self.url, body, format="json")
 
         assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
-        assert response.json() == {"message_id": "invocation-1"}
+        assert response.json() == {"message_id": "invocation-1", "replayed": False}
         assert mock_post.call_args.args[0].endswith(
             f"/api/projects/{self.team.id}/hog_flows/{self.hog_flow_id}/transactional_email"
         )
@@ -106,6 +106,19 @@ class TestTransactionalEmail(APIBaseTest):
             "distinct_id": expected_distinct_id,
             "variables": {"link": "https://example.com/reset", "nickname": None},
         }
+
+    def test_passes_the_idempotency_key_to_the_pipeline_and_reports_a_replay(self, mock_post, _flag, capture):
+        mock_post.return_value = MagicMock(
+            status_code=202, json=lambda: {"invocation_id": "first-send", "replayed": True}
+        )
+
+        response = self.client.post(self.url, self.body, format="json", headers={"Idempotency-Key": "reset:user-1:42"})
+
+        assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
+        assert response.json() == {"message_id": "first-send", "replayed": True}
+        assert mock_post.call_args.kwargs["json"]["idempotency_key"] == "reset:user-1:42"
+        assert capture.call_args.kwargs["properties"]["outcome"] == "replayed"
+        assert capture.call_args.kwargs["properties"]["has_idempotency_key"] is True
 
     @parameterized.expand(
         [
@@ -139,10 +152,12 @@ class TestTransactionalEmail(APIBaseTest):
             ("workflow_archived", "transactional_email_paused"),
             ("category_turned_marketing", "marketing_template"),
             ("liquid_in_recipient", "invalid_recipient"),
+            ("idempotency_key_with_spaces", "invalid_idempotency_key"),
+            ("idempotency_key_too_long", "invalid_idempotency_key"),
         ]
     )
     def test_rejects_a_send_it_cannot_make(self, mock_post, _flag, _capture, case, expected_code):
-        url, body = self.url, dict(self.body)
+        url, body, headers = self.url, dict(self.body), {}
         if case == "not_transactional":
             url = f"/api/projects/{self.team.id}/messaging_templates/{self._template().id}/send/"
         elif case == "workflow_archived":
@@ -158,8 +173,12 @@ class TestTransactionalEmail(APIBaseTest):
             MessageCategory.objects.filter(id=category.id).update(category_type=MessageCategoryType.MARKETING)
         elif case == "liquid_in_recipient":
             body["to"] = "{{person.properties.email}}@example.com"
+        elif case == "idempotency_key_with_spaces":
+            headers["Idempotency-Key"] = "reset user 1"
+        elif case == "idempotency_key_too_long":
+            headers["Idempotency-Key"] = "k" * 256
 
-        response = self.client.post(url, body, format="json")
+        response = self.client.post(url, body, format="json", headers=headers)
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert response.json()["code"] == expected_code
@@ -234,13 +253,20 @@ class TestTransactionalEmail(APIBaseTest):
         assert edited.json()["transactional_hog_flow_id"] is None
         assert remade.json()["transactional_hog_flow_id"] not in (None, str(self.hog_flow_id))
 
-    def test_reports_quota_limited_teams(self, mock_post, _flag, _capture):
-        mock_post.return_value = MagicMock(status_code=429, json=lambda: {"error": "quota_limited"})
+    @parameterized.expand(
+        [
+            ("quota_limited", 429),
+            ("idempotency_key_in_flight", 409),
+            ("idempotency_key_reused", 422),
+        ]
+    )
+    def test_reports_a_send_the_pipeline_refuses(self, mock_post, _flag, _capture, code, status_code):
+        mock_post.return_value = MagicMock(status_code=status_code, json=lambda: {"error": code})
 
-        response = self.client.post(self.url, self.body, format="json")
+        response = self.client.post(self.url, self.body, format="json", headers={"Idempotency-Key": "key-1"})
 
-        assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
-        assert response.json()["code"] == "quota_limited"
+        assert response.status_code == status_code
+        assert response.json()["code"] == code
 
     @parameterized.expand([("send", "send/"), ("make_transactional", "make_transactional/")])
     def test_is_hidden_while_the_flag_is_off(self, mock_post, flag, _capture, _name, suffix):
@@ -263,6 +289,7 @@ class TestTransactionalEmail(APIBaseTest):
         assert first.status_code == status.HTTP_200_OK, first.json()
         hog_flow_id = first.json()["transactional_hog_flow_id"]
         assert second.json()["transactional_hog_flow_id"] == hog_flow_id
+        assert second.json()["content"]["email"]["from"] == {"integrationId": self.sender.id}
         workflow = self._workflow(hog_flow_id)
         assert workflow["status"] == "active"
         assert workflow["origin_product"] == "transactional_emails"
@@ -277,12 +304,14 @@ class TestTransactionalEmail(APIBaseTest):
             ("template_without_subject", "template_not_sendable"),
             ("template_without_body", "template_not_sendable"),
             ("unverified_sender", "sender_unavailable"),
+            ("custom_address_off_the_chosen_senders_domain", "template_not_sendable"),
         ]
     )
     def test_rejects_making_a_template_transactional_it_cannot_send(
         self, mock_post, _flag, _capture, case, expected_code
     ):
         template = self._template()
+        body: dict[str, Any] = {}
         if case in ("marketing_template", "deleted_marketing_category"):
             template.message_category = MessageCategory.objects.create(
                 team=self.team,
@@ -298,10 +327,22 @@ class TestTransactionalEmail(APIBaseTest):
         elif case == "unverified_sender":
             self.sender.config = {"verified": False}
             self.sender.save()
+        elif case == "custom_address_off_the_chosen_senders_domain":
+            self.sender.config = {"verified": True, "email": "hello@example.com", "domain": "example.com"}
+            self.sender.save()
+            other = Integration.objects.create(
+                team=self.team,
+                kind="email",
+                integration_id="hello@example.org",
+                config={"verified": True, "email": "hello@example.org", "domain": "example.org"},
+            )
+            sender = {"integrationId": self.sender.id, "email": "security@example.com"}
+            template.content = {"email": {**template.content["email"], "from": sender}}
+            body = {"from_integration_id": other.id}
         template.save()
 
         response = self.client.post(
-            f"/api/projects/{self.team.id}/messaging_templates/{template.id}/make_transactional/", {}, format="json"
+            f"/api/projects/{self.team.id}/messaging_templates/{template.id}/make_transactional/", body, format="json"
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
@@ -311,10 +352,21 @@ class TestTransactionalEmail(APIBaseTest):
 
     @patch("products.messaging.backend.services.transactional_email.reload_hog_flows_on_workers")
     def test_saving_a_transactional_template_writes_a_new_workflow_version(self, reload, mock_post, _flag, _capture):
+        MessageTemplate.objects.filter(id=self.template.id).update(draft_content={"email": {"subject": "Draft"}})
+        security = Integration.objects.create(
+            team=self.team, kind="email", integration_id="security@example.com", config={"verified": True}
+        )
+        email_content = {
+            "subject": "A new subject",
+            "html": "<p>New</p>",
+            # A templated address is only known at send time, so publish accepts it.
+            "from": {"integrationId": security.id, "name": "PostHog Security", "email": "{{ variables.alias }}"},
+            "replyTo": "security@example.com",
+        }
         with self.captureOnCommitCallbacks(execute=True):
             response = self.client.patch(
                 f"/api/projects/{self.team.id}/messaging_templates/{self.template.id}/",
-                {"content": {"email": {"subject": "A new subject", "html": "<p>New</p>"}}},
+                {"content": {"email": email_content}},
                 format="json",
             )
 
@@ -325,6 +377,28 @@ class TestTransactionalEmail(APIBaseTest):
         assert workflow["version"] == 2
         email = workflow["actions"][1]["config"]["inputs"]["email"]["value"]
         assert (email["subject"], email["html"]) == ("A new subject", "<p>New</p>")
+        assert email["from"] == {
+            "integrationId": security.id,
+            "name": "PostHog Security",
+            "email": "{{ variables.alias }}",
+        }
+        assert email["replyTo"] == "security@example.com"
+        assert response.json()["draft_content"] is None
+
+    def test_saving_a_draft_leaves_the_sent_email_unchanged(self, mock_post, _flag, _capture):
+        # A draft is work in progress, so one the send path would reject still saves.
+        draft = {"templating": "liquid", "email": {"subject": "", "html": "<p>Half written</p>"}}
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/messaging_templates/{self.template.id}/",
+            {"draft_content": draft},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["draft_content"]["email"] == draft["email"]
+        assert response.json()["content"]["email"]["subject"] == "Reset your password"
+        assert self._workflow(self.hog_flow_id)["version"] == 1
 
     @parameterized.expand([("marketing_category",), ("no_email_content",)])
     def test_a_template_whose_workflow_was_deleted_takes_edits_it_could_not_send_with(
@@ -354,21 +428,70 @@ class TestTransactionalEmail(APIBaseTest):
         self.template.refresh_from_db()
         assert self.template.deleted
 
-    def test_rejects_an_update_that_would_stop_a_transactional_template_sending(self, mock_post, _flag, _capture):
-        category = MessageCategory.objects.create(
-            team=self.team, key="news", name="News", category_type=MessageCategoryType.MARKETING
-        )
+    def test_tagging_a_transactional_template_leaves_its_workflow_untouched(self, mock_post, _flag, _capture):
+        before = self._workflow(self.hog_flow_id)
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/messaging_templates/{self.template.id}/",
-            {"message_category": str(category.id)},
+            {"tags": ["growth"]},
             format="json",
         )
 
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["tags"] == ["growth"]
+        after = self._workflow(self.hog_flow_id)
+        assert (after["version"], after["updated_at"]) == (before["version"], before["updated_at"])
+
+    @parameterized.expand(
+        [
+            ("marketing_category", "marketing_template"),
+            ("unverified_sender", "sender_unavailable"),
+            ("another_projects_sender", "invalid_input"),
+            ("custom_address_off_the_senders_domain", "invalid_input"),
+            ("custom_address_that_is_not_an_address", "invalid_input"),
+            ("custom_address_too_long", "max_length"),
+            ("sender_without_an_id", "invalid_input"),
+        ]
+    )
+    def test_rejects_an_update_that_would_stop_a_transactional_template_sending(
+        self, mock_post, _flag, _capture, case, expected_code
+    ):
+        before = MessageTemplate.objects.get(id=self.template.id)
+        if case == "marketing_category":
+            category = MessageCategory.objects.create(
+                team=self.team, key="news", name="News", category_type=MessageCategoryType.MARKETING
+            )
+            body: dict[str, Any] = {"message_category": str(category.id)}
+        elif case == "sender_without_an_id":
+            body = {"content": {"email": {**before.content["email"], "from": {"name": "Security"}}}}
+        elif case.startswith("custom_address"):
+            self.sender.config = {"verified": True, "email": "hello@example.com", "domain": "example.com"}
+            self.sender.save()
+            address = {
+                "custom_address_off_the_senders_domain": "security@example.org",
+                "custom_address_that_is_not_an_address": "Security team",
+                "custom_address_too_long": f"{'a' * 250}@example.com",
+            }[case]
+            email = {**before.content["email"], "from": {"integrationId": self.sender.id, "email": address}}
+            body = {"content": {"email": email}}
+        else:
+            other_team = (
+                self.team if case == "unverified_sender" else self.create_team_with_organization(self.organization)
+            )
+            sender = Integration.objects.create(
+                team=other_team, kind="email", integration_id="other@example.com", config={"verified": False}
+            )
+            email = {**before.content["email"], "from": {"integrationId": sender.id}}
+            body = {"content": {"email": email}}
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/messaging_templates/{self.template.id}/", body, format="json"
+        )
+
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-        assert response.json()["code"] == "marketing_template"
-        self.template.refresh_from_db()
-        assert self.template.message_category_id is None
+        assert response.json()["code"] == expected_code
+        after = MessageTemplate.objects.get(id=self.template.id)
+        assert (after.message_category_id, after.content) == (None, before.content)
         assert self._workflow(self.hog_flow_id)["version"] == 1
 
 
@@ -417,6 +540,7 @@ class TestTransactionalEmailWorkflowAccess(APIBaseTest):
         [
             ("send", "post", "send/", {"to": "user@example.com"}),
             ("update", "patch", "", {"content": {"email": {"subject": "New", "html": "<p>New</p>"}}}),
+            ("save_draft", "patch", "", {"draft_content": {"email": {"subject": "Draft", "html": "<p>Draft</p>"}}}),
         ]
     )
     def test_a_member_denied_the_workflow_cannot_send_or_change_it(self, mock_post, _flag, _name, method, suffix, body):

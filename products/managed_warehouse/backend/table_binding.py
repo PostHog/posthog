@@ -39,19 +39,8 @@ def bind_tables_to_ducklake(database: Any, team_id: int) -> None:
 
 
 def get_data_modeling_table_names(team_id: int, saved_query_ids: Sequence[UUID]) -> dict[UUID, str]:
-    from products.data_modeling.backend.facade.modeling import DataWarehouseModelPath
-
-    labels = {
-        saved_query_id: path[-1]
-        for saved_query_id, path in DataWarehouseModelPath.objects.filter(
-            team_id=team_id, saved_query_id__in=saved_query_ids
-        ).values_list("saved_query_id", "path")
-        if path
-    }
     return {
-        saved_query_id: ducklake_data_modeling_table_name(
-            labels.get(saved_query_id, saved_query_id.hex), saved_query_id.hex
-        )
+        saved_query_id: ducklake_data_modeling_table_name(saved_query_id.hex, saved_query_id.hex)
         for saved_query_id in saved_query_ids
     }
 

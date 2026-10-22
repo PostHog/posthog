@@ -192,6 +192,33 @@ semgrep --test .semgrep/rules/security/
 docker run --rm -v "${PWD}:/src" semgrep/semgrep semgrep --test /src/.semgrep/rules/security/
 ```
 
+## Out-of-band interaction domains
+
+`posthog/security/crosslang/oob_domains.json` lists the services that capture out-of-band
+interactions, such as Interactsh and Burp Collaborator, and the DNS rebinding services.
+
+Today the guards only log a match. Nothing is refused yet.
+
+The warehouse guards emit the `oob_domain` stage of `data_imports.host_check`, which carries
+`team_id`, and the `oob_domain_resolved` stage when the caller resolved the host first. The HTTP
+adapter emits `security.oob_domain_seen` and takes its team from the activity's bound log context.
+`posthog/security/url_validation.py` emits the same event with no team at all, because no team is
+in scope there, so those lines are attributable to a host and not to a project.
+
+In Node, `validateHostnameIPLiteral` (`nodejs/src/common/utils/request.ts`) and `EmailValidationService.getSkipReason` emit `security.oob_domain_seen` too, under the guard `node_request` or `node_email_validation`.
+Both read the hand-written mirror in `nodejs/src/common/utils/oob-domains.ts`, which a parity test holds against the JSON.
+Both log `team_id`, the field the Python guards bind.
+The email guard always has a team.
+The request guard has one only when the fetch runs under `fetchAttribution`, as a CDP destination fetch and a recording export's stylesheet fetch do, and logs `team_id: null` for any other caller.
+`noteOobDomain` logs one line per host, team and guard every 15 minutes, because a retrying destination would otherwise log per attempt.
+
+The check runs on cloud only, and it runs before each guard's own DNS resolution, because the
+lookup alone confirms the path to whoever runs the collaborator.
+
+It stops the default scanner configuration. It does not stop a determined attacker, who points a
+CNAME at the collaborator or runs their own server. The IP checks and the address pinning remain
+the real controls.
+
 ## Content Security Policy
 
 `CSPMiddleware` in `posthog/csp_middleware.py` attaches a policy to every HTML response.

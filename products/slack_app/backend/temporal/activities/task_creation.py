@@ -14,6 +14,7 @@ from posthog.temporal.common.utils import close_db_connections
 
 from products.slack_app.backend.facade.api import slack_artifact_delivery_state_updates
 from products.slack_app.backend.logic.reply_suggestions import clear_open_suggestions
+from products.slack_app.backend.logic.thread_join import ThreadJoinDecision, decide_thread_join
 from products.slack_app.backend.services.slack_messages import (
     SlackThreadMessage,
     context_block,
@@ -31,8 +32,12 @@ from products.slack_app.backend.temporal.attachments import (
     prepare_slack_file_artifacts,
     prepare_slack_thread_file_artifacts,
 )
-from products.slack_app.backend.temporal.helpers import block_if_team_over_quota, safe_react
-from products.slack_app.backend.temporal.types import PostHogCodeSlackMentionWorkflowInputs, SlackAppModelOverride
+from products.slack_app.backend.temporal.helpers import block_if_team_over_quota, safe_react, safe_unreact
+from products.slack_app.backend.temporal.types import (
+    SLACK_APP_PROCESSING_REACTION,
+    PostHogCodeSlackMentionWorkflowInputs,
+    SlackAppModelOverride,
+)
 
 if TYPE_CHECKING:
     from products.slack_app.backend.models import SlackThreadTaskMapping
@@ -46,6 +51,7 @@ _SLACK_RECOVERY_STRATEGY_RETRY = "retry"
 _SLACK_RECOVERY_STRATEGY_CONNECT_THEN_REPLAN = "connect_then_replan"
 _SLACK_RECOVERY_STRATEGY_UNBLOCK_AND_REPLAN = "unblock_and_replan"
 _SLACK_RECOVERY_STRATEGY_CANCELLED = "cancelled_resume"
+_SLACK_RECOVERY_STRATEGY_RECONNECT_GITHUB = "reconnect_github"
 _THREAD_CONTEXT_TAG = "slack_thread_context"
 _THREAD_CONTEXT_UPDATE_TAG = "slack_thread_context_update"
 _INITIATOR_PLACEHOLDER = "<original user message was here>"
@@ -549,8 +555,10 @@ def derive_mention_workflow_id(inputs: PostHogCodeSlackMentionWorkflowInputs) ->
         suffix = inputs.slack_event_id
     else:
         suffix = f"{event.get('channel', '')}:{event.get('ts', '')}"
-    if inputs.untagged_followup_confirmed:
+    if inputs.untagged_confirmed:
         suffix = f"{suffix}:confirmed"
+    if inputs.thread_join_approved:
+        suffix = f"{suffix}:joined"
     return f"{MENTION_WORKFLOW_ID_PREFIX}{inputs.slack_team_id}:{suffix}"
 
 
@@ -949,6 +957,14 @@ def forward_posthog_code_followup_activity(
     actor_user = mapping.task.created_by
     followup_user_text_prefix: str | None = None
     if slack_user_id != mapping.mentioning_slack_user_id:
+        # Checked before the Slack lookup below, so a message the creator's mode drops costs
+        # no Slack call.
+        join = decide_thread_join(integration, mapping, slack_user_id)
+        if join == ThreadJoinDecision.DENY:
+            # The queue already marked the message as being worked on, and nothing will answer it.
+            _clear_processing_reaction(slack, channel, user_message_ts)
+            logger.info("slack_app_followup_thread_join_denied", channel=channel, thread_ts=thread_ts)
+            return True
         # The follow-up is from a different Slack user than the one who started the
         # thread. Try to resolve them to a PostHog user with access to the same team
         # — if so, let them participate under their own sandbox token, with their
@@ -977,6 +993,23 @@ def forward_posthog_code_followup_activity(
             actor=slack_user_id,
             actor_user_id=resolved.user.id,
         )
+        if join != ThreadJoinDecision.ALLOW:
+            from products.slack_app.backend.api import post_thread_join_prompt  # noqa: PLC0415
+
+            # The creator's approval sends this message again, so it stops here. Nothing works on
+            # it while it waits, so it loses the reaction that says so.
+            _clear_processing_reaction(slack, channel, user_message_ts)
+            post_thread_join_prompt(
+                slack,
+                integration,
+                inputs,
+                channel=channel,
+                thread_ts=thread_ts,
+                owner_slack_user_id=mapping.mentioning_slack_user_id,
+                joiner_slack_user_id=slack_user_id,
+                opens_thread=join == ThreadJoinDecision.ASK_FOR_THREAD,
+            )
+            return True
 
     if block_if_team_over_quota(
         integration=integration,
@@ -1310,6 +1343,7 @@ def _terminal_recovery_strategy(previous_run: Any) -> str | None:
             _SLACK_RECOVERY_STRATEGY_RETRY,
             _SLACK_RECOVERY_STRATEGY_CONNECT_THEN_REPLAN,
             _SLACK_RECOVERY_STRATEGY_UNBLOCK_AND_REPLAN,
+            _SLACK_RECOVERY_STRATEGY_RECONNECT_GITHUB,
         }:
             return strategy
         return _SLACK_RECOVERY_STRATEGY_RETRY
@@ -1345,6 +1379,11 @@ def _build_terminal_recovery_prompt(previous_run: Any, user_text: str) -> str:
         _SLACK_RECOVERY_STRATEGY_CANCELLED: (
             "The previous sandbox was intentionally stopped. Resume only the work the user asks for now, and "
             "preserve any useful prior artifact or PR context."
+        ),
+        _SLACK_RECOVERY_STRATEGY_RECONNECT_GITHUB: (
+            "GitHub rejected the acting user's personal credentials on the previous run. Resolve them again "
+            "before executing. If the connection now works, re-plan and continue. If it still does not, say so "
+            "and ask the acting user to reconnect their personal GitHub in PostHog settings."
         ),
     }
 
@@ -1609,6 +1648,11 @@ def _delete_followup_progress(
         ).delete_progress()
     except Exception:
         pass
+
+
+def _clear_processing_reaction(slack: Any, channel: str, user_message_ts: str | None) -> None:
+    if user_message_ts:
+        safe_unreact(slack.client, channel, user_message_ts, SLACK_APP_PROCESSING_REACTION)
 
 
 def _set_followup_done_reaction(slack: Any, channel: str, user_message_ts: str | None, done_emoji: str) -> None:

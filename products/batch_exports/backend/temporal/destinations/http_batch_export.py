@@ -18,7 +18,14 @@ from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.logger import get_logger
 
 from products.batch_exports.backend.models.batch_export import BatchExportRun
-from products.batch_exports.backend.service import BatchExportField, BatchExportInsertInputs, HttpBatchExportInputs
+from products.batch_exports.backend.service import (
+    BatchExportEventsCustomModel,
+    BatchExportEventsModel,
+    BatchExportField,
+    BatchExportInsertInputs,
+    HttpBatchExportInputs,
+    migrate_batch_export_model,
+)
 from products.batch_exports.backend.temporal.batch_exports import (
     FinishBatchExportRunInputs,
     StartBatchExportRunInputs,
@@ -203,11 +210,11 @@ async def insert_into_http_activity(inputs: HttpInsertInputs) -> BatchExportResu
         if not await client.is_alive():
             raise ConnectionError("Cannot establish connection to ClickHouse")
 
-        if inputs.batch_export_model is not None:
-            if inputs.batch_export_model.name != "events":
-                raise NotImplementedError("HTTP export only supports the events model")
-            if inputs.batch_export_model.schema is not None:
-                raise NotImplementedError("HTTP export does not support schemas")
+        model = migrate_batch_export_model(inputs.batch_export_model)
+        if isinstance(model, BatchExportEventsCustomModel):
+            raise NotImplementedError("HTTP export does not support schemas")
+        if not isinstance(model, BatchExportEventsModel):
+            raise NotImplementedError("HTTP export only supports the events model")
 
         use_native_schema = await database_sync_to_async(use_new_events_schema)(inputs.team_id)
 
@@ -228,8 +235,8 @@ async def insert_into_http_activity(inputs: HttpInsertInputs) -> BatchExportResu
         fields = http_default_fields(native_source)
         columns = [field["alias"] for field in fields]
 
-        filters = inputs.batch_export_model.filters if inputs.batch_export_model is not None else None
-        if filters is not None and len(filters) > 0:
+        filters = model.filters
+        if filters:
             filters_str, extra_query_parameters = await database_sync_to_async(compose_filters_clause)(
                 filters, team_id=inputs.team_id, values=None
             )

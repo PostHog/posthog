@@ -12,13 +12,24 @@ from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, call, patch
 
 from django.core.cache import cache
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
+import jwt
 import requests
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
 from parameterized import parameterized
 from prometheus_client import REGISTRY
 
+from posthog.credentials_service.test.test_settings_fallback import (
+    FLAG,
+    POST,
+    SERVICE_SETTINGS,
+    _FakeResponse,
+    _keys_asked_for,
+    _steady,
+)
 from posthog.egress.github.transport import (
     GitHubEgressBudgetExhausted,
     GitHubRateLimitError,
@@ -32,6 +43,7 @@ from posthog.models.github_integration_base import (
     GITHUB_REPOSITORY_CACHE_TTL_SECONDS,
     GitHubIntegrationBase,
     PullRequestRef,
+    github_app_jwt_credentials,
 )
 from posthog.models.integration import (
     GitHubInstallationAccessFetchError,
@@ -220,6 +232,43 @@ class TestPullRequestCommentMarker(SimpleTestCase):
         ]
         with patch.object(github, "_installation_authenticated_get_pages", return_value=([response], True)):
             assert github.get_pull_request_merge_queue_state("example/repo", 1) == MergeQueueState.TESTING
+
+
+@override_settings(**SERVICE_SETTINGS)
+class TestGitHubAppJwtCredentials(SimpleTestCase):
+    def setUp(self) -> None:
+        for patcher in (patch(FLAG, return_value=True), patch("posthog.cache_utils.TEST", False)):
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        github_app_jwt_credentials.clear_cache()
+        self.addCleanup(github_app_jwt_credentials.clear_cache)
+
+    def test_app_requests_sign_with_one_cached_service_read(self) -> None:
+        private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        pem = private_key.private_bytes(
+            serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()
+        ).decode()
+        response = _FakeResponse(
+            {
+                "secrets": {"GITHUB_APP_CLIENT_ID": _steady("Iv-from-service"), "GITHUB_APP_PRIVATE_KEY": _steady(pem)},
+                "missing": [],
+            }
+        )
+
+        with (
+            patch(POST, return_value=response) as post,
+            patch("posthog.models.github_integration_base.github_request") as github_request,
+        ):
+            for _ in range(3):
+                GitHubIntegrationBase.app_request("app")
+
+        assert post.call_count == 1
+        assert _keys_asked_for(post.call_args.kwargs["headers"]["Authorization"]) == [
+            "GITHUB_APP_CLIENT_ID",
+            "GITHUB_APP_PRIVATE_KEY",
+        ]
+        app_jwt = github_request.call_args.kwargs["headers"]["Authorization"].removeprefix("Bearer ")
+        assert jwt.decode(app_jwt, private_key.public_key(), algorithms=["RS256"])["iss"] == "Iv-from-service"
 
 
 class TestGitHubIntegrationModel(BaseTest):
@@ -1966,9 +2015,10 @@ class TestGitHubIntegrationModel(BaseTest):
 
         mock_get.side_effect = [transient_1, transient_2]
 
-        with pytest.raises(GitHubIntegrationError, match="list_repositories non-JSON response"):
+        with pytest.raises(GitHubIntegrationError, match="list_repositories non-JSON response") as raised:
             GitHubIntegration(integration, source="test", priority=Priority.CRITICAL).list_repositories()
 
+        assert raised.value.status_code == 502
         assert mock_get.call_count == 2
 
     @patch("posthog.egress.transport.transport.requests.request")
@@ -1992,9 +2042,10 @@ class TestGitHubIntegrationModel(BaseTest):
         # Page-1 succeeds. Page-2 fetch is retried once after transient 502.
         mock_get.side_effect = [first_page, second_page, second_page]
 
-        with pytest.raises(GitHubIntegrationError, match="failed to list repositories"):
+        with pytest.raises(GitHubIntegrationError, match="failed to list repositories") as raised:
             GitHubIntegration(integration, source="test", priority=Priority.CRITICAL).list_all_repositories()
 
+        assert raised.value.status_code == 502
         assert mock_get.call_count == 3
 
     @patch("posthog.models.integration.github.GitHubIntegration.list_repositories")

@@ -180,7 +180,7 @@ class TestBuildQuery:
     def test_incremental_uses_operator_and_orders(self):
         sql, params = _build_query("DB", "PUBLIC", "t", True, "created_at", IncrementalFieldType.DateTime, "2025-01-01")
         assert 'WHERE "created_at"' in sql
-        assert 'ORDER BY "created_at" ASC' in sql
+        assert sql.endswith(' ORDER BY "created_at" ASC')
         assert params == ("DB.PUBLIC.t", "2025-01-01")
 
     def test_incremental_seeds_initial_value_when_missing(self):
@@ -779,6 +779,13 @@ class TestBuildPipeline:
         assert stream_param == ("DB.analytics.users",)
 
 
+_INCREMENTAL_INPUTS: dict[str, Any] = {
+    "should_use_incremental_field": True,
+    "incremental_field": "created_at",
+    "incremental_field_type": IncrementalFieldType.DateTime,
+}
+
+
 class TestResumableStreaming:
     def _metadata_cursor(self):
         metadata_cursor = MagicMock()
@@ -887,6 +894,35 @@ class TestResumableStreaming:
         manager.save_state.assert_not_called()
         assert response.supports_resume is False
 
+    @pytest.mark.parametrize(
+        "primary_key_rows,input_overrides,expected_supports_resume,expected_ascending",
+        [
+            pytest.param([("ID",)], _INCREMENTAL_INPUTS, True, True, id="incremental_with_primary_key"),
+            pytest.param([], _INCREMENTAL_INPUTS, False, True, id="incremental_without_primary_key"),
+            pytest.param([("ID",)], {"verified_primary_keys": ["ID"]}, True, False, id="full_refresh_by_verified_key"),
+            pytest.param([("ID",)], {}, False, False, id="full_refresh_without_order"),
+        ],
+    )
+    def test_claims_ascending_order_only_for_an_incremental_run(
+        self,
+        impl: SnowflakeImplementation,
+        primary_key_rows: list[tuple[str]],
+        input_overrides: dict[str, Any],
+        expected_supports_resume: bool,
+        expected_ascending: bool,
+    ) -> None:
+        metadata_cursor = self._metadata_cursor()
+        metadata_cursor.__iter__.return_value = iter(primary_key_rows)
+        manager = MagicMock()
+        manager.can_resume.return_value = False
+        connection = self._connection(metadata_cursor, self._streaming_cursor([]))
+        with patch("snowflake.connector.connect", return_value=connection):
+            response = impl.build_pipeline(
+                _make_config(), _make_inputs(**input_overrides), resumable_source_manager=manager
+            )
+        assert response.supports_resume is expected_supports_resume
+        assert response.sort_mode == ("asc" if expected_ascending else None)
+
 
 def test_snowflake_source_is_resumable():
     # Resumable registration is what routes the import through the resumable retry policy and
@@ -982,6 +1018,34 @@ class TestSnowflakeSourceNonRetryableErrors:
         non_retryable = source.get_non_retryable_errors()
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert is_non_retryable, f"No-active-warehouse error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg,expected_non_retryable",
+        [
+            (
+                "090073 (22000): 01c00000-0000-0000-0000-000000000000: Warehouse 'EXAMPLE_WH' cannot be resumed "
+                "because resource monitor 'EXAMPLE_MONITOR' has exceeded its quota.",
+                True,
+            ),
+            (
+                "Warehouse 'EXAMPLE_WH' cannot be resumed because resource monitor 'EXAMPLE_MONITOR' has exceeded its quota.",
+                True,
+            ),
+            ("090001 (22000): 01c00000-0000-0000-0000-000000000000: Warehouse 'EXAMPLE_WH' cannot be resumed.", False),
+            (
+                "000606 (57P03): 01c00000-0000-0000-0000-000000000000: Statement reached its statement or warehouse timeout.",
+                False,
+            ),
+        ],
+    )
+    def test_resource_monitor_quota_is_non_retryable_only_for_that_error(
+        self, source, error_msg, expected_non_retryable
+    ):
+        non_retryable = source.get_non_retryable_errors()
+        matches = [message for pattern, message in non_retryable.items() if pattern in error_msg]
+        assert bool(matches) is expected_non_retryable
+        if expected_non_retryable:
+            assert all(message is not None and "resource monitor" in message for message in matches)
 
     @pytest.mark.parametrize(
         "error_msg",

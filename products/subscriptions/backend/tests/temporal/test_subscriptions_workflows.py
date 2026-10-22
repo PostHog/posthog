@@ -38,8 +38,6 @@ from posthog.test.insight_queries import default_pageview_query
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.exports.backend.models.exported_asset import ExportedAsset
-from products.exports.backend.models.subscription import Subscription, SubscriptionDelivery
-from products.exports.backend.models.subscription_context import SubscriptionContext
 from products.exports.backend.tasks.failure_handler import ExcelColumnLimitExceeded
 from products.product_analytics.backend.facade.models import Insight
 from products.subscriptions.backend.facade.contracts import (
@@ -52,6 +50,8 @@ from products.subscriptions.backend.logic.auto_disable import (
     SLACK_DISCONNECTED_DISABLE_REASON,
 )
 from products.subscriptions.backend.logic.slack_subscriptions import SlackDeliveryResult
+from products.subscriptions.backend.models.subscription import Subscription, SubscriptionDelivery
+from products.subscriptions.backend.models.subscription_context import SubscriptionContext
 from products.subscriptions.backend.temporal.activities import (
     _resolve_exportable_insights,
     advance_next_delivery_date,

@@ -1,5 +1,6 @@
 import api from 'lib/api'
 
+import { ProductKey } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
 
 export const GATEWAY_SPEND_WINDOW_DAYS = 30
@@ -27,7 +28,7 @@ export async function fetchGatewaySpendByCredential(): Promise<GatewayCredential
             ORDER BY cost_usd DESC
             LIMIT 200
         `,
-        { scene: 'Settings', productKey: 'ai_gateway', name: 'gateway_spend_by_key' }
+        { scene: 'Settings', productKey: ProductKey.AI_OBSERVABILITY, name: 'gateway_spend_by_key' }
     )
     return (response.results ?? []).map((row: unknown[]) => ({
         credential: row[0] ? String(row[0]) : null,

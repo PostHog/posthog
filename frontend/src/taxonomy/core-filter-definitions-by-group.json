@@ -155,6 +155,12 @@
             "label": "AI cache read audio tokens (LLM)",
             "type": "Numeric"
         },
+        "$ai_cache_read_image_tokens": {
+            "description": "The number of image tokens read from the prompt cache.",
+            "examples": [16],
+            "label": "AI cache read image tokens (LLM)",
+            "type": "Numeric"
+        },
         "$ai_cache_read_input_tokens": {
             "description": "The number of tokens read from the cache for the input prompt.",
             "examples": [23],
@@ -1680,6 +1686,11 @@
             "examples": ["context_parameter", "inferred"],
             "label": "MCP intent source"
         },
+        "$mcp_interface": {
+            "description": "How the agent reached the tool. 'mcp' means an MCP server instrumented with the @posthog/mcp SDK. 'webmcp' means a tool a web page registered through WebMCP, captured by posthog-js in the browser. WebMCP events carry no transport or client properties, and their $mcp_server_name is the page's hostname. Older events omit this property.",
+            "examples": ["mcp", "webmcp"],
+            "label": "MCP interface"
+        },
         "$mcp_is_error": {
             "description": "Whether the MCP tool call failed. True if the tool returned an error result or threw an exception.",
             "label": "MCP is error"
@@ -2745,6 +2756,12 @@
             "type": "Boolean",
             "virtual": true
         },
+        "$virt_mcp_harness": {
+            "description": "MCP client label resolved from the event's client identity signals. Empty on non-MCP events.",
+            "label": "MCP harness",
+            "type": "String",
+            "virtual": true
+        },
         "$virt_traffic_category": {
             "description": "Detailed traffic category: ai_crawler, ai_search, ai_assistant, search_crawler, seo_crawler, etc. Bots the project defined itself report the category picked in settings.",
             "examples": ["ai_crawler", "ai_search", "ai_assistant", "search_crawler", "regular"],
@@ -3707,6 +3724,11 @@
             "examples": ["context_parameter", "inferred"],
             "label": "MCP intent source"
         },
+        "$mcp_interface": {
+            "description": "How the agent reached the tool. 'mcp' means an MCP server instrumented with the @posthog/mcp SDK. 'webmcp' means a tool a web page registered through WebMCP, captured by posthog-js in the browser. WebMCP events carry no transport or client properties, and their $mcp_server_name is the page's hostname. Older events omit this property.",
+            "examples": ["mcp", "webmcp"],
+            "label": "MCP interface"
+        },
         "$mcp_is_error": {
             "description": "Whether the MCP tool call failed. True if the tool returned an error result or threw an exception.",
             "label": "MCP is error"
@@ -3982,6 +4004,12 @@
             "description": "The number of audio tokens read from the prompt cache.",
             "examples": [16],
             "label": "AI cache read audio tokens (LLM)",
+            "type": "Numeric"
+        },
+        "$ai_cache_read_image_tokens": {
+            "description": "The number of image tokens read from the prompt cache.",
+            "examples": [16],
+            "label": "AI cache read image tokens (LLM)",
             "type": "Numeric"
         },
         "$ai_cache_read_input_tokens": {
@@ -5840,6 +5868,11 @@
             "description": "Where $mcp_intent came from. 'context_parameter' means the client supplied it directly on the call; 'inferred' means the MCP server derived it via its intentFallback.",
             "examples": ["context_parameter", "inferred"],
             "label": "MCP intent source"
+        },
+        "$mcp_interface": {
+            "description": "How the agent reached the tool. 'mcp' means an MCP server instrumented with the @posthog/mcp SDK. 'webmcp' means a tool a web page registered through WebMCP, captured by posthog-js in the browser. WebMCP events carry no transport or client properties, and their $mcp_server_name is the page's hostname. Older events omit this property.",
+            "examples": ["mcp", "webmcp"],
+            "label": "MCP interface"
         },
         "$mcp_is_error": {
             "description": "Whether the MCP tool call failed. True if the tool returned an error result or threw an exception.",

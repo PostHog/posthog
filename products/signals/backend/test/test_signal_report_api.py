@@ -66,6 +66,8 @@ from products.signals.backend.models import (
     SignalReportAssignment,
     SignalReportPullRequest,
     SignalReportTask,
+    SignalScoutConfig,
+    SignalScoutRun,
     SignalTeamConfig,
     SignalUserAutonomyConfig,
 )
@@ -84,6 +86,7 @@ from products.signals.backend.test.report_metric_test_fixtures import trends_met
 from products.signals.backend.throttles import ReportMetricRefreshThrottle
 from products.signals.backend.views import (
     PR_CI_STATUS_MAX_REPORTS,
+    SignalReportStateRequestSerializer,
     SignalReportViewSet,
     classify_report_list_client,
     parse_pr_ci_status_report_ids,
@@ -135,6 +138,15 @@ def _seen_event(team: Team, name: str, *, days_ago: int) -> None:
     EventDefinition.objects.create(
         team=team, project_id=team.project_id, name=name, last_seen_at=timezone.now() - timedelta(days=days_ago)
     )
+
+
+class TestSignalReportStateRequest(SimpleTestCase):
+    @parameterized.expand([("resolved", True), ("suppressed", False), ("potential", False)])
+    def test_no_action_needed_requires_resolution(self, target: str, valid: bool) -> None:
+        serializer = SignalReportStateRequestSerializer(data={"state": target, "dismissal_reason": "no_action_needed"})
+        assert serializer.is_valid() == valid
+        if not valid:
+            assert "dismissal_reason" in serializer.errors
 
 
 class TestReportListClientClassification(SimpleTestCase):
@@ -388,6 +400,32 @@ class TestSignalReportListAPI(APIBaseTest):
         assert retrieve_response.status_code == status.HTTP_200_OK
         assert retrieve_response.json()["metrics"][0]["metric_id"] == "affected-users"
         assert retrieve_response.json()["metrics"][0]["query"] == metric["query"]
+
+    def test_list_hides_reports_an_opted_out_scout_authored_unless_asked(self) -> None:
+        listed = self._create_report()
+        edited_only = self._create_report()
+        authored = self._create_report()
+        config = SignalScoutConfig.objects.create(
+            team=self.team, skill_name="signals-scout-digest", output_destinations={"inbox": False}
+        )
+        task = apps.get_model("tasks", "Task").objects.create(team=self.team, title="scout", description="d")
+        SignalScoutRun.objects.create(
+            team=self.team,
+            task_run=apps.get_model("tasks", "TaskRun").objects.create(team=self.team, task=task),
+            scout_config=config,
+            skill_name=config.skill_name,
+            skill_version=1,
+            emitted_report_ids=[str(authored.id)],
+            edited_report_ids=[str(edited_only.id)],
+        )
+
+        default_ids = {row["id"] for row in self.client.get(self._list_url()).json()["results"]}
+        opt_in_ids = {row["id"] for row in self.client.get(self._list_url(include_unlisted="true")).json()["results"]}
+        retrieve_response = self.client.get(f"{self._list_url()}{authored.id}/")
+
+        assert default_ids == {str(listed.id), str(edited_only.id)}
+        assert opt_in_ids == {str(listed.id), str(edited_only.id), str(authored.id)}
+        assert retrieve_response.status_code == status.HTTP_200_OK
 
     def test_property_restricted_member_cannot_read_metric_snapshot_or_definition(self) -> None:
         self._enable_feature(AvailableFeature.PROPERTY_ACCESS_CONTROL)
@@ -892,6 +930,48 @@ class TestSignalReportListAPI(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{report.id}/")
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["ranking"] == expected
+
+    @parameterized.expand(
+        [
+            ("flag_on", True, status.HTTP_200_OK),
+            ("flag_off", False, status.HTTP_400_BAD_REQUEST),
+            ("flag_error_fails_closed", RuntimeError("flags unavailable"), status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_model_sort_flag_opens_lifts_but_not_raw_scores_to_non_staff(self, _name, flag, expected_status):
+        self.user.is_staff = False
+        self.user.save()
+        high = self._create_report(title="High")
+        low = self._create_report(title="Low")
+        self._ranking_score_artefact(high, scores={"open": 0.8123}, lifts={"open": 3.2})
+        self._ranking_score_artefact(low, scores={"open": 0.1234}, lifts={"open": 0.5})
+
+        evaluate = {"side_effect": flag} if isinstance(flag, Exception) else {"return_value": flag}
+        with patch("products.signals.backend.ranking.access.feature_enabled_or_false", **evaluate):
+            response = self.client.get(self._list_url(status="ready", ordering="-ranking_open,status,-updated_at"))
+            detail = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{high.id}/")
+
+        assert response.status_code == expected_status
+        if expected_status != status.HTTP_200_OK:
+            assert response.json()["attr"] == "ordering"
+            assert detail.json()["ranking"] is None
+            return
+        rows = response.json()["results"]
+        assert [row["id"] for row in rows] == [str(high.id), str(low.id)]
+        assert detail.json()["ranking"] == rows[0]["ranking"]
+        assert rows[0]["ranking"] == {
+            "served_key": "",
+            "model_name": "",
+            "model_version": "",
+            "manifest_version": "",
+            "scored_at": "2026-09-20T12:00:00Z",
+            "scores": {},
+            "lifts": {"open": 3.2},
+            "readable_heads": ["open"],
+            "stale": False,
+        }
+        for raw_score in ("0.1234", "0.8123", "report_embeddings"):
+            assert raw_score not in response.content.decode()
 
     @parameterized.expand(
         [
@@ -1605,110 +1685,40 @@ class TestSignalReportListAPI(APIBaseTest):
         row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
         assert row["is_suggested_reviewer"] is True
 
-    def test_for_you_ranks_the_reports_naming_the_user_and_counts_only_theirs(self):
-        def report_naming_me(title: str, report_status: str) -> SignalReport:
-            report = self._create_report(title=title, status=report_status)
+    def test_for_you_view_lists_only_the_open_actionable_reports_for_the_user(self):
+        def report_naming_me(title: str, priority: str, **fields) -> SignalReport:
+            report = self._create_report(title=title, **fields)
             SignalReportArtefact.objects.create(
                 team=self.team,
                 report=report,
                 type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
                 content=json.dumps([{"user_uuid": str(self.user.uuid)}]),
             )
+            self._priority_artefact(report, priority=priority)
             return report
 
-        report_naming_me("Waits for my input", SignalReport.Status.PENDING_INPUT)
-        reviewing = report_naming_me("Names me as reviewer", SignalReport.Status.READY)
-        self._create_report(title="Someone else's report")
+        waiting = report_naming_me("Waits for my input", "P2", status=SignalReport.Status.PENDING_INPUT)
+        reviewing = report_naming_me("Names me as reviewer", "P1")
+        report_naming_me("Not actionable", "P0", latest_actionability="not_actionable")
+        report_naming_me("Resolved", "P0", status=SignalReport.Status.RESOLVED)
+        unowned = self._create_report(title="Nobody owns it", latest_actionability="immediately_actionable")
+        self._priority_artefact(unowned, priority="P0")
 
-        response = self.client.get(f"{self._list_url()}for_you/?limit=1")
+        response = self.client.get(self._list_url(view="for_you", sort="priority", limit=1))
 
         assert response.status_code == status.HTTP_200_OK
         body = response.json()
         assert [row["id"] for row in body["results"]] == [str(reviewing.id)]
         assert body["count"] == 2
+        assert body["next"] is not None
+        next_page = self.client.get(body["next"]).json()
+        assert [row["id"] for row in next_page["results"]] == [str(waiting.id)]
 
-    def test_for_you_excludes_unowned_p0_reports_when_asked(self):
-        mine = self._create_report(title="Names me as reviewer")
-        SignalReportArtefact.objects.create(
-            team=self.team,
-            report=mine,
-            type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
-            content=json.dumps([{"user_uuid": str(self.user.uuid)}]),
-        )
-        unowned = self._create_report(title="Nobody owns it", latest_actionability="immediately_actionable")
-        self._priority_artefact(unowned, priority="P0")
-
-        with_unowned = self.client.get(f"{self._list_url()}for_you/")
-        without_unowned = self.client.get(f"{self._list_url()}for_you/?include_unowned=false")
-
-        assert with_unowned.status_code == status.HTTP_200_OK
-        assert without_unowned.status_code == status.HTTP_200_OK
-        # The P0 leads by default, because priority is the first ranking key.
-        assert [row["id"] for row in with_unowned.json()["results"]] == [str(unowned.id), str(mine.id)]
-        assert with_unowned.json()["count"] == 2
-        assert [row["id"] for row in without_unowned.json()["results"]] == [str(mine.id)]
-        assert without_unowned.json()["count"] == 1
-
-    def test_for_you_pages_the_ranked_list_without_the_excluded_reports(self):
-        by_priority: dict[str | None, str] = {}
-        for priority in ["P3", None, "P1", "P2"]:
-            report = self._create_report(title=f"Priority {priority}")
-            SignalReportArtefact.objects.create(
-                team=self.team,
-                report=report,
-                type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
-                content=json.dumps([{"user_uuid": str(self.user.uuid)}]),
-            )
-            self._priority_artefact(report, priority=priority)
-            by_priority[priority] = str(report.id)
-
-        def for_you(**query: object) -> dict:
-            response = self.client.get(f"{self._list_url()}for_you/?{urlencode(query)}")
-            assert response.status_code == status.HTTP_200_OK
-            return response.json()
-
-        everything = for_you(limit=20)
-        page = for_you(limit=1, offset=1, exclude=f"{by_priority['P1']},{by_priority['P2']}")
-
-        assert [row["id"] for row in everything["results"]] == [by_priority[p] for p in ["P1", "P2", "P3", None]]
-        assert everything["count"] == 4
-        assert [row["id"] for row in page["results"]] == [by_priority[None]]
-        assert page["count"] == 2
-
-    def test_for_you_uses_the_inbox_control_order_without_joining_the_sort_experiment(self):
-        titles: dict[str, str] = {}
-        for title, priority, open_score in [
-            ("P0 low score", "P0", 0.15),
-            ("P2 high score", "P2", 0.85),
-            ("P1 unscored", "P1", None),
-        ]:
-            report = self._create_report(title=title)
-            SignalReportArtefact.objects.create(
-                team=self.team,
-                report=report,
-                type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
-                content=json.dumps([{"user_uuid": str(self.user.uuid)}]),
-            )
-            self._priority_artefact(report, priority=priority)
-            if open_score is not None:
-                self._ranking_score_artefact(report, scores={"open": open_score})
-            titles[str(report.id)] = title
-        flag = "products.signals.backend.ranking.inbox_sort.posthoganalytics.get_feature_flag"
-
-        with patch(flag, return_value="control"):
-            inbox = self.client.get(self._list_url(sort="recommended", suggested_reviewers=str(self.user.uuid)))
-        with patch(flag, return_value="open") as get_flag:
-            for_you = self.client.get(f"{self._list_url()}for_you/?limit=20")
-
-        assert inbox.status_code == status.HTTP_200_OK
-        assert for_you.status_code == status.HTTP_200_OK
-        get_flag.assert_not_called()
-        assert [titles[row["id"]] for row in for_you.json()["results"]] == [
-            "P0 low score",
-            "P1 unscored",
-            "P2 high score",
-        ]
-        assert for_you.json()["results"] == inbox.json()["results"]
+        without_shown = self.client.get(
+            self._list_url(view="for_you", sort="priority", exclude=str(reviewing.id), offset=0)
+        ).json()
+        assert [row["id"] for row in without_shown["results"]] == [str(waiting.id)]
+        assert without_shown["count"] == 1
 
     def test_is_suggested_reviewer_uses_latest_reviewers_row(self):
         # suggested_reviewers is append-only: an older row listing the user must not keep them
@@ -2115,7 +2125,10 @@ class TestSignalReportListAPI(APIBaseTest):
         self._create_implementation_task_with_run(report_with_pr, pr_url="https://github.com/org/repo/pull/42")
 
         with CaptureQueriesContext(connection) as ctx:
-            response = self.client.get(self._list_url(has_implementation_pr="true", count_only="true"))
+            # `include_unlisted` drops the inbox-listing subquery, which also aliases a table as V0.
+            response = self.client.get(
+                self._list_url(has_implementation_pr="true", count_only="true", include_unlisted="true")
+            )
 
         assert response.status_code == status.HTTP_200_OK
         # All association subqueries must stay team-scoped. Without the scope the planner can
@@ -3033,6 +3046,13 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
                 "already_fixed",
                 "shipped a fix by hand",
             ),
+            (
+                "resolve_no_action_needed",
+                {"state": "resolved", "dismissal_reason": "no_action_needed", "dismissal_note": "Reviewed the finding"},
+                SignalReport.Status.RESOLVED,
+                "no_action_needed",
+                "Reviewed the finding",
+            ),
         ]
     )
     def test_state_transition_with_dismissal(self, _name, body, expected_final_status, expected_reason, expected_note):
@@ -3054,6 +3074,7 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
         )
         assert len(artefacts) == 1
         content = json.loads(artefacts[0].content)
+        assert content["state"] == body["state"]
         assert content["reason"] == expected_reason
         assert content["note"] == expected_note
         assert content["user_id"] == self.user.id
@@ -3068,6 +3089,11 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
                 "fixed_outside_posthog",
             ),
             ("resolve_pr_merged", {"state": "resolved", "dismissal_reason": "pr_merged"}, "pr_merged"),
+            (
+                "resolve_no_action_needed",
+                {"state": "resolved", "dismissal_reason": "no_action_needed"},
+                "no_action_needed",
+            ),
             # A resolve carrying no feedback must not pick a reason up from anywhere.
             ("resolve_without_reason", {"state": "resolved"}, None),
         ]
@@ -3726,7 +3752,9 @@ class TestSignalReportMergeAPI(APIBaseTest):
             "same support ticket",
         )
         dismissal = SignalReportArtefact.objects.get(report_id=source.id, type="dismissal")
-        assert Dismissal.model_validate_json(dismissal.content).reason == MERGE_DISMISSAL_REASON
+        feedback = Dismissal.model_validate_json(dismissal.content)
+        assert feedback.reason == MERGE_DISMISSAL_REASON
+        assert feedback.state == "suppressed"
 
     def test_merge_moves_the_pull_request_so_the_dismissal_leaves_it_open(self):
         survivor = self._report()

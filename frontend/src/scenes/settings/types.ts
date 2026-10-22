@@ -144,7 +144,6 @@ export type SettingId =
     | 'conversations-notifications'
     | 'cookieless-server-hash-mode'
     | 'core-memory'
-    | 'correlation-analysis'
     | 'csp-reporting'
     | 'custom-bot-definitions'
     | 'customer-analytics-accounts'
@@ -288,7 +287,6 @@ export type SettingId =
     | 'saml-configuration'
     | 'oidc-configuration'
     | 'scim-configuration'
-    | 'session-join-mode'
     | 'session-table-version'
     | 'snippet'
     | 'snippet-v2'
@@ -322,6 +320,7 @@ export type SettingId =
     | 'workflows-ai-task-limits'
     | 'workflows-replay-vision-limits'
     | 'workflows-email-tracking-consent'
+    | 'workflows-utm-defaults'
     | 'workflows-engagement-events'
     | 'xaa-configuration'
 

@@ -204,15 +204,17 @@ class TestConnect:
         host becomes reachable, then complete the connection."""
         attempts = {"n": 0}
 
-        def reachability_result(*_args, **_kwargs):
+        def resolution_result(*_args, **_kwargs):
             attempts["n"] += 1
             if attempts["n"] < 3:
                 raise socket.gaierror(socket.EAI_AGAIN, "Temporary failure in name resolution")
-            return MagicMock()
+            return [(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("8.8.8.8", 443))]
 
-        with patch(
-            "products.batch_exports.backend.temporal.destinations.databricks_batch_export.socket.create_connection",
-            side_effect=reachability_result,
+        with (
+            patch("socket.getaddrinfo", side_effect=resolution_result),
+            patch(
+                "products.batch_exports.backend.temporal.destinations.databricks_batch_export.socket.create_connection",
+            ),
         ):
             async with client.connect():
                 pass
@@ -237,19 +239,16 @@ class TestConnect:
     ):
         """A hostname that does not exist is a config error, so we should fail fast with a targeted
         message instead of backing off for minutes."""
-        create_connection_mock = MagicMock(side_effect=socket.gaierror(errno, "Name or service not known"))
+        getaddrinfo_mock = MagicMock(side_effect=socket.gaierror(errno, "Name or service not known"))
 
         with (
-            patch(
-                "products.batch_exports.backend.temporal.destinations.databricks_batch_export.socket.create_connection",
-                new=create_connection_mock,
-            ),
+            patch("socket.getaddrinfo", new=getaddrinfo_mock),
             pytest.raises(DatabricksConnectionError, match=expected_match),
         ):
             async with client.connect():
                 pass
 
-        assert create_connection_mock.call_count == 1
+        assert getaddrinfo_mock.call_count == 1
         mock_sql_connect.sql_connect.assert_not_called()
 
     async def test_does_not_retry_invalid_credentials(
@@ -268,33 +267,132 @@ class TestConnect:
 
         assert mock_sql_connect.sql_connect.call_count == 1
 
+    async def test_probe_connects_to_the_address_it_checked(
+        self, client: DatabricksClient, settings, mock_sql_connect: MockDatabricksSqlConnect
+    ):
+        settings.FORCE_URL_VALIDATION = True
+        client.server_hostname = "dbc.example.com"
+        addrinfo = [(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("8.8.8.8", 443))]
+
+        with (
+            patch("socket.getaddrinfo", return_value=addrinfo),
+            patch(
+                "products.batch_exports.backend.temporal.destinations.databricks_batch_export.socket.create_connection",
+            ) as create_connection_mock,
+        ):
+            async with client.connect():
+                pass
+
+        create_connection_mock.assert_called_once_with(("8.8.8.8", 443), timeout=client.connect_timeout_seconds)
+        mock_sql_connect.sql_connect.assert_called_once()
+
+    @pytest.mark.parametrize(
+        "addresses",
+        [
+            ["127.0.0.1"],
+            ["169.254.169.254"],
+            ["8.8.8.8", "10.0.0.5"],
+        ],
+    )
+    async def test_probe_refuses_a_host_that_resolves_internal(
+        self,
+        client: DatabricksClient,
+        settings,
+        fast_backoff,
+        mock_sql_connect: MockDatabricksSqlConnect,
+        addresses: list[str],
+    ):
+        settings.FORCE_URL_VALIDATION = True
+        client.server_hostname = "dbc.example.com"
+        addrinfo = [
+            (socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", (address, 443)) for address in addresses
+        ]
+
+        with (
+            patch("socket.getaddrinfo", return_value=addrinfo),
+            patch(
+                "products.batch_exports.backend.temporal.destinations.databricks_batch_export.socket.create_connection",
+            ) as create_connection_mock,
+            pytest.raises(DatabricksConnectionError, match="Could not reach this host"),
+        ):
+            async with client.connect():
+                pass
+
+        create_connection_mock.assert_not_called()
+        mock_sql_connect.sql_connect.assert_not_called()
+
 
 class TestQueryBuilders:
-    async def test_merge_query_with_schema_evolution(self, client: DatabricksClient):
+    @pytest.mark.parametrize("schema_evolution", [True, False])
+    @pytest.mark.parametrize("versioned", [True, False])
+    async def test_merge_escapes_column_names(
+        self, client: DatabricksClient, schema_evolution: bool, versioned: bool
+    ) -> None:
+        with (
+            patch.object(client, "execute_async_query", new_callable=AsyncMock) as execute,
+            patch.object(
+                client, "aget_table_columns", new_callable=AsyncMock, return_value=["key`name", "version`name"]
+            ),
+        ):
+            await client.amerge_tables(
+                target_table="test_target",
+                source_table="test_source",
+                merge_key=["key`name"],
+                update_key=["version`name"] if versioned else [],
+                source_table_fields=[("key`name", "BIGINT"), ("version`name", "BIGINT")],
+                with_schema_evolution=schema_evolution,
+            )
+
+        query = " ".join(execute.call_args.args[0].split())
+        assert "ON target.`key``name` = source.`key``name`" in query
+        if versioned:
+            assert "WHEN MATCHED AND (target.`version``name` < source.`version``name`) THEN" in query
+        else:
+            assert "WHEN MATCHED THEN" in query
+        if schema_evolution:
+            assert "UPDATE SET * WHEN NOT MATCHED THEN INSERT *" in query
+        else:
+            assert (
+                "UPDATE SET target.`key``name` = source.`key``name`, target.`version``name` = source.`version``name`"
+                in query
+            )
+            assert "INSERT (`key``name`, `version``name`) VALUES (source.`key``name`, source.`version``name`)" in query
+
+    @pytest.mark.parametrize("versioned", [True, False])
+    async def test_merge_query_with_schema_evolution(self, client: DatabricksClient, versioned: bool) -> None:
         merge_key = ["team_id", "distinct_id"]
-        update_key = ["person_version", "person_distinct_id_version"]
-        merge_query = client._get_merge_query_with_schema_evolution(
-            target_table="test_target",
-            source_table="test_source",
-            merge_key=merge_key,
-            update_key=update_key,
+        update_key = ["person_version", "person_distinct_id_version"] if versioned else []
+        with patch.object(client, "execute_async_query", new_callable=AsyncMock) as execute:
+            await client.amerge_tables(
+                target_table="test_target",
+                source_table="test_source",
+                merge_key=merge_key,
+                update_key=update_key,
+                source_table_fields=[],
+            )
+        merge_query = execute.call_args.args[0]
+        expected_condition = (
+            " AND (target.`person_version` < source.`person_version` OR target.`person_distinct_id_version` < source.`person_distinct_id_version`)"
+            if versioned
+            else ""
         )
         assert (
             merge_query
-            == """
+            == f"""
         MERGE WITH SCHEMA EVOLUTION INTO `test_target` AS target
         USING `test_source` AS source
         ON target.`team_id` = source.`team_id` AND target.`distinct_id` = source.`distinct_id`
-        WHEN MATCHED AND (target.`person_version` < source.`person_version` OR target.`person_distinct_id_version` < source.`person_distinct_id_version`) THEN
+        WHEN MATCHED{expected_condition} THEN
             UPDATE SET *
         WHEN NOT MATCHED THEN
             INSERT *
         """
         )
 
-    async def test_merge_query_without_schema_evolution(self, client: DatabricksClient):
+    @pytest.mark.parametrize("versioned", [True, False])
+    async def test_merge_query_without_schema_evolution(self, client: DatabricksClient, versioned: bool) -> None:
         merge_key = ["team_id", "distinct_id"]
-        update_key = ["person_version", "person_distinct_id_version"]
+        update_key = ["person_version", "person_distinct_id_version"] if versioned else []
         merge_query = client._get_merge_query_without_schema_evolution(
             target_table="test_target",
             source_table="test_source",
@@ -315,13 +413,18 @@ class TestQueryBuilders:
                 "properties",
             ],
         )
+        expected_condition = (
+            " AND (target.`person_version` < source.`person_version` OR target.`person_distinct_id_version` < source.`person_distinct_id_version`)"
+            if versioned
+            else ""
+        )
         assert (
             merge_query
-            == """
+            == f"""
         MERGE INTO `test_target` AS target
         USING `test_source` AS source
         ON target.`team_id` = source.`team_id` AND target.`distinct_id` = source.`distinct_id`
-        WHEN MATCHED AND (target.`person_version` < source.`person_version` OR target.`person_distinct_id_version` < source.`person_distinct_id_version`) THEN
+        WHEN MATCHED{expected_condition} THEN
             UPDATE SET
                 target.`team_id` = source.`team_id`, target.`distinct_id` = source.`distinct_id`, target.`person_version` = source.`person_version`, target.`person_distinct_id_version` = source.`person_distinct_id_version`, target.`properties` = source.`properties`
         WHEN NOT MATCHED THEN
@@ -376,12 +479,17 @@ class TestQueryBuilders:
         """
         )
 
-    async def test_copy_into_table_from_volume_query(self, client: DatabricksClient):
+    @pytest.mark.parametrize(
+        "json_field,quoted_json_field", [("properties", "`properties`"), ("json`data", "`json``data`")]
+    )
+    async def test_copy_into_table_from_volume_query(
+        self, client: DatabricksClient, json_field: str, quoted_json_field: str
+    ) -> None:
         """Test that we construct the correct SQL for COPY INTO from a volume, including VARIANT/BIGINT casts."""
         fields = [
             ("uuid", "STRING"),
             ("event", "STRING"),
-            ("properties", "VARIANT"),
+            (json_field, "VARIANT"),
             ("distinct_id", "STRING"),
             ("team_id", "BIGINT"),
             ("timestamp", "TIMESTAMP"),
@@ -394,10 +502,10 @@ class TestQueryBuilders:
         )
         assert (
             query
-            == """
+            == f"""
         COPY INTO `test_table`
         FROM (
-            SELECT `uuid`, `event`, PARSE_JSON(`properties`) as `properties`, `distinct_id`, CAST(`team_id` as BIGINT) as `team_id`, `timestamp`, `databricks_ingested_timestamp` FROM '/Volumes/my_volume/path/file.parquet'
+            SELECT `uuid`, `event`, PARSE_JSON({quoted_json_field}) as {quoted_json_field}, `distinct_id`, CAST(`team_id` as BIGINT) as `team_id`, `timestamp`, `databricks_ingested_timestamp` FROM '/Volumes/my_volume/path/file.parquet'
         )
         FILEFORMAT = PARQUET
         COPY_OPTIONS ('force' = 'true', 'mergeSchema' = 'true')

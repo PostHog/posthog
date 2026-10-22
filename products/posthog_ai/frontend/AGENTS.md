@@ -115,7 +115,7 @@ It must stay **free of the Max scene and conversation orchestration**. Do not im
   `PermissionInput` isolates lazy loading and rendering errors with evidence fallbacks; approval controls
   remain outside both boundaries. The error boundary resets for a new permission request.
   Max's frozen LangGraph path consumes `VisualizationWidget` and `RecordingsWidget` through
-  `api/primitives`, and the error-tracking and replay-vision widgets from their owning products.
+  `api/dataWidgets`, and the error-tracking and replay-vision widgets from their owning products.
 - If Max needs something the surface doesn't express generically, **lift it to a generic prop/selector here
   and have Max adapt** — never special-case Max in this directory. (The recordings "accept these filters"
   bar is one such lift: `RecordingsWidget` takes an optional `onAcceptFilters` prop; Max's LangGraph path

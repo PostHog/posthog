@@ -98,10 +98,7 @@ from posthog.hogql.database.schema.groups import GroupsTable, RawGroupsTable
 from posthog.hogql.database.schema.groups_revenue_analytics import GroupsRevenueAnalyticsTable
 from posthog.hogql.database.schema.heatmaps import HeatmapsTable
 from posthog.hogql.database.schema.hog_invocation_results import HogInvocationResultsTable
-from posthog.hogql.database.schema.information_schema import (
-    direct_connection_information_schema_node,
-    disable_data_quality,
-)
+from posthog.hogql.database.schema.information_schema import direct_connection_information_schema_node
 from posthog.hogql.database.schema.log_entries import (
     BatchExportLogEntriesTable,
     LogEntriesTable,
@@ -110,6 +107,7 @@ from posthog.hogql.database.schema.log_entries import (
 from posthog.hogql.database.schema.logs import (
     LogAttributesTable,
     LogsKafkaMetricsTable,
+    LogsPatternBucketsTable,
     LogsTable,
     LogsVolumeBucketsTable,
 )
@@ -250,7 +248,6 @@ class HogQLDatabaseSources:
     modifiers: HogQLQueryModifiers
     is_managed_viewset_enabled: bool
     is_hogql_warehouse_access_control_enabled: bool
-    is_data_quality_enabled: bool
     is_billing_usage_records_enabled: bool
     # Not the flag's value: a direct-connection catalog excludes the table whatever the org has.
     include_flag_evaluations_table: bool
@@ -457,7 +454,7 @@ _DATABASE_ROOT_NODE_BLOBS_LOCK = threading.Lock()
 # LRU, and fresh entries survive the sweep. Reads are lock-free (dict.get is atomic under the
 # GIL); mutations and the sweep hold the lock, because the sweep iterates the dict and concurrent
 # inserts would raise RuntimeError mid-iteration.
-_CACHEABLE_TEAM_FLAGS = frozenset({"managed-viewsets", "data-quality-checks"})
+_CACHEABLE_TEAM_FLAGS = frozenset({"managed-viewsets"})
 _TEAM_FLAG_CACHE: dict[tuple[str, str], tuple[float, bool]] = {}  # key -> (evaluated_at, value)
 _TEAM_FLAG_CACHE_LOCK = threading.Lock()
 _TEAM_FLAG_CACHE_MAX_ENTRIES = 50_000
@@ -585,6 +582,7 @@ def _construct_database_root_node(*, include_posthog_tables: bool) -> TableNode:
                     **clone_root_tables(),
                     # Add new tables here
                     "logs_volume_buckets": TableNode(name="logs_volume_buckets", table=LogsVolumeBucketsTable()),
+                    "logs_pattern_buckets": TableNode(name="logs_pattern_buckets", table=LogsPatternBucketsTable()),
                     "ai_events": TableNode(name="ai_events", table=AiEventsTable()),
                     # Pruned per org in _build_from_sources; see is_flag_evaluations_table_enabled.
                     # The flag check must stay out of this cached, process-global tree.
@@ -1789,10 +1787,13 @@ class Database(BaseModel):
         trigger: str = "direct",
         allowed_system_tables: Collection[str] | None = None,
         schema_table_names: set[str] | None = None,
+        include_flag_evaluations_table: bool | None = None,
     ) -> Database:
         """Build a query catalog, or a reduced catalog for schema serialization only.
 
         Query execution must omit schema_table_names because it can prune unrelated warehouse tables.
+        ``include_flag_evaluations_table`` overrides the organization flag that decides whether
+        ``posthog.flag_evaluations`` is in the catalog. None follows the flag.
         """
         build_started = time.perf_counter()
 
@@ -1852,6 +1853,11 @@ class Database(BaseModel):
             sources = dataclasses.replace(
                 sources,
                 is_hogql_warehouse_access_control_enabled=_evaluate_warehouse_access_control_flag(cast("Team", team)),
+            )
+        if include_flag_evaluations_table is not None:
+            # A direct-connection catalog has no "posthog" node to hold the table.
+            sources = dataclasses.replace(
+                sources, include_flag_evaluations_table=include_flag_evaluations_table and connection_id is None
             )
 
         with _OTEL_DATABASE.timed_histogram_twin(
@@ -1922,7 +1928,6 @@ class Database(BaseModel):
             modifiers=modifiers,
             is_managed_viewset_enabled=False,
             is_hogql_warehouse_access_control_enabled=False,
-            is_data_quality_enabled=False,
             is_billing_usage_records_enabled=False,
             bypass_warehouse_access_control=False,
             direct_connection_metadata=None,
@@ -2023,12 +2028,8 @@ class Database(BaseModel):
             )
 
             # Function-local + facade-only: keeps the products off the django.setup() path.
-            from products.data_quality.backend.facade.flags import is_data_quality_checks_enabled  # noqa: PLC0415
             from products.feature_flags.backend.facade.flags import is_flag_evaluations_table_enabled  # noqa: PLC0415
 
-            data_quality_enabled = _cached_team_flag(
-                "data-quality-checks", team, lambda: is_data_quality_checks_enabled(team)
-            )
             # A direct-connection catalog has no "posthog" node to hold the table.
             include_flag_evaluations_table = not is_direct_query and is_flag_evaluations_table_enabled(team)
 
@@ -2292,7 +2293,6 @@ class Database(BaseModel):
             modifiers=modifiers,
             is_managed_viewset_enabled=is_managed_viewset_enabled,
             is_hogql_warehouse_access_control_enabled=is_hogql_warehouse_access_control_enabled,
-            is_data_quality_enabled=data_quality_enabled,
             is_billing_usage_records_enabled="*" in settings.BILLING_USAGE_RECORDS_HOGQL_ORGANIZATION_IDS
             or team.organization_id in settings.BILLING_USAGE_RECORDS_HOGQL_ORGANIZATION_IDS,
             include_flag_evaluations_table=include_flag_evaluations_table,
@@ -2356,15 +2356,6 @@ class Database(BaseModel):
 
         with timings.measure("filter_system_tables_for_user", emit_span=True):
             database._apply_system_table_access(sources.user_access_control, sources.denied_system_table_names)
-            if not sources.is_data_quality_enabled:
-                system_node = database.tables.children.get("system")
-                info_schema = (
-                    system_node.children.get("information_schema")
-                    if system_node is not None and hasattr(system_node, "children")
-                    else None
-                )
-                if info_schema is not None and hasattr(info_schema, "children"):
-                    disable_data_quality(info_schema)
             if not sources.is_billing_usage_records_enabled:
                 posthog_node = database.tables.children.get("posthog")
                 if posthog_node is not None:
@@ -3252,6 +3243,16 @@ def _use_virtual_fields(database: Database, modifiers: HogQLQueryModifiers, timi
                 flag_evaluations.fields[field_name] = events_table.fields[field_name].model_copy(
                     update={"hidden": True}
                 )
+
+    with timings.measure("mcp_harness_virtual_field"):
+        from products.mcp_analytics.backend.facade.api import mcp_harness_virtual_field_expr
+
+        events_table.fields["$virt_mcp_harness"] = ExpressionField(
+            name="$virt_mcp_harness",
+            expr=mcp_harness_virtual_field_expr(),
+            isolate_scope=True,
+            description="MCP client label computed from this event's client identity signals.",
+        )
 
     revenue_fields = ["revenue", "mrr"]
     with timings.measure("revenue_analytics_virtual_fields"):
