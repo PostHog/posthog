@@ -19,7 +19,6 @@ class AlertsConfig(AppConfig):
         # native wording of an insight alert, here.
         from products.alerts.backend.facade.destinations import (  # noqa: PLC0415
             choose_delivery_path,
-            emit_alert_transition_events,
             list_delivery_destination_groups,
         )
         from products.alerts.backend.platform_alert_wording import describe_insight_transition  # noqa: PLC0415
@@ -35,7 +34,6 @@ class AlertsConfig(AppConfig):
             register_image_resolver,
             register_legacy_event_emitter,
             register_source_describer,
-            register_transition_event_producer,
         )
         from products.alerts_platform.backend.facade.source_configs import register_source_config  # noqa: PLC0415
 
@@ -45,4 +43,3 @@ class AlertsConfig(AppConfig):
         register_source_describer(SourceKind.INSIGHT, describe_insight_transition)
         register_image_resolver(SourceKind.INSIGHT, insight_chart_image)
         register_source_config(SourceKind.INSIGHT, load_insight_source_config)
-        register_transition_event_producer(emit_alert_transition_events)
