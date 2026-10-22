@@ -4,6 +4,7 @@ from functools import partial
 from uuid import UUID
 
 import pytest
+import time_machine
 from unittest.mock import Mock, call, patch
 
 from django.conf import settings as django_settings
@@ -202,6 +203,16 @@ def test_a_person_deletion_after_a_merge_reaches_flag_evaluations(cluster: Click
     )
 
     assert cluster.any_host(surviving_flag_evaluation_person_ids).result() == set()
+
+
+def test_the_default_cutoff_follows_the_clock_of_the_run() -> None:
+    # The code server builds the config schema once, and runs launch days or weeks after that.
+    config = PopulateSnapshotTableConfig()
+
+    with time_machine.travel(datetime(2026, 10, 24, 22, 0, tzinfo=UTC), tick=False):
+        assert config.cutoff() == "2026-10-22 22:00:00"
+
+    assert PopulateSnapshotTableConfig(timestamp="2025-01-01 00:00:00").cutoff() == "2025-01-01 00:00:00"
 
 
 @pytest.mark.django_db
