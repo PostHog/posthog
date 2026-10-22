@@ -158,13 +158,13 @@ class TestOrganizationBillingAPI(OrganizationBillingTestMixin, APILicensedTest):
         mock_get.return_value = _response(SUBSCRIPTION)
         headers = {}
         if credential == "oauth_token":
-            headers = {"HTTP_AUTHORIZATION": f"Bearer {self._oauth_token('billing:read')}"}
+            headers = {"authorization": f"Bearer {self._oauth_token('billing:read')}"}
         with (
             patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True),
             patch.object(BillingReadBurstRateThrottle, "rate", "1/minute"),
         ):
-            first = self.client.get(self._url("subscription/"), **headers)
-            second = self.client.get(self._url("subscription/"), **headers)
+            first = self.client.get(self._url("subscription/"), headers=headers)
+            second = self.client.get(self._url("subscription/"), headers=headers)
         self.assertEqual((first.status_code, second.status_code), (status.HTTP_200_OK, second_status))
 
     @patch("ee.billing.billing_manager.http_session.get")
