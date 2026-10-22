@@ -146,6 +146,13 @@ const SOURCE_PRODUCT_META: Partial<Record<SourceProduct, SourceProductMeta>> = {
   sentry: { Icon: BugIcon, color: "var(--violet-9)", label: "Sentry" },
   rollbar: { Icon: BugIcon, color: "var(--crimson-9)", label: "Rollbar" },
   bugsnag: { Icon: BugIcon, color: "var(--pink-9)", label: "Bugsnag" },
+  checkly: { Icon: BugIcon, color: "var(--teal-9)", label: "Checkly" },
+  roark: { Icon: BugIcon, color: "var(--indigo-9)", label: "Roark" },
+  trigger_dev: {
+    Icon: BugIcon,
+    color: "var(--plum-9)",
+    label: "Trigger.dev",
+  },
   honeybadger: {
     Icon: BugIcon,
     color: "var(--amber-9)",

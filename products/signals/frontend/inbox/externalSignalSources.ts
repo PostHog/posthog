@@ -80,6 +80,15 @@ export const EXTERNAL_SIGNAL_SOURCES = [
         sourceType: 'issue',
     },
     {
+        source: 'checkly',
+        label: 'Checkly',
+        category: 'Error tracking',
+        watches: 'Surface recurring check errors',
+        dwSourceType: 'Checkly',
+        requiredTables: ['error_groups'],
+        sourceType: 'issue',
+    },
+    {
         source: 'honeybadger',
         label: 'Honeybadger',
         category: 'Error tracking',
@@ -98,6 +107,15 @@ export const EXTERNAL_SIGNAL_SOURCES = [
         sourceType: 'issue',
     },
     {
+        source: 'roark',
+        label: 'Roark',
+        category: 'Error tracking',
+        watches: 'Surface open voice and chat agent issues',
+        dwSourceType: 'Roark',
+        requiredTables: ['issue'],
+        sourceType: 'issue',
+    },
+    {
         source: 'rollbar',
         label: 'Rollbar',
         category: 'Error tracking',
@@ -113,6 +131,15 @@ export const EXTERNAL_SIGNAL_SOURCES = [
         watches: 'Surface new and reopened errors',
         dwSourceType: 'Sentry',
         requiredTables: ['issues'],
+        sourceType: 'issue',
+    },
+    {
+        source: 'trigger_dev',
+        label: 'Trigger.dev',
+        category: 'Error tracking',
+        watches: 'Surface failing background task errors',
+        dwSourceType: 'TriggerDev',
+        requiredTables: ['errors'],
         sourceType: 'issue',
     },
     {

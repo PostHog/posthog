@@ -1248,6 +1248,49 @@ class BigeyeIssueSignalInput(SignalInputBase):
     extra: BigeyeIssueSignalExtra
 
 
+# ── Error monitors ─────────────────────────────────────────────────────────────
+
+
+class TriggerDevErrorSignalExtra(SignalExtraBase):
+    task_identifier: str | None
+    status: str | None
+    count: str | None
+    first_seen: str | None
+    last_seen: str | None
+
+
+class TriggerDevErrorSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.ISSUE]
+    source_product: Literal[SignalSourceProduct.TRIGGER_DEV]
+    extra: TriggerDevErrorSignalExtra
+
+
+class ChecklyErrorGroupSignalExtra(SignalExtraBase):
+    check_id: str | None
+    error_hash: str | None
+    first_seen: str | None
+    last_seen: str | None
+
+
+class ChecklyErrorGroupSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.ISSUE]
+    source_product: Literal[SignalSourceProduct.CHECKLY]
+    extra: ChecklyErrorGroupSignalExtra
+
+
+class RoarkIssueSignalExtra(SignalExtraBase):
+    severity: str | None
+    status: str | None
+    event_count: str | None
+    created_at: str | None
+
+
+class RoarkIssueSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.ISSUE]
+    source_product: Literal[SignalSourceProduct.ROARK]
+    extra: RoarkIssueSignalExtra
+
+
 # ── Union over all signal variants ──────────────────────────────────────────────
 # Discrimination is by the composite (source_product, source_type) pair, resolved via
 # SIGNAL_VARIANT_LOOKUP below — a single-field pydantic discriminator can't express it
@@ -1320,7 +1363,10 @@ SignalInput = Annotated[
     | XmattersIncidentSignalInput
     | BetterstackIncidentSignalInput
     | MonteCarloAlertSignalInput
-    | BigeyeIssueSignalInput,
+    | BigeyeIssueSignalInput
+    | TriggerDevErrorSignalInput
+    | ChecklyErrorGroupSignalInput
+    | RoarkIssueSignalInput,
     Field(union_mode="left_to_right"),
 ]
 
@@ -1390,6 +1436,9 @@ SIGNAL_INPUT_VARIANTS: tuple[type[SignalInputBase], ...] = (
     BetterstackIncidentSignalInput,
     MonteCarloAlertSignalInput,
     BigeyeIssueSignalInput,
+    TriggerDevErrorSignalInput,
+    ChecklyErrorGroupSignalInput,
+    RoarkIssueSignalInput,
     CheckFailedSignalInput,
 )
 
