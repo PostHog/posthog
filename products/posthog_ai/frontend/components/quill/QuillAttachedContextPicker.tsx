@@ -129,7 +129,9 @@ export function QuillAttachedContextPicker({
                 anchor={anchor}
                 className={cn(
                     'overflow-hidden rounded-xl p-0',
-                    anchor ? 'w-(--anchor-width) max-w-[calc(100vw-2rem)]' : 'w-auto'
+                    anchor
+                        ? 'w-(--anchor-width) max-w-[calc(100vw-2rem)] transition-[opacity,translate] duration-[180ms] ease-[cubic-bezier(0.23,1,0.32,1)] data-[ending-style]:translate-y-1 data-[ending-style]:transform-none data-[ending-style]:duration-[120ms] data-[starting-style]:translate-y-1.5 data-[starting-style]:transform-none motion-reduce:data-[ending-style]:translate-y-0 motion-reduce:data-[starting-style]:translate-y-0'
+                        : 'w-auto'
                 )}
             >
                 {/* The filter is Lemon, so it keeps Lemon's colors inside the quill popover. */}

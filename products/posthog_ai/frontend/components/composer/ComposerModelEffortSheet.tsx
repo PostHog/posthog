@@ -1,5 +1,6 @@
 import { useState } from 'react'
 
+import { IconBrain } from '@posthog/icons'
 import { Button, ItemRadio, MenuLabel, ToggleGroup, ToggleGroupItem } from '@posthog/quill-primitives'
 
 import { SHEET_PARTS } from '~/layout/today/todayMenuParts'
@@ -63,9 +64,12 @@ export function ComposerModelEffortSheet({
     const [open, setOpen] = useState(false)
     return (
         <>
-            <Button size="lg" onClick={() => setOpen(true)} data-attr="composer-model-sheet-open">
+            <Button size="sm" onClick={() => setOpen(true)} data-attr="composer-model-sheet-open">
+                <IconBrain className="shrink-0 text-muted-foreground" />
                 <span className="max-w-32 truncate">{modelLabel}</span>
-                {effortOptions.length > 0 && <span className="text-muted">{getEffortLabel(selectedEffort)}</span>}
+                {effortOptions.length > 0 && (
+                    <span className="text-muted @max-[400px]/composer:hidden">{getEffortLabel(selectedEffort)}</span>
+                )}
                 {billing?.value === ModelAccessEnumApi.OwnSubscription && (
                     <span className="text-muted">ChatGPT plan</span>
                 )}
