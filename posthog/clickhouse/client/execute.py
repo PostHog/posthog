@@ -73,9 +73,9 @@ QueryArgs = Optional[Union[InsertParams, NonInsertParams]]
 
 thread_local_storage = threading.local()
 
-# As of CH 22.8 - more algorithms have been added on newer versions
 CLUSTER_PINNED_WORKLOADS = frozenset({Workload.LOGS, Workload.NEW_EVENTS_CLUSTER})
 
+# As of CH 22.8 - more algorithms have been added on newer versions
 CLICKHOUSE_SUPPORTED_JOIN_ALGORITHMS = [
     "default",
     "hash",

@@ -107,8 +107,6 @@ class TestNewEventsClusterRouting(SimpleTestCase):
 
     @parameterized.expand([("native", None, True), ("override_runs_legacy", False, False)])
     def test_native_enqueue_waits_for_the_async_gate(self, _name: str, override: bool | None, refused: bool) -> None:
-        from posthog.hogql.errors import ExposedHogQLError
-
         self.instance_settings["CLICKHOUSE_NATIVE_EVENTS_ASYNC"] = False
         source = HogQLQuery(query="SELECT 1", modifiers=self.modifiers.model_copy(update={"useNewEventsCluster": True}))
         runner = HogQLQueryRunner(
@@ -129,8 +127,6 @@ class TestNewEventsClusterRouting(SimpleTestCase):
         self.assertEqual(enqueue.called, not refused)
 
     def test_worker_revalidates_eligibility_instead_of_falling_back(self) -> None:
-        from posthog.hogql.errors import ExposedHogQLError
-
         source = HogQLQuery(query="SELECT 1", modifiers=self.modifiers.model_copy(update={"useNewEventsCluster": True}))
         runner = HogQLQueryRunner(query=source, team=self.team)
         serialized = self._enqueue(runner)
@@ -222,13 +218,22 @@ class TestNewEventsClusterRouting(SimpleTestCase):
             ),
             team=self.team,
         )
-        with patch(
-            "posthog.hogql_queries.query_runner.get_new_events_cluster_host",
-            side_effect=RuntimeError("settings unavailable"),
-        ):
+        settings = self.instance_settings
+
+        def host_unavailable(key: str) -> object:
+            if key == "CLICKHOUSE_NATIVE_EVENTS_HOST":
+                raise RuntimeError("settings unavailable")
+            return settings.get(key)
+
+        with patch("posthog.models.event.new_events_schema.get_instance_setting", side_effect=host_unavailable):
             queued = self._enqueue(runner)
         self.assertEqual(queued["query"], "SELECT 1")
         self.assertIsNot(queued["modifiers"].get("useNewEventsCluster"), True)
+
+    def test_stored_project_schema_does_not_pin_a_legacy_payload(self) -> None:
+        self.team.modifiers = {"useNewEventsSchema": False}
+        query = HogQLQuery(query="SELECT 1", modifiers=self.modifiers)
+        self.assertEqual(self._enqueue(HogQLQueryRunner(query=query, team=self.team)), query.model_dump())
 
     @override_settings(CLICKHOUSE_NATIVE_EVENTS_HOST="native.example.com")
     def test_direct_trino_queue_preserves_pure_inputs(self) -> None:

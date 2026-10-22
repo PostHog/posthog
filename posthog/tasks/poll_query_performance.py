@@ -62,7 +62,7 @@ def get_query_result_batches() -> Iterator[list[dict[str, Any]]]:
         SETTINGS skip_unavailable_shards=1
         """
 
-    native_host = get_new_events_cluster_host_or_none() if native_events_async_enabled() else None
+    native_host = _native_poll_host()
 
     native = None
     if native_host:
@@ -105,6 +105,16 @@ def get_query_result_batches() -> Iterator[list[dict[str, Any]]]:
         native.add_done_callback(partial(_log_detached_poll, "native"))
     except Exception:
         logger.exception("Failed to poll native query progress")
+
+
+def _native_poll_host() -> str | None:
+    try:
+        if not native_events_async_enabled():
+            return None
+    except Exception:
+        logger.exception("Failed to read the native async setting")
+        return None
+    return get_new_events_cluster_host_or_none()
 
 
 def _log_detached_poll(cluster: str, future: Future[list[Any]]) -> None:
