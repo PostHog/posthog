@@ -46,6 +46,9 @@ export function listenForGoldRingsKeys(isEnabled: () => boolean): () => void {
         if (!isEnabled() || isGoldRingsMuted() || !isPlainKey(event)) {
             return
         }
+        if (event.target instanceof HTMLInputElement && event.target.type === 'password') {
+            return
+        }
         if (trackOptOutKey(event.key)) {
             return
         }

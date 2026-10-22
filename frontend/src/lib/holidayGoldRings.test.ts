@@ -74,7 +74,6 @@ describe('holiday gold rings keys', () => {
 
     test.each([
         ['an input', '<input data-key-target />'],
-        ['a password input', '<input type="password" data-key-target />'],
         ['a textarea', '<textarea data-key-target></textarea>'],
         ['contenteditable text', '<div contenteditable="true"><span data-key-target></span></div>'],
         ['a code editor', '<div class="monaco-editor"><span data-key-target></span></div>'],
@@ -94,6 +93,27 @@ describe('holiday gold rings keys', () => {
         expect(event.defaultPrevented).toBe(false)
         stopListening()
         container.remove()
+    })
+
+    test('does not play or track the opt-out phrase in password inputs', () => {
+        jest.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation()
+        const play = jest.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue()
+        const input = document.createElement('input')
+        input.type = 'password'
+        document.body.appendChild(input)
+        const stopListening = listenForGoldRingsKeys(() => true)
+
+        for (const key of 'I hate Xmas') {
+            input.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key }))
+        }
+        const event = new KeyboardEvent('keydown', { bubbles: true, cancelable: true, key: '5' })
+        input.dispatchEvent(event)
+
+        expect(play).not.toHaveBeenCalled()
+        expect(isGoldRingsMuted()).toBe(false)
+        expect(event.defaultPrevented).toBe(false)
+        stopListening()
+        input.remove()
     })
 
     test('can opt out while typing in an input', () => {
