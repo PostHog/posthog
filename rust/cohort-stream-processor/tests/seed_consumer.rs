@@ -29,7 +29,8 @@ use cohort_core::seed::{
 use cohort_stream_processor::config::Config;
 use cohort_stream_processor::consumers::{
     CascadeRoute, CohortStreamEventsConsumer, EventDispatcher, FollowerConsumer, MergeRoute,
-    SeedFollowerConsumer, TransferRoute,
+    PinnedCohort, RunLookupError, RunParticipants, RunParticipantsSource, SeedFollowerConsumer,
+    TransferRoute,
 };
 use cohort_stream_processor::filters::{
     CatalogHandle, CohortId, FilterCatalog, TeamFiltersBuilder, TeamId,
@@ -111,6 +112,19 @@ fn seed_catalog() -> CatalogHandle {
         TeamId(TEAM),
         builder.freeze(UTC),
     )]))
+}
+
+/// Every run backfills the catalog's one cohort, so the run catalog gate admits each run at once.
+struct CatalogCohortRuns;
+
+#[async_trait]
+impl RunParticipantsSource for CatalogCohortRuns {
+    async fn participants(&self, _run_id: RunId) -> Result<RunParticipants, RunLookupError> {
+        Ok(RunParticipants::new(
+            None,
+            vec![PinnedCohort::new(CohortId(COHORT), None)],
+        ))
+    }
 }
 
 async fn create_topic(topic: &str, partitions: i32) {
@@ -856,6 +870,7 @@ async fn spawn_instance(
         // Both pacing triggers disabled: these tests pin fence and holdover behavior.
         SeedPacingConfig::default(),
         Arc::new(SharedDiskUtilization::new(Duration::MAX)),
+        Arc::new(CatalogCohortRuns),
     );
     tasks.push(tokio::spawn(seed_follower.process()));
 

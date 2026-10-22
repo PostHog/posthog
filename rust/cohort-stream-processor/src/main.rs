@@ -16,7 +16,7 @@ use tracing_subscriber::{fmt, EnvFilter, Layer};
 use cohort_stream_processor::config::Config;
 use cohort_stream_processor::consumers::{
     BootReadiness, CascadeRoute, CohortStreamEventsConsumer, EventDispatcher, FollowerConsumer,
-    FollowerRoute, MergeRoute, SeedFollowerConsumer, TransferRoute,
+    FollowerRoute, MergeRoute, PgRunParticipants, SeedFollowerConsumer, TransferRoute,
 };
 use cohort_stream_processor::filters::{run_refresh_loop, CatalogHandle};
 use cohort_stream_processor::merge::gc::MergeGcSweeper;
@@ -689,6 +689,7 @@ async fn async_main(config: Config) -> Result<()> {
             config.seed_idle_probe_interval(),
             config.seed_pacing_config()?,
             disk_state.clone(),
+            Arc::new(PgRunParticipants::new(pool.clone())),
         );
         let seed_readiness = boot_readiness.clone();
         tokio::spawn(async move {

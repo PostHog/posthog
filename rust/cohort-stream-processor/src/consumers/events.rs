@@ -585,6 +585,10 @@ impl EventDispatcher {
         &self.merge
     }
 
+    pub(crate) fn catalog(&self) -> &CatalogHandle {
+        &self.catalog
+    }
+
     /// Route a sweep tick to each owned partition that has a live worker. Never spawns: a worker-less
     /// owned partition has no in-memory state to evict, so it is skipped rather than producing a
     /// `no_worker` drop.

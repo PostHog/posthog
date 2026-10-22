@@ -179,6 +179,11 @@ Most of these are not enforced by a single test, and a violation usually shows u
 
 - Why: a marker must certify the run's seeds on that partition.
 - Kept by: per-partition order on the seed topic, and admission that never lets a later message overtake a held one.
+  The run catalog gate also holds a run's messages until the catalog holds every active cohort of the run at its pinned shape hash, so a seed applies against the cohorts its marker certifies.
+  See [seed apply and reconcile](seed-apply-and-reconcile.md#admission-the-seed-consumer).
+- Limit: the gate admits a run after a catalog refresh that began after the run's first seed arrived.
+  That refresh reads the Postgres reader, so this holds while reader lag stays shorter than the delay from the run's creation to its first seed's arrival.
+  The gate compares shape hashes, so it does not detect a catalog that holds an older composition of the same leaves.
 - Limit: a seed run that fails before its Stage 1 commit does not stop a later reconcile in the same tenure.
   A seed re-keyed to a merge survivor on another partition joins the back of that partition, so that partition's marker does not cover it.
 

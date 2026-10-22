@@ -664,13 +664,26 @@ pub const SEED_FENCE_DEFICIT_MS: &str = "cohort_seed_fence_deficit_ms";
 /// Age of each owned partition's live watermark, labelled by `partition` (gauge, ms).
 pub const LIVE_WATERMARK_AGE_MS: &str = "cohort_live_watermark_age_ms";
 /// Seed partitions currently paused, labelled by `cause`
-/// (`fence`|`channel_full`|`live_lag`|`disk_pressure`) (gauge). A partition holding several
-/// causes counts under each.
+/// (`fence`|`channel_full`|`live_lag`|`disk_pressure`|`catalog_behind`) (gauge). A partition
+/// holding several causes counts under each.
 pub const SEED_PAUSED_PARTITIONS: &str = "cohort_seed_paused_partitions";
 /// Continuous pause age per paused seed partition, labelled by `partition` (gauge, ms). Cause
 /// churn does not reset it. **Alert well below the seed topic's retention** — sustained live load
 /// can defer seeding indefinitely without any lag alarm firing.
 pub const SEED_PAUSE_AGE_MS: &str = "cohort_seed_pause_age_ms";
+/// Backfill runs whose seeds the run catalog gate held, counted once per run at its first hold and
+/// labelled by that hold's `reason` (counter). `lookup_pending` is the normal first hold of a run
+/// whose participant lookup outlasts one consume cycle.
+pub const SEED_RUN_GATE_HOLDS_TOTAL: &str = "cohort_seed_run_gate_holds_total";
+/// Backfill runs the run catalog gate admitted for good, labelled by `outcome`
+/// (`loaded`|`loaded_after_hold`|`admitted_after_refresh`) and `reason` (counter).
+/// `admitted_after_refresh` names the catalog gap a fresh refresh left in `reason`, which means the
+/// run's seeds applied while the catalog still lacked one of its cohorts.
+pub const SEED_RUN_GATE_SETTLED_TOTAL: &str = "cohort_seed_run_gate_settled_total";
+/// Participant lookups the run catalog gate made, labelled by `result`
+/// (`ok`|`error`|`timeout`|`panic`) (counter). **Alert on a sustained failure rate**, because a
+/// run whose lookup fails holds its partitions until a lookup succeeds.
+pub const SEED_RUN_LOOKUPS_TOTAL: &str = "cohort_seed_run_lookups_total";
 /// Owned partitions with no live watermark at all (gauge). Fence-fail-closed with an unknown
 /// deficit, so otherwise indistinguishable from a merely trailing watermark on the deficit gauge.
 pub const SEED_NO_WATERMARK_PARTITIONS: &str = "cohort_seed_no_watermark_partitions";

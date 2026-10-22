@@ -1,10 +1,11 @@
 //! The `cohort_stream_seed_events` follower consumer — the backfill day-tile input.
 //!
-//! It is assigned the partitions this pod owns, like the events consumer. Four admission gates
+//! It is assigned the partitions this pod owns, like the events consumer. Five admission gates
 //! share one holdover + pause mechanism: the apply fence (a tile dispatches only once its
 //! partition's live watermark clears `s_chunk + margin`), a full seed lane, live-priority (the
-//! partition's live watermark age crossed the pause threshold — live traffic always wins), and
-//! pod-wide disk pressure. An un-dispatched tile was never `mark_dispatched`ed, so its offset cannot commit.
+//! partition's live watermark age crossed the pause threshold — live traffic always wins),
+//! pod-wide disk pressure, and the run catalog gate (a run's seeds wait until the filter catalog
+//! holds the run's cohorts, see [`run_gate`](crate::consumers::run_gate)). An un-dispatched tile was never `mark_dispatched`ed, so its offset cannot commit.
 //! The live-lag gate remains an admission backstop because an admitted seed run still uses the
 //! worker and its CPU and I/O even though separate lanes keep queued seeds behind live traffic.
 //! Consume-side skips ride the seed lane so their offsets mark in order; they never close the
@@ -16,7 +17,9 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use cohort_core::seed::{decode_seed, DecodedSeed, PersonSeed, ReconcileTile, SChunkMs, SeedTile};
+use cohort_core::seed::{
+    decode_seed, DecodedSeed, PersonSeed, ReconcileTile, RunId, SChunkMs, SeedTile,
+};
 use lifecycle::Handle;
 use metrics::{counter, gauge, histogram};
 use rdkafka::consumer::{CommitMode, Consumer, StreamConsumer};
@@ -26,6 +29,8 @@ use tracing::{debug, info, warn};
 
 use crate::consumers::events::{fsync_then_commit, run_pauser_loop, EventDispatcher};
 use crate::consumers::merges::{committable_after_drain, owned_committable_offsets};
+use crate::consumers::run_gate::{RunGate, RunParticipantsSource};
+use crate::filters::TeamId;
 use crate::observability::disk::{DiskUtilization, SharedDiskUtilization};
 use crate::observability::metrics::{
     COHORT_STREAM_KAFKA_RECV_ERRORS, COHORT_STREAM_SEEDS_CONSUMED,
@@ -101,6 +106,16 @@ impl ConsumedSeed {
             SeedWork::Person(_) | SeedWork::Reconcile(_) | SeedWork::Skip(_) => None,
         }
     }
+
+    /// The backfill run the message belongs to, which the run catalog gate keys on.
+    fn run(&self) -> Option<(RunId, TeamId)> {
+        match &self.work {
+            SeedWork::Tile(tile) => Some((tile.run_id(), tile.team_id())),
+            SeedWork::Person(seed) => Some((seed.run_id(), seed.team_id())),
+            SeedWork::Reconcile(tile) => Some((tile.run_id(), tile.team_id())),
+            SeedWork::Skip(_) => None,
+        }
+    }
 }
 
 /// The apply-fence verdict for one tile.
@@ -140,6 +155,9 @@ pub(crate) struct AdmissionPolicy<'a, F: Fn(i32) -> Option<WatermarkMs>> {
     pub live_lagging: &'a HashSet<i32>,
     /// Pod-wide disk gate: hold everything for every partition.
     pub disk_pressure: bool,
+    /// Runs whose cohorts the filter catalog does not hold yet. A partition holds from its first
+    /// message of such a run.
+    pub held_runs: &'a HashSet<RunId>,
 }
 
 /// A consumed batch split at the admission gates, preserving per-partition FIFO.
@@ -201,6 +219,19 @@ pub(crate) fn split_for_admission<F: Fn(i32) -> Option<WatermarkMs>>(
                     }
                 }
             }
+            split.held.entry(partition).or_default().push(seed);
+            continue;
+        }
+        if seed
+            .run()
+            .is_some_and(|(run_id, _)| policy.held_runs.contains(&run_id))
+        {
+            closed.insert(partition);
+            split
+                .causes
+                .entry(partition)
+                .or_default()
+                .insert(PauseCause::CatalogBehind);
             split.held.entry(partition).or_default().push(seed);
             continue;
         }
@@ -325,6 +356,7 @@ fn merge_cycle_causes(
 #[allow(clippy::too_many_arguments)]
 fn run_admission_cycle(
     dispatcher: &EventDispatcher,
+    run_gate: &mut RunGate,
     pacing_config: &SeedPacingConfig,
     disk_sample: Option<DiskUtilization>,
     fence_margin_ms: i64,
@@ -363,16 +395,23 @@ fn run_admission_cycle(
         _ => false,
     };
 
+    let held = drain_held(holdover);
+    let held_runs = run_gate.held_runs(
+        held.iter().chain(&seeds).filter_map(ConsumedSeed::run),
+        dispatcher.catalog(),
+    );
+
     let policy = AdmissionPolicy {
         fence_margin_ms,
         watermark_of,
         live_lagging: &live_lag.lagging,
         disk_pressure: pacing.disk_engaged,
+        held_runs: &held_runs,
     };
 
     // Held before fresh; the channel-full remainder re-absorbs before the still-fenced
     // suffix so per-partition FIFO holds.
-    let refence = split_for_admission(drain_held(holdover), &HashSet::new(), &policy);
+    let refence = split_for_admission(held, &HashSet::new(), &policy);
     let still_full = dispatcher.dispatch_seeds(refence.admitted);
     let mut bounced: Vec<i32> = still_full.keys().copied().collect();
     holdover.absorb(still_full);
@@ -469,6 +508,7 @@ pub struct SeedFollowerConsumer {
     idle_probe_interval: Duration,
     pacing_config: SeedPacingConfig,
     disk_state: Arc<SharedDiskUtilization>,
+    run_participants: Arc<dyn RunParticipantsSource>,
 }
 
 impl SeedFollowerConsumer {
@@ -489,6 +529,7 @@ impl SeedFollowerConsumer {
         idle_probe_interval: Duration,
         pacing_config: SeedPacingConfig,
         disk_state: Arc<SharedDiskUtilization>,
+        run_participants: Arc<dyn RunParticipantsSource>,
     ) -> Self {
         Self {
             consumer,
@@ -506,6 +547,7 @@ impl SeedFollowerConsumer {
             idle_probe_interval,
             pacing_config,
             disk_state,
+            run_participants,
         }
     }
 
@@ -528,6 +570,7 @@ impl SeedFollowerConsumer {
 
         let mut holdover = SeedHoldover::default();
         let mut pacing = SeedPacing::default();
+        let mut run_gate = RunGate::new(self.run_participants.clone());
         let mut prev_paused_target: HashSet<i32> = HashSet::new();
         let mut commit_deadline = tokio::time::Instant::now() + self.offset_commit_interval;
 
@@ -539,7 +582,7 @@ impl SeedFollowerConsumer {
                     break self.dispatcher.owned_set();
                 }
                 outcome = self.consume_batch() => {
-                    self.cycle(outcome, &mut holdover, &mut pacing, &mut prev_paused_target, &pause_tx).await;
+                    self.cycle(outcome, &mut holdover, &mut pacing, &mut run_gate, &mut prev_paused_target, &pause_tx).await;
                     let now = tokio::time::Instant::now();
                     if now >= commit_deadline {
                         fsync_then_commit(
@@ -584,14 +627,16 @@ impl SeedFollowerConsumer {
         info!(topic = %self.topic, "seed follower consume loop stopped");
     }
 
-    /// One non-blocking cycle: prune revoked holdover, assess the pacing gates, re-admit and
-    /// redispatch held seeds before fresh ones, dispatch the polled batch, reconcile the paused
-    /// target and gauges.
+    /// One cycle: start the run catalog gate's lookups for new runs, prune revoked holdover, assess
+    /// the pacing gates, re-admit and redispatch held seeds before fresh ones, dispatch the polled
+    /// batch, reconcile the paused target and gauges. Only the gate's lookups await, for a bounded
+    /// time.
     async fn cycle(
         &self,
         outcome: SeedConsumeOutcome,
         holdover: &mut SeedHoldover,
         pacing: &mut SeedPacing,
+        run_gate: &mut RunGate,
         prev_paused_target: &mut HashSet<i32>,
         pause_tx: &tokio::sync::mpsc::UnboundedSender<HashSet<i32>>,
     ) {
@@ -603,8 +648,16 @@ impl SeedFollowerConsumer {
             counter!(COHORT_STREAM_SEED_DESERIALIZE_ERRORS).increment(outcome.deserialize_errors);
         }
 
+        run_gate
+            .prepare(
+                outcome.seeds.iter().filter_map(ConsumedSeed::run),
+                self.dispatcher.catalog(),
+                Instant::now(),
+            )
+            .await;
         run_admission_cycle(
             &self.dispatcher,
+            run_gate,
             &self.pacing_config,
             self.disk_state.latest(),
             self.fence_margin_ms,
@@ -861,12 +914,15 @@ mod tests {
     };
     use uuid::Uuid;
 
-    use crate::filters::{CohortId, TeamId};
+    use crate::filters::CohortId;
     use crate::partitions::watermarks::LiveWatermarks;
 
     use super::*;
 
     const MARGIN_MS: i64 = 600_000;
+
+    static NO_HELD_RUNS: std::sync::LazyLock<HashSet<RunId>> =
+        std::sync::LazyLock::new(HashSet::new);
 
     fn tile_at(s_chunk_ms: i64) -> SeedTile {
         SeedTile::new(
@@ -921,6 +977,59 @@ mod tests {
         }
     }
 
+    /// The same message attributed to `run`.
+    fn of_run(run: RunId, consumed: ConsumedSeed) -> ConsumedSeed {
+        let work = match consumed.work {
+            SeedWork::Tile(tile) => SeedWork::Tile(SeedTile::new(
+                tile.team_id(),
+                tile.person_id(),
+                tile.condition_hash(),
+                tile.count_nonzero(),
+                tile.day_idx(),
+                tile.s_chunk_ms(),
+                run,
+                tile.claim_epoch(),
+            )),
+            SeedWork::Person(seed) => SeedWork::Person(
+                PersonSeed::new(
+                    seed.team_id(),
+                    seed.person_id(),
+                    seed.evaluated().to_vec(),
+                    seed.matched().to_vec(),
+                    seed.scanned_at_ms(),
+                    run,
+                    seed.claim_epoch(),
+                )
+                .unwrap(),
+            ),
+            SeedWork::Reconcile(tile) => SeedWork::Reconcile(ReconcileTile::new(
+                tile.team_id(),
+                tile.cohort_id(),
+                tile.scope().clone(),
+                run,
+                tile.boundary()
+                    .expect("test reconcile tiles carry a boundary"),
+            )),
+            skip @ SeedWork::Skip(_) => skip,
+        };
+        ConsumedSeed { work, ..consumed }
+    }
+
+    fn reconcile(partition: i32, offset: i64) -> ConsumedSeed {
+        ConsumedSeed {
+            work: SeedWork::Reconcile(ReconcileTile::new(
+                TeamId(2),
+                CohortId(42),
+                ReconcileScope::Behavioral(BehavioralShapeHash::parse("0123456789abcdef").unwrap()),
+                RunId(Uuid::nil()),
+                RunBoundaryMs(0),
+            )),
+            partition,
+            offset,
+            broker_ts_ms: None,
+        }
+    }
+
     fn offsets(seeds: &[ConsumedSeed]) -> Vec<i64> {
         seeds.iter().map(|seed| seed.offset).collect()
     }
@@ -935,6 +1044,7 @@ mod tests {
             watermark_of,
             live_lagging,
             disk_pressure: false,
+            held_runs: &NO_HELD_RUNS,
         }
     }
 
@@ -1011,6 +1121,44 @@ mod tests {
             Some(10_000_000 + MARGIN_MS - (100 + MARGIN_MS + 1))
         );
         assert_eq!(split.causes[&1], causes_of(&[PauseCause::Fence]));
+    }
+
+    /// Invariant 23 again, for the run catalog gate: once a partition holds a message of a held
+    /// run, every later message on it waits, whatever its run or kind, and other partitions flow.
+    #[test]
+    fn split_holds_a_partition_from_its_first_message_of_a_held_run() {
+        let watermarks = LiveWatermarks::new();
+        for partition in 1..=3 {
+            watermarks.observe(partition, i64::MAX);
+        }
+        let held_run = RunId(Uuid::from_u128(0xC0));
+        let batch = vec![
+            seed(1, 10, 0),
+            seed(2, 20, 0),
+            seed(3, 30, 0),
+            of_run(held_run, person(1, 11)),
+            of_run(held_run, reconcile(2, 21)),
+            person(3, 31),
+            seed(1, 12, 0),
+            skip(1, 13),
+            of_run(held_run, seed(2, 22, 0)),
+            reconcile(3, 32),
+        ];
+
+        let none = HashSet::new();
+        let held_runs = HashSet::from([held_run]);
+        let policy = AdmissionPolicy {
+            held_runs: &held_runs,
+            ..fence_only(&none, |p| watermarks.get(p))
+        };
+        let split = split_for_admission(batch, &HashSet::new(), &policy);
+
+        assert_eq!(offsets(&split.admitted), vec![10, 20, 30, 31, 32]);
+        assert_eq!(offsets(&split.held[&1]), vec![11, 12, 13]);
+        assert_eq!(offsets(&split.held[&2]), vec![21, 22]);
+        assert!(!split.held.contains_key(&3));
+        assert_eq!(split.causes[&1], causes_of(&[PauseCause::CatalogBehind]));
+        assert_eq!(split.causes[&2], causes_of(&[PauseCause::CatalogBehind]));
     }
 
     #[test]
@@ -1441,17 +1589,37 @@ mod tests {
         //! Behavioral checks of [`run_admission_cycle`] against a real dispatcher and store;
         //! the pause channel and the seed tracker's ceiling are the observables.
 
+        use chrono_tz::UTC;
+        use cohort_core::seed::{PersonShapeHash, ScopeKind};
         use tempfile::TempDir;
 
+        use crate::consumers::run_gate::test_support::ScriptedParticipants;
+        use crate::consumers::run_gate::{PinnedCohort, RunParticipants};
+        use crate::filters::{CatalogHandle, FilterCatalog, TeamFiltersBuilder};
         use crate::observability::disk::DiskUtilization;
+        use crate::partitions::partitioner::partition_of;
         use crate::partitions::{OffsetTracker, PartitionRouter};
-        use crate::producer::CaptureSink;
+        use crate::producer::{CaptureSink, ChangeOrigin, MembershipStatus};
         use crate::store::{CohortStore, OffloadConfig, OffloadMode, StoreConfig, StoreHandle};
-        use crate::workers::MergeWorkerDeps;
+        use crate::workers::{MergeWorkerDeps, PersonSeedDeps};
 
         use super::*;
 
         fn pacing_dispatcher(dir: &TempDir) -> Arc<EventDispatcher> {
+            dispatcher_with(
+                dir,
+                Arc::new(CatalogHandle::new()),
+                CaptureSink::new(),
+                MergeWorkerDeps::capture(),
+            )
+        }
+
+        fn dispatcher_with(
+            dir: &TempDir,
+            catalog: Arc<CatalogHandle>,
+            sink: CaptureSink,
+            deps: Arc<MergeWorkerDeps>,
+        ) -> Arc<EventDispatcher> {
             let store = CohortStore::open(&StoreConfig {
                 path: dir.path().join("db"),
                 ..StoreConfig::default()
@@ -1469,9 +1637,9 @@ mod tests {
                 PartitionRouter::new(64),
                 Arc::new(OffsetTracker::new()),
                 handle,
-                Arc::new(crate::filters::CatalogHandle::new()),
-                Arc::new(CaptureSink::new()),
-                MergeWorkerDeps::capture(),
+                catalog,
+                Arc::new(sink),
+                deps,
             ))
         }
 
@@ -1512,6 +1680,7 @@ mod tests {
             };
             let mut holdover = SeedHoldover::default();
             let mut pacing = SeedPacing::default();
+            let mut gate = RunGate::new(Arc::new(ScriptedParticipants::default()));
             let mut prev = HashSet::new();
             let (pause_tx, mut pause_rx) = tokio::sync::mpsc::unbounded_channel();
 
@@ -1519,6 +1688,7 @@ mod tests {
             watermarks.observe(0, now_ms - 300_000);
             run_admission_cycle(
                 &dispatcher,
+                &mut gate,
                 &pacing_config,
                 None,
                 MARGIN_MS,
@@ -1545,6 +1715,7 @@ mod tests {
             watermarks.observe(0, now_ms);
             run_admission_cycle(
                 &dispatcher,
+                &mut gate,
                 &pacing_config,
                 None,
                 MARGIN_MS,
@@ -1582,6 +1753,7 @@ mod tests {
             };
             let mut holdover = SeedHoldover::default();
             let mut pacing = SeedPacing::default();
+            let mut gate = RunGate::new(Arc::new(ScriptedParticipants::default()));
             let mut prev = HashSet::new();
             let (pause_tx, mut pause_rx) = tokio::sync::mpsc::unbounded_channel();
 
@@ -1591,6 +1763,7 @@ mod tests {
             };
             run_admission_cycle(
                 &dispatcher,
+                &mut gate,
                 &pacing_config,
                 Some(over),
                 MARGIN_MS,
@@ -1613,6 +1786,7 @@ mod tests {
             };
             run_admission_cycle(
                 &dispatcher,
+                &mut gate,
                 &pacing_config,
                 Some(between),
                 MARGIN_MS,
@@ -1634,6 +1808,7 @@ mod tests {
             // The probe breaks: fail-open, everything drains.
             run_admission_cycle(
                 &dispatcher,
+                &mut gate,
                 &pacing_config,
                 None,
                 MARGIN_MS,
@@ -1650,6 +1825,134 @@ mod tests {
             assert_eq!(pause_rx.try_recv().unwrap(), HashSet::new());
             wait_for_committable(&dispatcher, 1, 1).await;
             wait_for_committable(&dispatcher, 2, 1).await;
+        }
+
+        /// A run's new cohort shares its only condition hash with a loaded cohort, so its person
+        /// seed drops nothing. Applied before the catalog loads the new cohort, the seed would
+        /// write the leaf without composing the new cohort, and reconcile would certify it empty.
+        /// Held instead, it applies after the load and the new cohort gains its member.
+        #[tokio::test]
+        async fn a_seed_for_an_unloaded_cohort_with_known_hashes_composes_it_after_the_load() {
+            const TEAM: TeamId = TeamId(2);
+            const SHAPE: &str = "pinned-person-shape";
+            let run = RunId(Uuid::from_u128(0xC1));
+            let person_id = Uuid::from_u128(7);
+            let partition = partition_of(TEAM, &person_id, 64) as i32;
+            let person_leaf = serde_json::json!({ "properties": { "type": "AND", "values": [{
+                "type": "person", "key": "email", "value": "a@b.com", "operator": "exact",
+                "conditionHash": "0123456789abcdef",
+                "bytecode": ["_H", 1, 32, "a@b.com", 32, "email", 32, "properties", 32, "person", 1, 3, 11],
+            }]}});
+            let catalog_of = |cohorts: &[i32]| {
+                let mut builder = TeamFiltersBuilder::default();
+                for &cohort in cohorts {
+                    builder
+                        .add_cohort(CohortId(cohort), TEAM, &person_leaf)
+                        .unwrap();
+                    builder.set_person_shape_hash(
+                        CohortId(cohort),
+                        PersonShapeHash::parse(SHAPE).unwrap(),
+                    );
+                }
+                FilterCatalog::from_teams([(TEAM, builder.freeze(UTC))])
+            };
+
+            let dir = TempDir::new().unwrap();
+            let catalog = Arc::new(CatalogHandle::from_catalog(catalog_of(&[1])));
+            let sink = CaptureSink::new();
+            let deps = Arc::into_inner(MergeWorkerDeps::capture()).unwrap();
+            let deps = Arc::new(MergeWorkerDeps {
+                person_seed: PersonSeedDeps {
+                    enabled: true,
+                    ..PersonSeedDeps::default()
+                },
+                ..deps
+            });
+            let dispatcher = dispatcher_with(&dir, catalog.clone(), sink.clone(), deps);
+            dispatcher.assign_partition(partition);
+
+            let source = Arc::new(ScriptedParticipants::default());
+            source.answer(
+                run,
+                RunParticipants::new(
+                    Some(ScopeKind::PersonProperty),
+                    vec![PinnedCohort::new(CohortId(2), Some(SHAPE))],
+                ),
+            );
+            let mut gate = RunGate::new(source);
+            let mut holdover = SeedHoldover::default();
+            let mut pacing = SeedPacing::default();
+            let mut prev = HashSet::new();
+            let (pause_tx, mut pause_rx) = tokio::sync::mpsc::unbounded_channel();
+            let consumed = ConsumedSeed {
+                work: SeedWork::Person(
+                    PersonSeed::new(
+                        TEAM,
+                        person_id,
+                        vec![ConditionHash::parse("0123456789abcdef").unwrap()],
+                        vec![ConditionHash::parse("0123456789abcdef").unwrap()],
+                        ScannedAtMs(1_700_000_000_000),
+                        run,
+                        ClaimEpoch(1),
+                    )
+                    .unwrap(),
+                ),
+                partition,
+                offset: 0,
+                broker_ts_ms: None,
+            };
+
+            let cycle = |seeds: Vec<ConsumedSeed>,
+                         gate: &mut RunGate,
+                         holdover: &mut SeedHoldover,
+                         pacing: &mut SeedPacing,
+                         prev: &mut HashSet<i32>| {
+                run_admission_cycle(
+                    &dispatcher,
+                    gate,
+                    &SeedPacingConfig::default(),
+                    None,
+                    MARGIN_MS,
+                    seeds,
+                    holdover,
+                    pacing,
+                    prev,
+                    &pause_tx,
+                    chrono::Utc::now().timestamp_millis(),
+                    Instant::now(),
+                );
+            };
+
+            gate.prepare([(run, TEAM)], &catalog, Instant::now()).await;
+            cycle(
+                vec![consumed],
+                &mut gate,
+                &mut holdover,
+                &mut pacing,
+                &mut prev,
+            );
+            assert_eq!(holdover.held_partitions(), HashSet::from([partition]));
+            assert_eq!(pause_rx.try_recv().unwrap(), HashSet::from([partition]));
+            assert!(pacing
+                .ledger
+                .has_cause(partition, PauseCause::CatalogBehind));
+
+            catalog.publish(catalog_of(&[1, 2]));
+            cycle(vec![], &mut gate, &mut holdover, &mut pacing, &mut prev);
+            assert!(holdover.held_partitions().is_empty());
+            wait_for_committable(&dispatcher, partition, 1).await;
+
+            let mut entered: Vec<(i32, Option<ChangeOrigin>)> = sink
+                .changes()
+                .into_iter()
+                .filter(|change| change.status == MembershipStatus::Entered)
+                .map(|change| (change.cohort_id, change.origin))
+                .collect();
+            entered.sort_by_key(|(cohort, _)| *cohort);
+            assert_eq!(
+                entered,
+                vec![(1, Some(ChangeOrigin::Seed)), (2, Some(ChangeOrigin::Seed))],
+            );
         }
     }
 }

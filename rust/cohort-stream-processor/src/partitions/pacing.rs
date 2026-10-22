@@ -20,14 +20,18 @@ pub enum PauseCause {
     LiveLag,
     /// The store filesystem is above the pause threshold.
     DiskPressure,
+    /// A backfill run's cohorts are not yet in the filter catalog. See
+    /// [`crate::consumers::run_gate`].
+    CatalogBehind,
 }
 
 impl PauseCause {
-    pub const ALL: [PauseCause; 4] = [
+    pub const ALL: [PauseCause; 5] = [
         PauseCause::Fence,
         PauseCause::ChannelFull,
         PauseCause::LiveLag,
         PauseCause::DiskPressure,
+        PauseCause::CatalogBehind,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -36,6 +40,7 @@ impl PauseCause {
             PauseCause::ChannelFull => "channel_full",
             PauseCause::LiveLag => "live_lag",
             PauseCause::DiskPressure => "disk_pressure",
+            PauseCause::CatalogBehind => "catalog_behind",
         }
     }
 }
@@ -47,6 +52,7 @@ pub struct CauseSet {
     channel_full: bool,
     live_lag: bool,
     disk_pressure: bool,
+    catalog_behind: bool,
 }
 
 impl CauseSet {
@@ -56,6 +62,7 @@ impl CauseSet {
             PauseCause::ChannelFull => self.channel_full = true,
             PauseCause::LiveLag => self.live_lag = true,
             PauseCause::DiskPressure => self.disk_pressure = true,
+            PauseCause::CatalogBehind => self.catalog_behind = true,
         }
     }
 
@@ -65,6 +72,7 @@ impl CauseSet {
             PauseCause::ChannelFull => self.channel_full,
             PauseCause::LiveLag => self.live_lag,
             PauseCause::DiskPressure => self.disk_pressure,
+            PauseCause::CatalogBehind => self.catalog_behind,
         }
     }
 
@@ -74,6 +82,7 @@ impl CauseSet {
             channel_full: self.channel_full || other.channel_full,
             live_lag: self.live_lag || other.live_lag,
             disk_pressure: self.disk_pressure || other.disk_pressure,
+            catalog_behind: self.catalog_behind || other.catalog_behind,
         }
     }
 

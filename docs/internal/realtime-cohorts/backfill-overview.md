@@ -302,4 +302,7 @@ A backlog, a failure or a slow catalog refresh makes it longer.
   So reconcile is dispatched long before most seeds apply, and the ordering on each partition is what keeps a reconcile behind its run's held seeds.
 - Reconcile requests are not fenced.
   A request that reaches a partition before the processor has loaded the cohort's current definition waits for the next catalog refresh, up to one refresh interval, and is withheld only if that refresh still disagrees.
+- Seeds wait for the catalog too.
+  Django creates a run a few minutes after the cohort save, and the processor refreshes its catalog on a similar interval, so a new cohort's first seeds can arrive before the processor has loaded it.
+  Admission then holds the run's seeds, and everything behind them on the partition, until the catalog holds the cohort, or until the first refresh that began after the run's first seed arrived.
 - Every chunk of every run is claimed oldest day first, so a small new cohort's recent days wait behind a large team run's older days.
