@@ -5,6 +5,8 @@ from typing import Protocol, TypedDict, cast
 import boto3
 from botocore.config import Config
 
+from posthog.dataclasses import frozen
+
 from products.ai_training.backend.models import AITrainingDeletionRequest
 
 KEY_SHARDS = 32
@@ -70,7 +72,21 @@ def session_key(team_id: int, session_id: str) -> DynamoItem:
     return item_key(f"team:{team_id}:shard:{shard}", f"session:{session_id}")
 
 
-def reachable_months(now: datetime) -> tuple[str, str, str]:
+@frozen
+class ReachableMonths:
+    previous: str
+    current: str
+    following: str
+
+    @property
+    def months(self) -> list[str]:
+        return [self.previous, self.current, self.following]
+
+
+def reachable_months(now: datetime) -> ReachableMonths:
     current = f"{now:%Y-%m}"
-    previous = f"{datetime(now.year, now.month, 1, tzinfo=UTC) - timedelta(days=1):%Y-%m}"
-    return (previous, current, f"{month_end(current):%Y-%m}")
+    return ReachableMonths(
+        previous=f"{datetime(now.year, now.month, 1, tzinfo=UTC) - timedelta(days=1):%Y-%m}",
+        current=current,
+        following=f"{month_end(current):%Y-%m}",
+    )

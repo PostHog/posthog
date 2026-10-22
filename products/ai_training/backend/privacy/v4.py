@@ -84,7 +84,7 @@ class V4KeyTarget:
         team_id = request.team_id
         if request.kind == "team":
             # A session can still open these months after the sweep passes, and a tombstone stops the recorder from writing a key there.
-            self.tombstone([self.month_row(team_id, month) for month in reachable_months(timezone.now())])
+            self.tombstone([self.month_row(team_id, month) for month in reachable_months(timezone.now()).months])
             return [{"op": "team", "team_id": team_id, "shard": -1}]
         if request.kind == "session":
             expiry = self.session_expiry()

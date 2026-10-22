@@ -182,13 +182,19 @@ class TestAITrainingPrivacyStore(SimpleTestCase):
         self.assertIsNotNone(request.completed_at)
         self.assertEqual(request.identifiers, [])
 
-    def test_request_with_both_targets_completes_only_after_the_interrupted_v4_sweep_resumes(self) -> None:
+    def test_request_with_both_targets_yields_at_the_deadline_and_resumes_each_target(self) -> None:
         request = MagicMock(kind="team", team_id=7, identifiers=[], cursor={}, completed_at=None)
+        clock = MagicMock(return_value=0.0)
+
+        def v3_query(**kwargs: Any) -> DynamoResponse:
+            if kwargs["ExpressionAttributeValues"][":pk"] == {"S": "team:7:shard:31"}:
+                clock.return_value = 2.0
+            return {"Items": []}
+
         v3_client = MagicMock()
-        v3_client.query.return_value = {"Items": []}
+        v3_client.query.side_effect = v3_query
         v4_client = MagicMock()
         old_month = item_key("team:7", "month:2026-08")
-        clock = MagicMock(return_value=0.0)
 
         def v4_query(**kwargs: Any) -> DynamoResponse:
             if kwargs["ExpressionAttributeValues"][":pk"] == {"S": "team:7"} and "ExclusiveStartKey" not in kwargs:
@@ -203,8 +209,12 @@ class TestAITrainingPrivacyStore(SimpleTestCase):
             patch("products.ai_training.backend.privacy.store.time.monotonic", clock),
         ):
             self.assertFalse(store.apply(request, 1.0))
-            self.assertIsNone(request.completed_at)
             self.assertEqual(request.cursor["work"], [])
+            self.assertNotIn("v4_work", request.cursor)
+            v4_client.transact_write_items.assert_not_called()
+            clock.return_value = 0.0
+            self.assertFalse(store.apply(request, 1.0))
+            self.assertIsNone(request.completed_at)
             self.assertEqual(request.cursor["v4_work"], [{"op": "team", "team_id": 7, "shard": -1, "after": old_month}])
             clock.return_value = 0.0
             self.assertTrue(store.apply(request, 1.0))

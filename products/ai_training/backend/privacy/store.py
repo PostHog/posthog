@@ -104,7 +104,7 @@ class V3KeyTarget:
 
     # A sweep reaches only an image key that already exists, so a team that keeps sending would open a month the sweep never saw. Ingestion admits a session up to ML_SESSION_MAX_AGE_DAYS old, which is inside one month, so these three are every month a later session can still open. An update creates the row, so each one closes whether or not it holds a key.
     def shred_reachable_months(self, team_id: int) -> None:
-        self.shred([item_key(f"team:{team_id}", f"image:{month}") for month in reachable_months(timezone.now())])
+        self.shred([item_key(f"team:{team_id}", f"image:{month}") for month in reachable_months(timezone.now()).months])
 
     def initialize(self, request: AITrainingDeletionRequest) -> list[DeletionWork]:
         if request.team_id is None:
@@ -153,6 +153,9 @@ class AITrainingPrivacyStore:
         for target in self.targets:
             work = request.cursor.get(target.cursor_key)
             if work is None:
+                # Initialization writes with retries, so a target that starts after the deadline can overrun the task time limit.
+                if time.monotonic() >= deadline:
+                    return False
                 work = target.initialize(request)
                 self.save_cursor(request, **{target.cursor_key: work})
             while work:
