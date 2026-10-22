@@ -2,6 +2,7 @@ import json
 import uuid
 import asyncio
 import datetime
+import dataclasses
 from typing import Any
 
 import pytest
@@ -14,30 +15,39 @@ from django.test import override_settings
 from parameterized import parameterized
 from temporalio import activity
 from temporalio.client import Client, ScheduleState
+from temporalio.converter import DataConverter
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from posthog.models import ActivityLog, Organization, Team, User
+from posthog.models import ActivityLog, FileSystemViewLog, Organization, Team, User
 
 from products.signals.backend.activity_summary import (
     schedule as tick_schedule,
     tick,
 )
 from products.signals.backend.activity_summary.config import ActivitySummaryConfig, parse_config
+from products.signals.backend.activity_summary.prompt import PROMPT_VERSION
 from products.signals.backend.activity_summary.queue import (
     ActivitySummaryPair,
+    ActivitySummaryTierStats,
     DailyUsage,
     daily_usage,
+    enrolled_team_ids,
+    feed_queue,
     max_update_cost_usd,
+    seed_queue,
     select_pairs,
 )
+from products.signals.backend.activity_summary.render import DEFAULT_LIMITS, MAX_LIMITS, RENDER_VERSION, RenderLimits
 from products.signals.backend.activity_summary.schedule import (
     ACTIVITY_SUMMARY_TICK_SCHEDULE_ID,
     create_activity_summary_tick_schedule,
 )
 from products.signals.backend.activity_summary.tick import (
+    STOP_ERROR_RATE,
     STOP_GATEWAY_NOT_CONFIGURED,
     STOP_MAX_COST_USD_PER_DAY,
+    STOP_MAX_ORG_SHARE,
     STOP_MAX_PAIRS_PER_DAY,
     STOP_MAX_PAIRS_PER_TICK,
     ActivitySummaryPairInput,
@@ -49,14 +59,15 @@ from products.signals.backend.activity_summary.tick import (
     plan_tick,
     run_pair,
 )
-from products.signals.backend.models import UserActivitySummary
+from products.signals.backend.models import UserActivitySummary, UserActivitySummaryQueueState
 from products.signals.backend.test.test_activity_summary_render import FakeLLM
 from products.tasks.backend.facade.user_task_summaries import UserTaskTime
 
 NOW = datetime.datetime(2026, 10, 19, 12, tzinfo=datetime.UTC)
 ANSWER = json.dumps(
     {
-        "summary": "Builds the signup funnel.",
+        "profile": "## Funnels\n- Builds the signup funnel.",
+        "headline": "Builds the signup funnel.",
         "focus_areas": [{"topic": "signup funnel", "strength": "high", "last_seen": "2026-10-18"}],
         "products": ["product_analytics"],
         "recent_shift": None,
@@ -82,7 +93,12 @@ _CONFIG_CASES: list[tuple[str, Any, ActivitySummaryConfig]] = [
             "max_concurrency": "8",
             "min_units": None,
             "min_update_interval_hours": 0,
+            "max_versions": -3,
             "emit_embeddings": "no",
+            "rebuild_before": "not a time",
+            "max_org_share": 2,
+            "rebuild_budget_share": 2,
+            "max_error_rate": 0,
         },
         ActivitySummaryConfig(enabled=True, organization_ids=("org-a",), skip_team_ids=(3,)),
     ),
@@ -93,20 +109,56 @@ _CONFIG_CASES: list[tuple[str, Any, ActivitySummaryConfig]] = [
             "max_pairs_per_tick": 5,
             "max_cost_usd_per_day": 1,
             "min_update_interval_hours": 12,
+            "max_versions": 5,
             "capture_events": False,
+            "rebuild_before": "2026-10-01T00:00:00",
+            "enroll_all_approved": True,
+            "count_views": True,
+            "target_interval_days_free": 7,
+            "max_org_share": 0.3,
         },
         ActivitySummaryConfig(
             enabled=True,
             max_pairs_per_tick=5,
             max_cost_usd_per_day=1.0,
             min_update_interval_hours=12.0,
+            max_versions=5,
             capture_events=False,
+            rebuild_before=datetime.datetime(2026, 10, 1, tzinfo=datetime.UTC),
+            enroll_all_approved=True,
+            count_views=True,
+            target_interval_days_free=7.0,
+            max_org_share=0.3,
         ),
+    ),
+    (
+        "limits fall back to the defaults when invalid and clamp when too large",
+        {
+            "enabled": True,
+            "limits": {
+                "task_lines": 20,
+                "activity_lines": 0,
+                "max_units_per_day": True,
+                "sections_max_chars": "9000",
+                "window_days": 10_000,
+                "max_completion_tokens": 10_000_000,
+            },
+        },
+        ActivitySummaryConfig(
+            enabled=True, limits=RenderLimits(task_lines=20, window_days=90, max_completion_tokens=16000)
+        ),
+    ),
+    ("limits that are not an object", {"enabled": True, "limits": [5]}, ActivitySummaryConfig(enabled=True)),
+    (
+        "a future rebuild_before waits",
+        {"enabled": True, "rebuild_before": "2026-10-20T00:00:00+00:00"},
+        ActivitySummaryConfig(enabled=True),
     ),
 ]
 
 
 @parameterized.expand(_CONFIG_CASES)
+@time_machine.travel(NOW, tick=False)
 def test_parse_config(_name: str, payload: Any, expected: ActivitySummaryConfig) -> None:
     assert parse_config(payload) == expected
 
@@ -135,37 +187,119 @@ class TestActivitySummaryQueue(BaseTest):
 
     def _summary(self, user: User, **fields: Any) -> None:
         UserActivitySummary.objects.for_team(self.team.id).create(
-            team_id=self.team.id, user_id=user.id, status=UserActivitySummary.Status.OK, **fields
+            team_id=self.team.id,
+            user_id=user.id,
+            status=UserActivitySummary.Status.OK,
+            **({"prompt_version": PROMPT_VERSION, "render_version": RENDER_VERSION} | fields),
         )
 
-    def _select(self, config: ActivitySummaryConfig | None = None, tasks: list[UserTaskTime] | None = None):
+    def _seed(self, config: ActivitySummaryConfig | None = None, tasks: list[UserTaskTime] | None = None) -> None:
+        config = config or self._config()
         with patch("products.signals.backend.activity_summary.queue.list_user_task_times", return_value=tasks or []):
-            return [(pair.team_id, pair.user_id) for pair in select_pairs(config or self._config(), NOW, 10)]
+            seed_queue(config, enrolled_team_ids(config), NOW)
 
-    def test_orders_cold_starts_then_most_new_rows_then_oldest_summary(self) -> None:
-        stale, fresh, busy, cold = (self._user(f"{name}@example.com") for name in ("stale", "fresh", "busy", "cold"))
-        self._summary(
-            stale, generated_at=NOW - datetime.timedelta(days=5), input_watermark=NOW - datetime.timedelta(days=3)
-        )
-        self._summary(
-            fresh, generated_at=NOW - datetime.timedelta(days=2), input_watermark=NOW - datetime.timedelta(days=3)
-        )
-        self._summary(
-            busy, generated_at=NOW - datetime.timedelta(days=1), input_watermark=NOW - datetime.timedelta(days=3)
-        )
-        self._changes(stale, 1)
-        self._changes(fresh, 1)
-        # Rows at or before the watermark are not new.
-        self._changes(busy, 2, days_ago=4)
-        self._changes(busy, 2)
-        self._changes(cold, 1)
-        tasks = [UserTaskTime(team_id=self.team.id, user_id=busy.id, created_at=NOW - datetime.timedelta(hours=1))]
+    def _select(
+        self,
+        config: ActivitySummaryConfig | None = None,
+        tasks: list[UserTaskTime] | None = None,
+        *,
+        seed: bool = True,
+        now: datetime.datetime = NOW,
+    ):
+        if seed:
+            self._seed(config, tasks)
+        return [(pair.team_id, pair.user_id) for pair in select_pairs(config or self._config(), now, 10).pairs]
 
-        assert self._select(tasks=tasks) == [
+    def test_ranks_by_new_units_times_staleness_with_a_cold_start_bonus(self) -> None:
+        self.organization.has_active_subscription = True
+        self.organization.save()
+        cold, recent_busy, old_quiet, recent_quiet = (
+            self._user(f"{name}@example.com") for name in ("cold", "recent_busy", "old_quiet", "recent_quiet")
+        )
+        for user, days, units in ((recent_busy, 1, 20), (old_quiet, 3, 1), (recent_quiet, 1, 2)):
+            summarized = NOW - datetime.timedelta(days=days)
+            self._summary(user, generated_at=summarized, input_watermark=summarized)
+            self._changes(user, units, days_ago=0.5)
+        self._changes(cold, 3, days_ago=0.5)
+
+        assert self._select(self._config(min_units=1, max_org_share=1.0)) == [
             (self.team.id, cold.id),
+            (self.team.id, recent_busy.id),
+            (self.team.id, old_quiet.id),
+            (self.team.id, recent_quiet.id),
+        ]
+
+    @parameterized.expand([("the whole tick", 1.0, 2, 1), ("half the tick", 0.5, 1, 1)])
+    def test_paying_pairs_and_overdue_free_pairs_come_first_and_one_org_takes_at_most_its_share(
+        self, _name: str, paying_budget_share: float, paying_picked: int, fresh_picked: int
+    ) -> None:
+        self.organization.has_active_subscription = True
+        self.organization.save()
+        free_org = Organization.objects.create(name="Free")
+        free_team = Team.objects.create(organization=free_org, name="Free")
+        paying_users = [self._user(f"paying{index}@example.com") for index in range(3)]
+        overdue, *fresh = (
+            User.objects.create_and_join(free_org, f"{name}@example.com", None)
+            for name in ("overdue", "free1", "free2")
+        )
+        for user in paying_users:
+            self._summary(user, generated_at=NOW - datetime.timedelta(hours=20))
+            self._changes(user, 3, days_ago=0.1)
+        for user, summarized, due in (
+            (overdue, NOW - datetime.timedelta(days=20), NOW - datetime.timedelta(hours=10)),
+            *((user, NOW - datetime.timedelta(days=2), None) for user in fresh),
+        ):
+            UserActivitySummary.objects.for_team(free_team.id).create(
+                team_id=free_team.id,
+                user_id=user.id,
+                status=UserActivitySummary.Status.OK,
+                generated_at=summarized,
+                next_eligible_at=due,
+            )
+            self._changes(user, 3, days_ago=0.1, team=free_team)
+        config = ActivitySummaryConfig(
+            enabled=True, enroll_all_approved=True, max_org_share=0.5, paying_budget_share=paying_budget_share
+        )
+        self._seed(config)
+
+        selection = select_pairs(config, NOW, 4)
+
+        assert [(pair.team_id, pair.user_id) for pair in selection.pairs] == [
+            (free_team.id, overdue.id),
+            *((self.team.id, user.id) for user in paying_users[:paying_picked]),
+            *((free_team.id, user.id) for user in fresh[:fresh_picked]),
+        ]
+        assert selection.due_pairs == 6
+        assert [
+            (tier.tier, tier.due_pairs, round(tier.oldest_due_hours or 0, 3), round(tier.fresh_share or 0, 3))
+            for tier in selection.tiers
+        ] == [("paying", 3, 0.0, 1.0), ("free", 3, 10.0, round(2 / 3, 3))]
+
+    @parameterized.expand([("every stale pair fits the share", 0.3, 2), ("the share caps the rebuilds", 0.1, 1)])
+    def test_a_stale_summary_is_due_without_new_rows_and_ranks_with_cold_starts(
+        self, _name: str, share: float, rebuilds: int
+    ) -> None:
+        current, old_version, before_rebuild, busy = (
+            self._user(f"{name}@example.com") for name in ("current", "old", "rebuild", "busy")
+        )
+        summary_fields = {
+            "generated_at": NOW - datetime.timedelta(days=2),
+            "input_watermark": NOW - datetime.timedelta(days=2),
+        }
+        self._summary(current, **summary_fields)
+        self._summary(old_version, **(summary_fields | {"prompt_version": PROMPT_VERSION - 1}))
+        self._summary(before_rebuild, **(summary_fields | {"generated_at": NOW - datetime.timedelta(days=3)}))
+        self._summary(busy, **summary_fields)
+        for user in (current, old_version, before_rebuild):
+            self._changes(user, 1, days_ago=5)
+        self._changes(busy, 3)
+
+        config = self._config(
+            rebuild_before=NOW - datetime.timedelta(days=2, hours=12), rebuild_budget_share=share, max_org_share=1
+        )
+        assert self._select(config) == [
+            *[(self.team.id, before_rebuild.id), (self.team.id, old_version.id)][:rebuilds],
             (self.team.id, busy.id),
-            (self.team.id, stale.id),
-            (self.team.id, fresh.id),
         ]
 
     def test_leaves_out_pairs_that_are_not_due_or_not_enrolled(self) -> None:
@@ -184,6 +318,20 @@ class TestActivitySummaryQueue(BaseTest):
         self._changes(due, 3, team=Team.objects.create(organization=other_org, name="Other"))
 
         assert self._select(self._config(skip_team_ids=(other_team.id,))) == [(self.team.id, due.id)]
+
+    def test_enroll_all_approved_enrolls_every_approved_organization(self) -> None:
+        user = self._user("member@example.com")
+        approved = Team.objects.create(organization=Organization.objects.create(name="Approved"), name="Approved")
+        not_approved = Team.objects.create(
+            organization=Organization.objects.create(name="Not approved", is_ai_data_processing_approved=False),
+            name="Not approved",
+        )
+        skipped = Team.objects.create(organization=approved.organization, name="Skipped")
+        for team in (self.team, approved, not_approved, skipped):
+            self._changes(user, 3, team=team)
+        config = ActivitySummaryConfig(enabled=True, enroll_all_approved=True, skip_team_ids=(skipped.id,))
+
+        assert sorted(self._select(config)) == sorted([(self.team.id, user.id), (approved.id, user.id)])
 
     def test_selects_nothing_without_ai_data_processing_approval(self) -> None:
         self.organization.is_ai_data_processing_approved = False
@@ -205,7 +353,7 @@ class TestActivitySummaryQueue(BaseTest):
         usage = daily_usage(NOW)
 
         assert usage.updates == 2
-        assert usage.cost_usd == pytest.approx(0.25 + max_update_cost_usd())
+        assert usage.cost_usd == pytest.approx(0.25 + max_update_cost_usd(MAX_LIMITS))
         with time_machine.travel(NOW + datetime.timedelta(days=1, minutes=1), tick=False):
             assert daily_usage(NOW + datetime.timedelta(days=1, minutes=1)).updates == 0
 
@@ -214,6 +362,7 @@ class TestActivitySummaryQueue(BaseTest):
             ("the tick cap", {"max_pairs_per_tick": 1}, "phs_test", STOP_MAX_PAIRS_PER_TICK, 1),
             ("the daily pair cap", {"max_pairs_per_day": 1}, "phs_test", STOP_MAX_PAIRS_PER_DAY, 0),
             ("the daily cost cap", {"max_cost_usd_per_day": 0.1}, "phs_test", STOP_MAX_COST_USD_PER_DAY, 0),
+            ("the org share", {"max_pairs_per_tick": 2, "max_org_share": 0.5}, "phs_test", STOP_MAX_ORG_SHARE, 1),
             ("no cap", {}, "phs_test", None, 2),
             ("no gateway", {}, "", STOP_GATEWAY_NOT_CONFIGURED, 0),
         ]
@@ -224,6 +373,7 @@ class TestActivitySummaryQueue(BaseTest):
         self._changes(self._user("a@example.com"), 3)
         self._changes(self._user("b@example.com"), 3)
         self._summary(self.user, cost_usd=0.1)
+        self._seed()
 
         with (
             override_settings(
@@ -265,7 +415,9 @@ class TestActivitySummaryQueue(BaseTest):
             emit_embeddings=True,
             capture_events=True,
         )
-        assert self._select() == [(self.team.id, self.user.id)]
+        # The queue picks a pair with fewer rows than the update's `min_units`, so the update skips it.
+        config = self._config(min_units=1)
+        assert self._select(config) == [(self.team.id, self.user.id)]
 
         with (
             patch("products.signals.backend.activity_summary.logic.gateway_client", **gateway),
@@ -278,7 +430,7 @@ class TestActivitySummaryQueue(BaseTest):
             result = run_pair(pair_input)
 
         assert (result.status, result.called_model) == (status, called_model)
-        assert self._select() == []
+        assert self._select(config, seed=False) == []
         if called_model:
             assert result.cost_usd
             usage = daily_usage(NOW)
@@ -308,8 +460,56 @@ class TestActivitySummaryQueue(BaseTest):
             )
 
         assert (result.status, result.called_model) == ("failed", False)
-        assert self._select() == []
+        assert self._select(seed=False) == []
         assert daily_usage(NOW) == DailyUsage(updates=1, cost_usd=0.25)
+
+    @parameterized.expand([("counted", True, 1), ("not counted", False, 0)])
+    def test_viewed_objects_make_a_pair_due_when_views_count(self, _name: str, count_views: bool, due: int) -> None:
+        for index in range(3):
+            FileSystemViewLog.objects.create(
+                team=self.team,
+                user=self.user,
+                type="insight",
+                ref=str(index),
+                viewed_at=NOW - datetime.timedelta(hours=index + 1),
+            )
+
+        assert self._select(self._config(count_views=count_views)) == [(self.team.id, self.user.id)][:due]
+
+    def test_the_feed_reads_each_row_once_and_an_ok_update_clears_the_pending_units(self) -> None:
+        config = self._config()
+        with patch("products.signals.backend.activity_summary.queue.list_user_task_times", return_value=[]):
+            # The first feed only places the cursors. The backfill command seeds the earlier rows.
+            feed_queue(config, NOW - datetime.timedelta(hours=1))
+            self._changes(self.user, 3, days_ago=0.02)
+            feed_queue(config, NOW)
+            feed_queue(config, NOW)
+        state = UserActivitySummaryQueueState.objects.for_team(self.team.id).get(user_id=self.user.id)
+        assert state.pending_units == 3
+        assert self._select(seed=False) == [(self.team.id, self.user.id)]
+
+        with patch("products.signals.backend.activity_summary.logic.gateway_client", return_value=FakeLLM([ANSWER])):
+            result = run_pair(
+                ActivitySummaryPairInput(
+                    team_id=self.team.id,
+                    user_id=self.user.id,
+                    min_units=3,
+                    min_update_interval_hours=24,
+                    emit_embeddings=False,
+                    capture_events=False,
+                )
+            )
+
+        assert result.status == "ok"
+        later = NOW + datetime.timedelta(days=2)
+        assert self._select(seed=False, now=later) == []
+        with (
+            time_machine.travel(later, tick=False),
+            patch("products.signals.backend.activity_summary.queue.list_user_task_times", return_value=[]),
+        ):
+            self._changes(self.user, 3, days_ago=-0.1)
+            feed_queue(config, later)
+        assert self._select(seed=False, now=later) == [(self.team.id, self.user.id)]
 
     def test_an_ok_update_emits_the_embedding_and_an_event_without_the_summary(self) -> None:
         self._changes(self.user, 3)
@@ -371,13 +571,16 @@ def _plan(pairs: int, **overrides: Any) -> ActivitySummaryTickPlan:
         "min_update_interval_hours": 24.0,
         "emit_embeddings": True,
         "capture_events": True,
+        "limits": DEFAULT_LIMITS,
+        "max_error_rate": 0.5,
+        "tiers": [ActivitySummaryTierStats(tier="paying", due_pairs=pairs)],
         "stop_reason": None,
     }
     return ActivitySummaryTickPlan(**{**fields, **overrides})
 
 
 async def _run_tick(
-    plan: ActivitySummaryTickPlan, pair_cost: float | None
+    plan: ActivitySummaryTickPlan, pair_cost: float | None, pair_status: str = "ok"
 ) -> tuple[ActivitySummaryTickResult, int, list[ActivitySummaryTickResult]]:
     running = peak = 0
     captured: list[ActivitySummaryTickResult] = []
@@ -393,7 +596,7 @@ async def _run_tick(
         peak = max(peak, running)
         await asyncio.sleep(0.01)
         running -= 1
-        return ActivitySummaryPairResult(status="ok", cost_usd=pair_cost, called_model=True)
+        return ActivitySummaryPairResult(status=pair_status, cost_usd=pair_cost, called_model=True)
 
     @activity.defn(name="capture_activity_summary_tick_activity")
     async def fake_capture(result: ActivitySummaryTickResult) -> None:
@@ -418,21 +621,24 @@ async def _run_tick(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "plan,pair_cost,picked,stop_reason",
+    "plan,pair_cost,pair_status,picked,stop_reason",
     [
-        (_plan(5), 0.01, 5, None),
-        (_plan(5, updates_left=3), 0.01, 3, STOP_MAX_PAIRS_PER_DAY),
+        (_plan(5), 0.01, "ok", 5, None),
+        (_plan(5, updates_left=3), 0.01, "ok", 3, STOP_MAX_PAIRS_PER_DAY),
         # A missing cost counts at the bound, so the second wave spends the last of the budget.
-        (_plan(6, cost_left_usd=3.0), None, 4, STOP_MAX_COST_USD_PER_DAY),
+        (_plan(6, cost_left_usd=3.0), None, "ok", 4, STOP_MAX_COST_USD_PER_DAY),
+        # The breaker waits for a sample of 10 model calls, which is five waves.
+        (_plan(20), 0.01, "failed", 10, STOP_ERROR_RATE),
     ],
 )
-async def test_the_tick_bounds_concurrency_and_stops_at_the_daily_caps(
-    plan: ActivitySummaryTickPlan, pair_cost: float | None, picked: int, stop_reason: str | None
+async def test_the_tick_bounds_concurrency_and_stops_at_the_daily_caps_and_the_error_rate(
+    plan: ActivitySummaryTickPlan, pair_cost: float | None, pair_status: str, picked: int, stop_reason: str | None
 ) -> None:
-    result, peak, captured = await _run_tick(plan, pair_cost)
+    result, peak, captured = await _run_tick(plan, pair_cost, pair_status)
 
     assert peak <= plan.max_concurrency
-    assert (result.picked, result.statuses, result.stop_reason) == (picked, {"ok": picked}, stop_reason)
+    assert (result.picked, result.statuses, result.stop_reason) == (picked, {pair_status: picked}, stop_reason)
+    assert result.tiers == plan.tiers
     assert captured == [result]
 
 
@@ -441,3 +647,32 @@ async def test_a_disabled_tick_runs_no_pair() -> None:
     result, peak, captured = await _run_tick(_plan(0, enabled=False), 0.01)
 
     assert (result, peak, captured) == (ActivitySummaryTickResult(), 0, [])
+
+
+@parameterized.expand(
+    [
+        ("tick plan", ActivitySummaryTickPlan, lambda: _plan(1)),
+        (
+            "pair input",
+            ActivitySummaryPairInput,
+            lambda: ActivitySummaryPairInput(
+                team_id=1,
+                user_id=2,
+                min_units=3,
+                min_update_interval_hours=24.0,
+                emit_embeddings=True,
+                capture_events=True,
+            ),
+        ),
+    ]
+)
+def test_a_payload_recorded_before_limits_existed_decodes_with_the_default_limits(
+    _name: str, cls: type, build: Any
+) -> None:
+    converter = DataConverter.default.payload_converter
+    recorded = {key: value for key, value in dataclasses.asdict(build()).items() if key != "limits"}
+
+    [decoded] = converter.from_payloads(converter.to_payloads([recorded]), [cls])
+
+    assert decoded == build()
+    assert decoded.limits == DEFAULT_LIMITS

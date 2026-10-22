@@ -21,7 +21,7 @@ from django.utils.timezone import now
 from pydantic.dataclasses import dataclass
 from rest_framework import serializers
 
-from posthog.api.sharing_publish_gate import check_can_add_insight_to_shared_dashboard
+from posthog.api.sharing_publish_gate import check_can_add_insight_to_dashboard
 from posthog.helpers.dashboard_templates import create_from_template
 from posthog.models.user import User
 from posthog.models.user_home_settings import UserHomeSettings
@@ -192,6 +192,23 @@ def create_dashboard_from_tiles(
 def dashboard_refs(dashboard_ids: Sequence[int]) -> tuple[DashboardRef, ...]:
     """Dashboard IDs and names for callers that already validated the dashboard IDs."""
     return _refs_in_given_order(dashboard_ids)
+
+
+def dashboards_by_insight(insight_ids: Collection[int], *, team_id: int) -> dict[int, tuple[DashboardRef, ...]]:
+    """The listed dashboards each insight of this team sits on, oldest tile first, in one query.
+
+    Deleted tiles, dashboards and insights do not count. An insight on no such dashboard has no key.
+    """
+    rows = (
+        DashboardTile.objects.filter(dashboard__team_id=team_id, insight_id__in=insight_ids, insight__deleted=False)
+        .exclude(dashboard__creation_mode=Dashboard.CreationMode.UNLISTED)
+        .order_by("insight_id", "id")
+        .values_list("insight_id", "dashboard_id", "dashboard__name")
+    )
+    refs: dict[int, list[DashboardRef]] = {}
+    for insight_id, dashboard_id, name in rows:
+        refs.setdefault(insight_id, []).append(DashboardRef(id=dashboard_id, name=name))
+    return {insight_id: tuple(dashboards) for insight_id, dashboards in refs.items()}
 
 
 def unknown_dashboard_ids(dashboard_ids: Collection[int], *, team_id: int) -> list[int]:
@@ -388,8 +405,8 @@ def plan_insight_tile_placement(
             dashboard, "editor"
         ):
             raise CannotAddToDashboard(dashboard.id)
-        # The dashboard's public link must not expose a query the editor can't run.
-        check_can_add_insight_to_shared_dashboard(user, dashboard, query, user_access_control)
+        # The dashboard's public link or subscription must not expose a query the editor can't run.
+        check_can_add_insight_to_dashboard(user, dashboard, query, user_access_control)
     return InsightTilePlacement(dashboards)
 
 
@@ -439,8 +456,8 @@ def update_insight_dashboard_membership(
         ):
             raise CannotAddToDashboard(dashboard.id)
 
-        # The dashboard's public link must not expose a query the editor can't run.
-        check_can_add_insight_to_shared_dashboard(user, dashboard, query, user_access_control)
+        # The dashboard's public link or subscription must not expose a query the editor can't run.
+        check_can_add_insight_to_dashboard(user, dashboard, query, user_access_control)
 
         tile, _ = DashboardTile.objects_including_soft_deleted.get_or_create(insight=insight, dashboard=dashboard)
         if tile.deleted:

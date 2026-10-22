@@ -1,3 +1,4 @@
+import { getContext } from 'kea'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
@@ -14,6 +15,7 @@ import {
 } from 'products/tasks/frontend/generated/api'
 import type { TaskRunDetailDTOApi } from 'products/tasks/frontend/generated/api.schemas'
 
+import logPageFixtures from '../../../tasks/backend/tests/fixtures/log_pages.json'
 import { lookupToolRenderer, toolRegistry } from '../components/tool/toolRegistry'
 import { extractQueryResult } from '../components/tool/widgets/extractors'
 import { turnSuggestionsStateRetrieve } from '../generated/api'
@@ -34,6 +36,7 @@ import {
     type FoldCheckpoint,
     foldLogFromCheckpoint,
     foldLogToThread,
+    type HistoryPage,
     mapHttpStatusToStreamError,
     MAX_CUMULATIVE_RECONNECT_ATTEMPTS,
     MAX_HISTORY_FETCH_ATTEMPTS,
@@ -41,6 +44,7 @@ import {
     mergeCoalescedRunLog,
     mergeRunArtifacts,
     parsePermissionRequestFrame,
+    readFullThread,
     reconnectDelayMs,
     reconcileRunLog,
     resolveStreamTarget,
@@ -244,6 +248,18 @@ describe('runStreamLogic', () => {
             .mockReset()
             .mockResolvedValue({ status: 'in_progress' } as TaskRunDetailDTOApi)
         jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue([])
+        jest.spyOn(api.tasks.runs, 'getLogPage').mockImplementation(async (taskId, runId, options) => {
+            const entries = await api.tasks.runs.getLogEntries(taskId, runId, options)
+            return {
+                entries,
+                offset: 0,
+                count: entries.length,
+                preamble: 0,
+                turnsBefore: 0,
+                origin: '',
+                indexed: false,
+            }
+        })
         jest.mocked(turnSuggestionsStateRetrieve).mockReset().mockResolvedValue({ muted: false, resolved_turns: [] })
         projectLogic.mount()
         projectLogic.actions.loadCurrentProjectSuccess({ id: 997 } as any)
@@ -1192,8 +1208,9 @@ describe('runStreamLogic', () => {
 
     describe('pushHumanMessage', () => {
         it('appends a timestamped human_message item ordered before subsequently ingested assistant frames', async () => {
+            logic.actions.pushHumanMessage('hello agent')
+            const placeholderId = logic.values.threadItems[0].id
             await expectLogic(logic, () => {
-                logic.actions.pushHumanMessage('hello agent')
                 // The agent takes the send up and echoes it, which is what places the message.
                 logic.actions.ingestAcpFrame(notification('_posthog/user_message', { content: 'hello agent' }))
                 logic.actions.ingestAcpFrame(
@@ -1204,7 +1221,7 @@ describe('runStreamLogic', () => {
             expect(logic.values.threadItems).toHaveLength(2)
             // The echo keeps the row the placeholder drew, rather than minting a second id.
             expect(logic.values.threadItems[0]).toEqual({
-                id: 'human-0',
+                id: placeholderId,
                 type: 'human_message',
                 text: 'hello agent',
                 complete: true,
@@ -1337,6 +1354,7 @@ describe('runStreamLogic', () => {
                 'session/update user_message',
                 sessionUpdate({ sessionUpdate: 'user_message', content: { text: wrapped } }),
             ],
+            ['page preamble', notification('_posthog/context_history', { messages: [wrapped] })],
         ])('records replayed context-block lines under the bootstrapped task (%s)', async (_form, frame) => {
             jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue([frame] as any)
             jest.mocked(tasksRunsRetrieve).mockResolvedValue({ status: 'completed' } as any)
@@ -5234,6 +5252,317 @@ describe('runStreamLogic', () => {
         })
     })
 
+    describe('history pages', () => {
+        const page = (
+            entries: StoredLogEntry[],
+            offset: number,
+            count: number,
+            preamble = 0,
+            turnsBefore = 0,
+            origin = 'run-1'
+        ): HistoryPage => ({ entries, offset, count, preamble, turnsBefore, origin, indexed: true })
+        const turn = (text: string, eventId: string): StoredLogEntry => ({
+            ...sessionUpdate({ sessionUpdate: 'user_message_chunk', content: { type: 'text', text } }),
+            event_id: eventId,
+        })
+        const reply = (text: string, eventId: string): StoredLogEntry => ({
+            ...sessionUpdate({ sessionUpdate: 'agent_message', content: { type: 'text', text } }),
+            event_id: eventId,
+        })
+        const texts = (items: ThreadItem[]): string[] =>
+            items.flatMap((item) => ('text' in item && typeof item.text === 'string' ? [item.text] : []))
+        const isHuman = (item: ThreadItem): boolean => item.type === 'human_message'
+
+        it.each(logPageFixtures.cases)(
+            'shows page by page what the full log shows: $name',
+            async ({ parts, pages }) => {
+                const log = parts.flat() as unknown as StoredLogEntry[]
+                const runId = String(
+                    log.findLast((entry) => entry.notification.method === '_posthog/run_started')?.notification.params
+                        ?.runId
+                )
+                const olderPages = new Map(pages.slice(1).map((older, index) => [pages[index].offset, older]))
+                jest.mocked(tasksRunsRetrieve).mockResolvedValue({
+                    status: 'completed',
+                    state: parts.length > 1 ? { resume_from_run_id: 'run-1' } : {},
+                } as unknown as TaskRunDetailDTOApi)
+                jest.spyOn(api.tasks.runs, 'getLogPage').mockImplementation(async (_taskId, _runId, options) => {
+                    const golden =
+                        options.tailBytes === undefined
+                            ? undefined
+                            : options.before === undefined
+                              ? pages[0]
+                              : olderPages.get(options.before)
+                    return golden
+                        ? {
+                              entries: golden.entries,
+                              offset: golden.offset,
+                              count: golden.count,
+                              preamble: golden.preamble,
+                              turnsBefore: golden.turns_before,
+                              origin: 'run-1',
+                              indexed: true,
+                          }
+                        : {
+                              entries: log,
+                              offset: 0,
+                              count: log.length,
+                              preamble: 0,
+                              turnsBefore: 0,
+                              origin: '',
+                              indexed: false,
+                          }
+                })
+                const full = runStreamLogic({ streamKey: 'full-read' })
+                const paged = runStreamLogic({ streamKey: 'paged-read' })
+                full.mount()
+                paged.mount()
+                try {
+                    full.actions.bootstrapRun({ taskId: 'task-1', runId })
+                    paged.actions.bootstrapRun({ taskId: 'task-1', runId, pagedHistory: true })
+                    await flushPromises()
+                    const fullItems = full.values.threadItems
+                    const fullTurns = new Map(fullItems.filter(isHuman).map((item, index) => [item.id, index]))
+                    for (;;) {
+                        const shown = paged.values.threadItems
+                        expect(shown).toEqual(fullItems.slice(fullItems.length - shown.length))
+                        expect(shown.filter(isHuman).map((_, index) => paged.values.historyTurnBase + index)).toEqual(
+                            shown.filter(isHuman).map((item) => fullTurns.get(item.id))
+                        )
+                        expect([
+                            paged.values.currentMode,
+                            paged.values.contextUsage,
+                            paged.values.pendingPermissionRequest,
+                        ]).toEqual([
+                            full.values.currentMode,
+                            full.values.contextUsage,
+                            full.values.pendingPermissionRequest,
+                        ])
+                        if (paged.values.olderHistoryState !== 'idle') {
+                            break
+                        }
+                        const notebookThread = await readFullThread('paged-read')
+                        expect(notebookThread?.threadItems).toEqual(fullItems)
+                        paged.actions.loadOlderHistory()
+                        await flushPromises()
+                    }
+                    expect([paged.values.olderHistoryState, paged.values.threadItems]).toEqual(['none', fullItems])
+                    expect(readFullThread('paged-read')).toBeNull()
+                } finally {
+                    full.unmount()
+                    paged.unmount()
+                }
+            }
+        )
+
+        it('loads an older page in front of the thread without changing the rows, sends or mode it already shows', async () => {
+            const mode = (modeId: string, eventId: string): StoredLogEntry => ({
+                ...sessionUpdate({ sessionUpdate: 'current_mode_update', currentModeId: modeId }),
+                event_id: eventId,
+            })
+            jest.spyOn(api.tasks.runs, 'getLogPage').mockImplementation(async (_taskId, _runId, options) =>
+                options.before === undefined
+                    ? page(
+                          [
+                              notification('_posthog/run_started', { runId: 'run-1' }),
+                              mode('plan', 'b-3m'),
+                              turn('latest question', 'b-3'),
+                              reply('latest answer', 'b-4'),
+                          ],
+                          3,
+                          5,
+                          1,
+                          1
+                      )
+                    : page([mode('default', 'b-0m'), turn('older question', 'b-1'), reply('older answer', 'b-2')], 0, 5)
+            )
+
+            logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1', pagedHistory: true })
+            await flushPromises()
+            await MockStream.latest().emitOpen()
+            await MockStream.latest().emitMessage(reply('stale backlog', 'b-1x'), 'log-0')
+            await MockStream.latest().emitMessage(reply('live answer', 'b-5'), 'b-5')
+            logic.actions.pushHumanMessage('older question')
+            const shown = logic.values.threadItems.map((item) => item.id)
+            expect([logic.values.olderHistoryState, logic.values.historyTurnBase]).toEqual(['idle', 1])
+
+            const dispatched: string[] = []
+            const store = getContext().store
+            const dispatch = store.dispatch
+            store.dispatch = ((action: { type: string }) => {
+                dispatched.push(action.type)
+                return dispatch(action)
+            }) as typeof store.dispatch
+            try {
+                logic.actions.loadOlderHistory()
+                await flushPromises()
+            } finally {
+                store.dispatch = dispatch
+            }
+
+            expect(dispatched).not.toContain(logic.actionTypes.setCurrentMode)
+            expect(texts(logic.values.threadItems)).toEqual([
+                'older question',
+                'older answer',
+                'latest question',
+                'latest answer',
+                'live answer',
+                'older question',
+            ])
+            expect(logic.values.threadItems.slice(-shown.length).map((item) => item.id)).toEqual(shown)
+            expect([logic.values.olderHistoryState, logic.values.historyTurnBase, logic.values.currentMode]).toEqual([
+                'none',
+                0,
+                'plan',
+            ])
+        })
+
+        it('reads only the entries after the loaded log when the stream reconnects', async () => {
+            jest.useFakeTimers()
+            try {
+                const started = notification('_posthog/run_started', { runId: 'run-1' })
+                const reads: string[] = []
+                const pages: Record<string, HistoryPage> = {
+                    latest: page([started, turn('b', 'e-3'), reply('b', 'e-4')], 3, 5, 1, 1),
+                    'before:3': page([started, turn('a', 'e-1'), reply('a', 'e-2')], 0, 5),
+                    'start:5': page(
+                        [
+                            reply('c', 'e-5'),
+                            { ...notification('_posthog/user_message', { content: 'd' }), event_id: 'e-6' },
+                            turn('d', 'e-7'),
+                        ],
+                        5,
+                        8
+                    ),
+                }
+                jest.spyOn(api.tasks.runs, 'getLogPage').mockImplementation(async (_taskId, _runId, options) => {
+                    const key =
+                        options.start !== undefined
+                            ? `start:${options.start}`
+                            : options.before !== undefined
+                              ? `before:${options.before}`
+                              : 'latest'
+                    reads.push(key)
+                    return pages[key]
+                })
+
+                logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1', pagedHistory: true })
+                await flushPromises()
+                await MockStream.latest().emitOpen()
+                logic.actions.loadOlderHistory()
+                await flushPromises()
+                await MockStream.latest().emitMessage(reply('c', 'e-5'), '105-0')
+                logic.actions.pushHumanMessage('d')
+                const sent = logic.values.threadItems.findLast(isHuman)?.id
+                await MockStream.latest().emitClose()
+                await jest.advanceTimersByTimeAsync(SSE_RECONNECT_BASE_DELAY_MS)
+                await MockStream.latest().emitMessage(reply('b', 'e-4'), '104-0')
+                await MockStream.latest().emitOpen()
+
+                expect(reads).toEqual(['latest', 'before:3', 'start:5'])
+                expect(texts(logic.values.threadItems)).toEqual(['a', 'a', 'b', 'b', 'c', 'd'])
+                expect(logic.values.threadItems.findLast(isHuman)?.id).toEqual(sent)
+                expect(logic.values.olderHistoryState).toEqual('none')
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
+        it('shows a live answer once when an older page also holds it', async () => {
+            jest.useFakeTimers()
+            try {
+                const started = notification('_posthog/run_started', { runId: 'run-1' })
+                jest.spyOn(api.tasks.runs, 'getLogPage').mockImplementation(async (_taskId, _runId, options) =>
+                    options.before === undefined
+                        ? page([started, turn('b', 'e-3'), reply('b', 'e-4')], 3, 5, 1, 1)
+                        : page([started, turn('a', 'e-1'), reply('a', 'e-2')], 0, 5)
+                )
+                logic.actions.bootstrapRun({
+                    taskId: 'task-1',
+                    runId: 'run-1',
+                    justCreatedRun: true,
+                    pagedHistory: true,
+                })
+                await flushPromises()
+                await MockStream.latest().emitMessage(turn('a', 'e-1'), '101-0')
+                await MockStream.latest().emitMessage(reply('a', 'e-2'), '102-0')
+                await MockStream.latest().emitClose()
+                await jest.advanceTimersByTimeAsync(SSE_RECONNECT_BASE_DELAY_MS)
+                await MockStream.latest().emitOpen()
+                logic.actions.loadOlderHistory()
+                await jest.advanceTimersByTimeAsync(0)
+
+                expect(texts(logic.values.threadItems)).toEqual(['a', 'a', 'b', 'b'])
+                const ids = logic.values.threadItems.map((item) => item.id)
+                expect(new Set(ids).size).toEqual(ids.length)
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
+        it('reads the latest turns again when the chain no longer starts at the same run', async () => {
+            jest.useFakeTimers()
+            try {
+                const started = notification('_posthog/run_started', { runId: 'run-1' })
+                const reads: string[] = []
+                jest.spyOn(api.tasks.runs, 'getLogPage').mockImplementation(async (_taskId, _runId, options) => {
+                    reads.push(
+                        options.start !== undefined
+                            ? `start:${options.start}`
+                            : options.before !== undefined
+                              ? `before:${options.before}`
+                              : 'latest'
+                    )
+                    return reads.length === 1
+                        ? page([started, turn('b', 'e-3'), reply('b', 'e-4')], 3, 5, 1, 1)
+                        : page([started, turn('b', 'e-3'), reply('b', 'e-4'), reply('c', 'e-5')], 2, 5, 1, 1, 'run-0')
+                })
+
+                logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1', pagedHistory: true })
+                await flushPromises()
+                await MockStream.latest().emitOpen()
+                await MockStream.latest().emitClose()
+                await jest.advanceTimersByTimeAsync(SSE_RECONNECT_BASE_DELAY_MS)
+                await MockStream.latest().emitOpen()
+
+                expect(reads).toEqual(['latest', 'before:3', 'start:5', 'latest'])
+                expect(texts(logic.values.threadItems)).toEqual(['b', 'b', 'c'])
+                expect(logic.values.olderHistoryState).toEqual('idle')
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
+        it('finishes an older page that loads while a finished run continues in a successor', async () => {
+            const started = notification('_posthog/run_started', { runId: 'run-1' })
+            let release: (older: HistoryPage) => void = () => {}
+            jest.mocked(tasksRunsRetrieve).mockResolvedValue({ status: 'completed', state: {} } as TaskRunDetailDTOApi)
+            jest.spyOn(api.tasks.runs, 'getLogPage').mockImplementation((_taskId, _runId, options) =>
+                options.before === undefined
+                    ? Promise.resolve(page([started, turn('b', 'e-3'), reply('b', 'e-4')], 3, 5, 1, 1))
+                    : new Promise((resolve) => {
+                          release = resolve
+                      })
+            )
+            logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1', pagedHistory: true })
+            await flushPromises()
+            logic.actions.loadOlderHistory()
+            await flushPromises()
+
+            logic.actions.startOptimisticResume('continue')
+            logic.actions.attachOptimisticResume('task-1', {
+                id: 'run-2',
+                status: 'queued',
+                state: { resume_from_run_id: 'run-1' },
+            } as unknown as TaskRunDetailDTOApi)
+            release(page([started, turn('a', 'e-1'), reply('a', 'e-2')], 0, 5))
+            await flushPromises()
+
+            expect(logic.values.olderHistoryState).toEqual('none')
+            expect(texts(logic.values.threadItems)).toEqual(['a', 'a', 'b', 'b', 'continue'])
+        })
+    })
+
     describe('_posthog/usage_update handling', () => {
         it('folds the Codex split frames (used + cost, then breakdown) into contextUsage', async () => {
             await expectLogic(logic, () => {
@@ -5303,6 +5632,27 @@ describe('runStreamLogic', () => {
 
             expect(logic.values.contextUsage).toEqual({
                 tokens: { inputTokens: 100 },
+                breakdown: { tools: 5 },
+                used: 12000,
+                size: 200000,
+            })
+        })
+
+        it('lands the folded usage of a replayed history', async () => {
+            jest.mocked(tasksRunsRetrieve).mockResolvedValue({ status: 'completed', state: {} } as any)
+            jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue([
+                notification('_posthog/usage_update', { used: { inputTokens: 100 }, breakdown: { tools: 5 } }),
+                sessionUpdate({ sessionUpdate: 'usage_update', used: 9000, size: 200000 }),
+                notification('_posthog/usage_update', { used: { inputTokens: 250 } }),
+                sessionUpdate({ sessionUpdate: 'usage_update', used: 12000, size: 200000 }),
+            ] as any)
+
+            await expectLogic(logic, () => {
+                logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
+            }).toFinishAllListeners()
+
+            expect(logic.values.contextUsage).toEqual({
+                tokens: { inputTokens: 250 },
                 breakdown: { tools: 5 },
                 used: 12000,
                 size: 200000,

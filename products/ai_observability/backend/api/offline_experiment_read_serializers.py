@@ -266,6 +266,7 @@ class OfflineScorerVersionReadSerializer(serializers.Serializer):
     version = serializers.IntegerField(help_text="Version number within the definition.")
     kind = serializers.ChoiceField(choices=ScoreDefinition.Kind.choices, help_text="Scorer value kind.")
     name = serializers.CharField(help_text="Current scorer display name.")
+    short_name = serializers.CharField(allow_blank=True, help_text="Current compact label. Blank uses the full name.")
     description = serializers.CharField(allow_blank=True, help_text="Current scorer description.")
     archived = serializers.BooleanField(help_text="Whether the scorer is archived.")
     config = ScoreDefinitionConfigField(help_text="Pinned immutable configuration used to interpret these results.")

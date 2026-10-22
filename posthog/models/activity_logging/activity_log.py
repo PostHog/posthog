@@ -49,6 +49,7 @@ ACTIVITY_LOG_WRITE_FAILURES = Counter(
 ActivityScope = Literal[
     "Cohort",
     "CrossProjectDashboard",
+    "DevGatewayToken",
     "FeatureFlag",
     "Person",
     "Group",
@@ -255,6 +256,12 @@ class ActivityLog(UUIDTModel):
             models.Index(
                 fields=["team_id", "-created_at"],
                 name="idx_alog_team_created_at",
+            ),
+            # One user's rows in a time window, for the activity summary. Not partial, because the
+            # query keeps rows where `is_system` and `was_impersonated` are NULL.
+            models.Index(
+                fields=["team_id", "user", "-created_at"],
+                name="idx_alog_team_user_created_at",
             ),
         ]
 
