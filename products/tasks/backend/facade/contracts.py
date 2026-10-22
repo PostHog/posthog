@@ -1124,3 +1124,11 @@ class SandboxRunStarter:
 
     parent_task_id: UUID
     parent_run_id: UUID
+
+
+@dataclass(frozen=True, kw_only=True)
+class RunPlan:
+    """The user plan a run bills to in place of PostHog credits."""
+
+    plan_name: str
+    owner_user_id: int | None
