@@ -30,6 +30,7 @@ from posthog.hogql.database.database import Database
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Product, tag_queries, tags_context
+from posthog.exceptions import ClickHouseAtCapacity
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
@@ -322,8 +323,15 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
                 if result.ready:
                     exposure_job_ids = [str(job_id) for job_id in result.job_ids]
                     self._is_precomputed = True
+                elif result.capacity_rejected:
+                    # ClickHouse refused the build because the pool is full. The direct scan
+                    # below would hold a slot for minutes and starve the next builds too, so
+                    # surface the capacity error and let the caller retry once the pool frees up.
+                    raise ClickHouseAtCapacity()
                 else:
                     logger.warning("exposure_lazy_computation_not_ready", experiment_id=self.experiment.id)
+            except ClickHouseAtCapacity:
+                raise
             except Exception as e:
                 # Swallowed: the direct-scan fallback below still returns results, which would
                 # otherwise hide a broken precomputation path. Report so it isn't silent.
@@ -350,13 +358,19 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
                                 numerator_job_ids = [str(job_id) for job_id in ratio_result.numerator.job_ids]
                                 denominator_job_ids = [str(job_id) for job_id in ratio_result.denominator.job_ids]
                                 self._metric_events_precomputed = True
+                            elif ratio_result.capacity_rejected:
+                                raise ClickHouseAtCapacity()
                         else:
                             metric_result = self._ensure_metric_events_precomputed(builder)
                             if metric_result.ready:
                                 metric_events_job_ids = [str(job_id) for job_id in metric_result.job_ids]
                                 self._metric_events_precomputed = True
+                            elif metric_result.capacity_rejected:
+                                raise ClickHouseAtCapacity()
                     if not self._metric_events_precomputed:
                         logger.warning("metric_events_lazy_computation_not_ready", experiment_id=self.experiment.id)
+                except ClickHouseAtCapacity:
+                    raise
                 except Exception as e:
                     capture_exception(
                         e,

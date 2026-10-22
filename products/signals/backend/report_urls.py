@@ -12,6 +12,7 @@ from posthog.utils import absolute_uri
 
 
 class ReportLinkSource(StrEnum):
+    FIRST_REPORT_EMAIL = "first_report_email"
     MCP = "mcp"
     SLACK = "slack"
     SLACK_SCOUT = "slack_scout"
