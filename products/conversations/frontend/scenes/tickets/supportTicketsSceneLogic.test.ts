@@ -398,6 +398,40 @@ describe('supportTicketsSceneLogic', () => {
             expect(logic.values.activeView?.short_id).toBe('view-a')
         })
 
+        it('ignores a restore response after another saved view is selected', async () => {
+            const pending: Record<string, { resolve: (view: SavedTicketView) => void }> = {}
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/conversations/tickets/': () => [200, { count: 0, results: [] }],
+                    '/api/projects/:team_id/conversations/views/:short_id/': () =>
+                        new Promise((resolve) => {
+                            pending['view-a'] = { resolve: (view) => resolve([200, view]) }
+                        }),
+                },
+            })
+            router.actions.push(urls.supportTickets())
+            const first = supportTicketsSceneLogic()
+            first.mount()
+            await expectLogic(first, () => {
+                first.actions.applyView(makeSavedView('view-a', { status: ['open'] }))
+            }).toFinishAllListeners()
+            first.unmount()
+
+            initKeaTests()
+            router.actions.push(urls.supportTickets())
+            logic = supportTicketsSceneLogic()
+            logic.mount()
+            await waitUntilPending(pending, 'view-a')
+
+            logic.actions.applyView(makeSavedView('view-b', { status: ['pending'] }))
+            pending['view-a'].resolve(makeSavedView('view-a', { status: ['open'] }))
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.activeView?.short_id).toBe('view-b')
+            expect(logic.values.statusFilter).toEqual(['pending'])
+            expect(router.values.searchParams.view).toBe('view-b')
+        })
+
         it('drops an in-flight view link when the list opens with nothing persisted', async () => {
             const pending: Record<string, { resolve: (view: SavedTicketView) => void }> = {}
             useMocks({

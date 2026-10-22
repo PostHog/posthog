@@ -855,6 +855,8 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
             actions.setCurrentPage(1)
         },
         applyView: ({ view }) => {
+            // This selection is newer than an in-flight restore of another view.
+            cache.latestViewShortId = view.short_id
             // Snapshot the user's own date selection the first time a view overwrites it.
             // The snapshot survives view switches and detaches (a detached view's dates
             // remain applied and persisted, so the snapshot is the only copy of the
