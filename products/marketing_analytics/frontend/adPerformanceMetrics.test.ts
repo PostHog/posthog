@@ -73,40 +73,53 @@ describe('Ad performance sparklines', () => {
         expect(Object.keys(metrics)).not.toContain('trial started')
     })
 
-    it.each([false, true])('keeps request filters and current-period dates with precompute=%s', (precomputed) => {
-        const query = buildAdPerformanceTrendsQuery(
-            {
-                kind: NodeKind.MarketingAnalyticsAggregatedQuery,
-                properties: [],
-                dateRange: { date_from: '-30d', date_to: null },
-                compareFilter: { compare: true },
-                integrationFilter: { integrationSourceIds: ['source-one'] },
-            },
-            'day',
-            [],
-            [table, { ...table, source_map_id: 'source-two' }],
-            'USD',
-            precomputed
-        )
-        expect(query.series).toHaveLength(5)
-        expect(query.dateRange).toEqual({ date_from: '-30d', date_to: null })
-        expect(query.compareFilter).toBeUndefined()
-        if (precomputed) {
-            expect(query.series[0].properties).toContainEqual({
-                type: PropertyFilterType.DataWarehouse,
-                key: 'source_id',
-                operator: PropertyOperator.Exact,
-                value: ['source-one'],
-            })
-        } else {
-            expect(query.series.every((series) => 'table_name' in series && series.table_name === table.name)).toBe(
-                true
+    it.each([false, true])(
+        'keeps source filters, drops event filters, and uses current-period dates with precompute=%s',
+        (precomputed) => {
+            const query = buildAdPerformanceTrendsQuery(
+                {
+                    kind: NodeKind.MarketingAnalyticsAggregatedQuery,
+                    properties: [
+                        {
+                            type: PropertyFilterType.Event,
+                            key: 'browser',
+                            operator: PropertyOperator.Exact,
+                            value: 'Chrome',
+                        },
+                    ],
+                    filterTestAccounts: true,
+                    dateRange: { date_from: '-30d', date_to: null },
+                    compareFilter: { compare: true },
+                    integrationFilter: { integrationSourceIds: ['source-one'] },
+                },
+                'day',
+                [],
+                [table, { ...table, source_map_id: 'source-two' }],
+                'USD',
+                precomputed
             )
-            expect((query.series[0] as { math_hogql: string }).math_hogql).toContain('convertCurrency')
-            expect((query.series[1] as { math_hogql: string }).math_hogql).not.toContain('convertCurrency')
-            expect((query.series[3] as { math_hogql: string }).math_hogql).not.toContain('convertCurrency')
+            expect(query.series).toHaveLength(5)
+            expect(query.dateRange).toEqual({ date_from: '-30d', date_to: null })
+            expect(query.compareFilter).toBeUndefined()
+            expect(query.properties).toBeUndefined()
+            expect(query.filterTestAccounts).toBeUndefined()
+            if (precomputed) {
+                expect(query.series[0].properties).toContainEqual({
+                    type: PropertyFilterType.DataWarehouse,
+                    key: 'source_id',
+                    operator: PropertyOperator.Exact,
+                    value: ['source-one'],
+                })
+            } else {
+                expect(query.series.every((series) => 'table_name' in series && series.table_name === table.name)).toBe(
+                    true
+                )
+                expect((query.series[0] as { math_hogql: string }).math_hogql).toContain('convertCurrency')
+                expect((query.series[1] as { math_hogql: string }).math_hogql).not.toContain('convertCurrency')
+                expect((query.series[3] as { math_hogql: string }).math_hogql).not.toContain('convertCurrency')
+            }
         }
-    })
+    )
 
     it.each([
         [

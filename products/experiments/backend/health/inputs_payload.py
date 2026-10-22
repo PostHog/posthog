@@ -218,6 +218,18 @@ def health_inputs_payload(inputs: HealthInputs) -> dict[str, Any]:
         "primary_metric_count": ctx.primary_metric_count,
         "secondary_metric_count": ctx.secondary_metric_count,
         "flag": _health_inputs_flag(ctx.flag) if ctx.flag else None,
+        "flag_last_called_at": inputs.flag_last_called_at,
+        "flag_called": ctx.flag_called,
+        "flag_called_during_run": ctx.flag_called_during_run,
+        "exposure_events": {
+            "custom_event": ctx.exposure_events.custom_event,
+            "required_flag_key": ctx.exposure_events.required_flag_key,
+            "variant_property": ctx.exposure_events.variant_property,
+            "activation": ctx.exposure_events.activation,
+        }
+        if ctx.exposure_events
+        else None,
+        "events_received": dict(ctx.events_received),
         "flag_history": _health_inputs_flag_history(ctx.flag_history) if ctx.flag_history else None,
         "condition_set_traffic_status": _health_inputs_traffic_status(inputs),
         "condition_set_traffic": _health_inputs_traffic(ctx.condition_set_traffic)
