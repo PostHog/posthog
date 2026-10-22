@@ -4,10 +4,12 @@ import { useMemo } from 'react'
 import { LemonCalendarSelectInput, LemonSearchableSelect } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { timeZoneLabel } from 'lib/utils/timezones'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
+import { SendDayPicker } from '../../SendCalendar/SendDayPicker'
 import { EmailSendingRateLimitPicker } from '../../Workflows/hogflows/steps/components/EmailSendingRateLimitPicker'
 import { RecurringSchedulePicker } from '../../Workflows/hogflows/steps/components/RecurringSchedulePicker'
 import { broadcastWizardLogic } from '../broadcastWizardLogic'
@@ -63,6 +65,7 @@ export function BroadcastScheduleStep(): JSX.Element {
         setRecurringRepeating,
         setScheduleTimezone,
     } = useActions(broadcastWizardLogic)
+    const showSendCalendar = useFeatureFlag('WORKFLOWS_SEND_CALENDAR')
 
     return (
         <div className="flex flex-col gap-4">
@@ -105,6 +108,8 @@ export function BroadcastScheduleStep(): JSX.Element {
                     )}
                 </div>
             )}
+
+            {scheduleMode === 'later' && showSendCalendar ? <SendDayPicker /> : null}
 
             {scheduleMode === 'recurring' && (
                 <div className="max-w-160">

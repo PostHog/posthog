@@ -74,9 +74,11 @@ export const DataCatalogMetricsListParams = () => zod.object({
 })
 
 export const DataCatalogMetricsListQueryParams = () => zod.object({
+    definition_kind: zod.string().optional().describe('Only metrics with this query node kind.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     search: zod.string().optional().describe('A search term.'),
+    status: zod.string().optional().describe('Only metrics with this review status.'),
 })
 
 /**
@@ -123,7 +125,7 @@ export const DataCatalogMetricsCreateBody = () => zod.object({
         .string()
         .max(dataCatalogMetricsCreateBodyDescriptionMax)
         .describe(
-            "What the number is, in 1-2 short sentences under 300 characters: its meaning and grain plus any inclusion or exclusion that changes it. Leave out source tables or views, lineage, column lists, and comparisons with other metrics. Never narrate the query - the definition carries the mechanics; put rationale for query choices in 'reasoning'."
+            "What the number is, in 1-2 short sentences under 300 characters: its meaning and grain plus any inclusion or exclusion that changes it. Leave out source tables or views, lineage, column lists, and comparisons with other metrics. Never narrate the query - the definition carries the mechanics; put the query's design decisions in 'reasoning'."
         ),
     unit: zod
         .string()
@@ -152,7 +154,12 @@ export const DataCatalogMetricsCreateBody = () => zod.object({
         .max(dataCatalogMetricsCreateBodyConfidenceMax)
         .nullish()
         .describe("AI author's confidence in the proposal, 0-1."),
-    reasoning: zod.string().optional().describe("AI author's reasoning, surfaced as review context."),
+    reasoning: zod
+        .string()
+        .optional()
+        .describe(
+            'Why the definition is shaped this way, in 1-3 short sentences. Name the main design decisions and trade-offs: the source table or view, a filter or exclusion, the grain, an approximation. Leave out the use case, who asked, run results, validation figures, and edit history.'
+        ),
 })
 
 /**
@@ -214,7 +221,7 @@ export const DataCatalogMetricsPartialUpdateBody = () => zod.object({
         .max(dataCatalogMetricsPartialUpdateBodyDescriptionMax)
         .optional()
         .describe(
-            "What the number is, in 1-2 short sentences under 300 characters: its meaning and grain plus any inclusion or exclusion that changes it. Leave out source tables or views, lineage, column lists, and comparisons with other metrics. Never narrate the query - the definition carries the mechanics; put rationale for query choices in 'reasoning'."
+            "What the number is, in 1-2 short sentences under 300 characters: its meaning and grain plus any inclusion or exclusion that changes it. Leave out source tables or views, lineage, column lists, and comparisons with other metrics. Never narrate the query - the definition carries the mechanics; put the query's design decisions in 'reasoning'."
         ),
     unit: zod
         .string()
@@ -243,7 +250,12 @@ export const DataCatalogMetricsPartialUpdateBody = () => zod.object({
         .max(dataCatalogMetricsPartialUpdateBodyConfidenceMax)
         .nullish()
         .describe("AI author's confidence in the proposal, 0-1."),
-    reasoning: zod.string().optional().describe("AI author's reasoning, surfaced as review context."),
+    reasoning: zod
+        .string()
+        .optional()
+        .describe(
+            'Why the definition is shaped this way, in 1-3 short sentences. Name the main design decisions and trade-offs: the source table or view, a filter or exclusion, the grain, an approximation. Leave out the use case, who asked, run results, validation figures, and edit history.'
+        ),
 })
 
 /**

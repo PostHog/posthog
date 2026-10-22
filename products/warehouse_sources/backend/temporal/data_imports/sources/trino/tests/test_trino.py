@@ -1,3 +1,5 @@
+import os
+import base64
 import datetime as dt
 from collections.abc import Iterable
 from contextlib import nullcontext
@@ -10,13 +12,18 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 import pyarrow as pa
-from trino.exceptions import HttpError, TrinoConnectionError, TrinoExternalError, TrinoUserError
+from requests.exceptions import ConnectTimeout, ReadTimeout
+from trino.exceptions import HttpError, TrinoConnectionError, TrinoExternalError, TrinoQueryError, TrinoUserError
 from trino.types import NamedRowTuple
 
 from products.warehouse_sources.backend.presentation.views.external_data_source.helpers import (
     _classify_refresh_schemas_error,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.trino import (
     TrinoAuthTypeConfig,
@@ -27,9 +34,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.trino.trin
     TRINO_ACCESS_CONTROL_UNAVAILABLE_ERROR,
     TRINO_ACCESS_DENIED_ERROR,
     TRINO_AUTHENTICATION_ERROR,
+    TRINO_CLUSTER_ACCESS_DENIED_ERROR,
+    TRINO_CONNECT_TIMEOUT_ERROR,
     TRINO_CREDENTIALS_REQUIRE_TLS_VERIFICATION_ERROR,
+    TRINO_DISCOVERY_TIMEOUT_ERROR,
+    TRINO_READ_TIMEOUT_ERROR,
     DiscoveredTrinoTable,
     TrinoColumn,
+    TrinoConfigurationError,
     TrinoImplementation,
     TrinoSchemaDiscoveryError,
     build_trino_select,
@@ -81,49 +93,170 @@ def test_connect_trino_uses_tracked_session_and_closes_resources() -> None:
     session.close.assert_called_once_with()
 
 
+def _completed_trino_response() -> ScriptedResponse:
+    return ScriptedResponse(
+        json={
+            "id": "example_query",
+            "infoUri": "https://example.com/query",
+            "stats": {},
+            "columns": [{"name": "value", "type": "bigint", "typeSignature": {"rawType": "bigint", "arguments": []}}],
+            "data": [[1]],
+        }
+    )
+
+
 @pytest.mark.parametrize(
-    ("host", "port", "use_ssl", "verify_ssl", "expected_trust_env"),
+    ("host", "port", "use_ssl", "verify_ssl", "direct"),
     [
-        ("trino.dw.us.postwh.com", 443, True, True, False),
-        ("trino.dw.eu.postwh.com", 443, True, True, False),
-        ("TRINO.DW.DEV.POSTWH.COM.", 443, True, True, False),
-        ("trino.example.com", 443, True, True, True),
-        ("other.dw.us.postwh.com", 443, True, True, True),
-        ("tenant.dw.dev.postwh.com", 443, True, True, True),
-        ("nested.tenant.dw.us.postwh.com", 443, True, True, True),
-        ("dw.us.postwh.com", 443, True, True, True),
-        ("tenant.dw.us.postwh.com.example.com", 443, True, True, True),
-        ("trino.dw.us.postwh.com", 8443, True, True, True),
-        ("trino.dw.us.postwh.com", 443, False, True, True),
-        ("trino.dw.us.postwh.com", 443, True, False, True),
+        ("trino.dw.us.postwh.com", 443, True, True, True),
+        ("trino.dw.eu.postwh.com", 443, True, True, True),
+        ("TRINO.DW.DEV.POSTWH.COM.", 443, True, True, True),
+        ("example.dw.us.postwh.com", 443, True, True, True),
+        ("example.dw.eu.postwh.com", 443, True, True, True),
+        ("EXAMPLE.DW.DEV.POSTWH.COM.", 443, True, True, True),
+        ("example-1.dw.eu.postwh.com", 443, True, True, True),
+        ("x.dw.us.postwh.com", 443, True, True, True),
+        ("trino.example.com", 443, True, True, False),
+        ("nested.example.dw.us.postwh.com", 443, True, True, False),
+        ("dw.us.postwh.com", 443, True, True, False),
+        ("example.dw.us.postwh.com.example.com", 443, True, True, False),
+        ("example.dw.ap.postwh.com", 443, True, True, False),
+        ("example_.dw.eu.postwh.com", 443, True, True, False),
+        ("-example.dw.eu.postwh.com", 443, True, True, False),
+        ("example-.dw.eu.postwh.com", 443, True, True, False),
+        ("\u212a.dw.eu.postwh.com", 443, True, True, False),
+        ("example.dw.us.postwh.com", 8443, True, True, False),
+        ("example.dw.us.postwh.com", 443, False, True, False),
+        ("example.dw.us.postwh.com", 443, True, False, False),
     ],
 )
 def test_connect_trino_bypasses_proxy_only_for_managed_tls_endpoints(
-    host: str, port: int, use_ssl: bool, verify_ssl: bool, expected_trust_env: bool
+    host: str, port: int, use_ssl: bool, verify_ssl: bool, direct: bool
 ) -> None:
-    connection = MagicMock()
-    session = MagicMock(trust_env=True)
-    auth_type = TrinoAuthTypeConfig(user="posthog", selection="none")
-
     with (
-        patch("trino.dbapi.connect", return_value=connection),
-        patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.trino.trino.make_tracked_session",
-            return_value=session,
+        patch.dict(
+            os.environ,
+            {
+                "HTTPS_PROXY": "http://proxy.example.com:4750",
+                "HTTP_PROXY": "http://proxy.example.com:4750",
+                "NO_PROXY": "",
+            },
+            clear=True,
         ),
+        scripted_network([_completed_trino_response()]) as network,
         connect_trino(
             _config(
                 host=host,
                 port=port,
                 use_ssl=use_ssl,
                 verify_ssl=verify_ssl,
-                auth_type=auth_type,
+                auth_type=TrinoAuthTypeConfig(user="sql_reader", selection="none"),
             )
-        ),
+        ) as connection,
     ):
-        pass
+        cursor = connection.cursor()
+        cursor.execute("SELECT 1")
+        assert cursor.fetchall() == [[1]]
 
-    assert session.trust_env is expected_trust_env
+    assert len(network.requests_log) == 1
+    assert ("proxy.example.com" not in network.requests_log[0].origin) is direct
+
+
+@pytest.mark.parametrize(
+    ("host", "auth_type", "authorization"),
+    [
+        (
+            "example.dw.us.postwh.com",
+            TrinoAuthTypeConfig(user="sql_reader", selection="password", password="example-password"),
+            "Basic " + base64.b64encode(b"sql_reader:example-password").decode(),
+        ),
+        (
+            "example.dw.eu.postwh.com",
+            TrinoAuthTypeConfig(user="sql_reader", selection="jwt", token="example-token"),
+            "Bearer example-token",
+        ),
+        (
+            "trino.dw.dev.postwh.com",
+            TrinoAuthTypeConfig(user="example.sql_reader", selection="password", password="example-password"),
+            "Basic " + base64.b64encode(b"example.sql_reader:example-password").decode(),
+        ),
+    ],
+)
+def test_connect_trino_preserves_credentials_when_polling(
+    host: str, auth_type: TrinoAuthTypeConfig, authorization: str
+) -> None:
+    with (
+        patch.dict(os.environ, {"HTTPS_PROXY": "http://proxy.example.com:4750", "NO_PROXY": ""}, clear=True),
+        scripted_network(
+            [
+                ScriptedResponse(
+                    json={
+                        "id": "example_query",
+                        "infoUri": "https://example.com/query",
+                        "stats": {},
+                        "nextUri": f"https://{host}:443/v1/statement/example_query",
+                    }
+                ),
+                _completed_trino_response(),
+            ]
+        ) as network,
+        connect_trino(_config(host=host, auth_type=auth_type)) as connection,
+    ):
+        cursor = connection.cursor()
+        cursor.execute("SELECT 1")
+        assert cursor.fetchall() == [[1]]
+
+    assert [request.method for request in network.requests_log] == ["POST", "GET"]
+    assert all("proxy.example.com" not in request.origin for request in network.requests_log)
+    assert all(request.headers["authorization"] == authorization for request in network.requests_log)
+    assert all(request.headers["x-trino-user"] == auth_type.user for request in network.requests_log)
+
+
+@pytest.mark.parametrize(
+    "target",
+    [
+        "https://other.example.com/v1/statement/example_query",
+        "https://other.dw.eu.postwh.com/v1/statement/example_query",
+        "http://example.dw.eu.postwh.com/v1/statement/example_query",
+        "https://example.dw.eu.postwh.com:444/v1/statement/example_query",
+        "https://injected@example.dw.eu.postwh.com/v1/statement/example_query",
+    ],
+)
+def test_connect_trino_rejects_polling_outside_the_managed_origin(target: str) -> None:
+    with (
+        patch.dict(os.environ, {}, clear=True),
+        scripted_network(
+            [
+                ScriptedResponse(
+                    json={"id": "example_query", "infoUri": "https://example.com/query", "stats": {}, "nextUri": target}
+                ),
+                _completed_trino_response(),
+            ]
+        ) as network,
+        pytest.raises(TrinoConfigurationError, match="connection destination"),
+        connect_trino(_config(host="example.dw.eu.postwh.com")) as connection,
+    ):
+        connection.cursor().execute("SELECT 1")
+
+    assert len(network.requests_log) == 1
+
+
+@pytest.mark.parametrize("status", [301, 302, 303, 307, 308])
+def test_connect_trino_does_not_follow_managed_redirects(status: int) -> None:
+    with (
+        patch.dict(os.environ, {}, clear=True),
+        scripted_network(
+            [
+                ScriptedResponse(status=status, headers={"Location": "https://other.example.com/v1/statement"}),
+                _completed_trino_response(),
+            ]
+        ) as network,
+        pytest.raises(TrinoConfigurationError, match="connection destination"),
+        connect_trino(_config(host="example.dw.eu.postwh.com")) as connection,
+    ):
+        connection.cursor().execute("SELECT 1")
+
+    assert len(network.requests_log) == 1
 
 
 def test_connect_trino_rejects_credentials_over_http() -> None:
@@ -193,10 +326,61 @@ def test_trino_error_to_message_preserves_tls_verification_action() -> None:
             'Cannot select from table hive.analytics.events", query_id=20260902_123401_00000_abcde)',
             TRINO_ACCESS_DENIED_ERROR,
         ),
+        (
+            'TrinoUserError(type=USER_ERROR, name=PERMISSION_DENIED, message="User reader@example.com with role '
+            'reader does not have the privilege to use cluster example-cluster", query_id=20260101_000000_00000_abcde)',
+            TRINO_CLUSTER_ACCESS_DENIED_ERROR,
+        ),
+        (
+            'TrinoUserError(type=USER_ERROR, name=PERMISSION_DENIED, message="Role reader cannot do this", '
+            "query_id=20260101_000000_00000_abcde)",
+            TRINO_ACCESS_DENIED_ERROR,
+        ),
     ],
 )
 def test_trino_error_to_message_explains_access_failures(raw_error: str, expected: str) -> None:
     assert trino_error_to_message(RuntimeError(raw_error)) == expected
+
+
+@pytest.mark.parametrize(
+    ("timeout", "expected"),
+    [
+        (
+            ConnectTimeout("HTTPSConnectionPool(host='trino.example.com', port=443): Max retries exceeded"),
+            TRINO_CONNECT_TIMEOUT_ERROR,
+        ),
+        (
+            ReadTimeout("HTTPSConnectionPool(host='trino.example.com', port=443): Read timed out."),
+            TRINO_READ_TIMEOUT_ERROR,
+        ),
+    ],
+    ids=["connect_timeout", "read_timeout"],
+)
+def test_validate_credentials_hides_the_host_when_the_driver_times_out(timeout: Exception, expected: str) -> None:
+    with patch("trino.client.TrinoRequest.post", side_effect=timeout):
+        assert TrinoSource().validate_credentials(_config(), team_id=1) == (False, expected)
+
+
+@pytest.mark.parametrize(
+    ("timeout", "expected"),
+    [
+        (ReadTimeout("Read timed out. (read timeout=60)"), TRINO_DISCOVERY_TIMEOUT_ERROR),
+        (ConnectTimeout("Max retries exceeded"), TRINO_CONNECT_TIMEOUT_ERROR),
+    ],
+    ids=["read_timeout", "connect_timeout"],
+)
+def test_get_schemas_explains_a_timeout_the_driver_wrapped(timeout: Exception, expected: str) -> None:
+    source = TrinoSource()
+
+    with (
+        patch("trino.client.TrinoRequest.post", side_effect=timeout),
+        pytest.raises(TrinoSchemaDiscoveryError) as raised,
+    ):
+        source.get_schemas(_config(), team_id=1)
+
+    message, is_expected_source_error = _classify_refresh_schemas_error(source, raised.value)
+    assert message == expected
+    assert is_expected_source_error is True
 
 
 def _trino_external_error(message: str) -> TrinoExternalError:
@@ -507,9 +691,12 @@ def test_build_pipeline_query(
             "db_incremental_field_last_value": last_value,
         }
 
-    _run_pipeline(_config(schema="s"), _inputs("t", enabled_columns=enabled_columns, **incremental_inputs), cursor)
+    response, _ = _run_pipeline(
+        _config(schema="s"), _inputs("t", enabled_columns=enabled_columns, **incremental_inputs), cursor
+    )
 
     assert cursor.data_queries[-1] == (expected_sql, expected_params)
+    assert response.sort_mode == ("asc" if incremental is not None else None)
 
 
 def test_build_pipeline_ignores_the_incremental_field_on_a_full_refresh() -> None:
@@ -640,6 +827,37 @@ def test_build_pipeline_fails_permanently_when_the_table_is_gone() -> None:
     assert error_message_matches(str(raised.value), TrinoSource().get_non_retryable_errors())
 
 
+@pytest.mark.parametrize(
+    "message",
+    [
+        "Encountered too many errors talking to a worker node. The node may have crashed or be "
+        "under too much load. This is probably a transient issue, so please retry your query in a "
+        "few minutes. (getting task status http://10.0.0.5:8080/v1/task/x - 38 failures)",
+        str(
+            TrinoQueryError(
+                {
+                    "errorName": "OUT_OF_SPILL_SPACE",
+                    "errorType": "INSUFFICIENT_RESOURCES",
+                    "message": "No free or healthy space available for spill",
+                },
+                query_id="20260101_000000_00000_abcde",
+            )
+        ),
+    ],
+    ids=["worker_node", "out_of_spill_space"],
+)
+def test_remote_cluster_resource_failures_are_classified_as_retryable(message: str) -> None:
+    assert error_message_matches(message, TrinoSource().get_retryable_errors())
+
+
+def test_query_not_found_is_classified_as_retryable() -> None:
+    # The exact wrapping `trino.dbapi.Cursor.fetchone()` does for the driver's `HttpError` on a 404
+    # response, which is what a later page fetch sees once the coordinator no longer holds the query.
+    message = "error 404: b'Error 404 Not Found: Query not found'"
+
+    assert error_message_matches(message, TrinoSource().get_retryable_errors())
+
+
 def test_build_pipeline_refuses_a_disallowed_host_before_connecting() -> None:
     with (
         patch(f"{_TRINO_MODULE}.connect_trino") as mock_connect,
@@ -718,6 +936,22 @@ def test_get_schemas_advertises_incremental_fields_per_table() -> None:
     )
 
 
+def _trino_query_error(message: str) -> TrinoQueryError:
+    # Resource-exhaustion failures carry an errorType the client doesn't special-case
+    # ("INSUFFICIENT_RESOURCES", neither "EXTERNAL" nor "USER_ERROR"), so the driver raises the
+    # base TrinoQueryError rather than a USER/EXTERNAL subclass.
+    return TrinoQueryError(
+        {
+            "message": message,
+            "errorName": "GENERIC_INSUFFICIENT_RESOURCES",
+            "errorCode": 65540,
+            "errorType": "INSUFFICIENT_RESOURCES",
+            "failureInfo": {},
+        },
+        "20260902_120000_00000_abcde",
+    )
+
+
 def _trino_user_error(name: str, message: str) -> TrinoUserError:
     return TrinoUserError(
         {"message": message, "errorName": name, "errorCode": 1, "errorType": "USER_ERROR", "failureInfo": {}},
@@ -734,8 +968,21 @@ def _trino_user_error(name: str, message: str) -> TrinoUserError:
         (_trino_user_error("COLUMN_NOT_FOUND", "line 1:8: Column 'gone' cannot be resolved"), True),
         (_trino_external_error("Failed to query OPA backend"), False),
         (TrinoConnectionError("failed to execute: ('Connection aborted.', ConnectionResetError(104))"), False),
+        (_trino_query_error("Query exceeded distributed total memory limit of 2.64TB"), True),
+        # Deliberately retryable, not a regression: this depends on a worker's free disk at that
+        # moment, shared by every query Trino schedules there, so it can clear on its own.
+        (_trino_query_error("No free or healthy space available for spill"), False),
     ],
-    ids=["access_denied", "unauthorized", "table_not_found", "column_not_found", "opa_unavailable", "connection_reset"],
+    ids=[
+        "access_denied",
+        "unauthorized",
+        "table_not_found",
+        "column_not_found",
+        "opa_unavailable",
+        "connection_reset",
+        "query_memory_limit",
+        "spill_space_exhausted",
+    ],
 )
 def test_sync_failures_are_classified_for_retry(error: Exception, is_permanent: bool) -> None:
     with pytest.raises(Exception) as raised:

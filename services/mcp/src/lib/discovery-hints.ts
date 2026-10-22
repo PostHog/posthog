@@ -33,6 +33,12 @@ const EMPTY_STATE_HINTS: Record<string, string> = {
         'No log rows matched. If this project has never ingested logs, load the `instrument-logs` skill to start shipping them. Otherwise widen the `dateRange` or drop filters — `logs-count` is a cheap way to check whether any logs exist at all.',
     'query-session-recordings-list':
         'No recordings matched. If session replay has never captured anything here, load the `diagnosing-missing-recordings` skill to check SDK setup, sampling, and capture settings. Otherwise widen the date range or loosen the filters.',
+    'logs-context':
+        'No logs matched around this anchor. Widen `padding` or the `dateRange`, or drop `severityLevels`. If the anchor is a trace, check that the services write `trace_id` on their logs — `logs-count` with a `trace_id` filter is a cheap check.',
+    'apm-service-health':
+        'No spans matched. If this project has never ingested traces, the services are not instrumented yet. Otherwise widen the `dateRange`, or drop `environment` and `serviceNames` — `apm-services-list` shows the services that sent spans.',
+    'logs-group-by':
+        'No groups matched. Widen the `dateRange` or drop filters. If the group key is an attribute, check its name and source with `logs-attributes-list`.',
     'get-llm-total-costs-for-project':
         'No LLM cost data found. If AI observability is not capturing `$ai_generation` events yet, load the `instrument-llm-analytics` skill to wire it up. Otherwise widen the date range.',
 }
@@ -49,6 +55,12 @@ const RELATED_CAPABILITY_HINTS: Record<string, string> = {
         'Related: this insight can go on a dashboard (`building-a-dashboard` skill) or be delivered to email/Slack on a schedule (`managing-subscriptions` skill).',
 }
 
+const PRIMARY_RESULT_KEYS: Record<string, string> = {
+    'apm-service-health': 'services',
+    'logs-context': 'timeline',
+    'logs-group-by': 'groups',
+}
+
 /**
  * Empty means "zero rows", in the two shapes the registered tools return:
  * a bare array, or the standardized `{ results: [...] }` envelope produced by
@@ -56,13 +68,14 @@ const RELATED_CAPABILITY_HINTS: Record<string, string> = {
  * other shape is treated as non-empty — hints only register tools whose
  * shapes are known, so this never has to guess.
  */
-export function isEmptyToolResult(handlerResult: unknown): boolean {
+export function isEmptyToolResult(handlerResult: unknown, toolName?: string): boolean {
     if (Array.isArray(handlerResult)) {
         return handlerResult.length === 0
     }
     if (typeof handlerResult === 'object' && handlerResult !== null) {
-        const results = (handlerResult as Record<string, unknown>).results
-        return Array.isArray(results) && results.length === 0
+        const key = (toolName && PRIMARY_RESULT_KEYS[toolName]) || 'results'
+        const rows = (handlerResult as Record<string, unknown>)[key]
+        return Array.isArray(rows) && rows.length === 0
     }
     return false
 }
@@ -87,7 +100,7 @@ export interface DiscoveryHint {
  * when the result is empty, the related-capability hint otherwise.
  */
 export function getDiscoveryHint({ toolName, handlerResult }: DiscoveryHintInput): DiscoveryHint | undefined {
-    if (isEmptyToolResult(handlerResult)) {
+    if (isEmptyToolResult(handlerResult, toolName)) {
         const text = EMPTY_STATE_HINTS[toolName]
         return text ? { kind: 'empty_state', text } : undefined
     }

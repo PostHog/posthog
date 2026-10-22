@@ -37,8 +37,8 @@ class ProvidedView:
     name: str
     query: str
     fields: dict[str, FieldOrTable]
-    # Materialized views get a 12h sync schedule and a managed DAG node. A non-materialized view
-    # (e.g. engineering analytics) is computed at query time — no schedule, no DAG, no S3 table.
+    # Materialized views get a 12h sync schedule. A non-materialized view (e.g. engineering
+    # analytics) is computed at query time — no schedule, no S3 table.
     materialized: bool = True
 
 

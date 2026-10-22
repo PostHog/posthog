@@ -17,6 +17,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     JSONResponseCursorPaginator,
     SinglePagePaginator,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
     ClientConfig,
     EndpointResource,
@@ -111,10 +112,16 @@ def _window_params(window: EntryWindow, now: datetime) -> dict[str, str]:
     }
 
 
-def _drop_fields(fields: tuple[str, ...]) -> Callable[[dict[str, Any]], dict[str, Any]]:
+def _row_map(config: IncidentIoEndpointConfig) -> Optional[Callable[[dict[str, Any]], dict[str, Any]]]:
+    if not config.excluded_fields and not config.nested_id_columns:
+        return None
+
     def _mapper(row: dict[str, Any]) -> dict[str, Any]:
-        for name in fields:
+        for name in config.excluded_fields:
             row.pop(name, None)
+        for column, nested in config.nested_id_columns.items():
+            value = row.get(nested)
+            row[column] = value.get("id") if isinstance(value, dict) else None
         return row
 
     return _mapper
@@ -277,7 +284,7 @@ def _fanout_source(
         child_params.update(window_params)
 
     resource = cast(
-        Iterable[Any],
+        Resource,
         build_dependent_resource(
             endpoint_configs=endpoints,
             child_endpoint=config.name,
@@ -297,6 +304,9 @@ def _fanout_source(
             initial_paginator_state=initial_paginator_state,
         ),
     )
+    row_map = _row_map(config)
+    if row_map is not None:
+        resource.add_map(row_map)
     return _source_response(config, resource)
 
 
@@ -340,8 +350,9 @@ def incident_io_source(
             "paginator": _paginator(config),
         },
     }
-    if config.excluded_fields:
-        resource_config["data_map"] = _drop_fields(config.excluded_fields)
+    row_map = _row_map(config)
+    if row_map is not None:
+        resource_config["data_map"] = row_map
 
     rest_config: RESTAPIConfig = {
         # Excluded fields are dropped from rows only after HTTP sample capture saw the raw body.

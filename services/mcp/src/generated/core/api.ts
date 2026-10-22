@@ -424,7 +424,6 @@ export const OrganizationsProjectsCreateBody = () => zod
             .array(zod.string().max(organizationsProjectsCreateBodyPersonDisplayNamePropertiesItemMax))
             .nullish()
             .describe('Ordered list of person properties used to render a human-friendly display name in the UI.'),
-        correlation_config: zod.unknown().optional(),
         autocapture_opt_out: zod
             .boolean()
             .nullish()
@@ -1042,6 +1041,7 @@ export const OrganizationsProjectsCreateBody = () => zod
                                                                     'in',
                                                                     'not_in',
                                                                     'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
                                                                     'flag_evaluates_to',
                                                                     'semver_eq',
                                                                     'semver_neq',
@@ -1112,6 +1112,7 @@ export const OrganizationsProjectsCreateBody = () => zod
                                                             'in',
                                                             'not_in',
                                                             'is_cleaned_path_exact',
+                                                            'is_cleaned_path_not_exact',
                                                             'flag_evaluates_to',
                                                             'semver_eq',
                                                             'semver_neq',
@@ -1148,6 +1149,18 @@ export const OrganizationsProjectsCreateBody = () => zod
                                                             .optional(),
                                                     }),
                                                     zod.object({
+                                                        cohort_deleted: zod
+                                                            .union([zod.boolean(), zod.null()])
+                                                            .optional()
+                                                            .describe(
+                                                                'Set by the feature flag API when the cohort is deleted or does not exist.'
+                                                            ),
+                                                        cohort_missing: zod
+                                                            .union([zod.boolean(), zod.null()])
+                                                            .optional()
+                                                            .describe(
+                                                                'Set by the feature flag API when the cohort does not exist, so it cannot be restored.'
+                                                            ),
                                                         cohort_name: zod.union([zod.string(), zod.null()]).optional(),
                                                         key: zod
                                                             .literal('id')
@@ -1184,6 +1197,7 @@ export const OrganizationsProjectsCreateBody = () => zod
                                                                     'in',
                                                                     'not_in',
                                                                     'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
                                                                     'flag_evaluates_to',
                                                                     'semver_eq',
                                                                     'semver_neq',
@@ -1239,6 +1253,7 @@ export const OrganizationsProjectsCreateBody = () => zod
                                                             'in',
                                                             'not_in',
                                                             'is_cleaned_path_exact',
+                                                            'is_cleaned_path_not_exact',
                                                             'flag_evaluates_to',
                                                             'semver_eq',
                                                             'semver_neq',
@@ -1327,6 +1342,7 @@ export const OrganizationsProjectsCreateBody = () => zod
                                                             'in',
                                                             'not_in',
                                                             'is_cleaned_path_exact',
+                                                            'is_cleaned_path_not_exact',
                                                             'flag_evaluates_to',
                                                             'semver_eq',
                                                             'semver_neq',
@@ -1674,6 +1690,7 @@ export const OrganizationsProjectsCreateBody = () => zod
                                                                     'in',
                                                                     'not_in',
                                                                     'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
                                                                     'flag_evaluates_to',
                                                                     'semver_eq',
                                                                     'semver_neq',
@@ -1744,6 +1761,7 @@ export const OrganizationsProjectsCreateBody = () => zod
                                                             'in',
                                                             'not_in',
                                                             'is_cleaned_path_exact',
+                                                            'is_cleaned_path_not_exact',
                                                             'flag_evaluates_to',
                                                             'semver_eq',
                                                             'semver_neq',
@@ -1780,6 +1798,18 @@ export const OrganizationsProjectsCreateBody = () => zod
                                                             .optional(),
                                                     }),
                                                     zod.object({
+                                                        cohort_deleted: zod
+                                                            .union([zod.boolean(), zod.null()])
+                                                            .optional()
+                                                            .describe(
+                                                                'Set by the feature flag API when the cohort is deleted or does not exist.'
+                                                            ),
+                                                        cohort_missing: zod
+                                                            .union([zod.boolean(), zod.null()])
+                                                            .optional()
+                                                            .describe(
+                                                                'Set by the feature flag API when the cohort does not exist, so it cannot be restored.'
+                                                            ),
                                                         cohort_name: zod.union([zod.string(), zod.null()]).optional(),
                                                         key: zod
                                                             .literal('id')
@@ -1816,6 +1846,7 @@ export const OrganizationsProjectsCreateBody = () => zod
                                                                     'in',
                                                                     'not_in',
                                                                     'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
                                                                     'flag_evaluates_to',
                                                                     'semver_eq',
                                                                     'semver_neq',
@@ -1871,6 +1902,7 @@ export const OrganizationsProjectsCreateBody = () => zod
                                                             'in',
                                                             'not_in',
                                                             'is_cleaned_path_exact',
+                                                            'is_cleaned_path_not_exact',
                                                             'flag_evaluates_to',
                                                             'semver_eq',
                                                             'semver_neq',
@@ -1959,6 +1991,7 @@ export const OrganizationsProjectsCreateBody = () => zod
                                                             'in',
                                                             'not_in',
                                                             'is_cleaned_path_exact',
+                                                            'is_cleaned_path_not_exact',
                                                             'flag_evaluates_to',
                                                             'semver_eq',
                                                             'semver_neq',
@@ -2309,6 +2342,7 @@ export const OrganizationsProjectsCreateBody = () => zod
                                                                     'in',
                                                                     'not_in',
                                                                     'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
                                                                     'flag_evaluates_to',
                                                                     'semver_eq',
                                                                     'semver_neq',
@@ -2379,6 +2413,7 @@ export const OrganizationsProjectsCreateBody = () => zod
                                                             'in',
                                                             'not_in',
                                                             'is_cleaned_path_exact',
+                                                            'is_cleaned_path_not_exact',
                                                             'flag_evaluates_to',
                                                             'semver_eq',
                                                             'semver_neq',
@@ -2415,6 +2450,18 @@ export const OrganizationsProjectsCreateBody = () => zod
                                                             .optional(),
                                                     }),
                                                     zod.object({
+                                                        cohort_deleted: zod
+                                                            .union([zod.boolean(), zod.null()])
+                                                            .optional()
+                                                            .describe(
+                                                                'Set by the feature flag API when the cohort is deleted or does not exist.'
+                                                            ),
+                                                        cohort_missing: zod
+                                                            .union([zod.boolean(), zod.null()])
+                                                            .optional()
+                                                            .describe(
+                                                                'Set by the feature flag API when the cohort does not exist, so it cannot be restored.'
+                                                            ),
                                                         cohort_name: zod.union([zod.string(), zod.null()]).optional(),
                                                         key: zod
                                                             .literal('id')
@@ -2451,6 +2498,7 @@ export const OrganizationsProjectsCreateBody = () => zod
                                                                     'in',
                                                                     'not_in',
                                                                     'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
                                                                     'flag_evaluates_to',
                                                                     'semver_eq',
                                                                     'semver_neq',
@@ -2506,6 +2554,7 @@ export const OrganizationsProjectsCreateBody = () => zod
                                                             'in',
                                                             'not_in',
                                                             'is_cleaned_path_exact',
+                                                            'is_cleaned_path_not_exact',
                                                             'flag_evaluates_to',
                                                             'semver_eq',
                                                             'semver_neq',
@@ -2594,6 +2643,7 @@ export const OrganizationsProjectsCreateBody = () => zod
                                                             'in',
                                                             'not_in',
                                                             'is_cleaned_path_exact',
+                                                            'is_cleaned_path_not_exact',
                                                             'flag_evaluates_to',
                                                             'semver_eq',
                                                             'semver_neq',
@@ -3123,6 +3173,12 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
             .describe(
                 'Project name. Must be unique within the organization (case-insensitive). If omitted on creation, a unique default name is generated.'
             ),
+        logo_media_id: zod
+            .string()
+            .nullish()
+            .describe(
+                "ID of an image uploaded to this project, shown as the project's logo. Set to null to show a lettermark instead."
+            ),
         product_description: zod
             .string()
             .max(organizationsProjectsPartialUpdateBodyProductDescriptionMax)
@@ -3175,7 +3231,6 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
             .array(zod.string().max(organizationsProjectsPartialUpdateBodyPersonDisplayNamePropertiesItemMax))
             .nullish()
             .describe('Ordered list of person properties used to render a human-friendly display name in the UI.'),
-        correlation_config: zod.unknown().optional(),
         autocapture_opt_out: zod
             .boolean()
             .nullish()
@@ -3799,6 +3854,7 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                                                                     'in',
                                                                     'not_in',
                                                                     'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
                                                                     'flag_evaluates_to',
                                                                     'semver_eq',
                                                                     'semver_neq',
@@ -3869,6 +3925,7 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                                                             'in',
                                                             'not_in',
                                                             'is_cleaned_path_exact',
+                                                            'is_cleaned_path_not_exact',
                                                             'flag_evaluates_to',
                                                             'semver_eq',
                                                             'semver_neq',
@@ -3905,6 +3962,18 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                                                             .optional(),
                                                     }),
                                                     zod.object({
+                                                        cohort_deleted: zod
+                                                            .union([zod.boolean(), zod.null()])
+                                                            .optional()
+                                                            .describe(
+                                                                'Set by the feature flag API when the cohort is deleted or does not exist.'
+                                                            ),
+                                                        cohort_missing: zod
+                                                            .union([zod.boolean(), zod.null()])
+                                                            .optional()
+                                                            .describe(
+                                                                'Set by the feature flag API when the cohort does not exist, so it cannot be restored.'
+                                                            ),
                                                         cohort_name: zod.union([zod.string(), zod.null()]).optional(),
                                                         key: zod
                                                             .literal('id')
@@ -3941,6 +4010,7 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                                                                     'in',
                                                                     'not_in',
                                                                     'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
                                                                     'flag_evaluates_to',
                                                                     'semver_eq',
                                                                     'semver_neq',
@@ -3996,6 +4066,7 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                                                             'in',
                                                             'not_in',
                                                             'is_cleaned_path_exact',
+                                                            'is_cleaned_path_not_exact',
                                                             'flag_evaluates_to',
                                                             'semver_eq',
                                                             'semver_neq',
@@ -4084,6 +4155,7 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                                                             'in',
                                                             'not_in',
                                                             'is_cleaned_path_exact',
+                                                            'is_cleaned_path_not_exact',
                                                             'flag_evaluates_to',
                                                             'semver_eq',
                                                             'semver_neq',
@@ -4431,6 +4503,7 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                                                                     'in',
                                                                     'not_in',
                                                                     'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
                                                                     'flag_evaluates_to',
                                                                     'semver_eq',
                                                                     'semver_neq',
@@ -4501,6 +4574,7 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                                                             'in',
                                                             'not_in',
                                                             'is_cleaned_path_exact',
+                                                            'is_cleaned_path_not_exact',
                                                             'flag_evaluates_to',
                                                             'semver_eq',
                                                             'semver_neq',
@@ -4537,6 +4611,18 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                                                             .optional(),
                                                     }),
                                                     zod.object({
+                                                        cohort_deleted: zod
+                                                            .union([zod.boolean(), zod.null()])
+                                                            .optional()
+                                                            .describe(
+                                                                'Set by the feature flag API when the cohort is deleted or does not exist.'
+                                                            ),
+                                                        cohort_missing: zod
+                                                            .union([zod.boolean(), zod.null()])
+                                                            .optional()
+                                                            .describe(
+                                                                'Set by the feature flag API when the cohort does not exist, so it cannot be restored.'
+                                                            ),
                                                         cohort_name: zod.union([zod.string(), zod.null()]).optional(),
                                                         key: zod
                                                             .literal('id')
@@ -4573,6 +4659,7 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                                                                     'in',
                                                                     'not_in',
                                                                     'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
                                                                     'flag_evaluates_to',
                                                                     'semver_eq',
                                                                     'semver_neq',
@@ -4628,6 +4715,7 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                                                             'in',
                                                             'not_in',
                                                             'is_cleaned_path_exact',
+                                                            'is_cleaned_path_not_exact',
                                                             'flag_evaluates_to',
                                                             'semver_eq',
                                                             'semver_neq',
@@ -4716,6 +4804,7 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                                                             'in',
                                                             'not_in',
                                                             'is_cleaned_path_exact',
+                                                            'is_cleaned_path_not_exact',
                                                             'flag_evaluates_to',
                                                             'semver_eq',
                                                             'semver_neq',
@@ -5066,6 +5155,7 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                                                                     'in',
                                                                     'not_in',
                                                                     'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
                                                                     'flag_evaluates_to',
                                                                     'semver_eq',
                                                                     'semver_neq',
@@ -5136,6 +5226,7 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                                                             'in',
                                                             'not_in',
                                                             'is_cleaned_path_exact',
+                                                            'is_cleaned_path_not_exact',
                                                             'flag_evaluates_to',
                                                             'semver_eq',
                                                             'semver_neq',
@@ -5172,6 +5263,18 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                                                             .optional(),
                                                     }),
                                                     zod.object({
+                                                        cohort_deleted: zod
+                                                            .union([zod.boolean(), zod.null()])
+                                                            .optional()
+                                                            .describe(
+                                                                'Set by the feature flag API when the cohort is deleted or does not exist.'
+                                                            ),
+                                                        cohort_missing: zod
+                                                            .union([zod.boolean(), zod.null()])
+                                                            .optional()
+                                                            .describe(
+                                                                'Set by the feature flag API when the cohort does not exist, so it cannot be restored.'
+                                                            ),
                                                         cohort_name: zod.union([zod.string(), zod.null()]).optional(),
                                                         key: zod
                                                             .literal('id')
@@ -5208,6 +5311,7 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                                                                     'in',
                                                                     'not_in',
                                                                     'is_cleaned_path_exact',
+                                                                    'is_cleaned_path_not_exact',
                                                                     'flag_evaluates_to',
                                                                     'semver_eq',
                                                                     'semver_neq',
@@ -5263,6 +5367,7 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                                                             'in',
                                                             'not_in',
                                                             'is_cleaned_path_exact',
+                                                            'is_cleaned_path_not_exact',
                                                             'flag_evaluates_to',
                                                             'semver_eq',
                                                             'semver_neq',
@@ -5351,6 +5456,7 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                                                             'in',
                                                             'not_in',
                                                             'is_cleaned_path_exact',
+                                                            'is_cleaned_path_not_exact',
                                                             'flag_evaluates_to',
                                                             'semver_eq',
                                                             'semver_neq',
@@ -5803,7 +5909,7 @@ export const UploadedMediaListParams = () => zod.object({
 export const UploadedMediaListQueryParams = () => zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
-    purpose: zod.enum(['canvas', 'email']).describe('The library to list.'),
+    purpose: zod.enum(['canvas', 'email', 'experiment']).describe('The library to list.'),
     search: zod.string().optional().describe('Only list images whose name contains this text, ignoring case.'),
 })
 

@@ -10,6 +10,8 @@ from .enums import (
     WarehouseSuggestionAssetOutcome,
     WarehouseSuggestionDismissalReason,
     WarehouseSuggestionKind,
+    WarehouseSuggestionRefreshIntervalBasis,
+    WarehouseSuggestionRefreshMode,
     WarehouseSuggestionStatus,
     WarehouseSuggestionSubjectKind,
 )
@@ -53,6 +55,11 @@ class MaterializePayload:
     freshness_after_seconds: int
     live_sources: tuple[SourceRef, ...]
     unknown_sources: tuple[SourceRef, ...]
+    refresh_mode: WarehouseSuggestionRefreshMode = WarehouseSuggestionRefreshMode.FULL
+    incremental_key: str | None = None
+    unique_key: tuple[str, ...] = ()
+    lookback_seconds: int = 0
+    refresh_interval_basis: WarehouseSuggestionRefreshIntervalBasis | None = None
 
 
 SuggestionPayload = CertifyPayload | DeprecatePayload | MaterializePayload
@@ -76,6 +83,11 @@ class MaterializeSuggestionPayload:
     freshness_after_seconds: int
     live_sources: VisibleSources
     unknown_sources: VisibleSources
+    refresh_mode: WarehouseSuggestionRefreshMode = WarehouseSuggestionRefreshMode.FULL
+    incremental_key: str | None = None
+    unique_key: tuple[str, ...] = ()
+    lookback_seconds: int = 0
+    refresh_interval_basis: WarehouseSuggestionRefreshIntervalBasis | None = None
 
 
 SuggestionPayloadView = CertifyPayload | DeprecatePayload | MaterializeSuggestionPayload
@@ -117,7 +129,6 @@ class Suggestion:
     evidence_window_start: datetime
     evidence_window_end: datetime
     last_seen_at: datetime
-    score: float
     status: WarehouseSuggestionStatus
     surfaced_at: datetime | None
     reviewed_by: SuggestionReviewer | None
@@ -138,6 +149,21 @@ class CertificationAsset:
 class MaterializationAsset:
     saved_query_id: str
     refresh_interval_seconds: int
+    refresh_mode: WarehouseSuggestionRefreshMode
+    incremental_key: str | None
+    unique_key: tuple[str, ...]
+    lookback_seconds: int
+
+
+@frozen
+class AcceptOptions:
+    """Payload values a person chose instead of the suggested ones. None keeps the suggested value."""
+
+    refresh_interval_seconds: int | None = None
+    refresh_mode: WarehouseSuggestionRefreshMode | None = None
+    incremental_key: str | None = None
+    unique_key: tuple[str, ...] | None = None
+    lookback_seconds: int | None = None
 
 
 CreatedAsset = CertificationAsset | MaterializationAsset
@@ -195,7 +221,13 @@ class SubjectAlreadyCertifiedError(Exception):
         self.subject_kind = subject_kind
 
 
-class RefreshIntervalRefusedError(Exception):
+class AcceptOptionRefusedError(Exception):
+    def __init__(self, field: str, message: str) -> None:
+        super().__init__(message)
+        self.field = field
+
+
+class SuggestionOutdatedError(Exception):
     pass
 
 

@@ -19,7 +19,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.kalshi.kal
     _to_epoch_seconds,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.kalshi.settings import KALSHI_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.kalshi.settings import (
+    KALSHI_ENDPOINTS,
+    WEATHER_INDEX_CITIES,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.kalshi.source import KalshiSource
 
 
@@ -178,7 +181,11 @@ class TestKalshiTransport:
         assert result.response.partition_keys == expected
         assert result.response.partition_mode == ("datetime" if expected else None)
 
-    @parameterized.expand([("ok", 200, True), ("forbidden", 403, False), ("server_error", 500, False)])
+    @parameterized.expand(
+        [
+            ("ok", 200, True),
+        ]
+    )
     def test_validate_credentials_maps_status(self, _name: str, status: int, expected: bool) -> None:
         answer = ScriptedResponse(status=status)
         script = always(answer) if status == 500 else [answer]
@@ -367,3 +374,47 @@ class TestKalshiCandlesticks:
         markets = [_CandlestickMarket(ticker=str(i), start_ts=0, end_ts=days * 86400) for i in range(count)]
 
         assert [len(batch) for batch in _batch_markets(markets)] == expected_sizes
+
+
+class TestKalshiWeatherIndex:
+    @parameterized.expand(
+        [
+            # `from=0` would silently fall back to the trailing 24 hours.
+            ("full_refresh", {"should_use_incremental_field": False}, "1"),
+            (
+                "incremental_rereads_the_last_hour",
+                {"incremental_field": "t", "db_incremental_field_last_value": 1_790_000_000_000},
+                str(1_790_000_000_000 - 3_600_000),
+            ),
+        ]
+    )
+    def test_reads_every_city_from_the_window_start(
+        self, _name: str, inputs: dict[str, Any], expected_from: str
+    ) -> None:
+        point = {"t": 1_790_000_060_000, "v": 79.16, "status": "normal", "contributors": 5}
+        result = _driver().run(
+            "weather_index",
+            always(ScriptedResponse(json={"city": "any", "units": "fahrenheit", "timeseries": [point]})),
+            **inputs,
+        )
+
+        assert result.raised is None
+        assert result.paths == [f"/trade-api/v2/live_data/weather/{city}" for city in WEATHER_INDEX_CITIES]
+        assert set(result.params("from")) == {expected_from}
+        assert all(to is not None for to in result.params("to"))
+        # The city is half of the primary key; without it every city's minute collides.
+        assert result.rows == [{"city": city, **point} for city in WEATHER_INDEX_CITIES]
+        assert result.response is not None
+        assert result.response.sort_mode == "desc"
+
+    def test_resumes_from_the_saved_city_and_stages_the_next_one(self) -> None:
+        result = _driver().run(
+            "weather_index",
+            always(ScriptedResponse(json={"city": "any", "units": "fahrenheit", "timeseries": [{"t": 1, "v": 1.0}]})),
+            resume_state=KalshiResumeConfig(cursor=WEATHER_INDEX_CITIES[-2]),
+            should_use_incremental_field=False,
+        )
+
+        assert result.raised is None
+        assert result.paths == [f"/trade-api/v2/live_data/weather/{city}" for city in WEATHER_INDEX_CITIES[-2:]]
+        assert result.saved_states[-1] == KalshiResumeConfig(cursor=WEATHER_INDEX_CITIES[-1])

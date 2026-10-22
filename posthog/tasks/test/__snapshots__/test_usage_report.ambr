@@ -38,6 +38,23 @@
   GROUP BY team_id
   '''
 # ---
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.100
+  '''
+  
+  SELECT team_id,
+         argMax(patterns, pattern_version) AS count
+  FROM
+    (SELECT team_id,
+            pattern_version,
+            uniq(pattern) AS patterns
+     FROM logs_pattern_buckets_distributed
+     WHERE time_bucket >= '2022-01-10 00:00:00'
+       AND time_bucket < '2022-01-10 23:59:59'
+     GROUP BY team_id,
+              pattern_version)
+  GROUP BY team_id
+  '''
+# ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.11
   '''
   

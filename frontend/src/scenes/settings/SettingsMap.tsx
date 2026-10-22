@@ -37,7 +37,6 @@ import { PersonsOnEvents } from 'scenes/settings/environment/PersonsOnEvents'
 import { PreAggregatedTablesSetting } from 'scenes/settings/environment/PreAggregatedTablesSetting'
 import { ReplayTriggers } from 'scenes/settings/environment/ReplayTriggers'
 import { SessionsTableVersion } from 'scenes/settings/environment/SessionsTableVersion'
-import { SessionsV2JoinModeSettings } from 'scenes/settings/environment/SessionsV2JoinModeSettings'
 import {
     TaskAgentMyPreferenceSettings,
     TaskAgentProjectDefaultSettings,
@@ -94,7 +93,6 @@ import { AgentUsageSettings } from './environment/AgentUsageSettings'
 import { AutocaptureSettings, WebVitalsAutocaptureSettings } from './environment/AutocaptureSettings'
 import { CloudEnvironmentsSettings } from './environment/CloudEnvironmentsSettings'
 import { CloudImagesSettings } from './environment/CloudImagesSettings'
-import { CorrelationConfig } from './environment/CorrelationConfig'
 import { CSPReportingSettings } from './environment/CSPReportingSettings'
 import { DataAttributes } from './environment/DataAttributes'
 import { DataColorThemes } from './environment/DataColorThemes'
@@ -310,9 +308,10 @@ export const SETTINGS_MAP: SettingSection[] = [
             {
                 id: 'display-name',
                 title: 'Project details',
-                description: 'Name this project and label it so you can group and find it across your organization.',
+                description:
+                    'Name this project, add a logo and label it so you can group and find it across your organization.',
                 component: <ProjectDetails />,
-                keywords: ['name', 'rename', 'label', 'tag', 'tags'],
+                keywords: ['name', 'rename', 'logo', 'icon', 'image', 'label', 'tag', 'tags'],
             },
             {
                 id: 'date-and-time',
@@ -724,7 +723,6 @@ export const SETTINGS_MAP: SettingSection[] = [
         level: 'environment',
         id: 'environment-data-quality',
         title: 'Data quality',
-        flag: 'DATA_QUALITY_CHECKS',
         group: 'Products',
         settings: [
             {
@@ -1333,15 +1331,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 keywords: ['person', 'properties', 'join', 'query', 'performance'],
             },
             {
-                id: 'correlation-analysis',
-                title: 'Correlation analysis exclusions',
-                description:
-                    'Correlation analysis automatically surfaces relevant signals for conversion. Exclude events or properties that do not provide useful signals.',
-                docsUrl: 'https://posthog.com/docs/product-analytics/funnels#correlation-analysis',
-                component: <CorrelationConfig />,
-                keywords: ['funnel', 'conversion', 'exclude', 'property'],
-            },
-            {
                 id: 'person-display-name',
                 title: 'Person display name',
                 description:
@@ -1791,15 +1780,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <BounceRatePageViewModeSetting />,
                 flag: 'SETTINGS_BOUNCE_RATE_PAGE_VIEW_MODE',
                 keywords: ['bounce', 'pageview', 'url', 'calculation'],
-            },
-            {
-                id: 'session-join-mode',
-                title: 'Session join mode',
-                description:
-                    "Choose which join mode to use for sessions. Don't change this unless you know what you're doing.",
-                component: <SessionsV2JoinModeSettings />,
-                flag: 'SETTINGS_SESSIONS_V2_JOIN',
-                keywords: ['session', 'join', 'string', 'uuid'],
             },
             {
                 id: 'web-analytics-pre-aggregated-tables',

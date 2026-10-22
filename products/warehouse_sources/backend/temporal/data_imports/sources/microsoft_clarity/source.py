@@ -24,6 +24,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     MicrosoftClaritySourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.microsoft_clarity.microsoft_clarity import (
+    BASE_URL,
+    INSIGHTS_PATH,
     TOKEN_INVALID_ERROR,
     TOKEN_WRONG_PROJECT_ERROR,
     microsoft_clarity_source,
@@ -80,7 +82,19 @@ class MicrosoftClaritySource(SimpleSource[MicrosoftClaritySourceConfig]):
         # re-raising once that budget is exhausted. urllib3 wraps that as "... Max retries exceeded
         # with url: ..." regardless of the underlying cause. Temporal then retries the whole
         # activity, so the failure is transient and self-recovering, not a bug to report.
-        return {"Max retries exceeded with url"}
+        #
+        # `microsoft_clarity_source` also calls `response.raise_for_status()` directly rather than
+        # through the shared REST engine, so a 5xx that survives `DEFAULT_RETRY`'s in-process
+        # retries isn't wrapped as RESTClientRetryableError either — it's still a transient Clarity
+        # outage. Match status, reason and the endpoint's base URL, not the query string, since
+        # numOfDays/dimension vary per sync.
+        return {
+            "Max retries exceeded with url",
+            f"500 Server Error: Internal Server Error for url: {BASE_URL}{INSIGHTS_PATH}",
+            f"502 Server Error: Bad Gateway for url: {BASE_URL}{INSIGHTS_PATH}",
+            f"503 Server Error: Service Unavailable for url: {BASE_URL}{INSIGHTS_PATH}",
+            f"504 Server Error: Gateway Timeout for url: {BASE_URL}{INSIGHTS_PATH}",
+        }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
         from products.warehouse_sources.backend.temporal.data_imports.sources.microsoft_clarity.canonical_descriptions import (
@@ -124,7 +138,7 @@ class MicrosoftClaritySource(SimpleSource[MicrosoftClaritySourceConfig]):
             name=ExternalDataSourceType.MICROSOFTCLARITY,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="Microsoft Clarity",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Generate an API token in your Clarity project under **Settings -> Data Export -> Generate new API token**, then paste it below.
 
 Microsoft Clarity's export API allows a maximum of 10 requests per project per day and only returns the last 1-3 days of data (no historical backfill), so PostHog syncs a rolling snapshot on each run rather than pulling full history.""",

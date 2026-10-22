@@ -94,7 +94,8 @@ Summary only.
 Detail in [failure-modes](failure-modes.md).
 
 - Category picked, then a search that finds nothing: ~11% of opens with a category pick have an empty result after the pick, vs ~3% of opens without one.
-  The ~3% is too low: Suggested sends no empty-result event.
+  The ~3% is too low: Suggested sent no empty-result event in this snapshot.
+  New clients record All-tab empties with `scope = 'all'`; refresh these figures using periods with the same coverage.
 - Opens with a category pick end in a selection ~62% of the time, vs ~85% without one.
 - Most empty searches are ordinary words in the wrong scope.
 - Recovery within 30s of an empty result fell from ~46% to ~39% (Jul to Oct 2026, health dashboard session tile) while the empty-result rate stayed flat.

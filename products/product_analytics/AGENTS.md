@@ -11,9 +11,9 @@ Do not restrict a project-level insight operation to only `team_id=self.team_id`
 ### Authorization contract
 
 - `InsightViewSet` filters normal `list` reads through `_filter_queryset_by_access_level`. Custom list-like actions need an access-aware queryset implementation because this helper only filters when `self.action == "list"`.
-- On Enterprise installs, `EnterpriseInsightsViewSet` adds `CanEditInsight` for unsafe detail actions. A new unsafe detail action must keep object permission checks.
+- Unsafe detail actions get object permission checks from the default `AccessControlPermission` chain. A new unsafe detail action keeps them as long as it goes through `get_object`.
 - Detail-false bulk actions do not receive DRF object permissions. Filter every target through `_bulk_filter_editable_insights`, or perform the equivalent per-insight editor check. Return skipped targets without changing them.
-- Restore access to an insight does not grant edit access to every dashboard that contains it. Use `restore_tiles_for_insights` with `user_permissions`, so tiles remain hidden on dashboards the requester cannot edit.
+- Restore access to an insight does not grant edit access to every dashboard that contains it. Use `restore_tiles_for_insights` with `user_access_control`, so tiles remain hidden on dashboards the requester cannot edit.
 - For an action that supports personal API keys, OAuth, or MCP, declare `required_scopes` or add it to the view set scope-action list. Otherwise, API-key callers receive a 403 response.
 
 ### Shared-link contract
@@ -26,7 +26,6 @@ Insight variables cannot use sharing authentication. Keep this rejection in `Ins
 ### Where to make changes
 
 - Read [the insight API](backend/presentation/insight.py) when changing access, sharing, bulk actions, or project scope.
-- Read [the Enterprise permission wrapper](backend/presentation/insight_ee.py) when changing unsafe insight actions.
 - Read [the insight-variable API](backend/presentation/insight_variable.py) when changing variable access.
 - Extend [the existing insight API tests](backend/tests/api/test_insight.py) for object access, shared links, or bulk access. Cover inaccessible targets and dashboard tiles that must remain hidden.
 
@@ -58,7 +57,7 @@ Do not revive independently deleted related resources when adding or changing re
 ### Where to make changes
 
 - Read [the insight API](backend/presentation/insight.py) when changing deletion or restore behavior. `InsightSerializer.update` handles single deletion; `InsightViewSet.bulk_delete` bypasses model saves with a queryset update, so it must perform cleanup explicitly.
-- Read [the exports facade](../exports/backend/facade/api.py) when changing subscription cleanup. `delete_insight_subscriptions` calls each subscription's `delete()` method so model activity logging runs.
+- Read [the subscriptions facade](../subscriptions/backend/facade/api.py) when changing subscription cleanup. `delete_insight_subscriptions` calls each subscription's `delete()` method so model activity logging runs.
 - Read [the alerts facade](../alerts/backend/facade/api.py) when changing alert cleanup. `delete_insight_alerts` calls each alert's `delete()` method to preserve activity logging; queryset deletion bypasses that override.
 - Read [the dashboards facade](../dashboards/backend/facade/api.py) when changing tile cleanup or restoration. Use `hide_tiles_for_insights` and `restore_tiles_for_insights` rather than duplicating their rules.
 - Extend [the existing insight API tests](backend/tests/api/test_insight.py) when changing these behaviors. Cover single and bulk deletion, unrelated resources surviving, and restore behavior.
@@ -66,3 +65,19 @@ Do not revive independently deleted related resources when adding or changing re
 New deletion entry points, including background cleanup, must honor this contract.
 Setting `deleted=True` through a model save or queryset update does not run the API's cleanup automatically.
 When adding another related resource, define its deletion and restore behavior explicitly and apply it to both single and bulk operations.
+
+## Frontend placement
+
+These rules apply when you add or move a frontend file for this product.
+
+New frontend code that only this product imports goes in `products/product_analytics/frontend/`.
+Do not put it in `frontend/src/scenes/insights/` or in another scene tree that the placement report maps to this product.
+`resultSeriesName` landed in `scenes/insights/utils/` although only product files import it, so the default still points at core.
+
+A file in those scene trees stays in core while core or another product imports it.
+Moving it would make core import the product.
+Merge-queue lanes come from paths only, so the moved file would report only this product's lane while core still uses it.
+The lazy scene loaders in `frontend/src/scenes/appScenes.ts` do not count: repoint the loader when its scene moves.
+
+Read [the placement skill](../../.agents/skills/placing-product-frontend-code/SKILL.md) when you decide where a file goes.
+Its `scripts/scene_product_split.py` is the placement report: it maps each scene tree to its product and shows how far the tree has moved.

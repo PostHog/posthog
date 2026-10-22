@@ -646,4 +646,4 @@ class TestDeriveMentionWorkflowId:
 
     def test_id_is_stable_without_a_slack_event_id(self):
         inputs = self._inputs(slack_event_id=None)
-        assert derive_mention_workflow_id(inputs) == "posthog-code-mention-T_SLACK:C001:1001.0000"
+        assert derive_mention_workflow_id(inputs) == "slack-app-mention-processing-T_SLACK:C001:1001.0000"

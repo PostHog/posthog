@@ -38,6 +38,7 @@ function loadAppModules(): Promise<AppModules> {
 const App = lazy(() =>
     loadAppModules().then(([appModule, bootModule]) => {
         bootModule.bootApp()
+        markBootPhase('app_booted')
         return { default: appModule.App }
     })
 )
@@ -123,6 +124,7 @@ function boot(): void {
         // `null` is the gate expiring on a sheet that is only slow. The loader keeps working on it
         // in the background, so render now rather than hold the app back.
         if (applied !== false) {
+            markBootPhase('css_ready')
             renderApp()
         }
     })

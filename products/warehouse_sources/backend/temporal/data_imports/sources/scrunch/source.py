@@ -98,7 +98,7 @@ class ScrunchSource(ResumableSource[ScrunchSourceConfig, ScrunchResumeConfig]):
             label="Scrunch",
             keywords=["scrunch ai", "ai search visibility", "aeo", "geo"],
             iconPath="/static/services/scrunch.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption=(
                 "An organization admin can create an API key under the organization menu > API Keys in Scrunch. "
                 "Select Query scope and the brands to import. "

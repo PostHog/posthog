@@ -2,7 +2,7 @@ import hashlib
 import inspect
 import threading
 from abc import ABC, abstractmethod
-from collections.abc import Callable, Sequence
+from collections.abc import Iterable, Sequence
 from contextlib import ExitStack, suppress
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
@@ -16,6 +16,7 @@ from typing import (
     NamedTuple,
     Optional,
     Protocol,
+    TypeAliasType,
     TypeGuard,
     TypeVar,
     Union,
@@ -55,8 +56,6 @@ from posthog.schema import (
     EventTaxonomyQuery,
     ExperimentExposureQuery,
     FilterLogicalOperator,
-    FunnelCorrelationActorsQuery,
-    FunnelCorrelationQuery,
     FunnelsActorsQuery,
     FunnelsQuery,
     GenericCachedQueryResponse,
@@ -157,7 +156,12 @@ from posthog.clickhouse.client.limit import (
     get_app_dashboard_queries_rate_limiter,
     get_materialized_endpoints_rate_limiter,
 )
-from posthog.clickhouse.query_tagging import get_query_tag_value, is_api_key_access_method, tag_queries
+from posthog.clickhouse.query_tagging import (
+    get_query_tag_value,
+    is_api_key_access_method,
+    is_known_product_tag,
+    tag_queries,
+)
 from posthog.constants import AvailableFeature
 from posthog.dataclasses import frozen
 from posthog.errors import QueryErrorCategory, classify_query_error, clickhouse_error_type
@@ -177,7 +181,7 @@ from posthog.hogql_queries.query_failure_handling import (
 )
 from posthog.hogql_queries.query_metadata import extract_query_metadata
 from posthog.hogql_queries.utils.breakdowns import has_multi_breakdown, has_single_breakdown
-from posthog.hogql_queries.utils.entities import has_data_warehouse_node
+from posthog.hogql_queries.utils.entities import every_warehouse_series_reads_flag_calls, has_data_warehouse_node
 from posthog.hogql_queries.utils.event_usage import log_event_usage_from_query_metadata
 from posthog.hogql_queries.utils.properties import has_any_property_filters
 from posthog.hogql_queries.validation.validation import (
@@ -623,8 +627,6 @@ RunnableQueryNode = Union[
     HogQLQuery,
     InsightActorsQuery,
     FunnelsActorsQuery,
-    FunnelCorrelationQuery,
-    FunnelCorrelationActorsQuery,
     InsightActorsQueryOptions,
     SessionsTimelineQuery,
     WebOverviewQuery,
@@ -936,7 +938,6 @@ def get_query_runner(
     if kind in (
         "InsightActorsQuery",
         "FunnelsActorsQuery",
-        "FunnelCorrelationActorsQuery",
         "ExperimentActorsQuery",
         "StickinessActorsQuery",
         "PathsV2ActorsQuery",
@@ -956,17 +957,6 @@ def get_query_runner(
 
         return InsightActorsQueryOptionsRunner(
             query=cast(InsightActorsQueryOptions | dict[str, Any], query),
-            team=team,
-            timings=timings,
-            limit_context=limit_context,
-            modifiers=modifiers,
-            user=user,
-        )
-    if kind == "FunnelCorrelationQuery":
-        from products.product_analytics.backend.facade.queries import FunnelCorrelationQueryRunner
-
-        return FunnelCorrelationQueryRunner(
-            query=cast(FunnelCorrelationQuery | dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,
@@ -1824,6 +1814,7 @@ R = TypeVar("R", bound=BaseModel)
 # CR (for CachedResponse) must be R extended with CachedQueryResponseMixin
 # Unfortunately inheritance is also not a thing here, because we lose this info in the schema.ts->.json->.py journey
 CR = TypeVar("CR", bound=GenericCachedQueryResponse)
+SourceT = TypeVar("SourceT", bound=BaseModel)
 
 
 def resolve_series_custom_name(series: Any, raw_label: str | None) -> str | None:
@@ -1840,11 +1831,46 @@ def resolve_series_custom_name(series: Any, raw_label: str | None) -> str | None
 
 
 def query_node_modifiers(query: BaseModel) -> Optional[HogQLQueryModifiers]:
-    # A correlation query has no modifiers field. It uses the modifiers of the funnel it analyzes,
-    # so that the correlation reads the same events table and person data as that funnel.
-    if isinstance(query, FunnelCorrelationQuery):
-        return query.source.source.modifiers
-    return getattr(query, "modifiers", None)
+    # A wrapper query (actors, correlation, actor options) runs its source insight, so it reads the same
+    # events table and person data as that insight. Modifiers set on the wrapper itself take precedence.
+    source = getattr(query, "source", None)
+    inherited = query_node_modifiers(source) if isinstance(source, BaseModel) else None
+    modifiers = getattr(query, "modifiers", None)
+    if inherited is not None and modifiers is not None:
+        modifiers = inherited.model_copy(update={key: value for key, value in modifiers if value is not None})
+    elif modifiers is None:
+        modifiers = inherited
+    return modifiers
+
+
+def unwrapped_source(wrapper: BaseModel, source: SourceT) -> SourceT:
+    """The source of a wrapper query, for code that runs the source in place of the wrapper.
+
+    It carries the modifiers the wrapper resolves to, so the source runs with the same settings a
+    runner for the wrapper would use.
+    """
+    if getattr(wrapper, "modifiers", None) is None:
+        return source
+    return source.model_copy(update={"modifiers": query_node_modifiers(wrapper)})
+
+
+def team_configs_for_cache_key(team: Team) -> dict[str, dict | str]:
+    # The team-extension configs are loaded lazily and can hit the DB. Under connection-pool
+    # saturation these reads can time out (OperationalError); degrade to a stable "unavailable"
+    # marker instead of 500-ing the whole query. Failures then share one cache namespace,
+    # separate from the successfully-loaded key.
+    def read(name: str) -> dict | str:
+        try:
+            return getattr(team, name).to_cache_key_dict()
+        except OperationalError:
+            logger.warning("Failed to read %s for cache key, degrading gracefully", name, exc_info=True)
+            return "unavailable"
+
+    return {
+        "revenue_analytics": read("revenue_analytics_config"),
+        "marketing_analytics": read("marketing_analytics_config"),
+        "customer_analytics": read("customer_analytics_config"),
+    }
 
 
 class QueryRunner(ABC, Generic[Q, R, CR]):
@@ -1918,13 +1944,29 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         """Called after init, can by overriden by subclasses. Should be idempotent. Also called after dashboard overrides are set."""
         pass
 
+    def set_user(self, user: Optional[User]) -> None:
+        """Run as another user from now on, together with every runner this one built."""
+        if user is self.user:
+            return
+        self.user = user
+        self._on_user_changed()
+
+    def _child_runners(self) -> Iterable["QueryRunner"]:
+        """Runners this one built and runs, so a user change reaches them.
+
+        A lazy child that is not built yet reads the user when it is built, so it is not listed."""
+        return ()
+
     def _on_user_changed(self) -> None:
-        """Hook called by run() when self.user is updated after construction.
+        """Hook called by set_user() when self.user changes after construction.
 
         Drops the lazily built shared database so the next access rebuilds it for the new
-        user. Subclasses that override this to rebuild their own user-dependent state (e.g.
-        a cached HogQLContext / Database) must call super()._on_user_changed()."""
+        user, and passes the user to the child runners. Subclasses that override this to
+        rebuild their own user-dependent state (e.g. a cached HogQLContext / Database) must
+        call super()._on_user_changed()."""
         self._shared_database = None
+        for child in self._child_runners():
+            child.set_user(self.user)
 
     @property
     def user_access_control(self) -> Optional[UserAccessControl]:
@@ -1988,7 +2030,10 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
     @property
     def query_type(self) -> Any:
-        return self._class_annotation("query")  # Enforcing the type annotation of `query` at runtime
+        query_type = self._class_annotation("query")  # Enforcing the type annotation of `query` at runtime
+        while isinstance(query_type, TypeAliasType):
+            query_type = query_type.__value__
+        return query_type
 
     @property
     def cached_response_type(self) -> type[CR]:
@@ -2359,9 +2404,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         # __init__; let them refresh it now that we know the real user. Only on an
         # actual change - re-running for the same user would needlessly rebuild that
         # state and drop a preloaded access-control snapshot.
-        if user is not None and user is not self.user:
-            self.user = user
-            self._on_user_changed()
+        if user is not None:
+            self.set_user(user)
         start_time = perf_counter()
         cache_key = self.get_cache_key()
         self._phase = RunPhase(name="prepare")
@@ -2405,7 +2449,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 if tags.productKey:
                     product_key = tags.productKey
                     posthoganalytics.tag("product_key", product_key)
-                    tag_queries(product=tags.productKey)
+                    # Client-supplied: an unknown product must not fail the query.
+                    if is_known_product_tag(product_key):
+                        tag_queries(product=product_key)
                 if tags.scene:
                     posthoganalytics.tag("scene", tags.scene)
                     tag_queries(scene=tags.scene)
@@ -3129,22 +3175,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         )
 
     def _products_modifiers_for_cache(self) -> dict:
-        # The team-extension configs are loaded lazily and can hit the DB. Under connection-pool
-        # saturation these reads can time out (OperationalError); degrade to a stable "unavailable"
-        # marker instead of 500-ing the whole query. Failures then share one cache namespace,
-        # separate from the successfully-loaded key.
-        def read(name: str, fn: Callable[[], Any]) -> dict | str:
-            try:
-                return fn().to_cache_key_dict()
-            except OperationalError:
-                logger.warning("Failed to read %s for cache key, degrading gracefully", name, exc_info=True)
-                return "unavailable"
-
-        return {
-            "revenue_analytics": read("revenue_analytics_config", lambda: self.team.revenue_analytics_config),
-            "marketing_analytics": read("marketing_analytics_config", lambda: self.team.marketing_analytics_config),
-            "customer_analytics": read("customer_analytics_config", lambda: self.team.customer_analytics_config),
-        }
+        return team_configs_for_cache_key(self.team)
 
     def _get_property_access_restrictions(self) -> list[dict[str, str | int | None]] | None:
         """Returns sorted restricted property metadata for the current user, or None if unrestricted.
@@ -3414,11 +3445,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             )
             return
 
-        has_data_warehouse_series = (
-            hasattr(self.query, "series")
-            and isinstance(self.query.series, list)
-            and has_data_warehouse_node(self.query.series)
-        )
+        series = getattr(self.query, "series", None)
+        series_nodes = series if isinstance(series, list) else []
+        has_data_warehouse_series = has_data_warehouse_node(series_nodes)
 
         dashboard_breakdown_filter = dashboard_filter.breakdown_filter
 
@@ -3435,7 +3464,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             )
         )
 
-        if dashboard_filter.properties and not has_data_warehouse_series:
+        applies_dashboard_properties = every_warehouse_series_reads_flag_calls(series_nodes)
+
+        if dashboard_filter.properties and applies_dashboard_properties:
             if self.query.properties and has_any_property_filters(self.query.properties):
                 # Check if query expects only a list (e.g. WebOverviewQuery) vs union with PropertyGroupFilter
                 properties_field = self.query.__class__.model_fields.get("properties")
