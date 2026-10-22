@@ -39442,6 +39442,18 @@ export namespace Schemas {
       body: EmailTemplateDesignBody;
     };
 
+    export interface EmailTemplateSender {
+      /**
+         * Address to send from instead of the sender's own. Must be on the sender's verified domain. Supports Liquid templating. Leave out or empty to use the sender's address.
+         * @maxLength 254
+         */
+      email?: string;
+      /** Sender name shown in the inbox instead of the sender's own. Supports Liquid templating. Leave out or empty to use the sender's name. */
+      name?: string;
+      /** ID of the project's email sender integration that sends this email. Transactional sends need a verified sender. */
+      integrationId: number;
+    }
+
     export interface EmailTemplate {
       /** Email subject line. Supports Liquid templating. Required in `content` for email-type templates. A `draft_content` may leave it blank until it is published. */
       subject?: string;
@@ -39453,6 +39465,10 @@ export namespace Schemas {
       html?: string;
       /** Design JSON for PostHog's visual email editor — the authoring surface and source of truth. The server renders the sent email from it, and it opens as editable blocks in the editor. Full schema in the designing-email-templates skill. */
       design?: EmailTemplateDesign;
+      /** The sender a transactional template sends from. A template made transactional without one gets the sender it was made transactional with. */
+      from?: EmailTemplateSender;
+      /** Reply-to address for a transactional template. Separate several addresses with commas. Supports Liquid templating. Leave empty to use the sender's default reply-to. */
+      replyTo?: string;
     }
 
     /**
