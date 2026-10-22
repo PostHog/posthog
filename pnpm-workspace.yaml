@@ -114,6 +114,7 @@ overrides:
     '@tiptap/extension-underline': 3.20.6
 
 patchedDependencies:
+    react-draggable@4.5.0: patches/react-draggable@4.5.0.patch
     # Browser process shims must not select v86's Node-only scheduler.
     v86@0.5.458: patches/v86@0.5.458.patch
     jest-junit@16.0.0: patches/jest-junit@16.0.0.patch

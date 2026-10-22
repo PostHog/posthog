@@ -1983,6 +1983,115 @@ describe('dashboardLogic', () => {
         })
 
         describe('hasUnsavedLayoutChanges selector', () => {
+            it('keeps dashboard data stable while a gesture stages a layout', async () => {
+                await expectLogic(logic).toFinishAllListeners()
+
+                const dashboard = logic.values.dashboard
+                const firstTile = dashboard!.tiles[0]
+                const layouts = logic.values.layouts
+                const changedLayouts = {
+                    ...layouts,
+                    sm: layouts.sm?.map((layout) =>
+                        layout.i === String(firstTile.id) ? { ...layout, x: layout.x + 1 } : layout
+                    ),
+                }
+
+                logic.actions.stageLayouts(changedLayouts)
+
+                expect(logic.values.dashboard).toBe(dashboard)
+                expect(logic.values.dashboard!.tiles[0]).toBe(firstTile)
+                expect(logic.values.layouts).toEqual(changedLayouts)
+                expect(logic.values.hasUnsavedLayoutChanges).toBe(true)
+
+                await expectLogic(logic, () => {
+                    logic.actions.setDashboardEditing(null, DashboardEventSource.DashboardHeaderDiscardChanges)
+                }).toFinishAllListeners()
+
+                expect(logic.values.draftLayouts).toBeNull()
+                expect(logic.values.hasUnsavedLayoutChanges).toBe(false)
+            })
+
+            it('saves staged geometry', async () => {
+                await expectLogic(logic).toFinishAllListeners()
+
+                const firstTile = logic.values.dashboard!.tiles[0]
+                const layouts = logic.values.layouts
+                const changedLayouts = {
+                    ...layouts,
+                    sm: layouts.sm?.map((layout) =>
+                        layout.i === String(firstTile.id) ? { ...layout, x: layout.x + 1 } : layout
+                    ),
+                }
+                logic.actions.stageLayouts(changedLayouts)
+
+                await expectLogic(logic, () => {
+                    logic.actions.saveLayoutChanges()
+                }).toFinishAllListeners()
+
+                expect(api.update).toHaveBeenCalledWith(
+                    `api/projects/${MOCK_TEAM_ID}/dashboards/5`,
+                    expect.objectContaining({
+                        tiles: expect.arrayContaining([
+                            expect.objectContaining({
+                                id: firstTile.id,
+                                layouts: { sm: changedLayouts.sm?.find((layout) => layout.i === String(firstTile.id)) },
+                            }),
+                        ]),
+                    })
+                )
+            })
+
+            it('keeps edits made while a layout save is in flight', async () => {
+                await expectLogic(logic).toFinishAllListeners()
+
+                const dashboard = logic.values.dashboard!
+                const firstTile = dashboard.tiles[0]
+                const layouts = logic.values.layouts
+                const firstDraft = {
+                    ...layouts,
+                    sm: layouts.sm?.map((layout) =>
+                        layout.i === String(firstTile.id) ? { ...layout, x: layout.x + 1 } : layout
+                    ),
+                }
+                const secondDraft = {
+                    ...layouts,
+                    sm: layouts.sm?.map((layout) =>
+                        layout.i === String(firstTile.id) ? { ...layout, x: layout.x + 2 } : layout
+                    ),
+                }
+                logic.actions.stageLayouts(firstDraft)
+
+                let finishSave: (dashboard: DashboardType) => void = () => {}
+                ;(api.update as jest.Mock).mockImplementationOnce(
+                    () =>
+                        new Promise((resolve) => {
+                            finishSave = resolve
+                        })
+                )
+                const save = expectLogic(logic, () => {
+                    logic.actions.saveLayoutChanges()
+                }).toFinishAllListeners()
+
+                logic.actions.stageLayouts(secondDraft)
+                finishSave({
+                    ...dashboard,
+                    tiles: dashboard.tiles.map((tile) =>
+                        tile.id === firstTile.id
+                            ? {
+                                  ...tile,
+                                  layouts: {
+                                      sm: firstDraft.sm!.find((layout) => layout.i === String(tile.id))!,
+                                  } as DashboardTile['layouts'],
+                              }
+                            : tile
+                    ),
+                })
+                await save
+
+                expect(logic.values.draftLayouts).toEqual(secondDraft)
+                expect(logic.values.hasUnsavedLayoutChanges).toBe(true)
+            })
+
             const moveFirstTile = (): void => {
                 const firstTile = logic.values.dashboard!.tiles[0]
                 const currentLayouts = logic.values.layouts

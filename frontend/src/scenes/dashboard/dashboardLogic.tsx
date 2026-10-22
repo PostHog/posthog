@@ -369,6 +369,7 @@ export interface dashboardLogicValues {
     dashboardFailedToLoad: boolean
     dashboardFiltersSaving: boolean
     dashboardLayouts: Record<DashboardTile['id'], DashboardTile['layouts']>
+    draftLayouts: ResponsiveLayouts | null
     dashboardLoadData: {
         action: DashboardLoadAction | undefined
         dashboardQueryId: string
@@ -1106,6 +1107,8 @@ export interface dashboardLogicActions {
     updateLayouts: (layouts: ResponsiveLayouts) => {
         layouts: Partial<Record<string, Layout>>
     }
+    stageLayouts: (layouts: ResponsiveLayouts) => { layouts: ResponsiveLayouts }
+    clearDraftLayouts: () => true
     updateTileColor: (
         tileId: number,
         color: InsightColor | null
@@ -1263,7 +1266,8 @@ export interface dashboardLogicMeta {
             dashboardLayouts: Record<
                 number,
                 Record<string, never> | Record<DashboardLayoutSize, TileLayout> | undefined
-            >
+            >,
+            draftLayouts: ResponsiveLayouts | null
         ) => boolean
         effectiveVariablesAndAssociatedInsights: (
             dashboard: DashboardType | null,
@@ -1352,7 +1356,10 @@ export interface dashboardLogicMeta {
             currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType
         ) => boolean
         sizeKey: (columns: number | null) => DashboardLayoutSize | undefined
-        layouts: (tiles: DashboardTile[]) => Partial<Record<DashboardLayoutSize, Layout>>
+        layouts: (
+            tiles: DashboardTile[],
+            draftLayouts: ResponsiveLayouts | null
+        ) => Partial<Record<DashboardLayoutSize, Layout>>
         layout: (
             layouts: Partial<Record<DashboardLayoutSize, Layout>>,
             sizeKey: DashboardLayoutSize | undefined
@@ -1626,6 +1633,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
          * Dashboard layout & tiles.
          */
         updateLayouts: (layouts: ResponsiveLayouts) => ({ layouts }),
+        stageLayouts: (layouts: ResponsiveLayouts) => ({ layouts }),
+        clearDraftLayouts: () => true,
         applyDashboardUpdate: (dashboard: DashboardType, layouts: Record<number, DashboardTile['layouts']>) => ({
             dashboard,
             layouts,
@@ -1813,12 +1822,14 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 },
                 saveEditModeChanges: async ({ scope }, breakpoint) => {
                     cache.dashboardChangesPersisted = false
+                    cache.draftLayoutsAtSave = values.draftLayouts
                     try {
                         // Only persist sm layouts; xs layouts are derived on the fly
-                        const layoutsToUpdate = (values.dashboard?.tiles || []).map((tile) => ({
-                            id: tile.id,
-                            layouts: tile.layouts?.sm ? { sm: tile.layouts.sm } : {},
-                        }))
+                        const draftByTile = values.draftLayouts ? layoutsByTile(values.draftLayouts) : null
+                        const layoutsToUpdate = (values.dashboard?.tiles || []).map((tile) => {
+                            const sm = draftByTile?.[tile.id]?.sm ?? tile.layouts?.sm
+                            return { id: tile.id, layouts: sm ? { sm } : {} }
+                        })
 
                         const currentDashboard = values.dashboard
                         if (!currentDashboard) {
@@ -2221,6 +2232,18 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     ...state,
                     [tile.id]: tile.layouts,
                 }),
+            },
+        ],
+        draftLayouts: [
+            null as ResponsiveLayouts | null,
+            {
+                stageLayouts: (_, { layouts }) => layouts,
+                clearDraftLayouts: () => null,
+                updateLayouts: () => null,
+                loadDashboardSuccess: () => null,
+                loadDashboardMetadataSuccess: () => null,
+                setDashboardEditing: (state, { editing, source }) =>
+                    editing === null && source === DashboardEventSource.DashboardHeaderDiscardChanges ? null : state,
             },
         ],
         // Unsaved color edits only — merged over dashboard.breakdown_colors in effectiveBreakdownColors
@@ -3054,17 +3077,19 @@ export const dashboardLogic = kea<dashboardLogicType>([
             (settings: DashboardSettings) => settings.variables,
         ],
         hasUnsavedLayoutChanges: [
-            (s) => [s.dashboard, s.dashboardLayouts],
+            (s) => [s.dashboard, s.dashboardLayouts, s.draftLayouts],
             (
                 dashboard: DashboardType | null,
-                dashboardLayouts: Record<DashboardTile['id'], DashboardTile['layouts']>
+                dashboardLayouts: Record<DashboardTile['id'], DashboardTile['layouts']>,
+                draftLayouts: ResponsiveLayouts | null
             ): boolean => {
                 if (!dashboard) {
                     return false
                 }
+                const draftByTile = draftLayouts ? layoutsByTile(draftLayouts) : null
                 return (dashboard.tiles || []).some((tile: DashboardTile) => {
                     const originalSm = dashboardLayouts?.[tile.id]?.sm
-                    const currentSm = tile.layouts?.sm
+                    const currentSm = draftByTile?.[tile.id]?.sm ?? tile.layouts?.sm
                     return !equal(originalSm || {}, currentSm || {})
                 })
             },
@@ -3396,8 +3421,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
             },
         ],
         layouts: [
-            (s) => [s.tiles],
-            (tiles: DashboardTile[]) => calculateLayouts(tiles),
+            (s) => [s.tiles, s.draftLayouts],
+            (tiles: DashboardTile[], draftLayouts: ResponsiveLayouts | null) => draftLayouts ?? calculateLayouts(tiles),
             // Tile refreshes replace `tiles` once per insight response without touching geometry;
             // keeping the result reference stable stops react-grid-layout re-laying-out every tile
             // N times per dashboard refresh cycle.
@@ -4854,6 +4879,15 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 // dashboardsModel so the sidebar and other global views stay up to date
                 dashboardsModel.actions.updateDashboardSuccess(dashboard, { layoutsPersisted: true })
             }
+            if (
+                dashboard &&
+                payload?.scope === 'layout' &&
+                values.draftLayouts === cache.draftLayoutsAtSave &&
+                (cache.dashboardChangesPersisted || !values.hasUnsavedLayoutChanges)
+            ) {
+                actions.clearDraftLayouts()
+            }
+            cache.draftLayoutsAtSave = null
             // Only toast when changes were actually persisted — the no-op exit path skips the PATCH.
             if (cache.dashboardChangesPersisted) {
                 cache.dashboardChangesPersisted = false
