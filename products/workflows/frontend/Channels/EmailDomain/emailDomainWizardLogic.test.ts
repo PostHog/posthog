@@ -1,9 +1,11 @@
 import { expectLogic } from 'kea-test-utils'
 
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+import { PreflightStatus } from '~/types'
 
 import { FakeEmailDomainBackend } from './__mocks__/fakeEmailDomainBackend'
 import { emailDomainWizardLogic } from './emailDomainWizardLogic'
@@ -95,6 +97,20 @@ describe('emailDomainWizardLogic', () => {
         expect(backend.requestsTo('integration_create').at(-1)?.body).toMatchObject({
             config: { email: address, mail_from_subdomain: 'bounce' },
         })
+    })
+
+    it.each([
+        [true, 'maildev'],
+        [false, 'ses'],
+    ])('creates the sender with the right provider when debug is %s', async (isDebug, provider) => {
+        const logic = mountWizard()
+        preflightLogic.actions.loadPreflightSuccess({ is_debug: isDebug } as PreflightStatus)
+
+        logic.actions.setCustomDomainInput('acme.com')
+        logic.actions.useCustomDomain()
+        await expectLogic(logic, () => logic.actions.createSender()).toFinishAllListeners()
+
+        expect(backend.requestsTo('integration_create').at(-1)?.body).toMatchObject({ config: { provider } })
     })
 
     it('refuses an address that already has a sender', async () => {

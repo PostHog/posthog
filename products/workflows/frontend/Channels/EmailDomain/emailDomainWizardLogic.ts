@@ -4,13 +4,14 @@ import posthog from 'posthog-js'
 
 import api, { ApiError } from 'lib/api'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
-import { IntegrationType, TeamPublicType, TeamType, UserType } from '~/types'
+import { IntegrationType, PreflightStatus, TeamPublicType, TeamType, UserType } from '~/types'
 
 import {
     integrationsCreate,
@@ -54,6 +55,7 @@ export interface emailDomainWizardLogicValues {
     currentTeam: TeamPublicType | TeamType | null // teamLogic
     currentTeamId: number | null // teamLogic
     user: UserType | null // userLogic
+    preflight: PreflightStatus | null // preflightLogic
     advancedOpen: boolean
     bouncePrefix: string
     createdSender: IntegrationConfigApi | null
@@ -171,7 +173,16 @@ export const emailDomainWizardLogic = kea<emailDomainWizardLogicType>([
     props({} as EmailDomainWizardLogicProps),
     key(({ logicKey }) => logicKey),
     connect(() => ({
-        values: [teamLogic, ['currentTeam', 'currentTeamId'], userLogic, ['user'], integrationsLogic, ['integrations']],
+        values: [
+            teamLogic,
+            ['currentTeam', 'currentTeamId'],
+            userLogic,
+            ['user'],
+            integrationsLogic,
+            ['integrations'],
+            preflightLogic,
+            ['preflight'],
+        ],
         actions: [integrationsLogic, ['loadIntegrations']],
     })),
     actions({
@@ -223,7 +234,8 @@ export const emailDomainWizardLogic = kea<emailDomainWizardLogicType>([
                             config: {
                                 email: `${localPart || DEFAULT_LOCAL_PART}@${sendingDomain}`,
                                 name: nameFromDomain(selectedDomain),
-                                provider: 'ses',
+                                // A local stack has no SES, so it sends through Maildev instead.
+                                provider: values.preflight?.is_debug ? 'maildev' : 'ses',
                                 // The provider keeps one bounce subdomain per domain, so a new address reuses the existing one.
                                 mail_from_subdomain:
                                     domainSender?.config?.mail_from_subdomain || bouncePrefix || DEFAULT_BOUNCE_PREFIX,
