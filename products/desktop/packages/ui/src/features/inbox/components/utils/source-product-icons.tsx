@@ -161,6 +161,17 @@ const SOURCE_PRODUCT_META: Partial<Record<SourceProduct, SourceProductMeta>> = {
     color: "var(--orange-9)",
     label: "Rapid7 InsightVM",
   },
+  lacework: { Icon: ShieldIcon, color: "var(--violet-9)", label: "Lacework" },
+  orca_security: {
+    Icon: ShieldIcon,
+    color: "var(--cyan-9)",
+    label: "Orca Security",
+  },
+  tenable_vulnerability_management: {
+    Icon: ShieldIcon,
+    color: "var(--teal-9)",
+    label: "Tenable Vulnerability Management",
+  },
   featurebase: {
     Icon: LightbulbIcon,
     color: "var(--blue-9)",
