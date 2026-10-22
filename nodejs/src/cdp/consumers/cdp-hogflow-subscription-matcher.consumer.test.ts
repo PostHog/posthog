@@ -1310,14 +1310,14 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
                     parse: '_parseKafkaBatch',
                     bad: rawEvent({ team_id: teamId }),
                     good: rawEvent({}),
-                    expectedSkips: 1,
+                    expectedInvalidTeamIdSkips: 1,
                 },
                 {
                     name: `a person with team_id ${teamId}`,
                     parse: '_parsePersonBatch',
                     bad: rawPerson({ team_id: teamId }),
                     good: rawPerson({}),
-                    expectedSkips: 1,
+                    expectedInvalidTeamIdSkips: 1,
                 },
             ]),
             // The schema already rejects a missing, null or string team_id.
@@ -1328,37 +1328,37 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
                     parse: '_parseInternalEventsBatch',
                     bad: rawInternalEvent({ team_id: teamId }),
                     good: rawInternalEvent(),
-                    expectedSkips: 1,
+                    expectedInvalidTeamIdSkips: 1,
                 })),
             {
                 name: 'an event that is not JSON',
                 parse: '_parseKafkaBatch',
                 bad: { value: Buffer.from('not json') },
                 good: rawEvent({}),
-                expectedSkips: 0,
+                expectedInvalidTeamIdSkips: 0,
             },
             {
                 name: 'an event whose properties are not JSON',
                 parse: '_parseKafkaBatch',
                 bad: rawEvent({ properties: 'not json' }),
                 good: rawEvent({}),
-                expectedSkips: 0,
+                expectedInvalidTeamIdSkips: 0,
             },
             {
                 name: 'a person whose properties are not JSON',
                 parse: '_parsePersonBatch',
                 bad: rawPerson({ properties: 'not json' }),
                 good: rawPerson({}),
-                expectedSkips: 0,
+                expectedInvalidTeamIdSkips: 0,
             },
             {
                 name: 'an internal event without its required event',
                 parse: '_parseInternalEventsBatch',
                 bad: { value: Buffer.from(JSON.stringify({ team_id: 1 })) },
                 good: rawInternalEvent(),
-                expectedSkips: 0,
+                expectedInvalidTeamIdSkips: 0,
             },
-        ])('skips $name and keeps the rest of the batch', async ({ parse, bad, good, expectedSkips }) => {
+        ])('skips $name and keeps the rest of the batch', async ({ parse, bad, good, expectedInvalidTeamIdSkips }) => {
             const parseErrorsBefore = await invalidTeamIdParseErrors()
             const skipsBefore = await invalidTeamIdSkips()
 
@@ -1366,7 +1366,7 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
 
             expect(result).toHaveLength(1)
             expect(await invalidTeamIdParseErrors()).toBe(parseErrorsBefore)
-            expect(await invalidTeamIdSkips()).toBe(skipsBefore + expectedSkips)
+            expect(await invalidTeamIdSkips()).toBe(skipsBefore + expectedInvalidTeamIdSkips)
         })
 
         const streams = [
