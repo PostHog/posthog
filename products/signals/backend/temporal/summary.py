@@ -37,6 +37,10 @@ from products.signals.backend.auto_start import (
     start_requested_implementation,
 )
 from products.signals.backend.daily_limit import capture_signal_report_daily_limit_paused, daily_report_limit_gate
+from products.signals.backend.github_readiness import (
+    CheckReportGitHubReadinessInput,
+    check_report_github_readiness_activity,
+)
 from products.signals.backend.models import (
     SIGNALS_AT_RUN_INCREMENT,
     SignalReport,
@@ -282,7 +286,9 @@ class SignalReportSummaryWorkflow:
     async def _fetch_signals(
         self, inputs: SignalReportSummaryWorkflowInputs, log: FilteringBoundLogger
     ) -> FetchSignalsForReportOutput:
-        fetch_input = FetchSignalsForReportInput(team_id=inputs.team_id, report_id=inputs.report_id)
+        fetch_input = FetchSignalsForReportInput(
+            team_id=inputs.team_id, report_id=inputs.report_id, enabled_sources_only=inputs.github_recovery
+        )
         fetch_result: FetchSignalsForReportOutput = await workflow.execute_activity(
             fetch_signals_for_report_activity,
             fetch_input,
@@ -352,9 +358,18 @@ class SignalReportSummaryWorkflow:
         ):
             log.info("Report run paused: org over self-driving credits quota", stage="summary_entry")
             return False
+        if workflow.patched("signals-github-readiness") and not await workflow.execute_activity(
+            check_report_github_readiness_activity,
+            CheckReportGitHubReadinessInput(team_id=inputs.team_id, report_id=inputs.report_id),
+            start_to_close_timeout=timedelta(minutes=5),
+            retry_policy=RetryPolicy(maximum_attempts=3),
+        ):
+            return False
         # 1. Fetch signals for the report
         fetch_result = await self._fetch_signals(inputs, log)
         if not fetch_result.signals:
+            if inputs.github_recovery:
+                return False
             # patched(): same marker as the retry loop, so pre-patch histories replay straight to failure.
             if workflow.patched("signals-empty-fetch-retry") and await workflow.execute_activity(
                 report_has_assigned_signals_activity,
@@ -456,6 +471,20 @@ class SignalReportSummaryWorkflow:
                 # Retry once: the sandbox agent turn can time out (poll_for_turn) or hit a transient LLM 429.
                 retry_policy=RetryPolicy(maximum_attempts=2),
             )
+            if (
+                repo_result.repository is None
+                and repo_result.blocked_reason
+                and workflow.patched("signals-github-readiness")
+            ):
+                await workflow.execute_activity(
+                    check_report_github_readiness_activity,
+                    CheckReportGitHubReadinessInput(
+                        team_id=inputs.team_id, report_id=inputs.report_id, reason=repo_result.blocked_reason
+                    ),
+                    start_to_close_timeout=timedelta(minutes=5),
+                    retry_policy=RetryPolicy(maximum_attempts=3),
+                )
+                return False
             if repo_result.repository is None:
                 log.warning(
                     "Report has no repository selected",

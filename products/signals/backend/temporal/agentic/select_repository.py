@@ -7,6 +7,7 @@ import posthoganalytics
 from posthog.event_usage import groups
 from posthog.models import Organization
 from posthog.models.integration import GitHubIntegrationError
+from posthog.models.integration.github_readiness import GitHubReadinessStatus
 from posthog.models.team.team import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
@@ -26,6 +27,7 @@ from products.signals.backend.temporal.agentic import (
 )
 from products.signals.backend.temporal.types import SignalData
 from products.tasks.backend.facade import api as tasks_facade
+from products.tasks.backend.facade.repo_selection import get_team_github_readiness
 
 # Repo discovery only runs `gh` CLI commands — limit egress to GitHub hosts.
 GITHUB_ONLY_DOMAINS = [
@@ -135,7 +137,15 @@ async def select_repository_activity(input: SelectRepositoryInput) -> RepoSelect
                     report_id=input.report_id,
                     team_id=input.team_id,
                 )
+                readiness = await database_sync_to_async(get_team_github_readiness, thread_sensitive=False)(
+                    input.team_id
+                )
                 no_repo_result = RepoSelectionResult(
+                    blocked_reason=(
+                        readiness.status
+                        if readiness.status != GitHubReadinessStatus.READY
+                        else GitHubReadinessStatus.TEMPORARILY_UNAVAILABLE
+                    ),
                     repository=None,
                     reason="No GitHub integration connected to a team/user.",
                 )

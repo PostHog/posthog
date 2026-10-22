@@ -629,6 +629,8 @@ class SignalReport(UUIDModel):
             case (S.CANDIDATE, S.IN_PROGRESS):
                 if signals_at_run_increment is None:
                     raise ValueError("signals_at_run_increment is required for candidate -> in_progress")
+                self.research_blocked_reason = None
+                updated_fields.add("research_blocked_reason")
                 self.last_run_at = timezone.now()
                 self.signals_at_run = self.signal_count + signals_at_run_increment
                 self.run_count += 1

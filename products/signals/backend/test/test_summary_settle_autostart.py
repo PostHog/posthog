@@ -123,6 +123,7 @@ class _Recorder:
         self.buffer_seconds = buffer_seconds
         self.candidate_on_first_check = candidate_on_first_check
         self.researches = 0
+        self.fetches = 0
         self.autostarts = 0
         self.candidate_checks = 0
         # Auto-starts completed by the time the notification child made its first state check. The
@@ -159,14 +160,23 @@ class _StubInboxNotificationWorkflow:
 
 
 async def _run_summary_workflow(
-    recorder: _Recorder, *, requested_user_id: int | None = None, requested_after_run_count: int | None = None
+    recorder: _Recorder,
+    *,
+    requested_user_id: int | None = None,
+    requested_after_run_count: int | None = None,
+    github_ready: bool = True,
 ) -> None:
     @activity.defn(name="check_report_quota_gate_activity")
     async def fake_quota(input) -> bool:
         return False
 
+    @activity.defn(name="check_report_github_readiness_activity")
+    async def fake_github_readiness(input) -> bool:
+        return github_ready
+
     @activity.defn(name="fetch_signals_for_report_activity")
     async def fake_fetch(input: FetchSignalsForReportInput) -> FetchSignalsForReportOutput:
+        recorder.fetches += 1
         return FetchSignalsForReportOutput(signals=[_signal_data()])
 
     @activity.defn(name="mark_report_in_progress_activity")
@@ -203,6 +213,10 @@ async def _run_summary_workflow(
     async def fake_publish(input: PublishReportCompletedInput) -> None:
         return None
 
+    @activity.defn(name="publish_report_spend_activity")
+    async def fake_spend(input: SignalReportSummaryWorkflowInputs) -> None:
+        return None
+
     @activity.defn(name="implementation_buffer_seconds_activity")
     async def fake_buffer(input: ImplementationBufferInput) -> int:
         return recorder.buffer_seconds
@@ -230,6 +244,7 @@ async def _run_summary_workflow(
             workflows=[SignalReportSummaryWorkflow, _StubInboxNotificationWorkflow],
             activities=[
                 fake_quota,
+                fake_github_readiness,
                 fake_fetch,
                 fake_mark_in_progress,
                 fake_safety,
@@ -237,6 +252,7 @@ async def _run_summary_workflow(
                 fake_research,
                 fake_mark_ready,
                 fake_publish,
+                fake_spend,
                 fake_buffer,
                 fake_candidate,
                 fake_autostart,
@@ -258,6 +274,8 @@ async def _run_summary_workflow(
                 ),
                 timeout=30,
             )
+            if not github_ready:
+                return
             # The notification child is detached (ABANDON), so it can outlive the parent; wait for
             # it before asserting on what it saw.
             await asyncio.wait_for(
@@ -312,3 +330,12 @@ async def test_signal_during_buffer_re_researches_instead_of_implementing():
     assert recorder.autostarts == 1
     # Only the settled run notifies, so no card goes out for the summary the re-research replaced.
     assert recorder.autostarts_at_notification == [1]
+
+
+@pytest.mark.asyncio
+async def test_missing_github_defers_before_fetching_or_researching_signals() -> None:
+    recorder = _Recorder(buffer_seconds=0, candidate_on_first_check=False)
+    await _run_summary_workflow(recorder, github_ready=False)
+    assert recorder.fetches == 0
+    assert recorder.researches == 0
+    assert recorder.autostarts == 0

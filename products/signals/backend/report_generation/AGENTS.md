@@ -7,7 +7,8 @@ It is exercised locally via management commands, and it is also used by the prod
 
 - `select_repo.py`
   Selects the most relevant GitHub repository for a set of signals.
-  - If the team has 0 repos: returns `None` (report goes to `pending_input`).
+  - GitHub readiness is checked before research: missing access leaves the report queued as `candidate` with `research_blocked_reason`. Connection changes and the recovery sweep retry that prerequisite.
+  - Operational repository-selection failures carry `blocked_reason` so the workflow can defer them. A semantic no-match result without that field still requests human input.
   - If the team has 1 repo: returns it directly (no sandbox needed).
   - If the team has N repos: spawns a sandbox agent that uses `gh` CLI to explore candidates and pick the best match. Uses `PostHog/.github` as a small dummy repo for the sandbox clone, since the agent only needs `gh` CLI access (not the repo itself).
   - Output: `RepoSelectionResult(repository: str | None, reason: str)`.

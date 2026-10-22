@@ -11,6 +11,7 @@ from datetime import datetime, timedelta
 from functools import partial
 from typing import TYPE_CHECKING, Any
 
+from django.core.cache import cache
 from django.db import transaction
 from django.db.models import QuerySet
 from django.db.models.signals import post_delete, post_save, pre_save
@@ -21,7 +22,12 @@ import structlog
 import posthoganalytics
 
 from posthog.event_usage import groups
+from posthog.models.github_integration_base import github_access_changed
+from posthog.models.integration import Integration
+from posthog.models.organization import OrganizationMembership
+from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.models.user_integration import UserIntegration
 
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.models import SignalFirstReportNotification, SignalReport, SignalReportArtefact
@@ -37,6 +43,30 @@ if TYPE_CHECKING:
     from products.signals.backend.implementation_pr import PrCloseReason
 
 logger = structlog.get_logger(__name__)
+
+
+@receiver(github_access_changed)
+def resume_reports_after_github_access_change(sender: type, installation_id: str, **kwargs: Any) -> None:
+    from products.signals.backend.github_readiness_tasks import (  # noqa: PLC0415 - keep the Temporal graph off Django startup
+        resume_github_blocked_reports,
+    )
+
+    team_ids = set(
+        Integration.objects.filter(kind="github", integration_id=installation_id).values_list("team_id", flat=True)
+    )
+    owner_orgs = OrganizationMembership.objects.filter(
+        user_id__in=UserIntegration.objects.filter(kind="github", integration_id=installation_id).values("user_id"),
+        level=OrganizationMembership.Level.OWNER,
+        user__is_active=True,
+    ).values("organization_id")
+    team_ids.update(Team.objects.filter(organization_id__in=owner_orgs).values_list("id", flat=True))
+
+    def enqueue() -> None:
+        for team_id in team_ids:
+            if cache.add(f"signals:github-recovery:{team_id}", True, timeout=60):
+                resume_github_blocked_reports.delay(team_id)
+
+    transaction.on_commit(enqueue, robust=True)
 
 
 def _enqueue_first_report_notification(team_id: int) -> None:

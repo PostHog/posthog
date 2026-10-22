@@ -18,10 +18,12 @@ from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.clickhouse.workload import Workload
 from posthog.dataclasses import frozen
 from posthog.models import Team
+from posthog.sync import database_sync_to_async
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
+from products.signals.backend.github_readiness import enabled_recovery_signals
 from products.signals.backend.models import SignalEmissionRecord, SignalReport
 from products.signals.backend.signal_metadata import (
     EMBEDDING_MODEL,
@@ -604,10 +606,11 @@ async def wait_for_signal_in_clickhouse_activity(input: WaitForClickHouseInput) 
 # ---------------------------------------------------------------------------
 
 
-@dataclass
+@dataclass(frozen=True)
 class FetchSignalsForReportInput:
     team_id: int
     report_id: str
+    enabled_sources_only: bool = False
 
 
 @dataclass
@@ -630,6 +633,10 @@ async def fetch_signals_for_report_activity(input: FetchSignalsForReportInput) -
         )
 
         signals = [_parse_signal_row(row) for row in (result.results or [])]
+        if input.enabled_sources_only:
+            signals = await database_sync_to_async(enabled_recovery_signals, thread_sensitive=False)(
+                input.team_id, signals
+            )
 
         logger.debug(
             f"Fetched {len(signals)} signals for report {input.report_id}",

@@ -11,6 +11,10 @@ class RepoSelectionResult(BaseModel):
     that `agent.py` imports.
     """
 
+    blocked_reason: str | None = Field(
+        default=None, description="GitHub readiness blocker, when repository selection could not start."
+    )
+
     repository: str | None = Field(
         description="Selected repository in 'owner/repo' format, or null if none of the candidates are relevant."
     )

@@ -53,6 +53,16 @@ def test_source_repository_from_signals(signals: list[SignalData], expected: str
 
 
 class TestSelectRepositoryPinsTheSourceRepository(BaseTest):
+    def test_repository_access_failure_is_retryable(self) -> None:
+        with patch.object(
+            select_repo,
+            "select_repository",
+            new=AsyncMock(side_effect=select_repo.RepoSelectionUnavailableError("Repository listing unavailable")),
+        ):
+            result = async_to_sync(select_repo.select_repository_for_report)(self.team.id, self.user.id, [_signal()])
+        assert result.repository is None
+        assert result.blocked_reason == "temporarily_unavailable"
+
     def test_report_selection_pins_the_repository_its_issue_was_filed_against(self):
         select = AsyncMock(return_value=RepoSelectionResult(repository="posthog/posthog", reason="pinned"))
         with (

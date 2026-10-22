@@ -162,6 +162,7 @@ class TestSignalsProductModuleIntegrity:
             "report_is_candidate_activity",
             "publish_report_completed_activity",
             "report_has_assigned_signals_activity",
+            "check_report_github_readiness_activity",
             "revert_report_to_candidate_activity",
             "delete_team_reports_activity",
             "get_grouping_paused_state_activity",
