@@ -9,6 +9,8 @@ review again, and the workflow removes the label when the run ends.
 - A person can add the label, and so can Stamphog, which hands a refused or escalated pull request to
   ReviewHog this way. Another bot's label gets an explaining comment and is removed.
 - The review runs in the owning project.
+- The Deep label runs a Deep review only when the labeler's GitHub login maps to an active member of
+  the project's organization. Anyone else who can label the pull request gets the Standard label's review.
 - It runs as the pull request owner (`pr_owner.py`). Without an owner it runs as the person who
   connected the installation, with default settings and no resolution.
 """
@@ -133,6 +135,11 @@ class LabelReview:
     def labeler_allowed(self) -> bool:
         return not self.labeled_by_bot or self.labeler_login.lower() == STAMPHOG_BOT_LOGIN
 
+    def _deep_allowed(self, team_id: int) -> bool:
+        # Deep costs several times a Standard review, and the project pays for it, so a collaborator
+        # outside the organization may not pick it.
+        return self.deep and PullRequestOwnerResolver.active_author_id(team_id, self.labeler_login) is not None
+
     def _github(self, integration: Integration) -> GitHubIntegration:
         return GitHubIntegration(integration, source="review_hog", priority=Priority.NORMAL)
 
@@ -224,7 +231,11 @@ class LabelReview:
         joins_running_review = workflow_running(
             review_pr_workflow_id(team_id=team_id, owner=github_owner, repo=github_repo, pr_number=self.pr_number)
         )
-        review_mode = REVIEW_MODE_FULL if self.deep else trigger_review_mode(team_id, self.repository, self.pr_number)
+        review_mode = (
+            REVIEW_MODE_FULL
+            if self._deep_allowed(team_id)
+            else trigger_review_mode(team_id, self.repository, self.pr_number)
+        )
         start_review_pr_workflow(
             pr_url=f"https://github.com/{self.repository}/pull/{self.pr_number}",
             team_id=team_id,

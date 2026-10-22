@@ -522,11 +522,14 @@ class TestLabelReviewTask(BaseTest):
     @parameterized.expand(
         [
             # A Standard request after a published Deep review is dropped, so the label would do nothing.
-            ("standard_label_after_a_published_deep_review", "posthog-review-standard", True),
-            ("deep_label", "posthog-review-deep", False),
+            ("standard_label_after_a_published_deep_review", "posthog-review-standard", "OctoCat", True, "full"),
+            ("deep_label", "posthog-review-deep", "OctoCat", False, "full"),
+            ("deep_label_from_outside_the_organization", "posthog-review-deep", "stranger", False, "flash"),
         ]
     )
-    def test_a_label_runs_deep(self, _name: str, label: str, deep_published: bool) -> None:
+    def test_a_label_picks_the_review_mode(
+        self, _name: str, label: str, sender: str, deep_published: bool, expected_mode: str
+    ) -> None:
         if deep_published:
             ReviewReport.objects.for_team(self.team.id).create(
                 team=self.team,
@@ -537,9 +540,9 @@ class TestLabelReviewTask(BaseTest):
                 published_heads_by_mode={"full": _HEAD_SHA},
             )
 
-        self._run(_label_payload(label=label))
+        self._run(_label_payload(label=label, sender=sender))
 
-        assert self.start.call_args.kwargs["review_mode"] == "full"
+        assert self.start.call_args.kwargs["review_mode"] == expected_mode
 
     @parameterized.expand(
         [
