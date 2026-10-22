@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen, within } from '@testing-library/rea
 import { initKeaTests } from '~/test/init'
 
 import { makeSpan } from '../../__mocks__/span'
+import { compareRowKey } from '../../compareUtils'
 import { TraceOperationsTab } from './TraceOperationsTab'
 
 // Give the table real dimensions so react-window renders its rows. AutoSizer measures 0x0 in jsdom.
@@ -35,17 +36,24 @@ describe('TraceOperationsTab', () => {
     // Fails when the toggle does not change the span list the table summarizes, or when "This span"
     // collects the wrong spans: the trace root counts 3 cache reads, and the direct children of SELECT
     // miss the one a level further down. Also fails when the tab shows the full column set, which pushes
-    // Share out of the narrow inspector.
+    // Share out of the narrow inspector, or when a highlight reports a scope other than the one the counts are in.
     it.each([
-        { scope: 'Whole trace', click: null, cacheGetCount: '3', header: '4 operations · 6 spans' },
-        { scope: 'This span', click: 'This span', cacheGetCount: '1', header: '3 operations · 3 spans under SELECT' },
-    ])('counts the operations of the $scope scope', ({ click, cacheGetCount, header }) => {
+        { scope: 'Whole trace', click: null, cacheGetCount: '3', header: '4 operations · 6 spans', value: 'trace' },
+        {
+            scope: 'This span',
+            click: 'This span',
+            cacheGetCount: '1',
+            header: '3 operations · 3 spans under SELECT',
+            value: 'span',
+        },
+    ])('counts the operations of the $scope scope and highlights in it', ({ click, cacheGetCount, header, value }) => {
+        const onHighlightOperation = jest.fn()
         render(
             <TraceOperationsTab
                 span={select}
                 spans={SPANS}
                 highlightedOperationKey={null}
-                onHighlightOperation={jest.fn()}
+                onHighlightOperation={onHighlightOperation}
                 partial={false}
             />
         )
@@ -57,5 +65,10 @@ describe('TraceOperationsTab', () => {
         expect(screen.queryByText('Avg')).toBeNull()
         const cacheGetRow = screen.getByText('cache GET').closest('[data-row-key]') as HTMLElement
         expect(within(cacheGetRow).getByText(cacheGetCount)).toBeTruthy()
+
+        fireEvent.click(screen.getByText('cache GET'))
+        expect(onHighlightOperation.mock.calls).toEqual([
+            [compareRowKey({ service_name: 'web', name: 'cache GET' }), value],
+        ])
     })
 })

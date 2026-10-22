@@ -18,6 +18,7 @@ import { SpanMetricsTab } from '../TraceDrawer/SpanMetricsTab'
 import { SpanSummaryHeader } from '../TraceDrawer/SpanSummaryHeader'
 import { TraceErrorsTab } from '../TraceDrawer/TraceErrorsTab'
 import { TraceOperationsTab } from '../TraceView/TraceOperationsTab'
+import type { TraceOperationsScope } from '../TraceView/traceViewLogic'
 import { ExpandedSpanContent } from '../VirtualizedSpanList/ExpandedSpanContent'
 
 export interface SpanInspectorProps {
@@ -35,7 +36,11 @@ export interface SpanInspectorProps {
     /** The spans the session is resolved from are still arriving. */
     resolving: boolean
     tab: SpanInspectorTab
-    onSelectTab: (tab: SpanInspectorTab) => void
+    /**
+     * Called for every tab click. `changesShownTab` is false for a click on the tab already on screen, which is
+     * not always `tab`: a tab this span cannot show falls back to Attributes.
+     */
+    onSelectTab: (tab: SpanInspectorTab, changesShownTab: boolean) => void
     /** Offer include, exclude and column actions on each attribute. Off where no span list can use them. */
     showFilterActions?: boolean
     /** Show the Operations tab, which breaks the trace down by operation. Omit where nothing shows the highlight. */
@@ -43,7 +48,7 @@ export interface SpanInspectorProps {
         /** The trace's real spans. AI event rows are synthetic and have no operation of their own. */
         spans: Span[]
         highlightedOperationKey: string | null
-        onHighlightOperation: (operationKey: string | null) => void
+        onHighlightOperation: (operationKey: string | null, scope: TraceOperationsScope) => void
         /** The trace has spans that are not loaded yet, so the counts do not cover the whole trace. */
         partial: boolean
     }
@@ -88,7 +93,7 @@ export function SpanInspector({
             <SpanSummaryHeader span={span} serviceColorMap={serviceColorMap} />
             <LemonTabs
                 activeKey={activeTab}
-                onChange={onSelectTab}
+                onChange={(next) => onSelectTab(next, next !== activeTab)}
                 data-attr="tracing-inspector-tabs"
                 tabs={[
                     {

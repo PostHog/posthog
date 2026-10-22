@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 
 import { LemonSegmentedButton } from '@posthog/lemon-ui'
 
@@ -9,8 +9,7 @@ import { childSpansByParentId, collectSubtreeSpans } from '../../spanTree'
 import { summarizeTraceOperations } from '../../traceOperations'
 import type { Span } from '../../types'
 import { TraceOperationsTable } from './TraceOperationsTable'
-
-type OperationsScope = 'trace' | 'span'
+import type { TraceOperationsScope } from './traceViewLogic'
 
 export interface TraceOperationsTabProps {
     /** The inspected span. "This span" covers it and every span under it. */
@@ -18,7 +17,8 @@ export interface TraceOperationsTabProps {
     /** The trace's real spans. AI event rows are synthetic and have no operation of their own. */
     spans: Span[]
     highlightedOperationKey: string | null
-    onHighlightOperation: (operationKey: string | null) => void
+    /** Called with the scope the counts were in when the person picked the operation. */
+    onHighlightOperation: (operationKey: string | null, scope: TraceOperationsScope) => void
     /** The trace has spans that are not loaded yet, so the counts do not cover the whole trace. */
     partial: boolean
 }
@@ -32,13 +32,13 @@ export function TraceOperationsTab({
     onHighlightOperation,
     partial,
 }: TraceOperationsTabProps): JSX.Element {
-    const [scope, setScope] = useState<OperationsScope>('trace')
+    const [scope, setScope] = useState<TraceOperationsScope>('trace')
     // An AI row has no OTel span id, so no span has it as a parent. It stays on the trace even when the
     // user picked "This span" on a real span. The pick comes back when they select a real span.
     const spanScopeDisabledReason = isAiEventSpan(span)
         ? "AI events don't have their own span, so operations show for the whole trace"
         : undefined
-    const effectiveScope: OperationsScope = spanScopeDisabledReason ? 'trace' : scope
+    const effectiveScope: TraceOperationsScope = spanScopeDisabledReason ? 'trace' : scope
 
     // Built once per span list, so that selecting another span in "This span" only walks its subtree.
     const childrenByParentId = useMemo(() => childSpansByParentId(spans), [spans])
@@ -49,6 +49,11 @@ export function TraceOperationsTab({
     const { operations, spanCount } = useMemo(() => summarizeTraceOperations(scopedSpans), [scopedSpans])
 
     const counts = `${pluralize(operations.length, 'operation')} · ${pluralize(spanCount, 'span')}`
+    // Stable between renders, so the memoized table skips the re-renders of an inspector resize drag.
+    const onHighlightInScope = useCallback(
+        (operationKey: string | null): void => onHighlightOperation(operationKey, effectiveScope),
+        [onHighlightOperation, effectiveScope]
+    )
 
     return (
         <div className="flex flex-col gap-2">
@@ -76,7 +81,7 @@ export function TraceOperationsTab({
                 <TraceOperationsTable
                     operations={operations}
                     highlightedOperationKey={highlightedOperationKey}
-                    onHighlightOperation={onHighlightOperation}
+                    onHighlightOperation={onHighlightInScope}
                     partial={partial}
                     compact
                     shareOf={effectiveScope}

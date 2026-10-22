@@ -513,10 +513,18 @@ describe('traceDialogLogic', () => {
             await expectLogic(logic).toDispatchActions(['loadTraceSpansSuccess'])
             expect(view.values.openChainIds).toEqual(new Set())
 
-            view.actions.highlightOperation(compareRowKey({ service_name: 'agent-worker', name: 'c' }), 'trace_dialog')
+            view.actions.highlightOperation(
+                compareRowKey({ service_name: 'agent-worker', name: 'c' }),
+                'trace_dialog',
+                'span'
+            )
             expect(view.values.openChainIds).toEqual(new Set(['b']))
             logic.actions.closeTraceDialog()
 
+            expect(captureSpy).toHaveBeenCalledWith('tracing trace operation highlighted', {
+                surface: 'trace_dialog',
+                scope: 'span',
+            })
             expect(captureSpy).toHaveBeenCalledWith(
                 'tracing trace dialog closed',
                 expect.objectContaining({ collapse_toggles: 0 })
