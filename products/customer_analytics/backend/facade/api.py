@@ -129,6 +129,7 @@ from products.customer_analytics.backend.logic.account_filters import (
     parse_email_search,
 )
 from products.customer_analytics.backend.logic.account_logo import resolve_logo_domain
+from products.customer_analytics.backend.logic.account_member_search import get_account_users_organization_id
 from products.customer_analytics.backend.logic.custom_property_definitions import (
     apply_option_side_effects,
     coerce_is_big_number,
@@ -392,6 +393,11 @@ def _resolve_accessible_account(
         return _accounts_queryset(team_id, user_access_control).filter(**lookup).first()
     except (ValidationError, ValueError):
         return None
+
+
+def validate_account_users_access(team: Team, user: "User | None", account_id: str) -> None:
+    """Raise `UserAccessControlError` unless `user` may read the users of this account."""
+    get_account_users_organization_id(team=team, user=user, account_id=account_id)
 
 
 def get_account(
