@@ -62,16 +62,16 @@ class TestNotebookReadEvent(APIBaseTest):
         self, _name: str, visibility: str, via_api_key: bool, expected: str
     ) -> None:
         notebook = Notebook.objects.create(team=self.team, visibility=visibility)
-        headers = {}
+        headers: dict[str, str] = {}
         if via_api_key:
             key_value = generate_random_token_personal()
             PersonalAPIKey.objects.create(
                 user=self.user, label="read-key", secure_value=hash_key_value(key_value), scopes=["notebook:read"]
             )
             self.client.logout()
-            headers["HTTP_AUTHORIZATION"] = f"Bearer {key_value}"
+            headers["Authorization"] = f"Bearer {key_value}"
 
-        response = self.client.get(self._url(notebook.short_id), **headers)
+        response = self.client.get(self._url(notebook.short_id), headers=headers)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         notebook.refresh_from_db()
