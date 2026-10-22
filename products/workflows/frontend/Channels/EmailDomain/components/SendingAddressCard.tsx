@@ -82,16 +82,14 @@ function SenderIdentityFields(props: EmailDomainWizardLogicProps): JSX.Element {
             </div>
             <div className="flex flex-col gap-1.5 text-sm">
                 <label htmlFor="email-domain-local-part">Email address</label>
-                <div className="flex items-center gap-2 flex-wrap">
-                    <LemonInput
-                        id="email-domain-local-part"
-                        className="w-40 font-mono"
-                        value={localPart}
-                        onChange={setLocalPart}
-                        placeholder={DEFAULT_LOCAL_PART}
-                    />
-                    <span className="font-mono text-secondary break-all">@{sendingDomain}</span>
-                </div>
+                <LemonInput
+                    id="email-domain-local-part"
+                    className="font-mono"
+                    value={localPart}
+                    onChange={setLocalPart}
+                    placeholder={DEFAULT_LOCAL_PART}
+                    suffix={<span className="font-mono text-secondary break-all">@{sendingDomain}</span>}
+                />
                 <span className="text-xs text-secondary">Replies go to this address unless you set another.</span>
             </div>
         </div>
