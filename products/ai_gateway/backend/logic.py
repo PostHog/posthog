@@ -21,7 +21,6 @@ from django.utils import timezone
 
 import requests
 import structlog
-import posthoganalytics
 
 from posthog.api.email_verification import email_verification_pending
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
@@ -36,7 +35,6 @@ from .models import DevGatewayToken
 logger = structlog.get_logger(__name__)
 
 DEV_PRODUCT = "dev"
-KILL_SWITCH_FLAG = "ai-gateway-dev-mode"
 STAFF_EMAIL_DOMAIN = "@posthog.com"
 GATEWAY_TIMEOUT_SECONDS = 5
 CLI_CODE_TTL_SECONDS = 120
@@ -71,16 +69,6 @@ def eligibility_refusal(user: User) -> DevTokenRefused | None:
         )
     if not configured():
         return DevTokenRefused("unconfigured", "Developer mode is not configured on this instance.", 503)
-    try:
-        enabled = posthoganalytics.feature_enabled(
-            KILL_SWITCH_FLAG, user.distinct_id, only_evaluate_locally=False, send_feature_flag_events=False
-        )
-    except Exception:
-        # A flag-service outage must not take developer mode down; only an explicit False refuses.
-        logger.warning("ai_gateway_dev_mode_flag_unavailable", exc_info=True)
-        enabled = None
-    if enabled is False:
-        return DevTokenRefused("disabled", "Developer mode is turned off.", 403)
     return None
 
 

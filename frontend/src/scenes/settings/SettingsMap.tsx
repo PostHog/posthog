@@ -2634,14 +2634,13 @@ export const SETTINGS_MAP: SettingSection[] = [
         level: 'user',
         id: 'user-ai-gateway-dev-mode',
         title: 'AI gateway developer mode',
-        flag: 'AI_GATEWAY_DEV_MODE',
         settings: [
             {
                 id: 'ai-gateway-dev-mode',
                 title: 'Developer mode tokens',
                 description: 'AI gateway tokens for PostHog staff.',
                 component: <DevModeSetting />,
-                flag: 'AI_GATEWAY_DEV_MODE',
+                staffOnly: true,
                 keywords: ['ai gateway', 'llm gateway', 'token', 'developer mode', 'phe_'],
             },
         ],
