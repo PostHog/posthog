@@ -2,9 +2,11 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
+import time_machine
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event
 from unittest.mock import patch
 
+from django.core.cache import cache
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
@@ -19,19 +21,22 @@ from products.product_analytics.backend.facade.api import record_insight_view
 from products.product_analytics.backend.facade.models import Insight
 from products.signals.backend.anomaly_scores.config import DISABLED, AnomalyScoringConfig, parse_config
 from products.signals.backend.anomaly_scores.emission import SCORER_DISTINCT_ID, score_events
-from products.signals.backend.anomaly_scores.scoring import InsightScores, ScoredPoint, ScoredSeries
 from products.signals.backend.anomaly_scores.queue import (
     WatchedInsight,
+    _cooldown_key,
     eligible_teams,
     is_due,
-    order_insights,
     scored_buckets,
+    select_insights,
     watched_insights,
 )
+from products.signals.backend.anomaly_scores.scoring import InsightScores, ScoredPoint, ScoredSeries
+from products.signals.backend.anomaly_scores.selection import SelectionConfig, Weighting
 from products.signals.backend.anomaly_scores.tick import plan_tick
 
 NEW_YORK = ZoneInfo("America/New_York")
 ORGANIZATION_ID = "4dc8564d-bd82-1065-2f40-97f7c50f67cf"
+NOW = datetime(2026, 10, 22, 12, tzinfo=UTC)
 
 
 def _trends(**source: Any) -> dict[str, Any]:
@@ -148,26 +153,6 @@ class TestTickSelection(SimpleTestCase):
 
         assert is_due(insight, newest_bucket, timezone, now) is due
 
-    def test_never_scored_insights_come_first_then_the_stalest_round_robin_over_teams(self) -> None:
-        insights = [
-            WatchedInsight(team_id=team_id, insight_id=insight_id, interval=IntervalType.DAY)
-            for team_id, insight_id in [(1, 1), (1, 2), (1, 3), (1, 4), (2, 5)]
-        ]
-        newest = {
-            1: None,
-            2: None,
-            3: datetime(2026, 9, 1, tzinfo=UTC),
-            4: datetime(2026, 10, 20, tzinfo=UTC),
-            5: datetime(2026, 10, 19, tzinfo=UTC),
-        }
-
-        ordered = [insight.insight_id for insight in order_insights(insights, newest)]
-
-        assert {ordered[0], ordered[2]} == {1, 2}
-        assert ordered[1] == 5
-        assert ordered[3:] == [3, 4]
-        assert ordered == [insight.insight_id for insight in order_insights(list(reversed(insights)), newest)]
-
 
 class TestScoreEvents(SimpleTestCase):
     def test_a_revisit_emits_every_bucket_after_the_newest_scored_one_of_each_series(self) -> None:
@@ -246,15 +231,14 @@ class TestEligibleTeams(BaseTest):
         )
         limited = [teams["second"].api_token] if second_limited else []
 
-        with patch(
-            "products.signals.backend.anomaly_scores.queue.list_limited_team_attributes", return_value=limited
-        ):
+        with patch("products.signals.backend.anomaly_scores.queue.list_limited_team_attributes", return_value=limited):
             eligible = {team.id for team in eligible_teams(config)}
 
         assert eligible == {teams[name].id for name in expected}
 
 
 class TestWatchedInsights(BaseTest):
+    @time_machine.travel(NOW, tick=False)
     def test_only_watched_time_series_trends_with_a_scored_interval_are_eligible(self) -> None:
         dashboard = Dashboard.objects.create(team=self.team, name="Main")
         insights = {
@@ -276,9 +260,7 @@ class TestWatchedInsights(BaseTest):
         DashboardTile.objects.create(dashboard=dashboard, insight=insights["deleted_tile"], deleted=True)
         record_insight_view(insight_id=insights["viewed"].id, team_id=self.team.id, user_id=self.user.id)
 
-        watched = watched_insights(
-            [self.team.id], (IntervalType.DAY, IntervalType.WEEK, IntervalType.MONTH), datetime.now(UTC)
-        )
+        watched = watched_insights([self.team.id], (IntervalType.DAY, IntervalType.WEEK, IntervalType.MONTH), NOW)
 
         names = {insight.id: name for name, insight in insights.items()}
         assert {(names[insight.insight_id], insight.interval) for insight in watched} == {
@@ -324,3 +306,36 @@ class TestScoredBuckets(ClickhouseTestMixin, BaseTest):
             7: {"a": datetime(2026, 10, 20, tzinfo=UTC), "b": datetime(2026, 10, 19, tzinfo=UTC)},
             8: {"c": datetime(2026, 10, 21, tzinfo=UTC)},
         }
+
+    @time_machine.travel(NOW, tick=False)
+    def test_select_insights_picks_due_insights_never_scored_first(self) -> None:
+        dashboard = Dashboard.objects.create(team=self.team, name="Main")
+        insights = {
+            name: Insight.objects.create(team=self.team, name=name, query=_trends(interval="day"))
+            for name in ("never_scored", "stale", "fresh")
+        }
+        for insight in insights.values():
+            DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+            cache.delete(_cooldown_key(insight.id))
+        today = NOW.replace(hour=0)
+        for name, bucket in (("stale", today - timedelta(days=3)), ("fresh", today - timedelta(days=1))):
+            _create_event(
+                team=self.team,
+                event="$anomaly_score",
+                distinct_id=SCORER_DISTINCT_ID,
+                timestamp=bucket,
+                properties={
+                    "$anomaly_insight_id": insights[name].id,
+                    "$anomaly_series_key": name,
+                    "$anomaly_source": "insight",
+                },
+            )
+        config = AnomalyScoringConfig(
+            enabled=True, organization_ids=(str(self.organization.id),), allow_team_ids=(self.team.id,)
+        )
+
+        with patch("products.signals.backend.anomaly_scores.queue.list_limited_team_attributes", return_value=[]):
+            selection = select_insights(config, SelectionConfig(weighting=Weighting.UNIFORM), NOW, limit=10)
+
+        assert [pick.insight_id for pick in selection.picks] == [insights["never_scored"].id, insights["stale"].id]
+        assert selection.picks[1].scored_through == {"stale": today - timedelta(days=3)}

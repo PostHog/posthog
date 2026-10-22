@@ -168,8 +168,12 @@ def parse_config(payload: Any) -> AnomalyScoringConfig:
     )
 
 
-def read_config() -> AnomalyScoringConfig:
-    config = parse_config(read_flag_payload(ANOMALY_SCORING_FLAG, ANOMALY_SCORING_FLAG_DISTINCT_ID))
+def read_payload() -> dict | None:
+    return read_flag_payload(ANOMALY_SCORING_FLAG, ANOMALY_SCORING_FLAG_DISTINCT_ID)
+
+
+def read_config(payload: Any) -> AnomalyScoringConfig:
+    config = parse_config(payload)
     logger.info(
         "anomaly_scoring_config_read",
         enabled=config.enabled,

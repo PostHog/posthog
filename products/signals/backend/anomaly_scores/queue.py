@@ -1,11 +1,9 @@
 """Pick the watched insights that the next anomaly scoring tick scores.
 
 There is no stored state. One query per team reads the newest scored bucket of each series back
-from the `$anomaly_score` events. Insights that were never scored come first, then the insight whose
-newest scored bucket is oldest, so coverage rotates over every eligible insight.
+from the `$anomaly_score` events. `selection.pick_order` then orders the due insights.
 """
 
-import hashlib
 import datetime
 from collections.abc import Collection
 from typing import Any, cast
@@ -29,6 +27,13 @@ from products.alerts_platform.backend.facade.scheduling import CalendarInterval,
 from products.product_analytics.backend.facade.api import watched_trends_insights
 from products.signals.backend.anomaly_scores.config import AnomalyScoringConfig
 from products.signals.backend.anomaly_scores.scoring import bucket_end
+from products.signals.backend.anomaly_scores.selection import (
+    Candidate,
+    InsightUsage,
+    SelectionConfig,
+    insight_usage,
+    pick_order,
+)
 
 from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, list_limited_team_attributes
 
@@ -191,44 +196,9 @@ def _cooling_down(insight_ids: list[int]) -> set[int]:
     return {insight_id for insight_id in insight_ids if _cooldown_key(insight_id) in found}
 
 
-def _stable_hash(insight_id: int) -> int:
-    # Python's `hash` of an int is the int, which would order first coverage by creation.
-    return int.from_bytes(hashlib.sha256(str(insight_id).encode()).digest()[:8], "big")
-
-
-@frozen(order=True)
-class _QueuePosition:
-    # Fields compare in order: the team's turn, then never-scored first, then the oldest newest bucket.
-    turn: int
-    scored: bool
-    newest_bucket: float
-    tiebreak: int
-
-
-def order_insights(
-    insights: list[WatchedInsight], newest_buckets: dict[int, datetime.datetime | None]
-) -> list[WatchedInsight]:
-    """Never-scored insights first in a stable hashed order, then the stalest. Round robin over teams."""
-
-    def position(insight: WatchedInsight, turn: int) -> _QueuePosition:
-        newest = newest_buckets.get(insight.insight_id)
-        return _QueuePosition(
-            turn=turn,
-            scored=newest is not None,
-            newest_bucket=0.0 if newest is None else newest.timestamp(),
-            tiebreak=_stable_hash(insight.insight_id),
-        )
-
-    turns: dict[int, int] = {}
-    positions: dict[int, _QueuePosition] = {}
-    for insight in sorted(insights, key=lambda insight: position(insight, 0)):
-        turn = turns.get(insight.team_id, 0)
-        turns[insight.team_id] = turn + 1
-        positions[insight.insight_id] = position(insight, turn)
-    return sorted(insights, key=lambda insight: positions[insight.insight_id])
-
-
-def select_insights(config: AnomalyScoringConfig, now: datetime.datetime, limit: int) -> Selection:
+def select_insights(
+    config: AnomalyScoringConfig, selection_config: SelectionConfig, now: datetime.datetime, limit: int
+) -> Selection:
     teams = {team.id: team for team in eligible_teams(config)}
     insights = watched_insights(list(teams), config.intervals, now)
     since = scored_state_since(config, now)
@@ -247,11 +217,33 @@ def select_insights(config: AnomalyScoringConfig, now: datetime.datetime, limit:
         if is_due(insight, newest_buckets[insight.insight_id], teams[insight.team_id].timezone_info, now)
     ]
     cooling = _cooling_down([insight.insight_id for insight in due])
-    due = [insight for insight in due if insight.insight_id not in cooling]
+    due_by_id = {insight.insight_id: insight for insight in due if insight.insight_id not in cooling}
+
+    usage: dict[int, InsightUsage] = {}
+    for team_id in sorted({insight.team_id for insight in due_by_id.values()}):
+        due_ids = [insight.insight_id for insight in due_by_id.values() if insight.team_id == team_id]
+        usage.update(insight_usage(team_id=team_id, insight_ids=due_ids, now=now))
+    candidates = []
+    for insight in due_by_id.values():
+        newest = newest_buckets[insight.insight_id]
+        candidates.append(
+            Candidate(
+                insight_id=insight.insight_id,
+                interval=insight.interval,
+                # Staleness steps whole buckets, so it needs the bucket start in the project timezone.
+                newest_scored_bucket=None
+                if newest is None
+                else newest.astimezone(teams[insight.team_id].timezone_info),
+                usage=usage[insight.insight_id],
+            )
+        )
+    order = pick_order(
+        candidates, config=selection_config, tick_start=now, max_staleness=config.limits.max_backfill_buckets
+    )
     picks = [
         InsightPick(
-            team_id=insight.team_id, insight_id=insight.insight_id, scored_through=state.get(insight.insight_id, {})
+            team_id=due_by_id[insight_id].team_id, insight_id=insight_id, scored_through=state.get(insight_id, {})
         )
-        for insight in order_insights(due, newest_buckets)[:limit]
+        for insight_id in order[:limit]
     ]
-    return Selection(picks=picks, candidates=len(due))
+    return Selection(picks=picks, candidates=len(order))

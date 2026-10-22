@@ -8,8 +8,8 @@ from typing import Any
 from posthog.api.capture import capture_batch_internal
 from posthog.models import Team
 
-from products.signals.backend.anomaly_scores.scoring import InsightScores, ScoredPoint, ScoredSeries
 from products.signals.backend.anomaly_scores.queue import SCORE_EVENT, SOURCE_INSIGHT
+from products.signals.backend.anomaly_scores.scoring import InsightScores, ScoredPoint, ScoredSeries
 
 EVENT_SOURCE = "signals_anomaly_scores"
 # Not a person. Every score event of every project uses it, and no person profile is made for it.

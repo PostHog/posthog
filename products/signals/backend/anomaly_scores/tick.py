@@ -29,9 +29,9 @@ from products.signals.backend.anomaly_scores.config import (
     DEFAULT_LIMITS,
     ScoringLimits,
     read_config,
+    read_payload,
 )
 from products.signals.backend.anomaly_scores.emission import emit, score_events
-from products.signals.backend.anomaly_scores.scoring import UnsupportedInsightError, score_insight
 from products.signals.backend.anomaly_scores.queue import (
     ATTEMPT_COOLDOWN,
     UNSUPPORTED_COOLDOWN,
@@ -39,6 +39,8 @@ from products.signals.backend.anomaly_scores.queue import (
     mark_attempted,
     select_insights,
 )
+from products.signals.backend.anomaly_scores.scoring import UnsupportedInsightError, score_insight
+from products.signals.backend.anomaly_scores.selection import parse_selection_config
 
 logger = structlog.get_logger(__name__)
 
@@ -94,10 +96,12 @@ class AnomalyScoringTickResult:
 
 
 def plan_tick(limit: int | None, now: datetime.datetime) -> AnomalyScoringTickPlan:
-    config = read_config()
+    # One read, so the scoring and selection levers come from the same payload.
+    payload = read_payload()
+    config = read_config(payload)
     if not config.enabled:
         return AnomalyScoringTickPlan(enabled=False, picks=[], candidates=0, max_concurrency=config.max_concurrency)
-    selection = select_insights(config, now, limit or config.max_insights_per_tick)
+    selection = select_insights(config, parse_selection_config(payload), now, limit or config.max_insights_per_tick)
     return AnomalyScoringTickPlan(
         enabled=True,
         picks=selection.picks,
