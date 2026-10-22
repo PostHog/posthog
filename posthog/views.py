@@ -40,6 +40,7 @@ from posthog.health import is_clickhouse_connected, is_kafka_connected
 from posthog.helpers.dev_login import is_dev_login_allowed
 from posthog.models import Organization, User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
+from posthog.models.instance_setting import get_instance_settings
 from posthog.models.integration import SlackIntegration
 from posthog.models.oauth import find_oauth_access_token, find_oauth_refresh_token
 from posthog.models.personal_api_key import find_personal_api_key
@@ -201,17 +202,24 @@ def _preflight_oauth_client_id(key: Literal["HUBSPOT_APP_CLIENT_ID", "SALESFORCE
     return _preflight_oauth_client_ids()[key]
 
 
-def _preflight_slack_client_id() -> str:
+@cache_for(timedelta(minutes=5))
+def _preflight_slack_instance_client_id() -> str:
+    return cast(str, get_instance_settings(["SLACK_APP_CLIENT_ID"])["SLACK_APP_CLIENT_ID"] or "")
+
+
+def _preflight_slack_client_id(instance_setting: str) -> str:
     with tracer.start_as_current_span("preflight.slack_config_main"):
-        return SlackIntegration.slack_client_id()
+        return SlackIntegration.slack_client_id(instance_setting)
 
 
 @never_cache
 def preflight_check(request: HttpRequest) -> JsonResponse:
-    # Resolve independent credential groups concurrently so a service timeout costs at most one
-    # request timeout on this page-load path. HubSpot and Salesforce share one batch request.
+    # Read the database-backed fallback on the request thread, then resolve independent credential
+    # groups concurrently so a service timeout costs at most one request timeout. HubSpot and
+    # Salesforce share one batch request.
+    slack_instance_client_id = _preflight_slack_instance_client_id()
     with ThreadPoolExecutor(max_workers=2, thread_name_prefix="preflight-credentials") as executor:
-        slack_client_id_future = executor.submit(_preflight_slack_client_id)
+        slack_client_id_future = executor.submit(_preflight_slack_client_id, slack_instance_client_id)
         oauth_client_ids_future = executor.submit(_preflight_oauth_client_ids)
         slack_client_id = slack_client_id_future.result()
         oauth_client_ids = oauth_client_ids_future.result()
