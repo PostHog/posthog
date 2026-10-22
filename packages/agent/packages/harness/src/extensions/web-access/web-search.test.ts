@@ -134,7 +134,14 @@ describe("createWebSearchTool", () => {
     });
     globalThis.fetch = fetchMock as unknown as typeof fetch;
 
-    const tool = createWebSearchTool({ region: "us", apiKey: "pha_test" });
+    const tool = createWebSearchTool({
+      region: "us",
+      apiKey: "pha_test",
+      headers: {
+        "X-PostHog-Task-Run-Id": "run-1",
+        Authorization: "Bearer not-the-key",
+      },
+    });
     const result = await tool.execute(
       "call-1",
       { query: "what happened today" },
@@ -147,7 +154,10 @@ describe("createWebSearchTool", () => {
       "https://gateway.us.posthog.com/posthog_code/v1/responses",
       expect.objectContaining({
         method: "POST",
-        headers: expect.objectContaining({ Authorization: "Bearer pha_test" }),
+        headers: expect.objectContaining({
+          Authorization: "Bearer pha_test",
+          "X-PostHog-Task-Run-Id": "run-1",
+        }),
       }),
     );
     expect(result.content[0]).toMatchObject({
