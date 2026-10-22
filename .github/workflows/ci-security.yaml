@@ -150,7 +150,9 @@ jobs:
         needs: changes
         if: needs.changes.outputs.python == 'true'
         runs-on: ubuntu-24.04
-        timeout-minutes: 45
+        # A copy of the repository lands on a slower GitHub-hosted runner pool, so
+        # it gets a longer budget for the full scan.
+        timeout-minutes: ${{ github.repository == 'PostHog/posthog' && 45 || 75 }}
 
         env:
             DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}

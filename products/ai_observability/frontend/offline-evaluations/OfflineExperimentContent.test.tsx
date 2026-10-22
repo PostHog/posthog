@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 
 import { initKeaTests } from '~/test/init'
 
@@ -35,6 +35,26 @@ describe('OfflineExperimentContent', () => {
             async (_team, _experiment, params) =>
                 makeOfflineDetailCells(params.item_ids.split(','), params.scorer_version_ids.split(','))
         )
+    })
+
+    it.each(['Groundedness', ''])('uses the compact scorer name or its fallback in headers: %j', async (shortName) => {
+        const fullName = 'Checks whether the answer is supported by the supplied reference material'
+        readSummaries.mockResolvedValue({
+            count: 1,
+            next_cursor: null,
+            results: [
+                {
+                    ...detailSummaries[0],
+                    scorer: { ...detailSummaries[0].scorer, name: fullName, short_name: shortName },
+                },
+            ],
+        })
+        render(<OfflineExperimentContent teamId={997} experimentId={detailExperiment.id} />)
+        const header = (await screen.findByText(shortName || fullName, { selector: 'th span' })).closest(
+            'th'
+        ) as HTMLTableCellElement
+        expect(within(header).getByText(shortName || fullName)).toBeInTheDocument()
+        expect(within(header).getByText('v2')).toHaveClass('LemonTag')
     })
 
     it('keeps a scorer summary panel the user opened open after a refresh', async () => {
