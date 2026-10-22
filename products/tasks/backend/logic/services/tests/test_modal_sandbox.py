@@ -1470,6 +1470,8 @@ class TestModalSandboxCommandEscaping:
             (False, False, "--filter=blob:limit=128k", "--filter=blob:none"),
             (False, True, "--filter=blob:none", "--filter=blob:limit=128k"),
             (True, False, "if [ -d /tmp/workspace/repos/posthog/posthog/.git ]", None),
+            (True, False, "git ls-remote --symref origin HEAD", "refs/remotes/origin/HEAD"),
+            (True, False, "log -1 --format=%ct 2>/dev/null) && [ $(( $(date +%s) - BAKED_AT )) -lt 172800 ]", None),
             (False, False, "--filter=blob:limit=128k", "/tmp/workspace/repos/posthog/posthog/.git ]"),
         ],
     )
