@@ -1620,6 +1620,7 @@ class TestRunEvaluationWorkflow:
             raw_size = sum(len(message["content"]) for message in oversized_input)
             assert len(sent_prompt) <= EVENT_TEXT_MAX_CHARS
             assert len(sent_prompt) < raw_size
+            assert sent_prompt.endswith("\n\nOutput: assistant: ok")
 
     @pytest.mark.parametrize(
         "output_config,expected_verdict,expected_applicable",
@@ -4473,6 +4474,68 @@ class TestJudgePromptAssembly:
     """Asserts on the actual user prompt sent to the judge — guards against
     regressions in section ordering, tool catalog inclusion, and tool_call_id
     correlation that the unit tests for the helpers can't catch alone."""
+
+    @pytest.mark.parametrize(
+        "output",
+        [
+            pytest.param("The result is ready.\nDetails: all checks passed.\nEnd of response.", id="multiline"),
+            pytest.param("x" * (EVENT_TEXT_MAX_CHARS - len("Input: \n\nOutput: ")), id="no_context_budget"),
+            pytest.param("x" * (EVENT_TEXT_MAX_CHARS - len("Input: \n\nOutput: ") - 1), id="one_context_character"),
+        ],
+    )
+    def test_prompt_bounds_tools_without_sampling_output(self, output: str) -> None:
+        evaluation = {
+            "evaluation_type": "llm_judge",
+            "evaluation_config": {"prompt": "Is this correct?"},
+            "output_type": "boolean",
+        }
+        event_data = create_mock_event_data(
+            1,
+            properties={
+                "$ai_input": "Check the result.",
+                "$ai_output_choices": output,
+                "$ai_tools": [{"type": "function", "function": {"name": "check_result", "description": "x" * 600_000}}],
+            },
+        )
+
+        with patch("posthog.temporal.ai_observability.evaluation_llm_judge.call_llm_judge") as judge:
+            execute_llm_judge_activity(ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data))
+
+        user_prompt = judge.call_args.kwargs["user_prompt"]
+        assert len(user_prompt) <= EVENT_TEXT_MAX_CHARS
+        assert user_prompt.endswith(f"\n\nOutput: {output}")
+        assert user_prompt.startswith("Input: ")
+
+    @pytest.mark.parametrize("output_type", ["boolean", "numeric", "categorical"])
+    @pytest.mark.parametrize("allows_na", [False, True])
+    def test_prompt_skips_output_that_cannot_fit(self, output_type: str, allows_na: bool) -> None:
+        evaluation = {
+            "evaluation_type": "llm_judge",
+            "evaluation_config": {"prompt": "Is this correct?"},
+            "output_type": output_type,
+            "output_config": {
+                "allows_na": allows_na,
+                **({"options": [{"key": "correct", "label": "Correct"}]} if output_type == "categorical" else {}),
+            },
+        }
+        event_data = create_mock_event_data(
+            1,
+            properties={
+                "$ai_input": "",
+                "$ai_output_choices": "x" * (EVENT_TEXT_MAX_CHARS - len("Input: \n\nOutput: ") + 1),
+            },
+        )
+
+        with patch("posthog.temporal.ai_observability.evaluation_llm_judge.call_llm_judge") as judge:
+            result = execute_llm_judge_activity(ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data))
+
+        assert judge.call_count == 0
+        assert result == build_skipped_evaluation_result(
+            output_type=output_type,
+            allows_na=allows_na,
+            reasoning="Generation output exceeded the judge's text limit; evaluation skipped.",
+            skip_reason="generation_output_too_long",
+        )
 
     def test_prompt_contains_input_tools_and_output_sections_in_order(self):
         evaluation = {

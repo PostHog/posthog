@@ -18,7 +18,7 @@ export function ExcludeFromInsightButton({
 }): JSX.Element | null {
     const logic = insightDataChecksLogic(insightProps)
     const { querySource, status } = useValues(logic)
-    const { excludeFromInsight } = useActions(logic)
+    const { excludeFromInsight, reportButtonClicked } = useActions(logic)
 
     if (!check.filter_to_add) {
         return null
@@ -35,7 +35,10 @@ export function ExcludeFromInsightButton({
                     ? undefined
                     : "This insight's filters use OR groups. Add the rule in the insight's filters instead."
             }
-            onClick={() => excludeFromInsight(check)}
+            onClick={() => {
+                reportButtonClicked('exclude_from_insight', check.key)
+                excludeFromInsight(check)
+            }}
             data-attr="insight-data-check-exclude-from-insight"
         >
             Exclude from this insight

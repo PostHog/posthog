@@ -49,6 +49,8 @@ If Redis is unavailable, SQL editor queries and managed warehouse schema discove
 
 ## Hosted Trino opt-in
 
+Selecting **PostHog (Trino)** loads the warehouse catalog into a schema/table tree, including columns on expansion. The catalog is discovered with the same user credential and access checks as native Trino queries. It does not include the default PostHog catalog or saved-query folders. Switching back to **PostHog (ClickHouse)** restores the default catalog. Discovery failures show a retry action instead of falling back to PostHog tables.
+
 The same `managed-warehouse-trino-query` organization feature flag adds **PostHog (Trino)** directly below **PostHog (ClickHouse)** in the SQL editor connection selector. The default PostHog target remains unchanged. The backend checks the same flag before execution and cache reads; selecting the target in a URL does not grant access.
 
 While this flag is enabled, the selector hides **PostHog (Managed warehouse)** from the menu so the built-in choices are ClickHouse and Trino. Existing queries that select the managed connection retain their connection ID, label and execution behavior. The managed option returns when the flag is disabled. Ordinary external connections remain visible.

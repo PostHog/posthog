@@ -42,7 +42,6 @@
       "targeting": {
         "properties": []
       },
-      "experiment_id": 42,
       "paused": false,
       "rollout_percentage": 100,
       "on_rollout_miss": "continue",
@@ -62,7 +61,6 @@
         }
       ],
       "holdout": {
-        "id": 7,
         "seed": "holdout-",
         "exclusion_percentage": 5
       }

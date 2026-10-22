@@ -338,6 +338,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/tracing/operation': ['TracingOperation', 'tracingOperation'],
     '/tracing/retention-rules/new': ['TracingRetentionNew', 'tracingRetentionNew'],
     '/tracing/retention-rules/:id': ['TracingRetentionDetail', 'tracingRetentionDetail'],
+    '/uptime-monitoring': ['UptimeMonitoring', 'uptimeMonitoring'],
     '/visual-review': ['VisualReviewIndex', 'visualReviewIndex'],
     '/visual-review/settings': ['VisualReviewSettings', 'visualReviewSettings'],
     '/visual-review/repos/:repoOwner/:repoName/runs': ['VisualReviewRuns', 'visualReviewRepoRuns'],
@@ -1246,6 +1247,12 @@ export const productConfiguration: Record<string, any> = {
         activityScope: 'Tracing',
         iconType: 'tracing',
     },
+    UptimeMonitoring: {
+        name: 'Uptime monitoring',
+        projectBased: true,
+        description: 'Check that your sites and endpoints respond, and find out when they go down.',
+        iconType: 'uptime_monitoring',
+    },
     VisualReviewIndex: {
         name: 'Visual review',
         description:
@@ -1947,6 +1954,7 @@ export const productUrls = {
         }).url,
     tracingRetentionNew: (): string => '/tracing/retention-rules/new',
     tracingRetentionDetail: (id: string): string => `/tracing/retention-rules/${id}`,
+    uptimeMonitoring: (): string => '/uptime-monitoring',
     visualReviewRuns: (): string => '/visual-review',
     visualReviewSettings: (): string => '/visual-review/settings',
     visualReviewRun: (runId: string): string => `/visual-review/runs/${runId}`,
@@ -2364,6 +2372,7 @@ export type ProductTreePath =
     | 'Tasks'
     | 'Toolbar'
     | 'Tracing'
+    | 'Uptime monitoring'
     | 'Visual review'
     | 'Web analytics'
     | 'Web scripts'
@@ -3280,11 +3289,23 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconType: 'tracing',
         iconColor: ['var(--color-product-tracing-light)', 'var(--color-product-tracing-dark)'] as FileSystemIconColor,
         href: urls.tracing(),
-        searchKeywords: ['apm', 'spans', 'latency'],
+        searchKeywords: ['traces', 'distributed tracing', 'apm', 'spans', 'latency'],
         searchTabs: [{ name: 'SQL', href: urls.tracing('sql'), flag: FEATURE_FLAGS.TRACING_SCENE_TABS }],
         flag: FEATURE_FLAGS.TRACING,
         sceneKey: 'Tracing',
         sceneKeys: ['Tracing', 'TracingOperation', 'TracingRetentionNew', 'TracingRetentionDetail'],
+    },
+    {
+        path: 'Uptime monitoring',
+        intents: [ProductKey.UPTIME_MONITORING],
+        category: ProductItemCategory.UNRELEASED,
+        iconType: 'uptime_monitoring',
+        href: urls.uptimeMonitoring(),
+        searchKeywords: ['uptime', 'status', 'health check', 'synthetics', 'ping'],
+        flag: FEATURE_FLAGS.UPTIME_MONITORING,
+        tags: ['alpha'],
+        sceneKey: 'UptimeMonitoring',
+        sceneKeys: ['UptimeMonitoring'],
     },
     {
         path: 'Visual review',
@@ -3493,7 +3514,6 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
             {
                 name: 'Data quality',
                 href: urls.models('data-quality'),
-                flag: FEATURE_FLAGS.DATA_QUALITY_CHECKS,
                 searchKeywords: ['tests', 'checks', 'freshness'],
             },
         ],

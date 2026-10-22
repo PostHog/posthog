@@ -1503,6 +1503,24 @@ describe('runStreamLogic', () => {
             expect(logic.values.latestTurnTraceId).toBe(TRACE)
         })
 
+        it.each([
+            ['cancelled', ['human_message', 'assistant_message', 'status', 'turn_separator']],
+            ['end_turn', ['human_message', 'assistant_message', 'turn_separator']],
+        ])('marks a turn that stops early: %s', async (stopReason, types) => {
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(notification('_posthog/user_message', { content: 'q' }))
+                logic.actions.ingestAcpFrame(
+                    sessionUpdate({ sessionUpdate: 'agent_message', messageId: 'm1', content: { text: 'a' } })
+                )
+                logic.actions.ingestAcpFrame(notification('_posthog/turn_complete', { stopReason }))
+            }).toFinishAllListeners()
+
+            expect(logic.values.threadItems.map((item) => item.type)).toEqual(types)
+            expect(logic.values.threadItems.find((item) => item.type === 'status')?.status).toEqual(
+                stopReason === 'cancelled' ? 'turn_cancelled' : undefined
+            )
+        })
+
         it('keeps the last real turn id when a trailing traceless separator follows', async () => {
             await expectLogic(logic, () => {
                 logic.actions.ingestAcpFrame(notification('_posthog/user_message', { content: 'q' }))
@@ -5285,6 +5303,27 @@ describe('runStreamLogic', () => {
 
             expect(logic.values.contextUsage).toEqual({
                 tokens: { inputTokens: 100 },
+                breakdown: { tools: 5 },
+                used: 12000,
+                size: 200000,
+            })
+        })
+
+        it('lands the folded usage of a replayed history', async () => {
+            jest.mocked(tasksRunsRetrieve).mockResolvedValue({ status: 'completed', state: {} } as any)
+            jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue([
+                notification('_posthog/usage_update', { used: { inputTokens: 100 }, breakdown: { tools: 5 } }),
+                sessionUpdate({ sessionUpdate: 'usage_update', used: 9000, size: 200000 }),
+                notification('_posthog/usage_update', { used: { inputTokens: 250 } }),
+                sessionUpdate({ sessionUpdate: 'usage_update', used: 12000, size: 200000 }),
+            ] as any)
+
+            await expectLogic(logic, () => {
+                logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
+            }).toFinishAllListeners()
+
+            expect(logic.values.contextUsage).toEqual({
+                tokens: { inputTokens: 250 },
                 breakdown: { tools: 5 },
                 used: 12000,
                 size: 200000,

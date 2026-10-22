@@ -60,7 +60,7 @@ import { EXECUTE_SQL_TOOL_NAME } from '@/tools/posthogAiTools/executeSql'
 import { createRenderUiTool } from '@/tools/render-ui'
 import { skillAnalyticsProperties, skillLookupMissProperties } from '@/tools/skills/analytics'
 import { type BuiltInSkillHint, formatSkillLookupMiss, type SkillLookupMissKind } from '@/tools/skills/notFound'
-import { getToolIngestedData } from '@/tools/toolDefinitions'
+import { getToolDefinitions, getToolIngestedData } from '@/tools/toolDefinitions'
 import type { Context, Tool, ZodObjectAny } from '@/tools/types'
 
 import {
@@ -146,6 +146,8 @@ function stateForToolCall(state: ResolvedState, intent: string | undefined): Res
 
 // Hooks run after SDK preparation to share its conversation handle and preserve per-call privacy suppression.
 export interface ToolCallHooks {
+    carriedContextHandle?: boolean
+    resolveConversation?(conversationId: string): Promise<ResolvedState>
     beforeExecute(state: ResolvedState): Promise<Record<string, unknown> | undefined>
     afterExecute(state: ResolvedState, result: unknown): Promise<void>
 }
@@ -236,6 +238,9 @@ export class ToolExecutor {
             rawRequestMeta && typeof rawRequestMeta === 'object' && !Array.isArray(rawRequestMeta)
                 ? (rawRequestMeta as Record<string, unknown>)
                 : undefined
+        const carriedContextHandle =
+            hooks?.carriedContextHandle ??
+            Boolean(state.requestContext.mcpSessionId || state.requestContext.mcpConversationId)
         const { analyticsMeta, args, preparedCall } = this.extractAnalyticsMetadata(
             toolName,
             rawArgs,
@@ -243,15 +248,41 @@ export class ToolExecutor {
             requestMeta,
             state.requestContext
         )
-        // In place, not copied: `RequestStateResolver` gives this one object to both the state
-        // and `RequestContext`, so events emitted through `RequestContext.trackEvent` resolve the
-        // same session. A batch never reaches here holding a handle, because the dispatcher
-        // refuses a batch containing a modern message and a legacy client carries a session.
+        // RequestContext shares this object so analytics follows the SDK's conversation handle.
         if (preparedCall?.conversationId) {
+            const previousConversationId = state.requestContext.mcpConversationId
             state.requestContext.mcpConversationId = preparedCall.conversationId
+            if (
+                !state.requestContext.mcpSessionId &&
+                preparedCall.conversationId !== previousConversationId &&
+                hooks?.resolveConversation
+            ) {
+                // Bind the new handle before execution so this call and its retry share defaults.
+                state = await hooks.resolveConversation(preparedCall.conversationId)
+            }
         }
         const callState = stateForToolCall(state, analyticsMeta.intent)
         const callParams = { ...params, arguments: args }
+
+        const targetToolName =
+            toolName === 'exec' && typeof args.command === 'string'
+                ? parseExecCallInnerToolName(args.command)
+                : toolName
+        const isContextSwitch = targetToolName === 'switch-project' || targetToolName === 'switch-organization'
+        if (isContextSwitch && !carriedContextHandle) {
+            return this.deliverConversationHandle(
+                {
+                    isError: true,
+                    content: [
+                        {
+                            type: 'text',
+                            text: 'Switch not applied. Retry with the returned `conversation_id` and include it on subsequent calls. If your client cannot retain it, pin the project or organization in the connection URL.',
+                        },
+                    ],
+                },
+                preparedCall
+            )
+        }
 
         const invitation = await hooks?.beforeExecute(callState)
         if (invitation) {
@@ -356,12 +387,12 @@ export class ToolExecutor {
         preparedCall: PreparedToolCall | undefined
     } {
         try {
+            const carriesContext = Boolean(requestContext.mcpSessionId || requestContext.mcpConversationId)
             const prepared = getPostHogClient().prepareToolCall(toolName, rawArgs, {
                 originalTool,
                 requestMeta,
-                // The SDK mints a handle only when nothing was carried, so a client that already
-                // has a session keeps it and never sees the prompt-back.
-                sessionId: resolveSessionKey(requestContext),
+                // Wrapper-only analytics hints cannot restore selections, so they must not suppress minting.
+                sessionId: carriesContext ? resolveSessionKey(requestContext) : undefined,
             })
             return {
                 analyticsMeta: {
@@ -953,7 +984,9 @@ export class ToolExecutor {
                     this.skillCatalogService?.getCatalog()
                 ),
                 flagGatedTools: state.flagGatedTools,
+                ...(state.heldTools ? { heldTools: state.heldTools } : {}),
                 builtInSkillHint: this.builtInSkillHint(state),
+                oauthClientId: state.oauthClientId,
                 ...(state.gatewayToolsEnabled
                     ? {
                           gatewayToolsProvider: () => this.gatewayToolsFor(state),
@@ -1102,11 +1135,12 @@ function resolveToolErrorClassification(error: unknown): ToolErrorClassification
         }
     }
     // Agent-recoverable command mistakes, so keep them out of the `internal` rate
-    // ops alerts on. `missing_scope` is the exception: no input the agent sends
-    // fixes it, the connection has to be reauthorized.
+    // ops alerts on. `missing_scope` and `tool_not_granted` are the exceptions: no
+    // input the agent sends fixes them, the grant has to change.
     if (error instanceof ExecCommandError) {
         return {
-            errorType: error.reason === 'missing_scope' ? 'permission' : 'validation',
+            errorType:
+                error.reason === 'missing_scope' || error.reason === 'tool_not_granted' ? 'permission' : 'validation',
             errorCode: error.reason,
         }
     }
@@ -1319,7 +1353,7 @@ function errorAnalyticsProperties(classification: ToolErrorClassification, error
  * schema discovery, tool search, and a mistyped verb are indistinguishable, and
  * an `unknown_tool` rejection records nothing about what was attempted. Both
  * values are value-free by construction (see `describeExecCommand`): the verb comes
- * from the closed grammar and the target from this connection's own catalog, so a
+ * from the closed grammar and the target from the server's tool catalog, so a
  * token outside either is recorded as unrecognized rather than echoed.
  */
 function execCommandAnalyticsProperties(execArgs: unknown, state: ResolvedState): Record<string, unknown> {
@@ -1332,7 +1366,8 @@ function execCommandAnalyticsProperties(execArgs: unknown, state: ResolvedState)
         (name) =>
             state.allTools.some((t) => t.name === name) ||
             state.scopeGatedTools.some((t) => t.name === name) ||
-            state.flagGatedTools.some((t) => t.name === name)
+            state.flagGatedTools.some((t) => t.name === name) ||
+            Object.prototype.hasOwnProperty.call(getToolDefinitions(), name)
     )
     return {
         ...(verb !== undefined ? { $mcp_exec_verb: verb } : {}),

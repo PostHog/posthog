@@ -49,6 +49,32 @@ TIER1_SOURCES = [
     # OAuth-connected support sources
     (ExternalDataSourceType.INTERCOM, "conversations", "intercom", "ticket"),
     (ExternalDataSourceType.HUBSPOT, "tickets", "hubspot", "ticket"),
+    # CRM case tools
+    (ExternalDataSourceType.DYNAMICS365, "Cases", "dynamics365", "ticket"),
+    (ExternalDataSourceType.ZOHOCRM, "Cases", "zoho_crm", "ticket"),
+    # Incident management / on-call
+    (ExternalDataSourceType.PAGERDUTY, "incidents", "pagerduty", "incident"),
+    (ExternalDataSourceType.OPSGENIE, "alerts", "opsgenie", "incident"),
+    (ExternalDataSourceType.INCIDENTIO, "incidents", "incident_io", "incident"),
+    (ExternalDataSourceType.FIREHYDRANT, "incidents", "firehydrant", "incident"),
+    (ExternalDataSourceType.SQUADCAST, "incidents", "squadcast", "incident"),
+    (ExternalDataSourceType.SERVICENOW, "incidents", "servicenow", "incident"),
+    (ExternalDataSourceType.SOLARWINDSSERVICEDESK, "incidents", "solarwinds_service_desk", "incident"),
+    (ExternalDataSourceType.GRAFANAIRM, "incidents", "grafana_irm", "incident"),
+    (ExternalDataSourceType.XMATTERS, "incidents", "xmatters", "incident"),
+    (ExternalDataSourceType.BETTERSTACK, "incidents", "betterstack", "incident"),
+    # Data quality / observability
+    (ExternalDataSourceType.MONTECARLO, "alerts", "monte_carlo", "incident"),
+    (ExternalDataSourceType.BIGEYE, "Issues", "bigeye", "incident"),
+    # Tier-2 security tools
+    (ExternalDataSourceType.LACEWORK, "alerts", "lacework", "scanner_finding"),
+    (ExternalDataSourceType.ORCASECURITY, "alerts", "orca_security", "scanner_finding"),
+    (
+        ExternalDataSourceType.TENABLEVULNERABILITYMANAGEMENT,
+        "vulnerabilities",
+        "tenable_vulnerability_management",
+        "scanner_finding",
+    ),
 ]
 
 IDS = [product for _, _, product, _ in TIER1_SOURCES]
