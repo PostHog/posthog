@@ -2568,6 +2568,15 @@ def _route_untagged_question(
     if _us_should_handle_instead(slack_team_id, [SLACK_INTEGRATION_KIND], can_defer, incoming_host):
         return _proxy_event_and_return_route(request, other_domain, {ALREADY_EMITTED_HEADER: "1"})
 
+    # Most top-level posts are chatter, so the flag drops them before the author's mode read and
+    # user resolution. The flag is rolled out per organization, and a workspace can connect
+    # projects from several organizations, so each project keeps its own answer.
+    enabled_integration_ids = {
+        candidate.id for candidate in workspace_result.candidates if is_slack_app_unprompted_answers_enabled(candidate)
+    }
+    if not enabled_integration_ids:
+        return ROUTE_HANDLED_LOCALLY
+
     # One indexed read, ahead of user resolution, which can call Slack's users.info for every author.
     if resolve_untagged_question_mode(slack_team_id, slack_user_id) == UntaggedFollowupMode.NEVER:
         return ROUTE_HANDLED_LOCALLY
@@ -2586,9 +2595,7 @@ def _route_untagged_question(
     target = resolution.integration or (candidates[0] if len(candidates) == 1 else None)
     if target is None or SlackIntegration(target).missing_scopes(REQUIRED_SLACK_SCOPES):
         return ROUTE_HANDLED_LOCALLY
-    # Checked on the project that will answer: a workspace can connect projects from several
-    # organizations, and the flag is rolled out per organization.
-    if not is_slack_app_unprompted_answers_enabled(target):
+    if target.id not in enabled_integration_ids:
         return ROUTE_HANDLED_LOCALLY
 
     logger.info(
