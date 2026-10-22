@@ -262,13 +262,14 @@ class TestLoadFlagHistory(BaseTest):
 
     @parameterized.expand(
         [
-            ("variant_property", "$feature_flag_response", None),
-            ("flag_key_property", "$feature_flag", None),
-            ("another_property", "$browser", 3),
+            ("variant_property", frozenset({"$feature_flag_response"}), None),
+            ("group_key", frozenset({"$group_0"}), None),
+            ("unrelated_property", frozenset({"$browser"}), None),
+            ("no_denied_property", frozenset(), 3),
         ]
     )
-    def test_a_reader_denied_a_property_the_count_reads_gets_no_count(
-        self, _name: str, denied_property: str, expected_units: int | None
+    def test_a_reader_denied_any_event_property_gets_no_count(
+        self, _name: str, denied: frozenset[str], expected_units: int | None
     ) -> None:
         self._log_split_changes([_split(50, 50), _split(60, 40)])
         self._load([True], units=[3])
@@ -276,7 +277,7 @@ class TestLoadFlagHistory(BaseTest):
         history, _ = self._load(
             [],
             reader_access=ExperimentHealthReaderAccess(
-                can_read_flag_history=True, can_query_events=True, denied_event_properties=frozenset({denied_property})
+                can_read_flag_history=True, can_query_events=True, denied_event_properties=denied
             ),
         )
 

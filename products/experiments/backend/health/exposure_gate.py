@@ -344,9 +344,11 @@ class _ExposureGate:
 
     def exposed_units(self, window: _UnitsWindow | None) -> int | None:
         """The persons or groups exposed in the window, up to MIN_EXPOSED_UNITS_TO_WARN. None when unknown, as for
-        `exposed`, or without a window, because the flag served no variants for a while, or for a reader denied a
-        property that the count reads."""
-        if window is None or self._reads_denied_property(window):
+        `exposed`, or without a window, because the flag served no variants for a while, or for a reader denied an
+        event property."""
+        # Every reader gets the cached count, which reads the flag, variant and group properties of the exposures. A
+        # reader denied any event property gets none and keeps the warning, so no list of those properties can miss one.
+        if window is None or self._denied_event_properties:
             return None
         return self._answer(
             self._units_cache_key(window),
@@ -363,20 +365,6 @@ class _ExposureGate:
             # Late events can only add units, so a count at the cap can't change.
             final=lambda count: count >= MIN_EXPOSED_UNITS_TO_WARN,
         )
-
-    def _reads_denied_property(self, window: _UnitsWindow) -> bool:
-        # Every reader gets the cached count, so a reader denied a property it reads gets none, as the condition set
-        # traffic scan does.
-        read = {
-            "$feature_flag",
-            *(
-                get_exposure_event_and_property(
-                    flag_key, self._experiment.exposure_criteria, default_exposure_event=self._default_exposure_event
-                )[1]
-                for flag_key, _ in window.served
-            ),
-        }
-        return not self._denied_event_properties.isdisjoint(read)
 
     def _answer[A: (bool, int)](
         self,
