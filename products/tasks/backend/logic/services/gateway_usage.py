@@ -227,8 +227,8 @@ def get_task_run_token_usage(*, run_id: UUID, team_id: int) -> TaskRunTokenUsage
     return _token_usage(TaskRun.objects.get(id=run_id, team_id=team_id))
 
 
-def get_task_runs_spend(*, team_id: int, task_ids: list[UUID]) -> list[TaskRunSpend]:
-    runs = TaskRun.objects.filter(team_id=team_id, task_id__in=task_ids)
+def get_task_runs_spend(*, team_id: int, run_ids: list[UUID]) -> list[TaskRunSpend]:
+    runs = TaskRun.objects.filter(team_id=team_id, id__in=run_ids)
     result = []
     for run in runs:
         usage = _token_usage(run)

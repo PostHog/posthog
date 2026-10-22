@@ -3774,7 +3774,7 @@ class SignalSpend(TeamScopedRootMixin, UUIDModel):
         SignalScoutRun, on_delete=models.DO_NOTHING, db_constraint=False, null=True, blank=True, related_name="+"
     )
     report_id = models.UUIDField(null=True, blank=True, db_index=True)
-    task_ids = ArrayField(models.UUIDField(), default=list)
+    task_run_ids = ArrayField(models.UUIDField(), default=list)
     llm_cost_microusd = models.BigIntegerField(default=0)
     llm_failed_stages = ArrayField(models.CharField(max_length=100), default=list)
     token_cost_microusd = models.BigIntegerField(default=0)
@@ -3789,7 +3789,7 @@ class SignalSpend(TeamScopedRootMixin, UUIDModel):
     class Meta:
         db_table = "signals_ownerspend"
         indexes = [
-            GinIndex(fields=["task_ids"], name="signals_owner_spend_tasks"),
+            GinIndex(fields=["task_run_ids"], name="signals_owner_spend_runs"),
             GinIndex(fields=["billing_amounts"], name="signals_spend_billing_days"),
         ]
         constraints = [

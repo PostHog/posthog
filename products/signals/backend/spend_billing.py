@@ -1,10 +1,10 @@
-"""Billing decisions and daily recognition for cumulative owner spend."""
+"""Billing decisions and daily recognition for finalized owner spend."""
 
 from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
 from uuid import UUID
 
-from django.db.models import Exists, OuterRef, Q, QuerySet
+from django.db.models import Q, QuerySet
 
 import structlog
 import posthoganalytics
@@ -78,16 +78,8 @@ def recognize_spend(spend: SignalSpend, *, now: datetime) -> None:
     if spend.billing_exempt or not spend.finalized_at:
         return
     total = int(cost_to_spend(spend.token_cost_microusd, task_count=spend.task_count) * 10_000)
-    recognized = sum(spend.billing_amounts.values())
-    if total < recognized:
-        # Already reported days are immutable. A downward correction needs the refund path.
-        logger.error("signals.spend.billing_cost_decreased", team_id=spend.team_id, spend_id=str(spend.id))
-        spend.accounting_failed = True
-        spend.finalized_at = None
-        return
-    if total > recognized:
-        day = now.astimezone(UTC).date().isoformat()
-        spend.billing_amounts[day] = spend.billing_amounts.get(day, 0) + total - recognized
+    day = now.astimezone(UTC).date().isoformat()
+    spend.billing_amounts = {day: total} if total else {}
 
 
 def billing_days(begin: datetime, end: datetime) -> list[str]:
@@ -109,13 +101,9 @@ def spend_billing_credits_by_team(begin: datetime, end: datetime, *, cutoffs: di
     eligible = Q(pk__in=[])
     for organization_id, cutoff in cutoffs.items():
         eligible |= Q(team__organization_id=organization_id, created_at__gte=cutoff)
-    # Resumed work on an older report must not acquire a second, spend-based charge.
-    reports = usage_billed_reports(cutoffs).filter(id=OuterRef("report_id"), team_id=OuterRef("team_id"))
     # Deliberately cross-team: both usage reporting and organization quota use this meter.
-    spends = (
-        SignalSpend.objects.unscoped()
-        .filter(eligible, billing_exempt=False, billing_amounts__has_any_keys=days)
-        .filter(Q(report_id__isnull=True) | Exists(reports))
+    spends = SignalSpend.objects.unscoped().filter(
+        eligible, finalized_at__isnull=False, billing_exempt=False, billing_amounts__has_any_keys=days
     )
     totals: dict[tuple[int, str], int] = {}
     for team_id, amounts in spends.values_list("team_id", "billing_amounts").iterator(chunk_size=1000):

@@ -5088,6 +5088,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
         SignalSpend.objects.for_team(team.id).create(
             team=team,
             signal_id=uuid4(),
+            finalized_at=period.start,
             billing_amounts={period.start.date().isoformat(): 150_000},
         )
         SignalReport.objects.filter(id=report.id).update(created_at=period.start - relativedelta(days=1))

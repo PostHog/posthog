@@ -1,3 +1,5 @@
+from uuid import UUID
+
 from django.db import migrations, transaction
 
 
@@ -29,9 +31,11 @@ def backfill_owner_spend(apps, schema_editor):
                     **owner,
                 )
                 spend = Spend._base_manager.using(alias).select_for_update().get(id=spend.id)
+                if spend.finalized_at is not None:
+                    continue
                 run = runs.get(source.source_id)
-                if source.task_id and source.task_id not in spend.task_ids:
-                    spend.task_ids.append(source.task_id)
+                if source.is_task and UUID(source.source_id) not in spend.task_run_ids:
+                    spend.task_run_ids.append(UUID(source.source_id))
                 if run and run["task__signal_report_id"]:
                     spend.report_id = run["task__signal_report_id"]
                 receipts = list(Source._base_manager.using(alias).filter(team_id=source.team_id, **owner))

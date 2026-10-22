@@ -545,22 +545,22 @@ class TestSpendBasedBilling(BaseTest):
         assert self._day(11) == {}
         assert SignalSpend.objects.for_team(self.team.id).get(signal_id=signal_id).accounting_failed
 
-    def test_resume_preserves_prior_days_and_reports_only_the_addition(self) -> None:
-        signal_id = str(uuid4())
+    def test_new_signal_preserves_prior_days_and_bills_only_its_own_spend(self) -> None:
+        signal_id, next_signal_id = str(uuid4()), str(uuid4())
         with time_machine.travel(_at(10), tick=False):
             self._generation(signal_id, 100_000)
             assert self._day(10) == {}
             complete_signal_pipeline(team_id=self.team.id, signal_id=signal_id)
         with time_machine.travel(_at(11), tick=False):
-            self._generation(signal_id, 50_000, request_id="resumed-work")
+            self._generation(next_signal_id, 50_000, request_id="resumed-work")
             assert self._day(10) == {self.team.id: 10}
             assert self._day(11) == {}
-            complete_signal_pipeline(team_id=self.team.id, signal_id=signal_id)
-            complete_signal_pipeline(team_id=self.team.id, signal_id=signal_id)
+            complete_signal_pipeline(team_id=self.team.id, signal_id=next_signal_id)
+            complete_signal_pipeline(team_id=self.team.id, signal_id=next_signal_id)
         assert self._day(10) == {self.team.id: 10}
         assert self._day(11) == {self.team.id: 5}
         assert dict(get_signals_billing_credits_by_team(PERIOD_START, PERIOD_END)) == {self.team.id: 15}
-        assert SignalSpend.objects.for_team(self.team.id).count() == 1
+        assert SignalSpend.objects.for_team(self.team.id).count() == 2
 
     def test_next_quota_refresh_counts_settled_spend_before_daily_reporting(self) -> None:
         self.organization.usage = {
@@ -570,10 +570,12 @@ class TestSpendBasedBilling(BaseTest):
         self.organization.customer_trust_scores = {}
         self.organization.save()
         signal_id = str(uuid4())
+        with time_machine.travel(_at(9), tick=False):
+            report = _make_report(self.team)
         with time_machine.travel(_at(10), tick=False):
             self._generation(signal_id, 200_000)
             assert self._day(10) == {}
-            complete_signal_pipeline(team_id=self.team.id, signal_id=signal_id)
+            complete_signal_pipeline(team_id=self.team.id, signal_id=signal_id, report_id=str(report.id))
         with time_machine.travel(_at(10) + timedelta(minutes=10), tick=False):
             update_all_orgs_billing_quotas()
             self.organization.refresh_from_db()
@@ -636,7 +638,7 @@ class TestSpendBasedBilling(BaseTest):
         assert self._day(10) == {self.team.id: 1500}
 
     @parameterized.expand([("report",), ("signal",)])
-    def test_legacy_and_usage_reports_do_not_charge_both_meters(self, existing_work: str) -> None:
+    def test_legacy_report_charge_and_new_signal_spend_are_independent(self, existing_work: str) -> None:
         legacy_signal = str(uuid4())
         with time_machine.travel(_at(9), tick=False):
             legacy_report = _make_report(self.team) if existing_work == "report" else None
@@ -658,11 +660,11 @@ class TestSpendBasedBilling(BaseTest):
             _make_pr_run(self.team, report, created_at=_at(10))
             complete_signal_pipeline(team_id=self.team.id, signal_id=signal_id, report_id=str(report.id))
             finish_report_spend(team_id=self.team.id, report_id=str(report.id))
-        expected = 1525 if existing_work == "report" else 25
+        expected = 1535 if existing_work == "report" else 25
         assert self._day(10) == {self.team.id: expected}
         assert first_billable_pr_run(report.id) is None  # The fixed-PR refund must not issue 1,500 credits.
         assert (first_billable_pr_run(legacy_report.id) is not None) == (existing_work == "report")
-        # A new pass can change the triggering signal, but cannot change the report's meter.
+        # Changing the report's driver cannot change either owner's eligibility.
         SignalReport.objects.filter(id=report.id).update(triggering_signal_id=legacy_signal)
         assert self._day(10) == {self.team.id: expected}
         assert first_billable_pr_run(report.id) is None
@@ -732,12 +734,12 @@ class TestSpendBasedBilling(BaseTest):
             team=self.team, task_run=run, skill_name="synthetic-scout", skill_version=1
         )
         SignalSpend.objects.for_team(self.team.id).create(
-            team=self.team, scout_run=scout, billing_amounts={"2026-06-10": 40_000}
+            team=self.team, scout_run=scout, finalized_at=_at(10), billing_amounts={"2026-06-10": 40_000}
         )
         scout.delete()
         assert self._day(10) == {self.team.id: 4}
 
-    def test_downward_correction_is_visible_without_rewriting_prior_billing(self) -> None:
+    def test_finalized_spend_ignores_subsequent_source_changes(self) -> None:
         signal_id = str(uuid4())
         with time_machine.travel(_at(10), tick=False):
             self._generation(signal_id, 100_000)
@@ -746,7 +748,8 @@ class TestSpendBasedBilling(BaseTest):
             SignalSpend.objects.for_team(self.team.id).filter(signal_id=signal_id).update(llm_cost_microusd=90_000)
             complete_signal_pipeline(team_id=self.team.id, signal_id=signal_id)
         spend = SignalSpend.objects.for_team(self.team.id).get(signal_id=signal_id)
-        assert spend.accounting_failed
-        self.assertIsNone(spend.finalized_at)
+        assert not spend.accounting_failed
+        self.assertIsNotNone(spend.finalized_at)
+        assert spend.token_cost_microusd == 100_000
         assert self._day(10) == {self.team.id: 10}
         assert self._day(11) == {}

@@ -186,15 +186,11 @@ def mark_report_billing_exempt(report: SignalReport, reason: str) -> bool:
     if report.billing_exempt_reason:
         return False
     cutoff = usage_billing_cutoff(report.team.organization_id)
-    if (
-        cutoff is not None
-        and report.created_at >= cutoff
-        and (
-            SignalSpend.objects.for_team(report.team_id)
-            .filter(report_id=report.id)
-            .exclude(billing_amounts={})
-            .exists()
-        )
+    if cutoff is not None and (
+        SignalSpend.objects.for_team(report.team_id)
+        .filter(report_id=report.id, created_at__gte=cutoff, billing_exempt=False)
+        .exclude(billing_amounts={})
+        .exists()
     ):
         raise BillingExemptionError(f"Report {report.id} already has recognized usage; use a billing credit instead.")
     if first_billable_pr_run_at(report.id) is not None:
