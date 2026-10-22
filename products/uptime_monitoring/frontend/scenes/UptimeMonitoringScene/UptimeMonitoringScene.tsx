@@ -14,20 +14,11 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import type { UptimeMonitorApi } from '../../generated/api.schemas'
 import { CreateUptimeMonitorModal } from './CreateUptimeMonitorModal'
-import { uptimeMonitoringSceneLogic } from './uptimeMonitoringSceneLogic'
+import { formatInterval, uptimeMonitoringSceneLogic } from './uptimeMonitoringSceneLogic'
 
 export const scene: SceneExport = {
     component: UptimeMonitoringScene,
     logic: uptimeMonitoringSceneLogic,
-}
-
-function formatInterval(seconds: number): string {
-    const minutes = seconds / 60
-    if (minutes % 60 === 0) {
-        const hours = minutes / 60
-        return hours === 1 ? 'Every hour' : `Every ${hours} hours`
-    }
-    return minutes === 1 ? 'Every minute' : `Every ${minutes} minutes`
 }
 
 export function UptimeMonitoringScene(): JSX.Element {
@@ -104,7 +95,11 @@ export function UptimeMonitoringScene(): JSX.Element {
                 loading={monitorsLoading}
                 columns={columns}
                 rowKey="id"
-                emptyState="No monitors yet. Create one to choose the URLs PostHog should check."
+                emptyState={
+                    monitors === null
+                        ? "Couldn't load monitors. Refresh the page to try again."
+                        : 'No monitors yet. Create one to choose the URLs PostHog should check.'
+                }
                 nouns={['monitor', 'monitors']}
             />
             <CreateUptimeMonitorModal />

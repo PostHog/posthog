@@ -1,5 +1,6 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { ApiError } from 'lib/api-error'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
@@ -22,6 +23,12 @@ const EXISTING: UptimeMonitorApi = {
     updated_at: '2026-10-20T10:00:00Z',
 }
 
+function setUptimeFlag(enabled: boolean): void {
+    featureFlagLogic.actions.setFeatureFlags(enabled ? [FEATURE_FLAGS.UPTIME_MONITORING] : [], {
+        [FEATURE_FLAGS.UPTIME_MONITORING]: enabled,
+    })
+}
+
 describe('uptimeMonitoringSceneLogic', () => {
     let listSpy: jest.SpyInstance
     let createSpy: jest.SpyInstance
@@ -38,24 +45,25 @@ describe('uptimeMonitoringSceneLogic', () => {
     })
 
     it.each([
-        [true, 1],
-        [false, 0],
-    ])('loads monitors on mount only when the flag is %s', async (flagOn, expectedCalls) => {
+        ['on before mount', true, false, 1],
+        ['off', false, false, 0],
+        ['turned on after mount', false, true, 1],
+    ])('loads monitors when the flag is %s', async (_, flagOnAtMount, flagOnAfterMount, expectedCalls) => {
         featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags(flagOn ? [FEATURE_FLAGS.UPTIME_MONITORING] : [], {
-            [FEATURE_FLAGS.UPTIME_MONITORING]: flagOn,
-        })
+        setUptimeFlag(flagOnAtMount)
         const logic = uptimeMonitoringSceneLogic()
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
+        if (flagOnAfterMount) {
+            setUptimeFlag(true)
+            await expectLogic(logic).toFinishAllListeners()
+        }
         expect(listSpy).toHaveBeenCalledTimes(expectedCalls)
     })
 
     it('submitting the form creates the monitor, prepends it and closes the modal', async () => {
         featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.UPTIME_MONITORING], {
-            [FEATURE_FLAGS.UPTIME_MONITORING]: true,
-        })
+        setUptimeFlag(true)
         const created = { ...EXISTING, id: '01900000-0000-7000-8000-000000000002', name: 'API' }
         createSpy.mockResolvedValue(created)
         const logic = uptimeMonitoringSceneLogic()
@@ -69,6 +77,19 @@ describe('uptimeMonitoringSceneLogic', () => {
         expect(createSpy).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ name: 'API' }))
         expect(logic.values.monitors?.map((m) => m.id)).toEqual([created.id, EXISTING.id])
         expect(logic.values.isCreateModalOpen).toBe(false)
+    })
+
+    it('shows a server validation error on its field and keeps the modal open', async () => {
+        createSpy.mockRejectedValue(
+            new ApiError('Bad request', 400, undefined, { attr: 'url', detail: 'Enter a valid URL.' })
+        )
+        const logic = uptimeMonitoringSceneLogic()
+        logic.mount()
+        logic.actions.openCreateModal()
+        logic.actions.setNewMonitorValues({ name: 'Intranet', url: 'https://intranet' })
+        await expectLogic(logic, () => logic.actions.submitNewMonitor()).toFinishAllListeners()
+        expect(logic.values.newMonitorManualErrors).toEqual({ url: 'Enter a valid URL.' })
+        expect(logic.values.isCreateModalOpen).toBe(true)
     })
 
     it('refuses a URL without an http scheme', async () => {
