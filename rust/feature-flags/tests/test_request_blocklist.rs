@@ -15,10 +15,13 @@ use crate::common::*;
 
 pub mod common;
 
+const INTERNAL_TOKEN: &str = "internal-test-token";
+
 /// Server with one flag for a team that blocks `example.com` and a mix of IPv4 and IPv6
 /// entries, so a test can tell the blocked response (no flags) from evaluation (the flag).
 async fn setup_server_with_blocklist() -> Result<(ServerHandle, String)> {
-    let config = DEFAULT_TEST_CONFIG.clone();
+    let mut config = DEFAULT_TEST_CONFIG.clone();
+    config.internal_request_token = Some(INTERNAL_TOKEN.to_string());
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
     let mut team = insert_new_team_in_redis(client.clone()).await.unwrap();
     team.flags_blocked_hosts = BlockedHosts::from(vec!["example.com".to_string()]);
@@ -115,6 +118,7 @@ async fn blocked_caller_through_legacy_decide_proxy_gets_minimal_response() -> R
 #[case::ipv4_outside_cidr(&[("X-Forwarded-For", "198.51.101.1")])]
 #[case::ipv6_outside_cidr(&[("X-Forwarded-For", "2001:db8:abce::1")])]
 #[case::no_origin(&[])]
+#[case::internal_request_from_blocked_ip(&[("Authorization", "Bearer internal-test-token"), ("X-Forwarded-For", "203.0.113.7")])]
 #[tokio::test]
 async fn unblocked_caller_reaches_evaluation(#[case] headers: &[(&str, &str)]) -> Result<()> {
     let (server, token) = setup_server_with_blocklist().await?;

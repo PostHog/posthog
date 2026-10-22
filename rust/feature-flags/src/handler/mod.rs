@@ -199,9 +199,19 @@ async fn process_request_inner(
 
         tracing::debug!("Team fetched: team_id={}", team.id);
 
+        // Compute auth status once to avoid repeated header parsing and allocation.
+        let is_internal = authentication::is_internal_request(&context);
+
         // Before billing, so a blocked caller never counts toward the team's flags usage.
-        if let Some(reason) = team.request_block_reason(context.origin_host.as_deref(), context.ip)
-        {
+        // Internal requests skip the check. Django calls from a private pod IP without an
+        // `Origin`, so a team that blocks a private range would see every flag off in its own
+        // PostHog app.
+        let block_reason = if is_internal {
+            None
+        } else {
+            team.request_block_reason(context.origin_host.as_deref(), context.ip)
+        };
+        if let Some(reason) = block_reason {
             with_canonical_log(|log| log.request_blocked_by = Some(reason));
             inc(
                 FLAG_REQUEST_BLOCKED_COUNTER,
@@ -242,9 +252,6 @@ async fn process_request_inner(
                 };
 
                 tracing::debug!("Distinct ID resolved: {}", distinct_id);
-
-                // Compute auth status once to avoid repeated header parsing and allocation.
-                let is_internal = authentication::is_internal_request(&context);
 
                 let override_defs = if is_internal {
                     request.override_flags_definitions.as_ref()
