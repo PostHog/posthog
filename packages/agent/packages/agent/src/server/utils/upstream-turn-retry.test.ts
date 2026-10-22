@@ -23,9 +23,9 @@ describe("upstreamTurnRetryDelayMs", () => {
 
   it.each([
     [0, 12_300, 0, 12_300],
-    [0, 1_000, 0.5, 7_500],
-    [3, 150_000, 0.999999, 120_000],
-    [0, 2_147_483_000, 0, 120_000],
+    [0, 1_000, 0.5, 8_500],
+    [3, 150_000, 0.999999, 119_999],
+    [0, 2_147_483_000, 0, 60_000],
   ])(
     "bounds the retry hint floor for retry %i",
     (retries, hint, random, expected) => {
@@ -37,6 +37,25 @@ describe("upstreamTurnRetryDelayMs", () => {
           () => random,
         ),
       ).toBe(expected);
+    },
+  );
+
+  it.each([0, 1, 2, 3])(
+    "preserves jitter above a capped retry hint for retry %i",
+    (retries) => {
+      const delays = [0, 0.25, 0.5, 0.75, 0.999999].map((random) =>
+        upstreamTurnRetryDelayMs(
+          "upstream_rate_limited",
+          retries,
+          2_147_483_000,
+          () => random,
+        ),
+      );
+      expect(new Set(delays).size).toBe(delays.length);
+      for (const delay of delays) {
+        expect(delay).toBeGreaterThanOrEqual(60_000);
+        expect(delay).toBeLessThan(120_000);
+      }
     },
   );
 

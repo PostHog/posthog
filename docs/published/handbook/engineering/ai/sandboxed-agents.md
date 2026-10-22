@@ -45,8 +45,9 @@ When the user loads, the pending request uses the active filter and search term.
 ### Provider rate limits
 
 Initial and resumed agent turns retry provider rate limits and capacity refusals up to four times.
-Each retry uses a random delay between zero and an exponential ceiling of 15, 30, 60, then 120 seconds.
-A provider's `try again in` hint sets the minimum delay, capped at 120 seconds.
+Without a provider hint, each retry uses a random delay between zero and an exponential ceiling of 15, 30, 60, then 120 seconds.
+A provider's `try again in` hint adds a minimum delay, capped at 60 seconds to leave room for jitter.
+The total delay stays below 120 seconds, including the hint.
 Canceling the turn interrupts the retry wait immediately.
 Other transient provider failures allow two retries with a five-second delay.
 Task spend limits and subscription usage limits do not trigger these retries.
