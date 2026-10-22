@@ -1,10 +1,10 @@
-use std::{fmt::Display, sync::Arc, time::Duration as StdDuration};
+use std::{fmt::Display, str::FromStr, sync::Arc, time::Duration as StdDuration};
 
 use crate::metrics;
 use anyhow::{Context, Error};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use sqlx::{postgres::PgQueryResult, PgPool, Row};
+use sqlx::{PgPool, Row};
 use tracing::{info, warn};
 use uuid::Uuid;
 
@@ -35,18 +35,49 @@ pub struct JobModel {
     pub backoff_attempt: i32,
     pub backoff_until: Option<DateTime<Utc>>,
 
+    pub pending_commit: Option<PendingCommit>,
+
     // Not actually in the model, but we calculate it on fetch to let us reason about whether
     // we're resuming an interrupted job
     pub was_leased: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum JobStatus {
     Running,
     Paused,
     Failed,
     Completed,
+}
+
+/// The chunk a worker is sending. Saved before the send and cleared after the sink accepts
+/// it, so a value left on the row means a worker stopped mid-commit.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PendingCommit {
+    pub key: String,
+    pub from_offset: u64,
+    pub to_offset: u64,
+}
+
+/// The result of a worker write to its job row.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RowWrite {
+    /// False when the write required a running row and the row was no longer running.
+    pub applied: bool,
+    /// The row status after the write. Anything other than running means an operator or a
+    /// customer changed it, and the worker must stop.
+    pub status: JobStatus,
+    /// The sink send rate stored on the row, if the sink has one.
+    pub send_rate: Option<u64>,
+}
+
+/// A status change the worker makes on its own, such as a pause on error or completion.
+/// It applies only while the row is still running, so it never overrides an operator.
+struct StatusChange {
+    status: JobStatus,
+    status_message: Option<String>,
+    display_status_message: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -159,6 +190,7 @@ impl JobModel {
                 posthog_batchimport.secrets as "secrets?",
                 posthog_batchimport.backoff_attempt,
                 posthog_batchimport.backoff_until,
+                posthog_batchimport.pending_commit,
                 next_job.previous_lease_id
             "#,
             new_lease_id
@@ -172,10 +204,13 @@ impl JobModel {
 
         let id = row.id;
 
-        let parsed: anyhow::Result<JobModel> =
-            (row, context.encryption_keys.as_slice(), new_lease_id)
-                .try_into()
-                .context("Failed to parse job row");
+        let parsed: anyhow::Result<JobModel> = (
+            row,
+            context.encryption_keys.as_slice(),
+            new_lease_id.clone(),
+        )
+            .try_into()
+            .context("Failed to parse job row");
 
         match parsed {
             Ok(model) => Ok(Some(model)),
@@ -190,11 +225,12 @@ impl JobModel {
                         status = 'paused',
                         status_message = $2,
                         display_status_message = $3
-                    WHERE id = $1
+                    WHERE id = $1 AND lease_id = $4 AND status = 'running'
                     "#,
                     id,
                     format!("{:?}", e), // We like context
-                    "Failed to parse source event data into Posthog event data"
+                    "Failed to parse source event data into Posthog event data",
+                    new_lease_id
                 )
                 .execute(&context.db)
                 .await?;
@@ -241,14 +277,13 @@ impl JobModel {
             r#"
             UPDATE posthog_batchimport
             SET
-                status = 'running',
                 status_message = $3,
                 display_status_message = $4,
                 updated_at = now(),
                 leased_until = now() + make_interval(secs => $2),
                 backoff_attempt = $5,
                 backoff_until = leased_until
-            WHERE id = $1 AND lease_id = $6
+            WHERE id = $1 AND lease_id = $6 AND status = 'running'
             RETURNING leased_until, backoff_until, updated_at
             "#,
         )
@@ -258,8 +293,16 @@ impl JobModel {
         .bind(&display_message)
         .bind(next_attempt)
         .bind(current_lease)
-        .fetch_one(pool)
+        .fetch_optional(pool)
         .await?;
+
+        let Some(rec) = rec else {
+            let current_lease = current_lease.clone();
+            let status = self.explain_missed_write(pool, &current_lease).await?;
+            info!(job_id = %self.id, %status, "job is no longer running, skipping backoff");
+            self.status = status;
+            return Ok(());
+        };
 
         let until: DateTime<Utc> = rec.try_get("leased_until")?;
         let returned_backoff_until: DateTime<Utc> = rec.try_get("backoff_until")?;
@@ -285,51 +328,31 @@ impl JobModel {
         Ok(())
     }
 
-    pub async fn flush(&mut self, pool: &PgPool, extend_lease: bool) -> Result<(), Error> {
-        let Some(old_lease) = self.lease_id.take() else {
-            anyhow::bail!("Cannot flush a job with no lease")
+    /// Save worker-owned progress (offsets, pending commit, backoff and lease) without
+    /// touching the status. When `only_if_running` is set, the write applies only while the
+    /// row is still running: use it before sending a chunk, so that a stopped job sends nothing.
+    pub async fn save_progress(
+        &mut self,
+        pool: &PgPool,
+        extend_lease: bool,
+        only_if_running: bool,
+    ) -> Result<RowWrite, Error> {
+        self.write(pool, None, extend_lease, only_if_running).await
+    }
+
+    /// Save progress after the sink accepted a chunk. Also clears the messages and backoff
+    /// left by earlier pauses or retries, while the row is still running.
+    pub async fn save_committed(&mut self, pool: &PgPool) -> Result<RowWrite, Error> {
+        self.backoff_attempt = 0;
+        self.backoff_until = None;
+        let change = StatusChange {
+            status: JobStatus::Running,
+            status_message: None,
+            display_status_message: None,
         };
-
-        if extend_lease {
-            self.lease_id = Some(Uuid::now_v7().to_string());
-        }
-
-        if extend_lease {
-            // We only allow the lease to be set to 5 minutes from now, except in the initial claim
-            // case, where we allow it to be set to 30 minutes from now, because job init can be slow
-            self.leased_until = Some(Utc::now() + chrono::Duration::minutes(5));
-        } else {
-            self.leased_until = None;
-        };
-
-        let res = sqlx::query!(
-            r#"
-            UPDATE posthog_batchimport
-            SET
-                status = $2,
-                status_message = $3,
-                display_status_message = $4,
-                state = $5,
-                updated_at = now(),
-                lease_id = $6,
-                leased_until = $7
-            WHERE id = $1 AND lease_id = $8
-            "#,
-            self.id,
-            self.status.to_string(),
-            self.status_message,
-            self.display_status_message,
-            serde_json::to_value(&self.state)?,
-            self.lease_id,
-            self.leased_until,
-            old_lease
-        )
-        .execute(pool)
-        .await?;
-
-        throw_if_no_rows(res)?;
-
-        Ok(())
+        let written = self.write(pool, Some(change), true, false).await?;
+        metrics::unpause_event();
+        Ok(written)
     }
 
     pub async fn pause(
@@ -338,37 +361,62 @@ impl JobModel {
         reason: String,
         display_reason: Option<String>,
     ) -> Result<(), Error> {
-        self.status = JobStatus::Paused;
-        self.status_message = Some(reason);
-        self.display_status_message = display_reason;
-        self.flush(&context.db, true).await
+        let change = StatusChange {
+            status: JobStatus::Paused,
+            status_message: Some(reason),
+            display_status_message: display_reason,
+        };
+        self.write(&context.db, Some(change), true, false).await?;
+        Ok(())
     }
 
-    pub async fn unpause(&mut self, context: Arc<AppContext>) -> Result<(), Error> {
-        self.status = JobStatus::Running;
-        self.status_message = None;
-        self.display_status_message = None;
-        self.backoff_attempt = 0;
-        self.backoff_until = None;
+    /// Pause a job that a worker left mid-commit, because nobody knows whether the chunk in
+    /// `pending_commit` reached the sink. An operator checks the sink and resumes the job,
+    /// which clears the marker. Returns true when the job was paused.
+    pub async fn pause_if_interrupted_commit(
+        &mut self,
+        context: Arc<AppContext>,
+    ) -> Result<bool, Error> {
+        let Some(pending) = self.pending_commit.clone() else {
+            return Ok(false);
+        };
+        warn!(
+            job_id = %self.id,
+            key = %pending.key,
+            from_offset = pending.from_offset,
+            to_offset = pending.to_offset,
+            "job was interrupted mid-commit, pausing for review"
+        );
+        metrics::interrupted_commit_paused();
+        self.pause(
+            context,
+            format!(
+                "A worker stopped while committing part {} (offsets {} to {}). The chunk may not have reached the sink.",
+                pending.key, pending.from_offset, pending.to_offset
+            ),
+            Some("Job paused after an interrupted commit. Resume it to continue.".to_string()),
+        )
+        .await?;
+        Ok(true)
+    }
 
-        self.flush(&context.db, true).await?;
-        let rec = sqlx::query(
+    /// Give up the lease so the row shows that no worker holds it.
+    pub async fn release_lease(&mut self, pool: &PgPool) -> Result<(), Error> {
+        let Some(lease) = self.lease_id.take() else {
+            return Ok(());
+        };
+        self.leased_until = None;
+        sqlx::query!(
             r#"
             UPDATE posthog_batchimport
-            SET backoff_attempt = 0, backoff_until = NULL
-            WHERE id = $1
-            RETURNING updated_at
+            SET lease_id = NULL, leased_until = NULL
+            WHERE id = $1 AND lease_id = $2
             "#,
+            self.id,
+            lease
         )
-        .bind(self.id)
-        .fetch_one(&context.db)
+        .execute(pool)
         .await?;
-
-        self.updated_at = rec.try_get("updated_at")?;
-
-        info!(job_id = %self.id, "unpaused job and reset backoff state");
-        metrics::unpause_event();
-
         Ok(())
     }
 
@@ -378,10 +426,11 @@ impl JobModel {
             r#"
             UPDATE posthog_batchimport
             SET backoff_attempt = 0, backoff_until = NULL
-            WHERE id = $1
+            WHERE id = $1 AND lease_id = $2
             "#,
         )
         .bind(self.id)
+        .bind(&self.lease_id)
         .execute(pool)
         .await?;
 
@@ -396,16 +445,158 @@ impl JobModel {
         reason: String,
         display_reason: String,
     ) -> Result<(), Error> {
-        self.status = JobStatus::Failed;
-        self.status_message = Some(reason);
-        self.display_status_message = Some(display_reason);
-        self.flush(pool, false).await
+        let change = StatusChange {
+            status: JobStatus::Failed,
+            status_message: Some(reason),
+            display_status_message: Some(display_reason),
+        };
+        self.write(pool, Some(change), false, false).await?;
+        Ok(())
     }
 
     pub async fn complete(&mut self, pool: &PgPool) -> Result<(), Error> {
-        self.status = JobStatus::Completed;
-        self.display_status_message = None;
-        self.flush(pool, false).await
+        let change = StatusChange {
+            status: JobStatus::Completed,
+            status_message: self.status_message.clone(),
+            display_status_message: None,
+        };
+        self.write(pool, Some(change), false, false).await?;
+        Ok(())
+    }
+
+    /// Every worker write to the job row goes through here. The write needs this worker's
+    /// lease, and `change` applies only while the row is running, so a status that an operator
+    /// or a customer set is never overwritten. Progress always saves, unless `only_if_running`
+    /// is set and the row is no longer running. A lost lease is an error: another worker or a
+    /// resume owns the row now.
+    async fn write(
+        &mut self,
+        pool: &PgPool,
+        change: Option<StatusChange>,
+        extend_lease: bool,
+        only_if_running: bool,
+    ) -> Result<RowWrite, Error> {
+        let Some(old_lease) = self.lease_id.clone() else {
+            anyhow::bail!("Cannot write a job with no lease")
+        };
+
+        // A claim leases for 30 minutes because job init can be slow. Later writes extend
+        // the lease by 5 minutes only.
+        let (new_lease, new_leased_until) = if extend_lease {
+            (
+                Some(Uuid::now_v7().to_string()),
+                Some(Utc::now() + chrono::Duration::minutes(5)),
+            )
+        } else {
+            (None, None)
+        };
+        let (new_status, new_message, new_display_message) = match &change {
+            Some(change) => (
+                Some(change.status.to_string()),
+                change.status_message.clone(),
+                change.display_status_message.clone(),
+            ),
+            None => (None, None, None),
+        };
+
+        let row = sqlx::query!(
+            r#"
+            UPDATE posthog_batchimport
+            SET
+                status = CASE WHEN $2::text IS NOT NULL AND status = 'running' THEN $2 ELSE status END,
+                status_message = CASE WHEN $2::text IS NOT NULL AND status = 'running' THEN $3 ELSE status_message END,
+                display_status_message = CASE WHEN $2::text IS NOT NULL AND status = 'running' THEN $4 ELSE display_status_message END,
+                state = $5,
+                pending_commit = $6,
+                backoff_attempt = $7,
+                backoff_until = $8,
+                updated_at = now(),
+                lease_id = $9,
+                leased_until = $10
+            WHERE id = $1 AND lease_id = $11 AND (NOT $12 OR status = 'running')
+            RETURNING status, (import_config->'sink'->>'send_rate')::bigint AS send_rate
+            "#,
+            self.id,
+            new_status,
+            new_message,
+            new_display_message,
+            serde_json::to_value(&self.state)?,
+            self.pending_commit
+                .as_ref()
+                .map(serde_json::to_value)
+                .transpose()?,
+            self.backoff_attempt,
+            self.backoff_until,
+            new_lease,
+            new_leased_until,
+            old_lease,
+            only_if_running
+        )
+        .fetch_optional(pool)
+        .await?;
+
+        let Some(row) = row else {
+            let status = self.explain_missed_write(pool, &old_lease).await?;
+            self.status = status;
+            return Ok(RowWrite {
+                applied: false,
+                status,
+                send_rate: None,
+            });
+        };
+
+        let status = JobStatus::from_str(&row.status)?;
+        self.lease_id = new_lease;
+        self.leased_until = new_leased_until;
+        if let Some(change) = change {
+            if status == change.status {
+                self.status_message = change.status_message;
+                self.display_status_message = change.display_status_message;
+            }
+        }
+        self.status = status;
+
+        Ok(RowWrite {
+            applied: true,
+            status,
+            send_rate: row.send_rate.and_then(|rate| u64::try_from(rate).ok()),
+        })
+    }
+
+    /// Find out why a lease-guarded write matched no row. A changed lease means this worker
+    /// lost the job, which is an error. Otherwise the row is no longer running, and the
+    /// returned status says what an operator or a customer set.
+    async fn explain_missed_write(&self, pool: &PgPool, lease: &str) -> Result<JobStatus, Error> {
+        let row = sqlx::query!(
+            r#"SELECT status, lease_id FROM posthog_batchimport WHERE id = $1"#,
+            self.id
+        )
+        .fetch_optional(pool)
+        .await?;
+        let Some(row) = row else {
+            anyhow::bail!("Job {} no longer exists", self.id)
+        };
+        if row.lease_id.as_deref() != Some(lease) {
+            anyhow::bail!(
+                "Lost the lease on job {}: another worker or a resume took it",
+                self.id
+            )
+        }
+        JobStatus::from_str(&row.status)
+    }
+}
+
+impl FromStr for JobStatus {
+    type Err = Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "running" => Ok(JobStatus::Running),
+            "paused" => Ok(JobStatus::Paused),
+            "failed" => Ok(JobStatus::Failed),
+            "completed" => Ok(JobStatus::Completed),
+            other => anyhow::bail!("Unknown job status {other:?}"),
+        }
     }
 }
 
@@ -432,6 +623,7 @@ struct JobRow {
     secrets: Option<String>,
     backoff_attempt: Option<i32>,
     backoff_until: Option<DateTime<Utc>>,
+    pending_commit: Option<serde_json::Value>,
     previous_lease_id: Option<String>,
 }
 
@@ -450,6 +642,11 @@ impl TryFrom<(JobRow, &[String], String)> for JobModel {
         };
 
         let import_config = serde_json::from_value(row.import_config).context("Parsing config")?;
+        let pending_commit = row
+            .pending_commit
+            .map(serde_json::from_value)
+            .transpose()
+            .context("Parsing pending commit")?;
 
         // Jobs authenticating via IAM role have no secrets — the column is NULL.
         let secrets = match row.secrets.as_deref() {
@@ -474,25 +671,17 @@ impl TryFrom<(JobRow, &[String], String)> for JobModel {
             secrets,
             backoff_attempt: row.backoff_attempt.unwrap_or(0),
             backoff_until: row.backoff_until,
+            pending_commit,
             was_leased: row.previous_lease_id.is_some(),
         })
     }
 }
 
-// Returns an InvalidLock error if the query run did not affect any rows.
-pub fn throw_if_no_rows(res: PgQueryResult) -> Result<(), Error> {
-    if res.rows_affected() == 0 {
-        anyhow::bail!("No update done")
-    } else {
-        Ok(())
-    }
-}
-
 #[cfg(test)]
 mod tests {
+    use super::super::test_db;
     use super::*;
     use chrono::Utc;
-    use envconfig::Envconfig;
     use sqlx::Row;
 
     async fn get_pool() -> Option<PgPool> {
@@ -532,6 +721,7 @@ mod tests {
             },
             backoff_attempt: 0,
             backoff_until: None,
+            pending_commit: None,
             was_leased: false,
         }
     }
@@ -567,6 +757,7 @@ mod tests {
             secrets,
             backoff_attempt: None,
             backoff_until: None,
+            pending_commit: None,
             previous_lease_id: None,
         }
     }
@@ -744,54 +935,164 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
-    async fn test_unpause_resets_backoff_db() -> Result<(), anyhow::Error> {
-        let Some(pool) = get_pool().await else {
-            return Ok(());
-        };
-        let cfg = crate::config::Config::init_from_env().unwrap();
-        let context = Arc::new(crate::context::AppContext::new(&cfg).await?);
+    fn fixture(
+        status: JobStatus,
+        pending_commit: Option<serde_json::Value>,
+    ) -> test_db::JobRowFixture {
+        test_db::JobRowFixture {
+            status,
+            lease_id: "lease-from-claim",
+            state: make_job_state(&[("part-1", 0)]),
+            sink: serde_json::json!({"type": "noop"}),
+            pending_commit,
+        }
+    }
 
-        let mut tx = pool.begin().await?;
+    #[derive(Debug, Clone, Copy)]
+    enum WorkerAction {
+        Pause,
+        Fail,
+        Complete,
+        Backoff,
+        Committed,
+    }
 
-        let id = Uuid::now_v7();
-        let team_id = 1;
-        let lease = "test-lease";
-        let inserted = sqlx::query(
-            r#"
-            INSERT INTO posthog_batchimport (id, team_id, status, import_config, secrets, lease_id, backoff_attempt, backoff_until)
-            VALUES ($1, $2, 'running', '{}'::jsonb, '', $3, 5, now())
-            "#,
-        )
-        .bind(id)
-        .bind(team_id)
-        .bind(lease)
-        .execute(&mut *tx)
-        .await;
-        if inserted.is_err() {
-            return Ok(());
+    impl WorkerAction {
+        async fn run(self, model: &mut JobModel, context: Arc<AppContext>) {
+            match self {
+                WorkerAction::Pause => model
+                    .pause(context, "worker pause".to_string(), None)
+                    .await
+                    .unwrap(),
+                WorkerAction::Fail => model
+                    .fail(&context.db, "worker fail".to_string(), "failed".to_string())
+                    .await
+                    .unwrap(),
+                WorkerAction::Complete => model.complete(&context.db).await.unwrap(),
+                WorkerAction::Backoff => model
+                    .schedule_backoff(
+                        &context.db,
+                        StdDuration::from_secs(60),
+                        "rate limited".to_string(),
+                        Some("retrying".to_string()),
+                        1,
+                    )
+                    .await
+                    .unwrap(),
+                WorkerAction::Committed => {
+                    model.save_committed(&context.db).await.unwrap();
+                }
+            }
         }
 
-        let mut model = make_dummy_job_model(id, lease, team_id);
-        model.backoff_attempt = 5;
-        model.backoff_until = Some(Utc::now());
+        fn status_on_running_row(self) -> &'static str {
+            match self {
+                WorkerAction::Pause => "paused",
+                WorkerAction::Fail => "failed",
+                WorkerAction::Complete => "completed",
+                WorkerAction::Backoff | WorkerAction::Committed => "running",
+            }
+        }
+    }
 
-        model.unpause(context.clone()).await?;
+    #[tokio::test]
+    async fn test_worker_status_changes_never_override_operator_status() {
+        let context = test_db::context().await;
+        let actions = [
+            WorkerAction::Pause,
+            WorkerAction::Fail,
+            WorkerAction::Complete,
+            WorkerAction::Backoff,
+            WorkerAction::Committed,
+        ];
+        let row_statuses = [
+            JobStatus::Running,
+            JobStatus::Paused,
+            JobStatus::Completed,
+            JobStatus::Failed,
+        ];
+        for action in actions {
+            for row_status in row_statuses {
+                let row = fixture(JobStatus::Running, None);
+                let id = test_db::insert_job(&context.db, &row).await;
+                let mut model = test_db::claimed_model(id, &row);
+                test_db::operator_sets(&context.db, id, row_status).await;
+                model.state = Some(make_job_state(&[("part-1", 42)]));
 
-        let rec = sqlx::query(
-            r#"SELECT backoff_attempt, backoff_until FROM posthog_batchimport WHERE id = $1"#,
-        )
-        .bind(id)
-        .fetch_one(&mut *tx)
-        .await?;
+                action.run(&mut model, context.clone()).await;
 
-        let backoff_attempt: Option<i32> = rec.try_get("backoff_attempt")?;
-        let backoff_until: Option<DateTime<Utc>> = rec.try_get("backoff_until")?;
-        assert_eq!(backoff_attempt.unwrap_or_default(), 0);
-        assert!(backoff_until.is_none());
+                let stored = test_db::read_job(&context.db, id).await;
+                let expected = match row_status {
+                    JobStatus::Running => action.status_on_running_row().to_string(),
+                    operator_status => operator_status.to_string(),
+                };
+                assert_eq!(stored.status, expected, "{action:?} on a {row_status} row");
+                if matches!(action, WorkerAction::Backoff) {
+                    assert_eq!(
+                        stored.backoff_until.is_some(),
+                        row_status == JobStatus::Running,
+                        "a backoff on a {row_status} row"
+                    );
+                } else {
+                    assert_eq!(
+                        stored.state.parts[0].current_offset, 42,
+                        "{action:?} on a {row_status} row must still save progress"
+                    );
+                }
+                test_db::delete_job(&context.db, id).await;
+            }
+        }
+    }
 
-        tx.rollback().await?;
-        Ok(())
+    #[tokio::test]
+    async fn test_claim_with_pending_commit_pauses_for_review() {
+        let context = test_db::context().await;
+        for pending in [
+            None,
+            Some(serde_json::json!({"key": "part-1", "from_offset": 100, "to_offset": 250})),
+        ] {
+            let row = fixture(JobStatus::Running, pending.clone());
+            let id = test_db::insert_job(&context.db, &row).await;
+            let mut model = test_db::claimed_model(id, &row);
+
+            let paused = model
+                .pause_if_interrupted_commit(context.clone())
+                .await
+                .unwrap();
+
+            let stored = test_db::read_job(&context.db, id).await;
+            assert_eq!(paused, pending.is_some());
+            if pending.is_some() {
+                assert_eq!(stored.status, "paused");
+                let message = stored.status_message.unwrap();
+                assert!(message.contains("part-1"), "{message}");
+                assert!(message.contains("100 to 250"), "{message}");
+                assert!(stored.display_status_message.is_some());
+                assert_eq!(stored.pending_commit, pending);
+            } else {
+                assert_eq!(stored.status, "running");
+            }
+            test_db::delete_job(&context.db, id).await;
+        }
+    }
+
+    #[test]
+    fn test_claimed_row_carries_pending_commit() {
+        let keys = vec!["0".repeat(32)];
+        let mut row = make_job_row(None);
+        row.pending_commit =
+            Some(serde_json::json!({"key": "k", "from_offset": 1, "to_offset": 2}));
+
+        let model = JobModel::try_from((row, keys.as_slice(), "l".to_string())).unwrap();
+
+        assert_eq!(
+            model.pending_commit,
+            Some(PendingCommit {
+                key: "k".to_string(),
+                from_offset: 1,
+                to_offset: 2
+            })
+        );
     }
 
     #[tokio::test]

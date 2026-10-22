@@ -12,6 +12,9 @@ pub mod kafka;
 #[async_trait]
 pub trait Emitter: Send + Sync {
     async fn begin_write<'a>(&'a mut self) -> Result<Box<dyn Transaction<'a> + 'a>, Error>;
+
+    /// Apply a send rate changed on the job row. Takes effect from the next transaction.
+    fn set_send_rate(&mut self, _send_rate: u64) {}
 }
 
 #[async_trait]
