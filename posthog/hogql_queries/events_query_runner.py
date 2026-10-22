@@ -1,4 +1,5 @@
 import re
+from collections.abc import Iterable
 from datetime import datetime, timedelta
 from functools import cached_property
 from itertools import batched
@@ -48,7 +49,7 @@ from posthog.dataclasses import frozen
 from posthog.date_util import start_of_day
 from posthog.hogql_queries.insight_actors_query_runner import InsightActorsQueryRunner
 from posthog.hogql_queries.paginators import HogQLHasMorePaginator
-from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, get_query_runner
+from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, QueryRunner, get_query_runner
 from posthog.hogql_queries.utils.person_display_name import person_display_name_property_exprs
 from posthog.models import Person, PropertyDefinition
 from posthog.models.element import chain_to_elements
@@ -215,6 +216,9 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
             limit_context=self.limit_context, limit=self.query.limit, offset=self.query.offset
         )
         self._cursor_eligible = False
+
+    def _child_runners(self) -> Iterable[QueryRunner]:
+        return [self.source_runner] if "source_runner" in self.__dict__ else []
 
     @cached_property
     def source_runner(self) -> InsightActorsQueryRunner:

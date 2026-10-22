@@ -25,6 +25,10 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     get_s3_write_duration_metric,
     get_s3_write_errors_metric,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.replace_scope import (
+    MANIFEST_FILE_NAME,
+    manifest_table,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.s3.common import (
     BatchWriteResult,
     cleanup_folder,
@@ -34,6 +38,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     get_date_partition,
     strip_s3_protocol,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import ReplaceScope
 
 ParquetCompression = Literal["gzip", "bz2", "brotli", "lz4", "zstd", "snappy", "none"]
 
@@ -219,6 +224,17 @@ class S3BatchWriter:
         self._logger.debug(f"Schema written successfully", s3_path=schema_path)
 
         return schema_path
+
+    def write_replace_scope(self, scope: ReplaceScope) -> str:
+        """Write the scope's value sets next to the run's batches and return the manifest's path."""
+        manifest_path = f"{self._base_folder}/{MANIFEST_FILE_NAME}"
+        try:
+            _write_parquet_to_s3(self._s3, strip_s3_protocol(manifest_path), manifest_table(scope), self._compression)
+        except Exception as e:
+            if is_object_store_permission_denied(e):
+                raise ObjectStorePermissionDeniedError(OBJECT_STORE_PERMISSION_DENIED_MESSAGE) from e
+            raise
+        return manifest_path
 
     def get_base_folder(self) -> str:
         return self._base_folder

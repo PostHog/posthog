@@ -15,6 +15,7 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
+import { SceneTags } from 'lib/components/Scenes/SceneTags'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
@@ -68,6 +69,7 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
         keepMyTemplateVersion,
         setTransactionalTab,
         discardDraft,
+        saveTags,
         setSensitive,
     } = useActions(logic)
     const {
@@ -402,6 +404,13 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                             </>
                         )
                     }
+                />
+
+                <SceneTags
+                    tags={[...(template.tags ?? [])]}
+                    onSave={saveTags}
+                    loading={isTemplateSubmitting}
+                    dataAttrKey="message-template"
                 />
 
                 <TemplatePickerModal isOpen={templatePickerOpen} onClose={() => setTemplatePickerOpen(false)} />
