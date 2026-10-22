@@ -1,10 +1,12 @@
-"""Pre-dispatch gates shared by every off-schedule scout run.
+"""Shared scout readiness and off-schedule pre-dispatch gates.
 
 Two entry points start a scout outside its schedule: the `run` endpoint (`views.py`, a human
 pressing "Run now") and a workflow's "Run scout" step (`workflow_runs.py`). Both must honour the
 controls the scheduled coordinator already applies, or a trigger routes around a rollout
 kill-switch and repeated triggers blow past the daily cap. They live here rather than in either
 caller so the next entry point can't ship without them.
+
+GitHub readiness also gates scheduled dispatch and the shared runner, before any agent work.
 
 Each gate returns a `ScoutRunRejection` (or `None` to proceed) rather than raising, because the
 callers speak different transports: DRF exceptions for the endpoint, HTTP status codes the workflow
@@ -21,6 +23,7 @@ from django.utils import timezone
 
 from posthog.dataclasses import frozen
 from posthog.models import Team
+from posthog.models.integration.github_readiness import GitHubAccessUnavailable, GitHubReadinessStatus
 
 from products.signals.backend.daily_limit import daily_report_limit_gate
 from products.signals.backend.models import SignalScoutRun
@@ -42,6 +45,7 @@ from products.signals.backend.scout_harness.team_limits import (
     _team_configs,
 )
 from products.tasks.backend.facade import api as tasks_facade
+from products.tasks.backend.facade.github_readiness import get_team_github_readiness
 
 # Metadata key the runner stamps the trigger source under, read here for the workflow cooldown.
 TRIGGERED_BY_METADATA_KEY = "triggered_by"
@@ -64,6 +68,17 @@ class ScoutRunRejection:
     kind: ScoutRunRejectionKind
     reason: str
     detail: str
+
+
+def check_github_gate(team_id: int) -> ScoutRunRejection | None:
+    readiness = get_team_github_readiness(team_id, verify=True)
+    if readiness.status == GitHubReadinessStatus.READY:
+        return None
+    return ScoutRunRejection(
+        kind=ScoutRunRejectionKind.CONFLICT,
+        reason=f"github_{readiness.status}",
+        detail=str(GitHubAccessUnavailable(readiness.status).detail),
+    )
 
 
 def check_fleet_gates(
@@ -105,7 +120,7 @@ def check_fleet_gates(
                     "remain in the project's daily scout run budget. Try again later."
                 ),
             )
-    return None
+    return check_github_gate(team_id)
 
 
 def check_spend_gates(team: Team, *, capture_analytics: bool = True) -> ScoutRunRejection | None:

@@ -3729,7 +3729,7 @@ class SignalScoutConfigViewSet(ScoutTrialConfigMixin, TeamAndOrgViewSetMixin, vi
             "path has: it is forbidden if scouts are not enabled for the project (403), and skipped "
             "if self-driving is paused at the project's pull request limit, or the project is over "
             "its daily report limit or daily run budget (429), or a run for this scout is already "
-            "in progress (409). A manual run counts "
+            "in progress or GitHub access is unavailable (409). A manual run counts "
             "against the same daily run "
             "budget as scheduled runs, so repeated manual runs of the same scout can exhaust the "
             "project's daily allowance. A manual run does not change the scout's schedule or "

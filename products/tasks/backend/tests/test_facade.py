@@ -17,6 +17,7 @@ from parameterized import parameterized
 from posthog.clickhouse.query_tagging import get_query_tags, reset_query_tags
 from posthog.constants import AvailableFeature
 from posthog.models import Integration, Organization, OrganizationMembership, Team
+from posthog.models.integration.github_readiness import GitHubAccessUnavailable
 from posthog.models.scoping import team_scope
 from posthog.models.user import User
 
@@ -46,10 +47,22 @@ FACADE_MODULES = [
     "products.tasks.backend.facade.sandbox",
     "products.tasks.backend.facade.exceptions",
     "products.tasks.backend.facade.repo_selection",
+    "products.tasks.backend.facade.github_readiness",
     "products.tasks.backend.facade.streams",
     "products.tasks.backend.facade.temporal",
     "products.tasks.backend.facade.max_tools",
 ]
+
+
+def _connect_github(team: Team) -> None:
+    Integration.objects.create(
+        team=team,
+        kind="github",
+        integration_id="123",
+        config={"installation_id": "123"},
+        repository_cache=[{"id": 1, "name": "repository", "full_name": "example/repository"}],
+        repository_cache_updated_at=django_timezone.now(),
+    )
 
 
 class TestFacadeImports(SimpleTestCase):
@@ -292,6 +305,7 @@ class TestFacadeReadsAndMappers(TestCase):
         cls.organization = Organization.objects.create(name="Test Org")
         cls.team = Team.objects.create(organization=cls.organization, name="Test Team")
         cls.user = User.objects.create(email="facade@test.com", distinct_id="facade-distinct")
+        _connect_github(cls.team)
 
     def _make_task(self, **kwargs) -> Task:
         defaults = {
@@ -2205,6 +2219,7 @@ class TestSelfDrivingQuotaFacadeGates(TestCase):
     def setUpTestData(cls):
         cls.organization = Organization.objects.create(name="Quota Org")
         cls.team = Team.objects.create(organization=cls.organization, name="Quota Team")
+        _connect_github(cls.team)
         cls.user = User.objects.create(email="quota-facade@test.com", distinct_id="quota-facade-distinct")
 
     def _enforced_gate(self):
@@ -2651,6 +2666,7 @@ class TestSelfDrivingFreeTrialFacadeGates(TestCase):
     def setUpTestData(cls):
         cls.organization = Organization.objects.create(name="Trial Org")
         cls.team = Team.objects.create(organization=cls.organization, name="Trial Team")
+        _connect_github(cls.team)
         cls.user = User.objects.create(email="trial-facade@test.com", distinct_id="trial-facade-distinct")
 
     def _on_trial(self):
@@ -2659,6 +2675,40 @@ class TestSelfDrivingFreeTrialFacadeGates(TestCase):
     def _report(self):
         SignalReport = apps.get_model("signals", "SignalReport")
         return SignalReport.objects.create(team=self.team, status="ready", title="t", summary="s")
+
+    @parameterized.expand([("create",), ("rerun",)])
+    def test_missing_github_refuses_manual_implementation(self, operation):
+        from products.signals.backend.task_run_artefacts import record_report_task
+
+        Integration.objects.filter(team=self.team, kind="github").delete()
+        report = self._report()
+        task = Task.objects.create(
+            team=self.team,
+            title="Example implementation",
+            created_by=self.user,
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+            signal_report=report,
+        )
+        record_report_task(
+            team_id=self.team.id, report_id=str(report.id), task_id=str(task.id), relationship="implementation"
+        )
+        with self.assertRaises(GitHubAccessUnavailable):
+            if operation == "create":
+                facade.create_task(
+                    team_id=self.team.id,
+                    user_id=self.user.id,
+                    validated_data={
+                        "title": "Example implementation",
+                        "description": "Fix the example component",
+                        "origin_product": Task.OriginProduct.SIGNAL_REPORT,
+                        "signal_report": report,
+                        "signal_report_task_relationship": "implementation",
+                    },
+                )
+            else:
+                facade.run_task(task.id, self.team.id, self.user.id, validated_data={"mode": "background"})
+        self.assertFalse(TaskRun.objects.filter(team=self.team).exists())
+        self.assertEqual(Task.objects.filter(team=self.team).count(), 1)
 
     @parameterized.expand([(None,), ("implementation",)])
     def test_create_task_refuses_create_pr_from_report_on_trial(self, relationship):

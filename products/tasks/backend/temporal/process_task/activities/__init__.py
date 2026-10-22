@@ -1,3 +1,4 @@
+from .check_github_readiness import check_self_driving_github_readiness
 from .cleanup_sandbox import CleanupSandboxInput, CompleteRunStreamInput, cleanup_sandbox, complete_run_stream
 from .create_resume_snapshot import CreateResumeSnapshotInput, CreateResumeSnapshotOutput, create_resume_snapshot
 from .emit_progress_activity import EmitProgressInput, emit_progress_activity
@@ -138,6 +139,7 @@ __all__ = [
     "emit_progress_activity",
     "EnforceSelfDrivingRunQuotaInput",
     "enforce_self_driving_run_quota",
+    "check_self_driving_github_readiness",
     "execute_task_in_sandbox",
     "forward_pending_user_message",
     "relay_agent_design_signals",

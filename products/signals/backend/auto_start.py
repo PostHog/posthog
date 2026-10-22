@@ -17,6 +17,7 @@ from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.dataclasses import frozen
 from posthog.event_usage import groups
 from posthog.models import Team, User
+from posthog.models.integration.github_readiness import GitHubAccessUnavailable, GitHubReadinessStatus
 from posthog.models.organization import OrganizationMembership
 from posthog.sync import database_sync_to_async
 from posthog.temporal.oauth import McpScopePreset, grants_scratchpad_write
@@ -39,6 +40,7 @@ from products.signals.backend.billing import (
 )
 from products.signals.backend.enums import ReportLinkKind
 from products.signals.backend.free_trial import capture_signal_report_free_trial_paused, self_driving_free_trial_enabled
+from products.signals.backend.github_readiness import check_implementation_github_readiness
 from products.signals.backend.models import (
     MAX_SCOUT_CONTENT_REVISIONS,
     SignalReport,
@@ -98,6 +100,7 @@ from products.signals.backend.typed_report_links import (
     outgoing_links,
 )
 from products.tasks.backend.facade import api as tasks_facade
+from products.tasks.backend.facade.github_readiness import require_github_readiness
 from products.tasks.backend.facade.usage import task_run_usage_limited
 
 logger = structlog.get_logger(__name__)
@@ -786,6 +789,7 @@ def _create_implementation_task_if_absent(
     replacement pull request.
     """
     # Resolved outside the transaction: the flag read does network I/O and must not hold the row lock.
+    require_github_readiness(team_id)
     agent_runtime = resolve_agent_runtime(team_id, STEP_IMPLEMENTATION)
 
     # Create the task before the provider issue. A failed task creation must not leave an external
@@ -986,6 +990,7 @@ def start_requested_implementation(
     if task_run_usage_limited(user, request.team_id):
         raise RequestedImplementationUnavailable("The requested user cannot start another task run")
     tasks_facade.enforce_self_driving_pr_quota(team, report_id=request.report_id, stage="manual_rerun")
+    require_github_readiness(request.team_id)
     if pending_replacement(request.team_id, request.report_id) is not None:
         raise RequestedImplementationUnavailable("A replacement is already in progress")
     actionability_row = (
@@ -1550,6 +1555,12 @@ async def maybe_autostart_implementation_task(
         )
         return AutostartOutcome(status="blocked", reason="Self-driving quota is exhausted")
 
+    readiness = await database_sync_to_async(check_implementation_github_readiness, thread_sensitive=False)(
+        team_id, report_id
+    )
+    if readiness.status != GitHubReadinessStatus.READY:
+        return AutostartOutcome(status="blocked", reason=str(GitHubAccessUnavailable(readiness.status).detail))
+
     # A user-triggered auto-start runs as the triggering user; otherwise resolve a trusted
     # (commit-authorship) reviewer. Either way the task's user is never an attacker-named colleague.
     runner_source = "triggering_user" if triggering_user_id is not None else "reviewer"
@@ -1669,6 +1680,11 @@ async def maybe_autostart_implementation_task(
             runner_source=runner_source,
             ch_user=ch_user,
         )
+    except GitHubAccessUnavailable as error:
+        await SignalReport.objects.filter(team_id=team_id, id=report_id, status=SignalReport.Status.READY).aupdate(
+            implementation_blocked_reason=error.get_codes()
+        )
+        return AutostartOutcome(status="blocked", reason=str(error.detail))
     except ReportChangedDuringAutostart:
         if remaining_retries:
             return await maybe_autostart_from_report_artefacts(

@@ -1997,6 +1997,7 @@ def create_and_run_task(
     # create_pr=False sessions (research, repo selection, custom agents) can never open the
     # billable PR, so the quota gate must not block them.
     if origin_product == Task.OriginProduct.SIGNAL_REPORT and create_pr:
+        enforce_self_driving_github_access(team.id, verify=False)
         # Distinct stage from create_task's `manual_create`: the main caller here is the
         # auto-start pipeline, whose over-quota hits must not pollute the manual-path
         # dark-launch bucket.
@@ -3453,6 +3454,14 @@ def _refresh_self_driving_quota_for_pr(run: TaskRun, old_pr_url: str | None) -> 
         transaction.on_commit(_dispatch)
     except Exception:
         logger.warning("self_driving_quota_refresh_failed", extra={"run_id": str(run.id)}, exc_info=True)
+
+
+def enforce_self_driving_github_access(team_id: int, *, verify: bool = True) -> None:
+    from products.tasks.backend.logic.repo_selection.github_readiness import (  # noqa: PLC0415 - keeps integration models off API startup
+        require_github_readiness,
+    )
+
+    require_github_readiness(team_id, verify=verify)
 
 
 def enforce_self_driving_free_trial(
@@ -8307,6 +8316,7 @@ def create_task(
         if signal_report_task_relationship in (None, "implementation") or is_pull_request_run_request(
             validated_data.get("description")
         ):
+            enforce_self_driving_github_access(team.id)
             enforce_self_driving_free_trial(team, report_id=signal_report_id)
     if refuse_without_repository and signal_report is not None:
         _capture_report_task_refused_without_repository(team=team, report_id=str(signal_report.id))
@@ -9139,6 +9149,7 @@ def _reserve_report_warm_activation(
     report_id = str(task.signal_report_id)
     enforce_self_driving_pr_quota(team, report_id=report_id)
     if is_pull_request_run_request(description):
+        enforce_self_driving_github_access(team.id)
         enforce_self_driving_free_trial(team, report_id=report_id)
     with transaction.atomic():
         enforce_report_task_cap(
@@ -9607,6 +9618,7 @@ def run_task(
             team_id=team_id, report_id=report_id_for_slot_check, task_id=str(task.id)
         )
         if is_implementation:
+            enforce_self_driving_github_access(team_id, verify=not pipeline_rerun)
             enforce_self_driving_free_trial(
                 Team.objects.select_related("organization").get(id=team_id),
                 report_id=report_id_for_slot_check,

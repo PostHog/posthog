@@ -45,6 +45,7 @@ from products.tasks.backend.temporal.process_task.activities.get_pr_context impo
 )
 from products.tasks.backend.temporal.process_task.activities.mark_pr_ready import MarkPrReadyInput, mark_pr_ready
 
+from .activities.check_github_readiness import check_self_driving_github_readiness
 from .activities.cleanup_sandbox import (
     CleanupSandboxInput,
     CompleteRunStreamInput,
@@ -1163,6 +1164,14 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         agent_shadow_task: asyncio.Task[None] | None = None
         self._agent_boot_interaction_telemetry_enabled = input.resumed_sandbox is None
         try:
+            if (
+                input.create_pr
+                and input.resumed_sandbox is None
+                and workflow.in_workflow()
+                and workflow.patched("self-driving-github-readiness")
+                and not await self._wait_for_github_readiness(input.run_id)
+            ):
+                return ProcessTaskOutput(success=False, error="Run cancelled while waiting for GitHub access")
             self._context = await self._get_task_processing_context(input)
             if self._stream_generation is not None:
                 self._context.stream_generation = self._stream_generation
@@ -1934,6 +1943,24 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._startup_context_loaded_at = (
             datetime.fromisoformat(resumed.startup_context_loaded_at) if resumed.startup_context_loaded_at else None
         )
+
+    async def _wait_for_github_readiness(self, run_id: str) -> bool:
+        while not self._task_completed:
+            readiness = await workflow.execute_activity(
+                check_self_driving_github_readiness,
+                run_id,
+                start_to_close_timeout=timedelta(minutes=5),
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
+            if readiness == "ready":
+                return True
+            if readiness == "cancelled":
+                return False
+            try:
+                await workflow.wait_condition(lambda: self._task_completed, timeout=timedelta(minutes=5))
+            except TimeoutError:
+                pass
+        return False
 
     async def _get_task_processing_context(self, input: ProcessTaskInput) -> TaskProcessingContext:
         context = await workflow.execute_activity(
