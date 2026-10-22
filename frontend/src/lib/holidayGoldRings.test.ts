@@ -117,6 +117,7 @@ describe('holiday gold rings keys', () => {
     })
 
     test('can opt out while typing in an input', () => {
+        jest.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation()
         const input = document.createElement('input')
         document.body.appendChild(input)
         const stopListening = listenForGoldRingsKeys(() => true)
