@@ -1903,6 +1903,10 @@ def _pin_events_route(run: _RunMethod) -> _RunMethod:
     return cast(_RunMethod, pinned)
 
 
+def _is_at_or_after(served_at: Optional[datetime], published_at: Optional[datetime]) -> bool:
+    return served_at is not None and published_at is not None and served_at >= published_at
+
+
 class QueryRunner(ABC, Generic[Q, R, CR]):
     query: Q
     response: R
@@ -2724,18 +2728,18 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     def _serve_flight_outcome(self, wait: FlightWait, cache_manager: QueryCache, *, query_run: QueryRun) -> CR:
         """Serve the entry the leader published, or fail the way it failed."""
         if wait.outcome == "done":
-            # Only the entry the leader published. Identity is settled by last_refresh, so the
-            # read ignores the request's freshness window: an entry a moment old is still the
-            # answer, whatever cache age was requested.
+            # The leader's entry, or a newer one another flight on this cache key wrote after it, which
+            # answers the same query. An older entry predates the leader and is refused. The read
+            # ignores the request's freshness window: an entry a moment old is still the answer,
+            # whatever cache age was requested.
             served = self.handle_cache_and_async_logic(
                 execution_mode=ExecutionMode.CACHE_ONLY_NEVER_CALCULATE,
                 cache_manager=cache_manager,
                 user=query_run.user,
                 analytics_props=query_run.analytics_props,
             )
-            if (
-                isinstance(served, self.cached_response_type)
-                and last_refresh_from_cached_result(served) == wait.last_refresh
+            if isinstance(served, self.cached_response_type) and _is_at_or_after(
+                last_refresh_from_cached_result(served), wait.last_refresh
             ):
                 QUERY_SINGLE_FLIGHT_COUNTER.labels(action="follower_served_cache").inc()
                 self._report_result_from_cache(served, query_run=query_run, execution_path="single_flight_follower")

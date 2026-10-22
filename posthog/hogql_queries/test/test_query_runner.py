@@ -2915,9 +2915,10 @@ class TestQuerySingleFlightRunner(BaseTest):
     )
     def test_follower_fails_instead_of_running_when_the_leader_leaves_nothing_to_serve(self, _name, wait_result):
         runner_class = setup_test_query_runner_class()
-        runner_class(query={"some_attr": "bla"}, team=self.team).run(
-            execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS
-        )  # fresh for this request, but not written by the leader
+        with time_machine.travel("2025-12-31T00:00:00Z", tick=False):
+            runner_class(query={"some_attr": "bla"}, team=self.team).run(
+                execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS
+            )  # an entry from before the leader, not one it wrote
 
         runner = runner_class(query={"some_attr": "bla"}, team=self.team)
         self._become_follower(wait_result)
@@ -2955,7 +2956,16 @@ class TestQuerySingleFlightRunner(BaseTest):
         mock_wait.assert_not_called()
         assert response.is_cached is False  # it led a flight of its own
 
-    def test_follower_serves_the_entry_the_leader_wrote(self):
+    @parameterized.expand(
+        [
+            ("the_leaders_entry", False, datetime(2026, 1, 1, 0, 0, 1, tzinfo=UTC)),
+            # Another flight on the same cache key, such as a run as another ClickHouse user, wrote after the leader.
+            ("a_newer_entry_from_another_flight", True, datetime(2026, 1, 1, 0, 0, 2, tzinfo=UTC)),
+        ]
+    )
+    def test_follower_serves_the_entry_the_leader_wrote(
+        self, _name: str, another_flight_writes_after: bool, served_at: datetime
+    ) -> None:
         runner_class = setup_test_query_runner_class()
         with time_machine.travel("2026-01-01T00:00:00Z", tick=False) as frozen:
             runner_class(query={"some_attr": "bla"}, team=self.team).run(
@@ -2968,6 +2978,11 @@ class TestQuerySingleFlightRunner(BaseTest):
                     leader_response = runner_class(query={"some_attr": "bla"}, team=self.team).run(
                         execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS
                     )
+                    if another_flight_writes_after:
+                        frozen.shift(timedelta(seconds=1))
+                        runner_class(query={"some_attr": "bla"}, team=self.team).run(
+                            execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS
+                        )
                 return FlightWait(outcome="done", last_refresh=leader_response.last_refresh)
 
             runner = runner_class(query={"some_attr": "bla"}, team=self.team)
@@ -2976,7 +2991,7 @@ class TestQuerySingleFlightRunner(BaseTest):
                 with mock.patch("posthog.hogql_queries.query_runner.report_user_or_team_action") as report:
                     response = runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
         assert response.is_cached is True
-        assert response.last_refresh == datetime(2026, 1, 1, 0, 0, 1, tzinfo=UTC)  # the leader's, not the earlier entry
+        assert response.last_refresh == served_at  # never the entry from before the leader
         assert report.call_args.args[0] == "query executed"
         assert report.call_args.args[1]["cache_hit"] is True
 
