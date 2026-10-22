@@ -201,6 +201,35 @@ class TestWarehouseAlerts(APIBaseTest):
         (group,) = self._only_outcome(evaluation).groups
         assert (group.kind, group.new_state, evaluation.deliveries) == (AlertEventKind.CHECK, "firing", ())
 
+    def test_a_billing_limit_resolution_keeps_labels_when_another_check_includes_limits(self) -> None:
+        schema = self._schema(self._source(prefix="prod"), "charges", Status.FAILED)
+        excluding_id = self._alert(SourceKind.WAREHOUSE_SOURCE, {"group_by": "schema"}, "schema_id")
+        including_id = self._alert(
+            SourceKind.WAREHOUSE_SOURCE,
+            {"group_by": "schema", "include_billing_limits": True},
+            "schema_id",
+        )
+        initial = self._evaluate(SourceKind.WAREHOUSE_SOURCE)
+        with team_scope(self.team.id):
+            record_outcomes(self.team.id, initial.outcomes, self.cutoff)
+            self.cutoff += timedelta(minutes=5)
+            for configuration_id in (excluding_id, including_id):
+                platform_testing.set_due_at(configuration_id, self.cutoff - timedelta(minutes=1))
+        ExternalDataSchema.objects.filter(id=schema.id).update(status=Status.BILLING_LIMIT_REACHED)
+
+        outcomes = {
+            outcome.configuration_id: outcome for outcome in self._evaluate(SourceKind.WAREHOUSE_SOURCE).outcomes
+        }
+
+        (resolved,) = outcomes[excluding_id].groups
+        assert (resolved.kind, resolved.labels["schema"], resolved.labels["source"]) == (
+            AlertEventKind.RESOLVED,
+            "charges",
+            "Postgres (prod)",
+        )
+        (still_firing,) = outcomes[including_id].groups
+        assert still_firing.kind == AlertEventKind.CHECK
+
     @parameterized.expand([("by_table", "schema", "schema_id"), ("by_source", "source", "source_id")])
     def test_a_failed_table_that_retries_stays_open_until_the_retry_ends(
         self, _name: str, group_by: str, grouping_key: str
