@@ -349,7 +349,9 @@ impl IngestionConsumer {
         tokio::pin!(poll_deadline);
         let mut accepting_new_batches = true;
         loop {
+            let mut submitted = false;
             while let Some(step) = poller.next_step(tokio::time::Instant::now()) {
+                submitted |= matches!(step, Step::Submit(_));
                 if let Err(failure) = self.carry_out(step, &mut poller) {
                     match failure {
                         Stopped::Drained => {}
@@ -358,6 +360,12 @@ impl IngestionConsumer {
                     }
                     return;
                 }
+            }
+            // rdkafka's stream spends none of tokio's budget, so a ready
+            // backlog keeps `recv` ready on every turn and this loop would
+            // never yield. The batcher runs on this runtime.
+            if submitted {
+                tokio::task::yield_now().await;
             }
 
             let deadline = poller.deadline();
