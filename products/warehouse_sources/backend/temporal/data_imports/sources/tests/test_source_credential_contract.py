@@ -395,6 +395,7 @@ OK_NEEDS_VENDOR_BODY: set[str] = {
     "Avalara",
     "AwsBudgets",
     "AwsComputeOptimizer",
+    "AwsCostAndUsageReport",
     "AzureApplicationInsights",
     "Bettermode",
     "BillCom",
