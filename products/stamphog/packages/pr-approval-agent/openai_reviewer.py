@@ -383,7 +383,7 @@ class OpenAIReviewer(Reviewer):
                 readable_diff = self._copy_diff_into_explore_root(original_diff)
             prompt = self._build_review_prompt(pr, classification, gate_context, readable_diff)
             client = self.client or self._new_client(pr, classification, gate_context)
-            turns = max_turns(classification, gate_context)
+            turns = max_turns(gate_context)
             return self._run_loop(client, prompt, turns, classification, head_reviewed=has_current_head_review(pr))
         finally:
             if readable_diff != original_diff:

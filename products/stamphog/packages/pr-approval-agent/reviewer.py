@@ -429,12 +429,12 @@ _INVOCATION_LINES = {
 }
 
 
-def max_turns(classification: dict, gate_context: dict) -> int:
+def max_turns(gate_context: dict) -> int:
     """The reviewer's turn budget for this PR."""
-    # Gate denials and trivial PRs don't need deep exploration —
-    # just read the diff and report.
-    quick = gate_context["gate_verdict"] == "DENIED" or classification.get("t1_subclass") == "T1a-trivial"
-    return 5 if quick else 20
+    # A gate denial only reports the diff. A trivial PR still gets the full budget: the reviewer
+    # reads the diff in its first turn and often checks a symbol in another file, so a small cap
+    # turns an approvable PR into an error.
+    return 5 if gate_context["gate_verdict"] == "DENIED" else 20
 
 
 class Reviewer:
@@ -507,7 +507,7 @@ class Reviewer:
             # ships in the head tree, regardless of CLI defaults.
             mcp_servers={},
             strict_mcp_config=True,
-            max_turns=max_turns(classification, gate_context),
+            max_turns=max_turns(gate_context),
             model=CLAUDE_REVIEWER_MODEL,
             permission_mode="dontAsk",
             output_format=FACTS_SCHEMA,
