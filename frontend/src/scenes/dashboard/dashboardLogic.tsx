@@ -380,7 +380,6 @@ export interface dashboardLogicValues {
     dashboardSettingsState: DashboardSettingsState
     dashboardStreaming: boolean
     dashboardTileSpacingSaving: boolean
-    dashboardWidgetsEnabled: boolean
     dataColorTheme: DataColorTheme | null
     dataColorThemeId: number | null
     effectiveBreakdownColors: BreakdownColorConfig[]
@@ -918,26 +917,6 @@ export interface dashboardLogicActions {
         editing: DashboardEditing | null
         source: DashboardEventSource
     }
-    setDashboardEditingFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    }
-    setDashboardEditingSuccess: (
-        dashboard: DashboardType | null,
-        payload?: {
-            editing: DashboardEditing | null
-            source: DashboardEventSource
-        }
-    ) => {
-        dashboard: DashboardType | null
-        payload?: {
-            editing: DashboardEditing | null
-            source: DashboardEventSource
-        }
-    }
     setDashboardGridCompaction: (layoutCompaction: DashboardGridCompaction) => {
         layoutCompaction: DashboardGridCompaction
     }
@@ -1315,11 +1294,6 @@ export interface dashboardLogicMeta {
         currentLayoutSize: (containerWidth: number | null) => 'sm' | 'xs'
         tiles: (dashboard: DashboardType | null) => DashboardTile[]
         widgetTiles: (tiles: DashboardTile[]) => DashboardTile[]
-        dashboardWidgetsEnabled: (
-            featureFlags: FeatureFlagsSet,
-            tiles: DashboardTile[],
-            placement: DashboardPlacement
-        ) => boolean
         insightTiles: (tiles: DashboardTile[]) => DashboardTile[]
         textTiles: (tiles: DashboardTile[]) => DashboardTile[]
         dashboardControlScopes: (insightTiles: DashboardTile[]) => Record<DashboardControl, DashboardControlScope>
@@ -1345,8 +1319,7 @@ export interface dashboardLogicMeta {
                     fetchedAt?: number
                     loading?: boolean
                 }
-            >,
-            dashboardWidgetsEnabled: boolean
+            >
         ) => number | null
         blockRefresh: (
             nextAllowedDashboardRefresh: Dayjs | null,
@@ -1361,7 +1334,6 @@ export interface dashboardLogicMeta {
                 }
             >,
             refreshEligibilityTick: number,
-            dashboardWidgetsEnabled: boolean,
             placement: DashboardPlacement,
             pageVisibility: boolean
         ) => boolean
@@ -1406,7 +1378,7 @@ export interface dashboardLogicMeta {
         ) => number | null
         dataColorTheme: (
             dataColorThemeId: number | null,
-            getTheme: (themeId: number | string | null | undefined) => DataColorTheme | null
+            getTheme: (themeId: number | string | null | undefined) => DataColorTheme | null // dataThemeLogic
         ) => DataColorTheme | null
         autoBreakdownColorsEnabled: (featureFlags: FeatureFlagsSet) => boolean
         breakdownValuesIncomplete: (itemsLoading: boolean, insightTiles: DashboardTile[]) => boolean
@@ -1963,25 +1935,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             tiles: [...(values.tiles || []), tile],
                         } as DashboardType
                     }
-                },
-                setDashboardEditing: async ({ editing, source }) => {
-                    if (
-                        editing === null &&
-                        source === DashboardEventSource.DashboardHeaderDiscardChanges &&
-                        values.dashboard?.tiles
-                    ) {
-                        // layout changes were discarded so need to reset to original state
-                        // (as a new object — selectors only recompute when the reference changes)
-                        return {
-                            ...values.dashboard,
-                            tiles: values.dashboard.tiles.map((tile) => ({
-                                ...tile,
-                                layouts: values.dashboardLayouts?.[tile.id],
-                            })),
-                        }
-                    }
-
-                    return values.dashboard
                 },
                 duplicateTile: async ({ tile }) => {
                     try {
@@ -3259,21 +3212,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
             (dashboard: DashboardType | null) => dashboard?.tiles?.filter((t) => !t.deleted) || [],
         ],
         widgetTiles: [(s) => [s.tiles], (tiles: DashboardTile[]) => tiles.filter((t) => !!t.widget)],
-        dashboardWidgetsEnabled: [
-            (s) => [s.featureFlags, s.tiles, s.placement],
-            (
-                featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet,
-                tiles: DashboardTile[],
-                placement: DashboardPlacement
-            ): boolean => {
-                // Shared dashboards don't receive team feature flags; render widget tiles when
-                // metadata is already present on the exported dashboard payload.
-                if (placement === DashboardPlacement.Public && tiles.some((tile) => !!tile.widget)) {
-                    return true
-                }
-                return !!featureFlags[FEATURE_FLAGS.DASHBOARD_WIDGETS]
-            },
-        ],
         insightTiles: [
             (s) => [s.tiles],
             (tiles: DashboardTile[]) => tiles.filter((t) => !!t.insight).filter((i) => !i.insight?.deleted),
@@ -3357,7 +3295,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             },
         ],
         nextWidgetStaleAt: [
-            (s) => [s.widgetTiles, s.widgetRefreshStatus, s.dashboardWidgetsEnabled],
+            (s) => [s.widgetTiles, s.widgetRefreshStatus],
             (
                 widgetTiles: DashboardTile[],
                 widgetRefreshStatus: Record<
@@ -3367,12 +3305,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         fetchedAt?: number
                         loading?: boolean
                     }
-                >,
-                dashboardWidgetsEnabled: boolean
+                >
             ): number | null => {
-                if (!dashboardWidgetsEnabled) {
-                    return null
-                }
                 const deadlines = widgetTiles
                     .map((tile) => {
                         const status = widgetRefreshStatus[tile.id]
@@ -3392,7 +3326,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 s.widgetTiles,
                 s.widgetRefreshStatus,
                 s.refreshEligibilityTick,
-                s.dashboardWidgetsEnabled,
                 s.placement,
                 s.pageVisibility,
             ],
@@ -3402,7 +3335,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 widgetTiles: DashboardTile[],
                 widgetRefreshStatus: Record<number, { loading?: boolean; error?: string | null; fetchedAt?: number }>,
                 _refreshEligibilityTick: number,
-                dashboardWidgetsEnabled: boolean,
                 placement: DashboardPlacement
             ) => {
                 return (
@@ -3411,13 +3343,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     !!nextAllowedDashboardRefresh &&
                     nextAllowedDashboardRefresh?.isAfter(now()) &&
                     !isEffectiveRefreshStale(effectiveLastRefresh) &&
-                    !(
-                        dashboardWidgetsEnabled &&
-                        widgetTiles.some((tile) => {
-                            const status = widgetRefreshStatus[tile.id]
-                            return !status?.error && isWidgetStale(status)
-                        })
-                    )
+                    !widgetTiles.some((tile) => {
+                        const status = widgetRefreshStatus[tile.id]
+                        return !status?.error && isWidgetStale(status)
+                    })
                 )
             },
         ],
@@ -4061,7 +3990,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             cache.widgetTileIdsBeforeDuplicate = new Set(values.widgetTiles.map((tile) => tile.id))
         },
         duplicateTileSuccess: ({ dashboard }) => {
-            if (!dashboard || !values.dashboardWidgetsEnabled) {
+            if (!dashboard) {
                 return
             }
 
@@ -4441,11 +4370,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         triggerDashboardRefresh: () => {
             actions.resetInterval()
             actions.refreshDashboardItems({ action: RefreshDashboardItemsAction.Refresh, forceRefresh: true })
-            if (
-                values.dashboardWidgetsEnabled &&
-                values.placement !== DashboardPlacement.Export &&
-                values.placement !== DashboardPlacement.Public
-            ) {
+            if (values.placement !== DashboardPlacement.Export && values.placement !== DashboardPlacement.Public) {
                 const widgetTileIds = values.widgetTiles.map((tile) => tile.id)
                 if (widgetTileIds.length > 0) {
                     actions.refreshDashboardWidgets({ tileIds: widgetTileIds, forceRefresh: true })
@@ -4745,11 +4670,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 actions.forceRefreshIfStale()
             }
 
-            if (
-                values.dashboardWidgetsEnabled &&
-                values.placement !== DashboardPlacement.Export &&
-                values.placement !== DashboardPlacement.Public
-            ) {
+            if (values.placement !== DashboardPlacement.Export && values.placement !== DashboardPlacement.Public) {
                 const widgetTileIds = values.widgetTiles.map((tile) => tile.id)
                 if (widgetTileIds.length > 0) {
                     actions.refreshDashboardWidgets({ tileIds: widgetTileIds, forceRefresh: !!forceRefresh })
@@ -4757,11 +4678,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
         },
         refreshDashboardWidgets: async ({ tileIds, forceRefresh }, breakpoint) => {
-            if (
-                values.placement === DashboardPlacement.Export ||
-                values.placement === DashboardPlacement.Public ||
-                !values.dashboardWidgetsEnabled
-            ) {
+            if (values.placement === DashboardPlacement.Export || values.placement === DashboardPlacement.Public) {
                 return
             }
 
@@ -4899,7 +4816,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
             exitFilterEditModeWhenSaved(values, actions)
         },
         saveLayoutChanges: () => {
-            actions.saveEditModeChanges('layout')
+            if (values.hasUnsavedLayoutChanges) {
+                actions.saveEditModeChanges('layout')
+            }
             actions.setLayoutZoom(1)
             if (values.dashboardSettingsState === 'unsavedChanges') {
                 actions.setDashboardEditing({ filters: true, layout: false }, DashboardEventSource.DashboardFilters)
@@ -4914,7 +4833,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
             actions.cancelLayoutEdit()
         },
         saveLayout: () => {
-            actions.saveEditModeChanges('layout')
+            if (values.hasUnsavedLayoutChanges) {
+                actions.saveEditModeChanges('layout')
+            }
             actions.setLayoutZoom(1)
             if (values.dashboardSettingsState === 'unsavedChanges') {
                 actions.setDashboardEditing({ filters: true, layout: false }, DashboardEventSource.DashboardFilters)
@@ -5032,6 +4953,22 @@ export const dashboardLogic = kea<dashboardLogicType>([
             })
         },
         setDashboardEditing: async ({ editing, source }) => {
+            if (
+                editing === null &&
+                source === DashboardEventSource.DashboardHeaderDiscardChanges &&
+                values.dashboard?.tiles
+            ) {
+                actions.applyDashboardUpdate(
+                    {
+                        ...values.dashboard,
+                        tiles: values.dashboard.tiles.map((tile) => ({
+                            ...tile,
+                            layouts: values.dashboardLayouts[tile.id],
+                        })),
+                    },
+                    values.dashboardLayouts
+                )
+            }
             if (editing?.layout && source !== DashboardEventSource.DashboardHeaderDiscardChanges) {
                 clearDOMTextSelection()
                 lemonToast.info('Now editing the dashboard – press E or click Save to persist changes')
@@ -5356,7 +5293,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         .length ?? 0,
             })
 
-            if (values.canAutoPreview) {
+            // The builtin placement has no Preview button, so a selection there always applies.
+            if (values.canAutoPreview || values.placement === DashboardPlacement.Builtin) {
                 actions.refreshDashboardItems({
                     action: RefreshDashboardItemsAction.Preview,
                     forceRefresh: false,

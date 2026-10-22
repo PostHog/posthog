@@ -45,10 +45,10 @@ export function resolveResizeHandleDirection(
     clientY: number
 ): string {
     // Corner presses already name the diagonal handle directly.
-    if (['nw', 'ne', 'sw', 'se'].includes(edge)) {
+    if (edge === 'sw' || edge === 'se') {
         return edge
     }
-    if (edge === 'n' || edge === 's') {
+    if (edge === 's') {
         if (clientX - rect.left <= CORNER_THRESHOLD_PX) {
             return `${edge}w`
         }
@@ -56,9 +56,6 @@ export function resolveResizeHandleDirection(
             return `${edge}e`
         }
         return edge
-    }
-    if (clientY - rect.top <= CORNER_THRESHOLD_PX) {
-        return `n${edge}`
     }
     if (rect.bottom - clientY <= CORNER_THRESHOLD_PX) {
         return `s${edge}`
@@ -71,48 +68,106 @@ export function resolveResizeHandleDirection(
  * before edit mode rendered continues without the user having to release and press again. react-grid-layout
  * only listens for mousedown while drag/resize is enabled, so the original press never reaches it.
  */
-function replayMouseDown(event: ReactMouseEvent, findTarget: () => Element | null, pointerNow: MouseEvent): void {
+function replayMouseDown(
+    event: ReactMouseEvent,
+    gridItem: Element,
+    findTarget: () => Element | null,
+    activeClass: 'resizing' | 'react-draggable-dragging',
+    pointerNow: MouseEvent
+): void {
     const { clientX, clientY, button } = event
     let cancelled = false
+    let latestPointer = pointerNow
+    let frame: number | undefined
+    let observer: MutationObserver | undefined
+    let framesLeft = MAX_FRAMES_TO_WAIT
+    let pressedTarget: Element | null = null
+
+    const cleanup = (): void => {
+        if (frame !== undefined) {
+            cancelAnimationFrame(frame)
+        }
+        observer?.disconnect()
+        window.removeEventListener('mousemove', trackPointer, { capture: true })
+        window.removeEventListener('mouseup', cancel, { capture: true })
+    }
     const cancel = (): void => {
         cancelled = true
+        cleanup()
     }
-    // If the button is released before edit mode renders, replaying would leave a drag/resize stuck "in progress"
-    window.addEventListener('mouseup', cancel, { capture: true, once: true })
-
-    let framesLeft = MAX_FRAMES_TO_WAIT
-    const tryReplay = (): void => {
-        if (cancelled) {
+    const trackPointer = (moveEvent: MouseEvent): void => {
+        latestPointer = moveEvent
+        if (!(moveEvent.buttons & 1)) {
+            cancel()
+            pressedTarget?.ownerDocument.dispatchEvent(
+                new MouseEvent('mouseup', { bubbles: true, cancelable: true, view: window, button })
+            )
+        }
+    }
+    const replayMove = (): void => {
+        if (cancelled || !pressedTarget) {
             return
         }
-        const target = findTarget()
-        if (!target) {
-            framesLeft -= 1
-            if (framesLeft > 0) {
-                requestAnimationFrame(tryReplay)
-            } else {
-                window.removeEventListener('mouseup', cancel, { capture: true })
-            }
+        if (!pressedTarget.isConnected) {
+            cancel()
             return
         }
-        window.removeEventListener('mouseup', cancel, { capture: true })
-        target.dispatchEvent(
-            new MouseEvent('mousedown', { bubbles: true, cancelable: true, view: window, clientX, clientY, button })
-        )
-        // Replaying the press at its origin keeps the tile from jumping, but leaves react-grid-layout
-        // believing the pointer never moved. This hands it the travel it missed.
-        target.ownerDocument.dispatchEvent(
+        if (!gridItem.classList.contains(activeClass)) {
+            return
+        }
+        cleanup()
+        cancelled = true
+        pressedTarget.ownerDocument.dispatchEvent(
             new MouseEvent('mousemove', {
                 bubbles: true,
                 cancelable: true,
                 view: window,
-                clientX: pointerNow.clientX,
-                clientY: pointerNow.clientY,
+                clientX: latestPointer.clientX,
+                clientY: latestPointer.clientY,
                 button,
+                buttons: 1,
             })
         )
     }
-    requestAnimationFrame(tryReplay)
+    const tryReplay = (): void => {
+        if (cancelled) {
+            return
+        }
+        if (!pressedTarget) {
+            pressedTarget = findTarget()
+            if (pressedTarget) {
+                observer = new MutationObserver(replayMove)
+                observer.observe(gridItem, { attributes: true, attributeFilter: ['class'] })
+                pressedTarget.dispatchEvent(
+                    new MouseEvent('mousedown', {
+                        bubbles: true,
+                        cancelable: true,
+                        view: window,
+                        clientX,
+                        clientY,
+                        button,
+                        buttons: 1,
+                    })
+                )
+            }
+        }
+        replayMove()
+        if (cancelled) {
+            return
+        }
+        framesLeft -= 1
+        if (framesLeft > 0) {
+            frame = requestAnimationFrame(tryReplay)
+        } else {
+            cleanup()
+            pressedTarget?.ownerDocument.dispatchEvent(
+                new MouseEvent('mouseup', { bubbles: true, cancelable: true, view: window, button })
+            )
+        }
+    }
+    window.addEventListener('mouseup', cancel, { capture: true, once: true })
+    window.addEventListener('mousemove', trackPointer, { capture: true })
+    frame = requestAnimationFrame(tryReplay)
 }
 
 /** Continue a press on a tile edge into a live resize once edit mode's resize handles have rendered. */
@@ -127,7 +182,16 @@ export function continueResizeGestureInEditMode(
     }
     const rect = gridItem.getBoundingClientRect()
     const direction = resolveResizeHandleDirection(edge, rect, event.clientX, event.clientY)
-    replayMouseDown(event, () => gridItem.querySelector(`.react-resizable-handle-${direction}`), pointerNow)
+    replayMouseDown(
+        event,
+        gridItem,
+        () =>
+            gridItem.closest('.react-grid-layout.dashboard-edit-mode')
+                ? gridItem.querySelector(`.react-resizable-handle-${direction}`)
+                : null,
+        'resizing',
+        pointerNow
+    )
 }
 
 /** Continue a press on a tile's drag handle into a live drag once edit mode has enabled dragging. */
@@ -139,9 +203,11 @@ export function continueDragGestureInEditMode(event: ReactMouseEvent, pointerNow
     }
     replayMouseDown(
         event,
+        gridItem,
         () =>
             // the grid signals that dragging is live by swapping to the edit-mode class
             target.isConnected && gridItem.closest('.react-grid-layout.dashboard-edit-mode') ? target : null,
+        'react-draggable-dragging',
         pointerNow
     )
 }

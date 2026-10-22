@@ -53,7 +53,8 @@ enum Container {
     },
 }
 
-/// Which contract object a container opened under `parent` is, so percentages are found by place.
+/// Which contract object a container opened under `parent` is. The two-decimal check applies
+/// only to percentages directly in a rule, variant or holdout, not inside values or metadata.
 fn kind_of(parent: Option<&Container>, depth: usize, opens_object: bool) -> Kind {
     let (parent_kind, key) = match parent {
         Some(Container::Object { kind, key, .. }) => (*kind, key.as_str()),

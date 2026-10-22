@@ -373,6 +373,26 @@ class TestFiltersValidation(SimpleTestCase):
             "services/mcp/tests/unit/preserve-group-targeting.test.ts, then this assertion."
         )
 
+    @parameterized.expand([("serde_guard", set()), ("structural", {"*"})])
+    def test_property_type_rejection_detail_starts_with_the_property_path(
+        self, _name: str, enforced_rules: set[str]
+    ) -> None:
+        filters = {
+            "groups": [
+                {"properties": [], "rollout_percentage": 100},
+                {"properties": [{"key": "plan", "operator": "exact", "value": "pro"}], "rollout_percentage": 100},
+            ]
+        }
+        with override_settings(FEATURE_FLAG_FILTERS_ENFORCED_RULES=enforced_rules):
+            serializer = FeatureFlagSerializer(data={"filters": filters}, partial=True)
+            assert not serializer.is_valid()
+        assert str(serializer.errors["filters"][0]).startswith("groups[1].properties[0].type: "), (
+            "services/mcp/src/tools/featureFlags/updateFeatureFlagHooks.ts matches this prefix "
+            "(PROPERTY_TYPE_REJECTION) to add a recovery step to the update-feature-flag error. "
+            "If the prefix changes, update that regex and "
+            "services/mcp/tests/unit/update-feature-flag-preserving-groups.test.ts, then this assertion."
+        )
+
 
 class TestRejectSerdeUnsafeFilters(SimpleTestCase):
     # The only cache-poisoning guard that runs while the enforcement switch is off, and the
