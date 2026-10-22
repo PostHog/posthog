@@ -21,6 +21,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.preaggregation.sql import DISTRIBUTED_PREAGGREGATION_RESULTS_TABLE
+from posthog.models.instance_setting import override_instance_config
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 
 from products.analytics_platform.backend.lazy_computation.computation_notifications import (
@@ -1289,6 +1290,34 @@ class TestEnsurePrecomputed(ClickhouseTestMixin, BaseTest):
         )
         assert restored_result.ready is True
         assert restored_result.job_ids == [first_job_id]
+
+    @parameterized.expand(
+        [
+            ("flag_off", False, "$pageview", False),
+            ("flag_on", True, "$pageview", True),
+            ("flag_on_flag_called", True, "$feature_flag_called", False),
+        ]
+    )
+    def test_native_events_precompute_teams_build_from_events_json_in_own_jobs(
+        self, _name: str, flag: bool, event: str, native: bool
+    ) -> None:
+        query = self.MANUAL_INSERT_QUERY.replace("'$pageview'", f"'{event}'")
+        start, end = datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 1, 2, tzinfo=UTC)
+        legacy = ensure_precomputed(team=self.team, insert_query=query, time_range_start=start, time_range_end=end)
+
+        with (
+            override_instance_config("CLICKHOUSE_NATIVE_EVENTS_PRECOMPUTE_TEAMS", [self.team.pk] if flag else []),
+            patch(
+                "products.analytics_platform.backend.lazy_computation.lazy_computation_executor.sync_execute",
+                return_value=0,
+            ) as insert,
+        ):
+            result = ensure_precomputed(team=self.team, insert_query=query, time_range_start=start, time_range_end=end)
+
+        assert (result.job_ids != legacy.job_ids) is native
+        assert insert.called is native
+        if native:
+            assert "events_json" in insert.call_args.args[0]
 
     def test_creates_jobs_for_missing_ranges(self):
         # Create job for Jan 1 only

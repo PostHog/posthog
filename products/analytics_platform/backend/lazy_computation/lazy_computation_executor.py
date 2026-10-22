@@ -28,15 +28,19 @@ from posthog.hogql.constants import (
     get_default_hogql_global_settings,
 )
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.flag_called_warnings import FLAG_CALLED_EVENT
+from posthog.hogql.metadata import get_table_names
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
 from posthog.hogql.placeholders import replace_placeholders
 from posthog.hogql.printer import prepare_and_print_ast
+from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.preaggregation.sql import DISTRIBUTED_PREAGGREGATION_RESULTS_TABLE
 from posthog.clickhouse.query_tagging import tags_context
 from posthog.dataclasses import frozen
+from posthog.models.event.new_events_schema import native_events_precompute_enabled, use_new_events_schema
 from posthog.models.team import Team
 from posthog.settings import DEBUG, HOGQL_INCREASED_MAX_EXECUTION_TIME, TEST
 from posthog.utils import relative_date_parse_with_delta_mapping
@@ -1647,6 +1651,36 @@ class LazyComputationExecutor:
         return pubsub.get_message(timeout=timeout)
 
 
+class _ConstantFinder(TraversingVisitor):
+    def __init__(self, value: str) -> None:
+        super().__init__()
+        self.value = value
+        self.found = False
+
+    def visit_constant(self, node: ast.Constant) -> None:
+        if node.value == self.value:
+            self.found = True
+
+
+def _with_precompute_events_table(
+    team: Team,
+    query: ast.SelectQuery,
+    modifiers: HogQLQueryModifiers | None,
+    cache_key_context: dict[str, str] | None,
+) -> tuple[HogQLQueryModifiers | None, dict[str, str] | None]:
+    if "events" not in get_table_names(query):
+        return modifiers, cache_key_context
+    flag_called = _ConstantFinder(FLAG_CALLED_EVENT)
+    flag_called.visit(query)
+    if not flag_called.found and native_events_precompute_enabled(team.pk):
+        modifiers = (modifiers or create_default_modifiers_for_team(team)).model_copy(
+            update={"useNewEventsSchema": True}
+        )
+    if not use_new_events_schema(team.pk, create_default_modifiers_for_team(team, modifiers)):
+        return modifiers, cache_key_context
+    return modifiers, {**(cache_key_context or {}), "events_table": "events_json"}
+
+
 def ensure_precomputed(
     team: Team,
     insert_query: str | ast.SelectQuery,
@@ -1809,6 +1843,7 @@ def ensure_precomputed(
         **caller_sentinels,
     }
     parsed_for_hash = _resolve_insert_query(insert_query, hash_placeholders)
+    modifiers, cache_key_context = _with_precompute_events_table(team, parsed_for_hash, modifiers, cache_key_context)
 
     query_info = LazyComputationQuery(
         query=parsed_for_hash,

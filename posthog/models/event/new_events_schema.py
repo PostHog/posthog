@@ -133,6 +133,11 @@ def use_new_events_cluster(team_id: int | None, modifiers: "HogQLQueryModifiers 
     return True
 
 
+def native_events_precompute_enabled(team_id: int) -> bool:
+    allowed = get_instance_setting("CLICKHOUSE_NATIVE_EVENTS_PRECOMPUTE_TEAMS")
+    return isinstance(allowed, list) and team_id in allowed
+
+
 def use_new_events_schema(team_id: int | None = None, modifiers: "HogQLQueryModifiers | None" = None) -> bool:
     """Whether HogQL reads should target the native-JSON events tables.
 
