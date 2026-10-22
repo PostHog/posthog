@@ -46,7 +46,7 @@ def _user_flag(enabled: bool = True) -> Any:
     )
 
 
-@override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False, CLICKHOUSE_NATIVE_EVENTS_HOST="native.example.com")
+@override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
 class TestNewEventsClusterRouting(SimpleTestCase):
     def setUp(self) -> None:
         self.team = Team(id=44, modifiers={}, organization=Organization(id=1))
@@ -412,7 +412,7 @@ class TestNewEventsClusterRouting(SimpleTestCase):
                 execute.assert_not_called()
 
 
-@override_settings(CLICKHOUSE_NATIVE_EVENTS_HOST="native.example.com", CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
+@override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
 class TestNewEventsClusterPilot(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
@@ -421,7 +421,7 @@ class TestNewEventsClusterPilot(APIBaseTest):
         self.enterContext(override_instance_config("CLICKHOUSE_NATIVE_EVENTS_ASYNC", True))
         self.enterContext(override_instance_config("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA", False))
 
-    def _run_query(self, query: dict, refresh: str = "force_blocking", async_: bool = False):
+    def _run_query(self, query: dict[str, Any], refresh: str = "force_blocking", async_: bool = False) -> Any:
         return self.client.post(
             f"/api/projects/{self.team.id}/query/",
             {"query": query, "refresh": refresh, "async": async_},
@@ -434,7 +434,7 @@ class TestNewEventsClusterPilot(APIBaseTest):
             ("property_values", {"kind": "PropertyValuesQuery", "property_type": "event", "property_key": "browser"}),
         ]
     )
-    def test_every_allowed_typed_query_reads_only_the_native_cluster(self, _name: str, query: dict[str, Any]) -> None:
+    def test_core_typed_queries_read_only_the_native_cluster(self, _name: str, query: dict[str, Any]) -> None:
         with patch("posthog.hogql.query.sync_execute", return_value=([], [])) as execute:
             response = self._run_query({**query, "modifiers": {"useNewEventsCluster": True}})
         self.assertEqual(response.status_code, 200, response.json())
@@ -494,7 +494,7 @@ class TestNewEventsClusterPilot(APIBaseTest):
         async_: bool = False,
     ) -> None:
         query = {"kind": "HogQLQuery", "query": sql} if isinstance(sql, str) else sql
-        unsupported = native_cluster and query["kind"] != "HogQLQuery"
+        unsupported = native_cluster and query["kind"] == "GroupsQuery"
         asynchronous = refresh == "force_async" or async_
         with (
             override_instance_config("CLICKHOUSE_NATIVE_EVENTS_TEAMS", [self.team.pk] if eligible else []),
