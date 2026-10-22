@@ -12,7 +12,6 @@ import posthoganalytics
 from products.signals.backend.enums import SignalSourceProduct
 from products.signals.backend.free_trial import SELF_DRIVING_FREE_TRIAL_FLAG
 from products.signals.backend.models import SignalReport, SignalScoutRun, SignalSpend
-from products.signals.backend.pricing import cost_to_spend
 
 logger = structlog.get_logger(__name__)
 USAGE_BILLING_FLAG = "self-driving-usage-based-billing"
@@ -85,15 +84,13 @@ def spend_billing_credits_by_team(begin: datetime, end: datetime, *, cutoffs: di
         SignalSpend.objects.unscoped()
         .filter(eligible, finalized_at__gte=begin, finalized_at__lt=end, billing_exempt=False)
         .values("team_id", day=TruncDate("finalized_at", tzinfo=UTC))
-        .annotate(token_cost=Sum("token_cost_microusd"), total_task_count=Sum("task_count"))
+        .annotate(total_spend=Sum("spend"))
     )
     credits: dict[int, int] = {}
     # Round once per team/day, so a period recount equals the daily reports billing sums.
     for total in totals.iterator(chunk_size=1000):
         team_id = total["team_id"]
-        credits[team_id] = credits.get(team_id, 0) + round(
-            cost_to_spend(total["token_cost"], task_count=total["total_task_count"])
-        )
+        credits[team_id] = credits.get(team_id, 0) + round(total["total_spend"])
     return {team_id: amount for team_id, amount in credits.items() if amount}
 
 

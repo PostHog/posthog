@@ -120,6 +120,7 @@ from products.signals.backend.temporal.summary import (
     publish_report_spend_activity,
     report_has_assigned_signals_activity,
     report_is_candidate_activity,
+    report_spend_owner_activity,
     reset_report_to_potential_activity,
     revert_report_to_candidate_activity,
 )
@@ -195,6 +196,7 @@ ACTIVITIES = [
     report_is_candidate_activity,
     publish_report_completed_activity,
     publish_report_spend_activity,
+    report_spend_owner_activity,
     report_has_assigned_signals_activity,
     revert_report_to_candidate_activity,
     delete_team_reports_activity,

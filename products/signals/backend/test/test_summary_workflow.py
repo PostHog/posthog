@@ -262,6 +262,10 @@ async def _run_summary_workflow(recorder: _Recorder) -> None:
         recorder.assigned_signal_checks += 1
         return recorder.has_assigned_signals
 
+    @activity.defn(name="report_spend_owner_activity")
+    async def fake_spend_owner(input: SignalReportSummaryWorkflowInputs) -> str:
+        return input.report_id
+
     @activity.defn(name="mark_report_in_progress_activity")
     async def fake_mark_in_progress(input: MarkReportInProgressInput) -> None:
         recorder.marks_in_progress += 1
@@ -338,6 +342,7 @@ async def _run_summary_workflow(recorder: _Recorder) -> None:
                 fake_fetch,
                 fake_has_assigned_signals,
                 fake_mark_in_progress,
+                fake_spend_owner,
                 fake_safety,
                 fake_select_repo,
                 fake_research,

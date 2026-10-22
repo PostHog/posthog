@@ -3826,12 +3826,9 @@ class SignalSpend(TeamScopedRootMixin, UUIDModel):
     scout_run = models.ForeignKey(
         SignalScoutRun, on_delete=models.DO_NOTHING, db_constraint=False, null=True, blank=True, related_name="+"
     )
-    report_id = models.UUIDField(null=True, blank=True, db_index=True)
     task_run_ids = ArrayField(models.UUIDField(), default=list)
-    llm_cost_microusd = models.BigIntegerField(default=0)
     llm_failed_stages = ArrayField(models.CharField(max_length=100), default=list)
-    token_cost_microusd = models.BigIntegerField(default=0)
-    task_count = models.PositiveIntegerField(default=0)
+    spend = models.DecimalField(max_digits=20, decimal_places=4, default=0, help_text="Customer spend in USD cents")
     accounting_failed = models.BooleanField(default=False)
     finalized_at = models.DateTimeField(null=True, blank=True, db_index=True)
     billing_exempt = models.BooleanField(default=False)
@@ -3853,9 +3850,7 @@ class SignalSpend(TeamScopedRootMixin, UUIDModel):
                 ),
                 name="signals_owner_spend_one_owner",
             ),
-            models.CheckConstraint(
-                condition=models.Q(token_cost_microusd__gte=0), name="signals_owner_spend_nonnegative"
-            ),
+            models.CheckConstraint(condition=models.Q(spend__gte=0), name="signals_owner_spend_nonnegative"),
         ]
 
 

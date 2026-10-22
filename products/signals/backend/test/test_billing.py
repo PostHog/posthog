@@ -592,8 +592,8 @@ class TestSpendBasedBilling(BaseTest):
             assert self.team.api_token in list_limited_team_attributes(
                 QuotaResource.SIGNALS_CREDITS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
             )
-        with self.assertRaises(BillingExemptionError):
-            mark_report_billing_exempt(report, SignalReport.BillingExemptReason.POSTHOG_SYSTEM)
+        mark_report_billing_exempt(report, SignalReport.BillingExemptReason.POSTHOG_SYSTEM)
+        assert self._day(10) == {self.team.id: 20}
         with time_machine.travel(_at(11), tick=False):
             assert dict(get_teams_with_signals_credits_used_in_period(_at(10, 0), _at(11, 0))) == {self.team.id: 20}
 
@@ -668,7 +668,7 @@ class TestSpendBasedBilling(BaseTest):
             )
             _make_pr_run(self.team, report, created_at=_at(10))
             complete_signal_pipeline(team_id=self.team.id, signal_id=signal_id, report_id=str(report.id))
-            finish_report_spend(team_id=self.team.id, report_id=str(report.id))
+            finish_report_spend(team_id=self.team.id, signal_id=signal_id, report_id=str(report.id))
         expected = 1535 if existing_work == "report" else 25
         assert self._day(10) == {self.team.id: expected}
         assert first_billable_pr_run(report.id) is None  # The fixed-PR refund must not issue 1,500 credits.
@@ -727,7 +727,7 @@ class TestSpendBasedBilling(BaseTest):
             )
         assert self._day(10) == {}
         spend = SignalSpend.objects.for_team(self.team.id).get(signal_id=signal_id)
-        assert spend.token_cost_microusd == 100_000
+        assert spend.spend == 10
         self.assertIsNotNone(spend.finalized_at)
 
     @parameterized.expand([("trial", True), ("unknown", None)])
@@ -748,7 +748,7 @@ class TestSpendBasedBilling(BaseTest):
             team=self.team, task_run=run, skill_name="synthetic-scout", skill_version=1
         )
         SignalSpend.objects.for_team(self.team.id).create(
-            team=self.team, scout_run=scout, finalized_at=_at(10), task_count=1
+            team=self.team, scout_run=scout, finalized_at=_at(10), spend=4
         )
         scout.delete()
         assert self._day(10) == {self.team.id: 4}
@@ -759,11 +759,11 @@ class TestSpendBasedBilling(BaseTest):
             self._generation(signal_id, 100_000)
             complete_signal_pipeline(team_id=self.team.id, signal_id=signal_id)
         with time_machine.travel(_at(11), tick=False):
-            SignalSpend.objects.for_team(self.team.id).filter(signal_id=signal_id).update(llm_cost_microusd=90_000)
+            self._generation(signal_id, 90_000)
             complete_signal_pipeline(team_id=self.team.id, signal_id=signal_id)
         spend = SignalSpend.objects.for_team(self.team.id).get(signal_id=signal_id)
         assert not spend.accounting_failed
         self.assertIsNotNone(spend.finalized_at)
-        assert spend.token_cost_microusd == 100_000
+        assert spend.spend == 10
         assert self._day(10) == {self.team.id: 10}
         assert self._day(11) == {}

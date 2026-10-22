@@ -47,7 +47,7 @@ from collections.abc import Sequence
 from datetime import datetime
 from typing import TYPE_CHECKING, NamedTuple
 
-from django.db.models import F, Min, OuterRef, Q, QuerySet, Subquery, Sum
+from django.db.models import F, Min, OuterRef, QuerySet, Subquery, Sum
 from django.utils import timezone
 
 from dateutil.relativedelta import relativedelta
@@ -184,19 +184,6 @@ def mark_report_billing_exempt(report: SignalReport, reason: str) -> bool:
         raise ValueError(f"Unknown billing exemption reason: {reason!r}")
     if report.billing_exempt_reason:
         return False
-    cutoff = usage_billing_cutoff(report.team.organization_id)
-    if cutoff is not None and (
-        SignalSpend.objects.for_team(report.team_id)
-        .filter(
-            Q(token_cost_microusd__gt=0) | Q(task_count__gt=0),
-            report_id=report.id,
-            created_at__gte=cutoff,
-            finalized_at__isnull=False,
-            billing_exempt=False,
-        )
-        .exists()
-    ):
-        raise BillingExemptionError(f"Report {report.id} already has recognized usage; use a billing credit instead.")
     if first_billable_pr_run_at(report.id) is not None:
         raise BillingExemptionError(
             f"Report {report.id} already has a billable PR run; use a refund instead of a billing exemption."

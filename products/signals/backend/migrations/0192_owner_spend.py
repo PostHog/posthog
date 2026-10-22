@@ -28,12 +28,10 @@ class Migration(migrations.Migration):
                     ),
                 ),
                 ("signal_id", models.UUIDField(blank=True, null=True)),
-                ("report_id", models.UUIDField(blank=True, db_index=True, null=True)),
                 (
                     "task_run_ids",
                     django.contrib.postgres.fields.ArrayField(base_field=models.UUIDField(), default=list, size=None),
                 ),
-                ("llm_cost_microusd", models.BigIntegerField(default=0)),
                 (
                     "llm_failed_stages",
                     django.contrib.postgres.fields.ArrayField(
@@ -41,8 +39,12 @@ class Migration(migrations.Migration):
                     ),
                 ),
                 ("billing_exempt", models.BooleanField(default=False)),
-                ("token_cost_microusd", models.BigIntegerField(default=0)),
-                ("task_count", models.PositiveIntegerField(default=0)),
+                (
+                    "spend",
+                    models.DecimalField(
+                        max_digits=20, decimal_places=4, default=0, help_text="Customer spend in USD cents"
+                    ),
+                ),
                 ("accounting_failed", models.BooleanField(default=False)),
                 (
                     "finalized_at",
@@ -94,7 +96,7 @@ class Migration(migrations.Migration):
                         name="signals_owner_spend_one_owner",
                     ),
                     models.CheckConstraint(
-                        condition=models.Q(("token_cost_microusd__gte", 0)),
+                        condition=models.Q(("spend__gte", 0)),
                         name="signals_owner_spend_nonnegative",
                     ),
                 ],

@@ -270,6 +270,5 @@ class TestScoutSpendSettlement(BaseTest):
         scout.refresh_from_db()
         self.assertIsNotNone(spend.finalized_at)
         assert not spend.accounting_failed
-        assert spend.token_cost_microusd == 150
-        assert spend.task_count == 1
+        assert spend.spend == Decimal("4.015")
         assert scout.total_spend == Decimal("4.0150")

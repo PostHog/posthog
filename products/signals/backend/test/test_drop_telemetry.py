@@ -72,7 +72,7 @@ async def test_capture_signal_dropped_activity_emits_event(ateam):
     capture.assert_called_once()
     spend = await database_sync_to_async(lambda: SignalSpend.objects.for_team(ateam.id).get(signal_id=signal_id))()
     assert spend.finalized_at is not None
-    assert spend.token_cost_microusd == 0
+    assert spend.spend == 0
     kwargs = capture.call_args.kwargs
     assert kwargs["event"] == "signal_dropped"
     assert kwargs["distinct_id"] == str(ateam.uuid)

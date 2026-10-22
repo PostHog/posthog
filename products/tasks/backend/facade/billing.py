@@ -11,6 +11,7 @@ from products.tasks.backend.logic.services.gateway_usage import (
     get_task_run_token_cost_microusd,
     get_task_run_token_usage,
     get_task_runs_spend,
+    locked_task_run_spend,
     process_pending_gateway_usage,
 )
 from products.tasks.backend.logic.services.sandbox_pricing import ComputeRateCardConfigurationError
@@ -50,5 +51,6 @@ __all__ = [
     "get_task_run_token_cost_microusd",
     "get_task_run_token_usage",
     "get_task_runs_spend",
+    "locked_task_run_spend",
     "process_pending_gateway_usage",
 ]

@@ -5090,7 +5090,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
             team=team,
             signal_id=uuid4(),
             finalized_at=period.start,
-            token_cost_microusd=150_000,
+            spend=15,
         )
         SignalReport.objects.filter(id=report.id).update(created_at=period.start - relativedelta(days=1))
         with (

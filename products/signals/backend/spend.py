@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import field
 from datetime import timedelta
+from decimal import Decimal
 from typing import TYPE_CHECKING
 from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
@@ -155,16 +156,15 @@ async def publish_signal_spend(*, team_id: int, signal_id: str, wait_for_complet
 
 @frozen
 class _SpendTotals:
-    cost_microusd: int
+    spend: Decimal
     task_run_ids: list[UUID]
-    task_count: int
     failed_stages: list[str]
     tasks_finished: bool
 
     @property
     def summary(self) -> SignalSpendSummary:
         return SignalSpendSummary(
-            total_spend=float(cost_to_spend(self.cost_microusd, task_count=self.task_count)),
+            total_spend=float(self.spend),
             failed_stages=self.failed_stages,
         )
 
@@ -182,17 +182,28 @@ def _calculate_spend(spend: SignalSpend) -> _SpendTotals:
     runs = get_task_runs_spend(team_id=spend.team_id, run_ids=task_run_ids)
     task_costs = {str(receipt.source_id): receipt.token_cost_microusd or 0 for receipt in legacy if receipt.is_task}
     failed_stages = set(spend.llm_failed_stages)
+    if len(runs) != len(task_run_ids):
+        failed_stages.add("scout" if spend.scout_run_id else "task")
     failed_stages.update(receipt.stage for receipt in legacy if receipt.accounting_failed)
     for run in runs:
         task_costs[str(run.run_id)] = max(task_costs.get(str(run.run_id), 0), run.cost_microusd or 0)
         if not run.complete:
             failed_stages.add("scout" if spend.scout_run_id else run.stage)
-    cost = spend.llm_cost_microusd + sum(receipt.token_cost_microusd or 0 for receipt in legacy if not receipt.is_task)
-    cost += sum(task_costs.values())
+    amount = spend.spend
+    if (
+        legacy
+        and spend.signal_id
+        and spend.created_at is not None
+        and min(receipt.created_at for receipt in legacy) > spend.created_at
+    ):
+        failed_stages.add("legacy_cutover")
+    elif legacy:
+        # Existing owners retain source accounting until old workers have drained.
+        cost = sum(receipt.token_cost_microusd or 0 for receipt in legacy if not receipt.is_task)
+        amount = cost_to_spend(cost + sum(task_costs.values()), task_count=len(task_run_ids))
     return _SpendTotals(
-        cost_microusd=cost,
+        spend=amount,
         task_run_ids=task_run_ids,
-        task_count=len(task_costs),
         failed_stages=sorted(failed_stages),
         tasks_finished=all(run.is_terminal for run in runs),
     )
@@ -200,13 +211,10 @@ def _calculate_spend(spend: SignalSpend) -> _SpendTotals:
 
 def _save_spend(spend: SignalSpend, *, finalize: bool = False) -> SignalSpendSummary:
     if spend.finalized_at is not None:
-        return SignalSpendSummary(
-            total_spend=float(cost_to_spend(spend.token_cost_microusd, task_count=spend.task_count)), failed_stages=[]
-        )
+        return SignalSpendSummary(total_spend=float(spend.spend), failed_stages=[])
     totals = _calculate_spend(spend)
     spend.task_run_ids = totals.task_run_ids
-    spend.token_cost_microusd = totals.cost_microusd
-    spend.task_count = totals.task_count
+    spend.spend = totals.spend
     spend.accounting_failed = bool(totals.failed_stages)
     if spend.accounting_failed or not totals.tasks_finished:
         spend.finalized_at = None
@@ -217,7 +225,7 @@ def _save_spend(spend: SignalSpend, *, finalize: bool = False) -> SignalSpendSum
     if spend.scout_run_id:
         scout = SignalScoutRun.objects.for_team(spend.team_id).filter(id=spend.scout_run_id).first()
         if scout:
-            scout.total_spend = cost_to_spend(totals.cost_microusd, task_count=totals.task_count)
+            scout.total_spend = totals.spend
             scout.metadata = {**(scout.metadata or {}), "spend_accounting_failed_stages": summary.failed_stages}
             scout.save(update_fields=["total_spend", "metadata"])
     return summary
@@ -277,7 +285,19 @@ def record_llm_spend(
                 spend.llm_failed_stages = sorted(set(spend.llm_failed_stages) | {stage})
             else:
                 # This runs once where generation returns. Retrying generation makes another paid call.
-                spend.llm_cost_microusd += token_cost_microusd
+                spend.spend += cost_to_spend(token_cost_microusd)
+            if LegacySignalSpend.objects.for_team(team_id).filter(signal_id=signal_id).exists():
+                LegacySignalSpend.objects.for_team(team_id).get_or_create(
+                    team_id=team_id,
+                    source_id=request_id or str(uuid4()),
+                    is_task=False,
+                    defaults={
+                        "signal_id": signal_id,
+                        "stage": stage,
+                        "token_cost_microusd": token_cost_microusd,
+                        "accounting_failed": token_cost_microusd is None,
+                    },
+                )
             _save_spend(spend)
         if token_cost_microusd is None:
             logger.warning(
@@ -306,7 +326,7 @@ def signal_spend_summaries(*, team_id: int, signal_ids: list[str]) -> dict[str, 
                 spend = SignalSpend(team_id=team_id, signal_id=UUID(signal_id))
             summaries[signal_id] = (
                 SignalSpendSummary(
-                    total_spend=float(cost_to_spend(spend.token_cost_microusd, task_count=spend.task_count)),
+                    total_spend=float(spend.spend),
                     failed_stages=[],
                 )
                 if spend.finalized_at is not None
@@ -332,26 +352,41 @@ def record_task_spend(
     scout_run_id: str | None = None,
     report_id: str | None = None,
 ) -> None:
-    from products.tasks.backend.facade.api import get_task_run  # noqa: PLC0415 — keeps task services off startup
+    from products.tasks.backend.facade.billing import (
+        locked_task_run_spend,  # noqa: PLC0415 — keeps task services off startup
+    )
 
     if signal_id is None and scout_run_id is None:
         return
-    run = get_task_run(run_id, team_id=team_id)
-    if run is None:
-        return
-    with transaction.atomic():
+    with locked_task_run_spend(team_id=team_id, run_id=UUID(run_id)) as run:
+        existing = SignalSpend.objects.for_team(team_id).filter(task_run_ids__contains=[run.run_id]).first()
+        if existing and (str(existing.signal_id) != str(signal_id) or str(existing.scout_run_id) != str(scout_run_id)):
+            raise ValueError("Task run is already owned by another signal or scout run")
         spend = _locked_spend(team_id=team_id, signal_id=signal_id, scout_run_id=scout_run_id)
         if spend.finalized_at is not None:
-            if run.id not in spend.task_run_ids:
+            if run.run_id not in spend.task_run_ids:
                 raise ValueError("Cannot attach a new task run to finalized spend")
             return
-        if run.id not in spend.task_run_ids:
-            spend.task_run_ids.append(run.id)
+        if run.run_id not in spend.task_run_ids:
+            spend.task_run_ids.append(run.run_id)
+            spend.spend += cost_to_spend(run.cost_microusd or 0, task_count=1)
         if report_id:
-            spend.report_id = UUID(report_id)
             report = SignalReport.objects.filter(team_id=team_id, id=report_id).first()
             if report:
                 apply_report_billing(spend, report)
+        _save_spend(spend)
+
+
+def record_task_cost_delta(*, team_id: int, run_id: UUID, cost_delta_microusd: int) -> None:
+    # The sender holds the run lock and commits this delta together with gateway request deduplication.
+    with transaction.atomic():
+        spend = (
+            SignalSpend.objects.for_team(team_id).select_for_update().filter(task_run_ids__contains=[run_id]).first()
+        )
+        if spend is None or spend.finalized_at is not None:
+            # Binding a not-yet-owned run will add its full cost under the same run lock.
+            return
+        spend.spend += cost_to_spend(cost_delta_microusd)
         _save_spend(spend)
 
 
@@ -417,7 +452,6 @@ def complete_signal_pipeline(
             spend.billing_exempt = spend.billing_exempt or billing_exempt
             report = SignalReport.objects.filter(team_id=team_id, id=report_id).first() if report_id else None
             if report:
-                spend.report_id = report.id
                 apply_report_billing(spend, report)
             # READY can still be waiting for implementation; the report workflow owns completion.
             handed_off = (
@@ -434,7 +468,6 @@ def begin_report_spend(*, team_id: int, report_id: str, signal_id: str) -> None:
     try:
         with transaction.atomic():
             spend = _locked_spend(team_id=team_id, signal_id=signal_id)
-            spend.report_id = UUID(report_id)
             report = SignalReport.objects.filter(team_id=team_id, id=report_id).first()
             if report:
                 apply_report_billing(spend, report)
@@ -443,21 +476,25 @@ def begin_report_spend(*, team_id: int, report_id: str, signal_id: str) -> None:
         logger.exception("signals.spend.accounting_failed", stage="report_start", team_id=team_id)
 
 
-def finish_report_spend(*, team_id: int, report_id: str, allow_candidate: bool = False) -> None:
+def finish_report_spend(*, team_id: int, report_id: str, signal_id: str, allow_candidate: bool = False) -> None:
     with transaction.atomic():
         report = SignalReport.objects.filter(team_id=team_id, id=report_id).first()
-        if report and (
-            report.status == SignalReport.Status.IN_PROGRESS
-            or (report.status == SignalReport.Status.CANDIDATE and not allow_candidate)
+        if (
+            report
+            and report.triggering_signal_id == UUID(signal_id)
+            and (
+                report.status == SignalReport.Status.IN_PROGRESS
+                or (report.status == SignalReport.Status.CANDIDATE and not allow_candidate)
+            )
         ):
             return
-        for spend in SignalSpend.objects.for_team(team_id).select_for_update().filter(report_id=report_id):
+        for spend in SignalSpend.objects.for_team(team_id).select_for_update().filter(signal_id=signal_id):
             if report:
                 apply_report_billing(spend, report)
             _save_spend(spend, finalize=True)
 
 
-def _report_implementation_runs(*, team_id: int, report_id: str) -> list[TaskRunDTO]:
+def _report_implementation_runs(*, team_id: int, report_id: str, signal_id: str) -> list[TaskRunDTO]:
     from products.tasks.backend.facade.api import (  # noqa: PLC0415 — keeps task services off startup
         get_signal_report_implementation_runs,
     )
@@ -467,10 +504,14 @@ def _report_implementation_runs(*, team_id: int, report_id: str) -> list[TaskRun
             team_id=team_id, report_id=report_id, relationship="implementation"
         ).values_list("task_id", flat=True)
     )
-    return get_signal_report_implementation_runs(team_id, report_id, task_ids)
+    run_ids = set(
+        SignalSpend.objects.for_team(team_id).filter(signal_id=signal_id).values_list("task_run_ids", flat=True).first()
+        or []
+    )
+    return [run for run in get_signal_report_implementation_runs(team_id, report_id, task_ids) if run.id in run_ids]
 
 
-async def complete_report_spend(*, team_id: int, report_id: str) -> None:
+async def complete_report_spend(*, team_id: int, report_id: str, signal_id: str) -> None:
     from temporalio.client import WorkflowFailureError  # noqa: PLC0415 — keeps Temporal off Django startup
 
     from posthog.temporal.common.client import async_connect  # noqa: PLC0415 — keeps Temporal off Django startup
@@ -479,7 +520,9 @@ async def complete_report_spend(*, team_id: int, report_id: str) -> None:
         wait_for_task_completion,
     )
 
-    runs = await database_sync_to_async(_report_implementation_runs)(team_id=team_id, report_id=report_id)
+    runs = await database_sync_to_async(_report_implementation_runs)(
+        team_id=team_id, report_id=report_id, signal_id=signal_id
+    )
     if any(not run.is_terminal for run in runs):
         # The implementation workflow will finalize after its teardown; research can return now.
         return
@@ -493,33 +536,24 @@ async def complete_report_spend(*, team_id: int, report_id: str) -> None:
             except WorkflowFailureError:
                 # Failed work still incurs spend. Finalization below also requires settled usage.
                 pass
-    await database_sync_to_async(finish_report_spend)(team_id=team_id, report_id=report_id, allow_candidate=True)
-
-
-def _report_spend_signal_ids(*, team_id: int, report_id: str) -> list[str]:
-    report = SignalReport.objects.filter(team_id=team_id, id=report_id).first()
-    if report is None or report.status == SignalReport.Status.IN_PROGRESS:
-        return []
-    runs = _report_implementation_runs(team_id=team_id, report_id=report_id)
-    if any(not run.is_terminal for run in runs):
-        return []
-    owners = set(
-        SignalSpend.objects.for_team(team_id)
-        .filter(report_id=report_id, signal_id__isnull=False)
-        .values_list("signal_id", flat=True)
+    await database_sync_to_async(finish_report_spend)(
+        team_id=team_id, report_id=report_id, signal_id=signal_id, allow_candidate=True
     )
-    if report.triggering_signal_id:
-        owners.add(report.triggering_signal_id)
-    return sorted(str(owner) for owner in owners)
 
 
-async def publish_report_spend(*, team_id: int, report_id: str) -> None:
-    signal_ids = await database_sync_to_async(_report_spend_signal_ids)(team_id=team_id, report_id=report_id)
-    for signal_id in signal_ids:
-        await publish_signal_spend(team_id=team_id, signal_id=signal_id)
+async def publish_report_spend(*, team_id: int, report_id: str, signal_id: str) -> None:
+    report = await SignalReport.objects.filter(team_id=team_id, id=report_id).afirst()
+    if report and report.triggering_signal_id == UUID(signal_id) and report.status == SignalReport.Status.IN_PROGRESS:
+        return
+    runs = await database_sync_to_async(_report_implementation_runs)(
+        team_id=team_id, report_id=report_id, signal_id=signal_id
+    )
+    if any(not run.is_terminal for run in runs):
+        return
+    await publish_signal_spend(team_id=team_id, signal_id=signal_id)
 
 
-def complete_task_spend(*, team_id: int, run_id: str) -> None:
+def complete_task_spend(*, team_id: int, run_id: str, report_id: str | None = None) -> None:
     from products.tasks.backend.facade.api import get_task_run  # noqa: PLC0415 — keeps task services off startup
     from products.tasks.backend.facade.billing import (  # noqa: PLC0415 — keeps task services off startup
         TaskTokenUsageUnavailable,
@@ -535,9 +569,15 @@ def complete_task_spend(*, team_id: int, run_id: str) -> None:
         if spend is None:
             return
         finalized = spend.finalized_at is not None
-        if not finalized and run.id not in spend.task_run_ids:
-            spend.task_run_ids.append(run.id)
-            spend.save(update_fields=["task_run_ids"])
+        needs_binding = not finalized and run.id not in spend.task_run_ids
+    if needs_binding:
+        record_task_spend(
+            team_id=team_id,
+            run_id=run_id,
+            stage="scout" if spend.scout_run_id else "task",
+            signal_id=str(spend.signal_id) if spend.signal_id else None,
+            scout_run_id=str(spend.scout_run_id) if spend.scout_run_id else None,
+        )
     if not finalized:
         process_pending_gateway_usage(run_id=UUID(run_id), team_id=team_id, limit=1000)
         usage = get_task_run_token_usage(run_id=UUID(run_id), team_id=team_id)
@@ -548,8 +588,8 @@ def complete_task_spend(*, team_id: int, run_id: str) -> None:
             _save_spend(spend, finalize=spend.scout_run_id is not None)
         if not usage.complete:
             raise TaskTokenUsageUnavailable("Task usage is not settled yet")
-    if spend.report_id:
+    if spend.signal_id and report_id:
         # Research stays open until its parent finishes the implementation decision.
         if (run.state or {}).get("ai_stage") not in {"research", "repo_selection"}:
-            finish_report_spend(team_id=team_id, report_id=str(spend.report_id))
-        async_to_sync(publish_report_spend)(team_id=team_id, report_id=str(spend.report_id))
+            finish_report_spend(team_id=team_id, report_id=report_id, signal_id=str(spend.signal_id))
+        async_to_sync(publish_report_spend)(team_id=team_id, report_id=report_id, signal_id=str(spend.signal_id))
