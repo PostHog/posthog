@@ -54,6 +54,10 @@ class EmailDomainConnectTestCase(EmailDomainApiTestCase):
         assert response.status_code == status.HTTP_200_OK, response.json()
         return response.json()
 
+    def verify_from_browser(self, sender: int) -> None:
+        response = self.client.post(f"/api/projects/{self.team.id}/integrations/{sender}/email/verify")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
     def apply_url(self, sender: int, *, redirect_host: str = "us.posthog.com") -> Any:
         return self.client.post(
             f"/api/projects/{self.team.id}/integrations/domain-connect/apply-url",
@@ -94,8 +98,9 @@ class TestOneClickEmailDomainSetup(EmailDomainConnectTestCase):
             redirect_uri = self.world.domain_connect.apply(response.json()["url"])
 
         assert redirect_uri == f"https://{redirect_host}/workflows/channels/email/{sender}?domain_connect=email"
-        body = self.status_body(sender)
-        assert (body["status"], body["verified"]) == ("verified", True)
+        body = self.get_status(sender, as_browser=True).json()
+        assert (body["status"], body["verified"]) == ("verified", False)
+        self.verify_from_browser(sender)
         assert self.config(sender)["setup_method"] == "auto"
         assert self.verified_event_methods() == ["auto"]
 
@@ -148,7 +153,8 @@ class TestOneClickEmailDomainSetup(EmailDomainConnectTestCase):
         assert response.status_code == status.HTTP_200_OK, response.json()
         self.publish(body["records"], *ALL_KINDS)
 
-        assert self.status_body(sender)["status"] == "verified"
+        assert self.get_status(sender, as_browser=True).json()["status"] == "verified"
+        self.verify_from_browser(sender)
         assert self.verified_event_methods() == ["manual"]
 
     def test_asking_for_setup_on_an_already_published_domain_verifies_it_at_once(self) -> None:
