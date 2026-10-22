@@ -10,6 +10,8 @@ export const RECENTS_LIMIT = 5
 export const SUGGESTIONS_LIMIT = 8
 export const DEFAULT_SKELETON_ROWS = 3
 
+const TRAILING_SOURCES: RemoteSource[] = ['persons', 'groups']
+
 /** Lists that filter in memory on every keystroke, in the order they render in Search mode. */
 const LOCAL_SOURCES = ['products', 'data-management', 'people', 'health', 'misc', 'settings', 'create'] as const
 type LocalSource = (typeof LOCAL_SOURCES)[number]
@@ -291,15 +293,19 @@ function lowerSections(input: SectionsInput, ranked: boolean, state: CommandKSec
             sections.push(rows.length > 0 ? { ...readySection(source, rows), state } : null)
         }
     }
-    for (const source of REMOTE_SOURCES) {
-        if (source === 'results') {
-            continue
+    const loaded = (): CommandKSection[] => sections.filter((section): section is CommandKSection => section !== null)
+    const appendInOrder = (sources: RemoteSource[]): boolean => {
+        for (const source of sources) {
+            const query = remoteQueries[source]
+            if (!isSettled(remote[source], query)) {
+                return false
+            }
+            sections.push(query ? remoteSection(source, remote[source].cache[query], state) : null)
         }
-        const query = remoteQueries[source]
-        if (!isSettled(remote[source], query)) {
-            return sections.filter((section): section is CommandKSection => section !== null)
-        }
-        sections.push(query ? remoteSection(source, remote[source].cache[query], state) : null)
+        return true
+    }
+    if (!appendInOrder(REMOTE_SOURCES.filter((source) => source !== 'results' && !TRAILING_SOURCES.includes(source)))) {
+        return loaded()
     }
     if (input.askAiQuestion) {
         sections.push({
@@ -307,7 +313,8 @@ function lowerSections(input: SectionsInput, ranked: boolean, state: CommandKSec
             state,
         })
     }
-    return sections.filter((section): section is CommandKSection => section !== null)
+    appendInOrder(TRAILING_SOURCES)
+    return loaded()
 }
 
 export function buildSections(input: SectionsInput): CommandKSection[] {

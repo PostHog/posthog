@@ -95,8 +95,9 @@ The input is always in exactly one mode, decided from the token under the cursor
 - Sections, in this fixed order, covering everything the current palette finds:
   1. **Results**: file system objects (insights, dashboards, feature flags, experiments, surveys, notebooks, cohorts, actions, early access features, replay playlists, data pipelines), and products. For a search with words, see [Ranked results](#ranked-results).
   2. In-memory lists, filtered on every keystroke: **Data management**, **People**, **Health**, **Misc**, **Settings** (with a Dark mode / Light mode row for "dark", "light", "theme", "appearance"), **Create new**. For a search with words they keep only items that match every word with no typo. Products rank with the results instead.
-  3. Remote lists that the file system does not hold: **Events**, **Properties**, **Workflows** (one unified search request), **Accounts** (behind the customer analytics flag), **Support tickets** (3+ characters or a ticket number), **Persons**, **Groups**.
+  3. Remote lists that the file system does not hold: **Events**, **Properties**, **Workflows** (one unified search request), **Accounts** (behind the customer analytics flag), **Support tickets** (3+ characters or a ticket number).
   4. **Ask PostHog AI**.
+  5. **Persons**, **Groups**. Person and group searches can take seconds, so they come last and nothing above them waits for them. The person search starts with the file system search, after 50 ms.
 - With any filter (a chip, or a valid `key:value` still being typed), only **Results** and **Ask PostHog AI** show, because filters apply only to objects.
 - With an `is:` chip (not negated), **Results** holds a **View all <types>** row (`View all feature flags`) that opens the list page of that type. With no search text it is the first row; once you type a search it moves below the results. It shows only for types with a list page.
 

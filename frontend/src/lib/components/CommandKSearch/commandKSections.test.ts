@@ -188,11 +188,15 @@ describe('buildSections', () => {
 
     test.each<[string, Partial<Record<'events' | 'persons', SearchItem[]>>, string[]]>([
         ['nothing below Results while an earlier source loads', { persons: [dashboard('p', '9')] }, ['results']],
-        ['each source once every source above it has loaded', { events: [dashboard('e', '8')] }, ['results', 'events']],
         [
-            'every source, then PostHog AI, once all have loaded',
+            'PostHog AI without waiting for slow person searches',
+            { events: [dashboard('e', '8')] },
+            ['results', 'events', 'ask-ai'],
+        ],
+        [
+            'persons last, below PostHog AI, once they load',
             { events: [dashboard('e', '8')], persons: [dashboard('p', '9')] },
-            ['results', 'events', 'persons', 'ask-ai'],
+            ['results', 'events', 'ask-ai', 'persons'],
         ],
     ])('reveals %s', (_, loaded, expectedKeys) => {
         const remote = emptyRemoteSlots()

@@ -78,6 +78,7 @@ import { REMOTE_REQUESTS, RemoteContext, RemoteResults, RemoteSource, settleSour
 
 const REMOTE_DEBOUNCE_MS = 150
 const OBJECTS_DEBOUNCE_MS = 50
+const FAST_REQUESTS = ['objects', 'persons']
 
 export type CommitVia = 'tab' | 'enter' | 'space' | 'paste' | 'click' | 'typed' | 'see-all'
 
@@ -941,7 +942,7 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
                         )
                         continue
                     }
-                    const debounceMs = request.id === 'objects' ? OBJECTS_DEBOUNCE_MS : REMOTE_DEBOUNCE_MS
+                    const debounceMs = FAST_REQUESTS.includes(request.id) ? OBJECTS_DEBOUNCE_MS : REMOTE_DEBOUNCE_MS
                     // One disposable per request covers the debounce and the fetch, so a newer query
                     // cancels both, and unmounting cancels everything.
                     cache.disposables.add(
