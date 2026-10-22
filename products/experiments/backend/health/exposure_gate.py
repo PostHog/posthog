@@ -11,6 +11,9 @@ unknown too, so a scan that is too large for a request runs at most once a day.
 Only exposure criteria that name an event are asked about. The answer for a property filter or an action can
 depend on what each reader may read, and can change as the filter matches other events over time, so no cached
 answer for them is safe to share. The changes of those experiments are reported as not checked.
+
+The answers run without the reader and are shared, so a reader denied any event property gets none. Every change
+then counts for that reader, as if every answer were unknown.
 """
 
 import json
@@ -313,18 +316,23 @@ class _ExposureGate:
         self._denied_event_properties = denied_event_properties
         self._default_exposure_event = resolve_default_exposure_event(experiment.team, launched_at)
         # One cache read for all windows of the walk and the counts, so a flag with many changes costs one round trip.
-        self._prefetched_keys = {
-            self._units_cache_key(window) if isinstance(window, _UnitsWindow) else self._cache_key(window)
-            for window in prefetch
-            if isinstance(window, _UnitsWindow) or window.variant_keys
-        }
-        self._prefetched = cache.get_many(list(self._prefetched_keys))
+        self._prefetched_keys = (
+            set()
+            if denied_event_properties
+            else {
+                self._units_cache_key(window) if isinstance(window, _UnitsWindow) else self._cache_key(window)
+                for window in prefetch
+                if isinstance(window, _UnitsWindow) or window.variant_keys
+            }
+        )
+        self._prefetched = cache.get_many(list(self._prefetched_keys)) if self._prefetched_keys else {}
         self._started_at = monotonic()
         self._query_count = 0
         self._stopped = False
 
     def exposed(self, window: _Window) -> bool | None:
-        """None when unknown: the query failed in this request or within its cache time, or the request is out of budget."""
+        """None when unknown: the query failed in this request or within its cache time, the request is out of budget,
+        or the reader is denied an event property."""
         if not window.variant_keys:
             return False
         return self._answer(
@@ -344,11 +352,8 @@ class _ExposureGate:
 
     def exposed_units(self, window: _UnitsWindow | None) -> int | None:
         """The persons or groups exposed in the window, up to MIN_EXPOSED_UNITS_TO_WARN. None when unknown, as for
-        `exposed`, or without a window, because the flag served no variants for a while, or for a reader denied an
-        event property."""
-        # Every reader gets the cached count, which reads the flag, variant and group properties of the exposures. A
-        # reader denied any event property gets none and keeps the warning, so no list of those properties can miss one.
-        if window is None or self._denied_event_properties:
+        `exposed`, or without a window, because the flag served no variants for a while."""
+        if window is None:
             return None
         return self._answer(
             self._units_cache_key(window),
@@ -375,6 +380,10 @@ class _ExposureGate:
         window_end: datetime,
         final: Callable[[A], bool],
     ) -> A | None:
+        # Every answer reads the flag, variant and group properties of the exposures. Any denied event property, not
+        # a list of the read ones, so no list can miss one. The findings then keep their warnings.
+        if self._denied_event_properties:
+            return None
         cached = self._prefetched.get(cache_key) if cache_key in self._prefetched_keys else cache.get(cache_key)
         if isinstance(cached, answer_type):
             return cached

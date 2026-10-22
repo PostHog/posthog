@@ -262,19 +262,19 @@ class TestLoadFlagHistory(BaseTest):
 
     @parameterized.expand(
         [
-            ("variant_property", frozenset({"$feature_flag_response"}), None),
-            ("group_key", frozenset({"$group_0"}), None),
-            ("unrelated_property", frozenset({"$browser"}), None),
-            ("no_denied_property", frozenset(), 3),
+            ("variant_property", frozenset({"$feature_flag_response"}), (0, None, None)),
+            ("group_key", frozenset({"$group_0"}), (0, None, None)),
+            ("unrelated_property", frozenset({"$browser"}), (0, None, None)),
+            ("no_denied_property", frozenset(), (1, True, 3)),
         ]
     )
-    def test_a_reader_denied_any_event_property_gets_no_count(
-        self, _name: str, denied: frozenset[str], expected_units: int | None
+    def test_a_reader_denied_any_event_property_gets_no_exposure_answer(
+        self, _name: str, denied: frozenset[str], expected: tuple[int, bool | None, int | None]
     ) -> None:
-        self._log_split_changes([_split(50, 50), _split(60, 40)])
-        self._load([True], units=[3])
+        changed_at = self._log_split_changes([_split(50, 50), _split(60, 40), _split(70, 30)])
+        self._load([False, True], units=[3])
 
-        history, _ = self._load(
+        history, query = self._load(
             [],
             reader_access=ExperimentHealthReaderAccess(
                 can_read_flag_history=True, can_query_events=True, denied_event_properties=denied
@@ -282,8 +282,12 @@ class TestLoadFlagHistory(BaseTest):
         )
 
         assert isinstance(history, FlagHistory)
-        self.assertEqual(history.exposed_units_before_last, {ExperimentHealthFlagChangeKind.SPLIT: expected_units})
-        self.assertEqual(self.units_query.call_count, 0)
+        counted_from, exposed_before_first, units = expected
+        self.assertEqual(
+            (history.counted_since, history.exposed_before_first, history.exposed_units_before_last),
+            (changed_at[counted_from], exposed_before_first, {ExperimentHealthFlagChangeKind.SPLIT: units}),
+        )
+        self.assertEqual((query.call_count, self.units_query.call_count), (0, 0))
 
     def test_no_exposure_before_any_change(self) -> None:
         self._log_split_changes([_split(50, 50), _split(60, 40), _split(70, 30)])
