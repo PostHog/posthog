@@ -455,6 +455,10 @@ class DeltaWriter:
                 governor_reserved_slots=adm.reserved_slots,
                 governor_wait_ms=adm.wait_ms,
                 governor_wait_timed_out=adm.wait_timed_out,
+                governor_borrow_slots=adm.borrow_slots,
+                governor_borrow_mpp=adm.borrow_mpp,
+                governor_borrow_mpf=adm.borrow_mpf,
+                governor_borrow_applied=adm.borrow_applied,
                 # Process-wide RSS while this upsert ran; filter on max_concurrent_upserts == 1 for
                 # a clean per-upsert signal.
                 governor_peak_rss_mb=adm.rss.peak_mb if adm.rss else None,
