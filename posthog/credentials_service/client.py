@@ -153,7 +153,7 @@ def _disabled_reason() -> str | None:
     """Why the environment fallback is in use, or None when the service should be called.
 
     The flag fails closed: closed means the old environment-variable path, because a flag
-    service blip must not take out credential reads. The three reasons matter separately
+    service blip must not take out credential reads. The four reasons matter separately
     during the rollout — "flag_error" is the fail-closed path that quietly keeps a pod on
     environment variables while the flag service is unhealthy, and it must not look like
     a deliberate opt-out.

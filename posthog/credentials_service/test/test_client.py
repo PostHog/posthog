@@ -306,6 +306,7 @@ class TestHalfConfigured(SimpleTestCase):
             ("url without a signing key, flag on", "http://svc", "", True, "CREDENTIALS_SERVICE_JWT_SECRET"),
             ("url without a signing key, flag off", "http://svc", "", False, "CREDENTIALS_SERVICE_JWT_SECRET"),
             ("signing key without a url, flag on", "", "signing-key", True, "CREDENTIALS_SERVICE_URL"),
+            ("signing key without a url, flag off", "", "signing-key", False, "CREDENTIALS_SERVICE_URL"),
         ]
     )
     def test_reads_the_environment_instead_of_raising(
