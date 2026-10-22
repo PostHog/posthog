@@ -11,11 +11,68 @@ if TYPE_CHECKING:
     from posthog.schema import HogQLQueryModifiers
 
 
+# TODO: Remove the per-query rollout option, and the route helpers in this block, after the events cluster
+# migration is complete.
 EVENTS_ROUTE_MODIFIER_KEYS = ("useNewEventsSchema", "useNewEventsCluster")
-
-# TODO: Remove the per-query rollout option after the events cluster migration is complete.
 _query_host: ContextVar[list[str | None] | None] = ContextVar("new_events_cluster_host", default=None)
 _query_route: ContextVar["HogQLQueryModifiers | None"] = ContextVar("new_events_query_route", default=None)
+
+
+def _copy_source_chain(query: dict[str, Any]) -> list[dict[str, Any]]:
+    """Copies of the query and every source it wraps, outermost first. Other nested values stay shared."""
+    nodes = [dict(query)]
+    while isinstance(nodes[-1].get("source"), dict):
+        nodes[-1]["source"] = dict(nodes[-1]["source"])
+        nodes.append(nodes[-1]["source"])
+    return nodes
+
+
+def strip_events_route_modifiers(query: dict[str, Any], *, drop_empty: bool = False) -> dict[str, Any]:
+    """The serialized query without the requested events route.
+
+    The resolved route keys the cache, so requested values that resolve to the same route must not split the
+    cache key. With drop_empty, a modifiers field left empty is removed.
+    """
+    nodes = _copy_source_chain(query)
+    for node in nodes:
+        modifiers = node.get("modifiers")
+        if isinstance(modifiers, dict):
+            node["modifiers"] = {
+                key: value for key, value in modifiers.items() if key not in EVENTS_ROUTE_MODIFIER_KEYS
+            }
+            if drop_empty and not node["modifiers"]:
+                node.pop("modifiers")
+    return nodes[0]
+
+
+def with_pinned_events_route(query: dict[str, Any], modifiers: "HogQLQueryModifiers") -> dict[str, Any]:
+    """The serialized query with the resolved events route in place of the requested one.
+
+    A worker rebuilds the runner from this payload. The resolved route goes into the innermost source, which
+    every worker reads, so the worker reads the same table and writes the cache key the request reads.
+    """
+    if "modifiers" not in _copy_source_chain(query)[-1]:
+        return query
+    nodes = _copy_source_chain(strip_events_route_modifiers(query))
+    route: dict[str, Any] = {"useNewEventsSchema": modifiers.useNewEventsSchema}
+    if modifiers.useNewEventsCluster is not None:
+        route["useNewEventsCluster"] = modifiers.useNewEventsCluster
+    nodes[-1]["modifiers"] = {**(nodes[-1]["modifiers"] or {}), **route}
+    return nodes[0]
+
+
+def events_route_cache_modifiers(modifiers: dict[str, Any], *, reads_events: bool) -> dict[str, Any]:
+    """The resolved modifiers as they key the cache.
+
+    A legacy-table query must keep the cache key it had before the native route existed, so the route values it
+    resolves to are left out. A query that reads no events table is never keyed by one.
+    """
+    modifiers = dict(modifiers)
+    if modifiers.get("useNewEventsSchema") is False or not reads_events:
+        modifiers.pop("useNewEventsSchema", None)
+    if not modifiers.get("useNewEventsCluster"):
+        modifiers.pop("useNewEventsCluster", None)
+    return modifiers
 
 
 def get_new_events_cluster_host() -> str | None:
@@ -40,49 +97,6 @@ def new_events_cluster_host_scope() -> Iterator[None]:
         yield
     finally:
         _query_host.reset(token)
-
-
-def strip_events_route(query: dict[str, Any], *, drop_empty: bool = False) -> list[dict[str, Any]]:
-    """Remove the events route modifiers from a serialized query and every source it wraps.
-
-    Returns the nodes that carry a modifiers field, outermost first. With drop_empty, a modifiers
-    field left empty is removed, and its node is not returned.
-    """
-    nodes: list[dict[str, Any]] = []
-    node: Any = query
-    while isinstance(node, dict):
-        if "modifiers" in node:
-            modifiers = node["modifiers"]
-            if isinstance(modifiers, dict):
-                for key in EVENTS_ROUTE_MODIFIER_KEYS:
-                    modifiers.pop(key, None)
-            if drop_empty and modifiers == {}:
-                node.pop("modifiers")
-            else:
-                nodes.append(node)
-        node = node.get("source")
-    return nodes
-
-
-def pin_events_table(query: dict[str, Any], use_new_events_schema: bool) -> None:
-    """Write the resolved events table into the outermost node of a serialized query that carries modifiers."""
-    node: Any = query
-    while isinstance(node, dict) and "modifiers" not in node:
-        node = node.get("source")
-    if isinstance(node, dict):
-        node["modifiers"] = {**(node["modifiers"] or {}), "useNewEventsSchema": use_new_events_schema}
-
-
-def events_route_cache_modifiers(modifiers: dict[str, Any], *, reads_events: bool) -> dict[str, Any]:
-    """Remove the route values that a legacy-table query resolves to, so its cache key does not change.
-
-    A query that reads no events table never has the events table in its cache key.
-    """
-    if modifiers.get("useNewEventsSchema") is False or not reads_events:
-        modifiers.pop("useNewEventsSchema", None)
-    if not modifiers.get("useNewEventsCluster"):
-        modifiers.pop("useNewEventsCluster", None)
-    return modifiers
 
 
 def get_events_route() -> "HogQLQueryModifiers | None":
