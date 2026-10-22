@@ -34,6 +34,9 @@ from urllib.parse import urlencode
 import duckdb
 import pyarrow as pa
 import structlog
+from structlog.typing import FilteringBoundLogger
+
+from posthog.exceptions_capture import capture_exception
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import log_connection_open
@@ -540,6 +543,47 @@ class MotherDuckImplementation(SQLSourceImplementation[MotherduckSourceConfig, A
                 return list(columns)
         return None
 
+    def has_duplicate_primary_keys(
+        self,
+        conn: Any,
+        schema: str,
+        table_name: str,
+        primary_keys: list[str] | None,
+        logger: FilteringBoundLogger,
+    ) -> bool:
+        """Check whether the table contains duplicate values for the given primary keys.
+
+        DuckDB / MotherDuck does not enforce primary key constraints on tables populated
+        without constraints or synced via external files/tables. Incremental sync requires
+        unique primary keys to merge rows without dropping duplicates.
+
+        Returns:
+            True if duplicate primary keys are found, or if the probe query fails unexpectedly
+            (fail-safe default so data isn't silently corrupted).
+            False if no duplicates are detected or if primary_keys is empty.
+        """
+        if not primary_keys:
+            return False
+
+        unique_keys = list(dict.fromkeys(primary_keys))
+        if not unique_keys:
+            return False
+
+        try:
+            quoted_keys = ", ".join(_IDENTIFIER_QUOTER.quote(k) for k in unique_keys)
+            table_ref = f"{_IDENTIFIER_QUOTER.quote(schema)}.{_IDENTIFIER_QUOTER.quote(table_name)}"
+            query = f"SELECT 1 FROM {table_ref} GROUP BY {quoted_keys} HAVING count(*) > 1 LIMIT 1"
+            logger.debug(f"Checking duplicate primary keys with query: {query}")
+            rows = conn.execute(query).fetchall()
+            return len(rows) > 0
+        except Exception as e:
+            logger.warning(
+                f"has_duplicate_primary_keys: assuming duplicates exist (probe failed for {schema}.{table_name}): {e}",
+                exc_info=e,
+            )
+            capture_exception(e)
+            return True
+
     # ------------------------------------------------------------------
     # Pipeline build — the `SourceResponse` for a single table
     # ------------------------------------------------------------------
@@ -591,7 +635,7 @@ class MotherDuckImplementation(SQLSourceImplementation[MotherduckSourceConfig, A
         incremental_field_type = inputs.incremental_field_type if inputs.should_use_incremental_field else None
 
         with self.connect(config, catalog=catalog) as connection:
-            primary_keys = self.get_primary_keys_for_table(connection, schema, table_name)
+            primary_keys = self.get_primary_keys_for_table(connection, schema, table_name) or inputs.primary_keys
             query = _QUERY_BUILDER.select_all(
                 schema=schema,
                 table_name=table_name,
@@ -603,6 +647,12 @@ class MotherDuckImplementation(SQLSourceImplementation[MotherduckSourceConfig, A
                 row_filters=inputs.row_filters,
             )
             rows_to_sync = self.get_rows_to_sync(connection, query.sql, query.params, logger)
+
+            has_duplicate_pks = False
+            if inputs.should_use_incremental_field and primary_keys:
+                has_duplicate_pks = self.has_duplicate_primary_keys(
+                    connection, schema, table_name, primary_keys, logger
+                )
 
         def get_rows() -> Iterator[pa.Table]:
             with self.connect(config, catalog=catalog) as streaming_connection:
@@ -618,6 +668,7 @@ class MotherDuckImplementation(SQLSourceImplementation[MotherduckSourceConfig, A
             items=get_rows,
             primary_keys=primary_keys,
             rows_to_sync=rows_to_sync,
+            has_duplicate_primary_keys=has_duplicate_pks,
             # One statement with `ORDER BY <incremental field>`, read as one stream.
             sort_mode="asc" if incremental_field is not None else None,
         )
