@@ -321,15 +321,9 @@ class TestSchedules(BaseTest):
         if exists:
             provision_schedule(self.team.id, "metric", str(self.metric.id))
             set_schedule(self.team.id, "metric", self.metric.id, enabled=enabled)
-        with (
-            patch(
-                "products.data_quality.backend.temporal.activities.prepare_check_suite.async_connect",
-                AsyncMock(return_value=self.temporal),
-            ),
-            patch(
-                "products.data_quality.backend.temporal.activities.prepare_check_suite.get_data_quality_checks_flag_for_team_id",
-                return_value=True,
-            ),
+        with patch(
+            "products.data_quality.backend.temporal.activities.prepare_check_suite.async_connect",
+            AsyncMock(return_value=self.temporal),
         ):
             prepared = async_to_sync(self._prepare_scheduled)()
         assert bool(prepared.batches) == (enabled and exists)
