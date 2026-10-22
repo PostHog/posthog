@@ -1,3 +1,6 @@
+from pydantic import Field
+
+from posthog.hogql.constants import HogQLQuerySettings
 from posthog.hogql.database.models import (
     BooleanDatabaseField,
     DatabaseField,
@@ -203,6 +206,11 @@ class WebStatsDimensionalPreAggregatedTable(Table):
         "generation column, used internally by the web analytics product. Metric columns are AggregateFunction "
         "states that must be merged, and reads must filter job_id to READY jobs to avoid double-counting."
     )
+    # Sharded by `sipHash64(job_id)` and every read filters `job_id IN (...)`, so ClickHouse can skip
+    # shards that hold none of the requested jobs.
+    top_level_settings: HogQLQuerySettings | None = Field(
+        default_factory=lambda: HogQLQuerySettings(optimize_skip_unused_shards=True)
+    )
     events_retention_field: str | None = "period_bucket"
     fields: dict[str, FieldOrTable] = {
         **web_preaggregated_base_fields,
@@ -224,6 +232,11 @@ class WebBouncesDimensionalPreAggregatedTable(Table):
         "Precomputation-framework successor to web_pre_aggregated_bounces: same dimensions plus a job_id "
         "generation column, used internally by the web analytics product. Metric columns are AggregateFunction "
         "states that must be merged, and reads must filter job_id to READY jobs to avoid double-counting."
+    )
+    # Sharded by `sipHash64(job_id)` and every read filters `job_id IN (...)`, so ClickHouse can skip
+    # shards that hold none of the requested jobs.
+    top_level_settings: HogQLQuerySettings | None = Field(
+        default_factory=lambda: HogQLQuerySettings(optimize_skip_unused_shards=True)
     )
     events_retention_field: str | None = "period_bucket"
     fields: dict[str, FieldOrTable] = {
