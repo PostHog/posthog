@@ -4,7 +4,8 @@ use std::time::{Duration, Instant};
 use common_kafka_consumer::{Charge, Offset, Rejection, TopicOffsetLedger, TopicPartition};
 
 use super::{
-    Accounting, Admission, Charged, ChargedSlice, Commit, PartitionBudget, Settlement, Uncommitted,
+    Accounting, Admission, Charged, ChargedSlice, Commit, PartitionBudget, RunOutcome, Settlement,
+    Uncommitted,
 };
 use crate::commit_pacer::CommitPacer;
 use crate::ledger_rejection::{report_rejection, RejectedSlice};
@@ -51,9 +52,9 @@ impl<A: Accounting + 'static, D: Admission + 'static> Settlement for GroupSettle
         topic_partition: &TopicPartition,
         generation: u64,
         offsets: &[Offset],
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<RunOutcome> {
         let (Some(first), Some(last)) = (offsets.first(), offsets.last()) else {
-            return Ok(());
+            return Ok(RunOutcome::Settled);
         };
         if let Err(rejection) =
             self.accounting
@@ -68,8 +69,9 @@ impl<A: Accounting + 'static, D: Admission + 'static> Settlement for GroupSettle
                     last: last.0,
                 }),
             )?;
+            return Ok(RunOutcome::Stale);
         }
-        Ok(())
+        Ok(RunOutcome::Settled)
     }
 
     fn settle_poll(&self, _slices: &[ChargedSlice<'_>]) -> anyhow::Result<()> {

@@ -9,7 +9,7 @@ use tokio::time::Instant;
 use super::poll::InFlightPoll;
 use super::{report_revoked, Collector, Parts, PollingStrategy, Step};
 use crate::charge_limit::ChargeLimit;
-use crate::settlement::{Commit, Settlement};
+use crate::settlement::{Commit, RunOutcome, Settlement};
 
 /// Nothing waits on a submitted poll: the partition budget and the in-flight
 /// limit bound admission.
@@ -70,8 +70,14 @@ impl PollingStrategy for ContinuousPolling {
         let Some(topic_partition) = self.uncommitted.topic_partition(completion.partition) else {
             return Ok(());
         };
-        self.settlement
-            .settle_run(topic_partition, completion.generation, &completion.offsets)?;
+        let outcome = self.settlement.settle_run(
+            topic_partition,
+            completion.generation,
+            &completion.offsets,
+        )?;
+        if outcome == RunOutcome::Stale {
+            return Ok(());
+        }
         counter!("ingestion_consumer_messages_processed_total")
             .increment(completion.offsets.len() as u64);
         self.commit_due = true;
@@ -303,6 +309,24 @@ mod tests {
 
     #[test]
     fn a_completion_from_before_a_revoke_settles_nothing_in_the_next_assignment() {
+        let recorder = DebuggingRecorder::new();
+        let snapshotter = recorder.snapshotter();
+        let _guard = metrics::set_default_local_recorder(&recorder);
+        let processed = || {
+            snapshotter
+                .snapshot()
+                .into_vec()
+                .into_iter()
+                .find_map(|(key, _, _, value)| match value {
+                    DebugValue::Counter(count)
+                        if key.key().name() == "ingestion_consumer_messages_processed_total" =>
+                    {
+                        Some(count)
+                    }
+                    _ => None,
+                })
+                .unwrap_or_default()
+        };
         let mut harness = continuous(1_000);
         harness.receive(0, &[0, 1]);
         harness.after_the_batch_timeout();
@@ -320,8 +344,10 @@ mod tests {
             harness.step().is_none(),
             "the old assignment's completion is stale"
         );
+        assert_eq!(processed(), 0, "a stale completion processed nothing");
         harness.complete(0, &[0, 1]);
         assert_eq!(harness.commit(), HashMap::from([(p(0), Offset(2))]));
+        assert_eq!(processed(), 2);
     }
 
     #[test]

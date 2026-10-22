@@ -45,7 +45,7 @@ pub(crate) trait Settlement: Send + Sync {
         topic_partition: &TopicPartition,
         generation: u64,
         offsets: &[Offset],
-    ) -> anyhow::Result<()>;
+    ) -> anyhow::Result<RunOutcome>;
 
     /// The oldest poll retired with every message accepted.
     fn settle_poll(&self, slices: &[ChargedSlice<'_>]) -> anyhow::Result<()>;
@@ -86,6 +86,13 @@ pub(crate) trait Admission: Send + Sync {
     fn handed_out(&self, handed_out: &HashMap<TopicPartition, HandedOut>) -> Vec<TopicPartition>;
 
     fn forget_partitions(&self, topic_partitions: &[TopicPartition]);
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RunOutcome {
+    Settled,
+    /// Charged under a generation that a rebalance has since replaced.
+    Stale,
 }
 
 #[derive(Debug, PartialEq, Eq)]

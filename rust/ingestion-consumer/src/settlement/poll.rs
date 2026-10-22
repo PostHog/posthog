@@ -5,7 +5,7 @@ use common_kafka_consumer::{Charge, Offset, Rejection, TopicOffsetLedger, TopicP
 use metrics::counter;
 use tracing::warn;
 
-use super::{Accounting, Charged, ChargedSlice, Commit, Settlement, Uncommitted};
+use super::{Accounting, Charged, ChargedSlice, Commit, RunOutcome, Settlement, Uncommitted};
 use crate::commit_pacer::CommitPacer;
 use crate::ledger_rejection::{report_rejection, RejectedSlice};
 
@@ -41,8 +41,8 @@ impl<A: Accounting + 'static> Settlement for PollSettlement<A> {
         _topic_partition: &TopicPartition,
         _generation: u64,
         _offsets: &[Offset],
-    ) -> anyhow::Result<()> {
-        Ok(())
+    ) -> anyhow::Result<RunOutcome> {
+        Ok(RunOutcome::Settled)
     }
 
     fn settle_poll(&self, slices: &[ChargedSlice<'_>]) -> anyhow::Result<()> {

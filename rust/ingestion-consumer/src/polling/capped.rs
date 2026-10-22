@@ -58,7 +58,7 @@ impl PollingStrategy for CappedPolling {
         apply_completion(
             &mut self.in_flight_polls,
             completion,
-            |tp, generation, run| settlement.settle_run(tp, generation, run),
+            |tp, generation, run| settlement.settle_run(tp, generation, run).map(drop),
         )?;
         self.commit_due = true;
         Ok(())
@@ -355,7 +355,9 @@ mod tests {
         charge_offsets(&ledger, &partition, 0, &[0, 1, 2, 3, 4, 5, 6, 7]);
         let mut in_flight = VecDeque::from([poll(1, 0, 0, 3, 4), poll(1, 0, 4, 7, 4)]);
         let mut settle = |topic_partition: &TopicPartition, generation: u64, offsets: &[Offset]| {
-            settlement.settle_run(topic_partition, generation, offsets)
+            settlement
+                .settle_run(topic_partition, generation, offsets)
+                .map(drop)
         };
 
         apply_completion(
