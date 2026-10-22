@@ -237,6 +237,11 @@ describe('main', () => {
         assert.equal(world.to('chat.postMessage').length, 1)
     })
 
+    it('keeps the webhook url out of the error when the request throws', async (t) => {
+        process.env.INVESTIGATION_WEBHOOK_URL = 'https://secret.example.com/hook/abc'
+        await assert.rejects(run(t, fakeWorld()), (err) => !err.message.includes('secret.example.com'))
+    })
+
     it('leaves the alert posted when the webhook fails all three attempts', async (t) => {
         const world = fakeWorld({ webhookStatus: 500 })
         await assert.rejects(run(t, world), /Could not start the investigation/)

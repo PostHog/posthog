@@ -378,7 +378,8 @@ async function startInvestigation(url, payload, sleep) {
             }
             lastError = `HTTP ${res.status}`
         } catch (err) {
-            lastError = err.message
+            // The URL is the only credential, and a malformed one appears in the fetch error text.
+            lastError = err.message.replaceAll(url, '[webhook url]')
         }
         await sleep(WEBHOOK_RETRY_DELAY_MS * attempt)
     }
