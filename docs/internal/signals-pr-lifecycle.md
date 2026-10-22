@@ -154,6 +154,106 @@ The notification activity retries transient ClickHouse reads before it claims th
 
 When an implementation pull request reaches the report, the worker requests reviews from suggested reviewers with connected GitHub accounts. It sends up to 15 reviewers per request. It skips the pull request author, existing assignees, the DRI it assigns, people with pending requests, and people who submitted a review. If GitHub rejects one reviewer, the worker continues with the other reviewers. Under the DRI rule, one assignee remains responsible for the pull request.
 
+## Assignment decisions
+
+All reviewer producers use `SignalReportArtefact.append_status()` (directly or through `append()`).
+It applies `ReviewerRules` in the same transaction as the existing reviewer write, under the report lock.
+The latest `suggested_reviewers` artefact remains the recipient list; `SignalReportSuggestedReviewer` remains its derived index.
+Both use `(created_at, id)` to select the latest row.
+There is no separate assignment table, operation ledger, or writer service.
+
+### Assignment feedback loop
+
+The product goal is for human feedback to improve the next relevant assignment, including when another research or scout producer makes it.
+The shared write rules protect corrections on the current report. Existing notes, activity, and reviewer memory provide evidence for later selections.
+Research already reads recent corrections, and eligible reviewer edits can send notes to relevant scouts.
+Forwarding is best effort; permissions, identity coverage, retrieval, and agent judgment can each limit its effect.
+Saving feedback alone does not establish that the next selection uses it.
+
+The first milestone is to correct an assignment, explain the intended ownership, and run selection on a new, related report through another producer.
+Confirm that the agent uses the feedback and explains its effect, while an unrelated case stays unaffected.
+The original report must retain the correction. Repeat in both research-to-scout and scout-to-research directions, including members without GitHub accounts.
+Each correction should work through existing controls and steering tools, without a code change or separate edits to every scout.
+Selection guidance and scoped memory should remain inspectable and tunable; access and correction protection remain enforced in code.
+
+A current-report correction is binding. On another report, it is scoped evidence with its source, date, and reason where available.
+Self-removal alone does not establish an ownership change or a global exclusion.
+Agents must not turn their own repeated selections into ownership evidence.
+
+The complete-loop trial remains pending. Measure feedback availability before selection, retrieval, use, the applied result, and repeated assignment errors.
+Distinguish unavailable feedback from feedback the agent considered but did not apply. Recipient review supplies the suitability judgment.
+Existing notes do not guarantee an immediate rerun. Triggered reassessment remains separate work.
+The [feedback-loop milestone](https://github.com/PostHog/posthog/issues/121777) tracks the trial and any missing links before broader identity, team, preference, or reassessment work.
+
+### Human corrections
+
+An add pins that person. A removal excludes that person.
+Agents can still change people the user did not edit.
+Adding an excluded person reverses that exclusion; removing a pinned person reverses that pin.
+Only an explicit API `confirm` action protects the complete list, including an empty list.
+The existing Inbox controls only add or remove people; they have no confirmation control.
+Removing the last person does not confirm an empty list.
+A person can still edit a confirmed list; agents cannot.
+Current project access always applies, including to pins and confirmed lists.
+A reviewer edit is not a work claim or permission to execute a task.
+
+The same artefact table stores `reviewer_corrections`, with pins, exclusions, confirmation, and a history-review marker.
+Corrections and membership are saved atomically with the existing actor and process attribution.
+The first protected reviewer write recovers old corrections from reviewer deltas matched to activity records, under the report lock.
+It saves the result once. Reads use saved corrections; before recovery, they mark reports with old human edits as needing review.
+During rollout, automatic task start and PR owner selection wait for that recovery.
+A human-authored snapshot alone does not prove approval of the complete list.
+Incomplete history stops automatic changes until a person confirms the current list through the API.
+
+### Write contract
+
+Automatic callers read `reviewer_assignment.state` from the report detail response before selection.
+This is the only API response that includes correction state.
+The web app does not need it for targeted add/remove requests.
+Send both `reviewers_id` and `corrections_id` as `expected_reviewers`.
+The write rejects an old state under the report lock.
+These IDs cover assignment state, not changes to research evidence.
+
+Human add/remove requests name only the people changed.
+They apply to current membership so unrelated concurrent edits survive.
+Replacement and confirmation require the state the person saw.
+Read the reviewer artefact named by that state when preparing either operation.
+Clients can send explicit `targets` with an add/remove action while retaining a full `content` list for older servers.
+Protected reports reject full replacements without state; older Desktop/mobile clients must update before rollout.
+
+Automatic results distinguish `selected`, `no_suitable_owner`, and `lookup_failed`.
+A deliberate empty result clears automatic recipients but retains pins and confirmed lists.
+Failed lookup or wholly invalid selection retains valid current recipients.
+Accepted recipients must be active members with project access.
+An unchanged retry creates no reviewer row or delivery work. A retry with old state can return a conflict.
+Research changes to explanations or display names alone also create no reviewer row or delivery work.
+Generic artefact PATCH and DELETE cannot change reviewer history, and clients cannot write correction records directly.
+If stored reviewer data is invalid, a person can replace the list with matching state, even with the writer flag off.
+The repair keeps the old rows and existing corrections. It does not confirm the list or clear the history-review marker.
+
+### Rollout and rollback
+
+| Control                           | Allows                                                                                                                           |
+| --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `signals-assignment-writer`       | Reviewer corrections and state checks on existing writes.                                                                        |
+| `signals-assignment-side-effects` | Existing Slack delivery, automatic task start, GitHub assignment, review requests, and ready-state changes for enrolled reports. |
+
+Both flags support organization targeting and require explicit enablement.
+They use local evaluation, so a report lock never waits for the flag service.
+Missing flag definitions keep the new behavior disabled.
+Enable the writer with side effects disabled to test real assignment changes without external delivery or task start.
+This changes the real Inbox list and index; it is not a shadow write.
+Local activity records, scoped correction notes, and existing measurements remain active.
+A corrections artefact marks enrollment, so delivery remains gated after writer rollback and for queued work.
+Disable side effects and the writer to stop a trial. Automatic replacement stops on enrolled reports; human corrections still work.
+Reports that never enrolled keep their existing behavior.
+A flag change cannot retract a sent message or stop an external call that already passed its check.
+After-commit scheduling is best effort. Suppressed actions are not queued for later delivery.
+
+Before rollout, test self-removal, self-addition, concurrent edits, explicit empty confirmation, stale results, retries, access loss, and failed selection.
+Also test the assignment feedback loop above. Preserving a correction does not establish that later selections improve.
+The [system design](https://github.com/PostHog/posthog/issues/120572) describes selection, later roles, and delivery work.
+
 ## Report links
 
 Only scouts and the signals pipeline create and manage typed, directed report links.
