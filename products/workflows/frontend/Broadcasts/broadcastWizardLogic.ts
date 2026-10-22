@@ -1403,7 +1403,6 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             (integrations: IntegrationType[] | null): boolean =>
                 !!integrations?.some((integration) => PUSH_INTEGRATION_KINDS.includes(integration.kind)),
         ],
-        // Why Push can't be picked, if it can't. A failed load is not the same as no push setup.
         pushUnavailableReason: [
             (s) => [s.hasPushChannels, s.integrations, s.integrationsLoading],
             (hasPushChannels: boolean, integrations: IntegrationType[] | null, integrationsLoading: boolean) =>

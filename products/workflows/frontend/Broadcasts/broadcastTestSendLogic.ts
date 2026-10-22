@@ -65,7 +65,6 @@ export function findPushTestSkipReason(result: HogflowTestResult | null): string
 // Per-app delivery errors from the same worker. A missing token on one app is not one of them.
 const PUSH_APP_FAILURE_LOG = /(FCM|APNs): /
 
-/** The app errors of a push test that reached a device through another app. */
 export function findPushTestPartialFailure(result: HogflowTestResult | null): string | undefined {
     if (result?.status !== 'success' || !result.logs?.some((log) => PUSH_ACCEPTED_LOG.test(log.message ?? ''))) {
         return undefined
@@ -408,7 +407,6 @@ export const broadcastTestSendLogic = kea<broadcastTestSendLogicType>([
             if (values.testSendSkipReason) {
                 lemonToast.warning('Nothing was sent, see why below')
             } else if (values.testSendPartialFailure) {
-                // Some app failed, so the modal stays open with its errors rather than reading as a clean send.
                 lemonToast.warning('Sent through some apps only, see the errors below')
                 if (cache.pendingTest) {
                     actions.markTestSent(cache.pendingTest.to, cache.pendingTest.content)
