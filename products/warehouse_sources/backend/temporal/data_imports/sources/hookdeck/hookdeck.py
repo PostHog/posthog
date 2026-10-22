@@ -34,7 +34,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.hookdeck.s
 )
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class HookdeckResumeConfig:
     # Opaque `pagination.next` cursor pointing at the page after the last one yielded.
     next_cursor: Optional[str] = None

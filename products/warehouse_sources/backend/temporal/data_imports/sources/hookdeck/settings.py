@@ -49,7 +49,7 @@ class HookdeckMetricsConfig:
     dimensions: tuple[str, ...]
 
 
-@dataclass
+@dataclass(frozen=False)
 class HookdeckEndpointConfig:
     name: str
     path: str
