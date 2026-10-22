@@ -117,6 +117,7 @@ from products.mcp_registry.backend.facade.tasks import MCP_REGISTRY_SYNC_CRONTAB
 from products.notebooks.backend.facade.tasks import cleanup_widget_snapshots
 from products.pulse.backend.tasks import mark_stale_pulse_briefs_failed
 from products.reminders.backend.tasks import process_due_reminders
+from products.signals.backend.github_readiness_tasks import sweep_github_blocked_reports
 from products.signals.backend.tasks import (
     pause_inactive_signal_scouts,
     prune_expired_scratchpad_entries_task,
@@ -411,6 +412,8 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="refresh stale sandbox custom images",
         expires_seconds=10 * 60,
     )
+
+    sender.add_periodic_task(300, sweep_github_blocked_reports.s(), name="resume github-blocked signal reports")
 
     # Rebake the prebaked dev-stack VM image nightly so the baked migration state
     # stays close to master. No-ops unless the tasks-dev-stack-image-bake flag

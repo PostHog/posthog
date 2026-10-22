@@ -182,7 +182,11 @@ The local worker runs the sweep with all other workflows.
 
 ## GitHub-blocked Self-Driving work
 
-GitHub unsuspension schedules installation revalidation. Rate-limited revalidation honors GitHub's retry hints and queues a continuation at the failed connection across cooldown windows. The unavailable marker is cleared only after a successful token mint. Stale empty repository snapshots can be refreshed, and repository selection prefers the usable connection identified by cached readiness.
+The report summary workflow verifies GitHub readiness before loading signals or starting research. Reports without a usable connection stay `candidate` with a structured `research_blocked_reason`: `not_connected`, `reconnect_required`, `no_repositories`, or `temporarily_unavailable`. They do not consume a first-visible report slot or emit `signal_report_completed` until processing reaches a terminal result. `pending_input` remains available for repository ambiguity and human decisions made during research.
+
+Successful connection and repository-cache refreshes schedule `resume_github_blocked_reports` after commit. A five-minute sweep retries recorded blockers if a notification was missed or a quota lifted. Recovery processes 25 reports per batch, uses the existing stable Temporal workflow ID, checks consent and quota, and filters out signals from disabled sources. Dismissed reports and reports requiring human decisions are excluded. Legacy reports with an exact known missing-connection error are eligible when their project's connection changes; free-text repository-selection decisions are never automatically retried.
+
+GitHub unsuspension schedules installation revalidation. Rate-limited revalidation honors GitHub's retry hints and queues a continuation at the failed connection across cooldown windows. The unavailable marker is cleared only after a successful token mint. Stale empty repository snapshots can be refreshed, and repository selection prefers the usable connection identified by cached readiness. A transient refresh failure holds research for retry instead of being treated as missing setup.
 
 The self-driving config API exposes effective `github_readiness` from cached state, using the same project and eligible organization-owner connections as execution. Reading this status never calls GitHub.
 
