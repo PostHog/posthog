@@ -1175,14 +1175,16 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
 
     @parameterized.expand(
         [
-            ("allow", ThreadJoinMode.ALLOW, None, True, False),
-            ("ask_per_person", ThreadJoinMode.ASK_PER_PERSON, None, False, True),
-            ("ask_per_person_already_joined", ThreadJoinMode.ASK_PER_PERSON, ["U_BOB"], True, False),
-            ("ask_per_person_after_someone_else_joined", ThreadJoinMode.ASK_PER_PERSON, ["U_CAROL"], False, True),
-            ("ask_per_thread", ThreadJoinMode.ASK_PER_THREAD, None, False, True),
-            ("ask_per_thread_after_someone_else_joined", ThreadJoinMode.ASK_PER_THREAD, ["U_CAROL"], True, False),
-            ("never", ThreadJoinMode.NEVER, None, False, False),
-            ("never_after_joining", ThreadJoinMode.NEVER, ["U_BOB"], True, False),
+            ("allow", ThreadJoinMode.ALLOW, None, True, False, True),
+            ("ask_per_person", ThreadJoinMode.ASK_PER_PERSON, None, False, True, True),
+            ("ask_per_person_already_joined", ThreadJoinMode.ASK_PER_PERSON, ["U_BOB"], True, False, True),
+            ("ask_per_person_after_someone_else_joined", ThreadJoinMode.ASK_PER_PERSON, ["U_CAROL"], False, True, True),
+            ("ask_per_thread", ThreadJoinMode.ASK_PER_THREAD, None, False, True, True),
+            ("ask_per_thread_after_someone_else_joined", ThreadJoinMode.ASK_PER_THREAD, ["U_CAROL"], True, False, True),
+            ("never", ThreadJoinMode.NEVER, None, False, False, True),
+            ("never_after_joining", ThreadJoinMode.NEVER, ["U_BOB"], True, False, True),
+            # Turning the rollout flag off brings back today's behavior, whatever was stored.
+            ("never_with_the_flag_off", ThreadJoinMode.NEVER, None, True, False, False),
         ]
     )
     @patch("products.slack_app.backend.api.post_thread_join_prompt")
@@ -1190,7 +1192,17 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
     @patch("products.slack_app.backend.api.resolve_slack_user")
     @patch("posthog.models.integration.SlackIntegration")
     def test_the_thread_creators_join_mode_decides_who_reaches_the_task(
-        self, _name, mode, joined, delivered, prompted, mock_slack_cls, mock_resolve, mock_signal, mock_prompt
+        self,
+        _name,
+        mode,
+        joined,
+        delivered,
+        prompted,
+        flag_on,
+        mock_slack_cls,
+        mock_resolve,
+        mock_signal,
+        mock_prompt,
     ):
         SlackSettings.objects.create(slack_workspace_id="T_SLACK", slack_user_id="U_ALICE", thread_join_mode=mode)
         mapping = self._create_mapping(mentioning_user="U_ALICE")
@@ -1199,17 +1211,25 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
                 team=self.team, thread_mapping=mapping, slack_user_id=slack_user_id
             )
         bob = User.objects.create(email="bob@test.com", first_name="Bob")
-        mock_slack_cls.return_value = MagicMock()
+        mock_slack = MagicMock()
+        mock_slack_cls.return_value = mock_slack
         mock_resolve.return_value = SlackUserContext(user=bob, slack_email="bob@test.com")
 
         inputs = _make_inputs(self.integration.id, self.user.id)
-        result = forward_posthog_code_followup_activity(
-            inputs, "C123", "1234.5678", "U_BOB", "<@BOT> ship it", "1234.5679"
-        )
+        with patch(
+            "products.slack_app.backend.logic.thread_join.is_slack_app_multiplayer_approvals_enabled",
+            return_value=flag_on,
+        ):
+            result = forward_posthog_code_followup_activity(
+                inputs, "C123", "1234.5678", "U_BOB", "<@BOT> ship it", "1234.5679"
+            )
 
         assert result is True
         assert mock_signal.called is delivered
         assert mock_prompt.called is prompted
+        # A held or dropped message must not keep the reaction that says PostHog is working on it.
+        removed = [c.kwargs for c in mock_slack.client.reactions_remove.call_args_list]
+        assert ({"channel": "C123", "timestamp": "1234.5679", "name": "eyes"} in removed) is not delivered
         if prompted:
             assert mock_prompt.call_args.kwargs["opens_thread"] is (mode == ThreadJoinMode.ASK_PER_THREAD)
 

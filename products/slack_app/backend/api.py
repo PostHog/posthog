@@ -4385,9 +4385,29 @@ def _handle_thread_join_allow(payload: dict) -> HttpResponse:
 
 
 def _handle_thread_join_decline(payload: dict) -> HttpResponse:
-    """Drop the message. Nothing is stored, so the same person can ask again later."""
-    _thread_join_context(payload)
+    """Drop the message and tell the person who asked. Nothing is stored, so they can ask again later."""
+    context = _thread_join_context(payload)
     _delete_ephemeral_via_response_url(payload.get("response_url", ""))
+    integration_id = context.get("integration_id") if context else None
+    if context is None or not isinstance(integration_id, int):
+        return HttpResponse(status=200)
+    integration = Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
+        id=integration_id,  # nosemgrep: idor-taint-user-input-to-model-get
+        kind=SLACK_INTEGRATION_KIND,
+        integration_id=payload.get("team", {}).get("id", ""),
+    ).first()
+    if integration is None:
+        return HttpResponse(status=200)
+    try:
+        SlackIntegration(integration).client.chat_postEphemeral(
+            channel=context["slack_channel_id"],
+            user=context["joiner_slack_user_id"],
+            thread_ts=context["thread_ts"],
+            text=f"<@{context['owner_slack_user_id']}> didn't let you join this thread, so I won't pick up your message.",
+        )
+    except Exception:
+        logger.warning("slack_app_thread_join_decline_notice_failed", integration_id=integration.id, exc_info=True)
+    capture_slack_event(integration, "slack app thread join declined", slack_user_id=context["owner_slack_user_id"])
     return HttpResponse(status=200)
 
 

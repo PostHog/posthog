@@ -33,7 +33,11 @@ from posthog.models.user_integration import UserIntegration
 from posthog.user_permissions import UserPermissions
 
 from products.slack_app.backend.analytics import capture_slack_event
-from products.slack_app.backend.feature_flags import is_slack_app_oauth_enabled, is_slack_app_unprompted_answers_enabled
+from products.slack_app.backend.feature_flags import (
+    is_slack_app_multiplayer_approvals_enabled,
+    is_slack_app_oauth_enabled,
+    is_slack_app_unprompted_answers_enabled,
+)
 from products.slack_app.backend.models import (
     ChannelWelcomeMode,
     SlackSettings,
@@ -497,12 +501,15 @@ def render_home_view(
         blocks.extend(_auto_model_choice_blocks(auto_model_choice))
 
     # Section 4 — thread follow-ups: whether replies other people leave in the
-    # threads you started reach PostHog on their own, and who may join those threads.
+    # threads you started reach PostHog on their own.
     if untagged_followup_mode is not None:
         blocks.append({"type": "divider"})
         blocks.extend(_untagged_followups_section_blocks(untagged_followup_mode))
+
+    # Section 4a — multiplayer: who may join the threads you started.
     if thread_join_mode is not None:
-        blocks.extend(_thread_join_blocks(thread_join_mode))
+        blocks.append({"type": "divider"})
+        blocks.extend(_multiplayer_section_blocks(thread_join_mode))
 
     # Section 4b — channel questions. `None` means the flag is off for this workspace.
     if untagged_question_mode is not None:
@@ -1033,7 +1040,7 @@ def _untagged_questions_section_blocks(mode: UntaggedFollowupMode) -> list[dict]
     )
 
 
-def _thread_join_blocks(mode: ThreadJoinMode) -> list[dict]:
+def _multiplayer_section_blocks(mode: ThreadJoinMode) -> list[dict]:
     """Picker for what happens when someone else tags PostHog in a thread you started."""
     select = _static_select(
         action_id=ACTION_SET_THREAD_JOIN_MODE,
@@ -1042,7 +1049,7 @@ def _thread_join_blocks(mode: ThreadJoinMode) -> list[dict]:
         selected=mode.value,
     )
     return [
-        _subsection_label("People who join your threads"),
+        _section_title("👥 Multiplayer", "What I do when someone else tags @PostHog in a thread you started."),
         {"type": "actions", "elements": [select]},
     ]
 
@@ -1764,7 +1771,9 @@ def handle_ai_preferences_block_action(payload: dict, action: dict) -> HttpRespo
     if action_id == ACTION_SET_THREAD_JOIN_MODE:
         picked = (action.get("selected_option") or {}).get("value")
         # An unrecognised value is ignored rather than stored.
-        if picked in ThreadJoinMode.values:
+        if picked in ThreadJoinMode.values and _thread_join_offered(
+            integration, _resolve_home_user(integration, slack_user_id)
+        ):
             set_thread_join_mode(integration.integration_id, slack_user_id, ThreadJoinMode(picked))
             capture_slack_event(integration, "slack app thread join mode set", slack_user_id=slack_user_id, mode=picked)
         republish()
@@ -2245,7 +2254,11 @@ def _build_home_view(
             if _auto_model_choice_offered(integration, slack_user_id)
             else None
         ),
-        thread_join_mode=resolve_thread_join_mode(integration, slack_user_id),
+        thread_join_mode=(
+            resolve_thread_join_mode(integration, slack_user_id)
+            if _thread_join_offered(integration, _resolve_home_user(integration, slack_user_id))
+            else None
+        ),
         has_project_access=bool(accessible),
         # The same settings page the GitHub card deep-links to.
         account_settings_url=github_state.settings_url,
@@ -2491,6 +2504,10 @@ def _resolve_run_defaults_state(
         source=resolved.source,
         settings_url=settings_url,
     )
+
+
+def _thread_join_offered(integration: Integration, home_user: User | None) -> bool:
+    return home_user is not None and is_slack_app_multiplayer_approvals_enabled(integration, home_user.distinct_id)
 
 
 def _auto_model_choice_offered(integration: Integration, slack_user_id: str) -> bool:

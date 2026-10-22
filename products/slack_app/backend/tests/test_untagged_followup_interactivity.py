@@ -18,6 +18,7 @@ from posthog.models.user import User
 
 from products.slack_app.backend.api import (
     THREAD_JOIN_ACTION_ALLOW,
+    THREAD_JOIN_ACTION_DECLINE,
     THREAD_JOIN_CONTEXT_KIND,
     UNTAGGED_FOLLOWUP_ACTION_DISMISS,
     UNTAGGED_FOLLOWUP_ACTION_RUN,
@@ -329,6 +330,21 @@ class TestUntaggedFollowupInteractivity(TestCase):
         if joins:
             assert mock_start.call_args.args[0] == self.event
             assert mock_start.call_args.kwargs["posthog_user"].id == self.member_user.id
+
+    def test_declining_tells_the_person_who_asked(self, mock_slack_cls, mock_post):
+        # Their message was held without the processing reaction, so only this notice says what happened.
+        mock_slack_cls.slack_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
+        self._stash_thread_join_prompt()
+
+        with patch("products.slack_app.backend.api._start_mention_workflow") as mock_start:
+            response = self._click(THREAD_JOIN_ACTION_DECLINE, "U_ALICE")
+
+        assert response.status_code == 200
+        mock_start.assert_not_called()
+        notice = mock_slack_cls.return_value.client.chat_postEphemeral.call_args.kwargs
+        assert (notice["user"], notice["thread_ts"]) == ("U_BOB", "1000.0000")
+        assert "<@U_ALICE> didn't let you join this thread" in notice["text"]
+        assert not SlackThreadJoin.objects.for_team(self.team.id).filter(thread_mapping=self.mapping).exists()
 
 
 @override_settings(DEBUG=True)
