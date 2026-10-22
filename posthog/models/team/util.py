@@ -366,13 +366,9 @@ def delete_team_records(team_ids: list[int]) -> None:
         teams = list(Team.objects.select_for_update().filter(id__in=team_ids))
         for team in teams:
             queue_training_deletion(team.pk, "team")
-        # Batch jobs point at their team and workflow with DO_NOTHING, so the cascade leaves them and their
-        # deferred foreign keys fail this commit. They are deleted here, not in an earlier phase, because the
-        # lock above stops new jobs, and a retry of this step after a failed commit runs the delete again.
+        # The cascade skips batch jobs (DO_NOTHING), so delete them here, in the step a stuck deletion retries.
         _raw_delete_batch(hog_flow_batch_job.objects.filter(team_id__in=team_ids))
-        # A batch job saves under its project's root team, but its workflow can belong to an environment.
-        # Each condition gets its own pass, because an OR across the join stops PostgreSQL from using
-        # the team index on either table.
+        # A job saves under the root team, but its workflow can belong to an environment.
         _raw_delete_batch(
             hog_flow_batch_job.objects.filter(
                 hog_flow_id__in=hog_flow.objects.filter(team_id__in=team_ids).values("id")

@@ -87,7 +87,7 @@ class TestHogFlowBatchJob(TestCase):
         HogFlowBatchJob.objects.create(team=team, hog_flow=hog_flow)
 
         delete_team_records([team.id])
-        # The foreign keys are deferred, so production fails at COMMIT, which a TestCase never reaches.
+        # Deferred foreign keys fail at COMMIT, which a TestCase never reaches.
         connection.check_constraints()
 
         assert not Team.objects.filter(id=team.id).exists()
