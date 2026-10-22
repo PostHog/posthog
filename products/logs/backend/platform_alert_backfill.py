@@ -74,10 +74,12 @@ def platform_upsert_of(alert: LogsAlertConfiguration) -> PlatformAlertUpsert:
 
 
 # A muted logs alert is a state of its own. On the platform a mute only silences notifications,
-# so the copy keeps checking with the snooze carried on `snooze_until`. Firing states have no entry,
-# because a firing alert stays with logs until it resolves.
+# so the copy keeps checking with the snooze carried on `snooze_until`. A pending resolve is still
+# firing, because its incident stays open until the resolve completes.
 PLATFORM_HANDOVER_STATE: Final[dict[str, PlatformAlertState]] = {
     LogsAlertConfiguration.State.NOT_FIRING: PlatformAlertState.NOT_FIRING,
+    LogsAlertConfiguration.State.FIRING: PlatformAlertState.FIRING,
+    LogsAlertConfiguration.State.PENDING_RESOLVE: PlatformAlertState.FIRING,
     LogsAlertConfiguration.State.SNOOZED: PlatformAlertState.NOT_FIRING,
     LogsAlertConfiguration.State.ERRORED: PlatformAlertState.ERRORED,
     LogsAlertConfiguration.State.BROKEN: PlatformAlertState.BROKEN,

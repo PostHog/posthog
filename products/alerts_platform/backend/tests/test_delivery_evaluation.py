@@ -345,6 +345,19 @@ class TestDeliverEvaluation(APIBaseTest):
         assert [m.headline for channel, m in RecordingTransport.sends if channel == "C-1"] == chat_headlines
         assert [m.incident_action for channel, m in RecordingTransport.sends if channel == "R-1"] == [action]
 
+    @parameterized.expand([("owned_by_the_platform", True, "posthog-alert-legacy-1"), ("live_delivery", False, None)])
+    def test_only_an_alert_the_platform_owns_resolves_under_its_source_incident_key(
+        self, _name: str, owned_by_platform: bool, expected: str | None
+    ) -> None:
+        self._run(
+            _announcement(_transition(AlertEventKind.RESOLVED)),
+            {CLOSED_EVENT: [_group(PAGERDUTY)]},
+            incident_actions={"": IncidentAction.RESOLVE},
+            owned_by_platform=owned_by_platform,
+        )
+
+        assert [m.source_incident_key for channel, m in RecordingTransport.sends if channel == "R-1"] == [expected]
+
     def test_a_destination_with_no_transport_is_skipped_rather_than_failing_the_send(self) -> None:
         outcome = self._run(
             _announcement(_transition(AlertEventKind.FIRING)),

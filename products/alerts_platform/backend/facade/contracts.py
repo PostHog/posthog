@@ -381,7 +381,8 @@ class PlatformOwnershipHandover:
 class HandbackRefusal(StrEnum):
     """Why the platform keeps an alert its source asked for back."""
 
-    # Firing episodes are keyed per stack, so a firing alert stays until it resolves.
+    # The platform keys its incidents by episode, which the source's own stack cannot address, so a
+    # firing alert stays until it resolves.
     FIRING = "firing"
     # A platform check may be running and could record or notify after the handback.
     CHECK_DUE = "check_due"

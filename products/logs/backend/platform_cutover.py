@@ -19,7 +19,7 @@ from posthog.dataclasses import frozen
 from products.alerts_platform.backend.facade.api import give_back_ownership, take_ownership, upsert_configuration
 from products.alerts_platform.backend.facade.contracts import Grouping, HandbackRefusal, PlatformOwnershipHandover
 from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
-from products.logs.backend.alert_state_machine import FIRING_STATES, ControlPlaneOutcome, apply_outcome
+from products.logs.backend.alert_state_machine import ControlPlaneOutcome, apply_outcome
 from products.logs.backend.alert_utils import due_alerts_q
 from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
 from products.logs.backend.platform_alert_backfill import (
@@ -35,8 +35,6 @@ class CutoverSkip(StrEnum):
     """Why an alert stays with the logs stack for now."""
 
     ALREADY_MOVED = "already_moved"
-    # The two stacks key incidents differently, so a firing moves only after it resolves.
-    FIRING = "firing"
     # The logs scheduler owes this alert a check, which may already be running and could notify
     # after the move.
     CHECK_DUE = "check_due"
@@ -90,8 +88,6 @@ def _cut_over_alert(alert_id: UUID, now: datetime | None, *, dry_run: bool) -> C
                 return CutoverSkip.ALREADY_MOVED
             if in_an_environment(alert):
                 return CutoverSkip.ENVIRONMENT
-            if alert.state in FIRING_STATES:
-                return CutoverSkip.FIRING
             if _logs_check_owed(alert.id, at):
                 return CutoverSkip.CHECK_DUE
             if not hand_over(alert, at):
