@@ -351,7 +351,7 @@ class ClonePhases:
 def _timed_clone_command(*, prepare: str, fetch: str, checkout: str) -> str:
     return (
         f"{prepare} && T0=$(date +%s%3N) && {fetch} && T1=$(date +%s%3N) && "
-        f"{checkout} && T2=$(date +%s%3N) && {CLONE_PHASES_ECHO}"
+        f"{checkout} && T2=$(date +%s%3N) && {{ {{ {CLONE_PHASES_ECHO}; }} 2>/dev/null || true; }}"
     )
 
 

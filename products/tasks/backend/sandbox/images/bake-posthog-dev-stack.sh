@@ -197,7 +197,7 @@ log "warming go module cache (livestream)"
 (cd livestream && go mod download)
 
 log "warming python environment (uv sync)"
-# The checkout's .venv is discarded with the checkout; the uv cache persists in the
+# The checkout's .venv is deleted by the cleanup step; the uv cache persists in the
 # image and makes the task-time `uv sync` a fast linking pass.
 uv sync --frozen
 
@@ -212,7 +212,7 @@ pnpm fetch
 # install below. --ignore-scripts keeps third-party postinstall hooks from failing
 # the bake — the deliberate cost is that native-addon builds (node-rdkafka's node-gyp
 # compile, chiefly) are not warmed and still compile during the task-time install,
-# which runs scripts as usual. node_modules itself is discarded with the checkout.
+# which runs scripts as usual. node_modules itself is deleted by the cleanup step.
 pnpm install --prefer-offline --frozen-lockfile --ignore-scripts
 
 log "smoke-testing Desktop cloud-task bootstrap"
