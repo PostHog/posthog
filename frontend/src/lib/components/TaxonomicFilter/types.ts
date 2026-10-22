@@ -10,6 +10,7 @@ import { AnyDataNode, DatabaseSchemaField, DatabaseSerializedFieldType } from '~
 import {
     ActionFilter,
     ActionType,
+    AnyPropertyFilter,
     CohortType,
     EntityFilter,
     EventDefinition,
@@ -69,10 +70,9 @@ export type SelectedProperties = TaxonomicFilterGroupValueMap
 export type AllowedProperties = TaxonomicFilterGroupValueMap
 
 /**
- * Per-group-type **denylist of property-filter operators** the host cannot represent.
- * Acts only on the **Recent tab** — items whose stored operator is denylisted for
- * their source group are hidden so the picker never surfaces a value the
- * surrounding UI can't reproduce.
+ * Per-group rule for hiding property filters the host cannot represent.
+ * Acts only on the Recent tab. A list checks operators; a callback can also
+ * check the saved property's key and type.
  *
  * Pairs with `selectingKeyOnly` when a host wants both (a) no operator/value
  * slot in the row *and* (b) impossible recents kept out of the picker — the two
@@ -87,7 +87,9 @@ export type AllowedProperties = TaxonomicFilterGroupValueMap
  * filter (e.g. survey trigger surfaces only `=` / `contains` regardless of
  * filter type).
  */
-export type ExcludedOperators = { [key in TaxonomicFilterGroupType]?: PropertyOperator[] }
+export type ExcludedOperators = {
+    [key in TaxonomicFilterGroupType]?: PropertyOperator[] | ((filter: AnyPropertyFilter) => boolean)
+}
 
 /**
  * Tells `TaxonomicPropertyFilter` to render a row as key-only — the picked
