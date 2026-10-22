@@ -19,6 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.kalshi import KalshiSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.kalshi.kalshi import (
+    INVALID_PRIVATE_KEY_MESSAGE,
     KalshiCredentialsError,
     KalshiResumeConfig,
     KalshiSignedAuth,
@@ -275,7 +276,7 @@ class TestKalshiPortfolio:
         ]
     )
     def test_rejects_an_invalid_private_key(self, _name: str, private_key: str) -> None:
-        with pytest.raises(KalshiCredentialsError):
+        with pytest.raises(KalshiCredentialsError, match=INVALID_PRIVATE_KEY_MESSAGE):
             KalshiSignedAuth("key-id", private_key)
 
     @parameterized.expand(
