@@ -54,8 +54,7 @@ export class TracesIngestionConsumer extends LogsIngestionConsumer {
                 // independently of log retention.
                 LOGS_RETENTION_ENABLED_TEAMS: config.TRACES_RETENTION_ENABLED_TEAMS,
                 LOGS_RETENTION_KILLSWITCH: config.TRACES_RETENTION_KILLSWITCH,
-                // The internal flag covers logs only. Without these, a signed traces batch would
-                // skip traces billing under the logs key and allowlist.
+                // Internal batches are logs only, so a signed traces batch is still billed.
                 LOGS_INTERNAL_INGESTION_SIGNING_KEYS: '',
                 LOGS_INTERNAL_INGESTION_ENABLED_TEAMS: '',
             },

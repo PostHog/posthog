@@ -77,6 +77,23 @@ jest.mock('~/common/utils/posthog', () => {
 
 let offsetIncrementer = 0
 
+const LOG_RECORD_BASE_FIELDS = [
+    { name: 'uuid', type: ['null', 'string'] },
+    { name: 'trace_id', type: ['null', 'bytes'] },
+    { name: 'span_id', type: ['null', 'bytes'] },
+    { name: 'trace_flags', type: ['null', 'int'] },
+    { name: 'timestamp', type: ['null', 'long'] },
+    { name: 'observed_timestamp', type: ['null', 'long'] },
+    { name: 'body', type: ['null', 'string'] },
+    { name: 'severity_text', type: ['null', 'string'] },
+    { name: 'severity_number', type: ['null', 'int'] },
+    { name: 'service_name', type: ['null', 'string'] },
+    { name: 'resource_attributes', type: ['null', { type: 'map', values: 'string' }] },
+    { name: 'instrumentation_scope', type: ['null', 'string'] },
+    { name: 'event_name', type: ['null', 'string'] },
+    { name: 'attributes', type: ['null', { type: 'map', values: 'string' }] },
+]
+
 const createKafkaMessage = async (
     logData: any,
     headers: Record<string, string> = {},
@@ -106,20 +123,7 @@ const createKafkaMessage = async (
         type: 'record',
         name: 'LogRecord',
         fields: [
-            { name: 'uuid', type: ['null', 'string'] },
-            { name: 'trace_id', type: ['null', 'bytes'] },
-            { name: 'span_id', type: ['null', 'bytes'] },
-            { name: 'trace_flags', type: ['null', 'int'] },
-            { name: 'timestamp', type: ['null', 'long'] },
-            { name: 'observed_timestamp', type: ['null', 'long'] },
-            { name: 'body', type: ['null', 'string'] },
-            { name: 'severity_text', type: ['null', 'string'] },
-            { name: 'severity_number', type: ['null', 'int'] },
-            { name: 'service_name', type: ['null', 'string'] },
-            { name: 'resource_attributes', type: ['null', { type: 'map', values: 'string' }] },
-            { name: 'instrumentation_scope', type: ['null', 'string'] },
-            { name: 'event_name', type: ['null', 'string'] },
-            { name: 'attributes', type: ['null', { type: 'map', values: 'string' }] },
+            ...LOG_RECORD_BASE_FIELDS,
             { name: 'pattern', type: ['null', 'string'], default: null },
             { name: 'pattern_version', type: ['null', 'int'], default: null },
         ],
@@ -155,23 +159,7 @@ const createMultiRecordKafkaMessage = async (
     const logRecordType = avro.Type.forSchema({
         type: 'record',
         name: 'LogRecord',
-        fields: [
-            { name: 'uuid', type: ['null', 'string'] },
-            { name: 'trace_id', type: ['null', 'bytes'] },
-            { name: 'span_id', type: ['null', 'bytes'] },
-            { name: 'trace_flags', type: ['null', 'int'] },
-            { name: 'timestamp', type: ['null', 'long'] },
-            { name: 'observed_timestamp', type: ['null', 'long'] },
-            { name: 'body', type: ['null', 'string'] },
-            { name: 'severity_text', type: ['null', 'string'] },
-            { name: 'severity_number', type: ['null', 'int'] },
-            { name: 'service_name', type: ['null', 'string'] },
-            { name: 'resource_attributes', type: ['null', { type: 'map', values: 'string' }] },
-            { name: 'instrumentation_scope', type: ['null', 'string'] },
-            { name: 'event_name', type: ['null', 'string'] },
-            { name: 'attributes', type: ['null', { type: 'map', values: 'string' }] },
-            { name: 'retention_days', type: ['null', 'int'], default: null },
-        ],
+        fields: [...LOG_RECORD_BASE_FIELDS, { name: 'retention_days', type: ['null', 'int'], default: null }],
     })
 
     const records: LogRecord[] = logDataList.map((logData, i) => ({
@@ -1083,8 +1071,6 @@ describe('LogsIngestionConsumer', () => {
                 },
                 { samplingRulesCache: dropEverything as SamplingRulesCache }
             )
-            // A quota-limited team with a drop-everything rule shows the bypass: an internal batch is
-            // produced, a billed one is dropped.
             jest.mocked(hub.quotaLimiting.isTeamTokenQuotaLimited).mockResolvedValue(true)
 
             const [message] = await createKafkaMessages([createLogMessage()], {
@@ -1135,7 +1121,6 @@ describe('LogsIngestionConsumer', () => {
                 LOGS_INTERNAL_INGESTION_ENABLED_TEAMS: String(team.id),
                 LOGS_INTERNAL_INGESTION_SIGNING_KEYS: SIGNING_KEY,
             })
-            // Five days old is inside the 14-day team default but past the 1-day stamp.
             const fiveDaysAgoMicros = DateTime.now().minus({ days: 5 }).toMillis() * 1000
             const message = await createMultiRecordKafkaMessage(
                 [{ level: 'info', timestampMicros: fiveDaysAgoMicros, retentionDays: 1 }, { level: 'info' }],

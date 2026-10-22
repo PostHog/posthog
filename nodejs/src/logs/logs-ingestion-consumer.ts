@@ -105,8 +105,7 @@ export interface LogsIngestionConsumerDeps {
 /** Ingestion default when `logs_settings.retention_days` is unset; must match `DEFAULT_LOGS_RETENTION_DAYS` in `posthog/models/team/logs_retention.py`. */
 export const DEFAULT_LOGS_RETENTION_DAYS = 14
 
-/** The producer of an internal batch stamps per-row retention, which can be shorter than the team
- * default, so the expiry check for an internal batch uses the shortest stamp a producer can write. */
+// A producer can stamp internal rows with less retention than the team default.
 const INTERNAL_LOGS_MIN_RETENTION_DAYS = 1
 
 /** Retention day counts that get their own per-tier usage metric. */
@@ -498,11 +497,7 @@ export class LogsIngestionConsumer {
         return teamIdMatchesCsv(this.metricRulesEnabledTeamsRaw, teamId)
     }
 
-    /**
-     * Sampling and drop rules, hog transformations, metric rules and retention rules are the team's cost
-     * and data controls for the logs it pays for. Internal logs are PostHog-owned, so none of them apply.
-     * Transformations also write hog_function logs, which could come back here as internal logs and loop.
-     */
+    // Transformations write hog_function logs, which could come back here as internal logs and loop.
     private appliesTeamLogRules(message: LogsIngestionMessage): boolean {
         return message.internalSource === undefined
     }
@@ -597,8 +592,6 @@ export class LogsIngestionConsumer {
         const retentionCache = this.deps.retentionRulesCache
         const retentionEvalEnabled = this.isRetentionEvalEnabledForTeam(message.teamId)
         let retentionRuleSet: CompiledRetentionRuleSet | null = null
-        // An internal batch keeps the per-row retention its producer stamped. The expiry stage below
-        // still runs for it.
         if (retentionCache && retentionEvalEnabled && this.appliesTeamLogRules(message)) {
             retentionRuleSet = await retentionCache.getCompiledRuleSet(message.teamId, this.retentionRuleSource)
         }
@@ -727,7 +720,6 @@ export class LogsIngestionConsumer {
         this.trackIncomingTraffic(messages)
 
         const { backfillAllowedMessages, backfillDroppedMessages } = this.filterBackfillNotEnabledMessages(messages)
-        // Internal batches skip quota, rate limits and usage stats, so they never count as billed logs usage.
         const internalMessages: LogsIngestionMessage[] = []
         const billedMessages: LogsIngestionMessage[] = []
         for (const message of backfillAllowedMessages) {
@@ -756,11 +748,9 @@ export class LogsIngestionConsumer {
                     usageStats,
                     transformationBatchBudget
                 )
-                // Internal batches write to a usage map that is never emitted, so no per-message stat
-                // (drop-rule credit, PII counts) can reach the team's billed row. They run after the
-                // billed batches so the per-batch processing concurrency limit still holds.
+                // A usage map that is never emitted keeps their stats off the team's billed row.
+                // They run after the billed batches, so the per-batch concurrency limit still holds.
                 await this.processAndProduceLogMessages(internalMessages, new Map(), transformationBatchBudget)
-                // PostHog produced internal batches, so they must not mark the team as having sent its own logs.
                 await this.deps.teamManager.setTeamsIngestedData(
                     rateLimiterAllowedMessages.map((message) => message.teamId)
                 )
@@ -776,10 +766,7 @@ export class LogsIngestionConsumer {
         }
     }
 
-    /**
-     * Internal batches get their own metric names. The usage report matches `bytes_ingested` and
-     * `records_ingested` exactly, so these never reach billing or the count of teams using logs.
-     */
+    // The usage report matches `bytes_ingested` exactly, so these names never reach billing.
     private queueInternalLogsMetrics(internalMessages: LogsIngestionMessage[]): void {
         for (const message of internalMessages) {
             this.queueUsageMetric(message.teamId, 'bytes_ingested_internal', message.bytesUncompressed)
@@ -795,8 +782,7 @@ export class LogsIngestionConsumer {
         let totalBytesReceived = 0
         let totalRecordsReceived = 0
         for (const message of messages) {
-            // Internal batches are never quota or rate limited, so counting them here would show as drops
-            // in received minus allowed. queueInternalLogsMetrics counts them on their own.
+            // Never quota or rate limited, so counting them would show as drops in received minus allowed.
             if (message.internalSource !== undefined) {
                 continue
             }
@@ -1160,8 +1146,6 @@ export class LogsIngestionConsumer {
                                 message.recordCount
                             )
 
-                            // An internal batch is never billed, so a credit against it would understate
-                            // billed volume.
                             if (message.internalSource === undefined) {
                                 const teamIdLabel = message.teamId.toString()
                                 if (contentCredit > 0) {

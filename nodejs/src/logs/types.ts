@@ -12,9 +12,5 @@ export type LogsIngestionMessage = {
     /** Earliest row timestamp in epoch microseconds, from the `min_timestamp` header; absent from older producers. */
     minTimestampMicros?: number
     backfillRequested?: boolean
-    /**
-     * The PostHog source that produced these logs about the team's use of PostHog, for example `hog_flow`.
-     * PostHog owns their storage and processing. Set only after the `posthog-internal` signature verifies.
-     */
     internalSource?: string
 }
