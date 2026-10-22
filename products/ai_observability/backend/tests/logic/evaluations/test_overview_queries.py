@@ -55,6 +55,16 @@ def test_rolling_hours_keep_their_real_length_across_daylight_saving(_name: str,
 
 
 class TestEvaluationsOverviewQueries(ClickhouseTestMixin, BaseTest):
+    def _judge(self) -> Evaluation:
+        return Evaluation.objects.create(
+            team=self.team,
+            name="Judge",
+            evaluation_type="hog",
+            evaluation_config={"source": "return true"},
+            output_type="boolean",
+            output_config={},
+        )
+
     def _run(self, evaluation: Evaluation, timestamp: str, **properties: object) -> None:
         _create_event(
             team=self.team,
@@ -66,14 +76,7 @@ class TestEvaluationsOverviewQueries(ClickhouseTestMixin, BaseTest):
 
     @parameterized.expand([("one page", 50_000), ("several pages", 2)])
     def test_groups_runs_by_evaluation_day_and_period(self, _name: str, page_size: int) -> None:
-        judge = Evaluation.objects.create(
-            team=self.team,
-            name="Judge",
-            evaluation_type="hog",
-            evaluation_config={"source": "return true"},
-            output_type="boolean",
-            output_config={},
-        )
+        judge = self._judge()
         topic = Evaluation.objects.create(
             team=self.team,
             name="Topic",
@@ -92,24 +95,9 @@ class TestEvaluationsOverviewQueries(ClickhouseTestMixin, BaseTest):
         self._run(judge, "2026-03-09T10:00:00Z", **{"$ai_evaluation_result": True})
         self._run(judge, "2026-03-09T11:00:00Z", **{"$ai_evaluation_result": False})
         self._run(judge, "2026-03-09T12:00:00Z", **{"$ai_evaluation_applicable": False})
-        self._run(
-            judge,
-            "2026-03-10T10:00:00Z",
-            **{
-                "$ai_evaluation_result": False,
-                "$ai_evaluation_skipped": True,
-                "$ai_evaluation_skip_reason": "hog_input_error",
-            },
-        )
-        self._run(
-            judge,
-            "2026-03-10T11:00:00Z",
-            **{
-                "$ai_evaluation_result": False,
-                "$ai_evaluation_skipped": True,
-                "$ai_evaluation_skip_reason": "trace_not_found",
-            },
-        )
+        skipped = {"$ai_evaluation_result": False, "$ai_evaluation_skipped": True}
+        self._run(judge, "2026-03-10T10:00:00Z", **skipped, **{"$ai_evaluation_skip_reason": "hog_input_error"})
+        self._run(judge, "2026-03-10T11:00:00Z", **skipped, **{"$ai_evaluation_skip_reason": "trace_not_found"})
         self._run(judge, "2026-03-02T10:00:00Z", **{"$ai_evaluation_result": True})
         self._run(judge, "2026-03-07T23:00:00Z", **{"$ai_evaluation_result": True})
         self._run(judge, "2026-02-28T23:00:00Z", **{"$ai_evaluation_result": True})
@@ -126,19 +114,10 @@ class TestEvaluationsOverviewQueries(ClickhouseTestMixin, BaseTest):
             bucket_counts = load_bucket_counts(self.team, None, PERIOD, ids, get_evaluation_pass_filters(self.team.pk))
             category_counts = load_category_counts(self.team, None, PERIOD, [str(topic.id)])
         counts = {
-            (row.evaluation_id, row.bucket): (
-                row.passed,
-                row.failed,
-                row.not_applicable,
-                row.skipped,
-                row.categorized,
-            )
+            (row.evaluation_id, row.bucket): (row.passed, row.failed, row.not_applicable, row.skipped, row.categorized)
             for row in bucket_counts
         }
-        categories = sorted(
-            category_counts,
-            key=lambda row: (row.bucket or datetime.min.replace(tzinfo=UTC), row.key),
-        )
+        categories = sorted(category_counts, key=lambda row: (row.bucket or datetime.min.replace(tzinfo=UTC), row.key))
 
         assert counts == {
             (str(judge.id), _midnight(9)): (1, 1, 1, 0, 0),
@@ -158,14 +137,7 @@ class TestEvaluationsOverviewQueries(ClickhouseTestMixin, BaseTest):
     def test_periods_follow_the_project_timezone_and_a_running_day(self) -> None:
         self.team.timezone = "Asia/Tokyo"
         self.team.save()
-        judge = Evaluation.objects.create(
-            team=self.team,
-            name="Judge",
-            evaluation_type="hog",
-            evaluation_config={"source": "return true"},
-            output_type="boolean",
-            output_config={},
-        )
+        judge = self._judge()
         # Now is 12:00 on March 10 in Tokyo, so the previous period runs from March 7 to 12:00 on March 8.
         for timestamp in (
             "2026-03-06T14:00:00Z",  # 23:00 March 6, before the previous period
@@ -198,14 +170,7 @@ class TestEvaluationsOverviewQueries(ClickhouseTestMixin, BaseTest):
         self.team.timezone = "America/New_York"
         self.team.modifiers = {"convertToProjectTimezone": False}
         self.team.save()
-        judge = Evaluation.objects.create(
-            team=self.team,
-            name="Judge",
-            evaluation_type="hog",
-            evaluation_config={"source": "return true"},
-            output_type="boolean",
-            output_config={},
-        )
+        judge = self._judge()
         # 22:00 on March 9 in New York, already March 10 in UTC.
         self._run(judge, "2026-03-10T02:00:00Z", **{"$ai_evaluation_result": True})
         flush_persons_and_events()
@@ -226,14 +191,7 @@ class TestEvaluationsOverviewQueries(ClickhouseTestMixin, BaseTest):
     def test_runs_in_a_repeated_daylight_saving_hour_land_in_their_own_buckets(self) -> None:
         self.team.timezone = "America/New_York"
         self.team.save()
-        judge = Evaluation.objects.create(
-            team=self.team,
-            name="Judge",
-            evaluation_type="hog",
-            evaluation_config={"source": "return true"},
-            output_type="boolean",
-            output_config={},
-        )
+        judge = self._judge()
         # 01:30 on November 1 in New York, before and after the clocks fall back.
         for timestamp in ("2026-11-01T05:30:00Z", "2026-11-01T06:30:00Z"):
             self._run(judge, timestamp, **{"$ai_evaluation_result": True})
@@ -249,14 +207,7 @@ class TestEvaluationsOverviewQueries(ClickhouseTestMixin, BaseTest):
 
     @time_machine.travel(datetime(2026, 3, 10, 12, 30, tzinfo=UTC), tick=False)
     def test_a_day_or_shorter_buckets_by_hour_against_the_hours_before(self) -> None:
-        judge = Evaluation.objects.create(
-            team=self.team,
-            name="Judge",
-            evaluation_type="hog",
-            evaluation_config={"source": "return true"},
-            output_type="boolean",
-            output_config={},
-        )
+        judge = self._judge()
         for timestamp in (
             "2026-03-08T12:00:00Z",  # before the previous 24 hours
             "2026-03-08T13:00:00Z",  # previous 24 hours

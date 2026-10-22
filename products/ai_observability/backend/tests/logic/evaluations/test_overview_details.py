@@ -79,39 +79,21 @@ class TestEvaluationOverviewDetails(ClickhouseTestMixin, BaseTest):
         relevance_details = get_evaluation_overview_details(self.team, None, str(relevance.id), START, END)
         fraction_details = get_evaluation_overview_details(self.team, None, str(fraction.id), START, END)
 
-        assert judge_details.recent_failures is not None
-        assert [failure.trace_id for failure in judge_details.recent_failures] == [
-            "trace-6",
-            "trace-5",
-            "trace-4",
-            "trace-3",
-            "trace-2",
-        ]
-        assert judge_details.recent_failures[0].reasoning == "x" * 999 + "…"
-        assert judge_details.recent_failures[1].target_event_id == "generation-5"
+        failures = judge_details.recent_failures
+        assert failures is not None
+        assert [failure.trace_id for failure in failures] == ["trace-6", "trace-5", "trace-4", "trace-3", "trace-2"]
+        assert failures[0].reasoning == "x" * 999 + "…"
+        assert failures[1].target_event_id == "generation-5"
         assert judge_details.score_distribution is None
         assert relevance_details.recent_failures is not None
         assert [failure.timestamp.hour for failure in relevance_details.recent_failures] == [10]
         assert relevance_details.score_distribution == contracts.ScoreHistogram(
             scale=contracts.ScoreScale(min=1, max=5),
             buckets=[
-                contracts.ScoreBucket(label="1", count=1),
-                contracts.ScoreBucket(label="2", count=0),
-                contracts.ScoreBucket(label="3", count=0),
-                contracts.ScoreBucket(label="4", count=3),
-                contracts.ScoreBucket(label="5", count=1),
+                contracts.ScoreBucket(label=str(score), count=count)
+                for score, count in zip(range(1, 6), [1, 0, 0, 3, 1])
             ],
         )
-        assert fraction_details.score_distribution is not None
-        assert [bucket.count for bucket in fraction_details.score_distribution.buckets] == [
-            1,
-            0,
-            0,
-            1,
-            0,
-            0,
-            1,
-            1,
-            0,
-            1,
-        ]
+        histogram = fraction_details.score_distribution
+        assert histogram is not None
+        assert [bucket.count for bucket in histogram.buckets] == [1, 0, 0, 1, 0, 0, 1, 1, 0, 1]

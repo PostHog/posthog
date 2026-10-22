@@ -115,10 +115,6 @@ class CategoryBucketCount:
     runs: int
 
 
-def _tuple(values: Sequence[str]) -> ast.Tuple:
-    return ast.Tuple(exprs=[ast.Constant(value=value) for value in values])
-
-
 def _run(
     name: str,
     query: str,
@@ -141,7 +137,7 @@ def _run(
                 ast.Call(name="toTimeZone", args=[ast.Field(chain=["timestamp"]), ast.Constant(value=team.timezone)])
             ],
         ),
-        "evaluation_ids": _tuple(evaluation_ids),
+        "evaluation_ids": ast.Tuple(exprs=[ast.Constant(value=value) for value in evaluation_ids]),
         **extra,
     }
     rows: list[Sequence[Any]] = []
