@@ -80,6 +80,7 @@ NOT_CHECKABLE: dict[str, str] = {
     "Attentive": "no-request",
     "AzureBlob": "schemas",
     "AzureCostManagement": "no-request",
+    "AzureLogAnalytics": "no-request",
     "Baserow": "schemas",
     "BigQuery": "driver",
     "BingAds": "database",
