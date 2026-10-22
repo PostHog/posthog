@@ -152,9 +152,11 @@ function withoutFlagCalls(properties: TrendsQuery['properties']): TrendsQuery['p
 
 /**
  * Runs `trendsQuery`. When `flagCallFilters` is set, the trends query leaves out flag calls. This function then
- * counts the flag calls those filters match over the last `days` days on flag_evaluations and adds them to the
- * first series. Ingestion on mode 1 wrote each flag call to both tables, so a count from one table counts it once.
- * `days` must cover the range of `trendsQuery`.
+ * counts the flag calls that those filters match over the last `days` days on flag_evaluations, and adds them to the
+ * first series. On mode 2, ingestion writes each flag call to flag_evaluations. It sends the same call to destinations
+ * and workflows, so flag_evaluations holds exactly the flag calls they receive. A flag call from before the switch to
+ * mode 2 is in both tables, because mode 1 wrote both, so the count includes it once. A flag call with no flag key
+ * stays in `events` only, and the count leaves it out. `days` must cover the range of `trendsQuery`.
  */
 export async function performTrendsQueryWithFlagCalls(
     trendsQuery: TrendsQuery,
