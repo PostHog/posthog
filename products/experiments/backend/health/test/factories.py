@@ -60,6 +60,8 @@ def flag_history(
     not_checked: FlagHistoryNotCheckedReason | None = None,
     release_conditions: tuple[ReleaseCondition, ...] | None = None,
     exposed_during_overrides: Mapping[ChangeWindow, bool | None] | None = None,
+    exposed_units_before_last: Mapping[ExperimentHealthFlagChangeKind, int | None] | None = None,
+    counts_groups: bool = False,
 ) -> FlagHistory | FlagHistoryNotChecked:
     # Every change counts from the first, as when someone was exposed before it.
     if not_checked is not None:
@@ -77,4 +79,6 @@ def flag_history(
         if release_conditions is not None
         else next((change.after for change in reversed(changes) if isinstance(change, ConditionsChange)), ()),
         exposed_during_overrides=exposed_during_overrides or {},
+        counts_groups=counts_groups,
+        exposed_units_before_last=exposed_units_before_last or {},
     )

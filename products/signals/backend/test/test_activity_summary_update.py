@@ -15,7 +15,8 @@ from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.product_analytics.backend.facade.models import Insight
 from products.signals.backend.activity_summary.inputs import user_activity
 from products.signals.backend.activity_summary.logic import ActivitySummaryUpdate, UpdateStatus, update_activity_summary
-from products.signals.backend.activity_summary.render import RenderLimits
+from products.signals.backend.activity_summary.prompt import PROMPT_VERSION
+from products.signals.backend.activity_summary.render import RENDER_VERSION, RenderLimits
 from products.signals.backend.models import UserActivitySummary
 from products.signals.backend.test.test_activity_summary_render import FakeLLM
 
@@ -157,6 +158,41 @@ class TestUpdateActivitySummary(BaseTest):
             '"Suggestion defect rates", "Records judged per day"'
         ]
         assert result.inputs_used["drops"] == {"grouped_into_parent": 2}
+
+    @parameterized.expand(
+        [
+            ("an older prompt version", {"prompt_version": PROMPT_VERSION - 1}, {}, True),
+            ("an older render version", {"render_version": RENDER_VERSION - 1}, {}, True),
+            ("a rebuild_before after generated_at", {}, {"rebuild_before": NOW - datetime.timedelta(hours=1)}, True),
+            ("a rebuild_before before generated_at", {}, {"rebuild_before": NOW - datetime.timedelta(days=3)}, False),
+        ]
+    )
+    def test_a_stale_summary_rebuilds_from_the_full_window(
+        self, _name: str, stored_fields: dict[str, Any], kwargs: dict[str, Any], rebuilt: bool
+    ) -> None:
+        for index in range(3):
+            self._change(f"Old dashboard {index}", days_ago=5 + index / 100)
+        UserActivitySummary.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            user_id=self.user.id,
+            status=UserActivitySummary.Status.OK,
+            summary=json.loads(ANSWER) | {"headline": "Old stored summary."},
+            generated_at=NOW - datetime.timedelta(days=2),
+            input_watermark=NOW - datetime.timedelta(days=2),
+            **({"prompt_version": PROMPT_VERSION, "render_version": RENDER_VERSION} | stored_fields),
+        )
+        self._changes(3, days_ago=1)
+        llm = FakeLLM([ANSWER])
+
+        result = self._update(llm, **kwargs)
+
+        assert (result.status, result.rebuilt) == (UpdateStatus.OK, rebuilt)
+        sent = json.dumps(llm.requests[0]["messages"])
+        assert ("Old stored summary." not in sent) == rebuilt
+        assert ("Old dashboard" in sent) == rebuilt
+        stored = self._stored()
+        assert stored is not None
+        assert (stored.prompt_version, stored.render_version) == (PROMPT_VERSION, RENDER_VERSION)
 
     def test_a_failed_update_keeps_the_stored_summary_and_watermark(self) -> None:
         self._changes(3, days_ago=2)
