@@ -28,7 +28,7 @@ def _log_native_cancellation(team_id: int, client_query_id: str, future: Future[
     if not future.cancelled() and (error := future.exception()) is not None:
         logger.warning("Failed to cancel native query %s: %s", client_query_id, error)
         statsd.incr("clickhouse.query.cancellation.native_failed", tags={"team_id": team_id})
-    elif not future.cancelled():
+    elif not future.cancelled() and future.result():
         statsd.incr("clickhouse.query.cancellation.native", tags={"team_id": team_id})
 
 
@@ -43,7 +43,7 @@ def cancel_query_on_cluster(team_id: int, client_query_id: str) -> None:
         except Exception:
             logger.exception("Failed to resolve native query cancellation eligibility")
             native_enabled = False
-        if not native_host or not native_enabled:
+        if not native_enabled:
             _cancel_legacy_query(team_id, client_query_id)
             return
 
@@ -83,7 +83,8 @@ def cancel_query_on_cluster(team_id: int, client_query_id: str) -> None:
         if error is not None:
             raise error
         if legacy is None or native is None:
-            raise RuntimeError("Native query cancellation is busy; retry cancellation")
+            busy = "Legacy" if legacy is None else "Native"
+            raise RuntimeError(f"{busy} query cancellation is busy; retry cancellation")
 
 
 def _cancel_legacy_query(team_id: int, client_query_id: str) -> None:
