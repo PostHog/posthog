@@ -13,6 +13,7 @@ from posthog.dataclasses import frozen
 from products.ai_observability.backend.models.evaluation_configs import OutputType
 from products.ai_observability.backend.models.evaluation_outcomes import (
     EvaluationReportOutcomeDefinition,
+    RulePredicates,
     categorical_rule_predicates,
     get_outcome_definition,
     numeric_rule_predicates,
@@ -92,15 +93,20 @@ def build_pass_rules(team_id: int, evaluation_ids: Sequence[str]) -> PassRules:
         graded_branches.extend([matches, graded])
         passed_branches.extend([matches, passed])
 
-    def rule_branch(name: str, ids: Sequence[str], event_predicate: str, predicates: tuple[str, str]) -> None:
-        branch(name, ids, _graded_from(event_predicate, *predicates), predicates[0])
+    def rule_branch(name: str, ids: Sequence[str], event_predicate: str, predicates: RulePredicates) -> None:
+        branch(name, ids, _graded_from(event_predicate, predicates.passed, predicates.failed), predicates.passed)
 
     if no_rule:
         branch("no_rule", no_rule, "false", "false")
     if inverted:
         definition = get_outcome_definition(OutputType.BOOLEAN, true_is_failure=True)
         outcome = definition.outcome_predicates
-        rule_branch("inverted", inverted, definition.event_predicate, (outcome["pass"], outcome["fail"]))
+        rule_branch(
+            "inverted",
+            inverted,
+            definition.event_predicate,
+            RulePredicates(passed=outcome["pass"], failed=outcome["fail"]),
+        )
     numeric_event = get_outcome_definition(OutputType.NUMERIC).event_predicate
     for operator, rules in numeric.items():
         name = f"numeric_{operator}"
