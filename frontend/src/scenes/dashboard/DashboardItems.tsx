@@ -40,10 +40,7 @@ import { DashboardLayoutSize, DashboardPlacement, DashboardTile, DashboardType }
 import { DashboardGridBackground } from 'products/dashboards/frontend/components/DashboardGridBackground'
 import { DashboardInsightTile } from 'products/dashboards/frontend/components/DashboardInsightTile'
 import { DashboardTextItem } from 'products/dashboards/frontend/components/DashboardTextItem/DashboardTextItem'
-import {
-    DashboardTileGroup,
-    getTileGroupContentWidth,
-} from 'products/dashboards/frontend/components/DashboardTileGroup/DashboardTileGroup'
+import { DashboardTileGroup } from 'products/dashboards/frontend/components/DashboardTileGroup/DashboardTileGroup'
 import { getDashboardTileSpacingGap } from 'products/dashboards/frontend/dashboardCustomization'
 import { getGroupTitlesByTileId, hasTileDecorations } from 'products/dashboards/frontend/dashboardTileGroups'
 import type { DashboardSection } from 'products/dashboards/frontend/dashboardTileSections'
@@ -743,7 +740,6 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
     }
 
     const renderSection = (section: DashboardSection, index: number): JSX.Element => {
-        const sectionWidth = section.kind === 'group' ? getTileGroupContentWidth(section.group, gridWidth) : gridWidth
         const sectionLayouts = tileGroupSectionLayouts[index]
         // One empty row below the tiles gives a dragged tile somewhere to land.
         const sectionRows = Math.max(0, ...(sectionLayouts.sm ?? []).map((item) => item.y + item.h)) + 1
@@ -751,7 +747,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
             <div className="relative">
                 {layoutEditMode && !isMobileView && (
                     <DashboardGridBackground
-                        width={sectionWidth}
+                        width={gridWidth}
                         cols={BREAKPOINT_COLUMN_COUNTS.sm}
                         rowHeight={rowHeight}
                         margin={margin}
@@ -766,7 +762,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                         .map((tile) => tile.id)
                         .sort((a, b) => a - b)
                         .join('-')}
-                    width={sectionWidth}
+                    width={gridWidth}
                     className={clsx(
                         layoutEditMode ? 'dashboard-edit-mode box-content' : 'dashboard-view-mode',
                         layoutEditMode && (index === tileGroupSections.length - 1 ? 'pb-[40vh]' : 'pb-24')

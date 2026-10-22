@@ -5,26 +5,15 @@ import { IconChevronRight } from '@posthog/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { pluralize } from 'lib/utils/strings'
 
-import type { DashboardTileGroupApi, DashboardTileGroupRailEnumApi } from '../../generated/api.schemas'
+import type { DashboardTileGroupApi, DashboardTileGroupColorEnumApi } from '../../generated/api.schemas'
 
-const RAIL_CLASS_NAMES: Record<DashboardTileGroupRailEnumApi, string> = {
-    blue: 'border-l-[var(--blue)]',
-    purple: 'border-l-[var(--purple)]',
-    green: 'border-l-[var(--green)]',
-    yellow: 'border-l-[var(--warning)]',
-    orange: 'border-l-[var(--color-orange-500)]',
-    red: 'border-l-[var(--danger)]',
-}
-
-// The horizontal inset is in pixels, not rem, so that the dashboard can give the group's grid an exact width.
-const RAIL_WIDTH = 4
-const PADDING = 8
-
-export function getTileGroupContentWidth(group: DashboardTileGroupApi, width: number): number {
-    const tinted = group.tint ?? true
-    const left = group.rail ? RAIL_WIDTH + PADDING : tinted ? PADDING : 0
-    const right = tinted ? PADDING : 0
-    return width - left - right
+const DOT_CLASS_NAMES: Record<DashboardTileGroupColorEnumApi, string> = {
+    blue: 'bg-[var(--blue)]',
+    purple: 'bg-[var(--purple)]',
+    green: 'bg-[var(--green)]',
+    yellow: 'bg-[var(--warning)]',
+    orange: 'bg-[var(--color-orange-500)]',
+    red: 'bg-[var(--danger)]',
 }
 
 interface DashboardTileGroupProps {
@@ -43,21 +32,15 @@ export function DashboardTileGroup({
     children,
 }: DashboardTileGroupProps): JSX.Element {
     const tileCountLabel = pluralize(tileCount, 'tile')
-    const tinted = group.tint ?? true
 
     return (
-        <section
-            className={clsx(
-                'DashboardTileGroup rounded-lg',
-                tinted && 'bg-fill-secondary px-[8px] pb-2',
-                group.rail && ['border-l-4 pl-[8px]', RAIL_CLASS_NAMES[group.rail]]
-            )}
-            data-attr="dashboard-tile-group"
-        >
-            <div className="flex min-w-0 items-center gap-2 pt-1 pb-2">
+        <section className="DashboardTileGroup" data-attr="dashboard-tile-group">
+            <div className="flex min-w-0 items-center gap-2 pb-2">
                 <LemonButton
                     size="small"
                     truncate
+                    // A tertiary button styles aria-expanded as an open menu, which reads as a highlight here.
+                    className="[&[aria-expanded=true]:not(:hover)]:!bg-transparent"
                     tooltip={group.title || undefined}
                     icon={
                         <IconChevronRight
@@ -71,9 +54,16 @@ export function DashboardTileGroup({
                     aria-expanded={!collapsed}
                     data-attr="dashboard-tile-group-toggle"
                 >
+                    {group.color && (
+                        <span
+                            aria-hidden
+                            className={clsx('mr-2 inline-block size-2 rounded-full', DOT_CLASS_NAMES[group.color])}
+                        />
+                    )}
                     <span className="font-semibold">{group.title || tileCountLabel}</span>
                 </LemonButton>
-                {group.title && <span className="shrink-0 text-secondary text-xs">{tileCountLabel}</span>}
+                {group.title && collapsed && <span className="shrink-0 text-secondary text-xs">{tileCountLabel}</span>}
+                <div className="min-w-4 flex-1 border-t border-primary" />
             </div>
             {!collapsed && children}
         </section>

@@ -12,10 +12,9 @@ export default meta
 
 const STYLES: { group: DashboardTileGroupApi; collapsed: boolean }[] = [
     { group: { title: 'Activation' }, collapsed: false },
-    { group: { title: 'Revenue', rail: 'purple' }, collapsed: false },
-    { group: { title: 'Retention', tint: false, rail: 'green' }, collapsed: false },
-    { group: { title: 'Plain', tint: false }, collapsed: false },
-    { group: { title: 'Collapsed', rail: 'orange' }, collapsed: true },
+    { group: { title: 'Revenue', color: 'purple' }, collapsed: false },
+    { group: { title: 'Retention', color: 'green' }, collapsed: false },
+    { group: { title: 'Collapsed', color: 'orange' }, collapsed: true },
     { group: {}, collapsed: true },
 ]
 
@@ -29,7 +28,7 @@ export const LongTitleInNarrowScene: StoryObj = {
             <DashboardTileGroup
                 group={{
                     title: 'Weekly activation and retention for self-serve signups across every marketing channel',
-                    rail: 'blue',
+                    color: 'blue',
                 }}
                 tileCount={12}
                 collapsed
