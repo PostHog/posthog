@@ -49,7 +49,7 @@ class EmailDomainConnectTestCase(EmailDomainApiTestCase):
     def check(self, domain: str = DOMAIN) -> dict[str, Any]:
         response = self.client.get(
             f"/api/projects/{self.team.id}/integrations/domain-connect/check",
-            {"domain": domain, "include_email_setup": True},
+            {"domain": domain, "include_email_setup": "true"},
         )
         assert response.status_code == status.HTTP_200_OK, response.json()
         return response.json()
@@ -285,7 +285,7 @@ class TestDomainConnectCheckDetectsTheDnsHost(APIBaseTest):
     def check(self, domain: str, *, include_email_setup: bool = True) -> dict[str, Any]:
         response = self.client.get(
             f"/api/projects/{self.team.id}/integrations/domain-connect/check",
-            {"domain": domain, "include_email_setup": include_email_setup},
+            {"domain": domain, "include_email_setup": str(include_email_setup).lower()},
         )
         assert response.status_code == status.HTTP_200_OK, response.json()
         return response.json()
