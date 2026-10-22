@@ -248,9 +248,7 @@ export class ToolExecutor {
             requestMeta,
             state.requestContext
         )
-        // In place, not copied: `RequestStateResolver` gives this one object to both the state
-        // and `RequestContext`, so events emitted through `RequestContext.trackEvent` resolve the
-        // same session.
+        // RequestContext shares this object so analytics follows the SDK's conversation handle.
         if (preparedCall?.conversationId) {
             const previousConversationId = state.requestContext.mcpConversationId
             state.requestContext.mcpConversationId = preparedCall.conversationId

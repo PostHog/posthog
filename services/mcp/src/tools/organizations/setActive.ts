@@ -45,7 +45,7 @@ export const setActiveHandler: ToolBase<typeof schema, Result>['handler'] = asyn
     await context.cache.set(`cachedOrg:${orgId}` as const, org)
     await context.cache.set(`cachedOrgFetchedAt:${orgId}` as const, Date.now())
 
-    const projectId = pinned ? (pinned.projectId ?? 'unknown') : ((await context.cache.get('projectId')) ?? 'unknown')
+    const projectId = (pinned ? pinned.projectId : await context.cache.get('projectId')) ?? 'unknown'
     const project = (await context.cache.get(`cachedProject:${projectId}` as const)) as CachedProject | undefined
 
     const integrationKinds = project

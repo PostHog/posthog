@@ -75,13 +75,8 @@ export class RequestContext {
     }
 
     /**
-     * State scoped to the MCP protocol session rather than the token, holding the
-     * session's in-session context switches and last-applied request pin. The
-     * token cache can't hold these: it is shared by every concurrent session on
-     * the same credential. Sessionless clients use the SDK's conversation handle.
-     *
-     * The key includes the credential: a caller chooses its session id, so a
-     * request must never restore context that another credential saved.
+     * Selections cannot live in the token cache shared by concurrent connections.
+     * Include the credential because callers choose their session and conversation IDs.
      */
     get sessionScopedCache(): RedisCache<SessionScopedState> | undefined {
         const mcpSessionId = this.requestContext.mcpSessionId
@@ -211,14 +206,7 @@ export class RequestContext {
     }
 
     getDistinctId(): Promise<string> {
-        if (!this.distinctIdPromise) {
-            this.distinctIdPromise = this.resolveDistinctId()
-        }
-        return this.distinctIdPromise
-    }
-
-    private async resolveDistinctId(): Promise<string> {
-        return (await this.getContext()).stateManager.getDistinctId()
+        return (this.distinctIdPromise ??= this.getContext().then(({ stateManager }) => stateManager.getDistinctId()))
     }
 
     async getContext(): Promise<Context> {

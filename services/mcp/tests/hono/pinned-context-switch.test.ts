@@ -494,7 +494,6 @@ describe('pinned project with switch-project (Hono)', () => {
                 })),
                 { token: 'phx_batch_context_failure' }
             )
-            expect(Array.isArray(results)).toBe(true)
             expect({
                 responses: results.map(({ error, result }) => error?.code ?? Boolean(result?.isError)),
                 paths: apiPaths,

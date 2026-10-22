@@ -47,23 +47,15 @@ type OrgEntitlementFields = {
 }
 
 export class StateManager {
-    private _cache: ScopedCache<State>
-    private _api: ApiClient
-    private _pinned: PinnedActiveContext | undefined
     private _pinnedOrgProject: Promise<string> | undefined
-    private _sessionCache: ScopedCache<SessionScopedState> | undefined
+
     constructor(
-        cache: ScopedCache<State>,
-        api: ApiClient,
-        pinned?: PinnedActiveContext,
-        sessionCache?: ScopedCache<SessionScopedState>,
+        private readonly _cache: ScopedCache<State>,
+        private readonly _api: ApiClient,
+        private readonly _pinned?: PinnedActiveContext,
+        private readonly _sessionCache?: ScopedCache<SessionScopedState>,
         private readonly lookups = new StateLookupCache()
-    ) {
-        this._cache = cache
-        this._api = api
-        this._pinned = pinned
-        this._sessionCache = sessionCache
-    }
+    ) {}
 
     get pinnedContext(): PinnedActiveContext | undefined {
         return this._pinned
