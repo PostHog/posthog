@@ -201,8 +201,9 @@ from posthog.models.event.new_events_schema import (
     get_new_events_cluster_host_or_none,
     native_events_async_enabled,
     new_events_cluster_host_scope,
-    strip_events_route,
+    strip_events_route_modifiers,
     use_new_events_schema,
+    with_pinned_events_route,
 )
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.team import WeekStartDay
@@ -1836,6 +1837,7 @@ R = TypeVar("R", bound=BaseModel)
 # Unfortunately inheritance is also not a thing here, because we lose this info in the schema.ts->.json->.py journey
 CR = TypeVar("CR", bound=GenericCachedQueryResponse)
 SourceT = TypeVar("SourceT", bound=BaseModel)
+_RunMethod = TypeVar("_RunMethod", bound=Callable[..., Any])
 
 
 def resolve_series_custom_name(series: Any, raw_label: str | None) -> str | None:
@@ -1916,9 +1918,6 @@ NATIVE_EVENTS_CLUSTER_QUERY_TYPES = (
     WebGoalsQuery,
     WebVitalsQuery,
 )
-
-
-_RunMethod = TypeVar("_RunMethod", bound=Callable[..., Any])
 
 
 def _pin_events_route(run: _RunMethod) -> _RunMethod:
@@ -2198,23 +2197,13 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         modifier_sources = [query_json]
         while isinstance(source := modifier_sources[-1].get("source"), dict):
             modifier_sources.append(source)
-        modifier_source = modifier_sources[-1]
         if self._modifiers_override_provided:
             # Normalize every source so old workers cannot inherit a modifier cleared by the constructor.
             for source in modifier_sources:
                 if "modifiers" in source:
                     source["modifiers"] = self.modifiers.model_dump()
-        elif "modifiers" in modifier_source and self._should_pin_events_route():
-            strip_events_route(query_json)
-            modifier_source["modifiers"] = {
-                **(modifier_source["modifiers"] or {}),
-                "useNewEventsSchema": self.modifiers.useNewEventsSchema,
-                **(
-                    {"useNewEventsCluster": self.modifiers.useNewEventsCluster}
-                    if self.modifiers.useNewEventsCluster is not None
-                    else {}
-                ),
-            }
+        elif self._should_pin_events_route():
+            query_json = with_pinned_events_route(query_json, self.modifiers)
 
         return enqueue_process_query_task(
             team=self.team,
@@ -3231,7 +3220,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         query = to_dict(self.query)
         query.pop("tags", None)
         # The resolved modifiers key the events route, so requested values that resolve the same share one entry.
-        strip_events_route(query, drop_empty=True)
+        query = strip_events_route_modifiers(query, drop_empty=True)
 
         cache_modifiers = events_route_cache_modifiers(to_dict(self.modifiers), reads_events=self._reads_events_route())
         payload = {
