@@ -153,15 +153,22 @@ async def mask_table_if_configured(
             f"Cannot mask {sorted(ambiguous)}: two source columns have this name after normalization. "
             "Rename one of the source columns to sync this table."
         )
-    # The API rejects a mask on a known merge key, but some sources only resolve their key at sync
-    # time. Hashing it breaks merges and skipping the mask syncs plaintext, so fail the sync. A retry
-    # reads the same configuration, so the failure is final.
+    # The API rejects a mask on a key it knows, but some sources resolve their merge, partition or
+    # row-replacement key only at sync time. The loader reads those columns as source values, and
+    # skipping the mask syncs plaintext, so fail the sync. A retry reads the same configuration.
+    key_columns = [
+        *(resource.primary_keys or []),
+        *(resource.partition_keys or []),
+        *(schema.partitioning_keys or []),
+        *(schema.partitioning_keys_override or []),
+        *([resource.replace_scope.column] if resource.replace_scope else []),
+    ]
     configured = {fold_column_name(column) for column in schema.masked_columns}
-    effective = resolve_masked_columns(schema.masked_columns, resource.primary_keys, schema.incremental_field)
+    effective = resolve_masked_columns(schema.masked_columns, key_columns, schema.incremental_field)
     protected = configured - effective
     if protected:
         raise NonRetryableException(
-            f"Cannot mask primary-key or incremental columns {sorted(protected)}. "
+            f"Cannot mask key, partition or incremental columns {sorted(protected)}. "
             "Remove them from masked_columns to sync this table."
         )
     return await asyncio.to_thread(
@@ -169,6 +176,6 @@ async def mask_table_if_configured(
         table,
         schema.masked_columns,
         team_id=schema.team_id,
-        primary_keys=resource.primary_keys,
+        primary_keys=key_columns,
         incremental_field=schema.incremental_field,
     )

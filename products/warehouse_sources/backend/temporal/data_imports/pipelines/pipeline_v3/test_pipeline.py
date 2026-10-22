@@ -1377,9 +1377,21 @@ class TestSingleTableRunIsUntouched:
     ) -> None:
         pipeline = _make_pipeline()
         cast(MagicMock, pipeline._schema).configure_mock(
-            incremental_field=None, enabled_columns=None, masked_columns=["email"], team_id=1
+            incremental_field=None,
+            enabled_columns=None,
+            masked_columns=["email"],
+            team_id=1,
+            partitioning_keys=None,
+            partitioning_keys_override=None,
         )
-        pipeline._resource = MagicMock(primary_keys=["id"], column_hints=None, cdc_write_mode=cdc_write_mode)
+        pipeline._resource = MagicMock(
+            primary_keys=["id"],
+            column_hints=None,
+            cdc_write_mode=cdc_write_mode,
+            partition_keys=None,
+            replace_scope=None,
+            preserve_column_names=False,
+        )
         pipeline._last_incremental_field_value = None
         pipeline._earliest_incremental_field_value = None
         module = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline"

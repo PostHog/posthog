@@ -5013,7 +5013,7 @@ class TestMaskedColumnsError(SimpleTestCase):
             is_direct_query=is_direct_query,
             source_columns=["id", "created_at", "password", "email", "Email", "region"],
             primary_key_columns=["id"],
-            incremental_field="created_at",
+            incremental_fields=["created_at"],
             partition_keys=["region"],
         )
         if expected is None:
@@ -5029,7 +5029,7 @@ class TestMaskedColumnsError(SimpleTestCase):
                 is_direct_query=False,
                 source_columns=[],
                 primary_key_columns=None,
-                incremental_field=None,
+                incremental_fields=[],
             )
             is None
         )
@@ -5126,8 +5126,10 @@ class TestExternalDataSchemaMaskedColumns(APIBaseTest):
         assert mock_hand_over.call_count == resets
         mock_resnapshot.assert_not_called()
         mock_trigger.assert_not_called()
+        schema.refresh_from_db()
+        # Saved with the mask, so capture still resets the table if the hand-over fails.
+        assert ("cdc_reset_pending" in schema.sync_type_config) is should_sync
         if not should_sync:
-            schema.refresh_from_db()
             assert schema.sync_type_config["cdc_mode"] == "snapshot"
             assert schema.sync_type_config["reset_pipeline"] is True
             assert schema.initial_sync_complete is False
@@ -5168,12 +5170,24 @@ class TestExternalDataSchemaMaskedColumns(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("mask_on_the_primary_key", {"masked_columns": ["id"]}),
-            ("incremental_field_moved_onto_a_masked_column", {"incremental_field": "password"}),
+            ("mask_on_the_primary_key", {"masked_columns": ["id"]}, ExternalDataSchema.SyncType.INCREMENTAL),
+            (
+                "incremental_field_moved_onto_a_masked_column",
+                {"incremental_field": "password"},
+                ExternalDataSchema.SyncType.INCREMENTAL,
+            ),
+            # A CDC table keeps its stored cursor whatever the request sends for it.
+            (
+                "stored_cursor_with_a_null_cursor_in_the_request",
+                {"masked_columns": ["created_at"], "incremental_field": None},
+                ExternalDataSchema.SyncType.CDC,
+            ),
         ]
     )
-    def test_a_mask_never_shares_a_column_with_the_key_or_cursor(self, _name: str, data: dict[str, Any]) -> None:
-        schema = self._create(masked_columns=["password"], sync_type=ExternalDataSchema.SyncType.INCREMENTAL)
+    def test_a_mask_never_shares_a_column_with_the_key_or_cursor(
+        self, _name: str, data: dict[str, Any], sync_type: str
+    ) -> None:
+        schema = self._create(masked_columns=["password"], sync_type=sync_type)
         response = self._patch(schema, {"incremental_field_type": "integer", **data})
 
         assert response.status_code == 400

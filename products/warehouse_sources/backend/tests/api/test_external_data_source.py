@@ -5401,13 +5401,14 @@ class TestExternalDataSource(APIBaseTest):
             ("empty_list_masks_nothing", [], status.HTTP_201_CREATED, None),
             ("mask_on_the_detected_primary_key", ["id"], status.HTTP_400_BAD_REQUEST, "can't be masked"),
             ("mask_on_an_unknown_column", ["nope"], status.HTTP_400_BAD_REQUEST, "Unknown columns"),
+            ("mask_that_is_not_a_list", "email", status.HTTP_400_BAD_REQUEST, "must be a list"),
         ]
     )
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.SourceRegistry.get_source")
     def test_create_postgres_validates_and_persists_masked_columns(
         self,
         _name: str,
-        masked_columns: list[str],
+        masked_columns: list[str] | str,
         expected_status: int,
         expected: list[str] | str | None,
         mock_get_source,

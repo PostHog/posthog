@@ -1493,11 +1493,19 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
             )
 
             payload_masked_columns = schema.get("masked_columns")
-            masked_columns: list[str] | None = (
-                [column for column in payload_masked_columns if isinstance(column, str)]
-                if isinstance(payload_masked_columns, list) and payload_masked_columns
-                else None
-            )
+            # Dropping a malformed mask would sync the column in plaintext, so reject it.
+            if payload_masked_columns is not None and not (
+                isinstance(payload_masked_columns, list)
+                and all(isinstance(column, str) for column in payload_masked_columns)
+            ):
+                new_source_model.delete()
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={
+                        "message": f"masked_columns for schema '{schema.get('name')}' must be a list of column names or null."
+                    },
+                )
+            masked_columns: list[str] | None = payload_masked_columns or None
 
             if should_sync and requires_incremental_fields and incremental_field is None:
                 new_source_model.delete()
@@ -1692,7 +1700,7 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                     source_columns=[column[0] for column in introspected_columns],
                     primary_key_columns=sync_type_config.get("primary_key_columns")
                     or (source_schema.detected_primary_keys if source_schema else None),
-                    incremental_field=incremental_field,
+                    incremental_fields=[incremental_field],
                 )
                 if masking_error:
                     new_source_model.delete()

@@ -113,12 +113,30 @@ class TestMaskTableIfConfigured:
         "masked,source_column_names",
         [
             pytest.param(["id"], ["id", "email"], id="mask_on_a_key_resolved_at_sync_time"),
+            pytest.param(["created_at"], ["id", "created_at"], id="mask_on_a_source_partition_key"),
+            pytest.param(["_file_name"], ["id", "_file_name"], id="mask_on_the_row_replacement_column"),
             pytest.param(["Email"], ["id", "Email", "email"], id="source_column_added_with_a_colliding_name"),
         ],
     )
     async def test_fails_the_sync(self, masked: list[str], source_column_names: list[str]) -> None:
-        schema = cast(Any, SimpleNamespace(masked_columns=masked, incremental_field=None, team_id=3))
-        resource = cast(Any, SimpleNamespace(primary_keys=["id"]))
+        schema = cast(
+            Any,
+            SimpleNamespace(
+                masked_columns=masked,
+                incremental_field=None,
+                team_id=3,
+                partitioning_keys=None,
+                partitioning_keys_override=None,
+            ),
+        )
+        resource = cast(
+            Any,
+            SimpleNamespace(
+                primary_keys=["id"],
+                partition_keys=["created_at"],
+                replace_scope=SimpleNamespace(column="_file_name"),
+            ),
+        )
 
         with pytest.raises(NonRetryableException):
             await mask_table_if_configured(pa.table({"id": [1]}), schema, resource, source_column_names)

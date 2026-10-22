@@ -33,6 +33,7 @@ _LAZY = {
     "CDC_RESET_PENDING_KEY": "cdc.snapshot_lane",
     "hand_reset_to_capture": "cdc.snapshot_lane",
     "hand_reset_to_capture_if_sync_running": "cdc.snapshot_lane",
+    "stage_handed_over_reset": "cdc.snapshot_lane",
     "resnapshot_stays_in_buffer": "cdc.snapshot_lane",
     "bigquery_client": "sources.bigquery.bigquery",
     "is_bigquery_auth_error": "sources.bigquery.bigquery",

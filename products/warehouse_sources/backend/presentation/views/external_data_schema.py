@@ -82,6 +82,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     repair_is_running,
     resnapshot_stays_in_buffer,
     source_type_supports_cdc,
+    stage_handed_over_reset,
     tables_wait_for_repair,
     validate_and_coerce_row_filters,
 )
@@ -475,7 +476,7 @@ def masked_columns_error(
     is_direct_query: bool,
     source_columns: Iterable[object],
     primary_key_columns: Iterable[str] | None,
-    incremental_field: str | None,
+    incremental_fields: Iterable[str | None],
     partition_keys: Iterable[str] = (),
 ) -> str | None:
     """Why this mask cannot be saved, or None. `source_columns` is empty when discovery recorded none."""
@@ -503,9 +504,11 @@ def masked_columns_error(
                 "Rename the source columns so they differ by more than case."
             )
     # A partition column is read as a date or a number to pick the partition, which a digest is not.
-    protected = {fold_column_name(column) for column in [*(primary_key_columns or []), *partition_keys]}
-    if incremental_field:
-        protected.add(fold_column_name(incremental_field))
+    protected = {
+        fold_column_name(column)
+        for column in [*(primary_key_columns or []), *partition_keys, *incremental_fields]
+        if column
+    }
     conflicting = [column for column in masked_columns if fold_column_name(column) in protected]
     if conflicting:
         return f"Primary-key, incremental-field and partition columns can't be masked: {sorted(conflicting)}."
@@ -531,12 +534,10 @@ def _validate_masked_columns(
                 for column in (metadata_columns if isinstance(metadata_columns, list) else [])
                 if isinstance(column, dict)
             ],
-            primary_key_columns=(
-                data.get("primary_key_columns") if "primary_key_columns" in data else instance.primary_key_columns
-            ),
-            incremental_field=(
-                data.get("incremental_field") if "incremental_field" in data else instance.incremental_field
-            ),
+            # The stored key and cursor count too: an update can leave them in place, for example when a
+            # CDC table ignores the incremental field in the request.
+            primary_key_columns=[*(data.get("primary_key_columns") or []), *(instance.primary_key_columns or [])],
+            incremental_fields=[data.get("incremental_field"), instance.incremental_field],
             partition_keys=[*(instance.partitioning_keys or []), *(instance.partitioning_keys_override or [])],
         )
         if error:
@@ -1601,7 +1602,10 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             validated_data["sync_type_config"]["reset_pipeline"] = True
             if should_sync if should_sync is not None else instance.should_sync:
                 trigger_refresh = True
-        elif masked_columns_changed and not (should_sync if should_sync is not None else instance.should_sync):
+        elif masked_columns_changed and (should_sync if should_sync is not None else instance.should_sync):
+            # Staged in this save, so capture still finishes the reset if the hand-over after it fails.
+            stage_handed_over_reset(instance.sync_type_config)
+        elif masked_columns_changed:
             # Capture does not read a table that does not sync, so the new snapshot is staged in this
             # save. A self-managed publication takes no snapshot of its own when the table is turned on.
             instance.sync_type_config["cdc_mode"] = "snapshot"
