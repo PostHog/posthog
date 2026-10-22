@@ -123,6 +123,8 @@ export function TaskRunChat({
                 escapeScope={escapeScope}
                 autoFocus={autoFocus}
                 flushDraftRef={flushDraftRef}
+                repository={task?.repository}
+                branch={runConfig?.branch}
             />
         </BindLogic>
     )
@@ -134,12 +136,16 @@ function TaskRunChatContent({
     escapeScope,
     autoFocus,
     flushDraftRef,
+    repository,
+    branch,
 }: {
     logicProps: RunInteractionLogicProps
     readOnly: boolean
     escapeScope: RunEscapeBoundaryProps['scope']
     autoFocus?: boolean
     flushDraftRef: MutableRefObject<() => void>
+    repository?: string | null
+    branch?: string | null
 }): JSX.Element {
     const textAreaRef = useRef<HTMLTextAreaElement>(null)
     const skin = useThreadSkin()
@@ -191,6 +197,8 @@ function TaskRunChatContent({
                             textAreaRef={textAreaRef}
                             autoFocus={autoFocus}
                             flushDraftRef={flushDraftRef}
+                            repository={repository}
+                            branch={branch}
                         />
                     </RunSurface.Composer>
                 )}

@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 
 import { IconGitBranch } from '@posthog/icons'
 import {
@@ -14,6 +14,7 @@ import {
 
 import { ComboboxLoadMoreFooter, ComboboxSearchField } from './ComboboxSearchChrome'
 import { githubBranchSearchLogic } from './githubBranchSearchLogic'
+import { useGitHubDefaultBranch } from './useGitHubDefaultBranch'
 
 export interface GitHubBranchComboboxProps {
     integrationId: number
@@ -47,33 +48,15 @@ export function GitHubBranchCombobox({
     allowCustomValues = true,
 }: GitHubBranchComboboxProps): JSX.Element {
     const logic = githubBranchSearchLogic({ integrationId, repo })
-    const { branches, defaultBranch, loading, hasMore, searchQuery, error } = useValues(logic)
+    const { branches, loading, hasMore, searchQuery, error } = useValues(logic)
     const { setSearchQuery, loadMore, refresh } = useActions(logic)
 
     const triggerRef = useRef<HTMLButtonElement>(null)
     const [open, setOpen] = useState(false)
-    const preselectRequestedFor = useRef<string | null>(null)
-
     const trimmedSearchQuery = searchQuery.trim()
     const showInlineLoadingState = open && loading
 
-    // Pre-select the repo's default branch once it's known and nothing is chosen yet (matches PostHog Desktop).
-    // Only a picker still missing a branch pays for the upfront fetch that surfaces it. One that already has
-    // its branch stays lazy, so a list of them doesn't fire a request per row.
-    useEffect(() => {
-        if (value) {
-            return
-        }
-        if (defaultBranch) {
-            onChange(defaultBranch)
-            return
-        }
-        const repoKey = `${integrationId}:${repo}`
-        if (preselectRequestedFor.current !== repoKey) {
-            preselectRequestedFor.current = repoKey
-            refresh()
-        }
-    }, [value, defaultBranch, onChange, refresh, integrationId, repo])
+    useGitHubDefaultBranch({ integrationId, repo, value, onChange })
 
     // Offer "Use <typed> as branch name" when the search doesn't match an existing branch — lets the agent
     // work on a brand-new branch.
