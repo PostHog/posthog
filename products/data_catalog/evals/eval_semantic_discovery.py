@@ -22,6 +22,9 @@ from products.data_catalog.evals.constants import (
     DEPRECATED_SOURCE_NAME,
     DEPRECATION_CANONICAL_SOURCE_NAME,
     DEPRECATION_STALE_SOURCE_NAME,
+    FORM_RESPONSES_DECOY_SCHEMA,
+    FORM_RESPONSES_PRICING_COUNT,
+    FORM_RESPONSES_TARGET_SCHEMA,
     INJECTION_LEDGER_REFUNDED_COUNT,
     INJECTION_LEDGER_VIEW_NAME,
     INJECTION_RELATIONSHIP_SOURCE_NAME,
@@ -53,6 +56,7 @@ from products.data_catalog.evals.seeders import (
     seed_annotation_write_target,
     seed_certification_trust_sources,
     seed_deprecation_candidate_sources,
+    seed_form_response_tables,
     seed_instruction_like_column_annotation,
     seed_instruction_like_relationship_context,
     seed_subscription_snapshot_tables,
@@ -242,6 +246,24 @@ async def eval_semantic_discovery(ctx: EvalContext) -> None:
                 "answer_value_stated": {"value": SUBSCRIPTIONS_ACTIVE_COUNT},
             },
             setup=seed_subscription_snapshot_tables,
+        ),
+        # Two form-response tables share opaque field names. Only the column annotations of the cancellation form
+        # say which field holds the cancellation reason, so the agent has to read column descriptions to find it.
+        SandboxedEvalCase(
+            name="column_description_selects_field",
+            prompt="How many customers said pricing was the main reason they cancelled?",
+            expected={
+                "semantic_metadata_queried": {
+                    "surface": "information_schema.columns",
+                    "required_columns": ["description"],
+                },
+                "answer_table_queried": {
+                    "tables": _synced_postgres_names(FORM_RESPONSES_TARGET_SCHEMA),
+                    "decoys": _synced_postgres_names(FORM_RESPONSES_DECOY_SCHEMA),
+                },
+                "answer_value_stated": {"value": FORM_RESPONSES_PRICING_COUNT},
+            },
+            setup=seed_form_response_tables,
         ),
     ]
 
