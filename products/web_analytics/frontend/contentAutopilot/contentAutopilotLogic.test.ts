@@ -159,7 +159,7 @@ describe('contentAutopilotLogic', () => {
         expect(logic.values.opportunities).toEqual(EXAMPLE_OPPORTUNITIES)
     })
 
-    it('skips the refresh on open when the citation data was read in the last hour', async () => {
+    it('skips the refresh on open when the citation data was read in the last hour, but not after a settings save', async () => {
         const freshOpportunities = EXAMPLE_OPPORTUNITIES.map((opportunity) => ({
             ...opportunity,
             last_refreshed_at: new Date(Date.now() - 5 * 60 * 1000).toISOString(),
@@ -170,6 +170,13 @@ describe('contentAutopilotLogic', () => {
 
         expect(mountedLogic.values.opportunities).toEqual(freshOpportunities)
         expect(mockOpportunitiesRefresh).not.toHaveBeenCalled()
+
+        await expectLogic(mountedLogic, () => mountedLogic.actions.saveProfile()).toDispatchActions([
+            'saveProfileSuccess',
+            'loadOpportunitiesSuccess',
+            'refreshOpportunities',
+        ])
+        expect(mockOpportunitiesRefresh).toHaveBeenCalledTimes(1)
     })
 
     it('drafts only the selected opportunities for the current site and clears the selection', async () => {

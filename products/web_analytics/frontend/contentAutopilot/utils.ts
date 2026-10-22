@@ -11,19 +11,22 @@ export type ContentAutopilotPageTarget =
     | { isNewPage: true; path: string }
     | { isNewPage: false; path: string; url: string }
 
-export const proposalPagePath = (proposal: Pick<ContentAutopilotProposalListApi, 'file_path'>): string =>
-    proposal.file_path ? `/${proposal.file_path.replace(/\.mdx?$/, '')}` : ''
+export const proposalPagePath = (proposal: Pick<ContentAutopilotProposalListApi, 'file_path' | 'target_url'>): string =>
+    (proposal.target_url && parseWebAnalyticsURL(proposal.target_url).pathname) ||
+    (proposal.file_path ? `/${proposal.file_path.replace(/\.mdx?$/, '')}` : '')
 
 export const pageToUpdate = (
     opportunity: Pick<ContentAutopilotOpportunityApi, 'recommended_type' | 'target_url'>,
-    proposal: ContentAutopilotProposalListApi | undefined,
-    siteOrigin: string
+    proposal: ContentAutopilotProposalListApi | undefined
 ): ContentAutopilotPageTarget | null => {
-    const draftedPath = proposal && proposal.lifecycle_status !== 'generating' ? proposalPagePath(proposal) : ''
-    if (draftedPath) {
-        return proposal?.proposal_type === 'new_content'
-            ? { isNewPage: true, path: draftedPath }
-            : { isNewPage: false, path: draftedPath, url: `${siteOrigin.replace(/\/$/, '')}${draftedPath}` }
+    if (proposal && proposal.lifecycle_status !== 'generating') {
+        const path = proposalPagePath(proposal)
+        if (proposal.proposal_type === 'new_content' && path) {
+            return { isNewPage: true, path }
+        }
+        if (proposal.proposal_type !== 'new_content' && proposal.target_url) {
+            return { isNewPage: false, path, url: proposal.target_url }
+        }
     }
     if (opportunity.recommended_type === 'page_improvement' && opportunity.target_url) {
         return {

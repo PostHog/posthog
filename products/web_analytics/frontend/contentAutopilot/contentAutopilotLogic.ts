@@ -576,8 +576,7 @@ export interface contentAutopilotLogicMeta {
         ) => Record<string, ContentAutopilotProposalListApi>
         pagesToUpdate: (
             opportunities: ContentAutopilotOpportunityApi[] | null,
-            opportunityProposals: Record<string, ContentAutopilotProposalListApi>,
-            profile: ContentAutopilotSiteProfileApi | null
+            opportunityProposals: Record<string, ContentAutopilotProposalListApi>
         ) => Record<string, ContentAutopilotPageTarget | null>
         readyDraftCount: (siteProposals: ContentAutopilotProposalListApi[]) => number
         draftRows: (
@@ -1090,16 +1089,15 @@ export const contentAutopilotLogic = kea<contentAutopilotLogicType>([
             },
         ],
         pagesToUpdate: [
-            (selectors) => [selectors.opportunities, selectors.opportunityProposals, selectors.profile],
+            (selectors) => [selectors.opportunities, selectors.opportunityProposals],
             (
                 opportunities: ContentAutopilotOpportunityApi[] | null,
-                opportunityProposals: Record<string, ContentAutopilotProposalListApi>,
-                profile: ContentAutopilotSiteProfileApi | null
+                opportunityProposals: Record<string, ContentAutopilotProposalListApi>
             ): Record<string, ContentAutopilotPageTarget | null> =>
                 Object.fromEntries(
                     (opportunities ?? []).map((opportunity) => [
                         opportunity.id,
-                        pageToUpdate(opportunity, opportunityProposals[opportunity.id], profile?.domain ?? ''),
+                        pageToUpdate(opportunity, opportunityProposals[opportunity.id]),
                     ])
                 ),
         ],
@@ -1294,8 +1292,10 @@ export const contentAutopilotLogic = kea<contentAutopilotLogicType>([
         },
         loadOpportunitiesSuccess: ({ opportunities }) => {
             if (cache.refreshOpportunitiesAfterLoad) {
+                const profileChanged = cache.profileChanged
                 cache.refreshOpportunitiesAfterLoad = false
-                if (opportunitiesNeedRefresh(opportunities, Date.now())) {
+                cache.profileChanged = false
+                if (profileChanged || opportunitiesNeedRefresh(opportunities, Date.now())) {
                     actions.refreshOpportunities()
                 }
             }
@@ -1342,6 +1342,7 @@ export const contentAutopilotLogic = kea<contentAutopilotLogicType>([
         saveProfileSuccess: ({ savedProfile }) => {
             lemonToast.success('Site profile saved')
             actions.resetProfileDraft(draftFromProfile(savedProfile))
+            cache.profileChanged = true
             actions.loadSiteProfiles()
         },
         saveProfileFailure: ({ errorObject }) => {
