@@ -114,6 +114,10 @@ overrides:
     '@tiptap/extension-underline': 3.20.6
 
 patchedDependencies:
+    # The drag library changes a body-wide selection style, which stalls dense dashboards.
+    # Remove this patch after an upstream release avoids that style change, or after the grid
+    # passes enableUserSelectHack=false to both drag and resize.
+    # Track https://github.com/react-grid-layout/react-draggable/issues/709.
     react-draggable@4.5.0: patches/react-draggable@4.5.0.patch
     # Browser process shims must not select v86's Node-only scheduler.
     v86@0.5.458: patches/v86@0.5.458.patch
