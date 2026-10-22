@@ -143,14 +143,15 @@ class TestStableChunks(SimpleTestCase):
     def test_an_unmapped_specifier_is_logged_without_the_page_path(self) -> None:
         request = RequestFactory().get(
             "/reset/0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b/fake-reset-token"
-            "?stable_chunks=fallback&stable_chunks_unmapped=@c/Abc123"
+            "?stable_chunks=fallback&stable_chunks_unmapped=@c/Abc123",
+            HTTP_REFERER="https://app.example.com/reset/0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b/fake-reset-token",
         )
         request.user = AnonymousUser()
 
         with capture_logs() as logs:
             stable_chunks_choice(request, None)
 
-        # structlog keeps one context dict per thread. Nothing clears it between log calls.
+        # posthog/settings/logs.py configures structlog with one context dict per thread. Nothing clears it between log calls.
         # Keys that earlier code bound on this thread appear on this event. A whole-dict comparison then depends on test order.
         [unmapped] = [log for log in logs if log["event"] == "stable_chunks_unmapped_specifier"]
         assert unmapped["specifier"] == "@c/Abc123"
