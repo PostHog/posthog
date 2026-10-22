@@ -80,7 +80,8 @@ pub struct EvaluationMetadata {
         serialize_with = "serialize_string_keyed_i32_map"
     )]
     pub transitive_deps: HashMap<i32, HashSet<i32>>,
-    /// True when the serving read skipped a cached flag that it could not parse.
+    /// True when the serving read skipped a cached flag that it could not parse, or the
+    /// PostgreSQL fallback omitted a flag that Python's builder can read.
     /// The response then sets `errorsWhileComputingFlags`, so an SDK merges the
     /// response into its stored flags and keeps the skipped flag's last value.
     #[serde(skip)]

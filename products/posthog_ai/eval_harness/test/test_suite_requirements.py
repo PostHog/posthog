@@ -26,8 +26,8 @@ ALL_ENV_VARS = (
         pytest.param({Infra.DATABASE}, {Infra.DATABASE}, id="database_implies_nothing"),
         pytest.param(
             {Infra.MCP_SERVER},
-            {Infra.MCP_SERVER, Infra.LIVE_SERVER, Infra.DATABASE},
-            id="mcp_server_pulls_live_server_and_database",
+            {Infra.MCP_SERVER, Infra.LIVE_SERVER, Infra.DATABASE, Infra.DEMO_DATA, Infra.PERSONHOG},
+            id="mcp_server_pulls_live_server_and_demo_data",
         ),
         pytest.param(
             {Infra.DEMO_DATA},

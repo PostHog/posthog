@@ -5360,6 +5360,14 @@ class CohortPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    cohort_deleted: bool | None = Field(
+        default=None,
+        description=("Set by the feature flag API when the cohort is deleted or does not exist."),
+    )
+    cohort_missing: bool | None = Field(
+        default=None,
+        description=("Set by the feature flag API when the cohort does not exist, so it cannot be restored."),
+    )
     cohort_name: str | None = None
     key: Literal["id"] = "id"
     label: str | None = None
@@ -26419,6 +26427,18 @@ class WebVitalsQueryResponse(BaseModel):
     )
 
 
+class AccountUsersQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    accountId: str = Field(..., description="ID of the account whose users to list.")
+    kind: Literal["AccountUsersQuery"] = "AccountUsersQuery"
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    response: ActorsQueryResponse | None = None
+    tags: QueryLogTags | None = None
+    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+
+
 class AccountsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -32031,6 +32051,10 @@ class DatabaseSchemaQuery(BaseModel):
         default=None,
         description="Optional direct external data source id for schema introspection",
     )
+    executionTarget: ExecutionTarget | None = Field(
+        default=None,
+        description=("Select the native managed Trino catalog instead of the default PostHog catalog."),
+    )
     includeFields: bool | None = Field(
         default=None,
         description=("When false, skip serializing each table's fields (`fields` comes back empty). Defaults to true."),
@@ -33048,6 +33072,7 @@ class ActorsQuery(BaseModel):
         | ExperimentActorsQuery
         | StickinessActorsQuery
         | PathsV2ActorsQuery
+        | AccountUsersQuery
         | HogQLQuery
         | None
     ) = None

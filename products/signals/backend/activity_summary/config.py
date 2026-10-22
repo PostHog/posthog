@@ -4,14 +4,17 @@ The parse fails closed: a missing, malformed or unreadable payload turns the tic
 field falls back to its default, and no default is unbounded.
 """
 
+import datetime
 import dataclasses
 from typing import Any
+
+from django.utils import timezone
 
 import structlog
 
 from posthog.dataclasses import frozen
 
-from products.signals.backend.activity_summary.logic import MIN_UNITS, MIN_UPDATE_INTERVAL
+from products.signals.backend.activity_summary.logic import MAX_VERSIONS, MIN_UNITS, MIN_UPDATE_INTERVAL
 from products.signals.backend.activity_summary.render import DEFAULT_LIMITS, RenderLimits
 from products.signals.backend.scout_harness.team_limits import read_flag_payload
 
@@ -34,9 +37,12 @@ class ActivitySummaryConfig:
     max_concurrency: int = 4
     min_units: int = MIN_UNITS
     min_update_interval_hours: float = MIN_UPDATE_INTERVAL.total_seconds() / 3600
+    max_versions: int = MAX_VERSIONS
     emit_embeddings: bool = True
     capture_events: bool = True
     limits: RenderLimits = DEFAULT_LIMITS
+    # Summaries generated before this time are rebuilt from the full window, as after a version change.
+    rebuild_before: datetime.datetime | None = None
 
 
 DISABLED = ActivitySummaryConfig()
@@ -81,6 +87,19 @@ def parse_limits(payload: Any) -> RenderLimits:
     )
 
 
+def _timestamp(value: Any) -> datetime.datetime | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        parsed = datetime.datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=datetime.UTC)
+    # A future time would mark every new summary stale again, so it waits until the time passes.
+    return parsed if parsed <= timezone.now() else None
+
+
 def parse_config(payload: Any) -> ActivitySummaryConfig:
     if not isinstance(payload, dict) or payload.get("enabled") is not True:
         return DISABLED
@@ -97,9 +116,11 @@ def parse_config(payload: Any) -> ActivitySummaryConfig:
         min_update_interval_hours=_positive_number(
             payload.get("min_update_interval_hours"), defaults.min_update_interval_hours
         ),
+        max_versions=_positive_int(payload.get("max_versions"), defaults.max_versions),
         emit_embeddings=_bool(payload.get("emit_embeddings"), defaults.emit_embeddings),
         capture_events=_bool(payload.get("capture_events"), defaults.capture_events),
         limits=parse_limits(payload.get("limits")),
+        rebuild_before=_timestamp(payload.get("rebuild_before")),
     )
 
 

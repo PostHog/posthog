@@ -666,6 +666,59 @@ class TestTaskRunEventIngest(TestCase):
 
     @parameterized.expand(
         [
+            ("interactive", "interactive", True),
+            ("background", "background", False),
+        ]
+    )
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    def test_permission_request_ingest_pushes_awaiting_input(self, _name: str, mode: str, expect_push: bool) -> None:
+        creator = User.objects.create_and_join(self.organization, "awaiting-push@posthog.com", None)
+        self.task.created_by = creator
+        self.task.save(update_fields=["created_by"])
+        self.task_run.state = {**(self.task_run.state or {}), "mode": mode}
+        self.task_run.save(update_fields=["state"])
+        token = self._create_token()
+        permission_request_params: dict[str, object] = {
+            "requestId": "request-1",
+            "toolCall": {"title": "Run the test suite"},
+            "options": [{"optionId": "allow", "kind": "allow_once", "name": "Allow"}],
+        }
+        permission_request = {
+            "type": "notification",
+            "notification": {
+                "method": "_posthog/permission_request",
+                "params": permission_request_params,
+            },
+        }
+
+        with (
+            patch("products.tasks.backend.push_dispatcher.send_user_push.delay") as send_push,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            status, body = self._call_ingest(token, [{"seq": 1, "event": permission_request}])
+            self.assertEqual((status, body["accepted"]), (200, 1))
+            permission_request_params["requestId"] = "request-2"
+            status, body = self._call_ingest(token, [{"seq": 2, "event": permission_request}])
+
+        self.assertEqual((status, body["accepted"]), (200, 1))
+        if not expect_push:
+            send_push.assert_not_called()
+            return
+        send_push.assert_called_once()
+        user_id, title, push_body, data, _suppressed = send_push.call_args.args
+        self.assertEqual((user_id, title, push_body), (creator.id, "PostHog", '"Test Task" needs your input'))
+        self.assertEqual(
+            data,
+            {
+                "taskId": str(self.task.id),
+                "taskRunId": str(self.task_run.id),
+                "notificationKind": "awaiting",
+                "projectId": str(self.task.team_id),
+            },
+        )
+
+    @parameterized.expand(
+        [
             (runtime, reason, reason == "end_turn")
             for runtime in ("acp", "pi")
             for reason in ("end_turn", "cancelled", None)
