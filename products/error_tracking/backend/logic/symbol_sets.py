@@ -18,7 +18,7 @@ from django.utils import timezone
 
 import structlog
 import posthoganalytics
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import APIException, ValidationError
 
 from posthog.dataclasses import frozen
 from posthog.event_usage import AnalyticsProps, groups
@@ -56,6 +56,12 @@ DEFAULT_SYMBOL_SET_ORDERING = SYMBOL_SET_ORDERINGS["-created_at"]
 
 class SymbolSetNotFoundError(Exception):
     pass
+
+
+class SymbolSetUploadInProgress(APIException):
+    status_code = 409
+    default_detail = "Another upload for this symbol set is in progress. Try again after it finishes."
+    default_code = "upload_in_progress"
 
 
 @frozen
@@ -379,10 +385,11 @@ def bulk_create_symbol_sets(
                 release_id=new_symbol_set_map[chunk_id].release_id,
             )
 
-        # A losing request needs the winner's persisted ID and storage key after the insert race.
         ErrorTrackingSymbolSet.objects.bulk_create(symbol_sets_to_be_created.values(), ignore_conflicts=True)
         symbol_sets = (
-            ErrorTrackingSymbolSet.objects.filter(team=team, ref__in=chunk_ids).order_by("ref").select_for_update()
+            ErrorTrackingSymbolSet.objects.filter(team=team, ref__in=chunk_ids)
+            .order_by("ref")
+            .select_for_update(no_key=True)
         )
 
         to_update = []
@@ -400,8 +407,7 @@ def bulk_create_symbol_sets(
                 dirty = True
 
             if created is not None and existing.content_hash is None and existing.storage_ptr is not None:
-                # Keep the winning request's upload key valid for both concurrent clients.
-                issue_upload(existing)
+                raise SymbolSetUploadInProgress
             elif _needs_upload(existing, upload, team.id, force, skip_on_conflict):
                 reissue_upload(existing)
                 dirty = True
