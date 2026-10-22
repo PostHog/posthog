@@ -185,7 +185,7 @@ def mark_report_billing_exempt(report: SignalReport, reason: str) -> bool:
         raise ValueError(f"Unknown billing exemption reason: {reason!r}")
     if report.billing_exempt_reason:
         return False
-    if first_billable_pr_run_at(report.id) is not None:
+    if first_billable_pr_run_at(report.id, team_id=report.team_id) is not None:
         raise BillingExemptionError(
             f"Report {report.id} already has a billable PR run; use a refund instead of a billing exemption."
         )
@@ -199,7 +199,7 @@ class FirstBillablePrRun(NamedTuple):
     pr_url: str
 
 
-def first_billable_pr_run(report_id: str | uuid.UUID) -> FirstBillablePrRun | None:
+def first_billable_pr_run(report_id: str | uuid.UUID, *, team_id: int) -> FirstBillablePrRun | None:
     """The report's billable moment: its first implementation run with a GitHub PR URL (with that
     run's `created_at` and `pr_url`), or None if it has never shipped one.
 
@@ -209,7 +209,7 @@ def first_billable_pr_run(report_id: str | uuid.UUID) -> FirstBillablePrRun | No
     query, so the two can never disagree about whether a billable run exists.
     """
     # This is the fixed-report refund boundary; usage-billed reports need a cost-based credit.
-    report = SignalReport.objects.select_related("team").filter(id=report_id).first()
+    report = SignalReport.objects.select_related("team").filter(id=report_id, team_id=team_id).first()
     if report is None:
         return None
     cutoff = usage_billing_cutoff(report.team.organization_id)
@@ -217,7 +217,7 @@ def first_billable_pr_run(report_id: str | uuid.UUID) -> FirstBillablePrRun | No
         return None
     row = (
         _bridges_with_pr_run()
-        .filter(report_id=report_id)
+        .filter(report_id=report_id, team_id=team_id)
         # Both columns resolve against the TaskRun join the filter established, so the earliest
         # billable run's timestamp and URL come from the same row.
         .order_by("task__runs__created_at")
@@ -229,9 +229,9 @@ def first_billable_pr_run(report_id: str | uuid.UUID) -> FirstBillablePrRun | No
     return FirstBillablePrRun(created_at=row[0], pr_url=row[1])
 
 
-def first_billable_pr_run_at(report_id: str | uuid.UUID) -> datetime | None:
+def first_billable_pr_run_at(report_id: str | uuid.UUID, *, team_id: int) -> datetime | None:
     """`first_billable_pr_run`, timestamp only."""
-    run = first_billable_pr_run(report_id)
+    run = first_billable_pr_run(report_id, team_id=team_id)
     return run.created_at if run else None
 
 

@@ -431,7 +431,7 @@ def release_quota_cancelled_implementation(*, team_id: int, task_id: str) -> lis
             report = SignalReport.objects.select_for_update().filter(id=report_id, team_id=team_id).first()
             if report is None:
                 continue
-            if first_billable_pr_run_at(report_id) is not None:
+            if first_billable_pr_run_at(report_id, team_id=team_id) is not None:
                 # A sibling run already shipped this report's billable PR. These records are
                 # billing's evidence for that charge — deleting them would double-bill the next
                 # implementation — and the report needs no release: it *is* implemented.

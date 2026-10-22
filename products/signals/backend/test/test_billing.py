@@ -157,7 +157,7 @@ class TestSignalsBilling(BaseTest):
             run.state = {"billing_product": product}
             run.save(update_fields=["state"])
         self.assertEqual(self._credits(), {self.team.id: credits} if credits else {})
-        self.assertEqual(first_billable_pr_run(report.id) is not None, bool(credits))
+        self.assertEqual(first_billable_pr_run(report.id, team_id=report.team_id) is not None, bool(credits))
         # A manual successor must not erase an earlier report charge on the same Task.
         _task_run_model().objects.create(
             team=self.team,
@@ -410,14 +410,15 @@ class TestSignalsBilling(BaseTest):
         self._pr_run(report, created_at=_at(5), pr_url="https://github.com/x/y/pull/1")
         self._pr_run(report, created_at=_at(12), pr_url="https://github.com/x/y/pull/2")
         self.assertEqual(
-            first_billable_pr_run(report.id),
+            first_billable_pr_run(report.id, team_id=report.team_id),
             FirstBillablePrRun(created_at=_at(5), pr_url="https://github.com/x/y/pull/1"),
         )
+        self.assertIsNone(first_billable_pr_run(report.id, team_id=report.team_id + 1))
 
     def test_first_billable_pr_run_none_without_billable_run(self) -> None:
         report = self._report()
         self._pr_run(report, created_at=_at(3), pr_url=None)
-        self.assertIsNone(first_billable_pr_run(report.id))
+        self.assertIsNone(first_billable_pr_run(report.id, team_id=report.team_id))
 
     def test_aggregates_across_teams_and_reports(self) -> None:
         team_b = Team.objects.create(organization=self.organization, name="team-b")
@@ -685,12 +686,16 @@ class TestSpendBasedBilling(BaseTest):
             finish_report_spend(team_id=self.team.id, signal_id=signal_id, report_id=str(report.id))
         expected = 1535 if existing_work == "report" else 25
         assert self._day(10) == {self.team.id: expected}
-        assert first_billable_pr_run(report.id) is None  # The fixed-PR refund must not issue 1,500 credits.
-        assert (first_billable_pr_run(legacy_report.id) is not None) == (existing_work == "report")
+        assert (
+            first_billable_pr_run(report.id, team_id=report.team_id) is None
+        )  # The fixed-PR refund must not issue 1,500 credits.
+        assert (first_billable_pr_run(legacy_report.id, team_id=legacy_report.team_id) is not None) == (
+            existing_work == "report"
+        )
         # Changing the report's driver cannot change either owner's eligibility.
         SignalReport.objects.filter(id=report.id).update(triggering_signal_id=legacy_signal)
         assert self._day(10) == {self.team.id: expected}
-        assert first_billable_pr_run(report.id) is None
+        assert first_billable_pr_run(report.id, team_id=report.team_id) is None
 
     def test_rounding_is_per_team_day_and_period_recounts_match_daily_reports(self) -> None:
         other_org = Organization.objects.create(name="Synthetic billing organization")

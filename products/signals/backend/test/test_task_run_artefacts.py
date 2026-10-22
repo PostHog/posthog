@@ -567,7 +567,7 @@ class TestReleaseQuotaCancelledImplementation(BaseTest):
 
         assert released == []
         assert SignalReportTask.objects.filter(task_id=task.id, relationship=TASK_RUN_TYPE_IMPLEMENTATION).exists()
-        assert first_billable_pr_run_at(report.id) is not None
+        assert first_billable_pr_run_at(report.id, team_id=report.team_id) is not None
         # Auto-start must still see a started implementation — the report is implemented, not stuck.
         assert SignalReport.associated_task_runs(
             report_id=str(report.id), team_id=self.team.id, product=SIGNALS_PRODUCT, type=TASK_RUN_TYPE_IMPLEMENTATION
