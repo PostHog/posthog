@@ -13,6 +13,7 @@ import type {
     AddSuppressionRequestApi,
     BulkAddOptOutsRequestApi,
     BulkAddOptOutsResultApi,
+    EmailStatusApi,
     GenerateLinkRequestApi,
     MakeTransactionalApi,
     MessageCategoryApi,
@@ -58,6 +59,25 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
+
+export const getMessagingEmailsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/messaging/emails/${id}/`
+}
+
+/**
+ * Read where an email sent with `POST /api/projects/@current/messaging/send/email/` is, by the `message_id` the send answered.
+ * @summary Get a transactional email's status
+ */
+export const messagingEmailsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<EmailStatusApi> => {
+    return apiMutator<EmailStatusApi>(getMessagingEmailsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
 
 export const getMessagingSendEmailCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/messaging/send/email/`

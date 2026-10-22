@@ -40049,6 +40049,55 @@ export namespace Schemas {
     }
 
     /**
+     * * `queued` - Queued
+     * * `waiting` - Waiting
+     * * `unknown` - Unknown
+     * * `skipped` - Skipped
+     * * `failed` - Failed
+     * * `sent` - Sent
+     * * `delivered` - Delivered
+     * * `bounced` - Bounced
+     * * `complained` - Complained
+     */
+    export type EmailStatusEnum = typeof EmailStatusEnum[keyof typeof EmailStatusEnum];
+
+
+    export const EmailStatusEnum = {
+      Queued: 'queued',
+      Waiting: 'waiting',
+      Unknown: 'unknown',
+      Skipped: 'skipped',
+      Failed: 'failed',
+      Sent: 'sent',
+      Delivered: 'delivered',
+      Bounced: 'bounced',
+      Complained: 'complained',
+    } as const;
+
+    export interface EmailStatus {
+      /** The email's `message_id`, as the send answered it. */
+      id: string;
+      /** Where the email is. A status never moves back: a late `sent` never replaces `delivered`.
+       *
+       * * `queued` - Queued
+       * * `waiting` - Waiting
+       * * `unknown` - Unknown
+       * * `skipped` - Skipped
+       * * `failed` - Failed
+       * * `sent` - Sent
+       * * `delivered` - Delivered
+       * * `bounced` - Bounced
+       * * `complained` - Complained */
+      status: EmailStatusEnum;
+      /** When PostHog accepted the send. */
+      created_at: string;
+      /** When the email reached its status. */
+      status_at: string;
+      /** Why the email is `skipped`, `failed`, `bounced` or `complained`, such as `recipient_suppressed`, `provider_error` or `hard`. Absent for the other statuses. */
+      reason?: string;
+    }
+
+    /**
      * Highest htmlID suffix per element type, e.g. {"u_row": 1, "u_content_text": 2}.
      */
     export type EmailTemplateDesignCounters = { [key: string]: unknown };
