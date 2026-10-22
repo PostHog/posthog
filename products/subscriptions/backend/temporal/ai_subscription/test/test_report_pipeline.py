@@ -509,6 +509,11 @@ _UNKNOWN_PLACEHOLDER_FIX = (
             "`{{utc_report_yesterday}}`",
             id="unknown_next_to_known",
         ),
+        pytest.param(
+            "SELECT count() FROM events WHERE timestamp >= toDateTime('{{D-1}}') AND timestamp < toDate('{D-1}')",
+            "`{{D-1}}`, `{D-1}`",
+            id="double_and_single_brace_with_one_name",
+        ),
     ],
 )
 @patch(f"{_RP}._arequest_hogql_fix", new_callable=AsyncMock)

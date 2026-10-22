@@ -236,7 +236,7 @@ class ReportWindow:
 def unknown_placeholder_tokens(hogql: str) -> list[str]:
     tokens = [token for token in _DOUBLE_BRACE_TOKEN.findall(hogql) if token not in WINDOW_PLACEHOLDERS]
     for literal in _DATE_FUNCTION_LITERAL.findall(hogql):
-        tokens.extend(token for token in _BRACKETED_NAME.findall(literal) if f"{{{token}}}" not in tokens)
+        tokens.extend(_BRACKETED_NAME.findall(_DOUBLE_BRACE_TOKEN.sub("", literal)))
     return list(dict.fromkeys(tokens))
 
 
