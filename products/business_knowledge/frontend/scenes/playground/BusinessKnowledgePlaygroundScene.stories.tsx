@@ -82,7 +82,7 @@ const searchResults: KnowledgeSearchResultApi[] = [
         document_id: 'doc-1',
         ordinal: 3,
         source_id: 'source-1',
-        source_name: 'Help center',
+        source_name: 'Refund policy',
         source_type: 'url',
         document_title: 'Refunds and cancellations',
         heading_path: 'Billing > Refunds',
