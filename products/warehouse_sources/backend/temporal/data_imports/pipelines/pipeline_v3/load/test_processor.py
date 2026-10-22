@@ -40,6 +40,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     INCOMPLETE_RUN_ERROR,
     IncompleteRunError,
     _apply_partitioning,
+    _dedupe_before_write,
     _enrich_cdc_rows,
     _file_count_after_write,
     _get_write_type,
@@ -48,6 +49,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     _promote_staged_cursor,
     _read_existing_rows_by_first_pk,
     _rebuild_compaction_due,
+    _refuse_incomplete_run,
     _resolve_cdc_positions,
     _run_post_load_for_already_processed_batch,
     _trigger_post_import_workflow,
@@ -82,10 +84,16 @@ def _no_close_old_connections():
 @pytest.fixture(autouse=True)
 def _unfinished_earlier_batches() -> Iterator[MagicMock]:
     # The completion check reads the queue DB, which these unit tests do not have.
-    with patch(
-        "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor.BatchQueue.get_unfinished_earlier_batches_sync",
-        return_value=_COMPLETE_RUN,
-    ) as check:
+    with (
+        patch(
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor.BatchQueue.get_unfinished_earlier_batches_sync",
+            return_value=_COMPLETE_RUN,
+        ) as check,
+        patch(
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor.BatchQueue.get_unfinished_batches_of_jobs_sync",
+            return_value=_COMPLETE_RUN,
+        ),
+    ):
         yield check
 
 
@@ -589,6 +597,32 @@ class TestMarkJobCompleted:
         # The consumer fails the run on this error, and its fail path releases the lock.
         mock_release.assert_not_called()
 
+    @parameterized.expand(
+        [
+            ("a_continued_job_batch_failed", ["job-stopped"], 1, True),
+            ("every_continued_job_batch_loaded", ["job-stopped"], 0, False),
+            ("no_continued_job", [], 1, False),
+        ]
+    )
+    def test_a_run_that_continues_a_stopped_job_completes_only_once_that_job_loaded(
+        self, _case: str, continued_job_ids: list[str], unfinished_count: int, refused: bool
+    ) -> None:
+        signal = self._make_signal()
+        signal.continued_job_ids = continued_job_ids
+        unfinished = UnfinishedEarlierBatches(count=unfinished_count, first_batch_index=0, states=("failed",))
+
+        with patch(f"{_PROCESSOR}.BatchQueue.get_unfinished_batches_of_jobs_sync", return_value=unfinished) as check:
+            if refused:
+                with pytest.raises(IncompleteRunError, match=INCOMPLETE_RUN_ERROR):
+                    _refuse_incomplete_run(signal)
+            else:
+                _refuse_incomplete_run(signal)
+
+        if continued_job_ids:
+            assert check.call_args.kwargs == {"team_id": 1, "schema_id": "schema-1", "job_ids": ["job-stopped"]}
+        else:
+            check.assert_not_called()
+
 
 class TestRedeliveredFinalBatchPostLoad:
     @parameterized.expand([("companion", "scd2_append"), ("consolidated", "incremental_merge"), ("snapshot", None)])
@@ -1079,7 +1113,10 @@ class TestProcessMessages:
     @patch(f"{_PROCESSOR}._trigger_ducklake_register_data_imports")
     @patch(f"{_PROCESSOR}._mark_job_completed")
     @patch(f"{_PROCESSOR}.run_post_load_operations", new_callable=AsyncMock, return_value=_POST_LOAD_RESULT)
-    @patch(f"{_PROCESSOR}.read_parquet", return_value=pa.table({"id": [1]}))
+    @patch(
+        f"{_PROCESSOR}.read_parquet",
+        side_effect=lambda path: pa.table({"id": [int(path.rsplit("/", 1)[1].removesuffix(".parquet"))]}),
+    )
     @patch(f"{_PROCESSOR}.is_batch_already_processed", return_value=False)
     @patch(f"{_PROCESSOR}.DeltaWriter")
     @patch(f"{_PROCESSOR}.DeltaTableRef")
@@ -1219,6 +1256,86 @@ class TestCrossRunKeyResolution:
         assert commit_covers_batch(set_commit, "run-1", 3)
         assert commit_covers_batch(set_commit, "run-2", 0)
         assert not commit_covers_batch(set_commit, "run-2", 1)
+
+
+class TestSourceCopiesHeldThroughTheUpsert:
+    # Coalesced sets are sized by `_ARROW_COPIES_HELD`. If the loader keeps the set as read alive
+    # next to its deduplicated copy, a set takes twice the memory its cap allows.
+
+    _ROWS = 2_000
+
+    @staticmethod
+    def _batch(batch_no: int, ids: list[int]) -> pa.Table:
+        return pa.table({"id": ids, "payload": [f"{batch_no}:{pos:0>200}" for pos in range(len(ids))]})
+
+    @pytest.mark.parametrize(
+        "batch_ids",
+        [
+            [list(range(0, _ROWS)), list(range(_ROWS, 2 * _ROWS))],
+            [[*range(0, _ROWS), 0, 1], list(range(_ROWS, 2 * _ROWS))],
+            [list(range(0, _ROWS)), list(range(_ROWS // 2, _ROWS + _ROWS // 2))],
+        ],
+        ids=["unique_keys", "key_repeated_in_one_batch", "keys_repeated_across_the_set"],
+    )
+    def test_the_upsert_gets_one_copy_of_the_set_with_the_last_row_of_each_key(
+        self, batch_ids: list[list[int]], tmp_path: Path
+    ) -> None:
+        table_path = str(tmp_path / "table")
+        write_deltalake(table_path, self._batch(9, [0]))
+        paths = [f"s3://bucket/run-1/{3 + n}.parquet" for n in range(len(batch_ids))]
+        expected = pa.concat_tables([self._batch(n, ids) for n, ids in enumerate(batch_ids)]).to_pylist()
+        last_row_by_id = {row["id"]: row for row in expected}
+        expected_rows = sorted(last_row_by_id.values(), key=lambda row: expected.index(row))
+        one_copy_bytes = pa.concat_tables([self._batch(n, ids) for n, ids in enumerate(batch_ids)]).nbytes
+        seen: dict[str, Any] = {}
+
+        async def record_upsert_source(writer: DeltaWriter, **kwargs: Any) -> bool:
+            seen["held_bytes"] = pa.total_allocated_bytes() - baseline
+            seen["rows"] = kwargs["data"].select(["id", "payload"]).to_pylist()
+            return False
+
+        with ExitStack() as stack:
+            stack.enter_context(patch(f"{_PROCESSOR}.posthoganalytics"))
+            stack.enter_context(patch(f"{_PROCESSOR}.mark_batch_as_processed"))
+            stack.enter_context(patch(f"{_PROCESSOR}.is_batch_already_processed", return_value=False))
+            stack.enter_context(
+                patch(
+                    f"{_PROCESSOR}.read_parquet",
+                    side_effect=lambda path: self._batch(paths.index(path), batch_ids[paths.index(path)]),
+                )
+            )
+            stack.enter_context(
+                patch(f"{_PROCESSOR}.DeltaTableRef", side_effect=lambda **kwargs: make_local_table_ref(table_path))
+            )
+            stack.enter_context(patch.object(DeltaWriter, "_write_via_deltalite", record_upsert_source))
+            job_model = stack.enter_context(patch(f"{_PROCESSOR}.ExternalDataJob"))
+            job_model.objects.prefetch_related.return_value.get.return_value = MagicMock()
+            baseline = pa.total_allocated_bytes()
+            process_messages(_run_messages("run-1", start=3, count=len(batch_ids), final=False))
+
+        assert seen["rows"] == expected_rows
+        assert seen["held_bytes"] < one_copy_bytes * 1.5
+        landed = DeltaTable(table_path).to_pyarrow_table().select(["id", "payload"]).sort_by("id").to_pylist()
+        assert landed == sorted(expected_rows, key=lambda row: row["id"])
+
+    @parameterized.expand(
+        [
+            ("no_partition_column", None, [1, 2]),
+            ("key_in_one_partition", ["p0", "p0", "p0"], [1, 2]),
+            # The writer keys on the partition too, so a key that moved partition lands in both.
+            ("key_moved_partition", ["p0", "p0", "p1"], [0, 1, 2]),
+        ]
+    )
+    def test_dedupe_before_write_keeps_what_the_writer_keeps(
+        self, _name: str, partitions: list[str] | None, kept_positions: list[int]
+    ) -> None:
+        columns: dict[str, list[Any]] = {"id": [1, 2, 1], "pos": [0, 1, 2]}
+        if partitions is not None:
+            columns[PARTITION_KEY] = partitions
+
+        result = _dedupe_before_write(pa.table(columns), ["id"])
+
+        assert result.column("pos").to_pylist() == kept_positions
 
 
 class TestPostImportTrigger:

@@ -3,7 +3,6 @@ from datetime import timedelta
 from uuid import uuid4
 
 from posthog.test.base import BaseTest
-from unittest.mock import patch
 
 from django.test import SimpleTestCase
 
@@ -24,7 +23,9 @@ from products.warehouse_suggestions.backend.logic.candidates.materialize import 
     allowed_intervals,
     estimate_savings,
     interval_basis,
+    refresh_cost,
 )
+from products.warehouse_suggestions.backend.logic.reads import SubjectRefreshes
 from products.warehouse_suggestions.backend.logic.rules import RULES, Surface
 from products.warehouse_suggestions.backend.tests.factories import (
     busy_reads,
@@ -39,7 +40,6 @@ VIEW_ID = uuid4()
 AT_CERTIFY_FLOORS = {"human_users": 5, "human_days": 20}
 HOUR = timedelta(hours=1)
 DAY = timedelta(hours=24)
-INCREMENTAL_FLAG = "products.warehouse_suggestions.backend.logic.candidates.materialize.incremental_enabled"
 DAILY_COUNTS = "SELECT toStartOfDay(timestamp) AS day, count() AS c FROM events GROUP BY day"
 DAILY_COUNT_COLUMNS = {
     "day": {"hogql": "DateTimeDatabaseField", "clickhouse": "DateTime64(6, 'UTC')"},
@@ -157,17 +157,40 @@ class TestMaterializeRules(SimpleTestCase):
 
         assert intervals == expected
 
-    @parameterized.expand([("at_floor", 90, True), ("one_read_short", 89, False)])
-    def test_time_saved_floor(self, _name: str, human_reads: int, expect_clear: bool) -> None:
+    @parameterized.expand(
+        [
+            ("at_floor", 90, 10_000.0, None, True),
+            ("one_read_short", 89, 10_000.0, None, False),
+            ("slow_reads_raise_the_refresh_price", 90, 20_000.0, None, False),
+            (
+                "recorded_refreshes_set_the_price",
+                90,
+                20_000.0,
+                SubjectRefreshes(runs=3, duration_ms=30_000, read_bytes=3),
+                True,
+            ),
+        ]
+    )
+    def test_time_saved_floor(
+        self,
+        _name: str,
+        human_reads: int,
+        alone_duration_ms_p90: float,
+        refreshes: SubjectRefreshes | None,
+        expect_clear: bool,
+    ) -> None:
         reads = busy_reads(
             human_reads=human_reads,
             human_duration_ms=human_reads * 10_000,
             alone_duration_ms_median=10_000.0,
+            alone_duration_ms_p90=alone_duration_ms_p90,
             human_read_bytes=human_reads,
             alone_read_bytes_median=1.0,
+            alone_read_bytes_p90=1.0,
         )
+        ctx = context(team_reads({}, refreshes={VIEW_ID: refreshes} if refreshes else None))
 
-        estimate = estimate_savings(context(team_reads({})), reads, DAY)
+        estimate = estimate_savings(ctx, reads, DAY, refresh_cost(ctx, VIEW_ID, reads))
 
         assert estimate.clears_a_floor is expect_clear
 
@@ -215,12 +238,10 @@ class TestMaterializeRules(SimpleTestCase):
 class TestMaterializeRefreshMode(BaseTest):
     @parameterized.expand(
         [
-            ("grouped_by_day", DAILY_COUNTS, True, WarehouseSuggestionRefreshMode.INCREMENTAL, "day", ("day",)),
-            ("flag_off", DAILY_COUNTS, False, WarehouseSuggestionRefreshMode.FULL, None, ()),
+            ("grouped_by_day", DAILY_COUNTS, WarehouseSuggestionRefreshMode.INCREMENTAL, "day", ("day",)),
             (
                 "limited_query",
                 "SELECT timestamp, event FROM events ORDER BY timestamp DESC LIMIT 10",
-                True,
                 WarehouseSuggestionRefreshMode.FULL,
                 None,
                 (),
@@ -228,7 +249,6 @@ class TestMaterializeRefreshMode(BaseTest):
             (
                 "grouped_over_a_nondeterministic_view",
                 DAILY_COUNTS.replace("FROM events", "FROM sampled_events"),
-                True,
                 WarehouseSuggestionRefreshMode.FULL,
                 None,
                 (),
@@ -239,7 +259,6 @@ class TestMaterializeRefreshMode(BaseTest):
         self,
         _name: str,
         hogql: str,
-        flag_on: bool,
         refresh_mode: WarehouseSuggestionRefreshMode,
         incremental_key: str | None,
         unique_key: tuple[str, ...],
@@ -264,8 +283,7 @@ class TestMaterializeRefreshMode(BaseTest):
             team_id=self.team.pk,
         )
 
-        with patch(INCREMENTAL_FLAG, return_value=flag_on):
-            [draft] = MaterializeCandidate().evaluate(candidate_context).drafts
+        [draft] = MaterializeCandidate().evaluate(candidate_context).drafts
 
         assert isinstance(draft.payload, MaterializePayload)
         expected_lookback = RULES.materialize.incremental_lookback_seconds if incremental_key else 0

@@ -320,6 +320,7 @@ export type SettingId =
     | 'workflows-ai-task-limits'
     | 'workflows-replay-vision-limits'
     | 'workflows-email-tracking-consent'
+    | 'workflows-utm-defaults'
     | 'workflows-engagement-events'
     | 'xaa-configuration'
 
