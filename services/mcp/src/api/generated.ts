@@ -2170,6 +2170,7 @@ export namespace Schemas {
     /**
      * * `custom_property` - Custom property
      * * `relationship` - Relationship
+     * * `account_field` - Account field
      */
     export type AccountPropertyPinKindEnum = typeof AccountPropertyPinKindEnum[keyof typeof AccountPropertyPinKindEnum];
 
@@ -2177,6 +2178,7 @@ export namespace Schemas {
     export const AccountPropertyPinKindEnum = {
       CustomProperty: 'custom_property',
       Relationship: 'relationship',
+      AccountField: 'account_field',
     } as const;
 
     /**
@@ -86215,12 +86217,16 @@ export namespace Schemas {
     }
 
     export interface TeamCustomerAnalyticsPinnedAccountProperty {
-      /** Definition type for this default pinned account property.
+      /** Type of this default pinned account property: a custom property, a relationship, or a built-in account field.
        *
        * * `custom_property` - Custom property
-       * * `relationship` - Relationship */
+       * * `relationship` - Relationship
+       * * `account_field` - Account field */
       kind: AccountPropertyPinKindEnum;
-      /** Project-scoped custom property or relationship definition UUID. */
+      /**
+         * Project-scoped custom property or relationship definition UUID. For an account_field pin, the account field name, such as stripe_customer_id.
+         * @maxLength 64
+         */
       id: string;
     }
 
@@ -90174,12 +90180,16 @@ export namespace Schemas {
     }
 
     export interface PinnedAccountProperty {
-      /** Definition type for this pinned account property.
+      /** Type of this pinned account property: a custom property, a relationship, or a built-in account field.
        *
        * * `custom_property` - Custom property
-       * * `relationship` - Relationship */
+       * * `relationship` - Relationship
+       * * `account_field` - Account field */
       kind: AccountPropertyPinKindEnum;
-      /** Team-scoped custom property or relationship definition UUID. */
+      /**
+         * Team-scoped custom property or relationship definition UUID. For an account_field pin, the account field name, such as stripe_customer_id.
+         * @maxLength 64
+         */
       id: string;
     }
 
