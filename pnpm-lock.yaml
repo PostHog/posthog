@@ -644,6 +644,9 @@ importers:
       '@posthog/products-actions':
         specifier: workspace:*
         version: link:../products/actions
+      '@posthog/products-ai-gateway':
+        specifier: workspace:*
+        version: link:../products/ai_gateway
       '@posthog/products-ai-observability':
         specifier: workspace:*
         version: link:../products/ai_observability
@@ -1106,6 +1109,9 @@ importers:
       image-blob-reduce:
         specifier: ^4.1.0
         version: 4.1.0
+      ipaddr.js:
+        specifier: 2.2.0
+        version: 2.2.0
       kea:
         specifier: 'catalog:'
         version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
@@ -1748,8 +1754,8 @@ importers:
         specifier: ^8.6.0
         version: 8.11.0
       posthog-node:
-        specifier: 5.56.2
-        version: 5.56.2(@opentelemetry/api@1.9.0)(rxjs@7.8.1)
+        specifier: 5.57.0
+        version: 5.57.0(@opentelemetry/api@1.9.0)(rxjs@7.8.1)
       pretty-bytes:
         specifier: ^5.6.0
         version: 5.6.0
@@ -2381,6 +2387,31 @@ importers:
         version: 0.2.4(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
 
   products/aeo: {}
+
+  products/ai_gateway:
+    dependencies:
+      '@posthog/lemon-ui':
+        specifier: '*'
+        version: 0.0.0(antd@5.26.0(date-fns@4.1.0)(luxon@3.7.2)(moment@2.29.4)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(kea-router@3.4.2(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)))(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      '@types/react':
+        specifier: 18.3.27
+        version: 18.3.27
+      kea:
+        specifier: 'catalog:'
+        version: 4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1)
+      kea-loaders:
+        specifier: 'catalog:'
+        version: 3.1.1(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+      kea-router:
+        specifier: 'catalog:'
+        version: 3.4.2(kea@4.0.0-pre.6(patch_hash=139b8d1f1304f9d9da452a9a1244c94ea679dbcb85687d8999563146879fb6f5)(react@18.3.1))
+      react:
+        specifier: 18.3.1
+        version: 18.3.1
+    devDependencies:
+      '@testing-library/react':
+        specifier: '*'
+        version: 14.3.1(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
 
   products/ai_observability:
     dependencies:
@@ -5808,7 +5839,7 @@ importers:
         version: link:../../packages/llm-normalizer
       '@posthog/mcp-analytics':
         specifier: npm:@posthog/mcp@0.23.0
-        version: '@posthog/mcp@0.23.0(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(supports-color@10.2.2)(zod@4.3.6))(posthog-node@5.56.2(@opentelemetry/api@1.9.0)(rxjs@7.8.1))'
+        version: '@posthog/mcp@0.23.0(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(supports-color@10.2.2)(zod@4.3.6))(posthog-node@5.57.0(@opentelemetry/api@1.9.0)(rxjs@7.8.1))'
       '@posthog/quill':
         specifier: workspace:*
         version: link:../../packages/quill/packages/quill
@@ -5846,8 +5877,8 @@ importers:
         specifier: 4.13.1
         version: 4.13.1
       posthog-node:
-        specifier: ^5.56.2
-        version: 5.56.2(@opentelemetry/api@1.9.0)(rxjs@7.8.1)
+        specifier: ^5.57.0
+        version: 5.57.0(@opentelemetry/api@1.9.0)(rxjs@7.8.1)
       prom-client:
         specifier: ^14.2.0
         version: 14.2.0
@@ -20690,8 +20721,8 @@ packages:
       react:
         optional: true
 
-  posthog-node@5.56.2:
-    resolution: {integrity: sha512-1/qYFNuHkDJJuDHjAvozN/fH/+XdqzlIZ0WCsCYrhUgGNxDBw5M3kZaJaRX0YSPi9tn7PnZFD5eTXg2Z7m5LeQ==}
+  posthog-node@5.57.0:
+    resolution: {integrity: sha512-FnQevBpoz/7TtI1wlAmK4ax/slyBpEaLQ8nSPZLptdGzLZu7539ossdpkDRO91nX/U+h6Mqc+hNteqo0bylpCA==}
     engines: {node: ^20.20.0 || >=22.22.0}
     peerDependencies:
       '@opentelemetry/api': ^1.2.0
@@ -30719,10 +30750,10 @@ snapshots:
       react: 18.3.1
       react-dom: 18.3.1(react@18.3.1)
 
-  '@posthog/mcp@0.23.0(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(supports-color@10.2.2)(zod@4.3.6))(posthog-node@5.56.2(@opentelemetry/api@1.9.0)(rxjs@7.8.1))':
+  '@posthog/mcp@0.23.0(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(supports-color@10.2.2)(zod@4.3.6))(posthog-node@5.57.0(@opentelemetry/api@1.9.0)(rxjs@7.8.1))':
     dependencies:
       '@posthog/core': 1.59.1
-      posthog-node: 5.56.2(@opentelemetry/api@1.9.0)(rxjs@7.8.1)
+      posthog-node: 5.57.0(@opentelemetry/api@1.9.0)(rxjs@7.8.1)
     optionalDependencies:
       '@modelcontextprotocol/sdk': 1.29.0(@cfworker/json-schema@4.1.1)(supports-color@10.2.2)(zod@4.3.6)
 
@@ -43171,9 +43202,9 @@ snapshots:
       '@types/react': 18.3.27
       react: 18.3.1
 
-  posthog-node@5.56.2(@opentelemetry/api@1.9.0)(rxjs@7.8.1):
+  posthog-node@5.57.0(@opentelemetry/api@1.9.0)(rxjs@7.8.1):
     dependencies:
-      '@posthog/core': 1.59.1
+      '@posthog/core': 1.60.0
     optionalDependencies:
       '@opentelemetry/api': 1.9.0
       rxjs: 7.8.1
