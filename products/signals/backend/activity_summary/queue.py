@@ -1,9 +1,10 @@
 """Pick the (team, user) pairs that the next activity summary tick updates, and measure the daily caps.
 
 Each pair has a queue state row. One cursor per input source reads the new rows of all enrolled teams
-and adds them to the pending units of their pair. `select_pairs` then reads the due pairs in one
-ordered query. Row counts here are only a queue estimate. `update_activity_summary` still applies the
-real drop rules and `min_units`, and backs a pair off when it skips, so the pair leaves the queue head.
+and adds them to the pending units of their pair. `select_pairs` then ranks the due pairs and fills the
+tick budget in two passes: paying organizations first, then free organizations with the budget that is
+left. Row counts here are only a queue estimate. `update_activity_summary` still applies the real drop
+rules and `min_units`, and backs a pair off when it skips, so the pair leaves the queue head.
 """
 
 import math
@@ -12,8 +13,25 @@ from collections.abc import Callable
 from typing import Any
 
 from django.db import transaction
-from django.db.models import BooleanField, Case, Count, ExpressionWrapper, F, Max, OuterRef, Q, Subquery, Sum, When
-from django.db.models.functions import Coalesce, Greatest
+from django.db.models import (
+    BooleanField,
+    Case,
+    Count,
+    DateTimeField,
+    F,
+    FloatField,
+    Max,
+    OuterRef,
+    Q,
+    QuerySet,
+    Subquery,
+    Sum,
+    Value,
+    When,
+    Window,
+)
+from django.db.models.expressions import Combinable
+from django.db.models.functions import Cast, Coalesce, Extract, Greatest, Ln, RowNumber
 
 from posthog.dataclasses import frozen
 from posthog.models import ActivityLog, FileSystemViewLog, Team
@@ -54,20 +72,33 @@ SOURCE_VIEWS = "views"
 FEED_LAG = datetime.timedelta(minutes=5)
 # One tick reads at most this much of one source. A cursor that fell behind catches up over the next ticks.
 MAX_FEED_STEP = datetime.timedelta(hours=6)
-# Pairs with no summary first, then the most pending units, then the oldest summary. The state index has this order.
-_QUEUE_ORDER = (
-    ExpressionWrapper(Q(summarized_at__isnull=False), output_field=BooleanField()).asc(),
-    F("pending_units").desc(),
-    F("summarized_at").asc(),
-    "team_id",
-    "user_id",
-)
+TIER_PAYING = "paying"
+TIER_FREE = "free"
+# A summary younger than this many target intervals counts as fresh on the tick event.
+_FRESH_STALENESS = 2
 
 
 @frozen(order=True)
 class ActivitySummaryPair:
     team_id: int
     user_id: int
+
+
+@frozen
+class ActivitySummaryTierStats:
+    tier: str
+    due_pairs: int = 0
+    # Hours since the due time of the pair that waits longest. Null when no pair is due.
+    oldest_due_hours: float | None = None
+    # The share of pairs with activity in the window whose summary is younger than twice the tier's target interval.
+    fresh_share: float | None = None
+
+
+@frozen
+class PairSelection:
+    pairs: list[ActivitySummaryPair]
+    due_pairs: int
+    tiers: list[ActivitySummaryTierStats]
 
 
 @frozen
@@ -372,41 +403,139 @@ def _current(config: ActivitySummaryConfig) -> Q:
     return Q(summarized_at__isnull=True) | current
 
 
-def select_pairs(config: ActivitySummaryConfig, now: datetime.datetime, limit: int) -> list[ActivitySummaryPair]:
+def _hours_since(now: datetime.datetime, at: Coalesce) -> Combinable:
+    age = Value(now, output_field=DateTimeField()) - at
+    return Cast(Extract(age, "epoch"), FloatField()) / Value(3600.0)
+
+
+def _states(config: ActivitySummaryConfig, now: datetime.datetime, team_ids: list[int]) -> QuerySet:
+    """The queue states of these teams, with their tier, staleness and priority score.
+
+    Staleness is the summary age over the tier's target interval. A pair with no summary counts its age
+    from its first queued row. The score is log(1 + pending units) times staleness, plus a bonus for a
+    pair with no summary, or a bonus plus staleness for a stale summary.
+    """
+    paying = Coalesce(F("team__organization__has_active_subscription"), Value(False))
+    target_hours = Case(
+        When(paying=True, then=Value(config.target_interval_days_paying * 24)),
+        default=Value(config.target_interval_days_free * 24),
+        output_field=FloatField(),
+    )
+    age_hours = _hours_since(now, Coalesce("summarized_at", "created_at"))
+    stale = Case(When(_current(config), then=Value(False)), default=Value(True), output_field=BooleanField())
+    cold_bonus = Case(
+        When(summarized_at__isnull=True, then=Value(config.cold_start_bonus)),
+        # A stale pair often has no pending units, so its staleness orders it among the other rebuilds.
+        When(stale=True, then=Value(config.cold_start_bonus) + F("staleness")),
+        default=Value(0.0),
+        output_field=FloatField(),
+    )
+    return (
+        # nosemgrep: idor-lookup-without-team (system tick with no user input; filtered to the enrolled teams)
+        UserActivitySummaryQueueState.all_teams.filter(team_id__in=team_ids)
+        .annotate(organization_id=F("team__organization_id"), paying=paying, stale=stale)
+        .annotate(staleness=age_hours / target_hours)
+        .annotate(score=Ln(F("pending_units") + 1) * F("staleness") + cold_bonus)
+    )
+
+
+def _due(states: QuerySet, config: ActivitySummaryConfig, now: datetime.datetime) -> QuerySet:
+    return states.filter(
+        Q(due_at__isnull=True) | Q(due_at__lte=now),
+        Q(pending_units__gte=max(1, config.min_units)) | Q(stale=True),
+        last_activity_at__gte=now - datetime.timedelta(days=config.limits.window_days),
+    )
+
+
+def _cap_rebuilds(due: QuerySet, max_rebuilds: int) -> QuerySet:
+    """The due pairs with at most `max_rebuilds` stale pairs, paying pairs and the highest scores first."""
+    rebuild_ids = list(
+        due.filter(stale=True)
+        .order_by("-paying", F("score").desc(), "team_id", "user_id")
+        .values_list("id", flat=True)[:max_rebuilds]
+    )
+    return due.filter(Q(stale=False) | Q(id__in=rebuild_ids))
+
+
+def _fill_pass(due: QuerySet, limit: int, max_org_share: float) -> list[UserActivitySummaryQueueState]:
+    """The highest scores first, with at most `max_org_share` of `limit` from one organization."""
+    if limit <= 0:
+        return []
+    order = (F("score").desc(), "team_id", "user_id")
+    return list(
+        due.annotate(org_rank=Window(RowNumber(), partition_by=[F("organization_id")], order_by=order))
+        .filter(org_rank__lte=max(1, int(max_org_share * limit)))
+        .order_by(*order)
+        .only("id", "team_id", "user_id")[:limit]
+    )
+
+
+def _tier_stats(
+    states: QuerySet, due: QuerySet, config: ActivitySummaryConfig, now: datetime.datetime
+) -> list[ActivitySummaryTierStats]:
+    window_start = now - datetime.timedelta(days=config.limits.window_days)
+    waiting = {
+        row["paying"]: row
+        for row in due.values("paying").annotate(
+            pairs=Count("id"),
+            oldest=Max(_hours_since(now, Coalesce("due_at", "created_at"))),
+        )
+    }
+    activity = {
+        row["paying"]: row
+        for row in states.filter(last_activity_at__gte=window_start)
+        .values("paying")
+        .annotate(
+            active=Count("id"),
+            fresh=Count("id", filter=Q(summarized_at__isnull=False, staleness__lt=_FRESH_STALENESS)),
+        )
+    }
+    stats = []
+    for tier, paying in ((TIER_PAYING, True), (TIER_FREE, False)):
+        due_row = waiting.get(paying)
+        activity_row = activity.get(paying)
+        stats.append(
+            ActivitySummaryTierStats(
+                tier=tier,
+                due_pairs=due_row["pairs"] if due_row else 0,
+                oldest_due_hours=max(0.0, due_row["oldest"]) if due_row else None,
+                fresh_share=activity_row["fresh"] / activity_row["active"] if activity_row else None,
+            )
+        )
+    return stats
+
+
+def select_pairs(config: ActivitySummaryConfig, now: datetime.datetime, limit: int) -> PairSelection:
     """The due pairs of the enrolled teams, highest priority first, cut to `limit`.
 
     A pair is due when it has a row in the last `window_days` and its due time is empty or past. A pair
     with a current summary also needs at least `min_units` pending units. One unit never comes from less
     than one row, so a pair with fewer rows would only skip. A pair with a stale summary needs no pending
-    units, because its update reads the full window. Stale pairs take at most `rebuild_budget_share` of
-    `limit`, so a version change does not stop the other updates.
-
-    Pairs with no summary come first, then stale pairs with the oldest summary first, then the pairs with
-    the most pending units, then the oldest summaries.
+    units, because its update reads the full window, and it ranks with the pairs with no summary.
+    Stale pairs take at most `rebuild_budget_share` of `limit`, paying pairs first, so a version change
+    does not stop the other updates. The first pass ranks the paying pairs and the free pairs with at
+    least `max_overdue_factor` staleness, for `paying_budget_share` of `limit`. The second pass ranks the
+    other free pairs for the budget that is left.
     """
     team_ids = enrolled_team_ids(config)
-    if not team_ids or limit <= 0:
-        return []
-    window_start = now - datetime.timedelta(days=config.limits.window_days)
-    due = (
-        # nosemgrep: idor-lookup-without-team (system tick with no user input; filtered to the enrolled teams)
-        UserActivitySummaryQueueState.all_teams.filter(team_id__in=team_ids, last_activity_at__gte=window_start).filter(
-            Q(due_at__isnull=True) | Q(due_at__lte=now)
-        )
+    if not team_ids:
+        return PairSelection(pairs=[], due_pairs=0, tiers=[])
+    states = _states(config, now, team_ids)
+    due = _due(states, config, now)
+    tiers = _tier_stats(states, due, config, now)
+    due = _cap_rebuilds(due, math.ceil(limit * config.rebuild_budget_share))
+    first = _fill_pass(
+        due.filter(Q(paying=True) | Q(staleness__gte=config.max_overdue_factor)),
+        int(limit * config.paying_budget_share),
+        config.max_org_share,
     )
-    current = _current(config)
-    updates = list(
-        due.filter(current, pending_units__gte=max(1, config.min_units))
-        .order_by(*_QUEUE_ORDER)
-        .values_list("team_id", "user_id", "summarized_at")[:limit]
+    second = _fill_pass(
+        due.filter(paying=False).exclude(id__in=[state.id for state in first]),
+        limit - len(first),
+        config.max_org_share,
     )
-    rebuilds = list(
-        due.exclude(current)
-        .order_by("summarized_at", "team_id", "user_id")
-        .values_list("team_id", "user_id")[: math.ceil(limit * config.rebuild_budget_share)]
+    return PairSelection(
+        pairs=[ActivitySummaryPair(team_id=state.team_id, user_id=state.user_id) for state in first + second],
+        due_pairs=sum(tier.due_pairs for tier in tiers),
+        tiers=tiers,
     )
-    cold = [(team_id, user_id) for team_id, user_id, at in updates if at is None]
-    warm = [(team_id, user_id) for team_id, user_id, at in updates if at is not None]
-    return [ActivitySummaryPair(team_id=team_id, user_id=user_id) for team_id, user_id in cold + rebuilds + warm][
-        :limit
-    ]
