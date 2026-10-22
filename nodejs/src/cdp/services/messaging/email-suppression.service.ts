@@ -3,6 +3,7 @@ import { Counter } from 'prom-client'
 import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
 import { LazyLoader } from '~/common/utils/lazy-loader'
 import { logger } from '~/common/utils/logger'
+import { isValidTeamId } from '~/common/utils/team-manager'
 
 const cdpEmailSuppressionTotal = new Counter({
     name: 'cdp_email_suppression_total',
@@ -346,7 +347,7 @@ export class EmailSuppressionService {
         // stored identifier is an email so split on the first ':' only.
         const parsed = keys.map((key) => {
             const idx = key.indexOf(':')
-            return { key, teamId: parseInt(key.slice(0, idx), 10), identifier: key.slice(idx + 1) }
+            return { key, teamId: Number(key.slice(0, idx)), identifier: key.slice(idx + 1) }
         })
 
         // Group by team_id so we run one indexed `identifier = ANY(...)` scan per team instead of an
@@ -356,6 +357,9 @@ export class EmailSuppressionService {
         // always a single query regardless of batch size.
         const byTeam = new Map<number, string[]>()
         for (const p of parsed) {
+            if (!isValidTeamId(p.teamId)) {
+                continue
+            }
             const list = byTeam.get(p.teamId) ?? []
             list.push(p.identifier)
             byTeam.set(p.teamId, list)

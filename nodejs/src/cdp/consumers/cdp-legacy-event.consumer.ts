@@ -8,6 +8,7 @@ import { parseJSON } from '~/common/utils/json-parse'
 import { LazyLoader } from '~/common/utils/lazy-loader'
 import { logger } from '~/common/utils/logger'
 import { PromiseScheduler } from '~/common/utils/promise-scheduler'
+import { validTeamIds } from '~/common/utils/team-manager'
 
 import {
     HealthCheckResult,
@@ -106,6 +107,7 @@ export class CdpLegacyEventsConsumer extends CdpConsumerBase<CdpLegacyEventsCons
     }
 
     private async loadAndBuildHogFunctions(teamIds: string[]): Promise<Record<string, PluginConfigHogFunction[]>> {
+        const numericTeamIds = validTeamIds(teamIds)
         const { rows } = await this.deps.postgres.query(
             PostgresUse.COMMON_READ,
             `SELECT
@@ -124,7 +126,7 @@ export class CdpLegacyEventsConsumer extends CdpConsumerBase<CdpLegacyEventsCons
                 AND posthog_pluginconfig.enabled = 't'
                 AND (posthog_pluginconfig.deleted IS NULL OR posthog_pluginconfig.deleted != 't')
                 AND posthog_plugin.capabilities->'methods' @> '["onEvent"]'::jsonb`,
-            [teamIds.map((id) => parseInt(id))],
+            [numericTeamIds],
             'loadPluginConfigHogFunctions'
         )
 
@@ -222,14 +224,11 @@ export class CdpLegacyEventsConsumer extends CdpConsumerBase<CdpLegacyEventsCons
             }
         }
 
-        return this.preferMigratedHogFunctions(results, await this.loadMigratedHogFunctions(teamIds))
+        return this.preferMigratedHogFunctions(results, await this.loadMigratedHogFunctions(numericTeamIds))
     }
 
-    private async loadMigratedHogFunctions(teamIds: string[]): Promise<Record<string, HogFunctionType[]>> {
-        const byTeam = await this.hogFunctionManager.getHogFunctionsForTeams(
-            teamIds.map((id) => parseInt(id)),
-            ['legacy_destination']
-        )
+    private async loadMigratedHogFunctions(teamIds: number[]): Promise<Record<string, HogFunctionType[]>> {
+        const byTeam = await this.hogFunctionManager.getHogFunctionsForTeams(teamIds, ['legacy_destination'])
 
         return Object.fromEntries(Object.entries(byTeam).map(([teamId, fns]) => [teamId, fns]))
     }

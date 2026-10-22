@@ -8,6 +8,7 @@ import { PostgresUse } from '~/common/utils/db/postgres'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { forSnapshot } from '~/tests/helpers/snapshots'
 import { createTestTeamFixture } from '~/tests/helpers/sql'
+import { INVALID_TEAM_ID_KEYS } from '~/tests/helpers/team'
 
 import { Hub, Team } from '../../types'
 import { createHogExecutionGlobals, insertHogFunction } from '../_tests/fixtures'
@@ -524,6 +525,16 @@ describe('CdpLegacyEventsConsumer', () => {
             const hogFunctions = await consumer['pluginConfigsLoader'].get('99999')
             expect(hogFunctions).toEqual([])
         })
+
+        it.each(INVALID_TEAM_ID_KEYS)(
+            'returns an empty array for invalid team id %p without failing the valid team in the same load',
+            async (key) => {
+                const result = await consumer['pluginConfigsLoader'].getMany([team.id.toString(), key])
+
+                expect(result[team.id.toString()]?.map((x) => x.pluginConfigId)).toEqual([pluginConfig.id])
+                expect(result[key]).toEqual([])
+            }
+        )
     })
 
     describe('migrated legacy_destination hog functions', () => {

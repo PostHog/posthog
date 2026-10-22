@@ -1,5 +1,7 @@
 import { FlagEvaluationsMode, ProjectId, Team } from '../../src/types'
 
+export const INVALID_TEAM_ID_KEYS = ['abc', '1.5', '3000000000', '0', '-1', '', 'undefined', 'NaN']
+
 /**
  * Helper function to create a Team object for tests with sensible defaults.
  *

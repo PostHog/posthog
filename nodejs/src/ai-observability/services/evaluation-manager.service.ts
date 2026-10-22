@@ -2,6 +2,7 @@ import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
 import { LazyLoader } from '~/common/utils/lazy-loader'
 import { logger } from '~/common/utils/logger'
 import { PubSub } from '~/common/utils/pubsub'
+import { validTeamIds } from '~/common/utils/team-manager'
 
 import { Team } from '../../types'
 import { Evaluation, EvaluationInfo } from '../types'
@@ -111,7 +112,7 @@ export class EvaluationManagerService {
         const response = await this.postgres.query<EvaluationInfo>(
             PostgresUse.COMMON_READ,
             `SELECT id, team_id FROM llm_analytics_evaluation WHERE enabled = TRUE AND deleted = FALSE AND team_id = ANY($1)`,
-            [teamIds],
+            [validTeamIds(teamIds)],
             'fetchAllTeamEvaluations'
         )
 
