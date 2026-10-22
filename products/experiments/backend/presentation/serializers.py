@@ -45,6 +45,8 @@ from products.ai_observability.backend.models.llm_prompt import LLMPrompt
 from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.facade.contracts import (
     CreateExperimentInput,
+    ExperimentHealthCheckKey,
+    ExperimentHealthCheckStatus,
     ExperimentHealthFindingActionKind,
     ExperimentHealthFindingCode,
     ExperimentHealthFindingSeverity,
@@ -242,12 +244,46 @@ class ExperimentHealthFindingSerializer(serializers.Serializer):
     )
 
 
+class ExperimentHealthCheckResultSerializer(serializers.Serializer):
+    key = serializers.ChoiceField(
+        choices=ExperimentHealthCheckKey.choices,
+        help_text=(
+            "Stable identifier of the check. A check can report several finding codes, so the key is not a "
+            "finding code."
+        ),
+    )
+    name = serializers.CharField(help_text="What the check looks at, for example 'Feature flag variants'.")
+    status = serializers.ChoiceField(
+        choices=ExperimentHealthCheckStatus.choices,
+        help_text=(
+            "passed: the check found no problem. finding: the check reported a finding in `findings`. "
+            "not_applicable: the check does not cover the experiment's current state, for example a check of the "
+            "changes since launch on a draft. not_checked: the check covers the experiment, but it could not read "
+            "an input or it failed, so a problem it looks for can be present without a finding."
+        ),
+    )
+    reason = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "Why the check did not look, for the statuses not_applicable and not_checked, for example "
+            "'Runs after launch'. Null for passed and finding."
+        ),
+    )
+
+
 class ExperimentHealthSerializer(serializers.Serializer):
     findings = ExperimentHealthFindingSerializer(
         many=True,
         help_text=(
             "Problems that the health checks found in the experiment's configuration and its feature flag. "
-            "Empty when every check passed."
+            "Empty when no check found a problem. An empty list does not mean that every check ran: read `checks`."
+        ),
+    )
+    checks = ExperimentHealthCheckResultSerializer(
+        many=True,
+        help_text=(
+            "The result of each health check, in the order the checks run. The checks that read the exposure "
+            "counts are not here: the exposure query returns them as `health_checks`."
         ),
     )
 
@@ -3236,6 +3272,13 @@ class ExperimentHealthInputsConditionSetTrafficSerializer(serializers.Serializer
         help_text=(
             "The calls that the flag service evaluated. Only those name a condition set. Local evaluation in a "
             "server SDK and a bootstrapped value name none."
+        )
+    )
+    people_assigned_outside = serializers.IntegerField(
+        help_text=(
+            "The people who got a variant from a call without a flag version that is no local evaluation in a server "
+            "SDK, from an hour after the start of the window: a bootstrap or the caller's own assignment. With a 0% "
+            "rollout, 10 or more of them turn `running_but_no_rollout` into `assigned_outside_flag_service`."
         )
     )
 

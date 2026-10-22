@@ -126,33 +126,28 @@ describe('searchLogic', () => {
     })
 
     it.each([
-        ['data quality', true, true],
-        ['dataquality', true, true],
-        ['Data-Quality', true, true],
-        ['models data quality', true, true],
-        ['data quality', false, false],
-        ['', true, false],
-    ])(
-        'lists the Models data quality tab for search %j with the flag on=%s: %s',
-        async (search, flagEnabled, listed) => {
-            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.DATA_QUALITY_CHECKS]: flagEnabled })
-            await searchOnceProductsLoad(search)
+        ['data quality', true],
+        ['dataquality', true],
+        ['Data-Quality', true],
+        ['models data quality', true],
+        ['', false],
+    ])('lists the Models data quality tab for search %j: %s', async (search, listed) => {
+        await searchOnceProductsLoad(search)
 
-            const rows = logic.values.allCategories.flatMap((category) =>
-                category.items.filter((item) => item.href === urls.models('data-quality'))
-            )
-            expect(rows.map((row) => ({ displayName: row.displayName, parentName: row.parentName }))).toEqual(
-                listed ? [{ displayName: 'Data quality', parentName: 'Models' }] : []
-            )
-        }
-    )
+        const rows = logic.values.allCategories.flatMap((category) =>
+            category.items.filter((item) => item.href === urls.models('data-quality'))
+        )
+        expect(rows.map((row) => ({ displayName: row.displayName, parentName: row.parentName }))).toEqual(
+            listed ? [{ displayName: 'Data quality', parentName: 'Models' }] : []
+        )
+    })
 
     it.each([
         ['batch exports', [], '/data-management/destinations?tab=batch'],
         ['metrics sql', [], '/metrics?activeTab=sql'],
         ['dashboards cross-project', [FEATURE_FLAGS.CROSS_PROJECT_DASHBOARDS], '/dashboard?tab=cross-project'],
         ['tracing sql', [FEATURE_FLAGS.TRACING, FEATURE_FLAGS.TRACING_SCENE_TABS], '/tracing?tab=sql'],
-        ['reusable widgets', [FEATURE_FLAGS.NOTEBOOK_GENERATED_WIDGETS], '/notebooks?tab=widgets'],
+        ['reusable widgets', [], '/notebooks?tab=widgets'],
         ['replay vision usage', [], '/replay-vision?tab=usage'],
     ])('links the tab row found by %j with flags %j to %s', async (search, flags, href) => {
         featureFlagLogic.actions.setFeatureFlags([], Object.fromEntries(flags.map((flag) => [flag, true])))

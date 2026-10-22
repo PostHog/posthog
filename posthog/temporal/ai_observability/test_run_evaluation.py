@@ -35,6 +35,7 @@ from posthog.temporal.common.errors import NonReportableError
 from products.access_control.backend.models.access_control import AccessControl
 from products.ai_observability.backend.llm.errors import (
     AuthenticationError,
+    ClaudeDeploymentOnAzureOpenAIError,
     ContentFilteredError,
     ContextWindowExceededError,
     ModelNotFoundError,
@@ -95,6 +96,7 @@ from .run_evaluation import (
     RunLocalEvaluationInputs,
     SendEvaluationDisabledEmailInputs,
     WorkflowResult,
+    compact_backfill_result,
     disable_evaluation_activity,
     emit_evaluation_event_activity,
     execute_hog_eval_activity,
@@ -2185,6 +2187,36 @@ class TestRunEvaluationWorkflow:
         assert mock_emit.await_args_list[0].args[0].event_data == full_event
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("evaluation_type", ["hog", "sentiment"])
+    @pytest.mark.parametrize("change", [{"enabled": False}, {"deleted": True}], ids=["disabled", "deleted"])
+    async def test_backfill_does_not_run_a_local_evaluation_turned_off(
+        self, evaluation_type: str, change: dict[str, bool]
+    ) -> None:
+        evaluation = _local_evaluation(
+            **{"evaluation_type": evaluation_type, "enabled": True, "deleted": False, **change}
+        )
+        module = "posthog.temporal.ai_observability.evaluation_workflow_activities"
+        with (
+            patch(f"{module}.fetch_evaluation", return_value=evaluation),
+            patch(f"{module}.run_hog_eval_for_event", new_callable=AsyncMock) as run_hog,
+            patch(f"{module}.run_sentiment_eval", new_callable=AsyncMock) as run_sentiment,
+            patch(f"{module}.emit_generation_evaluation_event", new_callable=AsyncMock) as emit,
+        ):
+            outcome = await run_local_evaluation_activity(
+                RunLocalEvaluationInputs(
+                    evaluation_id="eval-1",
+                    event_data=dict(THIN_REFERENCE),
+                    start_time=datetime(2024, 1, 1, 12, 0, tzinfo=UTC),
+                    backfill_id="B",
+                )
+            )
+
+        assert (outcome.result, outcome.emitted) == (None, False)
+        run_hog.assert_not_awaited()
+        run_sentiment.assert_not_awaited()
+        emit.assert_not_awaited()
+
+    @pytest.mark.asyncio
     async def test_the_generation_emit_activity_hydrates_a_thin_reference(self):
         full_event = create_mock_event_data(team_id=1, uuid="g1")
         with (
@@ -2531,6 +2563,51 @@ class TestRunEvaluationWorkflow:
 
         assert result["verdict"] is True
         assert result["skipped"] is False
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "change,skip_reason", [({"enabled": False}, "evaluation_disabled"), ({"deleted": True}, "evaluation_deleted")]
+    )
+    async def test_backfill_run_skips_the_judge_for_a_disabled_evaluation(
+        self, change: dict[str, bool], skip_reason: str
+    ) -> None:
+        @activity.defn(name="run_local_evaluation_activity")
+        async def mock_run_local_evaluation(inputs: RunLocalEvaluationInputs) -> LocalEvaluationOutcome:
+            evaluation = {
+                "id": inputs.evaluation_id,
+                "evaluation_type": "llm_judge",
+                "output_type": "boolean",
+                "team_id": 1,
+                "enabled": True,
+                "deleted": False,
+            }
+            return LocalEvaluationOutcome(evaluation={**evaluation, **change}, result=None, emitted=False)
+
+        @activity.defn(name="execute_llm_judge_activity")
+        async def mock_judge(inputs: ExecuteLLMJudgeInputs) -> EvaluationActivityResult:
+            raise AssertionError("a backfill must not bill a judge call for a disabled evaluation")
+
+        task_queue = str(uuid.uuid4())
+        async with await WorkflowEnvironment.start_time_skipping() as env:
+            async with Worker(
+                env.client,
+                task_queue=task_queue,
+                workflows=[RunEvaluationWorkflow],
+                activities=[mock_run_local_evaluation, mock_judge],
+                workflow_runner=UnsandboxedWorkflowRunner(),
+            ):
+                result: WorkflowResult = await env.client.execute_workflow(
+                    RunEvaluationWorkflow.run,
+                    RunEvaluationInputs(
+                        evaluation_id=str(uuid.uuid4()), event_data=create_mock_event_data(team_id=1), backfill_id="B"
+                    ),
+                    id=str(uuid.uuid4()),
+                    task_queue=task_queue,
+                    execution_timeout=timedelta(minutes=5),
+                )
+
+        assert result["skipped"] is True
+        assert result["skip_reason"] == skip_reason
 
     @pytest.mark.asyncio
     async def test_terminal_user_error_does_not_email_when_evaluation_was_already_disabled(self):
@@ -3317,6 +3394,13 @@ class TestRunEvaluationWorkflow:
                 None,
                 id="model_not_supported",
             ),
+            pytest.param(
+                ClaudeDeploymentOnAzureOpenAIError("gpt-5.4"),
+                "model_not_supported",
+                "model_not_supported",
+                None,
+                id="claude_deployment_on_azure_openai",
+            ),
         ],
     )
     @pytest.mark.django_db(transaction=True)
@@ -3375,6 +3459,8 @@ class TestRunEvaluationWorkflow:
         assert result["key_id"] == str(provider_key.id)
         assert result["provider"] == "openai"
         assert result["model"] == "gpt-5.4"
+        if isinstance(raised_exception, ClaudeDeploymentOnAzureOpenAIError):
+            assert result["reasoning"] == str(raised_exception)
         if provider_key_state is None:
             assert "provider_key_state" not in result
         else:
@@ -4682,3 +4768,24 @@ class TestRunLocalEvaluationActivity:
         second_uuid = mock_capture.call_args_list[1].kwargs["event_uuid"]
         assert first_uuid is not None
         assert first_uuid == second_uuid
+
+
+@pytest.mark.parametrize(
+    "backfill_id,expected",
+    [
+        pytest.param(
+            None, {"skipped": True, "skip_reason": "parse_error", "reasoning": "x", "message": "y"}, id="live"
+        ),
+        pytest.param("bf-1", {"skipped": True, "skip_reason": "parse_error"}, id="backfill"),
+    ],
+)
+def test_backfill_results_drop_free_text(backfill_id: str | None, expected: dict) -> None:
+    result: WorkflowResult = {
+        "evaluation_id": "e",
+        "evaluation_type": "hog",
+        "skipped": True,
+        "skip_reason": "parse_error",
+        "reasoning": "x",
+        "message": "y",
+    }
+    assert compact_backfill_result(result, backfill_id) == {"evaluation_id": "e", "evaluation_type": "hog", **expected}

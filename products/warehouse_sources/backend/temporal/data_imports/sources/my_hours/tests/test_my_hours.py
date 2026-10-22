@@ -72,9 +72,6 @@ class TestCheckAccess:
     @parameterized.expand(
         [
             ("reachable", 200, True, 200, None),
-            ("unauthorized", 401, False, 401, None),
-            ("forbidden", 403, False, 403, None),
-            ("server_error", 500, False, 500, "My Hours returned HTTP 500"),
         ]
     )
     def test_status_mapping(

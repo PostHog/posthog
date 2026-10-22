@@ -20,7 +20,10 @@ import psycopg
 import structlog
 from structlog.types import FilteringBoundLogger
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.messages import SyncTypeLiteral
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.messages import (
+    ReplaceScopeRef,
+    SyncTypeLiteral,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.s3 import BatchWriteResult
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
     PartitionFormat,
@@ -30,7 +33,7 @@ from products.warehouse_sources.backend.temporal.data_imports.util import (
     PostHogInternalDatabaseError,
     is_transient_internal_db_error,
 )
-from products.warehouse_sources_queue.backend.core.jobs_db import BATCH_TABLE, BatchQueue
+from products.warehouse_sources_queue.backend.core.jobs_db import BATCH_TABLE, LOADED_PREFIX_CURSOR_KEY, BatchQueue
 
 logger = structlog.get_logger(__name__)
 
@@ -121,12 +124,15 @@ class PostgresProducer:
             None if external_destination_ids is None else list(external_destination_ids)
         )
 
+        self._replace_scope: ReplaceScopeRef | None = None
+
         with _queue_db_errors():
             self._conn = _connect_with_retry(database_url)
         self._batches_sent = 0
-        # The most recent staged batch and its cumulative row count, kept out of the queue until the
-        # next batch arrives or the run ends, so the run's last row can carry the final flag itself.
-        self._held: tuple[BatchWriteResult, int] | None = None
+        # The most recent staged batch, its cumulative row count and its loaded-prefix cursor, kept out
+        # of the queue until the next batch arrives or the run ends, so the run's last row can carry
+        # the final flag itself.
+        self._held: tuple[BatchWriteResult, int, dict[str, Any] | None] | None = None
 
     @property
     def sync_type(self) -> SyncTypeLiteral:
@@ -141,10 +147,25 @@ class PostgresProducer:
         self._is_first_ever_sync = value
 
     @property
+    def replace_scope(self) -> ReplaceScopeRef | None:
+        """Set before the run's first batch, so every queue row of the run carries it."""
+        return self._replace_scope
+
+    @replace_scope.setter
+    def replace_scope(self, value: ReplaceScopeRef | None) -> None:
+        self._replace_scope = value
+
+    @property
     def has_held_batch(self) -> bool:
         return self._held is not None
 
-    def hold_batch(self, batch_result: BatchWriteResult, *, cumulative_row_count: int) -> None:
+    def hold_batch(
+        self,
+        batch_result: BatchWriteResult,
+        *,
+        cumulative_row_count: int,
+        loaded_prefix_cursor: dict[str, Any] | None = None,
+    ) -> None:
         """Stage a batch's queue row, inserting the previously held one as a non-final row.
 
         The parquet file is already durable when this is called; only the queue row waits. Holding
@@ -157,9 +178,14 @@ class PostgresProducer:
         if batch_result.batch_index == 0 and not self._is_resume:
             self._supersede_other_runs()
         previous = self._held
-        self._held = (batch_result, cumulative_row_count)
+        self._held = (batch_result, cumulative_row_count, loaded_prefix_cursor)
         if previous is not None:
-            self._insert(previous[0], is_final_batch=False, cumulative_row_count=previous[1])
+            self._insert(
+                previous[0],
+                is_final_batch=False,
+                cumulative_row_count=previous[1],
+                loaded_prefix_cursor=previous[2],
+            )
 
     def release_held_batch(self) -> bool:
         """Insert the held batch as a non-final row now. Returns whether a row was inserted.
@@ -171,7 +197,7 @@ class PostgresProducer:
         if held is None:
             return False
         self._held = None
-        self._insert(held[0], is_final_batch=False, cumulative_row_count=held[1])
+        self._insert(held[0], is_final_batch=False, cumulative_row_count=held[1], loaded_prefix_cursor=held[2])
         return True
 
     def send_final_batch(
@@ -264,6 +290,9 @@ class PostgresProducer:
         #
         # An append is the same: the loader removes an older attempt's rows when this
         # run's batch 0 arrives (see `load/append_rollback.py`).
+        #
+        # A run with a replace scope is the same: its batch 0 deletes the rows of every
+        # file it reads again, which covers every file an older attempt of the run read.
         with _queue_db_errors():
             superseded = BatchQueue.supersede_other_runs(
                 self._conn,
@@ -272,6 +301,7 @@ class PostgresProducer:
                 spare_runs_with_progress=(
                     self._sync_type != "full_refresh"
                     and not (self._sync_type == "append" and settings.DATA_WAREHOUSE_APPEND_ROLLBACK_ENABLED)
+                    and self._replace_scope is None
                 ),
             )
         if superseded > 0:
@@ -287,6 +317,7 @@ class PostgresProducer:
         data_folder: Optional[str] = None,
         schema_path: Optional[str] = None,
         cumulative_row_count: int = 0,
+        loaded_prefix_cursor: dict[str, Any] | None = None,
     ) -> None:
         metadata: dict[str, Any] = {}
         if data_folder is not None:
@@ -316,8 +347,14 @@ class PostgresProducer:
         if self._workflow_run_id is not None:
             metadata["workflow_run_id"] = self._workflow_run_id
         metadata["timestamp_ns"] = batch_result.timestamp_ns
+        if batch_result.arrow_bytes is not None:
+            metadata["arrow_bytes"] = batch_result.arrow_bytes
         if self._external_destination_ids is not None:
             metadata["external_destination_ids"] = self._external_destination_ids
+        if loaded_prefix_cursor is not None:
+            metadata[LOADED_PREFIX_CURSOR_KEY] = loaded_prefix_cursor
+        if self._replace_scope is not None:
+            metadata["replace_scope"] = self._replace_scope.to_dict()
 
         with _queue_db_errors():
             self._conn.execute(

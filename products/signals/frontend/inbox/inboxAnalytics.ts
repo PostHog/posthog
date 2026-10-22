@@ -57,6 +57,8 @@ export const INBOX_EVENTS = {
     SOURCE_TOGGLE_FAILED: 'Signal source toggle failed',
     SOURCE_CONFIGS_LOAD_FAILED: 'Signal source configs load failed',
     SOURCE_INTEREST: 'signals source interest',
+    SOURCE_CATALOG_OPENED: 'Signal source catalog opened',
+    SOURCE_CATALOG_SOURCE_SELECTED: 'Signal source catalog source selected',
     SOURCE_STEERING_CHANGED: 'Signal source steering changed',
     SOURCE_FILTERS_CHANGED: 'Signal source filters changed',
     // Scout-troop management. Names and property shapes match the desktop app one-for-one so both
@@ -120,6 +122,7 @@ export type InboxReportOpenMethod = 'click' | 'deeplink' | 'triage' | 'unknown'
  * `ReportLinkSource` in `products/signals/backend/report_urls.py`.
  */
 export const INBOX_REPORT_LINK_SOURCES = [
+    'first_report_email',
     'mcp',
     'slack',
     'slack_scout',
@@ -218,10 +221,10 @@ export function discussQuestionProperties(params: {
 export type InboxReportActionOutcome = 'success' | 'failure' | 'blocked' | 'limited'
 
 /**
- * Panels that replace the report list and so never fire `Inbox viewed`. `config` is the Settings
- * tab; the value predates the rename and stays so the panel breakdown reads continuously.
+ * `config` is the Settings tab; the value predates the rename and stays so the panel breakdown
+ * reads continuously. The onboarding panel can appear alongside the report list.
  */
-export type InboxPanelName = 'runs' | 'config' | 'scratchpad' | 'findings' | 'triage'
+export type InboxPanelName = 'runs' | 'config' | 'scratchpad' | 'findings' | 'triage' | 'onboarding'
 
 /** A panel read that carries its own timeout, named so each one's stall rate reads separately. */
 export type InboxPanelLoad = 'scout_notes' | 'scout_memory'
@@ -773,12 +776,14 @@ export function captureSignalSourceConnected(params: {
     sourceType: string
     isFirstConnection: boolean
     viaSetupWizard: boolean
+    setupMode?: 'guided' | 'quick'
 }): void {
     captureInboxEvent(INBOX_EVENTS.SOURCE_CONNECTED, {
         source_product: params.sourceProduct,
         source_type: params.sourceType,
         is_first_connection: params.isFirstConnection,
         via_setup_wizard: params.viaSetupWizard,
+        ...(params.setupMode ? { setup_mode: params.setupMode } : {}),
     })
 }
 
@@ -824,6 +829,31 @@ export function captureSignalSourceConfigsLoadFailed(errorMessage: string): void
 
 export function captureSignalSourceInterest(source: string): void {
     captureInboxEvent(INBOX_EVENTS.SOURCE_INTEREST, { source })
+}
+
+export type SignalSourceCatalogOrigin = 'catalog' | 'recommendation'
+
+/** The add-source catalog opened. Pairs with {@link captureSignalSourceConnected} to show how many opens end in a connection. */
+export function captureSignalSourceCatalogOpened(params: {
+    recommendationCount: number
+    connectedCount: number
+}): void {
+    captureInboxEvent(INBOX_EVENTS.SOURCE_CATALOG_OPENED, {
+        recommendation_count: params.recommendationCount,
+        connected_count: params.connectedCount,
+    })
+}
+
+export function captureSignalSourceCatalogSourceSelected(params: {
+    source: string
+    origin: SignalSourceCatalogOrigin
+    reason: string | null
+}): void {
+    captureInboxEvent(INBOX_EVENTS.SOURCE_CATALOG_SOURCE_SELECTED, {
+        source: params.source,
+        origin: params.origin,
+        recommendation_reason: params.reason,
+    })
 }
 
 /**
@@ -1211,7 +1241,7 @@ export function captureScoutCreatePathSwitched(params: {
 }
 
 /** Where a suggestion card was rendered: the strip above the roster, or the empty state's body. */
-export type ScoutSuggestionSurface = 'strip' | 'empty_state'
+export type ScoutSuggestionSurface = 'strip' | 'empty_state' | 'onboarding'
 
 /** Which offer a suggestion card makes. Mirrors the API's `kind`. */
 export type ScoutSuggestionKind = 'canonical' | 'custom'
@@ -1232,7 +1262,7 @@ export type ScoutSuggestionCreatedVia = 'api' | 'chat'
 export type ScoutSuggestionsRefreshOutcome = 'accepted' | 'running' | 'capped' | 'failed' | 'resumed'
 
 /** What put the scan on screen. Without it, a client resuming a paid scan reads as a refused duplicate. */
-export type ScoutSuggestionsRefreshSource = 'strip' | 'reload'
+export type ScoutSuggestionsRefreshSource = 'strip' | 'reload' | 'onboarding'
 
 /**
  * The suggestion batch as it was first rendered this visit. Without it a batch nobody acts on is

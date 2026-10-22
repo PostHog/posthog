@@ -164,6 +164,13 @@ def default_is_ai_training_opted_in():
 
 class Organization(ModelActivityMixin, UUIDTModel):
     class Meta:
+        indexes = [
+            models.Index(
+                fields=["id"],
+                condition=Q(is_active=False),
+                name="org_inactive_id_idx",
+            )
+        ]
         constraints = [
             models.UniqueConstraint(
                 fields=["for_internal_metrics"],

@@ -88,6 +88,15 @@ const inboxReportArtefactsCreate = (): ToolBase<
     handler: async (context: Context, params: z.infer<ReturnType<typeof InboxReportArtefactsCreateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
+        if (params.expected_reviewers !== undefined) {
+            body['expected_reviewers'] = params.expected_reviewers
+        }
+        if (params.reviewer_outcome !== undefined) {
+            body['reviewer_outcome'] = params.reviewer_outcome
+        }
+        if (params.reviewer_retry_reason !== undefined) {
+            body['reviewer_retry_reason'] = params.reviewer_retry_reason
+        }
         if (params.claim_id !== undefined) {
             body['claim_id'] = params.claim_id
         }
@@ -502,9 +511,11 @@ const inboxReportsList = (): ToolBase<
                 channel_id: params.channel_id,
                 count_only: params.count_only,
                 created_after: params.created_after,
+                exclude: params.exclude,
                 has_implementation_pr: params.has_implementation_pr,
                 include_all_statuses: params.include_all_statuses,
                 include_source_metadata: params.include_source_metadata,
+                include_unlisted: params.include_unlisted,
                 limit: params.limit,
                 offset: params.offset,
                 ordering: params.ordering,
@@ -1295,6 +1306,15 @@ const scoutEditReport = (): ToolBase<ReturnType<typeof ScoutEditReportSchema>, S
     handler: async (context: Context, params: z.infer<ReturnType<typeof ScoutEditReportSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
+        if (params.expected_reviewers !== undefined) {
+            body['expected_reviewers'] = params.expected_reviewers
+        }
+        if (params.reviewer_outcome !== undefined) {
+            body['reviewer_outcome'] = params.reviewer_outcome
+        }
+        if (params.reviewer_retry_reason !== undefined) {
+            body['reviewer_retry_reason'] = params.reviewer_retry_reason
+        }
         if (params.report_id !== undefined) {
             body['report_id'] = params.report_id
         }
@@ -2160,6 +2180,7 @@ const scoutScratchpadSearch = (): ToolBase<
                 key: params.key,
                 keys_only: params.keys_only,
                 limit: params.limit,
+                skill_name: params.skill_name,
                 text: params.text,
             },
         })
@@ -2722,6 +2743,15 @@ const signalsScoutEditReport = (): ToolBase<
     handler: async (context: Context, params: z.infer<ReturnType<typeof SignalsScoutEditReportSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
+        if (params.expected_reviewers !== undefined) {
+            body['expected_reviewers'] = params.expected_reviewers
+        }
+        if (params.reviewer_outcome !== undefined) {
+            body['reviewer_outcome'] = params.reviewer_outcome
+        }
+        if (params.reviewer_retry_reason !== undefined) {
+            body['reviewer_retry_reason'] = params.reviewer_retry_reason
+        }
         if (params.report_id !== undefined) {
             body['report_id'] = params.report_id
         }
@@ -3187,6 +3217,7 @@ const signalsScoutScratchpadSearch = (): ToolBase<
                 key: params.key,
                 keys_only: params.keys_only,
                 limit: params.limit,
+                skill_name: params.skill_name,
                 text: params.text,
             },
         })

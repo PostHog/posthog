@@ -33,6 +33,7 @@ from posthog.schema_migrations.upgrade_manager import upgrade_insight
 from posthog.tasks.exporter import EXPORT_TIMER
 from posthog.utils import absolute_uri
 
+from products.access_control.backend.facade.user_access_control import UserAccessControlError
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.exports.backend.facade.api import export_limit_context
 from products.exports.backend.models.exported_asset import ExportedAsset, get_render_access_token, save_content
@@ -707,6 +708,22 @@ def export_image(
                         "exported_asset_id": exported_asset.id,
                         "insight_id": exported_asset.insight_id,
                         "dashboard_id": exported_asset.dashboard_id,
+                    },
+                )
+            # The creator is still a member but has no access to a resource the query needs (e.g. web analytics).
+            elif isinstance(e, UserAccessControlError):
+                report_creator_access_revoked(
+                    user=exported_asset.created_by,
+                    team=exported_asset.team,
+                    source="export",
+                    error=e,
+                    reason="missing_resource_access",
+                    properties={
+                        "exported_asset_id": exported_asset.id,
+                        "insight_id": exported_asset.insight_id,
+                        "dashboard_id": exported_asset.dashboard_id,
+                        "resource": e.resource,
+                        "required_level": e.required_level,
                     },
                 )
             # A broken saved query is the user's to fix, and the asset already records it.

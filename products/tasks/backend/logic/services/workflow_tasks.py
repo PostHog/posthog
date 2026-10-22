@@ -44,6 +44,8 @@ from products.tasks.backend.metrics import observe_workflow_task_create
 from products.tasks.backend.models import Channel, Task, TaskRun
 from products.tasks.backend.temporal.constants import WORKFLOW_RUN_IDLE_TIMEOUT_SECONDS
 
+from ee.billing.quota_limiting import QuotaResource, is_team_over_credit_budget
+
 logger = structlog.get_logger(__name__)
 
 ACTIVE_RUN_STATUSES = [TaskRun.Status.NOT_STARTED, TaskRun.Status.QUEUED, TaskRun.Status.IN_PROGRESS]
@@ -142,6 +144,10 @@ class WorkflowTaskUsageLimited(Exception):
     pass
 
 
+class WorkflowTaskAICreditsExhausted(Exception):
+    pass
+
+
 def create_workflow_task(
     *,
     team: Team,
@@ -172,7 +178,7 @@ def create_workflow_task(
     with the whole project, `WorkflowTaskOwnerIneligible` when the owner lost access to the project,
     and `WorkflowTaskLimitExceeded` when the workflow already has `max_parallel_tasks`
     runs in flight. Also raises `WorkflowTaskUsageLimited` when the owner is over the
-    AI usage limit, and `WorkflowTaskRateCapped` / `WorkflowTaskTeamRateCapped` when
+    AI usage limit, `WorkflowTaskAICreditsExhausted` when the team has used its AI credits, and `WorkflowTaskRateCapped` / `WorkflowTaskTeamRateCapped` when
     the workflow or its team reached the daily created-task cap. A replayed
     `origin_key` bypasses the gate and every cap. `rate_limits` can override either
     product default for this project; a missing value keeps the default.
@@ -240,6 +246,12 @@ def create_workflow_task(
     if usage_limit_response(gate_owner, team.id) is not None:
         observe_workflow_task_create(reason="gate_blocked")
         raise WorkflowTaskUsageLimited()
+    # Workflow runs bill to the AI credits bucket, which the gate above does not read. Both
+    # gateways refuse an exhausted bucket, and the legacy gateway answers with a retryable 429,
+    # so a run created here would retry until the idle timeout instead of failing.
+    if _team_out_of_ai_credits(team):
+        observe_workflow_task_create(reason="ai_credits_exhausted")
+        raise WorkflowTaskAICreditsExhausted()
 
     # Resolved after the gate so a capped or blocked fire never pays for the query, and outside
     # the transaction below so the skills store read never happens while holding the team lock.
@@ -408,6 +420,15 @@ def create_workflow_task(
     # replay path above, which counts as replayed instead.
     observe_workflow_task_create(reason="created")
     return _task_dto(task, created=True)
+
+
+def _team_out_of_ai_credits(team: Team) -> bool:
+    """False (fail open) when the bucket can't be read, so a Redis error never blocks every fire."""
+    try:
+        return is_team_over_credit_budget(team.api_token, QuotaResource.AI_CREDITS)
+    except Exception:
+        logger.warning("workflow_task_ai_credits_check_failed", team_id=team.id, exc_info=True)
+        return False
 
 
 def _resolve_channel(team_id: int, owner_id: int, channel_ref: str | None) -> Channel | None:

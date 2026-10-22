@@ -1,7 +1,7 @@
 from datetime import datetime
-from typing import Literal, get_args
+from typing import Any, Literal, get_args
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from pydantic.alias_generators import to_camel
 
 
@@ -66,3 +66,46 @@ class Trace(Contract):
     timeline: list[TraceTimelineRow]
     total_ms: float
     thread_node_ids: list[str]
+    default_node_id: str
+    node_ids_by_alias: dict[str, str]
+
+
+class TraceNodeIOKeys(Contract):
+    input: str | None
+    output: str | None
+    tools: str | None
+
+
+class TraceNodeMetadata(Contract):
+    provider: str | None
+    temperature: float | None
+    session_id: str | None
+    prompt_name: str | None
+    prompt_version: float | None
+
+
+class TraceNodeEvent(Contract):
+    name: str
+    uuid: str
+    timestamp: datetime
+    properties: dict[str, Any] = Field(
+        description="The event's properties as ingested, including its input and output values."
+    )
+    io_keys: TraceNodeIOKeys = Field(
+        description="Which keys of `properties` hold the node's input, output and tools, or null when it has none."
+    )
+
+
+class TraceNodeDetail(Contract):
+    id: str
+    kind: TraceNodeKind
+    error: str | None
+    metadata: TraceNodeMetadata
+    event: TraceNodeEvent | None
+
+
+class EvaluationPassFilters(Contract):
+    """HogQL conditions over `$ai_evaluation` events, built from each evaluation's current output config."""
+
+    graded: str  # The run counts toward a pass rate.
+    passed: str  # The run passed. Implies `graded`.

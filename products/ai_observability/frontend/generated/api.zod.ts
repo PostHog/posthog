@@ -2159,7 +2159,12 @@ export const LlmAnalyticsProviderKeysCreateBody = /* @__PURE__ */ zod.object({
         .max(llmAnalyticsProviderKeysCreateBodySystemOneModelMax)
         .optional()
         .describe('Model ID served by the System One endpoint.'),
-    azure_endpoint: zod.url().optional().describe('Azure OpenAI endpoint URL'),
+    azure_endpoint: zod
+        .url()
+        .optional()
+        .describe(
+            'Azure OpenAI endpoint URL. For an Anthropic key, the endpoint of the Microsoft Foundry resource that serves Claude, e.g. https:\/\/my-resource.services.ai.azure.com\/. Omit it for a key from the Anthropic API.'
+        ),
     api_version: zod
         .string()
         .max(llmAnalyticsProviderKeysCreateBodyApiVersionMax)
@@ -2206,7 +2211,12 @@ export const LlmAnalyticsProviderKeysUpdateBody = /* @__PURE__ */ zod.object({
         .max(llmAnalyticsProviderKeysUpdateBodySystemOneModelMax)
         .optional()
         .describe('Model ID served by the System One endpoint.'),
-    azure_endpoint: zod.url().optional().describe('Azure OpenAI endpoint URL'),
+    azure_endpoint: zod
+        .url()
+        .optional()
+        .describe(
+            'Azure OpenAI endpoint URL. For an Anthropic key, the endpoint of the Microsoft Foundry resource that serves Claude, e.g. https:\/\/my-resource.services.ai.azure.com\/. Omit it for a key from the Anthropic API.'
+        ),
     api_version: zod
         .string()
         .max(llmAnalyticsProviderKeysUpdateBodyApiVersionMax)
@@ -2254,7 +2264,12 @@ export const LlmAnalyticsProviderKeysPartialUpdateBody = /* @__PURE__ */ zod.obj
         .max(llmAnalyticsProviderKeysPartialUpdateBodySystemOneModelMax)
         .optional()
         .describe('Model ID served by the System One endpoint.'),
-    azure_endpoint: zod.url().optional().describe('Azure OpenAI endpoint URL'),
+    azure_endpoint: zod
+        .url()
+        .optional()
+        .describe(
+            'Azure OpenAI endpoint URL. For an Anthropic key, the endpoint of the Microsoft Foundry resource that serves Claude, e.g. https:\/\/my-resource.services.ai.azure.com\/. Omit it for a key from the Anthropic API.'
+        ),
     api_version: zod
         .string()
         .max(llmAnalyticsProviderKeysPartialUpdateBodyApiVersionMax)
@@ -2301,7 +2316,12 @@ export const LlmAnalyticsProviderKeysValidateCreateBody = /* @__PURE__ */ zod.ob
         .max(llmAnalyticsProviderKeysValidateCreateBodySystemOneModelMax)
         .optional()
         .describe('Model ID served by the System One endpoint.'),
-    azure_endpoint: zod.url().optional().describe('Azure OpenAI endpoint URL'),
+    azure_endpoint: zod
+        .url()
+        .optional()
+        .describe(
+            'Azure OpenAI endpoint URL. For an Anthropic key, the endpoint of the Microsoft Foundry resource that serves Claude, e.g. https:\/\/my-resource.services.ai.azure.com\/. Omit it for a key from the Anthropic API.'
+        ),
     api_version: zod
         .string()
         .max(llmAnalyticsProviderKeysValidateCreateBodyApiVersionMax)
@@ -2994,145 +3014,6 @@ export const LlmPromptsNameLabelsUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Prompt version this label should point to. If the label already exists on another version of the prompt, it is moved there.'
         ),
-})
-
-export const taggersCreateBodyNameMax = 400
-
-export const taggersCreateBodyTaggerTypeDefault = `llm`
-export const taggersCreateBodyTaggerConfigOneOneTagsItemNameMax = 100
-
-export const taggersCreateBodyTaggerConfigOneOneTagsItemDescriptionDefault = ``
-export const taggersCreateBodyTaggerConfigOneOneTagsItemDescriptionMax = 500
-
-export const taggersCreateBodyTaggerConfigOneOneMinTagsDefault = 0
-export const taggersCreateBodyTaggerConfigOneOneMinTagsMin = 0
-
-export const taggersCreateBodyTaggerConfigOneTwoTagsItemNameMax = 100
-
-export const taggersCreateBodyTaggerConfigOneTwoTagsItemDescriptionDefault = ``
-export const taggersCreateBodyTaggerConfigOneTwoTagsItemDescriptionMax = 500
-
-export const taggersCreateBodyConditionsItemIdMax = 100
-
-export const taggersCreateBodyConditionsItemRolloutPercentageDefault = 100
-export const taggersCreateBodyConditionsItemRolloutPercentageMin = 0
-export const taggersCreateBodyConditionsItemRolloutPercentageMax = 100
-
-export const taggersCreateBodyModelConfigurationOneModelMax = 100
-
-export const TaggersCreateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(taggersCreateBodyNameMax),
-    description: zod.string().optional(),
-    enabled: zod.boolean().optional(),
-    tagger_type: zod
-        .enum(['llm', 'hog'])
-        .describe('\* `llm` - LLM\n\* `hog` - Hog')
-        .default(taggersCreateBodyTaggerTypeDefault),
-    tagger_config: zod
-        .union([
-            zod.object({
-                prompt: zod.string().min(1).describe('Prompt instructing the LLM how to tag generations'),
-                tags: zod
-                    .array(
-                        zod.object({
-                            name: zod
-                                .string()
-                                .max(taggersCreateBodyTaggerConfigOneOneTagsItemNameMax)
-                                .describe('Tag identifier'),
-                            description: zod
-                                .string()
-                                .max(taggersCreateBodyTaggerConfigOneOneTagsItemDescriptionMax)
-                                .default(taggersCreateBodyTaggerConfigOneOneTagsItemDescriptionDefault)
-                                .describe('Description to help the LLM classify'),
-                        })
-                    )
-                    .describe('Available tags the LLM can assign'),
-                min_tags: zod
-                    .number()
-                    .min(taggersCreateBodyTaggerConfigOneOneMinTagsMin)
-                    .default(taggersCreateBodyTaggerConfigOneOneMinTagsDefault)
-                    .describe('Minimum number of tags to apply'),
-                max_tags: zod.number().min(1).nullish().describe('Maximum number of tags to apply (null = no limit)'),
-            }),
-            zod.object({
-                source: zod.string().min(1).describe('Hog source code to classify a generation into tags.'),
-                tags: zod
-                    .array(
-                        zod.object({
-                            name: zod
-                                .string()
-                                .max(taggersCreateBodyTaggerConfigOneTwoTagsItemNameMax)
-                                .describe('Tag identifier'),
-                            description: zod
-                                .string()
-                                .max(taggersCreateBodyTaggerConfigOneTwoTagsItemDescriptionMax)
-                                .default(taggersCreateBodyTaggerConfigOneTwoTagsItemDescriptionDefault)
-                                .describe('Description to help the LLM classify'),
-                        })
-                    )
-                    .optional()
-                    .describe('Optional tag whitelist. Leave empty to allow any tag returned by the Hog code.'),
-            }),
-        ])
-        .describe(
-            "Tagger configuration. For tagger_type 'llm': {prompt, tags, min_tags?, max_tags?}. For tagger_type 'hog': {source, tags?}."
-        ),
-    conditions: zod
-        .array(
-            zod.object({
-                id: zod
-                    .string()
-                    .max(taggersCreateBodyConditionsItemIdMax)
-                    .describe('Stable identifier for this condition'),
-                rollout_percentage: zod
-                    .number()
-                    .min(taggersCreateBodyConditionsItemRolloutPercentageMin)
-                    .max(taggersCreateBodyConditionsItemRolloutPercentageMax)
-                    .default(taggersCreateBodyConditionsItemRolloutPercentageDefault)
-                    .describe('Percentage of matching events to apply this condition to'),
-                properties: zod
-                    .array(zod.record(zod.string(), zod.unknown()))
-                    .optional()
-                    .describe('Property filters that scope when this condition fires'),
-            })
-        )
-        .optional()
-        .describe('Conditions that scope when the tagger runs'),
-    model_configuration: zod
-        .union([
-            zod.object({
-                provider: zod
-                    .enum([
-                        'openai',
-                        'anthropic',
-                        'gemini',
-                        'openrouter',
-                        'fireworks',
-                        'azure_openai',
-                        'together_ai',
-                        'minimax',
-                        'openai_compatible',
-                    ])
-                    .describe(
-                        '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `openai_compatible` - OpenAI-compatible'
-                    )
-                    .describe(
-                        'LLM provider to use for this tagger.\n\n\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `openai_compatible` - OpenAI-compatible'
-                    ),
-                model: zod
-                    .string()
-                    .max(taggersCreateBodyModelConfigurationOneModelMax)
-                    .describe('Provider model identifier to use for this tagger.'),
-                provider_key_id: zod
-                    .uuid()
-                    .nullish()
-                    .describe(
-                        'Existing LLM provider key UUID for the current project. Do not invent this value; use a real provider key ID returned by PostHog, or omit\/null when no provider key should be pinned.'
-                    ),
-            }),
-            zod.null(),
-        ])
-        .optional(),
 })
 
 export const taggersUpdateBodyNameMax = 400

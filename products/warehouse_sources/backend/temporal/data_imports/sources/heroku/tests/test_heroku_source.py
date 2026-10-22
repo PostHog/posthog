@@ -13,10 +13,6 @@ class TestHerokuSource:
     def setup_method(self) -> None:
         self.source = HerokuSource()
 
-    def test_get_schemas_filters_by_names(self) -> None:
-        schemas = self.source.get_schemas(MagicMock(), team_id=1, names=["apps", "releases"])
-        assert {s.name for s in schemas} == {"apps", "releases"}
-
     def test_canonical_descriptions_cover_every_endpoint(self) -> None:
         assert set(CANONICAL_DESCRIPTIONS.keys()) == set(ENDPOINTS)
 

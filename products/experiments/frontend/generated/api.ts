@@ -699,7 +699,9 @@ export const getExperimentsHealthRetrieveUrl = (projectId: string, id: number) =
 
 /**
  * Health check findings for this experiment: problems in its configuration and its feature flag
- * that keep it from producing trustworthy results, each with a fix.
+ * that keep it from producing trustworthy results, each with a fix. `checks` gives the result of
+ * each check, so a check that found no problem can be told from one that did not apply or could
+ * not read an input.
  *
  * The checks here read the experiment, its flag, its linked metrics, and the changes of the
  * flag's variant split since launch. The checks that read exposure counts come with the
@@ -710,6 +712,19 @@ export const getExperimentsHealthRetrieveUrl = (projectId: string, id: number) =
  * `evidence.reason`. A caller who can't view the linked flag's history (viewer access to the
  * flag and, with an API key, `activity_log:read`) gets that finding for every running
  * experiment, because the changes are not read.
+ *
+ * Two checks read whether the project received an event from its event definitions: a
+ * definition without `last_seen_at`, such as one Wizard wrote for a planned event, counts as
+ * not received. A name whose definition was deleted since launch, or in the last day for a
+ * draft, is not checked, because ingestion writes the definition again only when the event
+ * arrives. `metric_event_not_ingested` names each metric that
+ * reads an event the project never received, in the `evidence` keys `metric_N`,
+ * `metric_N_role` and `metric_N_events`. `exposure_criteria_cannot_match` reports a custom
+ * exposure event the project never received (`exposure_event_not_ingested`), and a
+ * `$feature_flag` filter on the flag call events that requires another flag
+ * (`filter_on_another_flag`). An event not received is info before launch, in the first 24
+ * hours after launch, and when only secondary metrics read it, and a warning otherwise.
+ * `filter_on_another_flag` is a warning in every state, and the other findings stop at the end.
  *
  * The severity of the `some_conditions_pinned` finding follows the largest share that the
  * users of the pinned release conditions make up among the users who got one variant from
@@ -723,6 +738,24 @@ export const getExperimentsHealthRetrieveUrl = (projectId: string, id: number) =
  * the caller's own assignment). A pin to a variant with 0% in the split adds an info,
  * because that variant's results show only the pinned users, unless the experiment
  * excludes the variant from the analysis.
+ *
+ * Two findings say that the variants are assigned outside PostHog, as info. A running
+ * experiment whose flag has a 0% rollout gets `assigned_outside_flag_service` instead of
+ * `running_but_no_rollout` when 10 or more people got a variant from flag calls without a
+ * flag version that are no local evaluation, from an hour after the window starts. When
+ * every condition that includes users pins the variant whose key one property holds,
+ * `assigned_by_property` replaces `all_conditions_pinned`.
+ *
+ * A draft whose flag has no recorded call gets the info `new_flag_no_traffic`. The record
+ * is the flag's `last_called_at`, which a periodic task updates, so it trails a call. The
+ * check reports `not_checked` when the organization's flag calls skip the events table,
+ * and when the project has no active flag, because the web SDK then requests no flags.
+ *
+ * A running experiment whose flag is disabled gets `paused_from_experiment`, as info, when
+ * its latest pause or resume since launch is a pause of the experiment. Otherwise it gets
+ * `running_but_flag_disabled`, as a warning. A caller who can't view the linked flag's
+ * history gets the warning, because the pause is not read. A draft whose flag is already
+ * active with multiple variants gets `not_started_but_multiple_variants_rolled_out` as info.
  */
 export const experimentsHealthRetrieve = async (
     projectId: string,
@@ -811,8 +844,10 @@ export const getExperimentsMetricsRecalculationCreateUrl = (projectId: string, i
  * Trigger a batch recalculation of all metrics for this experiment.
  *
  * Returns 201 with the new pending recalculation, or 200 with the active one if a recalculation is
- * already pending or in progress for this experiment. A manual trigger within five minutes after the latest
- * completed run finished returns 429 with a Retry-After header. The response payload intentionally does not
+ * already pending or in progress for this experiment. An experiment that started too long ago gets 201 with
+ * a run that is already failed: every metric carries the `recalculation_window_too_long` error in
+ * `metric_errors`, no workflow starts, and a retry gets the same answer. A manual trigger within five
+ * minutes after the latest completed run finished returns 429 with a Retry-After header. The response payload intentionally does not
  * include the `results` array — at POST time the workflow has just been queued and no per-metric
  * results exist yet. Clients should poll `GET metrics_recalculation/{id}/` for results as the workflow
  * progresses.
