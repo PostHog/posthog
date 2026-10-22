@@ -229,7 +229,10 @@ describe('EmailDomainScene', () => {
         turnOnSuggestions(true)
         seedSender()
         backend.publishRecords(DOMAIN)
-        backend.suggestWorkflows([SUGGESTED_WORKFLOW])
+        backend.suggestWorkflows([
+            SUGGESTED_WORKFLOW,
+            { ...SUGGESTED_WORKFLOW, id: 'suggestion-2', name: 'Nudge trials before they end', stage: 'trial' },
+        ])
         await open(urls.workflowsEmailDomain(SENDER_ID))
         expectStep('Checking your settings…')
         expect(screen.queryByText('Welcome new teammates')).not.toBeInTheDocument()
@@ -241,11 +244,19 @@ describe('EmailDomainScene', () => {
         expect(screen.getByText('Welcome new teammates')).toBeInTheDocument()
         expect(element('workflows-data-suggestion-ai')).toHaveTextContent('Create workflow')
         expect(document.querySelector('[data-attr="email-domain-create-welcome-workflow"]')).toBeNull()
+        expect(document.querySelector('[data-attr="email-domain-create-blank-workflow"]')).toBeNull()
         expect(backend.requestsTo('data_suggestions_generate')).toHaveLength(1)
         expect(shownEvents()).toEqual([
             ['workflows data suggestions shown', expect.objectContaining({ surface: 'email_domain_wizard' })],
         ])
 
+        expect(screen.queryByText('Nudge trials before they end')).not.toBeInTheDocument()
+        click('email-domain-show-more-suggestions')
+        expect(screen.getByText('Nudge trials before they end')).toBeInTheDocument()
+
+        click('email-domain-skip-suggestions')
+        expect(screen.queryByText('Welcome new teammates')).not.toBeInTheDocument()
+        expect(element('email-domain-create-welcome-workflow')).toBeInTheDocument()
         click('email-domain-create-blank-workflow')
         expect(router.values.location.pathname).toContain(urls.workflowNew())
         expect(router.values.searchParams).not.toHaveProperty('templateId')
