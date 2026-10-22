@@ -75,6 +75,17 @@ TIER1_SOURCES = [
         "tenable_vulnerability_management",
         "scanner_finding",
     ),
+    # Community, survey and docs feedback
+    (ExternalDataSourceType.SLEEKPLAN, "Posts", "sleekplan", "feedback"),
+    (ExternalDataSourceType.BETTERMODE, "posts", "bettermode", "feedback"),
+    (ExternalDataSourceType.DISCOURSE, "posts", "discourse", "feedback"),
+    (ExternalDataSourceType.MINTLIFY, "feedback", "mintlify", "feedback"),
+    (ExternalDataSourceType.LANGSMITH, "feedback", "langsmith", "feedback"),
+    (ExternalDataSourceType.SPRIG, "Responses", "sprig", "feedback"),
+    (ExternalDataSourceType.GAINSIGHTPX, "survey_responses", "gainsight_px", "feedback"),
+    # Business and product reviews
+    (ExternalDataSourceType.TRUSTPILOT, "service_reviews", "trustpilot", "review"),
+    (ExternalDataSourceType.OKENDO, "reviews", "okendo", "review"),
 ]
 
 IDS = [product for _, _, product, _ in TIER1_SOURCES]
