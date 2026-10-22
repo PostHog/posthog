@@ -1,8 +1,7 @@
 import './VerificationCodeInput.scss'
 
-import { OTPField } from '@base-ui/react/otp-field'
 import clsx from 'clsx'
-import { useId } from 'react'
+import { useId, useState } from 'react'
 
 import { normalizeVerificationCode } from './verificationCode'
 
@@ -15,9 +14,13 @@ export interface VerificationCodeInputProps {
     onComplete?: (value: string) => void
     disabled?: boolean
     status?: 'default' | 'danger'
-    /** LemonField injects this id to connect its label to the first slot. */
+    /** LemonField injects this id to connect its label to the input. */
     id?: string
     'data-attr'?: string
+}
+
+function toCode(raw: string): string {
+    return normalizeVerificationCode(raw).replace(/\D/g, '').slice(0, VERIFICATION_CODE_LENGTH)
 }
 
 export function VerificationCodeInput({
@@ -31,38 +34,75 @@ export function VerificationCodeInput({
 }: VerificationCodeInputProps): JSX.Element {
     const generatedId = useId()
     const inputId = id ?? generatedId
+    const [uncontrolledCode, setUncontrolledCode] = useState('')
+    const [focused, setFocused] = useState(false)
+    const code = toCode(value ?? uncontrolledCode)
+    const activeIndex = Math.min(code.length, VERIFICATION_CODE_LENGTH - 1)
+
+    const commit = (nextCode: string, fromPaste: boolean): void => {
+        if (nextCode !== code) {
+            setUncontrolledCode(nextCode)
+            onChange?.(nextCode)
+        }
+        if (nextCode.length === VERIFICATION_CODE_LENGTH && (code.length !== VERIFICATION_CODE_LENGTH || fromPaste)) {
+            onComplete?.(nextCode)
+        }
+    }
+
     return (
-        <OTPField.Root
-            id={inputId}
-            length={VERIFICATION_CODE_LENGTH}
-            value={value}
-            onValueChange={(nextValue) => onChange?.(nextValue)}
-            onValueComplete={(completeValue) => onComplete?.(completeValue)}
-            normalizeValue={normalizeVerificationCode}
-            disabled={disabled}
+        <div
             className={clsx(
-                'VerificationCodeInput flex w-full justify-center gap-2',
-                status === 'danger' && 'VerificationCodeInput--danger'
+                'VerificationCodeInput relative flex w-full justify-center gap-2',
+                status === 'danger' && 'VerificationCodeInput--danger',
+                disabled && 'VerificationCodeInput--disabled'
             )}
             data-attr={dataAttr}
         >
             {!id && (
-                // Base UI does not accept aria-label on the first slot and expects a <label> for it.
-                // When LemonField provides the id, the LemonField label already labels the first slot.
+                // When LemonField provides the id, the LemonField label already labels the input
                 <label htmlFor={inputId} className="sr-only">
                     Verification code
                 </label>
             )}
+            {/* The digits render here as text, so ph-no-capture keeps them out of session replay */}
             {Array.from({ length: VERIFICATION_CODE_LENGTH }, (_, index) => (
-                <OTPField.Input
+                <div
                     key={index}
-                    // ph-ignore-input excludes the slots from session replay and autocapture, the same as the other auth inputs
-                    // The hover, focus, disabled, and error styles live in VerificationCodeInput.scss
-                    className="VerificationCodeInput__slot ph-ignore-input h-12 min-w-0 max-w-12 flex-1 rounded border bg-fill-input text-center font-mono text-2xl font-semibold leading-none text-primary caret-accent transition-colors"
-                    autoFocus={index === 0}
-                    aria-label={index > 0 ? `Verification code, digit ${index + 1}` : undefined}
-                />
+                    aria-hidden
+                    className="VerificationCodeInput__slot ph-no-capture flex h-12 min-w-0 max-w-12 flex-1 items-center justify-center rounded border bg-fill-input font-mono text-2xl font-semibold leading-none text-primary transition-colors"
+                    data-active={focused && index === activeIndex ? '' : undefined}
+                >
+                    {code[index] ??
+                        (focused && index === activeIndex ? <span className="VerificationCodeInput__caret" /> : null)}
+                </div>
             ))}
-        </OTPField.Root>
+            {/* One input spans all the slots. Focus never moves between elements, so a mobile keyboard
+                stays open while the user types, and one-time-code autofill fills the whole code. */}
+            <input
+                id={inputId}
+                // ph-ignore-input excludes the input from session replay and autocapture, the same as the other auth inputs
+                className="VerificationCodeInput__input ph-ignore-input absolute inset-0 h-full w-full border-0 bg-transparent font-mono text-2xl text-transparent caret-transparent outline-none selection:bg-transparent disabled:cursor-not-allowed"
+                type="text"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                autoCorrect="off"
+                spellCheck={false}
+                enterKeyHint="done"
+                value={code}
+                disabled={disabled}
+                autoFocus
+                onFocus={() => setFocused(true)}
+                onBlur={() => setFocused(false)}
+                onChange={(event) => commit(toCode(event.currentTarget.value), false)}
+                onPaste={(event) => {
+                    const pastedCode = toCode(event.clipboardData.getData('text/plain'))
+                    // A full code replaces the current one, wherever the caret is
+                    if (pastedCode.length === VERIFICATION_CODE_LENGTH) {
+                        event.preventDefault()
+                        commit(pastedCode, true)
+                    }
+                }}
+            />
+        </div>
     )
 }
