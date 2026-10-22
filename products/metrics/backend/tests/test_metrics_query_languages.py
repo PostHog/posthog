@@ -14,7 +14,15 @@ from django.test import override_settings
 import requests
 from parameterized import parameterized
 
-from posthog.schema import DateRange, HogQLQuery, MetricsQuery, MetricsQueryClause
+from posthog.schema import (
+    DashboardFilter,
+    DateRange,
+    HogQLQuery,
+    MetricsDashboardVariable,
+    MetricsDashboardVariableSelection,
+    MetricsQuery,
+    MetricsQueryClause,
+)
 
 from posthog.hogql.errors import ExposedHogQLError
 
@@ -27,6 +35,7 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 from products.metrics.backend.facade.contracts import MetricPoint
 from products.metrics.backend.hogql_queries.metrics_query_runner import MetricsQueryRunner
 from products.metrics.backend.series import rank_and_fill_series
+from products.metrics.backend.sql_mode import run_metrics_sql_values
 from products.metrics.backend.tests._seeder import seed_metric
 
 FIXTURES: dict[str, dict[str, Any]] = json.loads(
@@ -122,6 +131,71 @@ class TestMetricsSqlMode(ClickhouseTestMixin, APIBaseTest):
     def _run(self, **fields: Any) -> list[Any]:
         query = MetricsQuery(dateRange=DATE_RANGE, interval="minute_5", **fields)
         return MetricsQueryRunner(query=query, team=self.team).calculate().results
+
+    @parameterized.expand(
+        [
+            ("one_value", MetricsDashboardVariableSelection(values=["api"]), {"api"}),
+            (
+                "all_loads_the_values_of_the_variable",
+                MetricsDashboardVariableSelection(values=[], all=True),
+                {"api", "worker"},
+            ),
+            ("injected_value_is_a_constant", MetricsDashboardVariableSelection(values=["api' OR 1=1 --"]), set()),
+        ]
+    )
+    def test_dashboard_variables_filter_a_sql_query(
+        self, _name: str, selection: MetricsDashboardVariableSelection, expected: set[str]
+    ) -> None:
+        self._seed()
+        sql = (
+            "SELECT toStartOfInterval(timestamp, {interval}) AS time, service_name, count() AS value "
+            "FROM posthog.metrics WHERE service_name IN $service AND timestamp >= {date_from} "
+            "AND timestamp < {date_to} GROUP BY time, service_name"
+        )
+        runner = MetricsQueryRunner(
+            query=MetricsQuery(dateRange=DATE_RANGE, interval="minute_5", clauses=[], language="sql", sql=sql),
+            team=self.team,
+        )
+        runner.apply_dashboard_filters(
+            DashboardFilter(
+                metricVariables=[
+                    MetricsDashboardVariable(
+                        name="service",
+                        source="custom",
+                        customValues=["api", "worker"],
+                        includeAll=True,
+                        current=selection,
+                    )
+                ]
+            )
+        )
+
+        assert {series.labels["service_name"] for series in runner.calculate().results} == expected
+
+    @parameterized.expand(
+        [
+            (
+                "order_columns",
+                "SELECT service_name, count() AS n FROM posthog.metrics GROUP BY service_name ORDER BY n DESC",
+            ),
+            (
+                "by_name_union",
+                "SELECT service_name FROM posthog.metrics WHERE service_name = 'api' "
+                "UNION ALL BY NAME SELECT service_name FROM posthog.metrics WHERE service_name = 'worker'",
+            ),
+        ]
+    )
+    def test_sql_variable_options_keep_the_names_of_their_columns(self, _name: str, sql: str) -> None:
+        self._seed()
+        options = run_metrics_sql_values(
+            self.team,
+            sql,
+            NOW - dt.timedelta(hours=2),
+            NOW,
+            1000,
+            max_length=3,
+        )
+        assert sorted(options) == ["api"]
 
     def test_generated_sql_matches_the_builder_engine(self) -> None:
         self._seed()
@@ -382,6 +456,101 @@ class TestMetricsPromQLMode(APIBaseTest):
             [series] = self._runner(promql).calculate().results
 
         assert (series.clause, series.labels) == (clause, labels)
+
+    def test_dashboard_variables_reach_the_promql_text_and_the_cache_key(self) -> None:
+        def runner_for(job: MetricsDashboardVariableSelection) -> MetricsQueryRunner:
+            runner = self._runner('sum(rate(http_requests_total{job=~"$job", env="${env}"}[$__rate_interval]))')
+            runner.apply_dashboard_filters(
+                DashboardFilter(
+                    metricVariables=[
+                        MetricsDashboardVariable(name="job", source="custom", includeAll=True, current=job),
+                        MetricsDashboardVariable(
+                            name="env", source="textbox", current=MetricsDashboardVariableSelection(values=["prod"])
+                        ),
+                    ]
+                )
+            )
+            return runner
+
+        payload = {"status": "success", "data": {"resultType": "matrix", "result": []}}
+        all_jobs = runner_for(MetricsDashboardVariableSelection(values=["api", "web"], all=True))
+        with patch(
+            "posthog.api.snuffle_proxy.internal_requests.request", return_value=_snuffle_response(200, payload)
+        ) as request:
+            all_jobs.calculate()
+
+        assert (
+            request.call_args.kwargs["data"]["query"] == 'sum(rate(http_requests_total{env="prod"}[$__rate_interval]))'
+        )
+        assert all_jobs.get_cache_key() != runner_for(MetricsDashboardVariableSelection(values=["api"])).get_cache_key()
+
+    def test_unresolved_variable_is_explained_without_a_query(self) -> None:
+        with patch("posthog.api.snuffle_proxy.internal_requests.request") as request:
+            with pytest.raises(ExposedHogQLError, match=r"\$job"):
+                self._runner('up{job="$job"}').calculate()
+        request.assert_not_called()
+
+    def _sql_runner_with_all(self, source: str, query: str) -> MetricsQueryRunner:
+        runner = MetricsQueryRunner(
+            query=MetricsQuery(
+                clauses=[],
+                language="sql",
+                sql="SELECT now() AS time, 1 AS value WHERE 'a' IN $job",
+                dateRange=DATE_RANGE,
+            ),
+            team=self.team,
+        )
+        runner.apply_dashboard_filters(
+            DashboardFilter(
+                metricVariables=[
+                    MetricsDashboardVariable(
+                        name="job",
+                        source=source,
+                        query=query,
+                        includeAll=True,
+                        current=MetricsDashboardVariableSelection(values=[], all=True),
+                    )
+                ]
+            )
+        )
+        return runner
+
+    def test_sql_tile_loads_promql_all_options_only_after_the_snuffle_gate(self) -> None:
+        def flag_enabled(flag: str, *args: Any, **kwargs: Any) -> bool:
+            return flag != "logs-metrics-snuffle-api"
+
+        with patch("posthog.api.snuffle_proxy.internal_requests.request") as request:
+            runner = self._sql_runner_with_all("promql", "label_values(up, job)")
+        request.assert_not_called()
+        with patch("posthoganalytics.feature_enabled", side_effect=flag_enabled):
+            with pytest.raises(UserAccessControlError):
+                runner.validate_query_runner_access(self.user)
+
+    def test_all_options_errors_are_shown_to_the_user(self) -> None:
+        runner = self._sql_runner_with_all("sql", "SELECT FROM")
+        with pytest.raises(ExposedHogQLError):
+            runner.calculate()
+
+    def test_shared_histogram_quantiles_map_each_quantile_to_its_clause(self) -> None:
+        start = int(dt.datetime(2026, 9, 19, 11, 0, tzinfo=dt.UTC).timestamp())
+        payload = {
+            "status": "success",
+            "data": {
+                "resultType": "matrix",
+                "result": [
+                    {"metric": {"job": "api", "clause": quantile}, "values": [[start, value]]}
+                    for quantile, value in (("0.9", "9"), ("0.5", "5"))
+                ],
+            },
+        }
+        promql = 'histogram_quantiles("clause", 0.9, 0.5, sum by (le, job) (rate(x_bucket)))'
+        with patch("posthog.api.snuffle_proxy.internal_requests.request", return_value=_snuffle_response(200, payload)):
+            results = self._runner(promql).calculate().results
+
+        assert {series.clause: (series.labels, series.points[0].value) for series in results} == {
+            "a": ({"job": "api"}, 9.0),
+            "b": ({"job": "api"}, 5.0),
+        }
 
     def test_empty_scalar_result_has_no_series(self) -> None:
         payload = {"status": "success", "data": {"resultType": "scalar", "result": []}}

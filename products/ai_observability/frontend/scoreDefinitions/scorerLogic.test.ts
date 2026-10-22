@@ -29,6 +29,7 @@ const create = jest.mocked(llmAnalyticsScoreDefinitionsCreate)
 const createVersion = jest.mocked(llmAnalyticsScoreDefinitionsNewVersionCreate)
 const update = jest.mocked(llmAnalyticsScoreDefinitionsPartialUpdate)
 const definition: ScoreDefinitionApi = {
+    tags: [],
     id: 'scorer-example',
     name: 'Answer quality',
     description: '',
@@ -40,6 +41,7 @@ const definition: ScoreDefinitionApi = {
     team: MOCK_DEFAULT_TEAM.id,
     created_by: null,
     created_at: '2026-01-01T00:00:00Z',
+    updated_by: null,
     updated_at: null,
 }
 

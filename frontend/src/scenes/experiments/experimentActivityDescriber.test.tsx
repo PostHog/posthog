@@ -250,6 +250,55 @@ describe('experimentActivityDescriber', () => {
         })
     })
 
+    describe('test account filter rows', () => {
+        it.each([
+            {
+                name: 'a write that stores the default adds no line',
+                before: null,
+                after: { filterTestAccounts: true },
+                expected: null,
+            },
+            {
+                name: 'turning off a filter that had no stored value',
+                before: {},
+                after: { filterTestAccounts: false },
+                expected: 'removed the test account filter',
+            },
+            {
+                name: 'a write that drops an explicit false turns the filter back on',
+                before: { filterTestAccounts: false },
+                after: {},
+                expected: 'added the test account filter',
+            },
+        ])('$name', ({ before, after, expected }) => {
+            const result = experimentActivityDescriber(
+                baseLogItem({
+                    activity: 'updated',
+                    detail: {
+                        name: 'Checkout funnel',
+                        changes: [
+                            {
+                                type: ActivityScope.EXPERIMENT,
+                                action: 'changed',
+                                field: 'exposure_criteria',
+                                before,
+                                after,
+                            },
+                        ],
+                        merge: null,
+                        trigger: null,
+                    },
+                })
+            )
+            const text = textOf(result)
+            const described =
+                ['added the test account filter', 'removed the test account filter'].find((line) =>
+                    text.includes(line)
+                ) ?? null
+            expect(described).toBe(expected)
+        })
+    })
+
     describe('running_time_calculation rows', () => {
         it('describes a running_time_calculation change', () => {
             const result = experimentActivityDescriber(

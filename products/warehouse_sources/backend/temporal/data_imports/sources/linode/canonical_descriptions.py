@@ -265,4 +265,28 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "bytes_total": "The total public network traffic sent and received by the Linode in the month, in bytes.",
         },
     },
+    "volume_quotas": {
+        "description": "Block Storage (Volumes) quotas applied to the account, with the maximum allowed per region or globally.",
+        "docs_url": "https://techdocs.akamai.com/linode-api/reference/get-volume-quotas",
+        "columns": {
+            "quota_id": "The id of the quota, formatted as vol-{quota_type}-{region}, for example vol-capacity-us-east.",
+            "quota_name": "The human-readable name of the quota.",
+            "quota_type": "The type of the quota: vol-capacity (storage capacity), vol-volumes (number of volumes) or vol-attachments (number of attached volumes).",
+            "description": "A description of what the quota controls.",
+            "quota_limit": "The maximum quantity of the resource_metric that the quota allows.",
+            "resource_metric": "The resource the quota measures: gigabyte, volume or attachment.",
+            "region": "The region the quota applies to. Joins to the id column on regions. Null for global quotas.",
+            "scope": "Whether the quota applies per region or globally.",
+            "has_usage": "Whether usage data is available for the quota in volume_quota_usage.",
+        },
+    },
+    "volume_quota_usage": {
+        "description": "Current usage of each Block Storage (Volumes) quota on the account. Quotas without usage data have no row.",
+        "docs_url": "https://techdocs.akamai.com/linode-api/reference/get-volume-quota-usage",
+        "columns": {
+            "quota_id": "The id of the quota. Joins to the quota_id column on volume_quotas.",
+            "quota_limit": "The maximum quantity of the resource that the quota allows.",
+            "usage": "The quantity of the resource in use now.",
+        },
+    },
 }

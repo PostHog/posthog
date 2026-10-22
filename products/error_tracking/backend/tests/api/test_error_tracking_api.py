@@ -1705,10 +1705,14 @@ class TestErrorTracking(APIBaseTest):
         )
 
         new_chunk_id = str(uuid7())
+        upload_attempt_id = str(uuid7())
+        upload_run_id = str(uuid7())
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/error_tracking/symbol_sets/bulk_start_upload",
             data={
+                "upload_attempt_id": upload_attempt_id,
+                "upload_run_id": upload_run_id,
                 "symbol_sets": [
                     {
                         "chunk_id": existing_chunk_id,
@@ -1720,7 +1724,7 @@ class TestErrorTracking(APIBaseTest):
                         "release_id": str(release.id),
                         "content_hash": "new_hash",
                     },
-                ]
+                ],
             },
             format="json",
         )
@@ -1751,6 +1755,9 @@ class TestErrorTracking(APIBaseTest):
             "skip_on_conflict": False,
             "total_chunks": 2,
             "chunks_skipped": 1,
+            "chunks_to_upload": 1,
+            "upload_attempt_id": upload_attempt_id,
+            "upload_run_id": upload_run_id,
         }
 
     @parameterized.expand(
@@ -1760,8 +1767,9 @@ class TestErrorTracking(APIBaseTest):
             ("used_within_the_refresh_interval", timedelta(hours=1), False),
         ]
     )
+    @patch("products.error_tracking.backend.presentation.views.symbol_sets.posthoganalytics.capture")
     def test_bulk_start_upload_marks_unchanged_symbol_sets_as_used(
-        self, _name: str, last_used_age: timedelta | None, expect_refresh: bool
+        self, _name: str, last_used_age: timedelta | None, expect_refresh: bool, patched_capture: Mock
     ) -> None:
         chunk_id = str(uuid7())
         last_used = None if last_used_age is None else timezone.now() - last_used_age
@@ -1774,15 +1782,23 @@ class TestErrorTracking(APIBaseTest):
         )
 
         before_upload = timezone.now()
+        upload_run_id = str(uuid7())
         response = self.client.post(
             f"/api/environments/{self.team.id}/error_tracking/symbol_sets/bulk_start_upload",
-            data={"symbol_sets": [{"chunk_id": chunk_id, "content_hash": "already_uploaded"}]},
+            data={
+                "upload_run_id": upload_run_id,
+                "symbol_sets": [{"chunk_id": chunk_id, "content_hash": "already_uploaded"}],
+            },
             format="json",
         )
         after_upload = timezone.now()
 
         assert response.status_code == status.HTTP_201_CREATED
         assert response.json()["id_map"] == {}
+        assert patched_capture.call_args.args[0] == "error_tracking_symbol_set_upload_skipped"
+        assert patched_capture.call_args.kwargs["properties"]["chunks_to_upload"] == 0
+        assert patched_capture.call_args.kwargs["properties"]["chunks_skipped"] == 1
+        assert patched_capture.call_args.kwargs["properties"]["upload_run_id"] == upload_run_id
 
         symbol_set.refresh_from_db()
         if expect_refresh:
@@ -2296,7 +2312,13 @@ class TestErrorTracking(APIBaseTest):
         self, patched_object_storage, patched_capture: Mock
     ) -> None:
         symbol_set = ErrorTrackingSymbolSet.objects.create(team=self.team, ref=str(uuid7()), storage_ptr="file/name")
-        request_data = {"content_hashes": {str(symbol_set.id): "hash"}}
+        upload_attempt_id = str(uuid7())
+        upload_run_id = str(uuid7())
+        request_data = {
+            "content_hashes": {str(symbol_set.id): "hash"},
+            "upload_attempt_id": upload_attempt_id,
+            "upload_run_id": upload_run_id,
+        }
 
         patched_object_storage.side_effect = [None, {"ContentLength": 1000}]
 
@@ -2318,6 +2340,8 @@ class TestErrorTracking(APIBaseTest):
             "file_count": 1,
             "failure_reason": "ValidationError",
             "failure_code": "file_not_found",
+            "upload_attempt_id": upload_attempt_id,
+            "upload_run_id": upload_run_id,
         }
 
         symbol_set.refresh_from_db()
@@ -2330,6 +2354,9 @@ class TestErrorTracking(APIBaseTest):
         )
 
         assert retry_response.status_code == status.HTTP_201_CREATED
+        assert patched_capture.call_args.kwargs["properties"]["upload_attempt_id"] == upload_attempt_id
+        assert patched_capture.call_args.kwargs["properties"]["upload_run_id"] == upload_run_id
+        assert patched_capture.call_args.kwargs["properties"]["success"] is True
         symbol_set.refresh_from_db()
         assert symbol_set.content_hash == "hash"
 

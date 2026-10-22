@@ -7,6 +7,7 @@ No Django imports. Used by the facade as inputs and outputs.
 
 import typing
 import dataclasses
+from datetime import datetime
 
 
 class SubscriptionTriggerType:
@@ -48,3 +49,14 @@ class SharedInsightImage:
     title: str | None
     image_url: str
     alt_text: str | None
+
+
+@dataclasses.dataclass(frozen=True)
+class FailedDeliveryCount:
+    """How often one subscription failed to deliver in a period."""
+
+    subscription_id: int
+    title: str | None
+    prompt: str | None
+    failed_deliveries: int
+    last_failed_at: datetime

@@ -99,6 +99,8 @@ export const aiObservabilityOfflineExperimentsListQueryStatusesMax = 32
 
 export const aiObservabilityOfflineExperimentsListQuerySuiteKeyMax = 255
 
+export const aiObservabilityOfflineExperimentsListQueryTagMatchDefault = `any`
+
 export const AiObservabilityOfflineExperimentsListQueryParams = () => zod.object({
     application_version: zod
         .string()
@@ -106,6 +108,8 @@ export const AiObservabilityOfflineExperimentsListQueryParams = () => zod.object
         .max(aiObservabilityOfflineExperimentsListQueryApplicationVersionMax)
         .optional()
         .describe('Exact application revision.'),
+    created_by: zod.number().min(1).optional().describe("Filter experiments by the author's user ID."),
+    created_by_is_null: zod.boolean().optional().describe('Only include experiments without an author.'),
     cursor: zod
         .string()
         .min(1)
@@ -189,6 +193,16 @@ export const AiObservabilityOfflineExperimentsListQueryParams = () => zod.object
         .max(aiObservabilityOfflineExperimentsListQuerySuiteKeyMax)
         .optional()
         .describe('Exact evaluation suite identifier.'),
+    tag_match: zod
+        .enum(['any', 'all'])
+        .default(aiObservabilityOfflineExperimentsListQueryTagMatchDefault)
+        .describe('Match any selected tag (OR) or all selected tags (AND).\n\n\* `any` - Any\n\* `all` - All'),
+    tags: zod
+        .string()
+        .optional()
+        .describe(
+            'JSON array of tag names, for example [\"quality\",\"production\"]. Up to 20 tags. An empty array disables tag filtering.'
+        ),
 })
 
 export const AiObservabilityOfflineExperimentsCreateParams = () => zod.object({
@@ -298,6 +312,27 @@ export const AiObservabilityOfflineExperimentsRetrieveParams = () => zod.object(
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
+})
+
+export const AiObservabilityOfflineExperimentsPartialUpdateParams = () => zod.object({
+    id: zod.string().describe('Experiment UUID.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const aiObservabilityOfflineExperimentsPartialUpdateBodyTagsItemMax = 255
+
+export const aiObservabilityOfflineExperimentsPartialUpdateBodyTagsMax = 100
+
+export const AiObservabilityOfflineExperimentsPartialUpdateBody = () => zod.object({
+    tags: zod
+        .array(zod.string().max(aiObservabilityOfflineExperimentsPartialUpdateBodyTagsItemMax))
+        .max(aiObservabilityOfflineExperimentsPartialUpdateBodyTagsMax)
+        .optional()
+        .describe('Tag names. Replaces existing tags; send [] to remove all tags. Names are trimmed and lowercased.'),
 })
 
 export const AiObservabilityOfflineExperimentsCompleteCreateParams = () => zod.object({
@@ -695,6 +730,8 @@ export const aiObservabilityOfflineScorersHistoryListQueryStatusesMax = 32
 
 export const aiObservabilityOfflineScorersHistoryListQuerySuiteKeyMax = 255
 
+export const aiObservabilityOfflineScorersHistoryListQueryTagMatchDefault = `any`
+
 export const AiObservabilityOfflineScorersHistoryListQueryParams = () => zod.object({
     application_version: zod
         .string()
@@ -702,6 +739,8 @@ export const AiObservabilityOfflineScorersHistoryListQueryParams = () => zod.obj
         .max(aiObservabilityOfflineScorersHistoryListQueryApplicationVersionMax)
         .optional()
         .describe('Exact application revision.'),
+    created_by: zod.number().min(1).optional().describe("Filter experiments by the author's user ID."),
+    created_by_is_null: zod.boolean().optional().describe('Only include experiments without an author.'),
     cursor: zod
         .string()
         .min(1)
@@ -784,6 +823,16 @@ export const AiObservabilityOfflineScorersHistoryListQueryParams = () => zod.obj
         .max(aiObservabilityOfflineScorersHistoryListQuerySuiteKeyMax)
         .optional()
         .describe('Exact evaluation suite identifier.'),
+    tag_match: zod
+        .enum(['any', 'all'])
+        .default(aiObservabilityOfflineScorersHistoryListQueryTagMatchDefault)
+        .describe('Match any selected tag (OR) or all selected tags (AND).\n\n\* `any` - Any\n\* `all` - All'),
+    tags: zod
+        .string()
+        .optional()
+        .describe(
+            'JSON array of tag names, for example [\"quality\",\"production\"]. Up to 20 tags. An empty array disables tag filtering.'
+        ),
 })
 
 /**
@@ -1013,6 +1062,8 @@ export const datasetsListQueryIdInMax = 100
 
 export const datasetsListQueryOrderByDefault = `-created_at`
 
+export const datasetsListQueryTagMatchDefault = `any`
+
 export const DatasetsListQueryParams = () => zod.object({
     archived: zod
         .boolean()
@@ -1034,6 +1085,18 @@ export const DatasetsListQueryParams = () => zod.object({
             'Field and direction used to order results.\n\n\* `created_at` - created_at\n\* `-created_at` - -created_at\n\* `updated_at` - updated_at\n\* `-updated_at` - -updated_at'
         ),
     search: zod.string().min(1).optional().describe('Search dataset names, descriptions, and metadata.'),
+    tag_match: zod
+        .enum(['any', 'all'])
+        .default(datasetsListQueryTagMatchDefault)
+        .describe(
+            'Match any selected tag (OR) or all selected tags (AND). Additional tags are allowed.\n\n\* `any` - Any\n\* `all` - All'
+        ),
+    tags: zod
+        .string()
+        .optional()
+        .describe(
+            'JSON array of tag names, for example [\"quality\",\"production\"]. Up to 20 tags. An empty array disables tag filtering.'
+        ),
 })
 
 /**
@@ -1047,12 +1110,21 @@ export const DatasetsCreateParams = () => zod.object({
         ),
 })
 
+export const datasetsCreateBodyTagsItemMax = 255
+
+export const datasetsCreateBodyTagsMax = 100
+
 export const datasetsCreateBodyNameMax = 400
 
 export const datasetsCreateBodyDescriptionDefault = ``
 export const datasetsCreateBodyDescriptionMax = 10000
 
 export const DatasetsCreateBody = () => zod.object({
+    tags: zod
+        .array(zod.string().max(datasetsCreateBodyTagsItemMax))
+        .max(datasetsCreateBodyTagsMax)
+        .optional()
+        .describe('Tag names. Replaces existing tags; send [] to remove all tags. Names are trimmed and lowercased.'),
     name: zod.string().max(datasetsCreateBodyNameMax).describe('Dataset name. Names are unique within a project.'),
     description: zod
         .string()
@@ -1089,11 +1161,20 @@ export const DatasetsPartialUpdateParams = () => zod.object({
         ),
 })
 
+export const datasetsPartialUpdateBodyTagsItemMax = 255
+
+export const datasetsPartialUpdateBodyTagsMax = 100
+
 export const datasetsPartialUpdateBodyNameMax = 400
 
 export const datasetsPartialUpdateBodyDescriptionMax = 10000
 
 export const DatasetsPartialUpdateBody = () => zod.object({
+    tags: zod
+        .array(zod.string().max(datasetsPartialUpdateBodyTagsItemMax))
+        .max(datasetsPartialUpdateBodyTagsMax)
+        .optional()
+        .describe('Tag names. Replaces existing tags; send [] to remove all tags. Names are trimmed and lowercased.'),
     name: zod
         .string()
         .max(datasetsPartialUpdateBodyNameMax)
@@ -1540,12 +1621,11 @@ export const EvaluationsCreateBody = () => zod
                                 'azure_openai',
                                 'together_ai',
                                 'minimax',
-                                'zeabur',
                                 'system_one',
                                 'openai_compatible',
                             ])
                             .describe(
-                                '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub\n\* `system_one` - System One\n\* `openai_compatible` - OpenAI-compatible'
+                                '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `system_one` - System One\n\* `openai_compatible` - OpenAI-compatible'
                             ),
                         model: zod.string().max(evaluationsCreateBodyModelConfigurationOneModelMax),
                         provider_key_id: zod
@@ -2006,12 +2086,11 @@ export const EvaluationsPartialUpdateBody = () => zod
                                 'azure_openai',
                                 'together_ai',
                                 'minimax',
-                                'zeabur',
                                 'system_one',
                                 'openai_compatible',
                             ])
                             .describe(
-                                '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub\n\* `system_one` - System One\n\* `openai_compatible` - OpenAI-compatible'
+                                '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `system_one` - System One\n\* `openai_compatible` - OpenAI-compatible'
                             ),
                         model: zod.string().max(evaluationsPartialUpdateBodyModelConfigurationOneModelMax),
                         provider_key_id: zod
@@ -2620,7 +2699,6 @@ export const LlmAnalyticsModelsRetrieveQueryParams = () => zod.object({
             'openrouter',
             'system_one',
             'together_ai',
-            'zeabur',
         ])
         .optional()
         .describe(
@@ -2792,13 +2870,28 @@ export const LlmAnalyticsScoreDefinitionsListParams = () => zod.object({
         ),
 })
 
+export const llmAnalyticsScoreDefinitionsListQueryTagMatchDefault = `any`
+
 export const LlmAnalyticsScoreDefinitionsListQueryParams = () => zod.object({
     archived: zod.boolean().optional().describe('Filter by archived state.'),
+    created_by: zod.number().optional().describe("Filter by the creator's user ID."),
     kind: zod.string().optional().describe('Filter by scorer kind.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     order_by: zod.string().optional().describe('Sort by name, kind, created_at, updated_at, or current_version.'),
     search: zod.string().optional().describe('Search scorers by name or description.'),
+    tag_match: zod
+        .enum(['any', 'all'])
+        .default(llmAnalyticsScoreDefinitionsListQueryTagMatchDefault)
+        .describe(
+            'Match any selected tag (OR) or all selected tags (AND). Additional tags are allowed.\n\n\* `any` - Any\n\* `all` - All'
+        ),
+    tags: zod
+        .string()
+        .optional()
+        .describe(
+            'JSON array of tag names, for example [\"quality\",\"production\"]. Up to 20 tags. An empty array disables tag filtering.'
+        ),
 })
 
 export const LlmAnalyticsScoreDefinitionsCreateParams = () => zod.object({
@@ -2808,6 +2901,10 @@ export const LlmAnalyticsScoreDefinitionsCreateParams = () => zod.object({
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
+
+export const llmAnalyticsScoreDefinitionsCreateBodyTagsItemMax = 255
+
+export const llmAnalyticsScoreDefinitionsCreateBodyTagsMax = 100
 
 export const llmAnalyticsScoreDefinitionsCreateBodyNameMax = 255
 
@@ -2819,6 +2916,11 @@ export const llmAnalyticsScoreDefinitionsCreateBodyConfigOneOneOptionsItemLabelM
 export const llmAnalyticsScoreDefinitionsCreateBodyConfigOneOnePassingRuleOneCategoriesItemMax = 128
 
 export const LlmAnalyticsScoreDefinitionsCreateBody = () => zod.object({
+    tags: zod
+        .array(zod.string().max(llmAnalyticsScoreDefinitionsCreateBodyTagsItemMax))
+        .max(llmAnalyticsScoreDefinitionsCreateBodyTagsMax)
+        .optional()
+        .describe('Tag names. Replaces existing tags; send [] to remove all tags. Names are trimmed and lowercased.'),
     name: zod.string().max(llmAnalyticsScoreDefinitionsCreateBodyNameMax).describe('Human-readable scorer name.'),
     description: zod.string().nullish().describe('Optional human-readable description.'),
     kind: zod
@@ -2952,9 +3054,18 @@ export const LlmAnalyticsScoreDefinitionsPartialUpdateParams = () => zod.object(
         ),
 })
 
+export const llmAnalyticsScoreDefinitionsPartialUpdateBodyTagsItemMax = 255
+
+export const llmAnalyticsScoreDefinitionsPartialUpdateBodyTagsMax = 100
+
 export const llmAnalyticsScoreDefinitionsPartialUpdateBodyNameMax = 255
 
 export const LlmAnalyticsScoreDefinitionsPartialUpdateBody = () => zod.object({
+    tags: zod
+        .array(zod.string().max(llmAnalyticsScoreDefinitionsPartialUpdateBodyTagsItemMax))
+        .max(llmAnalyticsScoreDefinitionsPartialUpdateBodyTagsMax)
+        .optional()
+        .describe('Tag names. Replaces existing tags; send [] to remove all tags. Names are trimmed and lowercased.'),
     name: zod
         .string()
         .max(llmAnalyticsScoreDefinitionsPartialUpdateBodyNameMax)
@@ -3625,154 +3736,6 @@ export const TaggersListQueryParams = () => zod.object({
             'Ordering\n\n\* `created_at` - Created At\n\* `-created_at` - Created At (descending)\n\* `updated_at` - Updated At\n\* `-updated_at` - Updated At (descending)\n\* `name` - Name\n\* `-name` - Name (descending)'
         ),
     search: zod.string().optional().describe('Search in name or description'),
-})
-
-export const TaggersCreateParams = () => zod.object({
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
-        ),
-})
-
-export const taggersCreateBodyNameMax = 400
-
-export const taggersCreateBodyTaggerTypeDefault = `llm`
-export const taggersCreateBodyTaggerConfigOneOneTagsItemNameMax = 100
-
-export const taggersCreateBodyTaggerConfigOneOneTagsItemDescriptionDefault = ``
-export const taggersCreateBodyTaggerConfigOneOneTagsItemDescriptionMax = 500
-
-export const taggersCreateBodyTaggerConfigOneOneMinTagsDefault = 0
-export const taggersCreateBodyTaggerConfigOneOneMinTagsMin = 0
-
-export const taggersCreateBodyTaggerConfigOneTwoTagsItemNameMax = 100
-
-export const taggersCreateBodyTaggerConfigOneTwoTagsItemDescriptionDefault = ``
-export const taggersCreateBodyTaggerConfigOneTwoTagsItemDescriptionMax = 500
-
-export const taggersCreateBodyConditionsItemIdMax = 100
-
-export const taggersCreateBodyConditionsItemRolloutPercentageDefault = 100
-export const taggersCreateBodyConditionsItemRolloutPercentageMin = 0
-export const taggersCreateBodyConditionsItemRolloutPercentageMax = 100
-
-export const taggersCreateBodyModelConfigurationOneModelMax = 100
-
-export const TaggersCreateBody = () => zod.object({
-    name: zod.string().max(taggersCreateBodyNameMax),
-    description: zod.string().optional(),
-    enabled: zod.boolean().optional(),
-    tagger_type: zod
-        .enum(['llm', 'hog'])
-        .describe('\* `llm` - LLM\n\* `hog` - Hog')
-        .default(taggersCreateBodyTaggerTypeDefault),
-    tagger_config: zod
-        .union([
-            zod.object({
-                prompt: zod.string().min(1).describe('Prompt instructing the LLM how to tag generations'),
-                tags: zod
-                    .array(
-                        zod.object({
-                            name: zod
-                                .string()
-                                .max(taggersCreateBodyTaggerConfigOneOneTagsItemNameMax)
-                                .describe('Tag identifier'),
-                            description: zod
-                                .string()
-                                .max(taggersCreateBodyTaggerConfigOneOneTagsItemDescriptionMax)
-                                .default(taggersCreateBodyTaggerConfigOneOneTagsItemDescriptionDefault)
-                                .describe('Description to help the LLM classify'),
-                        })
-                    )
-                    .describe('Available tags the LLM can assign'),
-                min_tags: zod
-                    .number()
-                    .min(taggersCreateBodyTaggerConfigOneOneMinTagsMin)
-                    .default(taggersCreateBodyTaggerConfigOneOneMinTagsDefault)
-                    .describe('Minimum number of tags to apply'),
-                max_tags: zod.number().min(1).nullish().describe('Maximum number of tags to apply (null = no limit)'),
-            }),
-            zod.object({
-                source: zod.string().min(1).describe('Hog source code to classify a generation into tags.'),
-                tags: zod
-                    .array(
-                        zod.object({
-                            name: zod
-                                .string()
-                                .max(taggersCreateBodyTaggerConfigOneTwoTagsItemNameMax)
-                                .describe('Tag identifier'),
-                            description: zod
-                                .string()
-                                .max(taggersCreateBodyTaggerConfigOneTwoTagsItemDescriptionMax)
-                                .default(taggersCreateBodyTaggerConfigOneTwoTagsItemDescriptionDefault)
-                                .describe('Description to help the LLM classify'),
-                        })
-                    )
-                    .optional()
-                    .describe('Optional tag whitelist. Leave empty to allow any tag returned by the Hog code.'),
-            }),
-        ])
-        .describe(
-            "Tagger configuration. For tagger_type 'llm': {prompt, tags, min_tags?, max_tags?}. For tagger_type 'hog': {source, tags?}."
-        ),
-    conditions: zod
-        .array(
-            zod.object({
-                id: zod
-                    .string()
-                    .max(taggersCreateBodyConditionsItemIdMax)
-                    .describe('Stable identifier for this condition'),
-                rollout_percentage: zod
-                    .number()
-                    .min(taggersCreateBodyConditionsItemRolloutPercentageMin)
-                    .max(taggersCreateBodyConditionsItemRolloutPercentageMax)
-                    .default(taggersCreateBodyConditionsItemRolloutPercentageDefault)
-                    .describe('Percentage of matching events to apply this condition to'),
-                properties: zod
-                    .array(zod.record(zod.string(), zod.unknown()))
-                    .optional()
-                    .describe('Property filters that scope when this condition fires'),
-            })
-        )
-        .optional()
-        .describe('Conditions that scope when the tagger runs'),
-    model_configuration: zod
-        .union([
-            zod.object({
-                provider: zod
-                    .enum([
-                        'openai',
-                        'anthropic',
-                        'gemini',
-                        'openrouter',
-                        'fireworks',
-                        'azure_openai',
-                        'together_ai',
-                        'minimax',
-                        'zeabur',
-                        'openai_compatible',
-                    ])
-                    .describe(
-                        '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub\n\* `openai_compatible` - OpenAI-compatible'
-                    )
-                    .describe(
-                        'LLM provider to use for this tagger.\n\n\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub\n\* `openai_compatible` - OpenAI-compatible'
-                    ),
-                model: zod
-                    .string()
-                    .max(taggersCreateBodyModelConfigurationOneModelMax)
-                    .describe('Provider model identifier to use for this tagger.'),
-                provider_key_id: zod
-                    .string()
-                    .nullish()
-                    .describe(
-                        'Existing LLM provider key UUID for the current project. Do not invent this value; use a real provider key ID returned by PostHog, or omit\/null when no provider key should be pinned.'
-                    ),
-            }),
-            zod.null(),
-        ])
-        .optional(),
 })
 
 /**

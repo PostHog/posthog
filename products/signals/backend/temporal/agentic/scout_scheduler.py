@@ -42,7 +42,9 @@ from products.signals.backend.scout_harness.limits import (
     WORKFLOW_HARD_CEILING_S,
 )
 from products.signals.backend.scout_harness.precheck import PRECHECK_TIMEOUT_S, evaluate_scout_precheck
+from products.signals.backend.scout_harness.skill_loader import SkillNotFoundError
 from products.signals.backend.temporal import metrics
+from products.skills.backend.models.skills import LLMSkill
 
 if TYPE_CHECKING:
     # Type-only: importing the harness runner at module load would close the cycle
@@ -162,12 +164,12 @@ async def evaluate_signals_scout_precheck_activity(input: RunSignalsScoutInput) 
 
 def _scout_config_runnable(team_id: int, skill_name: str) -> bool:
     """Whether the coordinator would still dispatch this scout: enabled, or paused by the failure
-    breaker, which the coordinator probes. A deleted project is never runnable."""
+    breaker, which the coordinator probes, and its skill still exists. A deleted project is never runnable."""
     try:
         configs = SignalScoutConfig.objects.for_team(team_id)
     except TeamScopeError:
         return False
-    return (
+    config_runnable = (
         configs.filter(skill_name=skill_name)
         .filter(
             Q(enabled=True)
@@ -177,6 +179,10 @@ def _scout_config_runnable(team_id: int, skill_name: str) -> bool:
             )
         )
         .exists()
+    )
+    return (
+        config_runnable
+        and LLMSkill.objects.filter(team_id=team_id, name=skill_name, is_latest=True, deleted=False).exists()
     )
 
 
@@ -320,6 +326,23 @@ async def _run_signals_scout(input: RunSignalsScoutInput) -> RunSignalsScoutOutp
                 precheck_rows=input.precheck_rows,
                 precheck_query_source=input.precheck_query_source,
             )
+    except SkillNotFoundError:
+        # A person deleted or renamed the skill after the run was dispatched. Nothing is left to run.
+        metrics.increment_scout_run("skill_missing")
+        logger.info(
+            "signals_scout: skill is gone, skipping the run",
+            team_id=input.team_id,
+            skill_name=input.skill_name,
+        )
+        return RunSignalsScoutOutput(
+            run_id=None,
+            task_run_id=None,
+            status=None,
+            runtime_s=0.0,
+            skill_name=input.skill_name,
+            skill_version=input.skill_version or 0,
+            skip_reason="skill_missing",
+        )
     except (OperationalError, InterfaceError):
         # Transient DB connection drop (pgbouncer pool recycle / failover / deploy). Stay
         # fail-safe and silent: report a failed run for this tick rather than raising. The
@@ -564,6 +587,23 @@ def start_manual_signals_scout_run(
         source=TRIGGERED_BY_MANUAL,
         run_note=run_note,
     )
+
+
+@async_to_sync
+async def start_onboarding_signals_scout_run(client: Client, *, team_id: int, skill_name: str) -> str:
+    workflow_id = _off_schedule_run_workflow_id("signals-scout-onboarding", team_id, skill_name)
+    try:
+        await client.start_workflow(
+            RunSignalsScoutWorkflow.run,
+            RunSignalsScoutInput(team_id=team_id, skill_name=skill_name, triggered_by=TRIGGERED_BY_MANUAL),
+            id=workflow_id,
+            task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+            id_reuse_policy=WorkflowIDReusePolicy.REJECT_DUPLICATE,
+            id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
+        )
+    except WorkflowAlreadyStartedError:
+        pass
+    return workflow_id
 
 
 def trial_run_workflow_id(team_id: int, launch_id: str) -> str:

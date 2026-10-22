@@ -475,6 +475,59 @@ export const EndpointsRunCreateBody = () => zod.object({
                     ])
                     .optional()
                     .describe('Metric label matchers ANDed into every metrics tile. Other tiles ignore them.'),
+                metricVariables: zod
+                    .union([
+                        zod.array(
+                            zod.object({
+                                allValue: zod
+                                    .union([zod.string(), zod.null()])
+                                    .optional()
+                                    .describe('The text that All puts in a PromQL query. `.\*` when it is empty.'),
+                                current: zod
+                                    .union([
+                                        zod.object({
+                                            all: zod.union([zod.boolean(), zod.null()]).optional(),
+                                            values: zod
+                                                .array(zod.string())
+                                                .describe(
+                                                    'The selected values. Empty when `all` is true: All stands for every option of the variable.'
+                                                ),
+                                        }),
+                                        zod.null(),
+                                    ])
+                                    .optional(),
+                                customValues: zod
+                                    .union([zod.array(zod.string()), zod.null()])
+                                    .optional()
+                                    .describe('The options when `source` is `custom`.'),
+                                includeAll: zod.union([zod.boolean(), zod.null()]).optional(),
+                                label: zod
+                                    .union([zod.string(), zod.null()])
+                                    .optional()
+                                    .describe('Shown in the dashboard filter bar. The name is shown when it is empty.'),
+                                multi: zod.union([zod.boolean(), zod.null()]).optional(),
+                                name: zod
+                                    .string()
+                                    .describe('Letters, digits and underscores. Tiles refer to it as `$name`.'),
+                                query: zod
+                                    .union([zod.string(), zod.null()])
+                                    .optional()
+                                    .describe(
+                                        'The options query when `source` is `promql` or `sql`. It can refer to other variables. PromQL supports `label_values(label)`, `label_values(selector, label)`, `label_names()`, `metrics(regex)` and `query_result(expr)`. SQL returns the options in its first column.'
+                                    ),
+                                regex: zod
+                                    .union([zod.string(), zod.null()])
+                                    .optional()
+                                    .describe(
+                                        'RE2 pattern that options must match. When it has a capture group, the option is the first group.'
+                                    ),
+                                source: zod.enum(['custom', 'promql', 'sql', 'textbox']),
+                            })
+                        ),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe('Variables that metrics tiles refer to as `$name`. Other tiles ignore them.'),
                 properties: zod
                     .union([
                         zod.array(
@@ -846,6 +899,18 @@ export const EndpointsRunCreateBody = () => zod.object({
                                         .optional(),
                                 }),
                                 zod.object({
+                                    cohort_deleted: zod
+                                        .union([zod.boolean(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Set by the feature flag API when the cohort is deleted or does not exist.'
+                                        ),
+                                    cohort_missing: zod
+                                        .union([zod.boolean(), zod.null()])
+                                        .optional()
+                                        .describe(
+                                            'Set by the feature flag API when the cohort does not exist, so it cannot be restored.'
+                                        ),
                                     cohort_name: zod.union([zod.string(), zod.null()]).optional(),
                                     key: zod
                                         .literal('id')

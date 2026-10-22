@@ -318,7 +318,6 @@
                 }
             ]
         },
-        "correlation_config": {},
         "customer_analytics_config": {
             "properties": {
                 "account_group_type_index": {
@@ -500,6 +499,17 @@
                     "type": "null"
                 }
             ]
+        },
+        "logo_media_id": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "ID of an image uploaded to this project, shown as the project's logo. Set to null to show a lettermark instead."
         },
         "logs_settings": {},
         "marketing_analytics_config": {
@@ -1206,6 +1216,28 @@
                                                         },
                                                         {
                                                             "properties": {
+                                                                "cohort_deleted": {
+                                                                    "anyOf": [
+                                                                        {
+                                                                            "type": "boolean"
+                                                                        },
+                                                                        {
+                                                                            "type": "null"
+                                                                        }
+                                                                    ],
+                                                                    "description": "Set by the feature flag API when the cohort is deleted or does not exist."
+                                                                },
+                                                                "cohort_missing": {
+                                                                    "anyOf": [
+                                                                        {
+                                                                            "type": "boolean"
+                                                                        },
+                                                                        {
+                                                                            "type": "null"
+                                                                        }
+                                                                    ],
+                                                                    "description": "Set by the feature flag API when the cohort does not exist, so it cannot be restored."
+                                                                },
                                                                 "cohort_name": {
                                                                     "anyOf": [
                                                                         {
@@ -2229,6 +2261,28 @@
                                                         },
                                                         {
                                                             "properties": {
+                                                                "cohort_deleted": {
+                                                                    "anyOf": [
+                                                                        {
+                                                                            "type": "boolean"
+                                                                        },
+                                                                        {
+                                                                            "type": "null"
+                                                                        }
+                                                                    ],
+                                                                    "description": "Set by the feature flag API when the cohort is deleted or does not exist."
+                                                                },
+                                                                "cohort_missing": {
+                                                                    "anyOf": [
+                                                                        {
+                                                                            "type": "boolean"
+                                                                        },
+                                                                        {
+                                                                            "type": "null"
+                                                                        }
+                                                                    ],
+                                                                    "description": "Set by the feature flag API when the cohort does not exist, so it cannot be restored."
+                                                                },
                                                                 "cohort_name": {
                                                                     "anyOf": [
                                                                         {
@@ -3269,6 +3323,28 @@
                                                         },
                                                         {
                                                             "properties": {
+                                                                "cohort_deleted": {
+                                                                    "anyOf": [
+                                                                        {
+                                                                            "type": "boolean"
+                                                                        },
+                                                                        {
+                                                                            "type": "null"
+                                                                        }
+                                                                    ],
+                                                                    "description": "Set by the feature flag API when the cohort is deleted or does not exist."
+                                                                },
+                                                                "cohort_missing": {
+                                                                    "anyOf": [
+                                                                        {
+                                                                            "type": "boolean"
+                                                                        },
+                                                                        {
+                                                                            "type": "null"
+                                                                        }
+                                                                    ],
+                                                                    "description": "Set by the feature flag API when the cohort does not exist, so it cannot be restored."
+                                                                },
                                                                 "cohort_name": {
                                                                     "anyOf": [
                                                                         {

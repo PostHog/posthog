@@ -34,8 +34,10 @@ from posthog.dataclasses import frozen
 
 from products.signals.backend.ranking.features import (
     EMBEDDING_DIMENSIONS,
+    PRIORITY_COLUMN,
     REPORT_EMBEDDINGS_FEATURE_SET,
     Extras,
+    FeatureSet,
     project_inputs,
 )
 from products.signals.dags.inbox_ranking.common import snapshot_bounds
@@ -44,9 +46,19 @@ from products.signals.dags.inbox_ranking.multihead.inputs import NetworkConfig, 
 from products.signals.dags.inbox_ranking.training.calibration import calibration_buckets, expected_calibration_error
 from products.signals.dags.inbox_ranking.training.examples import Snapshot, cap_examples, example_moments, holdout_mask
 from products.signals.dags.inbox_ranking.training.heads import HEADS_BY_NAME, Head
-from products.signals.dags.inbox_ranking.training.train import XGB_PARAMS
 from products.signals.dags.inbox_ranking.training.within_team import within_team_auc
 
+# The per-head booster settings the retired `report_embeddings_v2` family trained with.
+XGB_PARAMS: dict[str, object] = {
+    "n_estimators": 200,
+    "max_depth": 4,
+    "learning_rate": 0.05,
+    "subsample": 0.8,
+    "colsample_bytree": 0.8,
+    "min_child_weight": 5,
+    "eval_metric": "auc",
+    "n_jobs": 2,
+}
 PROTOTYPE_HEADS: tuple[Head, ...] = tuple(HEADS_BY_NAME[name] for name in ("open", "action", "fixed"))
 FEATURE_SET = REPORT_EMBEDDINGS_FEATURE_SET
 
@@ -60,7 +72,7 @@ ABLATIONS = (REPORT_ONLY, WITH_PROJECT_VECTORS)
 class ExampleTable:
     """One row per report moment, with a label and a holdout flag per head in `PROTOTYPE_HEADS` order."""
 
-    # report_id, snapshot_date, report_team_id.
+    # report_id, snapshot_date, report_team_id, and priority when the snapshots carry it.
     rows: pd.DataFrame
     # (rows, heads) float32, NaN where the head has no example for the row.
     labels: np.ndarray
@@ -106,19 +118,33 @@ def example_table(
     joined = pd.concat(frames, axis=1, join="outer").sort_index()
     rows = joined.index.to_frame(index=False)
     rows["report_team_id"] = [snapshots[date].state.at[report_id, "report_team_id"] for report_id, date in joined.index]
+    if all(PRIORITY_COLUMN in snapshot.state for snapshot in snapshots.values()):
+        # Read per row from its own snapshot, so a moment carries the priority it had then.
+        rows[PRIORITY_COLUMN] = [
+            _priority_or_none(snapshots[date].state.at[report_id, PRIORITY_COLUMN]) for report_id, date in joined.index
+        ]
     labels = np.column_stack([joined[f"{head.name}:label"].to_numpy(dtype=np.float32) for head in PROTOTYPE_HEADS])
     holdout = np.column_stack([joined[f"{head.name}:holdout"].eq(True).to_numpy() for head in PROTOTYPE_HEADS])
     return ExampleTable(rows=rows, labels=labels, holdout=holdout)
 
 
-def report_matrix(rows: pd.DataFrame, extras: Extras) -> np.ndarray:
-    """(rows, D) float32 report vectors, built by the set's own `build_matrix` at each row's moment,
-    so a row carries the vector its champion example carries."""
-    matrix = np.empty((len(rows), EMBEDDING_DIMENSIONS), dtype=np.float32)
+def _priority_or_none(value: object) -> str | None:
+    return value if isinstance(value, str) else None
+
+
+def report_matrix(rows: pd.DataFrame, extras: Extras, feature_set: FeatureSet = FEATURE_SET) -> np.ndarray:
+    """(rows, features) float32 report inputs, built by the set's own `build_matrix` at each row's
+    moment, so a row carries the vector its champion example carries. The set's state columns come
+    from `rows`, and a set raises when one is missing."""
+    matrix = np.empty((len(rows), len(feature_set.feature_names)), dtype=np.float32)
+    state_columns = [column for column in feature_set.state_columns if column in rows]
     for date, group in rows.groupby("snapshot_date", sort=True):
         _, snapshot_end = snapshot_bounds(date.isoformat())
-        frame = pd.DataFrame(index=pd.Index(group["report_id"], name="report_id"))
-        matrix[group.index.to_numpy()] = FEATURE_SET.build_matrix(frame, extras, as_of=snapshot_end).to_numpy(
+        frame = pd.DataFrame(
+            {column: group[column].to_numpy() for column in state_columns},
+            index=pd.Index(group["report_id"], name="report_id"),
+        )
+        matrix[group.index.to_numpy()] = feature_set.build_matrix(frame, extras, as_of=snapshot_end).to_numpy(
             dtype=np.float32
         )
     return matrix

@@ -1,7 +1,7 @@
 from collections.abc import Sequence
 from copy import deepcopy
 from datetime import date, datetime, timedelta
-from functools import partial
+from functools import cached_property, partial
 from math import ceil
 from operator import itemgetter
 from typing import Any, Optional, Union
@@ -52,7 +52,7 @@ from posthog.caching.insights_api import (
     REAL_TIME_INSIGHT_REFRESH_INTERVAL,
     REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL,
 )
-from posthog.clickhouse.client.connection import Workload
+from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, resolve_series_custom_name
 from posthog.hogql_queries.utils.breakdowns import (
     BREAKDOWN_NULL_DISPLAY,
@@ -77,7 +77,6 @@ from posthog.hogql_queries.validation.rules import (
 )
 from posthog.hogql_queries.validation.validation import QueryValidationRule
 from posthog.models import Team
-from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.user import User
 from posthog.ph_client import feature_enabled_or_false
 from posthog.utils import multisort
@@ -93,7 +92,10 @@ from products.product_analytics.backend.hogql_queries.trends.trend_validation_ru
     RequirePropertyForPropertyMath,
     ValidateDataWarehouseBreakdown,
 )
-from products.product_analytics.backend.hogql_queries.trends.trends_actors_query_builder import TrendsActorsQueryBuilder
+from products.product_analytics.backend.hogql_queries.trends.trends_actors_query_builder import (
+    ActorsDateWindow,
+    TrendsActorsQueryBuilder,
+)
 from products.product_analytics.backend.hogql_queries.trends.trends_query_builder import TrendsQueryBuilder
 from products.warehouse_sources.backend.facade.hogql import get_view_or_table_by_name
 
@@ -115,6 +117,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
         *,
         workload: Workload = Workload.DEFAULT,
         hogql_settings: Optional[HogQLGlobalSettings] = None,
+        ch_user: ClickHouseUser | None = None,
     ):
         from posthog.hogql_queries.utils.utils import convert_active_user_math_based_on_interval
 
@@ -161,6 +164,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             limit_context=limit_context,
             workload=workload,
             user=user,
+            ch_user=ch_user or ClickHouseUser.DEFAULT,
         )
 
     def __post_init__(self):
@@ -169,9 +173,12 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
 
     def single_flight_variant(self) -> str:
         # A caller can pass its own execution time, which does not reach the cache key.
-        if self.hogql_settings is None:
-            return super().single_flight_variant()
-        return f"{super().single_flight_variant()}:max_execution_time={self.hogql_settings.max_execution_time}"
+        variant = super().single_flight_variant()
+        if self.ch_user != ClickHouseUser.DEFAULT:
+            variant = f"{variant}:ch_user={self.ch_user.value}"
+        if self.hogql_settings is not None:
+            variant = f"{variant}:max_execution_time={self.hogql_settings.max_execution_time}"
+        return variant
 
     def validators(self) -> Sequence[QueryValidationRule[TrendsQuery]]:
         return (
@@ -249,6 +256,13 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             query = query_builder.build_actors_query()
 
         return query
+
+    def to_actors_date_window(
+        self, time_frame: Optional[str], series_index: int, compare_value: Optional[Compare] = None
+    ) -> ActorsDateWindow:
+        return self._get_trends_actors_query_builder(
+            time_frame=time_frame, series_index=series_index, compare_value=compare_value
+        ).actors_date_window()
 
     def _get_trends_actors_query_builder(
         self,
@@ -352,9 +366,10 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                     team=self.team,
                     user=self.user,
                     workload=self.workload,
+                    ch_user=self.ch_user,
                     settings=self.hogql_settings,
+                    modifiers=self.modifiers,
                     # timings=timings,
-                    # modifiers=modifiers,
                 )
 
                 breakdown_values = [
@@ -400,6 +415,33 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
         )
 
     def _calculate(self):
+        if self.query.marketingAnalyticsCostFallback is not None:
+            from products.marketing_analytics.backend.facade.queries import (
+                resolve_marketing_cost_trend,  # noqa: PLC0415 - keeps marketing adapters off the startup path
+            )
+
+            date_ranges = [self.query_date_range]
+            if self.query.compareFilter and self.query.compareFilter.compare:
+                date_ranges.append(self.query_previous_date_range)
+            resolved_query = resolve_marketing_cost_trend(
+                query=self.query,
+                team=self.team,
+                date_ranges=date_ranges,
+                get_database=lambda: self.shared_database,
+            )
+            runner = TrendsQueryRunner(
+                query=resolved_query,
+                team=self.team,
+                timings=self.timings,
+                modifiers=self.modifiers,
+                limit_context=self.limit_context,
+                user=self.user,
+                workload=self.workload,
+                hogql_settings=self.hogql_settings,
+            )
+            runner._shared_database = self._shared_database
+            return runner.calculate()
+
         queries = self.to_queries()
 
         response_hogql = get_response_hogql(
@@ -426,6 +468,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                     team=self.team,
                     user=self.user,
                     workload=self.workload,
+                    ch_user=self.ch_user,
                     settings=self.hogql_settings,
                     timings=timings,
                     modifiers=self.modifiers,

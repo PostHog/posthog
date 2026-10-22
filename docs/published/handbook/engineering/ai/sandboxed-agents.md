@@ -77,7 +77,7 @@ The thinking indicator stops at stream end, and a history error stays visible ev
 `sandbox_stream_recovered` records successful recovery after history reconciliation, with the phase, run status, attempt counts, and elapsed time.
 Neither event includes transcript contents or proxy tokens.
 
-After deployment, verify recovery with `tasks-stream-via-proxy` both enabled and disabled: interrupt a live stream, let the agent persist output, and confirm the restored transcript contains it once.
+After deployment, verify recovery on both stream legs (agent proxy and Django): interrupt a live stream, let the agent persist output, and confirm the restored transcript contains it once.
 Also exhaust retries and verify that Retry works for both an active run and an ended run with an unreadable history snapshot.
 
 ```text
@@ -108,6 +108,15 @@ The run's `state.systemPrompt` is server-owned. Set it through trusted server-si
 or state updates. The run PATCH endpoint silently ignores attempts to replace, remove, or append
 to this key, including requests from the sandbox itself. The run detail endpoint serves the prompt
 only to the task-bound sandbox, so it can initialize the agent session.
+
+### Pi project resources
+
+Cloud Pi sessions treat checked-out projects as untrusted, including when resuming a session.
+Project extensions, settings, prompt templates, system prompt overrides, and `.pi/mcp.json` are not loaded.
+Project skills in `.pi/skills` and `.agents/skills` are not automatically discovered.
+Repository `AGENTS.md` instructions continue to load.
+Bundled extensions and MCP servers supplied by the task runtime remain available.
+Local Desktop Pi sessions retain their existing project-resource behavior.
 
 ## Creating a sandboxed agent
 
@@ -242,8 +251,23 @@ Sandbox-bound tokens cannot change either tool-selection field.
 Both fields and their initial values are activity-logged.
 
 The write path is gated by `scouts-tool-access` and fails closed when the flag is absent or unavailable.
-Keep the flag disabled until tool enforcement ships: storing a list alone does not restrict tools at runtime.
-The tool picker and runtime enforcement are separate changes.
+
+While the flag is on, a run stamps the list on its task at dispatch, and a config edit applies from the next run.
+The run holds the listed tools, the built-in run-context tools, and the tools the MCP server offers every client.
+The run-context tools include `skill-get` and `skill-file-get`, so even an empty selection can load its skill and reference files without granting skill writes.
+The tool catalogue returns `run_context_tools` for the picker’s always-available group. The picker excludes these from choices and removes redundant entries from saved lists when editing them.
+The API refuses a request that uses a method other than GET, HEAD, or OPTIONS, or that needs a write scope, unless a tool the run holds calls that endpoint or the endpoint belongs to the sandbox harness.
+The method counts because some actions change state behind a read scope.
+Harness run writes and run-context writes are restricted to the token-bound task’s current run.
+Report artefacts require a held tool; they are not a harness exception.
+For soft-delete endpoints, updating an object does not grant deletion, and a delete-only grant cannot change other fields.
+A narrowed run cannot call external MCP server tools or change tool approvals through the MCP Store endpoints.
+The refusal is a 403 with the code `scout_tool_not_granted`.
+The check reads the run from the token's task binding, never from a request header.
+GET reads stay governed by the token scopes.
+Token introspection supplies the dispatch snapshot to the MCP server, which hides unpicked tools and refuses direct and exec calls with `tool_not_granted`.
+Refused exec calls retain the catalogued target tool name in analytics; unknown names are recorded as `unrecognized`.
+Keep the flag disabled for customers until the settings picker ships.
 
 ### Activity attribution
 
@@ -517,7 +541,7 @@ the agent up. The in-sandbox script (`start-dev-stack-preview.sh`) runs `pnpm in
 dev-stack process fails the preview instead of publishing a half-working one, and each click on the
 link re-probes Django and Vite inside the sandbox before redirecting. Startup peaks around 19 GB, so
 these runs default to 32 GB rather than the standard VM memory size; the core limit stays at the
-VM default, but a box that actually boots the dev-stack image reserves 4 cores instead of the
+VM default, but a box that actually boots the dev-stack image reserves 2 cores instead of the
 burstable 0.5 floor (a fallback to the plain base image keeps the plain floor), and a per-task
 `sandbox_resources` override still wins. The launcher starts with a scrubbed
 environment (`env -i`, fixed PATH), so the stack and its containers never inherit the run's
@@ -549,10 +573,7 @@ When a sandbox was sized by a worker that does not know the preview flag, the pr
 Known limit for v1: the dev stack runs with `DEBUG=1`, so a server error renders Django's debug
 page inside the preview.
 
-Restricted runs can use the VM runtime only when `tasks-modal-network-allowlist` is also enabled.
-The network flag interlock runs before state overrides, image-builder routing, custom-image routing,
-and the VM rollout flag. A trusted `use_modal_vm_sandbox` state value cannot bypass it.
-Modal is the authoritative network enforcement layer whenever that flag is enabled, including on VMs.
+Modal is the authoritative network enforcement layer on every restricted Modal run, including on VMs.
 AgentSH also applies the compiled policy to the agent-server process tree as defense in depth. The
 provider policy applies outside the sandbox, so it covers traffic from the VM and its Docker containers
 without relying on AgentSH process tracing.
@@ -626,9 +647,8 @@ task = Task.create_and_run(
 
 The temporal workflow resolves and compiles allowed domains at execution time, so environment updates
 take effect on the next run. The compiled policy and its fingerprint stay fixed across activity retries.
-Modal enforces the network boundary on every restricted run when
-`tasks-modal-network-allowlist` is enabled. During the rollout, restricted runs without that flag stay
-on gVisor and use agentsh; they cannot route to a VM without the provider policy.
+Modal enforces the network boundary on every restricted run that provisions on Modal.
+Hogland runs rely on agentsh inside the sandbox.
 
 Environments can also be managed via the REST API (`SandboxEnvironmentViewSet`)
 or the PostHog Desktop settings UI.
@@ -717,6 +737,63 @@ While a sandbox starts, the conversation displays its first submitted message fr
 the run's saved `pending_user_message` when logs do not yet contain it. This is a
 display fallback: it strips context wrappers, gives way to the selected run's log
 or stream echo, and never submits the message again.
+
+## Context selection experiment
+
+The `phai-context-selection` feature flag enables hidden organizational context on human prompts in web and Slack cloud runs using Claude or Codex.
+The `phai-context-selection` flag selects `control`, `shadow`, or `treatment` using the task ID.
+Person-property conditions use the current actor's email and staff status, so an email-targeted rollout applies to that actor's eligible tasks while percentage and variant bucketing remain task-based.
+Other flag values disable selection. Local runs, Pi, and other runtime adapters skip it.
+An explicit disabled response stops further preparation requests for that sandbox session, including after conversation history is cleared.
+Flag changes can enable selection in a new session. Preparation errors do not disable later attempts.
+
+Before a human prompt reaches Claude or Codex, the sandbox calls the task-bound selection endpoint.
+Follow-ups delivered through the user-message command, including automated CI and peer messages, can trigger selection.
+Internal retry continuations, steering, and slash commands do not trigger selection.
+Shadow and treatment require the organization's existing AI data processing consent before retrieval or model calls.
+Sandbox OAuth requests share project rate limits of 30 preparations per minute and 300 per hour.
+
+System One first checks whether organizational context could help, using the request and bounded conversation history.
+When the gate passes, the selector calls the existing skill search, catalog list/search, and Business Knowledge search APIs with the sandbox bearer credential.
+There is no separate projection or refresh job. Candidate counts are bounded per source.
+Each source endpoint enforces its existing OAuth scopes, project restrictions, and actor permissions.
+The selector does not maintain a separate source or conversation-audience permission policy.
+System One reranks up to 32 returned candidates in one request. Candidate content, the user request, and history stay in model state; questions refer to candidate keys.
+Source APIs receive bounded natural-language query text and apply their existing query handling. The selector does not maintain a stop-word list.
+Search queries retain the end of the current request and reserve space for recent history within the source APIs' 200-character limit.
+References link to the retrieved sources; skill references fetch the latest published version by name.
+At most five references and 8,000 characters survive into a hidden context block, identified by `selection_id`.
+Retrieved content is data to verify through existing tools, rather than instructions or approval.
+Skill references contain descriptions and bounded search excerpts, so the prompt requires `skill-get` with the referenced name before the agent relies on or follows a skill.
+Long catalog records retain their status, proposed status, and drift metadata while verbose content becomes a bounded excerpt.
+A general knowledge search does not replace that fetch. If the fetch fails or access is denied, the agent must not treat the description as a verified definition or instruction.
+This is a prompt requirement, rather than a runtime guarantee that the fetch occurs.
+The agent is instructed to use these references silently, including during progress updates, tool-call explanations, and task summaries.
+It can cite the underlying sources and explain verification failures, but must not mention selection, suggestions, injection, or the hidden block's metadata.
+
+Control skips retrieval. Shadow computes the selected bundle without injecting it. Treatment injects the bundle.
+Selection has a three-second budget by default, starting before worker submission and run/actor lookups. Expired lookups do not start source or model requests.
+Saturation, timeout, and selection failures leave the ordinary prompt flow available.
+Source requests run concurrently and use at most half the remaining budget, leaving time to score ready results.
+A denied, failed, or slow source does not suppress results from other sources.
+A failed or incomplete reranking response skips enrichment for the turn; individual scores are not recovered from a failed batch.
+Source lookup uses the current project endpoint; the selector does not expand the credential to a parent project.
+The agent truncates requests and history and validates the context budget in Unicode code points, matching the backend renderer.
+Each active session owns its bounded selection history. Session creation and restoration seed that history explicitly from the prior conversation.
+The shared prompt dispatch path prepares human requests, checks cancellation, and records completed turns. Human request text stays separate from resume wrappers and retry continuations.
+Native and summary resumes preserve bounded prior conversation history for later turns; a successful `/clear` resets selection history.
+Actor refreshes update the selection credential. Flag eligibility is checked on each human turn.
+Preparation failure reports distinguish HTTP status, timeouts, response validation, and transport failures without recording exception messages or source content.
+Startup preparation shares the message-delivery queue with follow-ups, preserving prompt order.
+Cancellation during preparation prevents the prepared prompt from reaching the model.
+The selector uses one implementation for source retrieval, scoring, and bounded rendering. Only source retrieval uses the bounded worker pool.
+
+The existing System One call telemetry receives the selection ID, task/run/message IDs, flag mode, configuration version, and runtime version.
+The selector does not emit an additional `$ai_span` or separately persist the final shadow bundle. Source and selection failures use ordinary logs.
+The selection ID in a treatment's hidden marker correlates preparation with downstream model input.
+Offline evals can check downstream inputs, outputs, and tool calls where the existing LLM traces retain them.
+Existing trace retention and truncation apply, so absent output or context does not prove the agent ignored it.
+No dedicated evidence tables, prompt archive, or dispatch receipts are required.
 
 ## Local development
 

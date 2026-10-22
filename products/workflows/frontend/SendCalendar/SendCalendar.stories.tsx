@@ -1,24 +1,27 @@
 import { Meta, StoryFn } from '@storybook/react'
-import { useActions, useMountedLogic } from 'kea'
+import { BindLogic, useActions, useMountedLogic } from 'kea'
 import { useEffect } from 'react'
 
 import { dayjs } from 'lib/dayjs'
 
 import { useStorybookMocks } from '~/mocks/browser'
 import { toPaginatedResponse } from '~/mocks/handlers'
+import type { AnyPropertyFilter } from '~/types'
 
 import type { MessageCategoryApi } from 'products/messaging/frontend/generated/api.schemas'
 import type {
-    HogFlowBatchJobApi,
-    HogFlowMinimalApi,
     HogFlowScheduleApi,
+    SendCalendarBatchJobApi,
+    SendCalendarFlowApi,
     UserBasicApi,
 } from 'products/workflows/frontend/generated/api.schemas'
 
+import { broadcastWizardLogic } from '../Broadcasts/broadcastWizardLogic'
 import { SendCalendar } from './SendCalendar'
 import { sendCalendarLogic } from './sendCalendarLogic'
 import { SendCalendarSendDetails } from './SendCalendarSendDetails'
-import { CalendarSend, describeRepeat, sendAudience, sendCategory } from './sendCalendarUtils'
+import { CalendarSend, describeRepeat, scheduleSendTimes, sendAudience } from './sendCalendarUtils'
+import { SendDayPicker } from './SendDayPicker'
 
 const meta: Meta<typeof SendCalendar> = {
     title: 'Products/Workflows/Send calendar',
@@ -44,19 +47,18 @@ const SAM = person(2, 'Sam')
 
 const flowId = (n: number): string => `0199e0aa-0000-7000-8000-0000000000${String(n).padStart(2, '0')}`
 
-const category = (n: number, name: string, category_type: 'marketing' | 'transactional'): MessageCategoryApi =>
+const category = (n: number, name: string): MessageCategoryApi =>
     ({
         id: `0199e0aa-0000-7000-8000-0000000003${String(n).padStart(2, '0')}`,
         key: name.toLowerCase().replace(/\W+/g, '-'),
         name,
-        category_type,
+        category_type: 'marketing',
     }) as MessageCategoryApi
 
-const PRODUCT_UPDATES = category(1, 'Product updates', 'marketing')
-const NEWSLETTER = category(2, 'Newsletter', 'marketing')
-const ACCOUNT_NOTICES = category(3, 'Account notices', 'transactional')
-const EVENT_REMINDERS = category(4, 'Event reminders', 'transactional')
-const CATEGORIES = [PRODUCT_UPDATES, NEWSLETTER, ACCOUNT_NOTICES, EVENT_REMINDERS]
+const PRODUCT_UPDATES = category(1, 'Product updates')
+const NEWSLETTER = category(2, 'Newsletter')
+const EVENT_REMINDERS = category(4, 'Event reminders')
+const CATEGORIES = [PRODUCT_UPDATES, NEWSLETTER, EVENT_REMINDERS]
 
 const cohort = (id: number, name: string, count: number, is_static = false): Record<string, unknown> => ({
     id,
@@ -97,28 +99,21 @@ const flow = (
     trigger: 'batch' | 'schedule',
     created_by: UserBasicApi,
     { audience = [], to = '{{ person.properties.email }}', category }: FlowRecipients = {}
-): HogFlowMinimalApi =>
+): SendCalendarFlowApi =>
     ({
         id: flowId(n),
         name,
-        description: '',
-        status: 'active',
         origin_product,
         created_by,
-        trigger: trigger === 'batch' ? { type: 'batch', filters: { properties: audience } } : { type: 'schedule' },
-        actions: [
-            { id: 'trigger', type: 'trigger' },
-            {
-                id: 'email',
-                type: 'function_email',
-                config: {
-                    message_category_id: category?.id,
-                    message_category_type: category?.category_type,
-                    inputs: { email: { value: { to: { email: to } } } },
-                },
-            },
-        ],
-    }) as unknown as HogFlowMinimalApi
+        user_access_level: 'editor',
+        trigger_type: trigger,
+        audience_properties: trigger === 'batch' ? audience : [],
+        audience_type: null,
+        email_to: trigger === 'schedule' ? to : null,
+        message_category_id: category?.id ?? null,
+        schedules: SCHEDULES[flowId(n)] ?? [],
+        batch_jobs: BATCH_JOBS[flowId(n)] ?? [],
+    }) as SendCalendarFlowApi
 
 const schedule = (
     n: number,
@@ -136,10 +131,35 @@ const schedule = (
     updated_at: starts_at,
 })
 
-const job = (id: string, status: HogFlowBatchJobApi['status'], created_at: string): HogFlowBatchJobApi =>
-    ({ id, status, created_at }) as HogFlowBatchJobApi
+const job = (id: string, status: SendCalendarBatchJobApi['status'], created_at: string): SendCalendarBatchJobApi => ({
+    id,
+    status,
+    created_at,
+})
 
-const FLOWS: HogFlowMinimalApi[] = [
+const SCHEDULES: Record<string, HogFlowScheduleApi[]> = {
+    [flowId(1)]: [schedule(1, 'FREQ=DAILY;COUNT=1', '2026-10-20T11:00:00Z')],
+    [flowId(2)]: [schedule(2, 'FREQ=WEEKLY;BYDAY=TU', '2026-09-01T09:00:00Z')],
+    [flowId(3)]: [schedule(3, 'FREQ=DAILY;COUNT=1', '2026-10-20T15:00:00Z')],
+    [flowId(4)]: [schedule(4, 'FREQ=DAILY;COUNT=1', '2026-10-20T17:30:00Z')],
+    [flowId(6)]: [schedule(6, 'FREQ=DAILY;COUNT=1', '2026-10-14T10:00:00Z', 'completed')],
+    [flowId(7)]: [schedule(7, 'FREQ=WEEKLY;INTERVAL=2;BYDAY=TH', '2026-10-08T10:00:00Z')],
+    [flowId(8)]: [schedule(8, 'FREQ=WEEKLY;BYDAY=FR', '2026-09-04T16:00:00Z', 'paused')],
+    [flowId(9)]: [schedule(9, 'FREQ=MONTHLY;BYMONTHDAY=25', '2026-09-25T08:00:00Z')],
+}
+
+const BATCH_JOBS: Record<string, SendCalendarBatchJobApi[]> = {
+    [flowId(2)]: [
+        job('digest-oct-13', 'completed', '2026-10-13T09:00:04Z'),
+        job('digest-oct-6', 'completed', '2026-10-06T09:00:03Z'),
+        job('digest-sep-29', 'completed', '2026-09-29T09:00:05Z'),
+    ],
+    [flowId(5)]: [job('partner-oct-16', 'active', '2026-10-16T09:00:02Z')],
+    [flowId(6)]: [job('survey-oct-14', 'completed', '2026-10-14T10:00:04Z')],
+    [flowId(7)]: [job('win-back-oct-8', 'failed', '2026-10-08T10:00:06Z')],
+}
+
+const FLOWS: SendCalendarFlowApi[] = [
     flow(1, 'October product update', 'broadcasts', 'batch', PRIYA, {
         audience: [inCohort(21), personProperty('email', 'is_set', 'is_set')],
         category: PRODUCT_UPDATES,
@@ -156,52 +176,21 @@ const FLOWS: HogFlowMinimalApi[] = [
         audience: [personProperty('days_since_last_seen', 'gt', 30)],
         category: PRODUCT_UPDATES,
     }),
-    flow(8, 'Trial ending reminder', null, 'batch', SAM, { audience: [inCohort(21)], category: ACCOUNT_NOTICES }),
-    flow(9, 'Monthly account summary', null, 'schedule', SAM, {
-        to: 'finance@example.com',
-        category: ACCOUNT_NOTICES,
-    }),
+    flow(8, 'Trial ending reminder', null, 'batch', SAM, { audience: [inCohort(21)], category: PRODUCT_UPDATES }),
+    flow(9, 'Monthly metrics report', null, 'schedule', SAM, { to: 'finance@example.com' }),
 ]
 
-const SCHEDULES: Record<string, HogFlowScheduleApi[]> = {
-    [flowId(1)]: [schedule(1, 'FREQ=DAILY;COUNT=1', '2026-10-20T11:00:00Z')],
-    [flowId(2)]: [schedule(2, 'FREQ=WEEKLY;BYDAY=TU', '2026-09-01T09:00:00Z')],
-    [flowId(3)]: [schedule(3, 'FREQ=DAILY;COUNT=1', '2026-10-20T15:00:00Z')],
-    [flowId(4)]: [schedule(4, 'FREQ=DAILY;COUNT=1', '2026-10-20T17:30:00Z')],
-    [flowId(6)]: [schedule(6, 'FREQ=DAILY;COUNT=1', '2026-10-14T10:00:00Z', 'completed')],
-    [flowId(7)]: [schedule(7, 'FREQ=WEEKLY;INTERVAL=2;BYDAY=TH', '2026-10-08T10:00:00Z')],
-    [flowId(8)]: [schedule(8, 'FREQ=WEEKLY;BYDAY=FR', '2026-09-04T16:00:00Z', 'paused')],
-    [flowId(9)]: [schedule(9, 'FREQ=MONTHLY;BYMONTHDAY=25', '2026-09-25T08:00:00Z')],
-}
-
-const BATCH_JOBS: Record<string, HogFlowBatchJobApi[]> = {
-    [flowId(2)]: [
-        job('digest-oct-13', 'completed', '2026-10-13T09:00:04Z'),
-        job('digest-oct-6', 'completed', '2026-10-06T09:00:03Z'),
-        job('digest-sep-29', 'completed', '2026-09-29T09:00:05Z'),
-    ],
-    [flowId(5)]: [job('partner-oct-16', 'active', '2026-10-16T09:00:02Z')],
-    [flowId(6)]: [job('survey-oct-14', 'completed', '2026-10-14T10:00:04Z')],
-    [flowId(7)]: [job('win-back-oct-8', 'failed', '2026-10-08T10:00:06Z')],
-}
-
-function useCalendarMocks(flows: HogFlowMinimalApi[]): void {
+function useCalendarMocks(flows: SendCalendarFlowApi[]): void {
     useStorybookMocks({
         get: {
-            '/api/projects/:team_id/hog_flows/': (info) => {
-                const trigger = new URL(info.request.url).searchParams.get('trigger') ?? '{}'
-                const type = (JSON.parse(trigger) as { type?: string }).type
-                const results = flows.filter((item) => (item.trigger as { type: string }).type === type)
-                return [200, { count: results.length, next: null, previous: null, results }]
+            // The server returns only the runs inside the requested range.
+            '/api/projects/:team_id/hog_flows/send_calendar/': (info) => {
+                const params = new URL(info.request.url).searchParams
+                const [start, end] = [dayjs(params.get('start')), dayjs(params.get('end'))]
+                const inRange = (run: SendCalendarBatchJobApi): boolean =>
+                    !dayjs(run.created_at).isBefore(start) && dayjs(run.created_at).isBefore(end)
+                return [200, flows.map((item) => ({ ...item, batch_jobs: item.batch_jobs.filter(inRange) }))]
             },
-            '/api/projects/:team_id/hog_flows/:id/schedules/': (info) => [
-                200,
-                SCHEDULES[info.params.id as string] ?? [],
-            ],
-            '/api/projects/:team_id/hog_flows/:id/batch_jobs/': (info) => [
-                200,
-                BATCH_JOBS[info.params.id as string] ?? [],
-            ],
             '/api/projects/:team_id/cohorts/': toPaginatedResponse(COHORTS),
             '/api/projects/:team_id/cohorts/:id/': (info) => {
                 const match = COHORTS.find((item) => String(item.id) === info.params.id)
@@ -266,7 +255,7 @@ NothingScheduled.parameters = {
     testOptions: { waitForLoadersToDisappear: true, waitForSelector: '[data-attr=send-calendar]' },
 }
 
-const detailsSend = (item: HogFlowMinimalApi): CalendarSend => {
+const detailsSend = (item: SendCalendarFlowApi): CalendarSend => {
     const itemSchedule = SCHEDULES[item.id][0]
     return {
         key: `details-${item.id}`,
@@ -274,14 +263,17 @@ const detailsSend = (item: HogFlowMinimalApi): CalendarSend => {
         name: item.name ?? '',
         kind: item.origin_product === 'broadcasts' ? 'broadcast' : 'workflow',
         state: 'planned',
-        at: dayjs(itemSchedule.starts_at),
+        // The calendar shows each send at its next occurrence, not at the schedule's first one.
+        at:
+            scheduleSendTimes(itemSchedule, { start: dayjs(), end: dayjs().add(1, 'year') })[0] ??
+            dayjs(itemSchedule.starts_at),
         repeat: describeRepeat(itemSchedule),
         isRecurring: itemSchedule.rrule !== 'FREQ=DAILY;COUNT=1',
         createdBy: item.created_by,
         schedule: itemSchedule,
         userAccessLevel: item.user_access_level ?? null,
         audience: sendAudience(item),
-        category: sendCategory(item),
+        categoryId: item.message_category_id,
     }
 }
 
@@ -300,4 +292,34 @@ export const SendDetails: StoryFn = () => {
 }
 SendDetails.parameters = {
     testOptions: { waitForLoadersToDisappear: true, waitForSelector: '[data-attr=send-calendar-audience]' },
+}
+
+function SendDayPickerFor({ sendAt }: { sendAt: string }): JSX.Element {
+    const props = { id: 'new' }
+    const { prefillFromLink, setScheduleMode, setSendAt } = useActions(broadcastWizardLogic(props))
+    useEffect(() => {
+        // A link prefill sets the audience without the recipient count that the audience picker starts.
+        prefillFromLink({ properties: [inCohort(21)] as unknown as AnyPropertyFilter[] })
+        setScheduleMode('later')
+        setSendAt(sendAt)
+    }, [prefillFromLink, setScheduleMode, setSendAt, sendAt])
+    return (
+        <BindLogic logic={broadcastWizardLogic} props={props}>
+            <div className="w-[60rem]">
+                <SendDayPicker />
+            </div>
+        </BindLogic>
+    )
+}
+
+// A broadcast to a cohort that two other sends on the same day also reach, so the picker suggests another day.
+export const SendDayPickerCrowded: StoryFn = () => {
+    useCalendarMocks(FLOWS)
+    return <SendDayPickerFor sendAt="2026-10-20T10:00:00.000Z" />
+}
+SendDayPickerCrowded.parameters = {
+    testOptions: {
+        waitForLoadersToDisappear: true,
+        waitForSelector: '[data-attr=send-day-picker-use-suggestion] >> visible=true',
+    },
 }

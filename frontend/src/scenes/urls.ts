@@ -7,6 +7,7 @@ import {
     DataTableNode,
     VisualizationNode,
     HogQLFilters,
+    HogQLQuery,
     ProductKey,
     SharingConfigurationSettings,
 } from '~/queries/schema/schema-general'
@@ -32,6 +33,16 @@ import type { SettingId, SettingLevelId, SettingSectionId } from './settings/typ
  *
  * Sync the paths with AutoProjectMiddleware!
  */
+
+/** The filters the analytics list reads from its URL. */
+export interface AnalyticsListUrlParams {
+    orderBy?: string
+    type?: string
+    createdBy?: string[]
+    folder?: string
+    search?: string
+    tags?: string[]
+}
 
 export const urls = {
     ...productUrls,
@@ -80,6 +91,8 @@ export const urls = {
         endpointName,
         source,
         connectionId,
+        executionTarget,
+        sendRawQuery,
         dashboard,
         filters,
         metricName,
@@ -94,6 +107,8 @@ export const urls = {
         endpointName?: string
         source?: string
         connectionId?: string
+        executionTarget?: HogQLQuery['executionTarget']
+        sendRawQuery?: boolean
         dashboard?: number
         /** Applied on top of the opened query/insight — carries unsaved view-mode filter edits into the editor */
         filters?: HogQLFilters
@@ -146,6 +161,12 @@ export const urls = {
         if (connectionId) {
             hashParams.set('c', connectionId)
         }
+        if (executionTarget) {
+            hashParams.set('engine', executionTarget === 'managed_trino' ? 'managed_trino' : 'posthog')
+        }
+        if (sendRawQuery) {
+            hashParams.set('raw', '1')
+        }
         if (filters) {
             hashParams.set('filters', JSON.stringify(filters))
         }
@@ -172,8 +193,11 @@ export const urls = {
     projectHomepage: (): string => '/home',
     todayReport: (reportId: string): string => `/home/reports/${reportId}`,
     library: (objectType?: string): string => (objectType ? `/library/${objectType}` : '/library'),
-    views: (): string => '/views',
-    viewsNew: (): string => '/views/new',
+    analytics: (): string => '/analytics',
+    analyticsList: (params: AnalyticsListUrlParams = {}): string => combineUrl('/analytics/all', params).url,
+    analyticsMine: (params: AnalyticsListUrlParams = {}): string => combineUrl('/analytics/mine', params).url,
+    analyticsSpaces: (): string => '/analytics/spaces',
+    analyticsProductHome: (): string => '/analytics/product-analytics',
     tools: (): string => '/tools',
     ai: (chat?: string, ask?: string): string => combineUrl('/ai', { ask, chat }).url,
     aiTask: (taskId: string): string => combineUrl('/ai', { task: taskId }).url,
@@ -257,6 +281,8 @@ export const urls = {
         const queryString = params.toString()
         return `${base}${queryString ? `?${queryString}` : ''}`
     },
+    simpleOnboarding: (): string => '/onboarding/simple',
+    onboardingWelcome: (): string => '/welcome',
     // Cloud only
     organizationBilling: (products?: ProductKey[]): string =>
         `/organization/billing${products && products.length ? `?products=${products.join(',')}` : ''}`,

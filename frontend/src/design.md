@@ -179,10 +179,13 @@ Use via Tailwind utilities (`bg-primary text-primary-foreground`, `border-border
 
 - Buttons:
   - Button vs Link: performs an action → Button; changes URL → the host router's Link (use `render={<Link />}` on Button when it must look like one)
-  - Icon-only: `size="icon"` (or `icon-xs` / `icon-sm` / `icon-lg`), `aria-label` required, and always wrap in a Tooltip with the same string
+  - Icon-only: `size="icon"` (or `icon-xs` / `icon-sm` / `icon-lg`), `aria-label` required, and `tooltip` with the same string
   - Size: buttons and select or picker triggers use the default size (`size="icon"` when icon-only). Use `sm` or `xs` only for a special case, such as a dense table cell, or when the design asks for it
   - In-flight action: `loading`, not a separate spinner
-  - Disabled: state the reason; tooltips work by default (`focusableWhenDisabled` is true), so don't turn it off
+  - Disabled: say why with `disabledReason`, not `disabled`. It disables the control and shows the reason in a tooltip. `Button`, every menu item, `Checkbox` and `Switch` take it. Never hand-wrap a disabled control in a Tooltip
+  - Leading icon: the first child, before the label. Trailing icon: the last child
+  - Indicator dot (unread, pending tasks): the Button `indicator` prop (`"default"`, or `"warning"` / `"destructive"` for a problem), never a hand-placed `span`. It sits on the top-right corner, outside the icon. Off the app background, set `--quill-button-indicator-ring` to the surface behind the button. Say what the dot means in the `aria-label`
+  - Split button (main action plus a menu of variants): `ButtonGroup` holding the Button and an icon-only `DropdownMenuTrigger` with `IconChevronDown`
 - Switch vs Checkbox vs Toggle:
   - setting that applies immediately → Switch
   - value submitted with a form, or multi-select → Checkbox
@@ -192,16 +195,28 @@ Use via Tailwind utilities (`bg-primary text-primary-foreground`, `border-border
   - Select: fixed options, no text input, up to ~15 items
   - Select and Combobox triggers follow the button size rule. Their popup items are always default size, so an `sm` trigger opens a menu bigger than itself. This includes a `Button` that opens a picker
   - Combobox: one or many values from a long or async list, filterable; multi-select shows chips; no free text
+  - Actions in a Combobox (settings, "New …") are list items, never footer buttons. See section 8
   - Autocomplete: free text with optional suggestions; search, command pickers
 - Picking an action:
   - DropdownMenu: click-triggered list of actions
   - ContextMenu: right-click only; never the only path to an action
   - Menubar: persistent app-level menus
   - Never Select for actions; never restyle Buttons into menu rows (use `Item variant="menuItem"`)
+  - A menu sizes to its longest row, never narrower than its trigger. Don't set a width on `DropdownMenuContent` unless the content needs a fixed one
+  - A row with a second line takes `description` on `DropdownMenuItem` or `DropdownMenuSubTrigger`. Never stack the text yourself: the row has a fixed height until `description` tells it to grow
+  - A menu item that navigates calls the router in `onClick`. Never pass a Link through the item's `render`: the item already uses `render` for its row styling
+  - Icon-only menu trigger: `aria-label` and a tooltip with the same string, as for any icon-only button
 - A list of clickable rows (tickets, programs, recent items) → `CardGroup` of `Card size="sm"`, each holding one full-width `<button>` or `<a>`. Item has no clickable variant. `Item tone` is for callouts only, such as a warning or an incident notice
 - Switching views: Tabs (sections of one page; `variant="line"` for page-level) | ToggleGroup (2–4 display modes) | Select (many views, low priority)
+- Filtering a list in a compact area (a sidebar pane, a side panel, a picker inside a menu):
+  - A search field (`InputGroup size="sm"`) and, beside it, one icon-only funnel button (`TodayFilterMenuTrigger`). Never a row of selects: it does not fit, and it hides which filters exist
+  - The funnel opens a DropdownMenu with one row per filter: the label on the left and the choice in force on the right, opening a submenu of the options (`TodayRecentRadioSubmenu`). One choice → radio items; several → checkbox items. The default comes first ("Any user", "All")
+  - While any filter differs from its default, the funnel shows a dot and reads "Filters on", and that row's value takes the primary color
+  - "Clear filters" is the last row, after a separator, `variant="destructive"`, and only shows while a filter is on
+  - Inside another menu (a picker), give the outer `DropdownMenu` `modal={false}`, or it blocks the filter menu's popup
+  - Precedent: `layout/today/TodayViewsFilterMenu`
 - Text and numbers:
-  - Input: single-line text
+  - Input: single-line text. Beside default-size buttons, such as a search field next to a filter button, use `size="sm"` on `Input` or `InputGroup` so the heights match
   - Textarea: multi-line or long free text
   - NumberFieldRoot: exact numeric values
   - Slider: approximate value in a bounded range; pair with NumberFieldRoot when exact values also matter
@@ -217,6 +232,7 @@ Use via Tailwind utilities (`bg-primary text-primary-foreground`, `border-border
   - Tooltip:
     - Short label for an icon/control; never the only source of essential info (not shown on touch, not the accessible name)
     - On icon-only buttons: `<TooltipTrigger delay={0}>`
+    - Text is left-aligned, never centered. For several lines, pass one `flex flex-col` child; `flex-col` on `TooltipContent` itself centers each line
     - Every surface needs a root `<TooltipProvider>` (Quill setup); it makes adjacent tooltips open instantly once one is visible
     - Add a local `<TooltipProvider>` only to change `delay`/`timeout` for a group (e.g. a toolbar); don't nest one per tooltip
   - Popover: non-modal, click-triggered, interactive content anchored to a trigger
@@ -240,6 +256,7 @@ Use via Tailwind utilities (`bg-primary text-primary-foreground`, `border-border
   - Badge: status or count. On a button: button `relative`, Badge `absolute top-0 right-0`; counts need an accessible label
   - Chip: removable/selectable value (with ChipClose)
   - Dot: presence/state beside a text label; `pulse` only for live state
+    - Menu items never carry a Dot; show a status in a menu row with a Badge
 - Disclosure:
   - Collapsible: single section
   - Accordion: set of sections
@@ -288,7 +305,53 @@ Use via Tailwind utilities (`bg-primary text-primary-foreground`, `border-border
 
 - The Quill UI ships behind the `today-rail-nav` feature flag; don't change the flag-off LemonUI path to match it
 - During migration, use the scoped CSS and add `data-quill` to the wrapper of any Quill subtree
-- <TODO: migration rules>
+- Migrate a LemonUI call site by branching on the flag. Every migrated call site has the same shape, so a reader can find both halves:
+
+  ```tsx
+  const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV') // with the component's other hooks, never after a return
+
+  <SceneTitleSection
+      actions={
+          todayRailNav ? (
+              <Button variant="primary" render={<LinkPrimitive to={urls.x()} />} disabledReason={reason} data-attr="new-x">
+                  <IconPlus />
+                  New x
+              </Button>
+          ) : (
+              <LemonButton type="primary" size="small" to={urls.x()} icon={<IconPlusSmall />} disabledReason={reason} data-attr="new-x">
+                  New x
+              </LemonButton>
+          )
+      }
+  />
+  ```
+
+- Name the flag variable `todayRailNav`. The flag-off branch keeps the Lemon code, and its behavior, unchanged
+- A short quill branch stays inline. A longer one, or one that needs its own hooks, goes in a `Quill<Name>.tsx` file next to the Lemon component
+- Behavior is shared, never copied. A handler, dialog or menu item list that both branches need lives in one function or kea action that both call. Only the view forks
+- A shared Lemon component gets a `Quill<Name>.tsx` sibling, and returns it after its last hook when the flag is on. Flags load after the first render, so a return before a hook changes the hook order and crashes. If the component also renders on surfaces outside the migration, leave it alone and let the migrated caller pick the quill sibling
+- Keep every `data-attr`, handler and string. `data-attr` values are frozen
+- A product that imports quill declares `"@posthog/quill": "workspace:*"` in its `package.json`, or Vite cannot resolve it
+- Lemon to quill mapping:
+
+  | Lemon                                  | Quill                                                                                                        |
+  | -------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+  | `LemonButton type="primary"`           | `variant="primary"`                                                                                          |
+  | `type="secondary"`                     | `variant="outline"`                                                                                          |
+  | `type="tertiary"`, or no type          | `variant="default"`                                                                                          |
+  | `status="danger"`                      | `variant="destructive-outline"` (`destructive` only for a primary destructive action)                        |
+  | `size="small"`, `"xsmall"`, or no size | default size (omit `size`; it matches Lemon small)                                                           |
+  | `icon={<IconX />}`                     | `<IconX />` as the first child                                                                               |
+  | `IconPlusSmall`                        | `IconPlus`                                                                                                   |
+  | `type` held in a variable              | `quillButtonVariant(type)` (`lib/lemon-ui/LemonButton/quillButtonVariant`)                                   |
+  | `to={url}`                             | `render={<LinkPrimitive to={url} />}`                                                                        |
+  | `disabledReason`, `tooltip`            | the same props on `Button`                                                                                   |
+  | `sideAction` with a dropdown           | `ButtonGroup` (see §3 Buttons)                                                                               |
+  | `LemonMenu`                            | `DropdownMenu`; nested items → `DropdownMenuSub`                                                             |
+  | `LemonTag`                             | `Badge`                                                                                                      |
+  | `LemonSelect`                          | `Select`                                                                                                     |
+  | `LemonSegmentedButton`                 | `ToggleGroup`                                                                                                |
+  | `AccessControlAction`, `Shortcut`      | keep the wrapper around the quill `Button`, menu item, `Checkbox` or `Switch`; it passes `disabledReason` in |
 
 ### PostHog Desktop
 
@@ -301,7 +364,13 @@ Use via Tailwind utilities (`bg-primary text-primary-foreground`, `border-border
 
 ## 8. Accessibility
 
-- <TODO>
+- Every action in a popup works from the keyboard alone: open the popup, reach each row with the arrow keys, and run it with Enter
+- A Combobox keeps focus in its search field, so the arrow keys move only through its items and Tab never leaves the field. A Button in `ComboboxListFooter` is therefore out of reach. Put an action such as "Settings" or "New project" in the list as a `ComboboxItem`, in a last group after a `ComboboxSeparator`
+  - Branch on the action's value in `onValueChange`, and keep the action out of the selected value
+  - A search must never hide the actions. When a logic already filters the items, pass `filter={null}`. Otherwise pass a `filter` that always keeps the actions
+  - When no other item matches, the action group's label says so. `ComboboxEmpty` never shows while the actions are in the list
+  - Precedent: `layout/today/TodaySwitcherMenu` (the org and project switchers)
+- Before handoff, drive each popup you touched with the keyboard only: open it, arrow to every row, and press Enter on each action
 
 ## 9. Review before handoff
 

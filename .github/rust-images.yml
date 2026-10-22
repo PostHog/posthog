@@ -80,6 +80,7 @@
 - image: cohort-stream-processor
   dockerfile: ./rust/Dockerfile
   project: vglf58qgzw
+  features: hotpath-prometheus
 
 - image: batch-import-worker
   dockerfile: ./rust/Dockerfile
@@ -149,9 +150,17 @@
   dockerfile: ./rust/Dockerfile
   project: hj9nd3cg9w
 
+- image: personhog-changelog-relay
+  dockerfile: ./rust/Dockerfile
+  project: lvsrh6c64c
+
 - image: personhog-test-harness
   dockerfile: ./rust/Dockerfile
   project: 6tl5lmb8l8
+
+- image: personhog-parity-monitor
+  dockerfile: ./rust/Dockerfile
+  project: jfz76fgvqd
 
 - image: kafka-assigner
   dockerfile: ./rust/Dockerfile

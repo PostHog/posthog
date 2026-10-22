@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { FullScreen } from 'lib/components/FullScreen'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
@@ -17,6 +18,7 @@ import { DashboardLoadAction, dashboardLogic } from './dashboardLogic'
 import { DashboardModals } from './DashboardModals'
 import { DashboardSceneMenuBar } from './DashboardSceneMenuBar'
 import { DashboardScenePanel } from './DashboardScenePanel'
+import { QuillDashboardHeaderActions } from './QuillDashboardHeaderActions'
 
 export const DASHBOARD_CANNOT_EDIT_MESSAGE =
     "You don't have edit permissions for this dashboard. Ask a dashboard collaborator with edit access to add you."
@@ -29,6 +31,7 @@ export function DashboardHeader({ loading = false }: { loading?: boolean }): JSX
     const { dashboard, dashboardLoading, dashboardMode, dashboardEditing, canEditDashboard } = useValues(dashboardLogic)
     const { setDashboardMode, loadDashboard } = useActions(dashboardLogic)
     const { updateDashboard } = useActions(dashboardsModel)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const isLoading = !dashboard && (loading || dashboardLoading)
 
@@ -113,7 +116,7 @@ export function DashboardHeader({ loading = false }: { loading?: boolean }): JSX
                           }
                         : undefined
                 }
-                actions={actions}
+                actions={todayRailNav && dashboard ? <QuillDashboardHeaderActions /> : actions}
             />
         </>
     )

@@ -18,11 +18,16 @@ from posthog.constants import AvailableFeature
 from posthog.llm.gateway_client import AIGatewayConfig, GatewayNotConfiguredError
 from posthog.models import Organization, Team, User
 from posthog.security.outbound_proxy import internal_requests
+from posthog.temporal.common.posthog_client import is_expected_activity_failure
 
 from products.signals.backend.scout_harness.suggestions import SUGGESTIONS_AI_STAGE
 from products.tasks.backend import model_catalog
 from products.tasks.backend.constants import RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS
-from products.tasks.backend.exceptions import GatewayTokenUnavailableError, ProcessTaskTransientError
+from products.tasks.backend.exceptions import (
+    GatewayTokenUnavailableError,
+    ProcessTaskFatalError,
+    ProcessTaskTransientError,
+)
 from products.tasks.backend.facade.billing import get_task_run_cost
 from products.tasks.backend.facade.gateway import mint_private_gateway_token, revoke_private_gateway_token
 from products.tasks.backend.logic.services.desktop_gateway_token import valid_caps
@@ -32,6 +37,7 @@ from products.tasks.backend.logic.services.gateway_model_pin import (
     FREE_TIER_PIN_KEY,
     MAX_GATEWAY_PIN_LENGTH,
     SDK_IMPLICIT_MODELS,
+    gateway_pin,
     pinned_run_allows_model,
 )
 from products.tasks.backend.logic.services.sandbox_config import MAX_SANDBOX_TTL_SECONDS
@@ -304,7 +310,12 @@ class TestMintScopedToken:
         assert len(pin) == len(set(pin))
         expected = {model for model in registry if not model.startswith("@cf/")} | set(SDK_IMPLICIT_MODELS)
         if product != "review_hog":
-            expected -= {"deepseek-ai/deepseek-v4-flash-0731", "zai-org/glm-5.3", "zai-org/glm-5.3-flash"}
+            expected -= {
+                "deepseek-ai/deepseek-v4-flash-0731",
+                "deepseek-ai/deepseek-v4.1-flash-1017-fast",
+                "zai-org/glm-5.3",
+                "zai-org/glm-5.3-flash",
+            }
         assert set(pin) == expected
 
     def test_limit_tier_is_sent_only_when_given(self, mint_settings):
@@ -537,7 +548,7 @@ class TestMintableGate:
         # Resolves to posthog_code, which is unrouted here.
         with (
             patch("products.tasks.backend.temporal.process_task.utils.mint_scoped_token") as mint,
-            pytest.raises(GatewayTokenUnavailableError),
+            pytest.raises(ProcessTaskFatalError, match="isn't configured"),
         ):
             ai_gateway_env_vars(team_id=2, origin_product="review_hog", ai_stage="validation-c1", internal=False)
         mint.assert_not_called()
@@ -1249,7 +1260,12 @@ class TestSlackAppMint:
 
     def test_pin_covers_every_routed_catalog_model(self):
         routed = {entry.id for entry in model_catalog.MODELS if not entry.id.startswith("@cf/")}
-        reserved = {"deepseek-ai/deepseek-v4-flash-0731", "zai-org/glm-5.3", "zai-org/glm-5.3-flash"}
+        reserved = {
+            "deepseek-ai/deepseek-v4-flash-0731",
+            "deepseek-ai/deepseek-v4.1-flash-1017-fast",
+            "zai-org/glm-5.3",
+            "zai-org/glm-5.3-flash",
+        }
         assert reserved <= set(_PRODUCT_ALLOWED_MODELS["review_hog"])
         missing = routed - reserved - set(_PRODUCT_ALLOWED_MODELS["slack_app"])
         assert not missing, f"catalog models absent from the slack_app pin: {sorted(missing)}"
@@ -1370,10 +1386,9 @@ class TestWorkflowsMint:
         assert env["AI_GATEWAY_TOKEN"] == "phe_abc"
         mint.assert_called_once()
 
-    def test_team_out_of_ai_credits_does_not_mint(self, mint_settings):
-        env, mint = self._env(mint_settings, over_quota=True)
-        assert "AI_GATEWAY_TOKEN" not in env
-        mint.assert_not_called()
+    def test_team_out_of_ai_credits_fails_the_run_instead_of_degrading(self, mint_settings):
+        with pytest.raises(GatewayTokenUnavailableError, match="used its monthly PostHog AI credits"):
+            self._env(mint_settings, over_quota=True)
 
     def test_credit_lookup_failure_does_not_mint(self, mint_settings):
         with patch(_CREDIT_LOOKUP, side_effect=RuntimeError("billing is down")):
@@ -1489,7 +1504,7 @@ def test_account_audit_cost_routing_requires_server_provenance(
             env = ai_gateway_env_vars(
                 team_id=123, origin_product=origin, internal=internal, model="claude-sonnet-5", runtime="acp"
             )
-        except GatewayTokenUnavailableError:
+        except ProcessTaskFatalError:
             refused, env = True, {}
     assert refused is resolves_to_posthog_code
     assert ("AI_GATEWAY_TOKEN" in env) is mints
@@ -1518,7 +1533,8 @@ class TestPosthogCodeSandboxMint:
     def test_pin_holds_every_catalog_id_and_fits_the_gateway(self):
         pin = _PRODUCT_ALLOWED_MODELS["posthog_code"]
         assert pin == DESKTOP_AGENT_MODELS
-        assert len(pin) == len(set(pin)) <= MAX_GATEWAY_PIN_LENGTH
+        assert len(pin) == len(set(pin))
+        assert len(gateway_pin(pin)) <= MAX_GATEWAY_PIN_LENGTH
         assert {entry.id for entry in model_catalog.MODELS} <= set(pin)
         assert set(SDK_IMPLICIT_MODELS) <= set(pin)
         assert {"gpt-5.4", "gpt-5.3-codex", "gpt-5.2", "gpt-5-mini"} <= set(pin)
@@ -1604,8 +1620,8 @@ class TestPosthogCodeSandboxMint:
             post.return_value = self._mint_response()
             mint_scoped_token(ai_product="posthog_code", team_id=2)
             mint_scoped_token(ai_product="posthog_code", team_id=2, allowed_models=FREE_TIER_MODELS)
-        assert post.call_args_list[0].kwargs["json"]["allowed_models"] == DESKTOP_AGENT_MODELS
-        assert post.call_args_list[1].kwargs["json"]["allowed_models"] == FREE_TIER_MODELS
+        assert post.call_args_list[0].kwargs["json"]["allowed_models"] == gateway_pin(DESKTOP_AGENT_MODELS)
+        assert post.call_args_list[1].kwargs["json"]["allowed_models"] == gateway_pin(FREE_TIER_MODELS)
 
     @pytest.mark.django_db
     @pytest.mark.parametrize(
@@ -1667,7 +1683,7 @@ class TestPosthogCodeSandboxMint:
                 "signals_scout",
                 None,
                 "phe_abc",
-                GatewayTokenUnavailableError,
+                ProcessTaskFatalError,
                 "isn't configured",
                 "not_configured",
             ),
@@ -1700,6 +1716,8 @@ class TestPosthogCodeSandboxMint:
             pytest.raises(error_type) as raised,
         ):
             ai_gateway_env_vars(team_id=team.id, origin_product="user_created", model=model)
+        assert is_expected_activity_failure(raised.value) is (error_type is GatewayTokenUnavailableError)
+        assert raised.value.non_retryable is (error_type is not ProcessTaskTransientError)
         assert message in str(raised.value)
         assert "Retrying" not in str(raised.value)
         client.metrics.count.assert_called_once_with(
@@ -1717,11 +1735,13 @@ class TestPosthogCodeSandboxMint:
         with (
             patch("products.tasks.backend.temporal.process_task.utils.mint_scoped_token") as mint,
             patch.object(utils, "logger") as log,
-            pytest.raises(GatewayTokenUnavailableError, match="isn't configured"),
+            pytest.raises(ProcessTaskFatalError, match="isn't configured") as raised,
         ):
             ai_gateway_env_vars(team_id=team.id, origin_product="user_created", model="claude-opus-5")
         mint.assert_not_called()
         log.error.assert_called_once()
+        assert is_expected_activity_failure(raised.value) is False
+        assert raised.value.non_retryable is True
 
     def test_a_routing_crash_fails_a_posthog_code_run_and_degrades_other_products(self, mint_settings):
         ctx = MagicMock(

@@ -385,8 +385,8 @@ class UsageReportCounters:
     logs_retention_30d_mb_in_period: int
     logs_retention_90d_mb_in_period: int
     # Byte-days of retention floored to whole MB-days (retention_byte_days // 1_000_000): ingested bytes
-    # weighted by the full retention day count, so it scales to any retention day count. Zero for teams
-    # on the default retention; they are covered by logs_mb_in_period alone. Report-only.
+    # weighted by the days of storage that start in the period, so it scales to any retention day count.
+    # Zero for teams on the default retention; they are covered by logs_mb_in_period alone. Report-only.
     logs_retention_mb_days_in_period: int
     # Per-SDK split of logs_records_in_period, which on its own has no SDK dimension. Keyed off the
     # telemetry.sdk.name resource attribute each SDK sets on every record. See SDK_TELEMETRY_NAMES.
@@ -396,6 +396,9 @@ class UsageReportCounters:
     android_logs_records_in_period: int
     flutter_logs_records_in_period: int
     ruby_logs_records_in_period: int
+    # Distinct log patterns, a measure of how varied a team's logs are. Report-only: it tells real
+    # usage apart from a test ping and does not feed any billed field.
+    logs_distinct_patterns_in_period: int
 
     # Distributed Tracing (APM). apm_tracing_mb_in_period is report-only, like logs_mb_in_period.
     apm_tracing_bytes_in_period: int
@@ -2597,12 +2600,13 @@ def get_teams_with_logs_retention_byte_days_in_period(
     """
     Returns byte-days of log retention grouped by team: ingested bytes weighted by retention days.
 
-    The consumer emits one `retention_byte_days` metric into `app_metrics2`
-    (`retention_byte_days = bytes_ingested * retention_days`, summed per flush) only for teams on a
-    non-default retention; default-retention teams emit nothing, so their storage is billed through
-    `bytes_ingested` alone. Summed over the period it is the storage-duration of the logs kept beyond
-    the default, not of all logs, and it scales to any retention day count. Each `(team_id, count)`
-    tuple is ready for `convert_team_usage_rows_to_dict`.
+    The consumer emits `retention_byte_days` into `app_metrics2` only for teams on a non-default
+    retention; default-retention teams emit nothing, so their storage is billed through
+    `bytes_ingested` alone. Each flush writes one row per 30-day month of retention
+    (`bytes_ingested * 30`), dated at the start of that month, so future rows land in the period
+    their month starts in and each month of storage bills when it starts. Summed over the period it
+    is the storage-duration of the logs kept beyond the default, not of all logs. Each
+    `(team_id, count)` tuple is ready for `convert_team_usage_rows_to_dict`.
     """
     with tags_context(product=Product.LOGS, feature=Feature.USAGE_REPORT):
         return sync_execute(
@@ -2637,6 +2641,41 @@ def get_teams_with_logs_records_in_period(
             workload=Workload.OFFLINE,
             settings=CH_BILLING_SETTINGS,
             ch_user=ClickHouseUser.BILLING,
+        )
+
+
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_logs_distinct_patterns_in_period(
+    begin: datetime,
+    end: datetime,
+) -> TeamUsageRows:
+    """
+    Returns the number of distinct log patterns each team sent in the period.
+
+    Reads the `logs_pattern_buckets` rollup, never raw logs. A pattern only means the same shape
+    within one masker version, so each team counts the patterns of the latest `pattern_version` it
+    sent in the period. A period that spans a masker change counts only the newer version's
+    patterns, which undercounts that one day instead of counting each shape twice.
+
+    `uniq` keeps memory bounded for a team that emits a very large number of shapes. It is exact
+    for small counts, which is where a test ping and real usage differ.
+    """
+    with tags_context(product=Product.LOGS, feature=Feature.USAGE_REPORT):
+        return sync_execute(
+            """
+            SELECT team_id, argMax(patterns, pattern_version) AS count
+            FROM (
+                SELECT team_id, pattern_version, uniq(pattern) AS patterns
+                FROM logs_pattern_buckets_distributed
+                WHERE time_bucket >= %(begin)s AND time_bucket < %(end)s
+                GROUP BY team_id, pattern_version
+            )
+            GROUP BY team_id
+            """,
+            {"begin": begin, "end": end},
+            workload=Workload.LOGS,
+            settings=CH_BILLING_SETTINGS,
         )
 
 
@@ -2918,6 +2957,7 @@ def has_non_zero_usage(report: UsageReportCounters) -> bool:
         or report.posthog_code_credits_used_in_period > 0
         or report.task_sandbox_seconds_in_period > 0
         or report.logs_bytes_in_period > 0
+        or report.logs_retention_mb_days_in_period > 0
         or report.apm_tracing_bytes_in_period > 0
         or report.metrics_records_in_period > 0
         or report.workflow_emails_sent_in_period > 0
@@ -3228,6 +3268,9 @@ def _get_all_usage_data(
         "teams_with_android_logs_records_in_period": sdk_logs_by_suffix["android"],
         "teams_with_flutter_logs_records_in_period": sdk_logs_by_suffix["flutter"],
         "teams_with_ruby_logs_records_in_period": sdk_logs_by_suffix["ruby"],
+        "teams_with_logs_distinct_patterns_in_period": get_teams_with_logs_distinct_patterns_in_period(
+            period_start, period_end
+        ),
         "teams_with_apm_tracing_bytes_in_period": apm_tracing_usage["bytes"],
         "teams_with_apm_tracing_spans_in_period": apm_tracing_usage["spans"],
         "teams_with_metrics_bytes_in_period": metrics_usage["bytes"],
@@ -3254,6 +3297,7 @@ def iter_billable_teams(
     team_fields: Sequence[str],
     organization_fields: Sequence[str],
     organization_ids: Sequence[str] | None = None,
+    buffer_teams: bool = False,
 ) -> Iterator[Team]:
     # Page organizations to avoid repeating their wide columns on every team or retaining them all.
     # Keyset pagination bounds the organization query even when PgBouncer disables server-side cursors.
@@ -3274,7 +3318,9 @@ def iter_billable_teams(
             .only(*team_fields, "organization_id")
             .order_by("organization_id", "id")
         )
-        for team in teams.iterator(chunk_size=2_000):
+        # Callers that reconnect between writes must not leave a read cursor open across yields.
+        team_iterator = iter(teams) if buffer_teams else teams.iterator(chunk_size=2_000)
+        for team in team_iterator:
             if team.id in yielded_team_ids:
                 continue
             yielded_team_ids.add(team.id)
@@ -3517,6 +3563,7 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         android_logs_records_in_period=all_data["teams_with_android_logs_records_in_period"].get(team.id, 0),
         flutter_logs_records_in_period=all_data["teams_with_flutter_logs_records_in_period"].get(team.id, 0),
         ruby_logs_records_in_period=all_data["teams_with_ruby_logs_records_in_period"].get(team.id, 0),
+        logs_distinct_patterns_in_period=all_data["teams_with_logs_distinct_patterns_in_period"].get(team.id, 0),
         apm_tracing_bytes_in_period=apm_tracing_bytes_in_period,
         apm_tracing_spans_in_period=all_data["teams_with_apm_tracing_spans_in_period"].get(team.id, 0),
         apm_tracing_mb_in_period=int(apm_tracing_bytes_in_period // 1_000_000),

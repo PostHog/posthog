@@ -33,6 +33,17 @@ packages:
 
 blockExoticSubdeps: true
 trustPolicy: no-downgrade
+# Maintenance releases published without the provenance of an earlier release.
+trustPolicyExclude:
+    - semver@5.7.2 || 6.3.1
+    - undici-types@6.21.0
+# `pnpm run` must not start an install, because Docker builds install a filtered subset.
+verifyDepsBeforeRun: false
+# Installs without a terminal (flox activation, agent hooks, CI) abort when pnpm asks before
+# it rebuilds node_modules after a store or layout change, so rebuild without asking.
+confirmModulesPurge: false
+# A cold install fetches every package, so retry past brief registry errors.
+fetchRetries: 3
 
 # Fix React versions across the monorepo.
 overrides:
@@ -111,30 +122,39 @@ patchedDependencies:
     dayjs@1.11.11: patches/dayjs@1.11.11.patch
     html-to-image@1.11.13: patches/html-to-image@1.11.13.patch
     kea@4.0.0-pre.6: patches/kea@4.0.0-pre.6.patch
+    # A mounted tooltip root must not keep its closed popup's detached DOM alive.
+    '@base-ui/react@1.9.0': patches/@base-ui__react@1.9.0.patch
 
 # Dependencies that require preinstall scripts. Add entries with caution.
-onlyBuiltDependencies:
-    - '@modelcontextprotocol/ext-apps'
-    - '@mongodb-js/zstd'
-    - '@parcel/watcher'
-    - chartjs-plugin-stacked100
-    - '@swc/core'
-    - core-js
-    - core-js-pure
-    - cpu-features
-    - esbuild
-    - lmdb
-    - lz4
-    - msgpackr-extract
-    - msw
-    - node-gyp
-    - node-rdkafka
-    - protobufjs
-    - re2
-    - sharp
-    - ssh2
-    - unrs-resolver
-    - workerd
+allowBuilds:
+    '@modelcontextprotocol/ext-apps': true
+    '@mongodb-js/zstd': true
+    '@parcel/watcher': true
+    chartjs-plugin-stacked100: true
+    '@swc/core': true
+    core-js: true
+    core-js-pure: true
+    cpu-features: true
+    esbuild: true
+    lmdb: true
+    lz4: true
+    msgpackr-extract: true
+    msw: true
+    node-gyp: true
+    node-rdkafka: true
+    protobufjs: true
+    re2: true
+    sharp: true
+    ssh2: true
+    unrs-resolver: true
+    workerd: true
+    # These install without their build scripts.
+    '@datadog/pprof': false
+    ffmpeg-static: false
+    free-email-domains: false
+    # Optional dependency of code-inspector-plugin, used only by its AI terminal, which we do not enable.
+    node-pty: false
+    puppeteer: false
 
 catalog:
     # Kea ecosystem - state management
@@ -180,7 +200,7 @@ catalog:
     # React types
     '@types/react': ^18.3.27
     '@types/react-dom': ^18.3.7
-    '@base-ui/react': 1.8.0
+    '@base-ui/react': 1.9.0
     # Other shared
     husky: ^7.0.4
     lint-staged: ~15.4.3

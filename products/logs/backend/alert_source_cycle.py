@@ -20,7 +20,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import replace
 from datetime import datetime, timedelta
 from itertools import batched
-from typing import Final, cast
+from typing import Any, Final, cast
 from uuid import UUID, uuid4
 
 from django.conf import settings
@@ -32,7 +32,6 @@ from posthog.dataclasses import frozen
 from posthog.exceptions import ClickHouseEstimatedQueryExecutionTimeTooLong, ClickHouseQueryTimeOut
 from posthog.models import Team
 from posthog.temporal.alerts.admission import hold_evaluation_slot, release_evaluation_slot
-from posthog.utils import absolute_uri
 
 from products.alerts.backend.facade.destinations import configured_destination_template_ids
 from products.alerts_platform.backend.facade.api import due_check_ids, due_checks, refresh_settings, slot_of
@@ -95,10 +94,11 @@ from products.logs.backend.alert_check_query import (
 from products.logs.backend.alert_destinations import EVENT_KIND_CONFIG, EventKind
 from products.logs.backend.alert_error_classifier import classify as classify_alert_error
 from products.logs.backend.alert_evaluation_key import WINDOW_MARKER
-from products.logs.backend.alert_group_columns import GROUP_COLUMNS
+from products.logs.backend.alert_group_columns import grouping_problem
 from products.logs.backend.alert_lookback import rolling_check_lookback_minutes
 from products.logs.backend.models import LogsAlertConfiguration
-from products.logs.backend.platform_alert_backfill import platform_upsert_of
+from products.logs.backend.platform_alert_backfill import SETTINGS_FIELDS, platform_upsert_of
+from products.logs.backend.platform_source_config import filters_of, logs_alert_url
 
 # Private to the production activity. Reimplementing either would let this path drift from
 # what the logs stack evaluates. Promoting them to a shared home is the deeper fix.
@@ -162,26 +162,37 @@ class LogsAlertCondition:
 
     @classmethod
     def of(cls, check: PlatformAlertCheckInput) -> "LogsAlertCondition":
-        condition = check.condition
+        return cls.from_condition(check.condition)
+
+    @classmethod
+    def from_condition(cls, condition: Mapping[str, Any]) -> "LogsAlertCondition":
         return cls(
             threshold_count=condition["threshold_count"],
             threshold_operator=condition["threshold_operator"],
             window_minutes=condition["window_minutes"],
         )
 
+    def breached(self, count: float) -> bool:
+        if self.threshold_operator == LogsAlertConfiguration.ThresholdOperator.ABOVE:
+            return count > self.threshold_count
+        return count < self.threshold_count
 
-# The copy's settings a check takes from the logs alert as it is now. The schedule stays the
-# platform's own once the copy exists.
-_SETTINGS_FIELDS: Final = (
-    "name",
-    "source_config",
-    "evaluation_periods",
-    "datapoints_to_alarm",
-    "cooldown_minutes",
-    "schedule_restriction",
-)
+
+@frozen
+class _QuerySubject:
+    """A check as the logs query layer reads it, with the filters out of `source_config`."""
+
+    id: UUID
+    team_id: int
+    filters: dict[str, Any]
+
+    @classmethod
+    def of(cls, check: PlatformAlertCheckInput) -> "_QuerySubject":
+        return cls(id=check.id, team_id=check.team_id, filters=filters_of(check.source_config))
+
+
 # The snooze lives on the alert row rather than the copy, and no history row states it.
-_LIVE_FIELDS: Final = (*_SETTINGS_FIELDS, "snooze_until")
+_LIVE_FIELDS: Final = (*SETTINGS_FIELDS, "snooze_until")
 
 
 def _broken_condition(check: PlatformAlertCheckInput) -> str | None:
@@ -222,7 +233,7 @@ class _QueryShape:
         return cls(
             window_minutes=check.condition.get("window_minutes"),
             evaluation_periods=check.evaluation_periods,
-            projection_eligible=is_projection_eligible(check.source_config),
+            projection_eligible=is_projection_eligible(filters_of(check.source_config)),
         )
 
 
@@ -458,15 +469,16 @@ def _request(
         evaluation_key=recorded.evaluation_key,
         destination_alert_id=destination_alert_id,
         event_ids_by_kind=_EVENT_IDS_BY_KIND,
-        event_ids_by_incident_action=_EVENT_IDS_BY_INCIDENT_ACTION,
+        event_ids_by_incident_action=EVENT_IDS_BY_INCIDENT_ACTION,
         incident_actions=actions,
         sends_messages=sends_messages,
         # The logs alert page, as the HogFunction messages linked. An alert with no logs row has none.
-        source_alert_url=absolute_uri(f"/project/{check.team_id}/logs/alerts/{check.legacy_configuration_id}")
+        source_alert_url=logs_alert_url(check.team_id, check.legacy_configuration_id)
         if check.legacy_configuration_id is not None
         else None,
         owned_by_platform=check.owned_by_platform,
         overflowed=recorded.overflowed,
+        overflow_is_lower_bound=recorded.overflow_is_lower_bound,
         parts=delivery_parts(recorded, actions),
     )
 
@@ -481,7 +493,7 @@ def _has_incident_destination(team_id: int, destination_alert_id: str) -> bool:
         configured_destination_template_ids(
             team_id=team_id,
             alert_id=destination_alert_id,
-            allowed_event_ids=tuple(_EVENT_IDS_BY_INCIDENT_ACTION.values()),
+            allowed_event_ids=tuple(EVENT_IDS_BY_INCIDENT_ACTION.values()),
         )
     )
 
@@ -495,7 +507,7 @@ _EVENT_IDS_BY_KIND: Final[dict[str, str]] = {
 }
 
 # Which event id an incident manager destination filters on for each incident action.
-_EVENT_IDS_BY_INCIDENT_ACTION: Final[dict[str, str]] = {
+EVENT_IDS_BY_INCIDENT_ACTION: Final[dict[str, str]] = {
     spec.incident_action.value: spec.event_id for spec in EVENT_KIND_CONFIG.values() if spec.incident_action
 }
 
@@ -581,7 +593,7 @@ def _evaluate_cohort(
     try:
         result = BatchedAlertCheckQuery(
             team=team,
-            alerts=checks,
+            alerts=[_QuerySubject.of(check) for check in checks],
             date_from=date_to - timedelta(minutes=lookback),
             date_to=date_to,
             projection_eligible=projection_eligible,
@@ -658,6 +670,10 @@ def _as_configured_now(
 
     A copy whose logs alert is gone or disabled stops: the logs stack runs no check for it, so it
     switches itself off, and the next backfill turns it back on if the alert is enabled again.
+
+    A copy the platform owns is not a seed: every edit reaches it directly, from the logs API or the
+    platform's, so it is evaluated as stored. It still needs its logs row on the copy's team. A row in
+    a child environment has its logs there, and the query would read the project's instead.
     """
     legacy_ids = [check.legacy_configuration_id for check in checks]
     alerts = {alert.id: alert for alert in LogsAlertConfiguration.objects.filter(team_id=team_id, id__in=legacy_ids)}
@@ -665,6 +681,9 @@ def _as_configured_now(
     stopped: list[Decision] = []
     for check in checks:
         alert = alerts.get(check.legacy_configuration_id)
+        if check.owned_by_platform and alert is not None:
+            current.append(check)
+            continue
         if alert is None or not alert.enabled:
             stopped.append(_stopped(check, now=now))
             continue
@@ -681,7 +700,7 @@ def _as_configured_now(
             )
             continue
         upsert = platform_upsert_of(alert)
-        if any(getattr(check, field) != getattr(upsert, field) for field in _SETTINGS_FIELDS):
+        if any(getattr(check, field) != getattr(upsert, field) for field in SETTINGS_FIELDS):
             try:
                 refresh_settings(team_id, check.id, upsert)
             except Exception:
@@ -742,13 +761,7 @@ def _labels_of(grouping_key: str) -> dict[str, str] | None:
 def _broken_grouping(check: PlatformAlertCheckInput) -> str | None:
     if check.grouping.mode == GroupingMode.SINGLE:
         return None
-    if set(check.grouping.keys) - GROUP_COLUMNS.keys():
-        return f"A logs alert can only group by {', '.join(sorted(GROUP_COLUMNS))}"
-    # A group with no matching log returns no row, so a service gone silent, the case a `below`
-    # alert exists for, is never seen unless it was already open.
-    if check.condition.get("threshold_operator") != LogsAlertConfiguration.ThresholdOperator.ABOVE:
-        return "A grouped logs alert can only alert above a threshold"
-    return None
+    return grouping_problem(check.grouping.keys, check.condition.get("threshold_operator"))
 
 
 def _evaluate_grouped(
@@ -775,7 +788,7 @@ def _evaluate_grouped(
     try:
         result = GroupedAlertCheckQuery(
             team=team,
-            alert=check,
+            alert=_QuerySubject.of(check),
             date_from=date_to - timedelta(minutes=lookback),
             date_to=date_to,
             group_by=check.grouping.keys,
@@ -843,7 +856,9 @@ def _evaluate_grouped(
     recorded = decision.as_outcome(
         configuration_id=check.id,
         evaluation_key=_evaluation_key(check, date_to),
+        grouping=check.grouping,
         query_duration_ms=result.query_duration_ms,
+        results_cut=result.truncated,
     )
     return recorded, _request(
         check,
@@ -870,7 +885,9 @@ def _triage(checks: Sequence[PlatformAlertCheckInput], *, now: datetime, tz_name
     muted_ids: set[UUID] = set()
     for check in checks:
         broken_reason = (
-            _detect_broken_filter_config(check.source_config) or _broken_condition(check) or _broken_grouping(check)
+            _detect_broken_filter_config(filters_of(check.source_config))
+            or _broken_condition(check)
+            or _broken_grouping(check)
         )
         if broken_reason is not None:
             logger.warning(

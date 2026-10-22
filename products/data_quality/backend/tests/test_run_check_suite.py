@@ -36,9 +36,6 @@ from products.data_quality.backend.temporal.workflows.run_check_suite import Run
 
 RUNNER_QUERY = "products.data_quality.backend.logic.runner.execute_hogql_query"
 ACTIVITY_INFO = "products.data_quality.backend.temporal.activities.prepare_check_suite.activity.info"
-PREPARE_FLAG = (
-    "products.data_quality.backend.temporal.activities.prepare_check_suite.get_data_quality_checks_flag_for_team_id"
-)
 NOTIFY_ONE_CHECK = (
     "products.data_quality.backend.temporal.activities.notify_failing_checks.notify_check_started_failing"
 )
@@ -61,9 +58,6 @@ class TestCheckSuiteActivities(BaseTest):
         self.view = DataWarehouseSavedQuery.objects.create(
             team=self.team, name="orders", query={"kind": "HogQLQuery", "query": "SELECT 1 AS customer_id"}
         )
-        flag = patch(PREPARE_FLAG, return_value=True)
-        flag.start()
-        self.addCleanup(flag.stop)
 
     def _check(self, **kwargs) -> DataQualityCheck:
         defaults = {
@@ -153,14 +147,6 @@ class TestCheckSuiteActivities(BaseTest):
         suite = DataQualitySuiteRun.objects.for_team(self.team.id).get(id=prepared.suite_run_id)
         assert suite.subject_uuid is None
 
-    def test_an_unflagged_org_prepares_an_empty_suite(self) -> None:
-        self._check()
-
-        with patch(PREPARE_FLAG, return_value=False):
-            prepared = self._prepare()
-
-        assert prepared.batches == []
-
     def test_a_paused_schedule_prepares_no_batches(self) -> None:
         metric_id = uuid4()
         self._check(saved_query_id=None, metric_id=metric_id, subject_type=SubjectType.METRIC)
@@ -173,19 +159,6 @@ class TestCheckSuiteActivities(BaseTest):
         )
 
         assert prepared.batches == []
-
-    def test_an_unreadable_flag_fails_instead_of_preparing_an_empty_suite(self) -> None:
-        metric_id = uuid4()
-        self._check(saved_query_id=None, metric_id=metric_id, subject_type=SubjectType.METRIC)
-
-        with patch(PREPARE_FLAG, return_value=None), self.assertRaises(RuntimeError):
-            self._prepare(
-                saved_query_ids=[],
-                metric_ids=[str(metric_id)],
-                trigger=SuiteRunTrigger.SCHEDULED,
-            )
-
-        assert not DataQualitySuiteRun.objects.for_team(self.team.id).exists()
 
     def test_a_batch_counts_each_outcome_and_records_a_run_per_check(self) -> None:
         passing = self._check()

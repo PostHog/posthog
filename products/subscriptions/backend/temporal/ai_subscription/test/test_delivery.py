@@ -10,11 +10,11 @@ from django.template.loader import render_to_string
 from parameterized import parameterized
 from slack_sdk.errors import SlackApiError
 
-from products.exports.backend.models.subscription import AIQueryPlanStatus, Subscription, SubscriptionDelivery
 from products.slack_app.backend.facade.testing import REQUIRED_SLACK_SCOPES
 from products.subscriptions.backend.facade.contracts import SubscriptionTriggerType
 from products.subscriptions.backend.logic.slack_subscriptions import SlackMessage
 from products.subscriptions.backend.logic.teams_subscriptions import TEAMS_CARD_TEXT_BUDGET
+from products.subscriptions.backend.models.subscription import AIQueryPlanStatus, Subscription, SubscriptionDelivery
 from products.subscriptions.backend.temporal.ai_subscription.activities import _deliver_ai_subscription
 from products.subscriptions.backend.temporal.ai_subscription.delivery import (
     CHART_IMAGE_URL_TTL,

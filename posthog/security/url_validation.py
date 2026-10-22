@@ -11,7 +11,7 @@ import structlog
 import dns.resolver
 import dns.exception
 
-from posthog.cloud_utils import is_dev_mode
+from posthog.cloud_utils import is_cloud, is_dev_mode
 from posthog.dataclasses import frozen
 
 logger = structlog.get_logger(__name__)
@@ -182,7 +182,7 @@ def _matches_hostname_pattern(host: str) -> bool:
     return len(host) <= _MAX_HOSTNAME_LENGTH and _BARE_HOSTNAME.fullmatch(host) is not None
 
 
-def _canonicalize_host(host: str) -> str:
+def canonicalize_host(host: str) -> str:
     """The one form every host check runs on.
 
     We strip any trailing "." because an absolute FQDN carries the DNS root dot ("db.corp.").
@@ -198,6 +198,9 @@ def _canonicalize_host(host: str) -> str:
     except ValueError:  # UnicodeError, which the codec raises, subclasses this
         pass
     return host.lower().rstrip(".")
+
+
+_canonicalize_host = canonicalize_host
 
 
 def _host_shape_error(host: str) -> str | None:
@@ -281,6 +284,14 @@ def _blocked_host_name(host: str) -> BlockedName | None:
             return BlockedName(reason=f"Internal domain pattern blocked: {pattern}", pattern=pattern)
     if _is_internal_ip_literal(host):
         return BlockedName(reason="Private IP address not allowed")
+
+    if is_cloud():
+        # Detection only: these names resolve to ordinary public IPs, so every IP check passes
+        # them, and the lookup alone confirms the path to whoever runs the collaborator.
+        from posthog.security.oob_domains import matched_oob_domain  # noqa: PLC0415 — breaks an import cycle
+
+        if (oob_domain := matched_oob_domain(host)) is not None:
+            logger.info("security.oob_domain_seen", host=host, domain=oob_domain, guard="url_validation")
     return None
 
 
@@ -541,13 +552,18 @@ UNREACHABLE_HOST_MESSAGE = (
 )
 
 
-def validate_external_host(host: str) -> None:
+def validate_external_host(host: str, *, resolved_ips: ResolvedIPs | None = None) -> None:
     """Raise ``ValueError`` unless ``host`` is safe for our servers to reach.
 
     SSRF guard for a destination that stores a bare host rather than a URL (Postgres,
     Redshift). Applies the same name and IP rules as ``validate_external_url``, so the two
     cannot drift apart. Bypassed in local dev and in tests, unless the
     ``FORCE_URL_VALIDATION`` setting is true.
+
+    A caller that resolves ``host`` itself and dials that answer passes it as ``resolved_ips``,
+    so the addresses checked are the addresses dialed. Without it, the host is resolved here,
+    and a record with a short TTL can answer public for this check and private for the caller's
+    own lookup.
     """
 
     # The host could come from untyped config, so check its type first
@@ -567,6 +583,6 @@ def validate_external_host(host: str) -> None:
 
     # Return the same error message in both cases, to avoid exposing details of our internal
     # network.
-    ips = resolve_host_ips(host)
+    ips = resolve_host_ips(host) if resolved_ips is None else resolved_ips
     if not ips or any(_is_internal_ip(ip) for ip in ips):
         raise ValueError("Host does not resolve to a valid IP address")

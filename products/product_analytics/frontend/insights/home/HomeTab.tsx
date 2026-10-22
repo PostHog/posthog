@@ -4,12 +4,10 @@ import type { ReactNode } from 'react'
 
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { Dashboard } from 'scenes/dashboard/Dashboard'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { DashboardPlacement } from '~/types'
-
+import { HomeTabDashboard } from './HomeTabDashboard'
 import { HomeTabDefault } from './HomeTabDefault'
 
 export function HomeTab({ dashboardActions }: { dashboardActions?: ReactNode }): JSX.Element {
@@ -41,9 +39,7 @@ export function HomeTab({ dashboardActions }: { dashboardActions?: ReactNode }):
                     <LemonSkeleton.Row repeat={3} />
                 </div>
             ) : currentTeam?.home_tab_dashboard ? (
-                <div className="-mt-8">
-                    <Dashboard id={String(currentTeam.home_tab_dashboard)} placement={DashboardPlacement.Builtin} />
-                </div>
+                <HomeTabDashboard dashboardId={currentTeam.home_tab_dashboard} dashboardActions={dashboardActions} />
             ) : (
                 <HomeTabDefault dashboardActions={dashboardActions} />
             )}
