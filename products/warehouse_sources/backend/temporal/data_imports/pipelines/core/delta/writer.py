@@ -1,8 +1,9 @@
 import json
 import time
 import asyncio
+import functools
 import contextlib
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from typing import TYPE_CHECKING, Any, Literal
 
 from django.conf import settings
@@ -36,6 +37,18 @@ from products.warehouse_sources.backend.temporal.data_imports.workload_report im
 
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import DeltaTableRef
+
+
+# About the size at which a delta-rs `IN (...)` predicate still plans quickly.
+DELETE_VALUES_PER_COMMIT = 1000
+
+
+def _sql_identifier(name: str) -> str:
+    return '"' + name.replace('"', '""') + '"'
+
+
+def _sql_string_literal(value: str) -> str:
+    return "'" + value.replace("'", "''") + "'"
 
 
 class DeltaliteFallbackRefusedError(Exception):
@@ -165,6 +178,22 @@ def commit_matches(commit: dict[str, Any], match: dict[str, str]) -> bool:
     return any(all(layout.get(k) == v for k, v in match.items()) for layout in _commit_metadata_layouts(commit))
 
 
+def dedupe_incremental_batch(
+    data: pa.Table, primary_keys: Sequence[Any], use_partitioning: bool
+) -> tuple[pa.Table, list[str]]:
+    """Drop all but the last occurrence of each PK (+ partition) tuple in a batch.
+
+    Returns the batch and the keys it was deduplicated on. The batch comes back as it is when no key
+    repeats, or when none of `primary_keys` is a column of it.
+    """
+    dedupe_keys = [n for x in primary_keys if (n := normalize_column_name(x)) in data.column_names]
+    if not dedupe_keys:
+        return data, []
+    if use_partitioning:
+        dedupe_keys.append(PARTITION_KEY)
+    return first_per_pk_table(data, dedupe_keys, keep="last"), dedupe_keys
+
+
 def commit_members_tag(members: Sequence[tuple[str, int]]) -> str:
     """The `members` commit tag for a set that spans runs: `run_uuid:batch_index` per member."""
     return ",".join(f"{run_uuid}:{batch_index}" for run_uuid, batch_index in members)
@@ -222,14 +251,7 @@ class DeltaWriter:
     async def _dedupe_incremental_batch(
         self, data: pa.Table, primary_keys: Sequence[Any], use_partitioning: bool
     ) -> pa.Table:
-        """Drop all but the last occurrence of each PK (+ partition) tuple in a batch."""
-        dedupe_keys = [n for x in primary_keys if (n := normalize_column_name(x)) in data.column_names]
-        if not dedupe_keys:
-            return data
-        if use_partitioning:
-            dedupe_keys.append(PARTITION_KEY)
-
-        deduped = first_per_pk_table(data, dedupe_keys, keep="last")
+        deduped, dedupe_keys = dedupe_incremental_batch(data, primary_keys, use_partitioning)
         dropped = data.num_rows - deduped.num_rows
         if dropped > 0:
             await self._logger.awarning(
@@ -303,6 +325,9 @@ class DeltaWriter:
                 estimate_rewrite_profile,
                 get_governor,
             )
+            from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.row_group_sizes import (
+                RowGroupSizeReader,
+            )
             from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.metrics import (
                 DELTALITE_WRITE_DURATION_SECONDS,
                 DELTALITE_WRITE_TOTAL,
@@ -325,17 +350,32 @@ class DeltaWriter:
             # always writes — the governor never falls back to the delta-rs MERGE for capacity, because
             # the MERGE is the *more* memory-hungry path. A source too big for its slice just runs with
             # the smallest plan (governor logs a capacity_exceeded ops signal). The shape of the files
-            # the merge can rewrite comes from the handle's add actions, so this costs no object-store
-            # request.
+            # the merge can rewrite comes from the handle's add actions. Footers of large candidate
+            # files are read only when their whole sizes keep the plan narrow.
             governor = get_governor()
+            row_group_reader = (
+                RowGroupSizeReader(uri, storage_options)
+                if settings.DATA_WAREHOUSE_DELTALITE_GOVERNOR_ROW_GROUP_SIZING
+                else None
+            )
             rewrite = (
                 await asyncio.to_thread(
-                    estimate_rewrite_profile, existing_delta_table, data, partition_key, normalized_primary_keys
+                    estimate_rewrite_profile,
+                    existing_delta_table,
+                    data,
+                    partition_key,
+                    normalized_primary_keys,
+                    row_group_reader,
+                    functools.partial(
+                        governor.row_groups_can_widen, source_bytes=data.nbytes, n_partitions=n_partitions
+                    ),
                 )
                 if governor.config.mode != "off"
                 else None
             )
             max_row_group_bytes = settings.DATA_WAREHOUSE_DELTALITE_MAX_ROW_GROUP_BYTES
+            # Passed only to turn the cache off, so a deltalite build without the argument keeps working.
+            probe_cache_kwargs = {} if settings.DATA_WAREHOUSE_DELTALITE_PROBE_CACHE else {"use_probe_cache": False}
             async with governor.admit(source_bytes=data.nbytes, n_partitions=n_partitions, rewrite=rewrite) as adm:
 
                 def _run_upsert(table: Any, upsert_kwargs: dict[str, int]) -> Any:
@@ -345,6 +385,7 @@ class DeltaWriter:
                         partition_key,
                         commit_metadata=commit_metadata,
                         max_row_group_bytes=max_row_group_bytes if max_row_group_bytes > 0 else None,
+                        **probe_cache_kwargs,
                         **upsert_kwargs,
                     )
 
@@ -415,12 +456,18 @@ class DeltaWriter:
                 governor_mpp=adm.planned_mpp,
                 governor_mpf=adm.planned_mpf,
                 governor_max_row_group_mb=adm.max_row_group_mb,
+                governor_row_group_sized_files=adm.row_group_sized_files,
+                governor_footers_read=adm.footers_read,
                 governor_rewrite_total_mb=adm.rewrite_total_mb,
                 governor_rewrite_files=adm.rewrite_files,
                 governor_columns=adm.columns,
                 governor_reserved_slots=adm.reserved_slots,
                 governor_wait_ms=adm.wait_ms,
                 governor_wait_timed_out=adm.wait_timed_out,
+                governor_borrow_slots=adm.borrow_slots,
+                governor_borrow_mpp=adm.borrow_mpp,
+                governor_borrow_mpf=adm.borrow_mpf,
+                governor_borrow_applied=adm.borrow_applied,
                 # Process-wide RSS while this upsert ran; filter on max_concurrent_upserts == 1 for
                 # a clean per-upsert signal.
                 governor_peak_rss_mb=adm.rss.peak_mb if adm.rss else None,
@@ -792,6 +839,69 @@ class DeltaWriter:
         # The deltalite handle of this table still describes the files that the restore removed.
         self._table.invalidate_cached_table()
         return restore_metrics
+
+    async def distinct_values(self, column: str) -> set[str] | None:
+        """The distinct non-null values of a text `column`, or None when the table or the column is missing.
+
+        The scan reads only that column, one file at a time, so its memory is the set it returns.
+        """
+        delta_table = await self._table.get_delta_table()
+        if delta_table is None or column not in {field.name for field in delta_table.schema().fields}:
+            return None
+        dataset = delta_table.to_pyarrow_dataset()
+
+        def _scan() -> set[str]:
+            values: set[str] = set()
+            scanner = dataset.scanner(columns=[column], batch_readahead=1, fragment_readahead=1, use_threads=False)
+            for batch in scanner.to_batches():
+                values.update(str(value) for value in pc.unique(batch.column(0)).drop_null().to_pylist())
+            return values
+
+        return await asyncio.to_thread(_scan)
+
+    async def delete_where(
+        self,
+        column: str,
+        values: Iterable[str],
+        *,
+        chunk_size: int = DELETE_VALUES_PER_COMMIT,
+        commit_metadata: dict[str, str] | None = None,
+        before_commit: Callable[[], None] | None = None,
+    ) -> int:
+        """Delete the rows whose text `column` holds one of `values`, and return how many went.
+
+        Each commit names at most `chunk_size` values, which keeps the predicate small enough to
+        plan. A crash between commits leaves some values deleted, so a caller must be able to run
+        the same delete again. `before_commit` runs before each commit.
+
+        Never pass a batch tag in `commit_metadata`: `has_batch_been_committed` would then skip the
+        write of a batch whose delete committed and whose write did not.
+        """
+        delta_table = await self._table.get_delta_table()
+        ordered = sorted(set(values))
+        if delta_table is None or not ordered:
+            return 0
+        commit_properties = deltalake.CommitProperties(custom_metadata=commit_metadata) if commit_metadata else None
+        target = delta_table
+        deleted = 0
+        for start in range(0, len(ordered), chunk_size):
+            literals = ", ".join(_sql_string_literal(value) for value in ordered[start : start + chunk_size])
+            predicate = f"{_sql_identifier(column)} IN ({literals})"
+
+            # Inside the operation, so a retry after a commit conflict checks ownership again.
+            def _delete(predicate: str = predicate) -> dict[str, Any]:
+                if before_commit is not None:
+                    before_commit()
+                return target.delete(predicate, commit_properties=commit_properties)
+
+            metrics = await execute_with_conflict_retry(
+                target,
+                _delete,
+                "delete_where",
+                self._logger,
+            )
+            deleted += int(metrics.get("num_deleted_rows") or 0)
+        return deleted
 
     async def has_commit_with_metadata(self, match: dict[str, str], *, scan_limit: int = 50) -> bool:
         """Check whether any recent delta commit has custom metadata matching all entries in `match`.

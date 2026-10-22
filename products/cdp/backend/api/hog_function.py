@@ -28,7 +28,7 @@ from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
 from posthog.api.utils import action, log_activity_from_viewset
-from posthog.event_usage import AGENT_EVENT_SOURCES, get_event_source
+from posthog.event_usage import AGENT_EVENT_SOURCES, EventSource, get_event_source
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
 from posthog.helpers.trigram_search import (
@@ -1221,6 +1221,16 @@ class HogFunctionViewSet(
             span = trace.get_current_span()
             span.set_attribute("hog_function.search.result_count", results_len)
             span.set_attribute("hog_function.search.empty", results_len == 0)
+        return response
+
+    def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        instance = self.get_object()
+        response = Response(self.get_serializer(instance).data)
+        if get_event_source(request) == EventSource.TERRAFORM:
+            try:
+                instance.record_terraform_read()
+            except Exception as e:
+                capture_exception(e)
         return response
 
     @staticmethod

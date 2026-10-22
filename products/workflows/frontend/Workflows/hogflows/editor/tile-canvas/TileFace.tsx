@@ -1,10 +1,7 @@
 import { Tooltip } from '@posthog/lemon-ui'
 
-import { EmailPreviewThumbnail } from 'lib/components/EmailPreviewThumbnail/EmailPreviewThumbnail'
 import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
 
-import type { HogFlowAction } from '../../types'
-import { emailContent } from './stepValues'
 import { TileBadge } from './TileBadge'
 import { TILE_SIZE } from './tileCanvasLayout'
 import type { TileShape, TileStep } from './useTileStep'
@@ -20,48 +17,21 @@ function tileRadius(shape: TileShape): string {
           : `${CORNER}px`
 }
 
-export function TileFace({
-    action,
-    tile,
-    count,
-    showEmail,
-    emailPlaceholder = false,
-}: {
-    action: HogFlowAction
-    tile: TileStep
-    count: number | undefined
-    showEmail: boolean
-    /** Holds the thumbnail's size without loading the email, for copies that are only measured. */
-    emailPlaceholder?: boolean
-}): JSX.Element {
-    const html = showEmail ? emailContent(action)?.html : undefined
+export function TileFace({ tile, count }: { tile: TileStep; count: number | undefined }): JSX.Element {
     return (
         <div className="relative" data-tile-anchor>
-            {html ? (
-                <div
-                    className="overflow-hidden rounded-xl border-2 bg-surface-primary shadow-sm"
-                    style={{ borderColor: tile.color }}
-                >
-                    {emailPlaceholder ? (
-                        <span className="block h-28 w-40" />
-                    ) : (
-                        <EmailPreviewThumbnail html={html} title={`${action.name} preview`} size="card" />
-                    )}
-                </div>
-            ) : (
-                <div
-                    className="flex items-center justify-center border-2 bg-surface-primary text-[30px] shadow-sm"
-                    style={{
-                        width: TILE_SIZE,
-                        height: TILE_SIZE,
-                        borderRadius: tileRadius(tile.shape),
-                        borderColor: tile.color,
-                        color: tile.color,
-                    }}
-                >
-                    {tile.icon}
-                </div>
-            )}
+            <div
+                className="flex items-center justify-center border-2 bg-surface-primary text-[30px] shadow-sm"
+                style={{
+                    width: TILE_SIZE,
+                    height: TILE_SIZE,
+                    borderRadius: tileRadius(tile.shape),
+                    borderColor: tile.color,
+                    color: tile.color,
+                }}
+            >
+                {tile.icon}
+            </div>
             {count !== undefined && <TileBadge placement="count">{humanFriendlyLargeNumber(count)}</TileBadge>}
             {tile.badge && (
                 <TileBadge placement="setting" color={tile.color}>

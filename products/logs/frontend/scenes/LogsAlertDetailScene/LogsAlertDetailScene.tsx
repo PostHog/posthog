@@ -20,6 +20,7 @@ import { LogsAlertForm } from 'products/logs/frontend/components/LogsAlerting/Lo
 import { logsAlertFormLogic } from 'products/logs/frontend/components/LogsAlerting/logsAlertFormLogic'
 import { logsAlertNotificationLogic } from 'products/logs/frontend/components/LogsAlerting/logsAlertNotificationLogic'
 import { LogsAlertNotifications } from 'products/logs/frontend/components/LogsAlerting/LogsAlertNotifications'
+import { LogsAlertRegroupConfirmModal } from 'products/logs/frontend/components/LogsAlerting/LogsAlertRegroupConfirmModal'
 import { LogsAlertSimulation } from 'products/logs/frontend/components/LogsAlerting/LogsAlertSimulation'
 import { LogsAlertStateIndicator } from 'products/logs/frontend/components/LogsAlerting/LogsAlertStateIndicator'
 import { LogsAlertStateTimeline } from 'products/logs/frontend/components/LogsAlerting/LogsAlertStateTimeline'
@@ -108,6 +109,7 @@ export function LogsAlertDetailScene(): JSX.Element {
                     >
                         <LogsAlertSimulation />
                     </LemonModal>
+                    <LogsAlertRegroupConfirmModal />
                 </SceneContent>
             </BindLogic>
         </BindLogic>
@@ -119,16 +121,21 @@ function primaryDisabledReason({
     alertForm,
     alertFormChanged,
     nameError,
+    maxInstancesError,
     hasPendingNotifications,
 }: {
     isDraft: boolean
     alertForm: { name: string; severityLevels: string[]; serviceNames: string[]; filterGroup: UniversalFiltersGroup }
     alertFormChanged: boolean
     nameError: string | undefined
+    maxInstancesError: string | undefined
     hasPendingNotifications: boolean
 }): string | undefined {
     if (nameError) {
         return nameError
+    }
+    if (maxInstancesError) {
+        return maxInstancesError
     }
     if (isDraft) {
         return !hasAnyFilter(alertForm.severityLevels, alertForm.serviceNames, alertForm.filterGroup)
@@ -143,7 +150,8 @@ function AlertHeader(): JSX.Element {
     const { toggleEnabled, snoozeAlert, unsnoozeAlert, resetAlert, deleteAlert, enableAlert } =
         useActions(logsAlertDetailSceneLogic)
 
-    const { isAlertFormSubmitting, alertFormChanged, alertForm, alertFormErrors } = useValues(logsAlertFormLogic)
+    const { isAlertFormSubmitting, alertFormChanged, alertForm, alertFormErrors, alertFormValidationErrors } =
+        useValues(logsAlertFormLogic)
     const { submitAlertForm, setAlertFormValue } = useActions(logsAlertFormLogic)
     const { pendingNotifications } = useValues(logsAlertNotificationLogic)
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
@@ -170,6 +178,7 @@ function AlertHeader(): JSX.Element {
                             alertForm,
                             alertFormChanged,
                             nameError: typeof alertFormErrors?.name === 'string' ? alertFormErrors.name : undefined,
+                            maxInstancesError: alertFormValidationErrors.maxInstances as string | undefined,
                             hasPendingNotifications: pendingNotifications.length > 0,
                         })}
                     />
@@ -224,6 +233,7 @@ function AlertHeader(): JSX.Element {
                                 alertForm,
                                 alertFormChanged,
                                 nameError: typeof alertFormErrors?.name === 'string' ? alertFormErrors.name : undefined,
+                                maxInstancesError: alertFormValidationErrors.maxInstances as string | undefined,
                                 hasPendingNotifications: pendingNotifications.length > 0,
                             })}
                             data-attr={isDraft ? 'logs-alert-enable-primary' : 'logs-alert-save-primary'}
