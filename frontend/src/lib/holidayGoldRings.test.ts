@@ -8,11 +8,9 @@ describe('holiday gold rings keys', () => {
     })
 
     test.each([
-        ['before Christmas', new Date(2026, 11, 24), true, 0],
-        ['Christmas', new Date(2026, 11, 25), true, 1],
-        ['New Year', new Date(2027, 0, 1), true, 1],
-        ['after Christmas', new Date(2027, 0, 6), true, 0],
-        ['flag off', new Date(2026, 11, 25), false, 0],
+        ['flag on before December', new Date(2026, 9, 22), true, 1],
+        ['flag on after Christmas', new Date(2027, 0, 6), true, 1],
+        ['flag off during Christmas', new Date(2026, 11, 25), false, 0],
     ] as const)('%s', (_name, date, enabled, expected) => {
         jest.useFakeTimers()
         jest.setSystemTime(date)

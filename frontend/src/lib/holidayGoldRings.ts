@@ -10,12 +10,6 @@ export function isGoldRingsMuted(): boolean {
     return sessionStorage.getItem(optOutKey) === 'true'
 }
 
-function isGoldRingsActive(date: Date): boolean {
-    const month = date.getMonth()
-    const day = date.getDate()
-    return (month === 11 && day >= 25) || (month === 0 && day <= 5)
-}
-
 function playGoldRings(): void {
     goldRingsAudio ??= new Audio('/static/sounds/five-gold-rings.mp3')
     goldRingsAudio.pause()
@@ -56,7 +50,7 @@ export function listenForGoldRingsKeys(isEnabled: () => boolean): () => void {
             return
         }
 
-        if (event.key === '5' && isGoldRingsActive(new Date())) {
+        if (event.key === '5') {
             playGoldRings()
         }
     }

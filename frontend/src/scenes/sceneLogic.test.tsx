@@ -118,7 +118,7 @@ describe('sceneLogic', () => {
 
     it('plays when 5 is pressed after the holiday flag arrives', () => {
         jest.useFakeTimers()
-        jest.setSystemTime(new Date(2026, 11, 25))
+        jest.setSystemTime(new Date(2026, 9, 22))
         const play = jest.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue()
         const pause = jest.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation()
         let playsBeforeFlag = 0
