@@ -446,8 +446,27 @@ class TestTrendsQueryRunnerSeriesFanOut(BaseTest):
 
         self.assertEqual(len(runner.series), 150)
 
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
+    def test_native_series_and_breakdowns_read_only_the_native_cluster(self) -> None:
+        query = TrendsQuery(
+            series=[EventsNode(event="$pageview"), EventsNode(event="$pageleave")],
+            dateRange=DateRange(date_from="2024-01-01", date_to="2024-01-08"),
+            breakdownFilter=BreakdownFilter(breakdown="$browser", breakdown_type=BreakdownType.EVENT),
+            modifiers=HogQLQueryModifiers(useNewEventsCluster=True, useNewEventsSchema=True),
+        )
+        with (
+            override_instance_config("CLICKHOUSE_NATIVE_EVENTS_HOST", "native.example.com"),
+            override_instance_config("CLICKHOUSE_NATIVE_EVENTS_TEAMS", [self.team.pk]),
+            patch("posthog.hogql.query.sync_execute", return_value=([], [])) as execute,
+        ):
+            TrendsQueryRunner(query=query, team=self.team).run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS, user=self.user)
+        assert execute.called
+        for call in execute.call_args_list:
+            assert call.kwargs["workload"] == Workload.NEW_EVENTS_CLUSTER
+            assert "events_json" in call.args[0]
+
     @parameterized.expand([(False,), (True,)])
-    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False, CLICKHOUSE_NATIVE_EVENTS_HOST="native.example.com")
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
     def test_actor_options_execute_on_the_selected_cluster(self, native: bool) -> None:
         query = TrendsQuery(
             series=[EventsNode(event="$pageview")],
@@ -467,7 +486,7 @@ class TestTrendsQueryRunnerSeriesFanOut(BaseTest):
         assert ("events_json" in execute.call_args.args[0]) is native
 
     @parameterized.expand([(False,), (True,)])
-    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False, CLICKHOUSE_NATIVE_EVENTS_HOST="native.example.com")
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
     def test_actor_source_follows_the_run_user(self, native: bool) -> None:
         query = ActorsQuery(
             source=InsightActorsQuery(

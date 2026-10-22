@@ -11,7 +11,7 @@ from posthog.clickhouse.workload import Workload
 from posthog.models.instance_setting import override_instance_config
 
 
-@override_settings(CLICKHOUSE_NATIVE_EVENTS_HOST="native.example.com", CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
+@override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
 class TestNativeEventsClusterInsights(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()

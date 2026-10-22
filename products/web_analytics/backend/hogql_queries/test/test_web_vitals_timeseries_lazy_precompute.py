@@ -101,7 +101,7 @@ class TestVitalsTimeseriesGate(APIBaseTest):
         self.assertIs(runner.query, original)
 
     @parameterized.expand([(path, outer) for path in ("runner", "source_fallback") for outer in (False, True)])
-    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False, CLICKHOUSE_NATIVE_EVENTS_HOST="native.example.com")
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
     def test_wrapper_cluster_choice_overrides_the_source(self, path: str, outer: bool) -> None:
         query = _vitals_query(
             modifiers=HogQLQueryModifiers(useNewEventsCluster=outer),

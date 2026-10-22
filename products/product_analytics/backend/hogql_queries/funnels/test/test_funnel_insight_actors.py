@@ -167,7 +167,7 @@ class TestFunnelInsightActors(ClickhouseTestMixin, APIBaseTest):
         )
 
 
-@override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False, CLICKHOUSE_NATIVE_EVENTS_HOST="native.example.com")
+@override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
 class TestNativeEventsActorRouting(SimpleTestCase):
     def setUp(self) -> None:
         self.team = Team(id=44, modifiers={}, organization=Organization(id=1))
@@ -241,7 +241,7 @@ class TestActorExecutionUserContext(APIBaseTest):
         runner = get_query_runner(InsightActorsQuery(source=source).model_dump(), self.team, user=self.user)
         self.assertIsInstance(runner.query, InsightActorsQuery)
 
-    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False, CLICKHOUSE_NATIVE_EVENTS_HOST="native.example.com")
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
     def test_session_actors_hydrate_on_the_selected_cluster(self) -> None:
         source = FunnelsQuery(
             series=[EventsNode(event="started"), EventsNode(event="finished")],
@@ -294,7 +294,7 @@ class TestActorExecutionUserContext(APIBaseTest):
         assert execution_context().user is other_user
 
 
-@override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False, CLICKHOUSE_NATIVE_EVENTS_HOST="native.example.com")
+@override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
 class TestNativeActorSourceExecution(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()

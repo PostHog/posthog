@@ -25,7 +25,6 @@ from typing import (
     get_origin,
 )
 
-from django.conf import settings
 from django.db import OperationalError
 
 import orjson
@@ -141,6 +140,7 @@ from posthog.hogql.query_stats import (
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql.warehouse_warnings import accumulator_scope
 
+from posthog import settings
 from posthog.api_queries_budget import (
     API_QUERIES_BUDGET_ERRORS_COUNTER,
     BudgetSpec,
@@ -391,11 +391,13 @@ BLOCKING_EXECUTION_MODES: set[ExecutionMode] = {
 
 # Modes that never enqueue an async calculation. The async worker does not keep the native cluster
 # route, so a native cluster query must not run in any other mode.
-NATIVE_EVENTS_CLUSTER_EXECUTION_MODES: set[ExecutionMode] = {
-    ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
-    ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
-    ExecutionMode.CACHE_ONLY_NEVER_CALCULATE,
-}
+NATIVE_EVENTS_CLUSTER_EXECUTION_MODES: frozenset[ExecutionMode] = frozenset(
+    {
+        ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+        ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+        ExecutionMode.CACHE_ONLY_NEVER_CALCULATE,
+    }
+)
 
 NATIVE_EVENTS_CLUSTER_QUERY_TYPES = (
     HogQLQuery,
