@@ -2145,6 +2145,14 @@ class TestHogFlowAPI(APIBaseTest):
                 400,
                 "can only use cohort conditions",
             ),
+            (
+                "two_cohorts",
+                "realtime",
+                [{"key": "id", "type": "cohort", "value": 999999, "operator": "in"}],
+                True,
+                400,
+                "can use one cohort",
+            ),
             ("static_cohort", "static", [], True, 400, "is a static cohort"),
         ]
     )

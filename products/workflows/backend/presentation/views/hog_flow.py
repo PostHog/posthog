@@ -2327,7 +2327,7 @@ class HogFlowConversionSerializer(serializers.Serializer):
             "[{key, value, operator, type: event|person|group}, ...]. Event-based goals do NOT go here — "
             "put them in 'events'. Empty array = any event within the window converts. "
             "A realtime cohort goal uses {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'}, "
-            "and then every condition must be a cohort. Not available to every organization yet."
+            "and then it must be the only condition. Not available to every organization yet."
         ),
     )
     events = serializers.ListField(
@@ -3533,8 +3533,9 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
     def _conversion_cohorts_allowed(self, filters: list, instance: Optional[WorkflowEditState], strict: bool) -> bool:
         """
         Whether a conversion goal may read realtime cohort membership. The matcher counts a cohort goal
-        from a membership change, which carries no person properties, so every condition of the goal
-        has to be a cohort. A goal an active flow already stores keeps validating after a flag dial-down.
+        from a membership change, which carries no person properties and no other cohort's state, so the
+        goal has to be one cohort condition. A goal an active flow already stores keeps validating after a
+        flag dial-down.
 
         A web draft is not strict: it gets False, so the goal stays uncompiled until the problem is fixed.
         """
@@ -3543,6 +3544,10 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             error = (
                 "A conversion goal with a cohort can only use cohort conditions. "
                 "Remove the other conditions, or track them with an event goal."
+            )
+        elif len(filters) > 1:
+            error = (
+                "A conversion goal can use one cohort. Remove the other cohorts, or make a cohort that combines them."
             )
         else:
             stored_filters = (

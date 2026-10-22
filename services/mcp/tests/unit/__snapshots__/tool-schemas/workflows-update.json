@@ -88,7 +88,7 @@
                             "type": "array"
                         },
                         "filters": {
-                            "description": "Property-based conversion conditions, as an ARRAY of property filters: [{key, value, operator, type: event|person|group}, ...]. Event-based goals do NOT go here — put them in 'events'. Empty array = any event within the window converts. A realtime cohort goal uses {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'}, and then every condition must be a cohort. Not available to every organization yet.",
+                            "description": "Property-based conversion conditions, as an ARRAY of property filters: [{key, value, operator, type: event|person|group}, ...]. Event-based goals do NOT go here — put them in 'events'. Empty array = any event within the window converts. A realtime cohort goal uses {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'}, and then it must be the only condition. Not available to every organization yet.",
                             "items": {
                                 "additionalProperties": {},
                                 "propertyNames": {
