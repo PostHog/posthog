@@ -319,5 +319,7 @@ class TestNativeActorSourceExecution(APIBaseTest):
         query = ActorsQuery(source=actors.model_copy(update={"source": source}))
         with patch("posthog.hogql.query.sync_execute", return_value=([], [])) as execute:
             get_query_runner(query, self.team).run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS, user=self.user)
-        self.assertIn("events_json", execute.call_args.args[0])
-        self.assertEqual(execute.call_args.kwargs["workload"], Workload.NEW_EVENTS_CLUSTER)
+        self.assertTrue(execute.called)
+        for call in execute.call_args_list:
+            self.assertIn("events_json", call.args[0])
+            self.assertEqual(call.kwargs["workload"], Workload.NEW_EVENTS_CLUSTER)
