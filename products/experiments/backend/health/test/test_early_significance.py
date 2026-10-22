@@ -22,15 +22,16 @@ from products.experiments.backend.health.checks.early_significance import (
     early_significance,
     early_significance_skip,
 )
-from products.experiments.backend.health.context import (
-    HealthContext,
-    PrimaryMetric,
-    StoredMetricResult,
-    StoredVariantResult,
-)
+from products.experiments.backend.health.context import HealthContext, PrimaryMetric
 from products.experiments.backend.health.test.factories import ENDED, RUNNING_CONTEXT
+from products.experiments.backend.logic.result_stats import BaselineStats, Interval, MetricResultStats, VariantStats
 from products.experiments.backend.metric_calculation.config import build_primary_calculation_configs
-from products.experiments.backend.models.experiment import Experiment, ExperimentMetricResult
+from products.experiments.backend.models.experiment import (
+    Experiment,
+    ExperimentMetricResult,
+    ExperimentSavedMetric,
+    ExperimentToSavedMetric,
+)
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
@@ -38,20 +39,32 @@ Status = ExperimentHealthCheckStatus
 NO_QUERIES = ExperimentHealthReaderAccess(
     can_read_flag_history=False, can_query_events=False, denied_event_properties=frozenset()
 )
+FUNNEL = {"kind": "ExperimentMetric", "metric_type": "funnel", "series": [{"kind": "EventsNode", "event": "purchase"}]}
 
 
 def _context(
     variants: list[tuple[str, int, float, bool | None]],
     *,
-    baseline: tuple[int, float] = (1000, 100),
+    baseline: tuple[int, int] = (1000, 100),
     **changes: Any,
 ) -> HealthContext:
-    result = StoredMetricResult(
-        baseline_samples=baseline[0],
-        baseline_sum=baseline[1],
+    control_samples, control_conversions = baseline
+    control_rate = control_conversions / control_samples
+    result = MetricResultStats(
+        method="bayesian",
+        baseline=BaselineStats(key="control", number_of_samples=control_samples, mean=control_rate),
+        # The raw rate equals the control's, so only the analysis interval carries the difference, as under CUPED.
         variants=tuple(
-            StoredVariantResult(key=key, samples=samples, sum=total, significant=significant)
-            for key, samples, total, significant in variants
+            VariantStats(
+                key=key,
+                number_of_samples=samples,
+                mean=control_rate,
+                interval=Interval(low=difference - 0.15, high=difference + 0.15),
+                chance_to_win=None,
+                p_value=None,
+                significant=significant,
+            )
+            for key, samples, difference, significant in variants
         ),
     )
     metric = PrimaryMetric(name="Checkout", is_funnel=True, minimum_detectable_effect=30, result=result)
@@ -59,24 +72,25 @@ def _context(
 
 
 # A 10% control rate on 1,000 users per variant detects differences of about 38% or more.
-SMALL_SIGNIFICANT_LIFT = _context([("test", 1000, 120, True)])
+SMALL_SIGNIFICANT_LIFT = _context([("test", 1000, 0.2, True)])
 
 
 class TestEarlySignificance(TestCase):
     @parameterized.expand(
         [
             ("significant_and_smaller_than_detectable", SMALL_SIGNIFICANT_LIFT, "test"),
-            ("significant_and_larger_than_detectable", _context([("test", 1000, 50, True)]), None),
-            ("not_significant", _context([("test", 1000, 120, False)]), None),
-            ("analysis_stopped", _context([("test", 1000, 120, None)]), None),
+            ("significant_and_larger_than_detectable", _context([("test", 1000, -0.5, True)]), None),
+            ("not_significant", _context([("test", 1000, 0.2, False)]), None),
+            ("analysis_stopped", _context([("test", 1000, 0.2, None)]), None),
+            ("sample_reached_the_plan", _context([("test", 20000, 0.06, True)], baseline=(20000, 2000)), None),
             (
-                "sample_reached_the_plan",
-                _context([("test", 20000, 2120, True)], baseline=(20000, 2000)),
+                "uneven_split_past_the_planned_total",
+                _context([("test", 500, 0.34, True)], baseline=(9000, 900)),
                 None,
             ),
             (
                 "names_the_variant_below_detectable",
-                _context([("large", 1000, 150, True), ("small", 1000, 120, True)]),
+                _context([("large", 1000, 0.5, True), ("small", 1000, 0.2, True)]),
                 "small",
             ),
         ]
@@ -88,7 +102,7 @@ class TestEarlySignificance(TestCase):
 
         self.assertEqual(finding.evidence["variant"] if finding else None, expected_variant)
 
-    def test_states_the_detectable_and_the_planned_sizes(self) -> None:
+    def test_states_the_analysis_difference_and_the_planned_sizes(self) -> None:
         finding = early_significance(SMALL_SIGNIFICANT_LIFT)
 
         assert finding is not None
@@ -126,8 +140,12 @@ class TestEarlySignificance(TestCase):
                 ),
                 Status.NOT_APPLICABLE,
             ),
-            ("under_50_users", _context([("test", 20, 3, True)], baseline=(20, 2)), Status.NOT_APPLICABLE),
-            ("no_control_conversions", _context([("test", 1000, 12, True)], baseline=(1000, 0)), Status.NOT_APPLICABLE),
+            ("under_50_users", _context([("test", 20, 0.2, True)], baseline=(20, 2)), Status.NOT_APPLICABLE),
+            (
+                "no_control_conversions",
+                _context([("test", 1000, 0.2, True)], baseline=(1000, 0)),
+                Status.NOT_APPLICABLE,
+            ),
         ]
     )
     def test_says_why_it_did_not_look(self, _name: str, ctx: HealthContext, expected: Status) -> None:
@@ -140,15 +158,17 @@ class TestEarlySignificance(TestCase):
 class TestEarlySignificanceFromStoredResults(BaseTest):
     @parameterized.expand(
         [
-            ("current_result_and_the_experiments_effect", True, 20, 15, Status.FINDING, 20),
-            ("current_result_and_the_teams_default_effect", True, None, 15, Status.FINDING, 15),
-            ("current_result_and_the_product_default_effect", True, None, None, Status.FINDING, 30),
-            ("result_of_an_earlier_configuration", False, None, None, Status.NOT_APPLICABLE, None),
+            ("inline_metric_and_the_experiments_effect", False, True, 20, 15, Status.FINDING, 20),
+            ("inline_metric_and_the_teams_default_effect", False, True, None, 15, Status.FINDING, 15),
+            ("inline_metric_and_the_product_default_effect", False, True, None, None, Status.FINDING, 30),
+            ("shared_metric", True, True, None, None, Status.FINDING, 30),
+            ("result_of_an_earlier_configuration", False, False, None, None, Status.NOT_APPLICABLE, None),
         ]
     )
     def test_reads_the_primary_metrics_current_result(
         self,
         _name: str,
+        shared: bool,
         under_current_key: bool,
         experiment_effect: int | None,
         team_effect: int | None,
@@ -177,16 +197,16 @@ class TestEarlySignificanceFromStoredResults(BaseTest):
             name="checkout",
             feature_flag=flag,
             start_date=launched_at,
-            metrics=[
-                {
-                    "kind": "ExperimentMetric",
-                    "metric_type": "funnel",
-                    "uuid": "checkout-funnel",
-                    "series": [{"kind": "EventsNode", "event": "purchase"}],
-                }
-            ],
+            metrics=[] if shared else [{**FUNNEL, "uuid": "checkout-funnel"}],
             running_time_calculation={"minimum_detectable_effect": experiment_effect} if experiment_effect else {},
         )
+        if shared:
+            saved_metric = ExperimentSavedMetric.objects.create(
+                team=self.team, name="Checkout funnel", query={**FUNNEL, "uuid": "checkout-funnel"}
+            )
+            ExperimentToSavedMetric.objects.create(
+                experiment=experiment, saved_metric=saved_metric, metadata={"type": "primary"}
+            )
         calculation_key = build_primary_calculation_configs(experiment)[0].calculation_key()
         ExperimentMetricResult.objects.create(
             experiment=experiment,
@@ -199,7 +219,16 @@ class TestEarlySignificanceFromStoredResults(BaseTest):
             result={
                 "baseline": {"key": "control", "number_of_samples": 1000, "sum": 100, "sum_squares": 100},
                 "variant_results": [
-                    {"key": "test", "number_of_samples": 1000, "sum": 120, "sum_squares": 120, "significant": True}
+                    {
+                        "key": "test",
+                        "method": "bayesian",
+                        "number_of_samples": 1000,
+                        "sum": 120,
+                        "sum_squares": 120,
+                        "credible_interval": [0.05, 0.35],
+                        "chance_to_win": 0.98,
+                        "significant": True,
+                    }
                 ],
             },
         )
@@ -215,3 +244,5 @@ class TestEarlySignificanceFromStoredResults(BaseTest):
             (check.status, finding.evidence["minimum_detectable_effect"] if finding else None),
             (expected, expected_effect),
         )
+        if finding:
+            self.assertIn('"Checkout funnel"' if shared else '"purchase conversion"', finding.detail)

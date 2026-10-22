@@ -14,7 +14,7 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFindingCode,
     ExperimentHealthFindingSeverity,
 )
-from products.experiments.backend.health.context import HealthContext, StoredMetricResult, StoredVariantResult
+from products.experiments.backend.health.context import HealthContext
 from products.experiments.backend.health.skips import (
     NOT_AFTER_END,
     NOT_ON_ARCHIVED,
@@ -23,6 +23,7 @@ from products.experiments.backend.health.skips import (
     not_applicable,
     not_checked,
 )
+from products.experiments.backend.logic.result_stats import MetricResultStats, VariantStats
 from products.experiments.backend.running_time_calculator import calculate_detectable_effect, calculate_sample_size
 
 # pinned: sent as `finding_variant` on the health finding events.
@@ -35,7 +36,7 @@ MIN_SAMPLES_FOR_RESULTS = 50
 
 @frozen
 class _Comparison:
-    variant: StoredVariantResult
+    variant: VariantStats
     # Relative to the control, as percentages.
     observed: float
     detectable: float
@@ -60,7 +61,7 @@ def early_significance_skip(ctx: HealthContext) -> CheckSkip | None:
         return not_applicable("Runs once the primary metric has results")
     if _total_samples(metric.result) < MIN_SAMPLES_FOR_RESULTS:
         return not_applicable("Runs once enough users are exposed")
-    if not 0 < _control_rate(metric.result) < 1:
+    if not 0 < (metric.result.baseline.mean or 0) < 1:
         return not_applicable("Runs once the control group's conversion rate is above 0% and below 100%")
     return None
 
@@ -70,14 +71,20 @@ def early_significance(ctx: HealthContext) -> ExperimentHealthFinding | None:
     if early_significance_skip(ctx) is not None or metric is None or metric.result is None:
         return None
     result = metric.result
-    comparisons = _comparisons(result)
-    # When every comparison detects the planned effect, the sample has reached the plan.
-    if not comparisons or max(comparison.detectable for comparison in comparisons) <= metric.minimum_detectable_effect:
+    control_rate = result.baseline.mean or 0
+    samples = _total_samples(result)
+    # The running time estimate counts the variants of the flag.
+    number_of_variants = len(ctx.flag.variants) if ctx.flag and ctx.flag.variants else len(result.variants) + 1
+    planned_samples = calculate_sample_size(
+        "funnel", control_rate, metric.minimum_detectable_effect, number_of_variants
+    )
+    # The running time estimate's "Target reached" compares the same total, so the note and the estimate agree.
+    if planned_samples is None or samples >= planned_samples:
         return None
     below_detectable = [
         comparison
-        for comparison in comparisons
-        if comparison.variant.significant is True and abs(comparison.observed) < comparison.detectable
+        for comparison in _significant_comparisons(result, control_rate)
+        if abs(comparison.observed) < comparison.detectable
     ]
     if not below_detectable:
         return None
@@ -85,31 +92,22 @@ def early_significance(ctx: HealthContext) -> ExperimentHealthFinding | None:
         below_detectable,
         key=lambda comparison: (abs(comparison.observed) / comparison.detectable, comparison.variant.key),
     )
-
-    samples = _total_samples(result)
-    # The running-time estimate counts the variants of the flag.
-    number_of_variants = len(ctx.flag.variants) if ctx.flag and ctx.flag.variants else len(result.variants) + 1
-    planned_samples = calculate_sample_size(
-        "funnel", _control_rate(result), metric.minimum_detectable_effect, number_of_variants
-    )
-    sentences = [
-        f'The variant "{comparison.variant.key}" shows a {comparison.observed:+.0f}% difference on the metric '
-        f'"{metric.name}", which is significant.',
-        f"With {samples:,} users so far, the experiment can reliably detect differences of about "
-        f"{comparison.detectable:.0f}% or more, so this difference may shrink or go away as more users arrive.",
-    ]
-    if planned_samples:
-        sentences += [
-            f"The running time estimate needs about {planned_samples:,} users to detect a "
-            f"{metric.minimum_detectable_effect:g}% difference.",
-            "Wait for that sample before you decide.",
-        ]
     return ExperimentHealthFinding(
         code=ExperimentHealthFindingCode.EARLY_SIGNIFICANCE,
         subcode=BELOW_DETECTABLE_EFFECT,
         severity=ExperimentHealthFindingSeverity.INFO,
         title="Significant result on a small sample",
-        detail=" ".join(sentences),
+        detail=" ".join(
+            [
+                f'The variant "{comparison.variant.key}" shows a {comparison.observed:+.0f}% difference on the metric '
+                f'"{metric.name}", which is significant.',
+                f"With {samples:,} users so far, the experiment can reliably detect differences of about "
+                f"{comparison.detectable:.0f}% or more, so this difference may shrink or go away as more users arrive.",
+                f"The running time estimate needs about {planned_samples:,} users to detect a "
+                f"{metric.minimum_detectable_effect:g}% difference.",
+                "Wait for that sample before you decide.",
+            ]
+        ),
         evidence={
             "variant": comparison.variant.key,
             "observed_effect": round(comparison.observed, 1),
@@ -123,22 +121,21 @@ def early_significance(ctx: HealthContext) -> ExperimentHealthFinding | None:
     )
 
 
-def _comparisons(result: StoredMetricResult) -> list[_Comparison]:
-    control_rate = _control_rate(result)
+def _significant_comparisons(result: MetricResultStats, control_rate: float) -> list[_Comparison]:
     comparisons: list[_Comparison] = []
     for variant in result.variants:
-        detectable = calculate_detectable_effect("funnel", control_rate, result.baseline_samples, variant.samples)
+        if variant.significant is not True or variant.interval is None:
+            continue
+        detectable = calculate_detectable_effect(
+            "funnel", control_rate, result.baseline.number_of_samples, variant.number_of_samples
+        )
         if detectable is not None:
-            rate = variant.sum / variant.samples
+            # The difference the results page shows, from the analysis itself, so CUPED and the Bayesian model apply.
             comparisons.append(
-                _Comparison(variant=variant, observed=100 * (rate / control_rate - 1), detectable=detectable)
+                _Comparison(variant=variant, observed=100 * variant.interval.midpoint, detectable=detectable)
             )
     return comparisons
 
 
-def _total_samples(result: StoredMetricResult) -> int:
-    return result.baseline_samples + sum(variant.samples for variant in result.variants)
-
-
-def _control_rate(result: StoredMetricResult) -> float:
-    return result.baseline_sum / result.baseline_samples if result.baseline_samples > 0 else 0.0
+def _total_samples(result: MetricResultStats) -> int:
+    return result.baseline.number_of_samples + sum(variant.number_of_samples for variant in result.variants)

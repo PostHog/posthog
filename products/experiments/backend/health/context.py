@@ -28,6 +28,7 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
     has_activation_config,
     normalize_to_exposure_criteria,
 )
+from products.experiments.backend.logic.result_stats import MetricResultStats
 from products.experiments.backend.metric_resolution import MetricRole, saved_metric_link_role, saved_metric_links
 from products.experiments.backend.metric_utils import get_default_metric_title
 from products.experiments.backend.metric_validation import defined_event_names, extract_entity_nodes
@@ -198,25 +199,6 @@ class PauseHistory:
 
 
 @frozen
-class StoredVariantResult:
-    key: str
-    samples: int
-    # For a funnel, the users who completed the last step.
-    sum: float
-    # None when validation stopped the analysis of the variant.
-    significant: bool | None
-
-
-@frozen
-class StoredMetricResult:
-    """The current stored result of a metric, the one the results page shows after its last calculation."""
-
-    baseline_samples: int
-    baseline_sum: float
-    variants: tuple[StoredVariantResult, ...]
-
-
-@frozen
 class PrimaryMetric:
     """The experiment's first primary metric, which its running-time estimate sizes, with its stored result."""
 
@@ -224,8 +206,9 @@ class PrimaryMetric:
     is_funnel: bool
     # The relative effect, as a percentage, that the experiment plans to detect.
     minimum_detectable_effect: float
-    # None when no completed result is stored under the metric's current calculation key. Only read for a funnel.
-    result: StoredMetricResult | None
+    # The current stored result, the one the results page shows after its last calculation. None when no completed
+    # result is stored under the metric's current calculation key. Only read for a funnel.
+    result: MetricResultStats | None
 
 
 @frozen

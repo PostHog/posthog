@@ -1,15 +1,12 @@
-from collections.abc import Mapping
-from typing import Any
-
 from posthog.exceptions_capture import capture_exception
 
-from products.experiments.backend.health.context import PrimaryMetric, StoredMetricResult, StoredVariantResult
+from products.experiments.backend.health.context import PrimaryMetric
 from products.experiments.backend.metric_calculation.config import (
     MetricCalculationConfig,
     build_primary_calculation_configs,
     team_experiments_configs,
 )
-from products.experiments.backend.metric_calculation.results import MetricResultStore, ResultSummary
+from products.experiments.backend.metric_calculation.results import MetricResultStore
 from products.experiments.backend.metric_resolution import saved_metric_links
 from products.experiments.backend.metric_utils import get_default_metric_title
 from products.experiments.backend.models.experiment import Experiment
@@ -37,12 +34,11 @@ def _load_primary_metric(experiment: Experiment) -> PrimaryMetric | None:
     if calculation_config is None:
         return None
     is_funnel = calculation_config.definition.get("metric_type") == "funnel"
-    summary = MetricResultStore(experiment_id=experiment.id).current_outcome(calculation_config) if is_funnel else None
     return PrimaryMetric(
         name=_metric_name(experiment, calculation_config),
         is_funnel=is_funnel,
         minimum_detectable_effect=_minimum_detectable_effect(experiment, team_config),
-        result=_stored_result(summary) if summary is not None else None,
+        result=MetricResultStore(experiment_id=experiment.id).current_result(calculation_config) if is_funnel else None,
     )
 
 
@@ -68,46 +64,3 @@ def _minimum_detectable_effect(experiment: Experiment, team_config: TeamExperime
     if isinstance(planned, int | float) and not isinstance(planned, bool) and planned > 0:
         return float(planned)
     return float(team_config.default_minimum_detectable_effect or PRODUCT_DEFAULT_MINIMUM_DETECTABLE_EFFECT)
-
-
-def _stored_result(summary: ResultSummary) -> StoredMetricResult | None:
-    baseline_samples = _number(summary.baseline_samples)
-    baseline_sum = _number(summary.baseline_sum)
-    if baseline_samples is None or baseline_sum is None:
-        return None
-    return StoredMetricResult(
-        baseline_samples=int(baseline_samples),
-        baseline_sum=baseline_sum,
-        variants=tuple(
-            variant for variant in (_stored_variant(row) for row in summary.variant_results) if variant is not None
-        ),
-    )
-
-
-def _stored_variant(row: Mapping[str, Any]) -> StoredVariantResult | None:
-    key = row.get("key")
-    samples = _number(row.get("number_of_samples"))
-    total = _number(row.get("sum"))
-    if not isinstance(key, str) or samples is None or total is None:
-        return None
-    significant = row.get("significant")
-    return StoredVariantResult(
-        key=key,
-        samples=int(samples),
-        sum=total,
-        significant=significant if isinstance(significant, bool) else None,
-    )
-
-
-def _number(value: object) -> float | None:
-    # `ResultSummary` carries the baseline's stored JSON values as text, and the variants' as parsed JSON.
-    if isinstance(value, bool):
-        return None
-    if isinstance(value, int | float):
-        return float(value)
-    if isinstance(value, str):
-        try:
-            return float(value)
-        except ValueError:
-            return None
-    return None
