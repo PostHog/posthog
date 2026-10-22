@@ -257,8 +257,8 @@ export interface ExecToolOptions {
      */
     builtInSkillHint?: BuiltInSkillHint
     /**
-     * The tools a scout run with a picked tool list holds. A catalog tool outside this set is
-     * refused as `tool_not_granted`, so the agent does not search for another way to reach it.
+     * The tools a scout run with a picked tool list holds. A catalog or connected tool outside this
+     * set is refused as `tool_not_granted`, so the agent does not search for another way to reach it.
      */
     heldTools?: ReadonlySet<string>
 }
@@ -1676,7 +1676,7 @@ function findTool(
     flagGatedTools: FlagGatedTool[],
     name: string,
     context: Context | undefined,
-    heldTools: ReadonlySet<string> | undefined
+    isNotGranted: (name: string) => boolean
 ): Tool<ZodObjectAny> {
     const tool = tools.find((t) => t.name === name)
     if (!tool) {
@@ -1695,7 +1695,7 @@ function findTool(
                 'missing_scope'
             )
         }
-        if (heldTools && !heldTools.has(name) && getToolDefinitions()[name] !== undefined) {
+        if (isNotGranted(name)) {
             throw new ExecCommandError(
                 `Tool "${name}" exists, but the owner of this run did not grant it. This refusal is final. Do not retry it, and do not reach the same data or action another way.`,
                 'tool_not_granted'
@@ -1743,6 +1743,7 @@ export function createExecTool(
             }
 
             let gatewayTools: Tool<ZodObjectAny>[] | undefined
+            const withheldGatewayToolNames = new Set<string>()
             /** PostHog's tools plus any third-party tools the caller has connected.
              *  Resolved at most once per command, and only for commands that need a
              *  roster — `learn` never touches the gateway. */
@@ -1758,9 +1759,23 @@ export function createExecTool(
                             !filter?.excludeTools?.includes(tool.name) &&
                             (!(filter?.tools?.length || filter?.features?.length) || filter?.tools?.includes(tool.name))
                     )
+                    const { heldTools } = options
+                    if (heldTools) {
+                        for (const tool of gatewayTools) {
+                            if (!heldTools.has(tool.name)) {
+                                withheldGatewayToolNames.add(tool.name)
+                            }
+                        }
+                        gatewayTools = gatewayTools.filter((tool) => heldTools.has(tool.name))
+                    }
                 }
                 return gatewayTools.length > 0 ? [...allTools, ...gatewayTools] : allTools
             }
+            // Only a name that exists is refused as not granted, so a typo still sends the agent to `search`.
+            const isNotGranted = (name: string): boolean =>
+                options.heldTools !== undefined &&
+                !options.heldTools.has(name) &&
+                (getToolDefinitions()[name] !== undefined || withheldGatewayToolNames.has(name))
 
             switch (verb) {
                 case 'help':
@@ -1906,7 +1921,7 @@ export function createExecTool(
                         flagGatedTools,
                         infoArgs,
                         context,
-                        options.heldTools
+                        isNotGranted
                     )
                     // `io: 'input'` mirrors the advertised `tools/list` schema and the executor's
                     // validation: fields with a Zod `.default()` (e.g. a query `kind` discriminator)
@@ -1958,7 +1973,7 @@ export function createExecTool(
                         flagGatedTools,
                         schemaToolName,
                         context,
-                        options.heldTools
+                        isNotGranted
                     )
                     // See the `info` command: `io: 'input'` keeps this in sync with the advertised
                     // schema and validation, so `.default()` fields aren't shown as required.
@@ -2022,7 +2037,7 @@ export function createExecTool(
                         flagGatedTools,
                         toolName,
                         context,
-                        options.heldTools
+                        isNotGranted
                     )
                     if (options.requireDestructiveConfirmation && tool.annotations.destructiveHint && !confirmed) {
                         throw new ExecCommandError(
