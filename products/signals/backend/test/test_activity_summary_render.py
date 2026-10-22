@@ -453,26 +453,42 @@ def test_build_input_drops_every_unit_for_a_budget_below_the_section_overhead() 
     assert (rendered.text, rendered.units, rendered.drops[Drop.SECTIONS_BUDGET]) == ("", 0, 2)
 
 
-PREVIOUS = {"summary": "Builds the signup funnel.", "focus_areas": [], "products": ["product_analytics"]}
+PREVIOUS = {
+    "profile": "## Funnels\n- Builds the signup funnel.",
+    "headline": "Builds the signup funnel.",
+    "focus_areas": [],
+    "products": ["product_analytics"],
+    "recent_shift": "Moved from flags to funnels.",
+}
+PREVIOUS_BEFORE_PROFILES = {"summary": "Builds the signup funnel.", "focus_areas": [], "products": []}
 
 
-@parameterized.expand([("with a previous summary", PREVIOUS), ("cold start", None)])
+@parameterized.expand(
+    [
+        (
+            "with a previous summary",
+            PREVIOUS,
+            ["## Funnels\\n- Builds the signup funnel.", "Builds the signup funnel."],
+        ),
+        ("with a summary from before profiles", PREVIOUS_BEFORE_PROFILES, ['"headline": "Builds the signup funnel."']),
+        ("cold start", None, ["Previous summary:\nNone"]),
+    ]
+)
 def test_user_message_sends_only_the_rendered_input_and_the_previous_summary(
-    _name: str, previous: dict[str, Any] | None
+    _name: str, previous: dict[str, Any] | None, expected: list[str]
 ) -> None:
     message = user_message("- 2026-10-17 Build a funnel", previous, datetime.date(2026, 10, 18))
     assert message.startswith("Today is 2026-10-18.")
     assert message.endswith("Recent activity:\n- 2026-10-17 Build a funnel")
-    if previous:
-        assert json.dumps(PREVIOUS["summary"]) in message
-    else:
-        assert "Previous summary:\nNone" in message
+    assert all(text in message for text in expected)
+    assert "Moved from flags" not in message
 
 
 def _answer(**overrides: Any) -> str:
     return json.dumps(
         {
-            "summary": "Builds the signup funnel.",
+            "profile": "## Funnels\n- Builds the signup funnel.",
+            "headline": "Builds the signup funnel.",
             "focus_areas": [{"topic": "signup funnel", "strength": "high", "last_seen": "2026-10-17"}],
             "products": ["product_analytics"],
             "recent_shift": "Moved from flags to funnels.",
@@ -493,10 +509,10 @@ def _answer(**overrides: Any) -> str:
         ("a 'None' recent_shift becomes null", _answer(recent_shift="None"), True, {"recent_shift": None}),
         ("a 'null' recent_shift becomes null", _answer(recent_shift=" null "), True, {"recent_shift": None}),
         (
-            "the summary is cut to the word cap",
-            _answer(summary="word " * 80),
+            "a long profile keeps its line breaks and is cut at a word boundary",
+            _answer(profile="## Funnels\n" + "word " * 2000),
             False,
-            {"summary": " ".join(["word"] * 60)},
+            {"profile": "## Funnels\n" + " ".join(["word"] * 1197) + "…"},
         ),
         (
             "at most six focus areas, an unknown strength is low and a bad date is null",
@@ -547,7 +563,8 @@ def test_normalize_summary(_name: str, content: str, had_previous: bool, expecte
         ("empty", None),
         ("not JSON", "Here is the summary: ..."),
         ("not an object", "[1, 2]"),
-        ("no summary", _answer(summary="  ")),
+        ("no profile", _answer(profile="  ")),
+        ("no headline", _answer(headline=None)),
     ]
 )
 def test_normalize_summary_rejects_a_malformed_answer(_name: str, content: str | None) -> None:
@@ -681,3 +698,23 @@ def test_summarize_reports_null_tokens_when_the_response_has_no_usage() -> None:
     )
     assert outcome.summary is not None
     assert (outcome.tokens_in, outcome.tokens_out) == (None, None)
+
+
+def test_summarize_cuts_a_previous_profile_to_a_lowered_limit() -> None:
+    stored_profile = "## Funnels\n" + "Builds the signup funnel. " * 230
+    assert len(stored_profile) > 5000
+    llm = FakeLLM([_answer()])
+
+    summarize(
+        llm,  # type: ignore[arg-type]
+        rendered_input="- a line",
+        previous_summary={**PREVIOUS, "profile": stored_profile},
+        model="gpt-6-luna",
+        as_of=datetime.date(2026, 10, 18),
+        profile_max_chars=500,
+    )
+
+    user_turn = llm.requests[0]["messages"][1]["content"]
+    previous = json.loads(user_turn.split("Previous summary:\n", 1)[1].split("\n\nRecent activity:", 1)[0])
+    assert len(previous["profile"]) <= 500
+    assert previous["profile"].startswith("## Funnels\nBuilds the signup funnel.")
