@@ -438,7 +438,11 @@ export class PiSessionController {
       return;
     }
     const taskRunId = this.taskRunIds.get(taskId);
-    if (!taskRunId) {
+    // Local Pi tasks have local runs too; only a cloud session can be resumed in the cloud.
+    const session = taskRunId
+      ? await this.sessions.get(taskId)?.catch(() => undefined)
+      : undefined;
+    if (!taskRunId || (session && !session.taskRunId)) {
       await this.retry(taskId);
       return;
     }

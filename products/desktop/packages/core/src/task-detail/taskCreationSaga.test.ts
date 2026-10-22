@@ -431,9 +431,15 @@ describe("TaskCreationSaga", () => {
     });
     const createdTask = createTask({ repository: undefined });
     const createTaskRequest = vi.fn().mockResolvedValue(createdTask);
+    const createTaskRun = vi
+      .fn()
+      .mockResolvedValue(createRun({ environment: "local" }));
     const onTaskReady = vi.fn();
     piRunner.create.mockImplementationOnce(() => piSessionCreated);
-    const saga = makeSaga({ createTask: createTaskRequest }, { onTaskReady });
+    const saga = makeSaga(
+      { createTask: createTaskRequest, createTaskRun },
+      { onTaskReady },
+    );
 
     const run = saga.run({
       content: "Draft a launch email",
@@ -460,9 +466,11 @@ describe("TaskCreationSaga", () => {
     expect(createTaskRequest).toHaveBeenCalledWith(
       expect.objectContaining({ runtime: "pi" }),
     );
+    expect(createTaskRun).toHaveBeenCalledWith("task-123");
     expect(piRunner.create).toHaveBeenCalledWith({
       taskContext: {
         taskId: "task-123",
+        taskRunId: "run-123",
         cwd: "/tmp/scratch/task-123",
         customInstructions: "Keep the patch small.",
         additionalDirectories: ["/tmp/shared"],
@@ -486,7 +494,12 @@ describe("TaskCreationSaga", () => {
     mockHost.addFolder.mockResolvedValue({ id: "folder-1", path: "/repo" });
     piRunner.create.mockImplementationOnce(() => piSessionCreated);
     const saga = makeSaga(
-      { createTask: vi.fn().mockResolvedValue(createdTask) },
+      {
+        createTask: vi.fn().mockResolvedValue(createdTask),
+        createTaskRun: vi
+          .fn()
+          .mockResolvedValue(createRun({ environment: "local" })),
+      },
       { onTaskReady },
     );
 

@@ -99,7 +99,11 @@ describe("TaskService.openTask", () => {
       success: true,
     });
     expect(piRunner.resume).toHaveBeenCalledWith({
-      taskContext: { taskId: "task-1", cwd: "/worktrees/task-1" },
+      taskContext: {
+        taskId: "task-1",
+        taskRunId: "run-1",
+        cwd: "/worktrees/task-1",
+      },
     });
   });
 
