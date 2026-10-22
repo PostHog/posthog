@@ -471,8 +471,8 @@ class TestEmail(BaseTest):
                 CUSTOMER_IO_API_KEY="cio-key",
                 POSTHOG_TRANSACTIONAL_EMAIL_API_KEY="phs_test",
                 POSTHOG_HOST="https://us.posthog.com",
-                WORKFLOWS_TRANSACTIONAL_EMAIL_TEMPLATE_IDS={"2fa_enabled": "tmpl-1"},
             ),
+            patch.dict("posthog.email.WORKFLOWS_TEMPLATE_ID_MAP", {"2fa_enabled": "tmpl-1"}),
         ):
             message = EmailMessage(
                 campaign_key="routing_campaign",

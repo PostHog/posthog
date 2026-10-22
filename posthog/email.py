@@ -246,9 +246,7 @@ def _workflows_error_allows_fallback(err: WorkflowsEmailError) -> bool:
 
 def get_workflows_template_id(template_name: str, dest: dict[str, str]) -> str | None:
     """The message template to send this email with through Workflows, or None to send it through Customer.io."""
-    template_id = {**WORKFLOWS_TEMPLATE_ID_MAP, **settings.WORKFLOWS_TRANSACTIONAL_EMAIL_TEMPLATE_IDS}.get(
-        template_name
-    )
+    template_id = WORKFLOWS_TEMPLATE_ID_MAP.get(template_name)
     if not template_id or not settings.POSTHOG_TRANSACTIONAL_EMAIL_API_KEY:
         return None
     try:
