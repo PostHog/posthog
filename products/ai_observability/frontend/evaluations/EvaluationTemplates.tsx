@@ -22,7 +22,7 @@ const POPULAR_TEMPLATE_KEYS = ['relevance', 'cost_latency', 'helpfulness', 'hall
 // Sentiment leads because more teams run sentiment checks than any other kind.
 // The score and category templates complete the first row so people discover those output types.
 // The second row holds the other templates that people most often keep running.
-const RECOMMENDED_TEMPLATE_KEYS = [
+export const RECOMMENDED_TEMPLATE_KEYS = [
     'sentiment',
     'response_quality',
     'task_outcome',
