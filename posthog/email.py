@@ -19,6 +19,7 @@ from django.template.loader import get_template
 from django.utils import timezone
 from django.utils.module_loading import import_string
 
+import urllib3
 import requests
 import structlog
 import css_inline
@@ -32,6 +33,8 @@ from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import sanitize_display_name, sanitize_email_string
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.messaging import MessagingRecord, get_email_hashes
+from posthog.ph_client import ScopedCapture, ph_scoped_capture
+from posthog.utils import get_instance_region
 
 logger = structlog.get_logger(__name__)
 
@@ -237,17 +240,34 @@ class WorkflowsEmailError(Exception):
 def _workflows_error_allows_fallback(err: WorkflowsEmailError) -> bool:
     """Whether Customer.io can send the email without the risk of a duplicate."""
     if err.status_code is None:
-        # A refused connection never reached Workflows, and a client that queued nothing sent nothing. After a
-        # timeout, Workflows can have queued the email.
+        # A connection that was never made and a client that queued nothing sent nothing. Any other network
+        # failure can come after Workflows queued the email.
         return err.code in ("connection_error", "not_queued")
-    # A 409 means an earlier attempt with the same idempotency key is still in flight and can still send.
-    return err.status_code != 409
+    # Redirects and 4xx answers come before anything is queued, apart from 408 and the two idempotency answers:
+    # 409 (an attempt with this key is in flight) and 422 (this key already queued an email). A 5xx can follow a
+    # queued email, because the send API also returns 503 when the workflow service queued it but failed to answer.
+    return 300 <= err.status_code < 500 and err.status_code not in (408, 409, 422)
+
+
+def _never_connected(err: requests.ConnectionError) -> bool:
+    """Whether the request failed before a connection existed, so Workflows cannot have received it."""
+    if isinstance(err, requests.ConnectTimeout):
+        return True
+    reason = err.args[0] if err.args else None
+    if isinstance(reason, urllib3.exceptions.MaxRetryError):
+        reason = reason.reason
+    # A reset after the request went out arrives as a ProtocolError instead.
+    return isinstance(reason, urllib3.exceptions.NewConnectionError)
 
 
 def get_workflows_template_id(template_name: str, dest: dict[str, str]) -> str | None:
     """The message template to send this email with through Workflows, or None to send it through Customer.io."""
     template_id = WORKFLOWS_TEMPLATE_ID_MAP.get(template_name)
     if not template_id or not settings.POSTHOG_TRANSACTIONAL_EMAIL_API_KEY:
+        return None
+    if not settings.POSTHOG_HOST.startswith("https://") and not settings.DEBUG:
+        # The request carries the secret key and the email's contents, such as a password reset link.
+        logger.warning("email_workflows_insecure_host", template_name=template_name)
         return None
     try:
         enabled = posthoganalytics.feature_enabled(
@@ -306,9 +326,11 @@ def _queue_workflows_email(
             json=payload,
             # The caller holds the MessagingRecord row lock for the whole request, so keep it short.
             timeout=10,
+            allow_redirects=False,
         )
     except requests.ConnectionError as err:
-        raise WorkflowsEmailError(str(err), code="connection_error") from err
+        code = "connection_error" if _never_connected(err) else "network_error"
+        raise WorkflowsEmailError(str(err), code=code) from err
     except requests.Timeout as err:
         raise WorkflowsEmailError(str(err), code="timeout") from err
 
@@ -379,9 +401,9 @@ def _send_one_via_customer_io(dest: dict[str, str], template_name: str, properti
     return response.json()
 
 
-def _capture_email_event(dest: dict[str, str], event: str, properties: dict[str, Any]) -> None:
+def _capture_email_event(capture: ScopedCapture, dest: dict[str, str], event: str, properties: dict[str, Any]) -> None:
     try:
-        posthoganalytics.capture(
+        capture(
             distinct_id=dest.get("distinct_id") or dest["raw_email"],
             event=event,
             properties={"recipient_email": dest["raw_email"], **properties},
@@ -390,7 +412,9 @@ def _capture_email_event(dest: dict[str, str], event: str, properties: dict[str,
         logger.warning("email_send_analytics_capture_failed", error=str(analytics_err))
 
 
-def _send_one(dest: dict[str, str], campaign_key: str, template_name: str, properties: dict) -> tuple[str, dict]:
+def _send_one(
+    capture: ScopedCapture, dest: dict[str, str], campaign_key: str, template_name: str, properties: dict
+) -> tuple[str, dict]:
     """Send one email and return the provider that sent it with the provider's response."""
     workflows_template_id = get_workflows_template_id(template_name, dest)
     if workflows_template_id:
@@ -402,6 +426,7 @@ def _send_one(dest: dict[str, str], campaign_key: str, template_name: str, prope
             logger.warning("email_workflows_send_rejected", template_name=template_name, error=str(err))
             EMAIL_WORKFLOWS_FALLBACK_COUNTER.labels(template_name=template_name).inc()
             _capture_email_event(
+                capture,
                 dest,
                 "transactional email workflows rejected",
                 {"template_name": template_name, "campaign_key": campaign_key, "error": str(err)[:500]},
@@ -421,6 +446,14 @@ def _send_via_http(
     if not is_http_email_service_available():
         raise Exception("Missing Customer.io API key")
 
+    # A dedicated client, because the global one may never flush before a Celery worker exits.
+    with ph_scoped_capture(event_region=get_instance_region()) as capture:
+        _send_via_http_batch(capture, to, campaign_key, template_name, properties)
+
+
+def _send_via_http_batch(
+    capture: ScopedCapture, to: list[dict[str, str]], campaign_key: str, template_name: str, properties: dict
+) -> None:
     sent_count = 0
     already_sent_count = 0  # delivered in a prior run — not a failure if the batch later aborts
     dest: dict[str, str] | None = None
@@ -436,7 +469,7 @@ def _send_via_http(
                     already_sent_count += 1
                     continue
 
-                provider, provider_response = _send_one(dest, campaign_key, template_name, properties)
+                provider, provider_response = _send_one(capture, dest, campaign_key, template_name, properties)
 
                 # Mark delivery before any non-essential step so a delivered email is never
                 # recorded as rejected (raise_if_delivery_rejected keys off sent_at). Analytics
@@ -445,6 +478,7 @@ def _send_via_http(
                 record.save()
 
                 _capture_email_event(
+                    capture,
                     dest,
                     "transactional email triggered",
                     {
@@ -461,8 +495,10 @@ def _send_via_http(
     except Exception as err:
         capture_exception(err)  # already logs the traceback via logger.exception
         # The exception carries no template name, so this event is what lets a dashboard count failures per template.
+        retrying = isinstance(err, WorkflowsEmailError)
         if dest:
             _capture_email_event(
+                capture,
                 dest,
                 "transactional email failed",
                 {
@@ -470,11 +506,16 @@ def _send_via_http(
                     "campaign_key": campaign_key,
                     "error_type": type(err).__name__,
                     "error": str(err)[:500],
+                    "retrying": retrying,
                 },
             )
         # Count every recipient that did not get through (the failing one + any not yet attempted),
         # so `failed` shares the per-recipient unit with `sent` instead of registering once per batch.
         EMAIL_SEND_COUNTER.labels(outcome="failed", transport="http").inc(len(to) - already_sent_count - sent_count)
+        if retrying:
+            # Workflows may have queued this email. The Celery retry sends the same idempotency key, so Workflows
+            # returns the queued email instead of sending a second one, and recipients already sent are skipped.
+            raise
 
 
 def _send_via_smtp(

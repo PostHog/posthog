@@ -17,6 +17,7 @@ from django.core.exceptions import ImproperlyConfigured
 from django.test import override_settings
 from django.utils import timezone
 
+import urllib3
 import requests
 from parameterized import parameterized
 from prometheus_client import REGISTRY
@@ -24,6 +25,7 @@ from prometheus_client import REGISTRY
 from posthog.email import (
     CUSTOMER_IO_TEMPLATE_ID_MAP,
     EmailMessage,
+    WorkflowsEmailError,
     _send_email,
     _send_via_http,
     _send_via_smtp,
@@ -303,9 +305,10 @@ class TestEmail(BaseTest):
         after = REGISTRY.get_sample_value("posthog_email_send_total", failed_labels) or 0.0
         self.assertEqual(after - before, 2.0)  # b failed + c never attempted; a succeeded
 
-    @patch("posthoganalytics.capture")
+    @patch("posthog.email.ph_scoped_capture")
     @patch("posthog.email.requests.post")
-    def test_send_via_http_success(self, mock_post, mock_capture) -> None:
+    def test_send_via_http_success(self, mock_post, mock_scoped_capture) -> None:
+        mock_capture = mock_scoped_capture.return_value.__enter__.return_value
         mock_response = MagicMock()
         mock_response.status_code = 200
         mock_response.json.return_value = {"delivery_id": "test_delivery_id", "queued_at": 1604977406}
@@ -413,13 +416,29 @@ class TestEmail(BaseTest):
                 ["transactional email workflows rejected", "transactional email triggered"],
             ),
             ("workflows_in_flight_sends_nothing", True, [409], ["workflows"], None, ["transactional email failed"]),
+            ("workflows_server_error_sends_nothing", True, [503], ["workflows"], None, ["transactional email failed"]),
             (
                 "workflows_unreachable_falls_back",
                 True,
-                [requests.ConnectionError("refused"), 200],
+                [
+                    requests.ConnectionError(
+                        urllib3.exceptions.MaxRetryError(
+                            None, "/", urllib3.exceptions.NewConnectionError(None, "refused")
+                        )
+                    ),
+                    200,
+                ],
                 ["workflows", "customer_io"],
                 "customer_io",
                 ["transactional email workflows rejected", "transactional email triggered"],
+            ),
+            (
+                "workflows_reset_after_send_sends_nothing",
+                True,
+                [requests.ConnectionError(urllib3.exceptions.ProtocolError("Connection aborted."))],
+                ["workflows"],
+                None,
+                ["transactional email failed"],
             ),
             (
                 "workflows_timeout_sends_nothing",
@@ -439,7 +458,7 @@ class TestEmail(BaseTest):
             ),
         ]
     )
-    @patch("posthoganalytics.capture")
+    @patch("posthog.email.ph_scoped_capture")
     @patch("posthog.email.posthoganalytics.feature_enabled")
     @patch("posthog.email.requests.post")
     def test_send_via_http_routes_through_workflows_when_flag_matches(
@@ -452,8 +471,9 @@ class TestEmail(BaseTest):
         expected_events: list[str],
         mock_post: MagicMock,
         mock_feature_enabled: MagicMock,
-        mock_capture: MagicMock,
+        mock_scoped_capture: MagicMock,
     ) -> None:
+        mock_capture = mock_scoped_capture.return_value.__enter__.return_value
         mock_feature_enabled.return_value = flag_enabled
         responses: list[MagicMock | Exception] = []
         for status_code in status_codes:
@@ -482,7 +502,12 @@ class TestEmail(BaseTest):
                 use_http=True,
             )
             message.add_recipient("test@posthog.com", "Test", distinct_id="user-1")
-            message.send(send_async=False)
+            if sent_by is None:
+                # Workflows may have queued the email, so the error reaches Celery, which retries with the same key.
+                with self.assertRaises(WorkflowsEmailError):
+                    message.send(send_async=False, retry=False)
+            else:
+                message.send(send_async=False, retry=False)
 
         providers = [
             "workflows" if call.args[0].startswith("https://us.posthog.com") else "customer_io"
@@ -503,6 +528,7 @@ class TestEmail(BaseTest):
             )
             self.assertEqual(workflows_call.kwargs["headers"]["Authorization"], "Bearer phs_test")
             self.assertIn("Idempotency-Key", workflows_call.kwargs["headers"])
+            self.assertFalse(workflows_call.kwargs["allow_redirects"])
             payload = workflows_call.kwargs["json"]
             self.assertEqual(payload["identifiers"], {"distinct_id": "user-1"})
             # Workflows escapes Liquid output itself, so values must arrive unescaped or they render as &amp;amp;
