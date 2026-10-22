@@ -21345,6 +21345,11 @@
                     "description": "Optional direct external data source id for schema introspection",
                     "type": "string"
                 },
+                "executionTarget": {
+                    "description": "Select the native managed Trino catalog instead of the default PostHog catalog.",
+                    "enum": ["default", "managed_trino"],
+                    "type": "string"
+                },
                 "includeFields": {
                     "description": "When false, skip serializing each table's fields (`fields` comes back empty). Defaults to true.",
                     "type": "boolean"
