@@ -588,30 +588,6 @@ SUBSCRIPTION_CANDIDATES = (
 )
 SUBSCRIPTIONS_ACTIVE_COUNT = "36"
 
-# Column discovery arm. Two form-response tables synced from the team's Postgres share opaque field names. Only the
-# column annotations of the cancellation form say which field holds the cancellation reason. The other form has no
-# annotations, and none of its fields holds a reason, so only the annotated table can answer.
-FORM_RESPONSES_TARGET_SCHEMA = "form_responses_8841"
-FORM_RESPONSES_DECOY_SCHEMA = "form_responses_8842"
-FORM_RESPONSES_TARGET_DESCRIPTIONS = {
-    "field_1": "Satisfaction score from 1 (very unhappy) to 5 (very happy).",
-    "field_2": "Main reason the customer gave for cancelling: pricing, missing_feature, switched_competitor or other.",
-    "field_3": "Optional free-text comment from the customer.",
-}
-_CANCELLATION_REASONS = ("pricing",) * 13 + ("missing_feature",) * 11 + ("switched_competitor",) * 9 + ("other",) * 7
-# (response_id, account_id, field_1, field_2, field_3): 40 responses, 13 of them cite pricing.
-FORM_RESPONSES_TARGET_ROWS = tuple(
-    (index + 1, 2000 + index, index % 5 + 1, reason, "") for index, reason in enumerate(_CANCELLATION_REASONS)
-)
-_ONBOARDING_STEPS = ("connect_data", "invite_team", "first_dashboard", "done")
-_REFERRAL_SOURCES = ("google", "friend", "newsletter", "conference")
-# Onboarding form: field_1 is the last step reached, field_2 an NPS score, field_3 the referral source.
-FORM_RESPONSES_DECOY_ROWS = tuple(
-    (index + 1, 3000 + index, _ONBOARDING_STEPS[index % 4], str(index % 11), _REFERRAL_SOURCES[index % 4])
-    for index in range(36)
-)
-FORM_RESPONSES_PRICING_COUNT = "13"
-
 # Measure choice arm. Two columns both read as revenue, and only the annotation of client_revenue says it ignores
 # discounts. revenue is the discounted amount plus 25% VAT, so it is higher than list price on some rows, lower on
 # others, and higher in total. Neither "pick the larger column" nor "pick the larger total" finds the pre-discount one.

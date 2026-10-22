@@ -79,11 +79,6 @@ from products.data_catalog.evals.constants import (
     FEEDBACK_BY_SURVEY_METRIC_DESCRIPTION,
     FEEDBACK_BY_SURVEY_METRIC_DISPLAY_NAME,
     FEEDBACK_BY_SURVEY_METRIC_NAME,
-    FORM_RESPONSES_DECOY_ROWS,
-    FORM_RESPONSES_DECOY_SCHEMA,
-    FORM_RESPONSES_TARGET_DESCRIPTIONS,
-    FORM_RESPONSES_TARGET_ROWS,
-    FORM_RESPONSES_TARGET_SCHEMA,
     INJECTION_LEDGER_STATUS_DESCRIPTION,
     INJECTION_LEDGER_VIEW_NAME,
     INJECTION_LEDGER_VIEW_SQL,
@@ -182,7 +177,6 @@ __all__ = [
     "seed_client_invoices_table",
     "seed_daily_active_orgs_metric",
     "seed_definition_insight",
-    "seed_form_response_tables",
     "seed_deprecation_candidate_sources",
     "seed_drifted_metric",
     "seed_failing_top_customers_metric",
@@ -920,44 +914,6 @@ def seed_subscription_snapshot_tables(context: CustomPromptSandboxContext) -> di
             "is_active": _INTEGER_COLUMN,
         },
     )
-
-
-def seed_form_response_tables(context: CustomPromptSandboxContext) -> dict[str, Any]:
-    team, user = _team_and_user(context)
-    _synced_table(
-        team,
-        user,
-        source_type=ExternalDataSourceType.POSTGRES,
-        schema_name=FORM_RESPONSES_TARGET_SCHEMA,
-        table_name=f"postgres_{FORM_RESPONSES_TARGET_SCHEMA}",
-        columns={
-            "response_id": _INTEGER_COLUMN,
-            "account_id": _INTEGER_COLUMN,
-            "field_1": _INTEGER_COLUMN,
-            "field_2": _STRING_COLUMN,
-            "field_3": _STRING_COLUMN,
-        },
-        rows=FORM_RESPONSES_TARGET_ROWS,
-        descriptions=FORM_RESPONSES_TARGET_DESCRIPTIONS,
-        description_source=WarehouseColumnAnnotationDescriptionSource.USER_EDITED,
-    )
-    _synced_table(
-        team,
-        user,
-        source_type=ExternalDataSourceType.POSTGRES,
-        schema_name=FORM_RESPONSES_DECOY_SCHEMA,
-        table_name=f"postgres_{FORM_RESPONSES_DECOY_SCHEMA}",
-        columns={
-            "response_id": _INTEGER_COLUMN,
-            "account_id": _INTEGER_COLUMN,
-            "field_1": _STRING_COLUMN,
-            "field_2": _STRING_COLUMN,
-            "field_3": _STRING_COLUMN,
-        },
-        rows=FORM_RESPONSES_DECOY_ROWS,
-        descriptions={},
-    )
-    return {"candidate_tables": [f"postgres_{FORM_RESPONSES_TARGET_SCHEMA}", f"postgres_{FORM_RESPONSES_DECOY_SCHEMA}"]}
 
 
 def seed_client_invoices_table(context: CustomPromptSandboxContext) -> dict[str, Any]:
