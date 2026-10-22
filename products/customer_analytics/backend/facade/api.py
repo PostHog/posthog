@@ -97,7 +97,10 @@ from products.customer_analytics.backend.events import emit_account_tags_added, 
 from products.customer_analytics.backend.facade.contracts import (
     InvalidCustomPropertyOptions as InvalidCustomPropertyOptions,
 )
-from products.customer_analytics.backend.facade.email_matching import schedule_email_thread_link_recalculation
+from products.customer_analytics.backend.facade.email_matching import (
+    schedule_email_thread_link_recalculation,
+    schedule_email_thread_link_recalculation_for_account_properties,
+)
 from products.customer_analytics.backend.facade.enums import (
     AccountPropertyPinKind,
     AccountRelationshipSource,
@@ -126,6 +129,7 @@ from products.customer_analytics.backend.logic.account_filters import (
     parse_email_search,
 )
 from products.customer_analytics.backend.logic.account_logo import resolve_logo_domain
+from products.customer_analytics.backend.logic.account_member_search import get_account_users_organization_id
 from products.customer_analytics.backend.logic.custom_property_definitions import (
     apply_option_side_effects,
     coerce_is_big_number,
@@ -389,6 +393,11 @@ def _resolve_accessible_account(
         return _accounts_queryset(team_id, user_access_control).filter(**lookup).first()
     except (ValidationError, ValueError):
         return None
+
+
+def validate_account_users_access(team: Team, user: "User | None", account_id: str) -> None:
+    """Raise `UserAccessControlError` unless `user` may read the users of this account."""
+    get_account_users_organization_id(team=team, user=user, account_id=account_id)
 
 
 def get_account(
@@ -3795,14 +3804,22 @@ def update_account(
     returns the model, so it must not be called across the product boundary."""
     update_fields: list[str] = []
     matching_expanded = False
+    matching_changed = False
+    external_id_changed = False
+    previous_known_emails: list[str] = []
+    previous_email_domains: list[str] = []
     if not isinstance(name, _Unset):
         account.name = _cap_to_field_length("name", name)
         update_fields.append("name")
     if not isinstance(external_id, _Unset):
-        account.external_id = _cap_to_field_length("external_id", external_id) if external_id is not None else None
+        next_external_id = _cap_to_field_length("external_id", external_id) if external_id is not None else None
+        external_id_changed = next_external_id != account.external_id
+        account.external_id = next_external_id
         update_fields.append("external_id")
     if not isinstance(properties, _Unset):
         previous_properties = account.properties
+        previous_known_emails = previous_properties.known_emails
+        previous_email_domains = previous_properties.email_domains
         validated_properties = _ModelAccountProperties.from_input(properties)
         known_emails_added = set(validated_properties.known_emails) - set(previous_properties.known_emails)
         email_domains_added = set(validated_properties.email_domains) - set(previous_properties.email_domains)
@@ -3827,8 +3844,15 @@ def update_account(
         account.save(update_fields=update_fields)
     if matching_expanded:
         transaction.on_commit(lambda: _enqueue_meeting_rematch(account.team_id, str(account.id)))
-    if "external_id" in update_fields or "_properties" in update_fields:
+    if external_id_changed:
         schedule_email_thread_link_recalculation(account.team_id)
+    elif matching_changed:
+        schedule_email_thread_link_recalculation_for_account_properties(
+            account.team_id,
+            str(account.id),
+            previous_known_emails=previous_known_emails,
+            previous_email_domains=previous_email_domains,
+        )
     return account
 
 

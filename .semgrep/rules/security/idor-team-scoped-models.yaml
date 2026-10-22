@@ -125,6 +125,7 @@ rules:
                               |ContentAutopilotProposal
                               |ContentAutopilotRun
                               |ContentAutopilotSiteProfile
+                              |ConversionRecommendationRun
                               |Conversation
                               |ConversationDelivery
                               |ConversationDeliveryPart
@@ -142,6 +143,7 @@ rules:
                               |CustomPropertyValue
                               |DAG
                               |TodayHighlights
+                              |TodayPulsePins
                               |Dashboard
                               |DashboardTemplate
                               |DashboardWidget
@@ -192,6 +194,7 @@ rules:
                               |ErrorTrackingIssue
                               |ErrorTrackingIssueChange
                               |ErrorTrackingIssueFingerprintV2
+                              |ErrorTrackingIssueSummary
                               |ErrorTrackingRelease
                               |ErrorTrackingRecommendation
                               |ErrorTrackingSettings
@@ -344,6 +347,7 @@ rules:
                               |QuickFilter
                               |QuickFilterContext
                               |ReplayObservation
+                              |ReplayObservationFeedDismissal
                               |ReplayObservationLabel
                               |ReplayObservationMedia
                               |ReplayObservationRequest
@@ -378,6 +382,7 @@ rules:
                               |SessionRecordingPlaylist
                               |SharingConfiguration
                               |SignalEmissionRecord
+                              |SignalFirstReportNotification
                               |SignalReport
                               |SignalReportAction
                               |SignalReportArtefact
@@ -405,6 +410,7 @@ rules:
                               |SignalProjectProfile
                               |SingleSessionSummary
                               |SlackThreadTaskMapping
+                              |SlackThreadJoin
                               |SourceBatch
                               |SourceGroupLease
                               |StreamlitApp
@@ -415,6 +421,7 @@ rules:
                               |PlatformAlertConfiguration
                               |PlatformAlertDeliveryPath
                               |PlatformAlertThread
+                              |AlertDestination
                               |Survey
                               |SurveyResponseArchive
                               |TableCertification
@@ -455,6 +462,8 @@ rules:
                               |TracingView
                               |UploadedMedia
                               |UserInterview
+                              |UserActivitySummaryQueueState
+                              |UserActivitySummaryVersion
                               |UserInterviewTopic
                               |UserRepoPreference
                               |VisionAlertConfiguration
@@ -596,6 +605,7 @@ rules:
                         |ContentAutopilotProposal
                         |ContentAutopilotRun
                         |ContentAutopilotSiteProfile
+                        |ConversionRecommendationRun
                         |Conversation
                         |ConversationDelivery
                         |ConversationDeliveryPart
@@ -613,6 +623,7 @@ rules:
                         |CustomPropertyValue
                         |DAG
                         |TodayHighlights
+                        |TodayPulsePins
                         |Dashboard
                         |DashboardTemplate
                         |DashboardWidget
@@ -663,6 +674,7 @@ rules:
                         |ErrorTrackingIssue
                         |ErrorTrackingIssueChange
                         |ErrorTrackingIssueFingerprintV2
+                        |ErrorTrackingIssueSummary
                         |ErrorTrackingRelease
                         |ErrorTrackingRecommendation
                         |ErrorTrackingSettings
@@ -805,6 +817,7 @@ rules:
                         |QuickFilter
                         |QuickFilterContext
                         |ReplayObservation
+                        |ReplayObservationFeedDismissal
                         |ReplayObservationLabel
                         |ReplayObservationMedia
                         |ReplayObservationRequest
@@ -839,6 +852,7 @@ rules:
                         |SessionRecordingPlaylist
                         |SharingConfiguration
                         |SignalEmissionRecord
+                        |SignalFirstReportNotification
                         |SignalReport
                         |SignalReportAction
                         |SignalReportArtefact
@@ -866,6 +880,7 @@ rules:
                         |SignalProjectProfile
                         |SingleSessionSummary
                         |SlackThreadTaskMapping
+                        |SlackThreadJoin
                         |SourceBatch
                         |SourceGroupLease
                         |StreamlitApp
@@ -876,6 +891,7 @@ rules:
                         |PlatformAlertConfiguration
                         |PlatformAlertDeliveryPath
                         |PlatformAlertThread
+                        |AlertDestination
                         |Survey
                         |SurveyResponseArchive
                         |TableCertification
@@ -915,6 +931,8 @@ rules:
                         |TracingView
                         |UploadedMedia
                         |UserInterview
+                        |UserActivitySummaryQueueState
+                        |UserActivitySummaryVersion
                         |UserInterviewTopic
                         |UserRepoPreference
                         |VisionAlertConfiguration
@@ -1025,6 +1043,7 @@ rules:
                         |ColumnConfiguration
                         |Conversation
                         |ConversationRestoreToken
+                        |ConversionRecommendationRun
                         |CoreEvent
                         |CoreMemory
                         |CustomerJourney
@@ -1176,6 +1195,7 @@ rules:
                         |SessionRecordingViewed
                         |SharingConfiguration
                         |SignalEmissionRecord
+                        |SignalFirstReportNotification
                         |SignalReport
                         |SignalReportArtefact
                         |SignalReportCheck
@@ -1494,7 +1514,6 @@ rules:
                           (?x)(
                               AccountAuditCredential
                               |CommunitySkillVote
-                              |DashboardPrivilege
                               |GitHubInstallRequest
                               |PersonalAPIKey
                               |ScoreDefinitionVersion
@@ -1552,7 +1571,6 @@ rules:
                     (?x)(
                         AccountAuditCredential
                         |CommunitySkillVote
-                        |DashboardPrivilege
                         |GitHubInstallRequest
                         |PersonalAPIKey
                         |ScoreDefinitionVersion
@@ -1649,6 +1667,7 @@ rules:
                               |MCPServerInstallation
                               |Reminder
                               |SessionRecordingViewed
+                              |UserActivitySummary
                               |UserFacetSettings
                               |UserHomeSettings
                               |UserScenePersonalisation
@@ -1722,6 +1741,7 @@ rules:
                         |KernelRuntime
                         |Reminder
                         |SessionRecordingViewed
+                        |UserActivitySummary
                         |UserFacetSettings
                         |UserHomeSettings
                         |UserScenePersonalisation

@@ -3096,6 +3096,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "The transport the MCP client used to connect to the server.",
             "examples": ["stdio", "sse", "streamable-http"],
         },
+        "$mcp_interface": {
+            "label": "MCP interface",
+            "description": "How the agent reached the tool. 'mcp' means an MCP server instrumented with the @posthog/mcp SDK. 'webmcp' means a tool a web page registered through WebMCP, captured by posthog-js in the browser. WebMCP events carry no transport or client properties, and their $mcp_server_name is the page's hostname. Older events omit this property.",
+            "examples": ["mcp", "webmcp"],
+        },
         "$mcp_consumer": {
             "label": "MCP consumer",
             "description": "The upstream surface that initiated the MCP request, supplied via the `x-posthog-mcp-consumer` header. 'posthog-code' is the catch-all every sandbox agent sends, so it covers Signals runs as well as PostHog Desktop; break down by `source` to separate them. 'slack' means it was triggered from Slack.",
@@ -3385,6 +3390,12 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "type": "String",
             "virtual": True,
         },
+        "$virt_mcp_harness": {
+            "label": "MCP harness",
+            "description": "MCP client label resolved from the event's client identity signals. Empty on non-MCP events.",
+            "type": "String",
+            "virtual": True,
+        },
         # LLM analytics — per-modality token counts, per-unit pricing, and per-modality costs.
         # Emitted on $ai_generation / $ai_embedding events and stored as typed columns on the ai_events table.
         "$ai_text_input_tokens": {
@@ -3438,6 +3449,12 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$ai_cache_read_audio_tokens": {
             "label": "AI cache read audio tokens (LLM)",
             "description": "The number of audio tokens read from the prompt cache.",
+            "examples": [16],
+            "type": "Numeric",
+        },
+        "$ai_cache_read_image_tokens": {
+            "label": "AI cache read image tokens (LLM)",
+            "description": "The number of image tokens read from the prompt cache.",
             "examples": [16],
             "type": "Numeric",
         },

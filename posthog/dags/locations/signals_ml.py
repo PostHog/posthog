@@ -14,6 +14,8 @@ if is_inbox_ranking_registered():
             inbox_ranking_nn.inbox_ranking_nn_examples,
             inbox_ranking_nn.inbox_ranking_nn_model_candidate,
             inbox_ranking_nn.inbox_ranking_nn_model_champion,
+            inbox_ranking_nn.inbox_ranking_nn_with_prio_model_candidate,
+            inbox_ranking_nn.inbox_ranking_nn_with_prio_model_champion,
         ],
         jobs=[inbox_ranking_nn.inbox_ranking_nn_training_job],
         schedules=[inbox_ranking_nn.inbox_ranking_nn_training_schedule],

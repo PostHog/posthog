@@ -5,11 +5,10 @@ import { mockFeatureFlags } from '@playwright-utils/mockApi'
 import { PlaywrightWorkspaceSetupResult, expect, test } from '@playwright-utils/workspace-test-base'
 import { Page, Route } from '@playwright/test'
 
-// Flag keys mirror `FEATURE_FLAGS.TASKS` / `FEATURE_FLAGS.TASKS_STREAM_VIA_PROXY` (frontend/src/lib/constants).
+// The flag key mirrors `FEATURE_FLAGS.TASKS` (frontend/src/lib/constants).
 // Inlined as literals rather than imported: pulling `lib/constants` into a Node-run Playwright spec drags its
 // heavy `types.ts` value-import graph into the test bundle. These keys are stable feature-flag wire strings.
 const TASKS_FLAG = 'tasks'
-const TASKS_STREAM_VIA_PROXY_FLAG = 'tasks-stream-via-proxy'
 
 // Fixed UUIDs so the `?runId=` deep link clears `taskDetailSceneLogic`'s `isUUIDLike` guard deterministically.
 const TASK_ID = '0190a000-0000-4000-8000-0000000000a1'
@@ -112,7 +111,8 @@ async function routeTasksApi(page: Page, mock: TasksApiMock): Promise<void> {
     const runsRe = new RegExp(`/tasks/${TASK_ID}/runs/$`)
     const runRe = new RegExp(`/tasks/${TASK_ID}/runs/${RUN_ID}/$`)
     const tokenRe = new RegExp(`/runs/${RUN_ID}/stream_token/$`)
-    const logsRe = new RegExp(`/runs/${RUN_ID}/logs/$`)
+    // A paged read (`.../logs?tail_bytes=...`) has no trailing slash either, like the `stream` action below.
+    const logsRe = new RegExp(`/runs/${RUN_ID}/logs/?$`)
     // The `stream` action URL has no trailing slash (`.../stream?start=latest`), unlike the other
     // resource paths — match it with an optional slash so the route intercepts instead of falling through
     // to the real backend (a fall-through 404s the fake run id and masks the clean-EOF drop under test).
@@ -125,7 +125,7 @@ async function routeTasksApi(page: Page, mock: TasksApiMock): Promise<void> {
     )
     await page.route((url) => runRe.test(url.pathname), fulfillJson(run))
     // No `stream_base_url` ⇒ `resolveStreamTarget` returns null ⇒ streaming stays on the mockable Django
-    // `stream/` route even when the proxy gate (flag or preflight `is_debug`) is on.
+    // `stream/` route.
     await page.route((url) => tokenRe.test(url.pathname), fulfillJson({ token: 'e2e-token', stream_base_url: null }))
     await page.route(
         (url) => logsRe.test(url.pathname),
@@ -216,7 +216,7 @@ test.describe('Task run surface', () => {
 
     test.beforeEach(async ({ page, playwrightSetup }) => {
         await playwrightSetup.login(page, workspace!)
-        await mockFeatureFlags(page, { [TASKS_FLAG]: true, [TASKS_STREAM_VIA_PROXY_FLAG]: false })
+        await mockFeatureFlags(page, { [TASKS_FLAG]: true })
     })
 
     test('terminal replay surfaces the agent error inline', async ({ page }) => {
@@ -371,7 +371,6 @@ test.describe('Task run surface', () => {
             await prepareRunComposer(page)
             await mockFeatureFlags(page, {
                 [TASKS_FLAG]: true,
-                [TASKS_STREAM_VIA_PROXY_FLAG]: false,
                 'phai-sandbox-mode': true,
             })
             await routeTasksApi(page, {

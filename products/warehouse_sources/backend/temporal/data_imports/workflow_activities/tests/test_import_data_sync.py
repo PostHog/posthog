@@ -885,6 +885,31 @@ async def test_transient_delta_maintenance_error_reraised_as_non_reportable():
     logger.aexception.assert_not_awaited()
 
 
+@pytest.mark.asyncio
+async def test_invalid_version_race_reraised_as_non_reportable():
+    # execute_with_conflict_retry (ops.py) already retries this exact race a bounded number of
+    # times; sustained contention (a zombie attempt still committing during a rolling deploy) can
+    # exhaust that budget and let the raw DeltaError escape here. Self-healing on the next Temporal
+    # attempt, same as the maintenance-path race above, so it must not be captured as a bug either.
+    error = deltalake.exceptions.DeltaError("Invalid table version: 124")
+    source = mock.MagicMock(spec=SimpleSource)
+    source.get_non_retryable_errors.return_value = {}
+    source.get_retryable_errors.return_value = set()
+
+    logger = mock.MagicMock()
+    logger.awarning = mock.AsyncMock()
+    logger.aexception = mock.AsyncMock()
+    logger.adebug = mock.AsyncMock()
+
+    with mock.patch.object(module.SourceRegistry, "get_source", return_value=source):
+        with pytest.raises(NonReportableError) as exc_info:
+            await module._handle_import_error(mock.MagicMock(), logger, error)
+
+    assert exc_info.value.__cause__ is error
+    logger.awarning.assert_awaited_once()
+    logger.aexception.assert_not_awaited()
+
+
 @parameterized.expand(
     [
         (
@@ -1745,7 +1770,11 @@ _QUEUED_UP_TO = datetime(2026, 6, 20, 8, 0, 0)
     [
         pytest.param(
             True,
-            {"run_uuid": "wfrun-1-a1", "last_value": "2026-06-21T00:00:00", "resume_value": "2026-06-20T08:00:00"},
+            {
+                "run_uuid": "wfrun-1-a1",
+                "last_value": "2026-06-21T00:00:00",
+                "ordered_resume_value": "2026-06-20T08:00:00",
+            },
             False,
             _QUEUED_UP_TO,
             _QUEUED_UP_TO,
@@ -1754,7 +1783,11 @@ _QUEUED_UP_TO = datetime(2026, 6, 20, 8, 0, 0)
         # The lookback of one hour applies to a run that starts from the stored watermark.
         pytest.param(
             False,
-            {"run_uuid": "wfrun-1-a1", "last_value": "2026-06-21T00:00:00", "resume_value": "2026-06-20T08:00:00"},
+            {
+                "run_uuid": "wfrun-1-a1",
+                "last_value": "2026-06-21T00:00:00",
+                "ordered_resume_value": "2026-06-20T08:00:00",
+            },
             False,
             _STORED_WATERMARK - timedelta(hours=1),
             None,
@@ -1762,7 +1795,11 @@ _QUEUED_UP_TO = datetime(2026, 6, 20, 8, 0, 0)
         ),
         pytest.param(
             True,
-            {"run_uuid": "wfrun-0-a1", "last_value": "2026-06-21T00:00:00", "resume_value": "2026-06-20T08:00:00"},
+            {
+                "run_uuid": "wfrun-0-a1",
+                "last_value": "2026-06-21T00:00:00",
+                "ordered_resume_value": "2026-06-20T08:00:00",
+            },
             False,
             _STORED_WATERMARK - timedelta(hours=1),
             None,
@@ -1778,7 +1815,11 @@ _QUEUED_UP_TO = datetime(2026, 6, 20, 8, 0, 0)
         ),
         pytest.param(
             True,
-            {"run_uuid": "wfrun-1-a1", "last_value": "2026-06-21T00:00:00", "resume_value": "2026-06-20T08:00:00"},
+            {
+                "run_uuid": "wfrun-1-a1",
+                "last_value": "2026-06-21T00:00:00",
+                "ordered_resume_value": "2026-06-20T08:00:00",
+            },
             True,
             None,
             None,

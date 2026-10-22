@@ -6,4 +6,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 
 @config.config
 class AwsAthenaSourceConfig(config.Config):
-    pass
+    aws_access_key_id: str
+    aws_secret_access_key: str
+    aws_region: str
+    database: str
+    aws_session_token: str | None = None
+    workgroup: str | None = None
+    output_location: str | None = None

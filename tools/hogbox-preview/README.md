@@ -82,52 +82,10 @@ placement holds its name for up to an hour), so any reused box name would make
 a placement retry 409 against its own corpse. Leftover boxes are reaped after
 the new box comes up and on teardown.
 
-## Auto-previews & opt-out
+## Running a preview
 
-Frontend PRs get a preview **automatically** — no label needed. A cheap,
-credential-free `decide` job in `hogbox-preview-env.yml` gates every PR event and
-builds a preview when **all** hold:
-
-- the PR is **same-repo** (fork PRs never get one — they'd run fork code with the
-  hogland token in scope),
-- the author is a **human** (bots — `user.type == 'Bot'`, `…[bot]`, and the usual
-  suspects like dependabot/renovate — are skipped),
-- it does **not** carry the **`no-preview`** opt-out label, and
-- it either carries the **`hogbox-preview`** label (manual opt-in, works for **any**
-  paths and on a **draft**) **or** it is **ready** (not draft) and its diff touches
-  the frontend (`frontend/**`, `products/*/frontend/**`, `common/esbuilder/**`).
-
-A draft only previews through the label, so drafts still cost nothing by default.
-Label a draft and it builds right away, then rebuilds on every push like any other
-preview; flipping that draft to ready skips the rebuild, because the box is already
-serving that commit. An unlabeled draft builds on the draft→ready flip as before.
-
-Two labels, two escape hatches: **`hogbox-preview`** forces a preview on a PR that
-wouldn't auto-qualify (a backend-only change you want to click through, or work
-you're still self-reviewing in draft); **`no-preview`** suppresses one on a PR that
-would (and tears down a live one).
-
-Why a `decide` job and not an `on.pull_request.paths` filter: a path filter would
-kill the label-only path for backend PRs, so the trigger stays broad and
-eligibility is decided in a job step. Rapid pushes coalesce via a per-PR
-`concurrency` group on the build job (cancel-in-progress) — a busy PR (p90 ~17
-pushes) rebuilds once for the latest commit, not 17 times. The group is job-level
-and keyed on PR number only, so an unrelated label removal can't cancel an active
-build.
-
-## Reporting & lifecycle
-
-- **PR comment** — a `Hogbox preview` section in the shared `🤖 CI report` comment
-  (`.github/scripts/post-hogbox-preview-section.mjs`), staged
-  building → ready → failed → torn down, with the URL, login, and what's running.
-- **GitHub Deployment** — a `preview-pr-<n>` environment (in_progress → success
-  /failure + URL), so the preview shows in the PR's Deployments UI.
-- **Teardown** — on PR close (`pr-closed.yml`) + on the fast path in
-  `hogbox-preview-env.yml`: removing `hogbox-preview` **or** adding `no-preview`
-  destroys box + pen. A daily stale-sweep (`cleanup-stale`) in
-  `hogbox-preview-cleanup.yml` reaps previews whose PR closed but slipped
-  through — its own workflow because the OIDC mint needs `id-token: write`, which
-  can't live in the reusable `pr-cleanup.yml`.
+No CI workflow builds previews.
+Run the tool by hand against a hogland cluster (see [CLI](#cli)), and destroy the box when you are done.
 
 ## Hibernation & wake (why autos are affordable)
 

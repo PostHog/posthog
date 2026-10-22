@@ -24,6 +24,10 @@ if TYPE_CHECKING:
 COALESCABLE_SYNC_TYPES: frozenset[str] = frozenset({"incremental", "append", "full_refresh"})
 # A full refresh starts over at batch 0 and appends after it, so its runs never share a write.
 CROSS_RUN_SYNC_TYPES: frozenset[str] = frozenset({"incremental", "append"})
+# The loader holds a set decoded in Arrow through the upsert. Deduplication copies the rows only when
+# a key repeats, and the loader frees the set as read before the upsert, so one copy is held.
+_ARROW_COPIES_HELD = 1
+_MB = 1024 * 1024
 
 
 @frozen
@@ -48,6 +52,9 @@ class LoadShape:
     # batches bound for different destinations are written under different configurations and
     # must never share a set, the same as two batches with different primary keys.
     external_destination_ids: tuple[str, ...]
+    # A run's replace scope is applied by its first batch, so batches with different scopes, which
+    # are batches of different runs, never share a write.
+    replace_scope_manifest: str | None = None
 
 
 @frozen
@@ -62,6 +69,8 @@ class CoalesceMember:
     is_resume: bool
     row_count: int
     byte_size: int
+    # Decoded Arrow size the producer recorded. None for a batch queued without it.
+    arrow_bytes: int | None
     shape: LoadShape
 
     @classmethod
@@ -76,6 +85,7 @@ class CoalesceMember:
             is_resume=batch.is_resume,
             row_count=batch.row_count,
             byte_size=batch.byte_size,
+            arrow_bytes=_arrow_bytes(metadata.get("arrow_bytes")),
             shape=LoadShape(
                 sync_type=batch.sync_type,
                 resource_name=batch.resource_name,
@@ -88,6 +98,7 @@ class CoalesceMember:
                 is_first_ever_sync=batch.is_first_ever_sync,
                 cdc_write_mode=metadata.get("cdc_write_mode"),
                 external_destination_ids=_external_ids(metadata.get("external_destination_ids"), batch.destination_ids),
+                replace_scope_manifest=_manifest_path(metadata.get("replace_scope")),
             ),
         )
 
@@ -102,6 +113,8 @@ class CoalesceMember:
             is_resume=signal.is_resume,
             row_count=signal.row_count,
             byte_size=signal.byte_size,
+            # The sink checks only the join rules, which never read a size.
+            arrow_bytes=None,
             shape=LoadShape(
                 sync_type=signal.sync_type,
                 resource_name=signal.resource_name,
@@ -114,25 +127,53 @@ class CoalesceMember:
                 is_first_ever_sync=signal.is_first_ever_sync,
                 cdc_write_mode=signal.cdc_write_mode,
                 external_destination_ids=_external_ids(signal.external_destination_ids, signal.destination_ids),
+                replace_scope_manifest=signal.replace_scope.manifest_path if signal.replace_scope else None,
             ),
         )
 
 
 @frozen
 class CoalesceCaps:
-    """The size a set may grow to. Rows and bytes are the real bounds; the count is a backstop."""
+    """The size a set may grow to. Rows and bytes are the real bounds; the count is a backstop.
+
+    `max_arrow_bytes` bounds the decoded size of a set whose members all recorded it. A set with a
+    member of unknown size, or a pod whose memory slice is unknown, is bounded by `max_bytes` of
+    parquet on disk instead.
+    """
 
     max_batches: int
     max_rows: int
     max_bytes: int
+    max_arrow_bytes: int | None
 
     @classmethod
-    def from_settings(cls) -> CoalesceCaps:
+    def from_settings(cls, slot_budget_mb: float | None) -> CoalesceCaps:
+        """`slot_budget_mb` is the memory slice the governor gives one upsert, or None when unknown."""
         return cls(
             max_batches=settings.DATA_WAREHOUSE_V3_COALESCE_MAX_BATCHES,
             max_rows=settings.DATA_WAREHOUSE_V3_COALESCE_MAX_ROWS,
             max_bytes=settings.DATA_WAREHOUSE_V3_COALESCE_MAX_BYTES,
+            max_arrow_bytes=_arrow_budget(slot_budget_mb),
         )
+
+
+def _arrow_budget(slot_budget_mb: float | None) -> int | None:
+    if slot_budget_mb is None or slot_budget_mb <= 0:
+        return None
+    held_bytes = slot_budget_mb * _MB * settings.DATA_WAREHOUSE_V3_COALESCE_SLOT_SHARE
+    return min(int(held_bytes / _ARROW_COPIES_HELD), settings.DATA_WAREHOUSE_V3_COALESCE_MAX_ARROW_BYTES)
+
+
+def _arrow_bytes(value: object) -> int | None:
+    # The metadata is free-form JSON, so a value of any other shape counts as unknown.
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        return None
+    return value
+
+
+def _manifest_path(raw: object) -> str | None:
+    path = raw.get("manifest_path") if isinstance(raw, dict) else None
+    return path if isinstance(path, str) else None
 
 
 def _key_tuple(keys: Sequence[str] | None) -> tuple[str, ...] | None:
@@ -192,9 +233,13 @@ def extends_set(current: Sequence[CoalesceMember], candidate: CoalesceMember, ca
         return False
     if len(current) >= caps.max_batches:
         return False
-    rows = sum(member.row_count for member in current) + candidate.row_count
-    size = sum(member.byte_size for member in current) + candidate.byte_size
-    return rows <= caps.max_rows and size <= caps.max_bytes
+    members = [*current, candidate]
+    if sum(member.row_count for member in members) > caps.max_rows:
+        return False
+    arrow_sizes = [member.arrow_bytes for member in members if member.arrow_bytes is not None]
+    if caps.max_arrow_bytes is not None and len(arrow_sizes) == len(members):
+        return sum(arrow_sizes) <= caps.max_arrow_bytes
+    return sum(member.byte_size for member in members) <= caps.max_bytes
 
 
 def set_violation(members: Sequence[CoalesceMember]) -> str | None:

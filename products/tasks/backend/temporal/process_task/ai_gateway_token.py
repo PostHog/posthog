@@ -34,6 +34,7 @@ from products.tasks.backend.logic.services.desktop_gateway_token import (
 from products.tasks.backend.logic.services.gateway_model_pin import (
     FREE_TIER_MODELS,
     PRODUCT_ALLOWED_MODELS,
+    gateway_pin,
     model_allowed_by_product_pin,
 )
 from products.tasks.backend.logic.services.run_actor import is_slack_interaction_state
@@ -386,7 +387,7 @@ def mint_scoped_token(
         body["user"] = user
     pin = allowed_models if allowed_models is not None else _PRODUCT_ALLOWED_MODELS.get(ai_product)
     if pin:
-        body["allowed_models"] = pin
+        body["allowed_models"] = gateway_pin(pin)
     if limit_tier:
         body["limit_tier"] = limit_tier
     if capture_mode is not None:

@@ -2,7 +2,7 @@ import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, redu
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import { loaders } from 'kea-loaders'
-import { actionToUrl, router } from 'kea-router'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -10,6 +10,7 @@ import api from 'lib/api'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { AccessControlResponseType, RoleType } from '~/types'
@@ -435,6 +436,15 @@ export const roleAccessControlLogic = kea<roleAccessControlLogicType>([
                     role: values.selectedRoleId ?? undefined,
                 },
             ]
+        },
+    })),
+
+    urlToAction(({ actions, values }) => ({
+        [urls.settings('organization-roles')]: (_, __, hashParams) => {
+            const roleId = hashParams.role ?? null
+            if (roleId !== values.selectedRoleId) {
+                actions.selectRoleId(roleId)
+            }
         },
     })),
 ])

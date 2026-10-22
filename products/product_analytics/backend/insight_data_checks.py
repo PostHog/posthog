@@ -48,6 +48,8 @@ from products.product_analytics.backend.facade.enums import (
 )
 from products.product_analytics.backend.insight_data_check_days import CheckWindow, days_between, newest_days_within
 from products.product_analytics.backend.insight_data_check_results import (
+    CRAWLER_TRAFFIC_TYPES,
+    LOCAL_HOST_PATTERN,
     CheckedEvents,
     CountedEvents,
     InternalEvents,
@@ -55,6 +57,7 @@ from products.product_analytics.backend.insight_data_check_results import (
     SampledEvents,
     Skipped,
     evaluate_data_checks,
+    events_on_checked_days,
     found_no_events,
     not_checked,
     status_of,
@@ -73,14 +76,11 @@ SIZING_SAMPLE_ONE_IN = 1_000
 # A check that takes longer than this is skipped, so it never holds up the insight it sits next to.
 MAX_EXECUTION_SECONDS = 5
 # Backstops for a size estimate that is far too low, such as for an event sent under a few distinct IDs.
-# ClickHouse applies them to each shard separately.
-MAX_BYTES_READ_PER_SHARD = 1_000_000_000
+# ClickHouse applies them to the total across all shards, so this one sits above what a check reads at EVENT_BUDGET.
+MAX_BYTES_READ = 10_000_000_000
 # The sample reads wide columns and sorts them for the repeat window, so it gets a tighter limit.
-MAX_SAMPLE_BYTES_READ_PER_SHARD = 250_000_000
+MAX_SAMPLE_BYTES_READ = 1_000_000_000
 
-LOCAL_HOST_PATTERN = r"(?i)^(localhost|[a-z0-9.-]+\.localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])(:[0-9]+)?$"
-# An event with no user agent has the type "Automation", and server-side SDKs send those, so it is not a crawler.
-CRAWLER_TRAFFIC_TYPES = ("Bot", "AI Agent")
 # A person cannot repeat an action this fast, but an app that sends an event twice does.
 REPEAT_WINDOW_MILLISECONDS = 100
 # A hidden property reads as empty, so the checks cannot run when one of these is hidden.
@@ -102,24 +102,40 @@ _EVENTS_PER_DAY_QUERY = """
     GROUP BY day
 """
 
-# One scan counts both checks, so the internal users check costs little more than the local check alone.
-# HogQL has no topKIf, and topK skips NULL, so each list ranks only the events its check found.
+# HogQL has no topKIf, and topK skips NULL, so the list ranks only the events the check found.
 _COUNTED_EVENTS_QUERY = """
     SELECT
         count() AS events,
-        countIf({is_local_host}) AS local_events,
-        topK(3)(if({is_local_host}, toString(properties.$host), NULL)) AS top_local_hosts,
-        topK(3)(if({is_local_host}, event, NULL)) AS top_local_events,
         countIf(NOT {passes_filter}) AS removed_by_filter,
         countIf({passes_filter} AND {is_team_email}) AS missed_by_filter,
-        topK(3)(if(NOT {passes_filter} OR {is_team_email}, event, NULL)) AS top_internal_events
+        topK(3)(if(NOT {passes_filter} OR {is_team_email}, event, NULL)) AS top_internal_events,
+        uniqIf({email}, {passes_filter} AND {is_team_email}) AS distinct_missed_emails,
+        topK(3)(if({passes_filter} AND {is_team_email}, {email}, NULL)) AS top_missed_emails,
+        groupUniqArrayIf(50)({stored_email}, {passes_filter} AND {is_team_email}) AS missed_emails
+    FROM events
+"""
+
+# The host match goes in WHERE, and ClickHouse moves it to PREWHERE itself when `$host` has its own column.
+# An explicit PREWHERE fails when a hidden property wraps `properties` in the JSONDropKeys UDF, because ClickHouse
+# does not resolve executable UDFs in PREWHERE.
+_LOCAL_EVENTS_QUERY = """
+    SELECT
+        count() AS events,
+        uniqExact(toString(properties.$host)) AS distinct_hosts,
+        topK(3)(toString(properties.$host)) AS top_hosts,
+        topK(3)(event) AS top_events,
+        groupUniqArray(50)(toString(properties.$host)) AS hosts
     FROM events
 """
 
 _IS_LOCAL_HOST = "match(toString(properties.$host), {local_host_pattern})"
 
-# Without persons on events, `person` is an inner join that drops events with no person, so read the event's copy.
-_IS_TEAM_EMAIL = "match(lower(toString(poe.properties.email)), {team_email_pattern})"
+# The suggested rule is a person rule, so the check reads the email from the same person, which is the event's copy
+# or the current person depending on the persons-on-events mode.
+# An `is_not` rule compares case-sensitively, so the suggested rule names each email as it is stored.
+_STORED_EMAIL = "toString(person.properties.email)"
+_EMAIL = "lower({stored_email})"
+_IS_TEAM_EMAIL = "match({email}, {team_email_pattern})"
 
 _SAMPLED_EVENTS_QUERY = """
     SELECT
@@ -192,7 +208,7 @@ class _EventReader:
     database: Database
 
     def rows_within_limits(
-        self, query: ast.SelectQuery, *, query_type: str, max_bytes_read_per_shard: int
+        self, query: ast.SelectQuery, *, query_type: str, max_bytes_read: int
     ) -> list[list[Any]] | Skipped:
         try:
             response = execute_hogql_query(
@@ -202,7 +218,7 @@ class _EventReader:
                 query_type=query_type,
                 modifiers=self.modifiers,
                 context=HogQLContext(team_id=self.team.pk, user=self.user, database=self.database),
-                settings=_query_settings(max_bytes_read_per_shard),
+                settings=_query_settings(max_bytes_read),
             )
         except CHQueryErrorTooManyBytes:
             return Skipped(reason=InsightDataCheckSkipReason.READ_LIMIT)
@@ -213,12 +229,12 @@ class _EventReader:
         return [list(row) for row in response.results or []]
 
 
-def _query_settings(max_bytes_read_per_shard: int) -> HogQLGlobalSettings:
+def _query_settings(max_bytes_read: int) -> HogQLGlobalSettings:
     # Without "throw", a query that reaches a limit can return the events it counted so far as the answer.
     return HogQLGlobalSettings(
         max_execution_time=MAX_EXECUTION_SECONDS,
         timeout_overflow_mode="throw",
-        max_bytes_to_read=max_bytes_read_per_shard,
+        max_bytes_to_read=max_bytes_read,
         read_overflow_mode="throw",
     )
 
@@ -244,7 +260,9 @@ def _filters_on_traffic_type(where: ast.Expr) -> bool:
 
 def _check_modifiers(chart_modifiers: HogQLQueryModifiers, *, keep_project_bot_rules: bool) -> HogQLQueryModifiers:
     # With `debug` on, a failed query returns an error and no rows, which would read as no events.
-    update: dict[str, Any] = {"debug": False}
+    # Without the pushdown, a persons join reads the latest version of every person in the project, however few
+    # events the check reads.
+    update: dict[str, Any] = {"debug": False, "personIdPushdown": True}
     if not keep_project_bot_rules:
         # The bot check uses PostHog's definition of a bot, so a project's own bot rules do not apply.
         update["customBotDefinitions"] = []
@@ -292,6 +310,13 @@ def _top_three(values_by_key: tuple[list[str], list[int]] | None) -> list[str]:
     return [key for key, value in ranked if key and value > 0][:3]
 
 
+def _distinct_keys(values_by_key: tuple[list[str], list[int]] | None) -> int:
+    if not values_by_key:
+        return 0
+    keys, values = values_by_key
+    return sum(1 for key, value in zip(keys, values) if key and value > 0)
+
+
 def _count_events_per_day(
     events: ChartEvents, reader: _EventReader, days: list[date], timezone: ZoneInfo
 ) -> dict[date, int] | Skipped:
@@ -301,9 +326,7 @@ def _count_events_per_day(
         where=ast.And(exprs=[events.sort_key_where, _between_days(events, days[0], days[-1], timezone)]),
         sample=_sample_of(1, SIZING_SAMPLE_ONE_IN),
     )
-    rows = reader.rows_within_limits(
-        query, query_type="insight_data_checks_sizing", max_bytes_read_per_shard=MAX_BYTES_READ_PER_SHARD
-    )
+    rows = reader.rows_within_limits(query, query_type="insight_data_checks_sizing", max_bytes_read=MAX_BYTES_READ)
     if isinstance(rows, Skipped):
         return rows
 
@@ -329,13 +352,19 @@ def _choose_window(events: ChartEvents, reader: _EventReader, timezone: ZoneInfo
 @frozen
 class _InternalUsersMatch:
     passes_filter: ast.Expr
+    email: ast.Expr
+    stored_email: ast.Expr
     is_team_email: ast.Expr
-    # The person fields `passes_filter` reads from the current person join, or None when it needs no join.
+    # The person fields the match reads from the current person join, or None when it needs no join.
     person_fields: frozenset[str] | None = None
+    names_emails: bool = False
 
 
 _NO_INTERNAL_USERS = _InternalUsersMatch(
-    passes_filter=ast.Constant(value=True), is_team_email=ast.Constant(value=False)
+    passes_filter=ast.Constant(value=True),
+    email=ast.Constant(value=None),
+    stored_email=ast.Constant(value=None),
+    is_team_email=ast.Constant(value=False),
 )
 
 
@@ -383,19 +412,27 @@ class _PersonFromLeftJoin(CloningVisitor):
         return super().visit_field(node)
 
 
+def _read_person_keeping_personless_events(
+    events: ChartEvents, expr: ast.Expr
+) -> tuple[ast.Expr, frozenset[str] | None]:
+    # Without persons on events, the person comes from an inner join that drops the events with no person, which
+    # the insight counts. A left join on the same table reads the same person and keeps those events.
+    if events.modifiers.personsOnEventsMode != PersonsOnEventsMode.DISABLED:
+        return expr, None
+    person_from_left_join = _PersonFromLeftJoin()
+    expr = person_from_left_join.visit(expr)
+    if person_from_left_join.person_fields is None:
+        return expr, None
+    return expr, frozenset(person_from_left_join.person_fields)
+
+
 def _passes_internal_users_filter(events: ChartEvents, team: Team) -> tuple[ast.Expr, frozenset[str] | None]:
     # An insight that applies the filter has already dropped the events it removes.
     if events.filters_test_accounts or not team.test_account_filters:
         return ast.Constant(value=True), None
-    project_filter = property_to_expr(team.test_account_filters, team)
-    person_fields: frozenset[str] | None = None
-    # Without persons on events, the person comes from an inner join that drops the events with no person, which
-    # the insight counts. A left join on the same table reads the same person and keeps those events.
-    if events.modifiers.personsOnEventsMode == PersonsOnEventsMode.DISABLED:
-        person_from_left_join = _PersonFromLeftJoin()
-        project_filter = person_from_left_join.visit(project_filter)
-        if person_from_left_join.person_fields is not None:
-            person_fields = frozenset(person_from_left_join.person_fields)
+    project_filter, person_fields = _read_person_keeping_personless_events(
+        events, property_to_expr(team.test_account_filters, team)
+    )
     # The insight's own WHERE drops an event whose filter is NULL, so NULL counts as removed.
     return ast.Call(name="ifNull", args=[project_filter, ast.Constant(value=False)]), person_fields
 
@@ -451,12 +488,22 @@ def _internal_users_match(
         return Skipped(reason=InsightDataCheckSkipReason.HIDDEN_PROPERTY)
 
     team_emails = team_emails_of(reader.team, reader.user, email_access)
-    passes_filter, person_fields = _passes_internal_users_filter(events, reader.team)
+    passes_filter, filter_person_fields = _passes_internal_users_filter(events, reader.team)
+    stored_email, email_person_fields = _read_person_keeping_personless_events(events, parse_expr(_STORED_EMAIL))
+    person_fields: frozenset[str] | None = None
+    if filter_person_fields is not None or email_person_fields is not None:
+        person_fields = (filter_person_fields or frozenset()) | (email_person_fields or frozenset())
+
+    email = parse_expr(_EMAIL, placeholders={"stored_email": stored_email})
     return _InternalUsersMatch(
         passes_filter=passes_filter,
         person_fields=person_fields,
+        names_emails=email_access.person_emails,
+        email=email,
+        stored_email=stored_email,
         is_team_email=parse_expr(
-            _IS_TEAM_EMAIL, placeholders={"team_email_pattern": ast.Constant(value=team_email_pattern(team_emails))}
+            _IS_TEAM_EMAIL,
+            placeholders={"email": email, "team_email_pattern": ast.Constant(value=team_email_pattern(team_emails))},
         ),
     )
 
@@ -468,36 +515,74 @@ def _count_every_event(
     query = events.select(
         _COUNTED_EVENTS_QUERY,
         where=where,
-        is_local_host=parse_expr(
-            _IS_LOCAL_HOST, placeholders={"local_host_pattern": ast.Constant(value=LOCAL_HOST_PATTERN)}
-        ),
         passes_filter=match.passes_filter,
+        email=match.email,
+        stored_email=match.stored_email,
         is_team_email=match.is_team_email,
     )
     if match.person_fields is not None:
         cast(ast.JoinExpr, query.select_from).next_join = _current_person_join(events, where, match.person_fields)
-    rows = reader.rows_within_limits(
-        query, query_type="insight_data_checks_counted", max_bytes_read_per_shard=MAX_BYTES_READ_PER_SHARD
-    )
+    rows = reader.rows_within_limits(query, query_type="insight_data_checks_counted", max_bytes_read=MAX_BYTES_READ)
     if isinstance(rows, Skipped):
         return rows
 
-    row: list[Any] = rows[0] if rows else [0, 0, [], [], 0, 0, []]
-    count, local_count, top_local_hosts, top_local_events, removed, missed, top_internal_events = row
+    row: list[Any] = rows[0] if rows else [0, 0, 0, [], 0, [], []]
+    count, removed, missed, top_internal_events, distinct_missed_emails, top_missed_emails, missed_emails = row
     internal: InternalEvents | Skipped
     if isinstance(internal_users, Skipped):
         internal = internal_users
     else:
         internal = InternalEvents(
-            removed_by_filter=int(removed or 0), missed_by_filter=int(missed or 0), top_events=list(top_internal_events)
+            removed_by_filter=int(removed or 0),
+            missed_by_filter=int(missed or 0),
+            top_events=list(top_internal_events),
+            distinct_missed_emails=int(distinct_missed_emails or 0),
+            top_missed_emails=list(top_missed_emails) if internal_users.names_emails else [],
+            missed_emails=[email for email in missed_emails if email] if internal_users.names_emails else [],
         )
-    return CountedEvents(
-        events=int(count or 0),
-        local=LocalEvents(
-            count=int(local_count or 0), top_hosts=list(top_local_hosts), top_events=list(top_local_events)
-        ),
-        internal=internal,
+    return CountedEvents(events=int(count or 0), internal=internal)
+
+
+def _count_local_events_the_filter_keeps(
+    events: ChartEvents,
+    reader: _EventReader,
+    where: ast.Expr,
+    passes_filter: ast.Expr,
+    person_fields: frozenset[str] | None,
+) -> LocalEvents | Skipped:
+    is_local_host = parse_expr(
+        _IS_LOCAL_HOST, placeholders={"local_host_pattern": ast.Constant(value=LOCAL_HOST_PATTERN)}
     )
+    query = events.select(
+        _LOCAL_EVENTS_QUERY,
+        where=ast.And(exprs=[clone_expr(is_local_host), where, passes_filter]),
+    )
+    if person_fields is not None:
+        local_events = ast.And(exprs=[clone_expr(where), clone_expr(is_local_host)])
+        cast(ast.JoinExpr, query.select_from).next_join = _current_person_join(events, local_events, person_fields)
+    rows = reader.rows_within_limits(query, query_type="insight_data_checks_local", max_bytes_read=MAX_BYTES_READ)
+    if isinstance(rows, Skipped):
+        return rows
+
+    row: list[Any] = rows[0] if rows else [0, 0, [], [], []]
+    count, distinct_hosts, top_hosts, top_events, hosts = row
+    return LocalEvents(
+        count=int(count or 0),
+        distinct_hosts=int(distinct_hosts or 0),
+        top_hosts=list(top_hosts),
+        top_events=list(top_events),
+        hosts=list(hosts),
+    )
+
+
+def _count_local_events(events: ChartEvents, reader: _EventReader, where: ast.Expr) -> LocalEvents | Skipped:
+    try:
+        passes_filter, person_fields = _passes_internal_users_filter(events, reader.team)
+        return _count_local_events_the_filter_keeps(events, reader, where, passes_filter, person_fields)
+    except (ExposedHogQLError, ResolutionError, ExposedCHQueryError) as error:
+        # The internal users check reports the broken filter, so this check counts every local event.
+        capture_exception(error)
+        return _count_local_events_the_filter_keeps(events, reader, where, ast.Constant(value=True), None)
 
 
 def _count_events_on_checked_days(
@@ -539,7 +624,7 @@ def _sample_events(
     rows = reader.rows_within_limits(
         cast(ast.SelectQuery, query),
         query_type="insight_data_checks_sample",
-        max_bytes_read_per_shard=MAX_SAMPLE_BYTES_READ_PER_SHARD,
+        max_bytes_read=MAX_SAMPLE_BYTES_READ,
     )
     if isinstance(rows, Skipped):
         return rows
@@ -551,6 +636,7 @@ def _sample_events(
         events=int(sampled or 0),
         distinct_ids=int(distinct_ids or 0),
         bot_events=int(bot_events or 0),
+        distinct_bots=_distinct_keys(by_bot),
         top_bots=_top_three(by_bot),
         top_bot_events=_top_three(bots_by_event),
         repeated_events=int(repeated_events or 0),
@@ -577,22 +663,15 @@ def _read_checked_days(
         counted = _count_events_on_checked_days(
             events, reader, where, email_access=email_access, hidden_properties=hidden_properties
         )
+    local = _count_local_events(events, reader, where)
     sample = _sample_events(events, reader, where, events_before_filters=window.events_on_days_to_check)
-    return CheckedEvents(counted=counted, sample=sample, insight_filters_traffic_type=filters_traffic_type)
+    return CheckedEvents(counted=counted, local=local, sample=sample, insight_filters_traffic_type=filters_traffic_type)
 
 
 def _sample_summary(sample: SampledEvents | Skipped) -> InsightDataChecksSample | None:
     if isinstance(sample, Skipped):
         return None
     return InsightDataChecksSample(rate=sample.rate, events=sample.events, distinct_ids=sample.distinct_ids)
-
-
-def _events_checked(checked: CheckedEvents) -> int | None:
-    if isinstance(checked.counted, CountedEvents):
-        return checked.counted.events
-    if isinstance(checked.sample, SampledEvents):
-        return round(checked.sample.events / checked.sample.rate)
-    return None
 
 
 def _coverage(events: ChartEvents, window: CheckWindow, checked: CheckedEvents) -> InsightDataChecksCoverage:
@@ -604,7 +683,7 @@ def _coverage(events: ChartEvents, window: CheckWindow, checked: CheckedEvents) 
         checked_date_to=window.days_to_check[-1],
         days_checked=len(window.days_to_check),
         filters_test_accounts=events.filters_test_accounts,
-        events_checked=_events_checked(checked),
+        events_checked=events_on_checked_days(checked),
         sample=_sample_summary(checked.sample),
     )
 

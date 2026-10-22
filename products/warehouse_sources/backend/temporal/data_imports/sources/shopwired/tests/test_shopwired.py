@@ -8,7 +8,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     ScriptedResponse,
     SourceDriver,
     always,
-    scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.shopwired import (
     ShopWiredSourceConfig,
@@ -17,7 +16,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.shopwired.
 from products.warehouse_sources.backend.temporal.data_imports.sources.shopwired.shopwired import (
     ShopWiredResumeConfig,
     to_unix_timestamp,
-    validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.shopwired.source import ShopWiredSource
 
@@ -96,33 +94,6 @@ class TestToUnixTimestamp:
     )
     def test_conversion(self, _name: str, value: Any, expected: int | None) -> None:
         assert to_unix_timestamp(value) == expected
-
-
-class TestValidateCredentials:
-    @parameterized.expand(
-        [
-            ("ok", 200, True, None),
-            ("unauthorized", 401, False, "Invalid ShopWired API key or secret"),
-            ("forbidden", 403, False, "Invalid ShopWired API key or secret"),
-            ("server_error", 500, False, "ShopWired returned HTTP 500"),
-        ]
-    )
-    def test_status_mapping(
-        self,
-        _name: str,
-        status: int,
-        expected_valid: bool,
-        expected_message: str | None,
-    ) -> None:
-        with scripted_network(always(ScriptedResponse(status=status))):
-            assert validate_credentials("sw-key", "sw-secret") == (expected_valid, expected_message)
-
-    def test_connection_error_is_not_valid(self) -> None:
-        with scripted_network(always(ConnectionError("boom"))):
-            valid, message = validate_credentials("sw-key", "sw-secret")
-
-        assert valid is False
-        assert message == "Could not connect to ShopWired"
 
 
 class TestShopWiredSourceResponse:

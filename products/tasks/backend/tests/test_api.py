@@ -3570,8 +3570,7 @@ class TestTaskAPI(BaseTaskAPITest):
 
         report = SignalReport.objects.create(team=self.team)
         # Free-form labels share the discussion bucket — otherwise a made-up label resets the cap.
-        labels = ["discussion", "brainstorm", "discussion"]
-        self.assertEqual(len(labels), MAX_DISCUSSION_TASKS_PER_REPORT)
+        labels = [("discussion", "brainstorm")[index % 2] for index in range(MAX_DISCUSSION_TASKS_PER_REPORT)]
         for label in labels:
             self.assertEqual(self._post_signal_report_task(report.id, label).status_code, status.HTTP_201_CREATED)
 
@@ -7283,16 +7282,6 @@ class TestTaskRunAPI(BaseTaskAPITest):
         )
         return task, run
 
-    def _set_wizard_pr_ready_email_flag(self, enabled: bool) -> None:
-        def check_flag(flag_name, *_args, **_kwargs):
-            if flag_name == "tasks":
-                return True
-            if flag_name == tasks_facade.WIZARD_PR_READY_EMAIL_FEATURE_FLAG:
-                return enabled
-            return False
-
-        self.mock_feature_flag.side_effect = check_flag
-
     def test_list_runs_with_malformed_task_id_returns_404(self):
         # A non-UUID task id in the URL must 404, not 500 through the UUIDField filter.
         response = self.client.get("/api/projects/@current/tasks/not-a-uuid/runs/")
@@ -7486,7 +7475,6 @@ class TestTaskRunAPI(BaseTaskAPITest):
         _mock_emit_progress_event: MagicMock,
         _mock_post_slack_update_for_pr: MagicMock,
     ) -> None:
-        self._set_wizard_pr_ready_email_flag(True)
         task, run = self._create_run_for_origin(Task.OriginProduct.ONBOARDING)
         pr_url = "https://github.com/posthog/posthog-js/pull/1"
 
@@ -7515,34 +7503,6 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         mock_send_wizard_pr_ready_email.assert_called_once_with(str(run.id))
 
-    @patch("products.tasks.backend.facade.api._post_slack_update_for_pr")
-    @patch("products.tasks.backend.models.TaskRun.emit_progress_event")
-    @patch("products.tasks.backend.models.TaskRun.publish_stream_state_event")
-    @patch("posthog.tasks.email.send_wizard_pr_ready_email.delay")
-    def test_onboarding_pr_url_does_not_enqueue_pr_ready_email_when_flag_disabled(
-        self,
-        mock_send_wizard_pr_ready_email: MagicMock,
-        _mock_publish_stream_state_event: MagicMock,
-        _mock_emit_progress_event: MagicMock,
-        _mock_post_slack_update_for_pr: MagicMock,
-    ) -> None:
-        self._set_wizard_pr_ready_email_flag(False)
-        task, run = self._create_run_for_origin(Task.OriginProduct.ONBOARDING)
-
-        with self.captureOnCommitCallbacks(execute=True):
-            response = self.client.patch(
-                f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/",
-                {"output": {"pr_url": "https://github.com/posthog/posthog-js/pull/1"}},
-                format="json",
-            )
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        mock_send_wizard_pr_ready_email.assert_not_called()
-        task.refresh_from_db()
-        task_state = task.state or {}
-        self.assertNotIn("pr_ready_email_queued_at", task_state)
-        self.assertNotIn("pr_ready_email_sent_at", task_state)
-
     @parameterized.expand(
         [
             ("wrong_host", "https://example.com/posthog/posthog-js/pull/1"),
@@ -7564,7 +7524,6 @@ class TestTaskRunAPI(BaseTaskAPITest):
         _mock_emit_progress_event: MagicMock,
         _mock_post_slack_update_for_pr: MagicMock,
     ) -> None:
-        self._set_wizard_pr_ready_email_flag(True)
         task, run = self._create_run_for_origin(Task.OriginProduct.ONBOARDING)
 
         with self.captureOnCommitCallbacks(execute=True):
@@ -7619,7 +7578,6 @@ class TestTaskRunAPI(BaseTaskAPITest):
         _mock_publish_stream_state_event: MagicMock,
         _mock_post_slack_update_for_pr: MagicMock,
     ) -> None:
-        self._set_wizard_pr_ready_email_flag(True)
         task, run = self._create_run_for_origin(Task.OriginProduct.ONBOARDING)
         pr_url = "https://github.com/posthog/posthog-js/pull/1"
 
@@ -7709,9 +7667,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                 "sandbox_template": "default_base",
                 "agent_otel_telemetry_enabled": False,
                 "sandbox_event_ingest_enabled": False,
-                "agent_proxy_keep_stream_open": False,
                 "overlap_clone_boot_enabled": False,
-                "use_modal_network_allowlist": True,
                 "stream_presence_gated": True,
                 "stream_thin_tail": True,
                 "snapshot_external_id": "im-real",
@@ -7792,9 +7748,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "sandbox_template": "vm_base",
                     "agent_otel_telemetry_enabled": True,
                     "sandbox_event_ingest_enabled": True,
-                    "agent_proxy_keep_stream_open": True,
                     "overlap_clone_boot_enabled": True,
-                    "use_modal_network_allowlist": False,
                     "stream_presence_gated": False,
                     "stream_thin_tail": False,
                     "snapshot_external_id": "im-attacker",
@@ -7876,9 +7830,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["sandbox_template"] == "default_base"
         assert run.state["agent_otel_telemetry_enabled"] is False
         assert run.state["sandbox_event_ingest_enabled"] is False
-        assert run.state["agent_proxy_keep_stream_open"] is False
         assert run.state["overlap_clone_boot_enabled"] is False
-        assert run.state["use_modal_network_allowlist"] is True
         assert run.state["stream_presence_gated"] is True
         assert run.state["stream_thin_tail"] is True
         assert run.state["snapshot_external_id"] == "im-real"
@@ -7946,9 +7898,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "github_credential_source",
                     "loop_id",
                     "agent_otel_telemetry_enabled",
-                    "agent_proxy_keep_stream_open",
                     "overlap_clone_boot_enabled",
-                    "use_modal_network_allowlist",
                     "stream_presence_gated",
                     "stream_thin_tail",
                     "sandbox_id",
@@ -8000,9 +7950,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["loop_id"] == "server-loop-id"
         assert run.state["include_live_context"] is False
         assert run.state["agent_otel_telemetry_enabled"] is False  # protected key survives removal
-        assert run.state["agent_proxy_keep_stream_open"] is False
         assert run.state["overlap_clone_boot_enabled"] is False
-        assert run.state["use_modal_network_allowlist"] is True
         assert run.state["stream_presence_gated"] is True  # protected key survives removal
         assert run.state["stream_thin_tail"] is True  # protected key survives removal
         assert run.state["sandbox_id"] == "sb-real"  # protected key survives removal
@@ -11252,6 +11200,77 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
     @parameterized.expand(
         [
+            ("latest_turn_across_the_chain", "?tail_bytes=1", status.HTTP_200_OK, ("2", "3", "1"), ["latest"]),
+            ("older_page_before_an_offset", "?tail_bytes=1&before=2", status.HTTP_200_OK, ("0", "3", "0"), ["older"]),
+            ("before_needs_tail_bytes", "?before=2", status.HTTP_400_BAD_REQUEST, None, None),
+            ("entries_after_a_start_index", "?tail_bytes=1&start=2", status.HTTP_200_OK, ("2", "3", "0"), ["latest"]),
+            ("start_needs_tail_bytes", "?start=2", status.HTTP_400_BAD_REQUEST, None, None),
+        ]
+    )
+    @patch("posthog.storage.object_storage.read")
+    def test_logs_endpoint_pages_through_the_resume_chain(
+        self,
+        _name: str,
+        query: str,
+        expected_status: int,
+        expected_headers: tuple[str, str, str] | None,
+        expected_turns: list[str] | None,
+        mock_read,
+    ):
+        task = self.create_task()
+        ancestor = TaskRun.objects.create(task=task, team=self.team)
+        target = TaskRun.objects.create(task=task, team=self.team, state={"resume_from_run_id": str(ancestor.id)})
+
+        def user_turn(text: str) -> str:
+            update = {"sessionUpdate": "user_message_chunk", "content": {"type": "text", "text": text}}
+            return json.dumps({"notification": {"method": "session/update", "params": {"update": update}}})
+
+        run_started = json.dumps({"notification": {"method": "_posthog/run_started", "params": {"runId": "r"}}})
+        logs = {ancestor.log_url: f"{user_turn('older')}\n{run_started}\n", target.log_url: f"{user_turn('latest')}\n"}
+        mock_read.side_effect = lambda path, missing_ok=False: logs.get(path)
+
+        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{target.id}/logs/{query}")
+
+        self.assertEqual(response.status_code, expected_status)
+        if expected_headers is not None:
+            self.assertEqual(
+                (response["X-Log-Offset"], response["X-Log-Count"], response["X-Log-Preamble"]), expected_headers
+            )
+            self.assertEqual(response["X-Log-Origin"], str(ancestor.id))
+            self.assertIn("X-Log-Origin", response["Access-Control-Expose-Headers"])
+            lines = [json.loads(line) for line in response.content.decode("utf-8").splitlines()]
+            turns = [
+                line["notification"]["params"]["update"]["content"]["text"]
+                for line in lines
+                if line["notification"]["method"] == "session/update"
+            ]
+            self.assertEqual(turns, expected_turns)
+
+    @parameterized.expand(
+        [
+            ("live_gated_run_is_marked", TaskRun.Status.IN_PROGRESS, True, True),
+            ("finished_gated_run_is_not_marked", TaskRun.Status.COMPLETED, True, False),
+            ("live_ungated_run_is_not_marked", TaskRun.Status.IN_PROGRESS, False, False),
+        ]
+    )
+    @patch("posthog.storage.object_storage.read")
+    def test_logs_endpoint_marks_live_gated_stream_watched(
+        self, _name: str, run_status: str, gated: bool, expected_watched: bool, mock_read
+    ):
+        task = self.create_task()
+        run = TaskRun.objects.create(
+            task=task, team=self.team, status=run_status, state={"stream_presence_gated": gated}
+        )
+        mock_read.side_effect = lambda path, missing_ok=False: '{"line":"x"}\n' if path == run.log_url else None
+
+        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/logs/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        watched_key = get_task_run_stream_watched_key(get_task_run_stream_key(str(run.id)))
+        self.assertEqual(bool(get_tasks_stream_redis_sync(False).exists(watched_key)), expected_watched)
+
+    @parameterized.expand(
+        [
             ("earlier_run_in_session", "same", -1, ["earlier", "target"]),
             ("run_in_another_session", "other", -1, ["target"]),
             ("later_run_in_session", "same", 1, ["target"]),
@@ -11426,21 +11445,23 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertNotIn("user_id", decoded)
         self.assertIn("exp", decoded)
 
+    @parameterized.expand([("acp", Task.Runtime.ACP), ("pi", Task.Runtime.PI)])
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
-    def test_stream_token_returns_proxy_url_when_configured_and_flag_enabled(self):
+    def test_stream_token_returns_proxy_url_when_configured(self, _name, runtime):
         reset_sandbox_jwt_key_cache()
 
-        task = self.create_task()
+        task = self.create_task(runtime=runtime)
         run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
 
         with (
             self.settings(TASKS_AGENT_PROXY_PUBLIC_URL="https://agent-proxy.example.com", DEBUG=False),
-            patch("products.tasks.backend.facade.api.posthoganalytics.feature_enabled", return_value=True),
+            patch("products.tasks.backend.presentation.views.api.observe_stream_token_routed") as observe_routed,
         ):
             response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/stream_token/")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["stream_base_url"], "https://agent-proxy.example.com")
+        observe_routed.assert_called_once_with(task.origin_product, "proxy", False)
 
     @parameterized.expand(
         [
@@ -11461,7 +11482,6 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
         with (
             self.settings(TASKS_AGENT_PROXY_PUBLIC_URL="https://agent-proxy.example.com", DEBUG=False),
-            patch("products.tasks.backend.facade.api.posthoganalytics.feature_enabled", return_value=True),
             patch("products.tasks.backend.presentation.views.api.observe_stream_token_routed") as observe_routed,
         ):
             response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/stream_token/{query}")
@@ -11469,93 +11489,6 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["stream_base_url"], expected_base_url)
         observe_routed.assert_called_once_with(task.origin_product, expected_route, expected_resync_requested)
-
-    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
-    def test_stream_token_omits_proxy_url_when_flag_disabled(self):
-        reset_sandbox_jwt_key_cache()
-
-        task = self.create_task()
-        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
-
-        # Disable only the stream-via-proxy flag; leave other flags at their real values so the
-        # request's own access checks still pass.
-        def flag_enabled(key, *args, **kwargs):
-            return key != "tasks-stream-via-proxy"
-
-        with (
-            self.settings(TASKS_AGENT_PROXY_PUBLIC_URL="https://agent-proxy.example.com", DEBUG=False),
-            patch(
-                "products.tasks.backend.facade.api.posthoganalytics.feature_enabled",
-                side_effect=flag_enabled,
-            ),
-            patch("products.tasks.backend.presentation.views.api.observe_stream_token_routed") as observe_routed,
-        ):
-            response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/stream_token/")
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIsNone(response.json()["stream_base_url"])
-        observe_routed.assert_called_once_with(task.origin_product, "django", False)
-
-    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
-    def test_stream_token_returns_proxy_url_for_pi_when_flag_disabled(self):
-        reset_sandbox_jwt_key_cache()
-
-        task = self.create_task(runtime=Task.Runtime.PI)
-        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
-
-        def flag_enabled(key, *args, **kwargs):
-            return key != "tasks-stream-via-proxy"
-
-        with (
-            self.settings(TASKS_AGENT_PROXY_PUBLIC_URL="https://agent-proxy.example.com", DEBUG=False),
-            patch(
-                "products.tasks.backend.facade.api.posthoganalytics.feature_enabled",
-                side_effect=flag_enabled,
-            ),
-        ):
-            response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/stream_token/")
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["stream_base_url"], "https://agent-proxy.example.com")
-
-    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
-    def test_stream_token_returns_proxy_url_in_debug_without_flag(self):
-        # Local dev (DEBUG) disables the analytics SDK, so the URL setting alone opts in.
-        reset_sandbox_jwt_key_cache()
-
-        task = self.create_task()
-        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
-
-        with self.settings(TASKS_AGENT_PROXY_PUBLIC_URL="http://localhost:8003", DEBUG=True):
-            response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/stream_token/")
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["stream_base_url"], "http://localhost:8003")
-
-    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
-    def test_stream_token_omits_proxy_url_when_flag_evaluation_fails(self):
-        # A flag-service outage must fall back to reading from Django, not break token issuance.
-        reset_sandbox_jwt_key_cache()
-
-        task = self.create_task()
-        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
-
-        def flag_enabled(key, *args, **kwargs):
-            if key == "tasks-stream-via-proxy":
-                raise RuntimeError("flag service unavailable")
-            return True
-
-        with (
-            self.settings(TASKS_AGENT_PROXY_PUBLIC_URL="https://agent-proxy.example.com", DEBUG=False),
-            patch(
-                "products.tasks.backend.facade.api.posthoganalytics.feature_enabled",
-                side_effect=flag_enabled,
-            ),
-        ):
-            response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/stream_token/")
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIsNone(response.json()["stream_base_url"])
 
     def test_connection_token_cannot_access_other_team_run(self):
         other_org = Organization.objects.create(name="Other Org")
@@ -11738,6 +11671,7 @@ class TestTaskRunCancelAPI(BaseTaskAPITest):
             sandbox.method_calls,
             [
                 call.stop_agent_server(),
+                call.exit_status(),
                 call.read_cpu_usage_usec(),
                 call.read_billed_cpu_usage_usec(),
                 call.destroy(),
@@ -11782,6 +11716,7 @@ class TestTaskRunCancelAPI(BaseTaskAPITest):
             sandbox.method_calls,
             [
                 call.stop_agent_server(),
+                call.exit_status(),
                 call.read_cpu_usage_usec(),
                 call.read_billed_cpu_usage_usec(),
                 call.destroy(),
@@ -11835,6 +11770,7 @@ class TestTaskRunCancelAPI(BaseTaskAPITest):
             sandbox.method_calls,
             [
                 call.stop_agent_server(),
+                call.exit_status(),
                 call.read_cpu_usage_usec(),
                 call.read_billed_cpu_usage_usec(),
                 call.destroy(),
@@ -17511,6 +17447,39 @@ class TestSandboxCustomImageAPI(BaseTaskAPITest):
 
     def detail_url(self, image_id):
         return f"{self.base_url}{image_id}/"
+
+    @parameterized.expand(
+        [
+            ("origin_on_the_vm_runtime", '{"origin_products": ["user_created", "posthog_ai"]}', "posthog_ai", 200),
+            (
+                "origin_on_the_default_vm_base",
+                '{"origin_products": ["user_created"], "default_base_origin_products": ["posthog_ai"]}',
+                "posthog_ai",
+                200,
+            ),
+            (
+                "origin_fully_rolled_out_to_the_vm_runtime",
+                '{"origin_products": ["user_created"], "origin_product_rollout_percentages": {"posthog_ai": 100}}',
+                "posthog_ai",
+                200,
+            ),
+            (
+                "origin_partly_rolled_out_to_the_vm_runtime",
+                '{"origin_products": ["user_created"], "origin_product_rollout_percentages": {"posthog_ai": 50}}',
+                "posthog_ai",
+                403,
+            ),
+            ("origin_off_the_vm_runtime", '{"origin_products": ["user_created"]}', "posthog_ai", 403),
+            ("no_origin_given", '{"origin_products": ["user_created"]}', None, 200),
+        ]
+    )
+    def test_list_checks_the_vm_runtime_for_the_requested_origin(self, _name, payload, origin_product, expected):
+        self._vm_flag_payload = payload
+        query = f"?origin_product={origin_product}" if origin_product else ""
+
+        response = self.client.get(f"{self.base_url}{query}")
+
+        self.assertEqual(response.status_code, expected)
 
     def test_create_spawns_linked_builder_task_with_vm_override(self):
         response = self.client.post(

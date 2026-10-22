@@ -856,9 +856,9 @@ dependencies = [
 
 [[package]]
 name = "aws-lc-rs"
-version = "1.16.0"
+version = "1.18.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d9a7b350e3bb1767102698302bc37256cbd48422809984b98d292c40e2579aa9"
+checksum = "faac5829c2b74c28f830747e7818ccfb684261b5f48a1118b1e2a13d36dfab13"
 dependencies = [
  "aws-lc-sys",
  "zeroize",
@@ -866,14 +866,15 @@ dependencies = [
 
 [[package]]
 name = "aws-lc-sys"
-version = "0.37.1"
+version = "0.46.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b092fe214090261288111db7a2b2c2118e5a7f30dc2569f1732c4069a6840549"
+checksum = "f1622d8446a2d4b2ce0c7eefc73dd43a99779028d5ee5c2dd8073a658ba8a2bc"
 dependencies = [
  "cc",
  "cmake",
  "dunce",
  "fs_extra",
+ "pkg-config",
 ]
 
 [[package]]
@@ -1530,7 +1531,7 @@ dependencies = [
 [[package]]
 name = "axum-test-helper"
 version = "0.4.0"
-source = "git+https://github.com/posthog/axum-test-helper.git#002d45d8bbbac04e6a474e9a850b7f023a87d32f"
+source = "git+https://github.com/posthog/axum-test-helper.git?rev=c09ada6f543a8cc06263548103c91a28a010944a#c09ada6f543a8cc06263548103c91a28a010944a"
 dependencies = [
  "axum 0.7.9",
  "bytes",
@@ -2806,6 +2807,7 @@ dependencies = [
  "dashmap 6.1.0",
  "envconfig",
  "futures",
+ "hotpath",
  "lifecycle",
  "metrics",
  "metrics-exporter-prometheus",
@@ -3034,6 +3036,7 @@ version = "0.1.0"
 dependencies = [
  "metrics",
  "rdkafka",
+ "tracing",
 ]
 
 [[package]]
@@ -3970,6 +3973,7 @@ dependencies = [
  "metrics",
  "object_store",
  "parquet",
+ "percent-encoding",
  "serde_json",
  "sqlparser",
  "tempfile",
@@ -3982,7 +3986,7 @@ dependencies = [
 
 [[package]]
 name = "deltalite-python"
-version = "0.1.11"
+version = "0.1.15"
 dependencies = [
  "arrow",
  "arrow-array",
@@ -5726,6 +5730,50 @@ dependencies = [
 ]
 
 [[package]]
+name = "hotpath"
+version = "0.28.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e2ee4f8d17ebe2400fa845f079acf9ede235be6472512876779af45f7890f934"
+dependencies = [
+ "arc-swap",
+ "cfg-if",
+ "crossbeam-channel",
+ "futures-core",
+ "hdrhistogram",
+ "hotpath-drain",
+ "hotpath-macros",
+ "libc",
+ "pin-project-lite",
+ "prost 0.14.3",
+ "quanta 0.12.6",
+ "regex-lite",
+ "serde",
+ "serde_json",
+ "time",
+ "tiny_http",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "hotpath-drain"
+version = "0.28.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fd9e65572a429f44a48c360559a3f59028579b53e1df07c5f31dc147d2b94a50"
+
+[[package]]
+name = "hotpath-macros"
+version = "0.28.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2b90aafbaf5f6af01ee9db2888644b15995f5306e5c280aec8261feb3e5e214a"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.117",
+]
+
+[[package]]
 name = "hstr"
 version = "3.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5971,7 +6019,7 @@ dependencies = [
  "tokio",
  "tokio-rustls 0.26.4",
  "tower-service",
- "webpki-roots 1.0.6",
+ "webpki-roots",
 ]
 
 [[package]]
@@ -6368,6 +6416,7 @@ dependencies = [
  "lifecycle",
  "metrics",
  "metrics-exporter-prometheus",
+ "metrics-util",
  "prost 0.13.5",
  "rand 0.8.5",
  "rdkafka",
@@ -6396,6 +6445,7 @@ dependencies = [
  "chrono",
  "common-alloc",
  "common-database",
+ "common-kafka",
  "common-metrics",
  "common-types",
  "dashmap 6.1.0",
@@ -7019,7 +7069,7 @@ dependencies = [
  "kube-core",
  "pem 3.0.6",
  "rustls 0.23.37",
- "rustls-pemfile 2.2.0",
+ "rustls-pemfile",
  "secrecy",
  "serde",
  "serde_json",
@@ -8882,6 +8932,34 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3637c05577168127568a64e9dc5a6887da720efef07b3d9472d45f63ab191166"
 
 [[package]]
+name = "personhog-changelog-relay"
+version = "0.1.0"
+dependencies = [
+ "assignment-coordination",
+ "axum 0.7.9",
+ "chrono",
+ "common-alloc",
+ "common-kafka",
+ "common-metrics",
+ "envconfig",
+ "futures",
+ "lifecycle",
+ "metrics",
+ "metrics-util",
+ "personhog-coordination",
+ "personhog-proto",
+ "prost 0.13.5",
+ "rdkafka",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
 name = "personhog-common"
 version = "0.1.0"
 dependencies = [
@@ -9014,6 +9092,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "personhog-parity-monitor"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum 0.7.9",
+ "common-alloc",
+ "common-metrics",
+ "envconfig",
+ "health",
+ "metrics",
+ "personhog-common",
+ "rdkafka",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
 name = "personhog-proto"
 version = "0.1.0"
 dependencies = [
@@ -9136,6 +9234,7 @@ dependencies = [
 name = "personhog-writer"
 version = "0.1.0"
 dependencies = [
+ "assignment-coordination",
  "async-trait",
  "axum 0.7.9",
  "chrono",
@@ -9150,12 +9249,14 @@ dependencies = [
  "lifecycle",
  "metrics",
  "personhog-common",
+ "personhog-coordination",
  "personhog-proto",
  "prost 0.13.5",
  "rdkafka",
  "serde_json",
  "sqlx",
  "tokio",
+ "tokio-util",
  "tracing",
  "tracing-subscriber",
  "uuid",
@@ -10674,7 +10775,7 @@ dependencies = [
  "tokio-rustls 0.26.4",
  "tokio-util",
  "url",
- "webpki-roots 1.0.6",
+ "webpki-roots",
 ]
 
 [[package]]
@@ -10840,7 +10941,6 @@ dependencies = [
  "http 0.2.12",
  "http-body 0.4.6",
  "hyper 0.14.32",
- "hyper-rustls 0.24.2",
  "ipnet",
  "js-sys",
  "log",
@@ -10849,15 +10949,12 @@ dependencies = [
  "once_cell",
  "percent-encoding",
  "pin-project-lite",
- "rustls 0.21.12",
- "rustls-pemfile 1.0.4",
  "serde",
  "serde_json",
  "serde_urlencoded",
  "sync_wrapper 0.1.2",
  "system-configuration 0.5.1",
  "tokio",
- "tokio-rustls 0.24.1",
  "tokio-util",
  "tower-service",
  "url",
@@ -10865,7 +10962,6 @@ dependencies = [
  "wasm-bindgen-futures",
  "wasm-streams",
  "web-sys",
- "webpki-roots 0.25.4",
  "winreg",
 ]
 
@@ -10915,7 +11011,7 @@ dependencies = [
  "wasm-bindgen-futures",
  "wasm-streams",
  "web-sys",
- "webpki-roots 1.0.6",
+ "webpki-roots",
 ]
 
 [[package]]
@@ -11276,7 +11372,7 @@ dependencies = [
  "once_cell",
  "ring 0.17.14",
  "rustls-pki-types",
- "rustls-webpki 0.103.9",
+ "rustls-webpki 0.103.16",
  "subtle",
  "zeroize",
 ]
@@ -11288,7 +11384,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e5bfb394eeed242e909609f56089eecfe5fda225042e8b171791b9c95f5931e5"
 dependencies = [
  "openssl-probe 0.1.6",
- "rustls-pemfile 2.2.0",
+ "rustls-pemfile",
  "rustls-pki-types",
  "schannel",
  "security-framework 2.11.1",
@@ -11304,15 +11400,6 @@ dependencies = [
  "rustls-pki-types",
  "schannel",
  "security-framework 3.7.0",
-]
-
-[[package]]
-name = "rustls-pemfile"
-version = "1.0.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1c74cae0a4cf6ccbbf5f359f08efdf8ee7e1dc532573bf0db71968cb56b1448c"
-dependencies = [
- "base64 0.21.7",
 ]
 
 [[package]]
@@ -11348,7 +11435,7 @@ dependencies = [
  "rustls 0.23.37",
  "rustls-native-certs 0.8.3",
  "rustls-platform-verifier-android",
- "rustls-webpki 0.103.9",
+ "rustls-webpki 0.103.16",
  "security-framework 3.7.0",
  "security-framework-sys",
  "webpki-root-certs",
@@ -11373,9 +11460,9 @@ dependencies = [
 
 [[package]]
 name = "rustls-webpki"
-version = "0.103.9"
+version = "0.103.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d7df23109aa6c1567d1c575b9952556388da57401e4ace1d15f79eedad0d8f53"
+checksum = "4443b1b6d39d7c663139942cc4558262562d2c84123bb6282ef177009ca8b281"
 dependencies = [
  "aws-lc-rs",
  "ring 0.17.14",
@@ -14668,24 +14755,18 @@ dependencies = [
 
 [[package]]
 name = "webpki-root-certs"
-version = "1.0.8"
+version = "1.0.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0d46a5a140e6f7afeccd8eae97eff335163939eac8b929834875168b29b3d267"
+checksum = "58ec80e73fd8baf57bf0d9615554c75348bda990d6d5bbeab964dd068319fecb"
 dependencies = [
  "rustls-pki-types",
 ]
 
 [[package]]
 name = "webpki-roots"
-version = "0.25.4"
+version = "1.0.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5f20c57d8d7db6d3b86154206ae5d8fba62dd39573114de97c2cb0578251f8e1"
-
-[[package]]
-name = "webpki-roots"
-version = "1.0.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "22cfaf3c063993ff62e73cb4311efde4db1efb31ab78a3e5c457939ad5cc0bed"
+checksum = "1c1c8e20c8a38fc7d65abfe74eb7280e4aa667e8eec8bc84996d2874810748d9"
 dependencies = [
  "rustls-pki-types",
 ]
