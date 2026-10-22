@@ -141,10 +141,10 @@ class TestStableChunks(SimpleTestCase):
         assert REGISTRY.get_sample_value("posthog_stable_chunks_fallback_total", labels) == before + 1
 
     def test_an_unmapped_specifier_is_logged_without_the_page_path(self) -> None:
+        page_path = "/reset/0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b/fake-reset-token"
         request = RequestFactory().get(
-            "/reset/0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b/fake-reset-token"
-            "?stable_chunks=fallback&stable_chunks_unmapped=@c/Abc123",
-            HTTP_REFERER="https://app.example.com/reset/0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b/fake-reset-token",
+            f"{page_path}?stable_chunks=fallback&stable_chunks_unmapped=@c/Abc123",
+            HTTP_REFERER=f"https://app.example.com{page_path}",
         )
         request.user = AnonymousUser()
 
