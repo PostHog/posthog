@@ -87,7 +87,7 @@ def _with_team_metric_types(query: dict[str, Any], catalog: MetricCatalog) -> di
     return resolved
 
 
-def _fill_rows(boxes: list[tuple[int, GridLayout]]) -> dict[int, GridLayout]:
+def fill_rows(boxes: list[tuple[int, GridLayout]]) -> dict[int, GridLayout]:
     """Spread the boxes of each row across the full width again, after some panels of the row were dropped."""
     rows: dict[int, list[tuple[int, GridLayout]]] = defaultdict(list)
     for index, layout in boxes:
@@ -128,7 +128,7 @@ def build_tiles(panels: Sequence[TemplatePanel], catalog: MetricCatalog, *, refi
             dropped.append(panel)
         else:
             kept.append((panel, query))
-    layouts = _fill_rows([(index, panel.layout) for index, (panel, _) in enumerate(kept)]) if dropped and refill else {}
+    layouts = fill_rows([(index, panel.layout) for index, (panel, _) in enumerate(kept)]) if dropped and refill else {}
     tiles: list[NewInsightTile | NewTextTile] = []
     for index, (panel, query) in enumerate(kept):
         layout = layouts.get(index, panel.layout).clamped(
@@ -146,19 +146,27 @@ def build_tiles(panels: Sequence[TemplatePanel], catalog: MetricCatalog, *, refi
     )
 
 
-def attribute_variable(*, name: str, label: str, attribute: str, multi: bool = False) -> dict[str, Any]:
+def _sql_string(value: str) -> str:
+    return "'" + value.replace("\\", "\\\\").replace("'", "\\'") + "'"
+
+
+def attribute_variable(
+    *, name: str, label: str, attribute: str, multi: bool = False, metric_names: Iterable[str] = ()
+) -> dict[str, Any]:
     """A dashboard variable whose options are the values of one attribute in the team that opens the dashboard.
 
-    It selects All, so its filters match everything until the user picks a value.
+    With `metric_names`, the options are only the values of those metrics, so the variable does not list the values
+    of other systems in the team. It selects All, so its filters match everything until the user picks a value.
     """
+    names = sorted(set(metric_names))
+    metric_filter = f" AND metric_name IN ({', '.join(map(_sql_string, names))})" if names else ""
     if attribute in SERVICE_ATTRIBUTES:
         # The name table has far fewer rows than the attribute table, and holds every service too.
-        query = f"SELECT DISTINCT service_name FROM posthog.metric_names WHERE {OPTIONS_RANGE}"
+        query = f"SELECT DISTINCT service_name FROM posthog.metric_names WHERE {OPTIONS_RANGE}{metric_filter}"
     else:
-        key = attribute.replace("\\", "\\\\").replace("'", "\\'")
         query = (
             "SELECT DISTINCT attribute_value FROM posthog.metric_attributes "
-            f"WHERE attribute_key = '{key}' AND {OPTIONS_RANGE}"
+            f"WHERE attribute_key = {_sql_string(attribute)} AND {OPTIONS_RANGE}{metric_filter}"
         )
     return MetricsDashboardVariable(
         name=name,

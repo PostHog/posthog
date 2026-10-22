@@ -36,7 +36,15 @@ RESOLUTION_MARKERS = (
     "trust_dns",
 )
 
-CHECK_MARKERS = ("matched_oob_domain", "note_oob_domain", "OOB_DOMAINS", "oob_domains")
+CHECK_MARKERS = (
+    "matched_oob_domain",
+    "note_oob_domain",
+    "OOB_DOMAINS",
+    "oob_domains",
+    # The TypeScript mirror names the same two helpers in camel case.
+    "matchedOobDomain",
+    "noteOobDomain",
+)
 SKIPPED_PARTS = ("node_modules", "__pycache__", "target", "dist", "migrations")
 
 
