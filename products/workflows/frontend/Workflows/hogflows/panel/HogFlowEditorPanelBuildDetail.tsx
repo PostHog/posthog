@@ -7,6 +7,7 @@ import {
     LemonBanner,
     LemonButton,
     LemonCollapse,
+    LemonDialog,
     LemonDivider,
     LemonInput,
     LemonInputSelect,
@@ -328,7 +329,18 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                                                         className={shakePickButton ? 'animate-shake' : ''}
                                                         loading={testLoading}
                                                         tooltip="Executes a real HTTP request to this step's endpoint and shows the response so you can pick which property to store."
-                                                        onClick={runOutputTest}
+                                                        onClick={() =>
+                                                            LemonDialog.open({
+                                                                title: 'Run this step for real?',
+                                                                description: `"${action.name}" runs with test event data to get a response. Any message, email or request it sends goes out now.`,
+                                                                primaryButton: {
+                                                                    children: 'Run step',
+                                                                    'data-attr': 'workflow-pick-from-response-confirm',
+                                                                    onClick: runOutputTest,
+                                                                },
+                                                                secondaryButton: { children: 'Cancel' },
+                                                            })
+                                                        }
                                                     >
                                                         Pick from response
                                                     </LemonButton>
