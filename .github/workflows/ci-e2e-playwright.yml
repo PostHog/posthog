@@ -977,7 +977,17 @@ jobs:
                   echo "test_seconds=$(( $(date +%s) - start ))" >> "$GITHUB_OUTPUT"
                   exit "$rc"
 
-            - name: Verify changed Playwright tests are stable
+            # The stability script diffs from the merge-base of BASE_SHA and HEAD so a PR on
+            # an older master doesn't inherit specs changed only on master. The merge-base
+            # must be reachable from *both* tips: this job checks out HEAD at depth 1, so
+            # deepen both histories (depth=1000 + blob:none mirrors the merge-base fetches
+            # in the `changes` job). If the branch point is still out of reach, the script
+            # warns and falls back to BASE_SHA — bounded by its own test-run budget guard.
+            # Its own step, so the token reaches git alone: the next step runs PR code,
+            # and the checkout persists no credentials for the same reason. The one-off
+            # header keeps the token out of .git/config; a private copy of the repository
+            # refuses an anonymous fetch.
+            - name: Deepen history for the stability check
               if: steps.playwright-tests.outcome == 'success' && github.event_name == 'pull_request'
               shell: bash
               env:
@@ -985,20 +995,18 @@ jobs:
                   HEAD_SHA: ${{ github.event.pull_request.head.sha }}
                   GH_TOKEN: ${{ github.token }}
               run: |
-                  # The script diffs from the merge-base of BASE_SHA and HEAD so a PR on an
-                  # older master doesn't inherit specs changed only on master. The merge-base
-                  # must be reachable from *both* tips: this job checks out HEAD at depth 1, so
-                  # deepen both histories (depth=1000 + blob:none mirrors the merge-base fetches
-                  # in the `changes` job). If the branch point is still out of reach, the script
-                  # warns and falls back to BASE_SHA — bounded by its own test-run budget guard.
-                  # The checkout persists no credentials, so the token rides on these fetches
-                  # only: a private copy of the repository refuses an anonymous fetch.
                   auth_header="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')"
                   git -c "http.https://github.com/.extraheader=$auth_header" \
                       fetch --no-tags --prune --depth=1000 --filter=blob:none origin "$BASE_SHA"
                   git -c "http.https://github.com/.extraheader=$auth_header" \
                       fetch --no-tags --depth=1000 --filter=blob:none origin "$HEAD_SHA"
-                  .github/scripts/verify-playwright-new-tests-and-snapshots.sh "$BASE_SHA" 10
+
+            - name: Verify changed Playwright tests are stable
+              if: steps.playwright-tests.outcome == 'success' && github.event_name == 'pull_request'
+              shell: bash
+              env:
+                  BASE_SHA: ${{ github.event.pull_request.base.sha }}
+              run: .github/scripts/verify-playwright-new-tests-and-snapshots.sh "$BASE_SHA" 10
 
             # Visual Review: create run + upload snapshots directly from the test job.
             # Completion happens in handle-screenshots so the baseline lands in the same commit as PNGs.
