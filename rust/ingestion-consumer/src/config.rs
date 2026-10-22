@@ -326,10 +326,11 @@ pub struct Config {
     #[envconfig(default = "http://localhost:9001")]
     pub worker_addresses: String,
 
-    /// Cap on un-acked sub-batches per worker stream. Ideally aligned with the
-    /// worker's `BatchingPipeline.concurrentBatches`
-    /// (`INGESTION_WORKER_CONCURRENT_BATCHES` on the Node.js side) so the
-    /// stream backpressures before the worker stalls its reads.
+    /// The most requests the batcher keeps in flight on one worker, and the
+    /// governor's permits per worker at its ceiling. Aligned with the worker's
+    /// `BatchingPipeline.concurrentBatches` (`INGESTION_WORKER_CONCURRENT_BATCHES`
+    /// on the Node.js side), because the worker queues requests past it
+    /// without saying so.
     #[envconfig(from = "INGESTION_WORKER_CONCURRENT_BATCHES", default = "1")]
     pub ingestion_worker_concurrent_batches: usize,
 
@@ -512,9 +513,8 @@ impl Config {
         format!("{}:{}", self.bind_host, self.bind_port)
     }
 
-    /// The batcher state machine. It reuses the stream's un-acked cap as its
-    /// per-worker request cap, the parked-retry interval for every retry, and
-    /// the deferred-flush timeout as its stall timeout.
+    /// The batcher state machine. It takes the parked-retry interval for every
+    /// retry and the deferred-flush timeout as its stall timeout.
     pub fn batcher_state_machine(&self) -> Result<BatcherStateMachine, String> {
         let mut packer = Packer::new(PackTargets {
             events: NonZeroUsize::new(self.pack_target_events),

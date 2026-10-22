@@ -35,7 +35,8 @@ If the assembled fallback session still exceeds 500,000 characters, the evaluati
 ## Generation formatting
 
 Generation evaluations extract message text without the per-message character cutoff.
-They sample the combined input, tool definitions, and output only when that text exceeds 150,000 characters, with a final character slice enforcing the limit.
+They reserve space for the complete output, then sample input and tool definitions into the remaining space within the 150,000-character limit.
+If the output and section labels alone exceed that limit, the run is skipped with reason `generation_output_too_long` without calling the judge.
 
 Implementation: [trace judge](../../posthog/temporal/ai_observability/run_trace_evaluation.py), [session judge](../../posthog/temporal/ai_observability/run_session_evaluation.py), and [generation judge](../../posthog/temporal/ai_observability/evaluation_llm_judge.py).
 

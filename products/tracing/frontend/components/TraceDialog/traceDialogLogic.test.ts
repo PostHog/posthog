@@ -219,11 +219,15 @@ describe('traceDialogLogic', () => {
         expect(view.values.activeInspectorTab).toBe('errors')
     })
 
-    it('treats a missing parent row as its own selection, not the root span', async () => {
+    it('opens a span-less log on the root span, and treats a missing parent row as its own selection', async () => {
+        const root = { ...span('a'), parent_span_id: '0000000000000000' }
         const orphan = { ...span('child'), parent_span_id: 'GONE' }
-        getTraceSpy.mockResolvedValueOnce({ results: [span('a'), orphan], hasMore: false, nextOffset: null })
-        logic.actions.openTraceDialog({ traceId: 'abc123', spanId: 'a' }, { entryPoint: 'log_details' })
+        getTraceSpy.mockResolvedValueOnce({ results: [root, orphan], hasMore: false, nextOffset: null })
+        // The root's parent id is the same all-zero id a span-less log carries.
+        logic.actions.openTraceDialog({ traceId: 'abc123', spanId: '0000000000000000' }, { entryPoint: 'log_details' })
         await expectLogic(logic).toDispatchActions(['loadTraceSpansSuccess'])
+        expect(view.values.missingParentSpanId).toBeNull()
+        expect(view.values.selectedSpan?.span_id).toBe('a')
 
         logic.actions.selectSpan('GONE')
         expect(view.values.missingParentSpanId).toBe('GONE')
