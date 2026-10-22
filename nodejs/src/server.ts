@@ -49,6 +49,7 @@ import { createIdempotencyValkeyPool } from './cdp/services/hogflows/idempotency
 import { CyclotronJobQueueKafka } from './cdp/services/job-queue/job-queue-kafka'
 import { CyclotronJobQueuePostgresV2 } from './cdp/services/job-queue/job-queue-postgres-v2'
 import { CyclotronJobQueueRateLimitedPostgresV2 } from './cdp/services/job-queue/job-queue-rate-limited-postgres-v2'
+import { EmailStatusService } from './cdp/services/messaging/email-status.service'
 import { createFrequencyCapValkeyPool } from './cdp/services/messaging/frequency-cap-valkey-pool'
 import { hasEmailSigningKey } from './cdp/services/messaging/helpers/tracking-code'
 import { HogInvocationResultsService } from './cdp/services/monitoring/hog-invocation-results.service'
@@ -289,7 +290,8 @@ export class PluginServer implements NodeServer {
                         stallBackoffBaseMs: this.config.CYCLOTRON_NODE_JANITOR_STALL_BACKOFF_BASE_MS,
                         stallBackoffMaxMs: this.config.CYCLOTRON_NODE_JANITOR_STALL_BACKOFF_MAX_MS,
                     },
-                    invocationResults
+                    invocationResults,
+                    new EmailStatusService(outputs)
                 )
                 await janitor.start()
                 return janitor.service

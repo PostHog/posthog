@@ -8,6 +8,7 @@ import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
 import { fetch } from '~/common/utils/request'
 
+import type { StatusChange } from '../email-status.service'
 import { EmailTrackingCodeSigner, TRACKING_CODE_HEADER_NAME, trackingCodeFormatCounter } from './tracking-code'
 
 /**
@@ -225,6 +226,39 @@ export function sendTagsOf(tags: Record<string, string[]> | undefined): Record<s
             !name.toLowerCase().startsWith(RESERVED_EMAIL_TAG_PREFIX) && !name.includes(':') && values[0] !== undefined
     )
     return sendTags.length ? Object.fromEntries(sendTags.map(([name, values]) => [name, values[0]])) : undefined
+}
+
+// Set at send time on transactional emails only, so its presence marks one, and it carries the hash
+// the route computed rather than one the webhook would derive from the SES destination.
+export const SES_RECIPIENT_HASH_TAG = 'ph_recipient_hash'
+
+const transactionalStatusChange = (
+    rec: SesEventRecord,
+    teamId: number,
+    messageId: string,
+    recipientHash: string
+): StatusChange | null => {
+    const change = { teamId, messageId, recipientHash }
+    switch (rec.eventType) {
+        case 'Delivery':
+            return { ...change, status: 'delivered', at: new Date(rec.delivery.timestamp) }
+        case 'Bounce':
+            return {
+                ...change,
+                status: 'bounced',
+                at: new Date(rec.bounce.timestamp),
+                reason: BOUNCE_TYPE_TO_EVENT_PROPERTY[rec.bounce.bounceType],
+            }
+        case 'Complaint':
+            return {
+                ...change,
+                status: 'complained',
+                at: new Date(rec.complaint.timestamp),
+                reason: rec.complaint.complaintFeedbackType,
+            }
+        default:
+            return null
+    }
 }
 
 const sensitiveLinkOrigin = (link: string): string => {
@@ -623,6 +657,7 @@ export class SesWebhookHandler {
             emailAddresses: string[]
             timestamp?: string
         }[]
+        emailStatusChanges?: StatusChange[]
     }> {
         // Payloads carry recipients and clicked links, including reset links from sensitive emails,
         // so the logs keep identifiers only.
@@ -726,6 +761,7 @@ export class SesWebhookHandler {
             emailAddresses: string[]
             timestamp?: string
         }[] = []
+        const emailStatusChanges: StatusChange[] = []
 
         for (const rec of records) {
             logger.info('[SesWebhookHandler] processing record', {
@@ -952,6 +988,16 @@ export class SesWebhookHandler {
                     deliveredRecipients.push({ teamId, emailAddresses: emails, timestamp: rec.delivery.timestamp })
                 }
             }
+
+            const recipientHash = rec.mail.tags?.[SES_RECIPIENT_HASH_TAG]?.[0]
+            const isNotSpamCorrection =
+                rec.eventType === 'Complaint' && rec.complaint.complaintFeedbackType?.toLowerCase() === 'not-spam'
+            if (suppressionAllowed && invocationId && recipientHash && !isNotSpamCorrection) {
+                const change = transactionalStatusChange(rec, parseInt(teamId, 10), invocationId, recipientHash)
+                if (change) {
+                    emailStatusChanges.push(change)
+                }
+            }
         }
 
         return {
@@ -963,6 +1009,7 @@ export class SesWebhookHandler {
             hardBounceRecipients,
             complainedRecipients,
             deliveredRecipients,
+            emailStatusChanges,
         }
     }
 }

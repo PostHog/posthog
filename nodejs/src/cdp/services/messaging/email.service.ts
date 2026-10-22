@@ -24,6 +24,7 @@ import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.se
 import { RateLimiterService } from '../rate-limiter/rate-limiter.service'
 import { EmailSendPolicy, PolicyCode, PolicyRejection } from './email-send-policy'
 import { selectEmailSenderIntegrationId } from './email-sender-selection'
+import { EmailStatus, EmailStatusWriter, transactionalEmailRecipientHash } from './email-status.service'
 import { EmailSuppressionService } from './email-suppression.service'
 import {
     addTrackingToEmail,
@@ -33,7 +34,7 @@ import {
 } from './email-tracking.service'
 import { mailDevTransport, mailDevWebUrl } from './helpers/maildev'
 import { maybeAddPreheaderToEmail } from './helpers/preheader'
-import { SES_SENSITIVE_TAG } from './helpers/ses'
+import { SES_RECIPIENT_HASH_TAG, SES_SENSITIVE_TAG } from './helpers/ses'
 import { EmailTrackingCodeSigner, TRACKING_CODE_HEADER_NAME } from './helpers/tracking-code'
 import { addUtmTagsToEmail, renderUtmOverrides, resolveUtmTags } from './helpers/utm'
 import { MessageAssetsService } from './message-assets.service'
@@ -391,7 +392,8 @@ export class EmailService {
         private recipientsManager: RecipientsManagerService,
         private messageAssetsService?: MessageAssetsService,
         private workflowEmailRateLimiter: RateLimiterService | null = null,
-        private teamEmailRateLimiter: RateLimiterService | null = null
+        private teamEmailRateLimiter: RateLimiterService | null = null,
+        private emailStatus: EmailStatusWriter | null = null
     ) {
         this.sesV2Client = this.sesConfig.sesRegion
             ? new SESv2Client({
@@ -427,6 +429,15 @@ export class EmailService {
         const addLog = createAddLogFunction(result.logs)
 
         const params = invocation.queueParameters
+        const recipientHash = isTest
+            ? undefined
+            : transactionalEmailRecipientHash(
+                  {
+                      triggerEvent: invocation.state.globals.event?.event,
+                      recipientHash: invocation.state.emailRecipientHash,
+                  },
+                  'worker'
+              )
         const integrationId = selectEmailSenderIntegrationId(invocation.id, params.from)
         const integration = await this.integrationManager.get(integrationId)
 
@@ -453,7 +464,9 @@ export class EmailService {
                     : [],
             })
             if (!decision.ok) {
-                return this.skipForPolicy(result, decision, isTest)
+                const skipped = this.skipForPolicy(result, decision, isTest)
+                await this.recordEmailStatus(invocation, recipientHash, 'skipped', decision.code)
+                return skipped
             }
 
             const sender = decision.sender
@@ -592,7 +605,7 @@ export class EmailService {
                     await this.sendEmailWithMaildev(result, sendParams, from, trackingEnabled, isTest)
                     break
                 case 'ses':
-                    await this.sendEmailWithSES(result, sendParams, from, trackingEnabled, isTest)
+                    await this.sendEmailWithSES(result, sendParams, from, trackingEnabled, isTest, recipientHash)
                     break
 
                 case 'unsupported':
@@ -632,6 +645,12 @@ export class EmailService {
             // push the success bit to the VM stack — pushing them now would
             // double-count and lie about the send outcome.
             return result
+        }
+
+        if (success) {
+            await this.recordEmailStatus(invocation, recipientHash, 'sent')
+        } else {
+            await this.recordEmailStatus(invocation, recipientHash, 'failed', 'provider_error')
         }
 
         // Push the response to the VM stack if running inline (not from the email queue)
@@ -889,6 +908,29 @@ export class EmailService {
         return this.sesConfig.sesTrackedConfigurationSet
     }
 
+    // The email is already sent or skipped, so a failed status write must not fail the job and resend
+    // it. record() counts and logs the failure.
+    private async recordEmailStatus(
+        invocation: CyclotronJobInvocationHogFunction,
+        recipientHash: string | undefined,
+        status: EmailStatus,
+        reason?: string
+    ): Promise<void> {
+        if (!this.emailStatus || !recipientHash) {
+            return
+        }
+        await this.emailStatus
+            .record({
+                teamId: invocation.teamId,
+                messageId: invocation.id,
+                status,
+                at: new Date(),
+                recipientHash,
+                reason,
+            })
+            .catch(() => undefined)
+    }
+
     private skipForPolicy(
         result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
         decision: PolicyRejection,
@@ -1047,7 +1089,8 @@ export class EmailService {
         params: CyclotronInvocationQueueParametersEmailType,
         from: { email: string; name: string },
         trackingEnabled: boolean,
-        isTest = false
+        isTest = false,
+        recipientHash?: string
     ): Promise<void> {
         if (!this.sesV2Client) {
             throw new Error('SES is not configured - set SES_REGION and AWS credentials')
@@ -1116,6 +1159,7 @@ export class EmailService {
                     ? [{ Name: SES_SENSITIVE_TAG, Value: 'true' }]
                     : []),
                 ...(params.tags ?? []).map((tag) => ({ Name: tag.name, Value: tag.value })),
+                ...(recipientHash ? [{ Name: SES_RECIPIENT_HASH_TAG, Value: recipientHash }] : []),
             ],
             FeedbackForwardingEmailAddress: from.email,
         }
