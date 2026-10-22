@@ -102,9 +102,9 @@ function SenderIdentityFields(props: EmailDomainWizardLogicProps): JSX.Element {
 
 function BouncePrefixField(props: EmailDomainWizardLogicProps): JSX.Element {
     const logic = emailDomainWizardLogic(props)
-    const { bouncePrefix, advancedOpen, sendingDomain, domainSender } = useValues(logic)
+    const { bouncePrefix, advancedOpen, sendingDomain, domainSender, replyTo } = useValues(logic)
     const sharedBouncePrefix = domainSender ? (domainSender.config?.mail_from_subdomain ?? 'feedback') : null
-    const { setBouncePrefix, setAdvancedOpen } = useActions(logic)
+    const { setBouncePrefix, setAdvancedOpen, setReplyTo } = useActions(logic)
     if (!advancedOpen) {
         return (
             <LemonButton
@@ -137,6 +137,20 @@ function BouncePrefixField(props: EmailDomainWizardLogicProps): JSX.Element {
                 <span className="font-mono text-secondary break-all">.{sendingDomain}</span>
             </div>
             <span className="text-xs text-secondary">Where bounced emails return to. Almost nobody changes this.</span>
+            <label htmlFor="email-domain-reply-to" className="mt-3">
+                Default reply-to address <span className="text-secondary">(optional)</span>
+            </label>
+            <LemonInput
+                id="email-domain-reply-to"
+                className="max-w-80"
+                value={replyTo}
+                onChange={setReplyTo}
+                placeholder="support@example.com"
+            />
+            <span className="text-xs text-secondary">
+                Replies go here when an email step has no reply-to address of its own. Leave empty to send replies to
+                the sender address.
+            </span>
         </div>
     )
 }
