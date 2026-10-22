@@ -32,11 +32,14 @@ class DivergenceFixturesMixin:
                 add_distinct_id(person=person, distinct_id=distinct_id, version=0)
         return person
 
-    def _ch_person(self, person_uuid: str, version: int, properties: dict, *, deleted: bool = False) -> None:
+    def _ch_person(
+        self, person_uuid: str, version: int, properties: dict, *, deleted: bool = False, identified: bool = False
+    ) -> None:
         create_person_in_ch(
             team_id=self.team.pk,
             uuid=person_uuid,
             version=version,
+            is_identified=identified,
             is_deleted=deleted,
             properties=properties,
             timestamp=now(),
