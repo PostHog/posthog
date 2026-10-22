@@ -183,8 +183,7 @@ export function CheckEditorModal(): JSX.Element {
                         // The editor has no question controls yet, so only an existing question check keeps it listed.
                         options={checkTypes
                             .filter(
-                                (checkType) =>
-                                    checkType.check_type !== 'question' || checkForm.checkType === 'question'
+                                (checkType) => checkType.check_type !== 'question' || checkForm.checkType === 'question'
                             )
                             .map((checkType) => ({
                                 value: checkType.check_type as CheckTypeEnumApi,
