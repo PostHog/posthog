@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import cast
 from uuid import UUID
@@ -5,8 +6,12 @@ from uuid import UUID
 import pytest
 from unittest.mock import MagicMock, patch
 
+import httpx
+import anthropic
 from asgiref.sync import sync_to_async
 from posthoganalytics.ai.langchain.callbacks import CallbackHandler
+from pydantic import ValidationError
+from structlog.testing import capture_logs
 from temporalio.common import MetricMeter
 from temporalio.testing import ActivityEnvironment
 
@@ -158,6 +163,35 @@ def _existing_result(source: KnowledgeSource, content: str) -> logic.KnowledgeSe
         ordinal=0,
         content=content,
     )
+
+
+def _provider_status_error() -> Exception:
+    request = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+    return anthropic.AuthenticationError(
+        "sensitive model output",
+        response=httpx.Response(401, request=request, headers={"request-id": "req_test"}),
+        body={"type": "error", "error": {"type": "authentication_error", "message": "sensitive model output"}},
+    )
+
+
+def _provider_connection_error() -> Exception:
+    error = anthropic.APIConnectionError(request=httpx.Request("POST", "https://api.anthropic.com/v1/messages"))
+    error.__cause__ = httpx.ProxyError("sensitive model output")
+    return error
+
+
+def _extraction_validation_error() -> Exception:
+    payload = {
+        **_extraction().model_dump(),
+        "canonical_answer": "",
+        "rejection_code": "sensitive model output",
+        "sensitive model output": True,
+    }
+    try:
+        ExtractedKnowledge.model_validate(payload)
+    except ValidationError as error:
+        return error
+    raise AssertionError("payload must fail validation")
 
 
 def _embedding() -> EmbeddingResponse:
@@ -480,7 +514,44 @@ class TestLearningAnalyzer:
         search.assert_not_called()
         publish.assert_not_called()
 
-    def test_model_error_marks_run_failed_without_capturing_sensitive_error(self, team: Team) -> None:
+    @pytest.mark.parametrize(
+        "error_factory,expected_fields",
+        [
+            pytest.param(
+                _provider_status_error,
+                {
+                    "error_type": "AuthenticationError",
+                    "status_code": 401,
+                    "request_id": "req_test",
+                    "provider_error_type": "authentication_error",
+                },
+                id="provider_status",
+            ),
+            pytest.param(
+                _provider_connection_error,
+                {"error_type": "APIConnectionError", "cause_type": "ProxyError"},
+                id="provider_connection",
+            ),
+            pytest.param(
+                _extraction_validation_error,
+                {
+                    "error_type": "ValidationError",
+                    "validation_failures": [
+                        "canonical_answer:string_too_short",
+                        "rejection_code:literal_error",
+                        "<other>:extra_forbidden",
+                    ],
+                },
+                id="output_validation",
+            ),
+        ],
+    )
+    def test_model_error_marks_run_failed_without_capturing_sensitive_error(
+        self,
+        team: Team,
+        error_factory: Callable[[], Exception],
+        expected_fields: dict[str, object],
+    ) -> None:
         run, input = _setup_sync(team)
         provider = _Provider(EvidenceBundle(replies=("Refunds are available within 30 days.",)))
         model = MagicMock()
@@ -490,7 +561,7 @@ class TestLearningAnalyzer:
 
         def _raise_sensitive_error(messages: object, config: dict[str, list[CallbackHandler]]) -> None:
             callback = config["callbacks"][0]
-            error = ValueError("sensitive model output")
+            error = error_factory()
             callback.on_llm_error(error, run_id=UUID(int=1))
             callback.on_chain_error(error, run_id=UUID(int=2))
             raise error
@@ -501,13 +572,26 @@ class TestLearningAnalyzer:
             patch(f"{_MODULE}.get_learning_provider", return_value=provider),
             patch(f"{_MODULE}._build_model", return_value=model),
             patch("products.business_knowledge.backend.llm_telemetry.posthoganalytics", analytics),
-            pytest.raises(LearningAnalysisError, match="extraction_model_failed"),
+            capture_logs() as logs,
+            pytest.raises(LearningAnalysisError, match="extraction_model_failed") as raised,
         ):
             analyze_learning_evidence(input)
 
+        assert raised.value.__cause__ is None
         run.refresh_from_db()
         assert run.status == "failed"
         assert run.error == "extraction_model_failed"
+        failed = [entry for entry in logs if entry["event"] == "business_knowledge.learning.model_failed"]
+        assert failed == [
+            {
+                "event": "business_knowledge.learning.model_failed",
+                "log_level": "error",
+                "stage": "extraction",
+                "team_id": team.id,
+                "trace_id": str(run.id),
+                **expected_fields,
+            }
+        ]
         model.with_structured_output.assert_called_once_with(
             ExtractedKnowledge,
             method="json_schema",
