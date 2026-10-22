@@ -6,6 +6,7 @@ import { Button, cn } from '@posthog/quill'
 
 import { releaseStageProductForScene } from 'lib/components/ReleaseStageTag/releaseStage'
 import { ReleaseStageTag } from 'lib/components/ReleaseStageTag/ReleaseStageTag'
+import { useMaxTool } from 'scenes/max/useMaxTool'
 import { sceneLogic } from 'scenes/sceneLogic'
 
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
@@ -45,12 +46,15 @@ export function QuillSceneTitleSection({
     isGeneratingMetadata,
     descriptionMaxLength,
     sceneId,
+    maxToolProps,
 }: SceneMainTitleProps): JSX.Element {
     const { breadcrumbs } = useValues(breadcrumbsLogic)
     const { activeSceneId } = useValues(sceneLogic)
     const { showDescription } = useValues(sceneLayoutLogic)
     const { toggleShowDescription } = useActions(sceneLayoutLogic)
-    const { phoneHeaderShown, sidebarBreadcrumbShown } = useValues(todayShellLogic)
+    const { phoneHeaderShown, sidebarBreadcrumbShown, currentWarehouseItem, warehouseHeaderShown } =
+        useValues(todayShellLogic)
+    useMaxTool({ ...(maxToolProps ?? { identifier: 'read_data' }), active: !!maxToolProps && warehouseHeaderShown })
     // The phone header shows the title, so this row keeps only the actions. A new resource keeps its name field.
     const titleInPhoneHeader = phoneHeaderShown && !forceEdit
     const releaseStageSceneId = sceneId ?? activeSceneId
@@ -77,6 +81,17 @@ export function QuillSceneTitleSection({
     useRegisterSceneMenuBarSlot(menuBarSlot)
     // The menu bar's Help menu carries the settings link, so the title shows its own only without a bar.
     const menuBarShown = useSceneMenuBarSlotFilled()
+
+    const titleInWarehouseHeader = !!currentWarehouseItem && !forceBackTo && breadcrumbs.length <= 2 && !forceEdit
+    if (titleInWarehouseHeader) {
+        return (
+            <div data-quill className={cn('flex flex-wrap items-center justify-end gap-1 empty:hidden', className)}>
+                {actions}
+                <div ref={setMenuBarSlot} className="flex min-w-0 items-center empty:hidden" />
+                {!menuBarShown && <SceneTitleSettingsButton />}
+            </div>
+        )
+    }
 
     return (
         <>

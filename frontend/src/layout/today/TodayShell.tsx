@@ -24,6 +24,7 @@ import { TodaySidebarCollapseButton } from './TodaySidebarCollapseButton'
 import { TodaySidebarFooter } from './TodaySidebarFooter'
 import { TodaySidebarPinButton } from './TodaySidebarPinButton'
 import { TodayTabBar } from './TodayTabBar'
+import { TodayWarehouseTabsPane } from './TodayWarehouseTabsPane'
 
 const TodaySpacesPane = lazyWithRetry(() => import('./TodaySpacesPane').then((m) => ({ default: m.TodaySpacesPane })))
 const TodayAnalyticsSidebar = lazyWithRetry(() =>
@@ -41,8 +42,16 @@ const NewSpaceDialog = lazyWithRetry(() =>
 
 /** The left navigation under the Today layout: the rail, then the sidebar for the pane the rail has open. */
 export function TodayShell({ className }: { className?: string }): JSX.Element {
-    const { activePane, mobileLayout, phoneLayout, sidebarVisible, sidebarWidth, phoneHeaderHidden } =
-        useValues(todayShellLogic)
+    const {
+        activePane,
+        mobileLayout,
+        phoneLayout,
+        sidebarVisible,
+        sidebarWidth,
+        phoneHeaderHidden,
+        sidebarInContent,
+        currentWarehouseItem,
+    } = useValues(todayShellLogic)
     useMountedLogic(todayPanelChatSessionLogic)
     const { setMobileSidebarOpen, setSidebarOpen, setSidebarWidth, toggleSidebar } = useActions(todayShellLogic)
     useShortcut({
@@ -95,6 +104,8 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
                 <TodaySpacesPane />
             ) : activePane === 'analytics' ? (
                 <TodayAnalyticsSidebar />
+            ) : activePane === 'warehouse' ? (
+                <TodayWarehouseTabsPane />
             ) : activePane === 'settings' ? (
                 <TodaySettingsSidebar />
             ) : (
@@ -103,7 +114,8 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
         </Suspense>
     )
 
-    const { title: paneTitle, action: PaneAction } = TODAY_PANES[activePane]
+    const { title, action: PaneAction } = TODAY_PANES[activePane]
+    const paneTitle = activePane === 'warehouse' ? (currentWarehouseItem?.label ?? title) : title
     const pane = (
         <div className="TodayShell__pane">
             <QuillSceneHeader
@@ -185,7 +197,8 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
                         </aside>
                     </>
                 ) : (
-                    sidebarVisible && (
+                    sidebarVisible &&
+                    !sidebarInContent && (
                         <aside
                             ref={sidebarRef}
                             className="group/sidebar TodayShell__sidebar TodayShell__sidebar--framed relative bg-surface-primary"

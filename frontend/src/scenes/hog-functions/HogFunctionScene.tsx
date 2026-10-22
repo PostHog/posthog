@@ -25,7 +25,7 @@ import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { LemonTab } from 'lib/lemon-ui/LemonTabs'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
@@ -39,6 +39,7 @@ import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneTabs } from '~/layout/scenes/components/SceneTabs'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import {
     ActivityScope,
@@ -598,7 +599,7 @@ export function HogFunctionScene(): JSX.Element {
                 {templateId ? (
                     <HogFunctionConfiguration templateId={templateId} subTemplateId={subTemplateId} />
                 ) : (
-                    <LemonTabs activeKey={currentTab} tabs={tabs} onChange={setCurrentTab} sceneInset={true} />
+                    <SceneTabs activeKey={currentTab} tabs={tabs} onChange={setCurrentTab} sceneInset={true} />
                 )}
             </BindLogic>
         </SceneContent>

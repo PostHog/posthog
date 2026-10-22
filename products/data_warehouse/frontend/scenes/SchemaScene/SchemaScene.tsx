@@ -6,12 +6,13 @@ import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { LemonTab } from 'lib/lemon-ui/LemonTabs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneTabs } from '~/layout/scenes/components/SceneTabs'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { ActivityScope } from '~/types'
@@ -204,7 +205,7 @@ function SchemaSceneContent({ sourceId, schemaId }: SchemaSceneProps): JSX.Eleme
                 description={schema.description || undefined}
                 resourceType={{ type: 'data_pipeline' }}
             />
-            <LemonTabs activeKey={activeTab} tabs={tabs} onChange={setCurrentTab} sceneInset />
+            <SceneTabs activeKey={activeTab} tabs={tabs} onChange={setCurrentTab} sceneInset />
         </SceneContent>
     )
 }
