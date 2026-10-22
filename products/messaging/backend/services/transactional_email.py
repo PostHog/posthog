@@ -79,8 +79,12 @@ def sender_address_error(team_id: int, sender: dict[str, Any]) -> str | None:
         return f"Use an address of at most {SENDER_ADDRESS_MAX_LENGTH} characters."
     if not SENDER_ADDRESS_PATTERN.match(address):
         return "Enter one email address, like hello@example.com."
+    integration_id = sender.get("integrationId")
+    # Without a sender there is no domain to check against. The sender field rejects that case on its own.
+    if integration_id is None:
+        return None
     config = (
-        Integration.objects.filter(team_id=team_id, kind="email", id=sender.get("integrationId"))
+        Integration.objects.filter(team_id=team_id, kind="email", id=integration_id)
         .values_list("config", flat=True)
         .first()
         or {}
