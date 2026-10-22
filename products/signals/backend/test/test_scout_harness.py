@@ -1265,6 +1265,11 @@ class TestPromptBuilder(BaseTest):
         assert "include_all_statuses=true" in prompt
         # A scout that keeps its reports out of the inbox must still find them, or it re-emits each run.
         assert "include_unlisted=true" in prompt
+        # A text search misses an aggregate report that doesn't name the entity, and a closed duplicate can
+        # sort above the still-open original. Dropping either rule re-files issues a live report covers.
+        assert "`scout=<the skill_name in *Your run identity*>`" in prompt
+        assert "against **every** report you found" in prompt
+        assert "one pointer each" in prompt
         assert "dismissal_note" in prompt
         assert "record the rationale in your own words" in prompt
         # Report authors need the metric semantics the generated tool shape cannot express on its own:
