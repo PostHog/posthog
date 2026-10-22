@@ -1,6 +1,9 @@
 from dataclasses import dataclass, field
 from typing import Optional
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    DependentEndpointConfig,
+)
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 # Hookdeck pins the API version as the first path segment. Omitting it tracks the latest version,
@@ -16,6 +19,18 @@ PAGE_SIZE = 250
 # value they had when first imported.
 _RESTATED_RECORD_LOOKBACK_SECONDS = 24 * 60 * 60
 
+# A fan-out run reads each parent's children at a different moment but stores one watermark for
+# the whole table, so the next run re-reads a trailing day to pick up children that landed under a
+# parent after it was read.
+_FANOUT_LOOKBACK_SECONDS = 24 * 60 * 60
+
+# Metrics are bucketed per hour, and the latest bucket is still filling when it is read.
+METRICS_GRANULARITY = "1h"
+_METRICS_LOOKBACK_SECONDS = 2 * 60 * 60
+# How far back a full refresh or a first incremental sync reads. Hookdeck documents no retention
+# window for metrics, so the backfill stays bounded rather than asking for all history.
+METRICS_BACKFILL_DAYS = 30
+
 
 def _datetime_field(name: str) -> IncrementalField:
     return {
@@ -24,6 +39,14 @@ def _datetime_field(name: str) -> IncrementalField:
         "field": name,
         "field_type": IncrementalFieldType.DateTime,
     }
+
+
+@dataclass(frozen=True)
+class HookdeckMetricsConfig:
+    measures: tuple[str, ...]
+    # Each dimension becomes a column and part of the primary key, so only list dimensions that are
+    # never null on a row.
+    dimensions: tuple[str, ...]
 
 
 @dataclass
@@ -47,6 +70,19 @@ class HookdeckEndpointConfig:
     # When set, those nested fields are masked before rows are written to the warehouse so a reader
     # of the table can't recover credentials they don't have the Hookdeck key for.
     contains_credentials: bool = False
+    page_size: int = PAGE_SIZE
+    # Child endpoints are read once per row of `fanout.parent_name`.
+    fanout: Optional[DependentEndpointConfig] = None
+    # The child endpoint has no date filter, so incremental runs window the parent by `created_at`
+    # instead. A child row is created no earlier than its parent, so the window never drops one.
+    window_parent: bool = False
+    # Aggregated time series from `/metrics/*`, read as one bucketed query over a date range
+    # instead of a paginated list.
+    metrics: Optional[HookdeckMetricsConfig] = None
+
+    @property
+    def default_incremental_field(self) -> Optional[str]:
+        return self.incremental_fields[0]["field"] if self.incremental_fields else None
 
 
 HOOKDECK_ENDPOINTS: dict[str, HookdeckEndpointConfig] = {
@@ -117,6 +153,57 @@ HOOKDECK_ENDPOINTS: dict[str, HookdeckEndpointConfig] = {
         name="bookmarks",
         path="/bookmarks",
         description="Saved event payloads kept for replaying against a connection",
+    ),
+    "request_ignored_events": HookdeckEndpointConfig(
+        name="request_ignored_events",
+        path="/requests/{request_id}/ignored_events",
+        # Ignored event ids embed the request id, but the parent id is kept in the key so rows from
+        # different requests can never collide.
+        primary_keys=["request_id", "id"],
+        incremental_fields=[_datetime_field("created_at")],
+        default_incremental_lookback_seconds=_FANOUT_LOOKBACK_SECONDS,
+        description="Deliveries Hookdeck skipped for a request, one row per connection, with the cause (filtered, disabled, transformation failed or CLI disconnected)",
+        fanout=DependentEndpointConfig(
+            parent_name="requests",
+            resolve_param="request_id",
+            resolve_field="id",
+            include_from_parent=[],
+        ),
+        window_parent=True,
+    ),
+    "transformation_executions": HookdeckEndpointConfig(
+        name="transformation_executions",
+        path="/transformations/{transformation_id}/executions",
+        primary_keys=["transformation_id", "id"],
+        incremental_fields=[_datetime_field("created_at")],
+        default_incremental_lookback_seconds=_FANOUT_LOOKBACK_SECONDS,
+        description="Runs of each transformation against an event, with the log level, console output and any issue raised",
+        fanout=DependentEndpointConfig(
+            parent_name="transformations",
+            resolve_param="transformation_id",
+            resolve_field="id",
+            include_from_parent=[],
+        ),
+    ),
+    "queue_depth_metrics": HookdeckEndpointConfig(
+        name="queue_depth_metrics",
+        path="/metrics/queue-depth",
+        primary_keys=["time_bucket", "destination_id"],
+        incremental_fields=[_datetime_field("time_bucket")],
+        partition_key="time_bucket",
+        default_incremental_lookback_seconds=_METRICS_LOOKBACK_SECONDS,
+        description="Hourly delivery backlog per destination: the most events pending and the longest an event waited",
+        metrics=HookdeckMetricsConfig(measures=("max_depth", "max_age"), dimensions=("destination_id",)),
+    ),
+    "events_pending_timeseries": HookdeckEndpointConfig(
+        name="events_pending_timeseries",
+        path="/metrics/events-pending-timeseries",
+        primary_keys=["time_bucket", "destination_id"],
+        incremental_fields=[_datetime_field("time_bucket")],
+        partition_key="time_bucket",
+        default_incremental_lookback_seconds=_METRICS_LOOKBACK_SECONDS,
+        description="Hourly count of events pending delivery per destination",
+        metrics=HookdeckMetricsConfig(measures=("count",), dimensions=("destination_id",)),
     ),
 }
 
