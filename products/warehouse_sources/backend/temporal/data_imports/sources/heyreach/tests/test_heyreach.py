@@ -1,10 +1,14 @@
+import itertools
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
 
 import requests
+from dateutil import parser
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    RecordedRequest,
     ScriptedResponse,
     SourceDriver,
     always,
@@ -165,7 +169,7 @@ class TestDailyStats:
         assert body["accountIds"] == []
         assert body["campaignIds"] == []
 
-    def test_campaign_stats_yields_one_row_per_day_and_campaign(self) -> None:
+    def test_campaign_stats_requests_contiguous_windows_and_yields_one_row_per_day_and_campaign(self) -> None:
         payload = {
             "byDayStats": {
                 "2024-12-17T00:00:00Z": [
@@ -177,10 +181,22 @@ class TestDailyStats:
             "overallStats": [{"campaignId": 1, "messagesSent": 3}],
         }
 
-        result = _driver().run("campaign_stats", [ScriptedResponse(json=payload)])
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            body = request.json()
+            if body["startDate"] <= "2024-12-17" <= body["endDate"]:
+                return ScriptedResponse(json=payload)
+            return ScriptedResponse(json={"byDayStats": {}, "overallStats": []})
+
+        result = _driver().run("campaign_stats", respond)
 
         assert result.raised is None
-        assert result.paths == ["/api/public/stats/GetOverallStatsByCampaign"]
+        assert set(result.paths) == {"/api/public/stats/GetOverallStatsByCampaign"}
+        windows = [(parser.parse(r.json()["startDate"]), parser.parse(r.json()["endDate"])) for r in result.requests]
+        assert windows[0][0] == parser.parse(STATS_START_DATE)
+        assert windows[-1][1] > datetime.now(tz=UTC) - timedelta(minutes=5)
+        for (start, end), (next_start, _) in itertools.pairwise(windows):
+            assert end - start < timedelta(days=30)
+            assert next_start - end == timedelta(milliseconds=1)
         assert [(row["date"].isoformat(), row["campaignId"], row["messagesSent"]) for row in result.rows] == [
             ("2024-12-17T00:00:00+00:00", 1, 3),
             ("2024-12-17T00:00:00+00:00", 2, 4),

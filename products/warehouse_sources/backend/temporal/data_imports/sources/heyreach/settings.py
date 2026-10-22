@@ -38,6 +38,8 @@ class HeyReachEndpointConfig:
     # The endpoint returns one `byDayStats` object instead of the paginated `items` envelope,
     # and is reshaped into one row per day (per campaign, for the by-campaign breakdown).
     daily_stats: bool = False
+    # Request daily stats in windows of this many days, so one response holds a bounded number of rows.
+    stats_window_days: int | None = None
     # The endpoint pages with `pageNumber`/`pageSize` in the body instead of `offset`/`limit`.
     page_number_pagination: bool = False
 
@@ -112,6 +114,8 @@ ENDPOINTS: dict[str, HeyReachEndpointConfig] = {
         primary_keys=["date", "campaignId"],
         partition_key="date",
         daily_stats=True,
+        # Rows grow with campaigns x days, so the full history doesn't fit one response.
+        stats_window_days=30,
     ),
     "sender_network": HeyReachEndpointConfig(
         name="sender_network",
