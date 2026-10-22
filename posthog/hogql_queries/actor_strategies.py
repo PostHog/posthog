@@ -14,11 +14,13 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.hogql_queries.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.utils.recordings_helper import RecordingsHelper
-from posthog.models import Team
+from posthog.models import PropertyDefinition, Team
 from posthog.models.person.util import _batched_get_distinct_ids_for_persons, _batched_get_persons_by_uuids
 from posthog.models.user import User
 from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.utils import is_anonymous_id
+
+from products.event_definitions.backend.models.property_definition import effective_project_id_expr
 
 logger = structlog.get_logger(__name__)
 
@@ -146,23 +148,19 @@ class PersonStrategy(ActorStrategy):
 
         search = self.query.search.strip() if self.query.search else None
         if search:
+            searched_properties = (
+                ["email", "Email", "name"] if self._has_title_cased_email_property() else ["email", "name"]
+            )
             where_exprs.append(
                 ast.Or(
                     exprs=[
-                        ast.CompareOperation(
-                            op=ast.CompareOperationOp.ILike,
-                            left=ast.Call(name="toString", args=[ast.Field(chain=["properties", "email"])]),
-                            right=ast.Constant(value=f"%{search}%"),
-                        ),
-                        ast.CompareOperation(
-                            op=ast.CompareOperationOp.ILike,
-                            left=ast.Call(name="toString", args=[ast.Field(chain=["properties", "Email"])]),
-                            right=ast.Constant(value=f"%{search}%"),
-                        ),
-                        ast.CompareOperation(
-                            op=ast.CompareOperationOp.ILike,
-                            left=ast.Call(name="toString", args=[ast.Field(chain=["properties", "name"])]),
-                            right=ast.Constant(value=f"%{search}%"),
+                        *(
+                            ast.CompareOperation(
+                                op=ast.CompareOperationOp.ILike,
+                                left=ast.Call(name="toString", args=[ast.Field(chain=["properties", name])]),
+                                right=ast.Constant(value=f"%{search}%"),
+                            )
+                            for name in searched_properties
                         ),
                         ast.CompareOperation(
                             op=ast.CompareOperationOp.ILike,
@@ -177,6 +175,13 @@ class PersonStrategy(ActorStrategy):
                 )
             )
         return where_exprs
+
+    def _has_title_cased_email_property(self) -> bool:
+        return (
+            PropertyDefinition.objects.alias(effective_project_id=effective_project_id_expr())
+            .filter(effective_project_id=self.team.project_id, type=PropertyDefinition.Type.PERSON, name="Email")
+            .exists()
+        )
 
     def order_by(self) -> Optional[list[ast.OrderExpr]]:
         if self.query.orderBy not in [["person"], ["person DESC"], ["person ASC"]]:
