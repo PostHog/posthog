@@ -16,6 +16,7 @@ env:
 
 jobs:
     prepare-release:
+        if: github.repository == 'PostHog/posthog'
         environment: desktop-release
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 10

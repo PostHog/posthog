@@ -3756,6 +3756,7 @@ export interface CredentialApi {
  * * `Klar` - Klar
  * * `ConectoCRM` - ConectoCRM
  * * `CloudflareR2` - CloudflareR2
+ * * `Particle` - Particle
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -5164,6 +5165,7 @@ export const ExternalDataSourceTypeEnumApi = {
     Klar: 'Klar',
     ConectoCRM: 'ConectoCRM',
     CloudflareR2: 'CloudflareR2',
+    Particle: 'Particle',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {

@@ -1059,12 +1059,16 @@ export class EmailService {
 
         const ccAddresses = parseAddressList(params.cc)
         const bccAddresses = parseAddressList(params.bcc)
+        const replyToAddresses = parseAddressList(params.replyTo)
 
         if (ccAddresses) {
             mailOptions.cc = ccAddresses
         }
         if (bccAddresses) {
             mailOptions.bcc = bccAddresses
+        }
+        if (replyToAddresses) {
+            mailOptions.replyTo = replyToAddresses
         }
 
         const response = await mailDevTransport!.sendMail(mailOptions)
