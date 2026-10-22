@@ -38666,6 +38666,33 @@ export namespace Schemas {
       readonly updated_at: string | null;
     }
 
+    export interface ReviewerState {
+      /**
+         * Current reviewer artefact ID, or null before the first list.
+         * @nullable
+         */
+      reviewers_id: string | null;
+      /**
+         * Current corrections artefact ID, or null before corrections are stored.
+         * @nullable
+         */
+      corrections_id: string | null;
+    }
+
+    /**
+     * * `selected` - Selected
+     * * `no_suitable_owner` - No suitable owner
+     * * `lookup_failed` - Lookup failed
+     */
+    export type ReviewerSelectionOutcomeEnum = typeof ReviewerSelectionOutcomeEnum[keyof typeof ReviewerSelectionOutcomeEnum];
+
+
+    export const ReviewerSelectionOutcomeEnum = {
+      Selected: 'selected',
+      NoSuitableOwner: 'no_suitable_owner',
+      LookupFailed: 'lookup_failed',
+    } as const;
+
     /**
      * One observation backing an authored report — becomes a bound signal row on the report.
      */
@@ -38928,6 +38955,19 @@ export namespace Schemas {
      * Request body for `edit-report`. Can target ANY of the team's inbox reports, not just scout-authored ones.
      */
     export interface EditReportRequest {
+      /** Report reviewer_assignment.state read before selection began. Required when reviewer corrections are enabled. */
+      expected_reviewers?: ReviewerState;
+      /** A successful selection, a deliberate empty result, or an unavailable lookup.
+       *
+       * * `selected` - Selected
+       * * `no_suitable_owner` - No suitable owner
+       * * `lookup_failed` - Lookup failed */
+      reviewer_outcome?: ReviewerSelectionOutcomeEnum;
+      /**
+         * Reason the reviewer lookup failed.
+         * @maxLength 500
+         */
+      reviewer_retry_reason?: string;
       /** Id of the report to edit (must belong to this project). */
       report_id: string;
       /**
@@ -38957,7 +38997,7 @@ export namespace Schemas {
          */
       append_evidence?: ReportEvidence[] | null;
       /**
-         * Optional reviewers to set on the report (each a `github_login` and/or `user_uuid`), replacing any existing list. Use this to route a report that surfaced with no reviewer — it re-runs autostart, so a report that was missing a qualifying reviewer can now open a draft PR. An empty list is a no-op (existing reviewers are left untouched, never cleared).
+         * Optional reviewers to set on the report (each a `github_login` and/or `user_uuid`), replacing any existing list. Use this to route a report that surfaced with no reviewer — it re-runs autostart, so a report that was missing a qualifying reviewer can now open a draft PR. An empty list clears automatic reviewers when correction rules are enabled. Pins, exclusions, and confirmed lists are preserved. Pass expected_reviewers from the report reviewer_assignment.state read before selection.
          * @maxItems 10
          */
       suggested_reviewers?: SuggestedReviewer[];
@@ -75500,6 +75540,7 @@ export namespace Schemas {
      * * `signal_finding` - Signal Finding
      * * `repo_selection` - Repo Selection
      * * `suggested_reviewers` - Suggested Reviewers
+     * * `reviewer_corrections` - Reviewer Corrections
      * * `channel_assignment` - Channel Assignment
      * * `dismissal` - Dismissal
      * * `code_reference` - Code Reference
@@ -75539,6 +75580,7 @@ export namespace Schemas {
       SignalFinding: 'signal_finding',
       RepoSelection: 'repo_selection',
       SuggestedReviewers: 'suggested_reviewers',
+      ReviewerCorrections: 'reviewer_corrections',
       ChannelAssignment: 'channel_assignment',
       Dismissal: 'dismissal',
       CodeReference: 'code_reference',
@@ -75767,6 +75809,21 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: SignalReportCheck[];
+    }
+
+    export interface ReviewerControlResponse {
+      /** State token for a selection, replacement, or list confirmation. */
+      state: ReviewerState;
+      /** People an automatic selection must retain. */
+      pinned_user_uuids: string[];
+      /** People an automatic selection must not restore. */
+      excluded_user_uuids: string[];
+      /** A person explicitly confirmed the complete reviewer list. */
+      confirmed: boolean;
+      /** Older edits need recovery on the next protected write, or have incomplete history. Automatic changes are paused until recovery or list confirmation. */
+      needs_review: boolean;
+      /** Whether this report uses saved reviewer corrections. */
+      enabled: boolean;
     }
 
     export type SignalReportStatusEnum = typeof SignalReportStatusEnum[keyof typeof SignalReportStatusEnum];
@@ -76164,6 +76221,8 @@ export namespace Schemas {
       readonly summary: string | null;
       /** The opening of `summary` as plain text on one line: the text before its first section heading, with chart links removed and other links reduced to their text. At most 450 characters. */
       readonly summary_lead: string;
+      /** Reviewer control and state token for preparing an automatic proposal. */
+      readonly reviewer_assignment: ReviewerControlResponse | null;
       /** Current report status. Monitoring reads as resolved when its rollout is disabled. */
       readonly status: SignalReportStatusEnum;
       /**
@@ -98075,6 +98134,8 @@ export namespace Schemas {
       readonly summary: string | null;
       /** The opening of `summary` as plain text on one line: the text before its first section heading, with chart links removed and other links reduced to their text. At most 450 characters. */
       readonly summary_lead: string;
+      /** Reviewer control and state token for preparing an automatic proposal. */
+      readonly reviewer_assignment: ReviewerControlResponse | null;
       /** Current report status. Monitoring reads as resolved when its rollout is disabled. */
       readonly status: SignalReportStatusEnum;
       /**
@@ -100882,6 +100943,22 @@ export namespace Schemas {
       /** The validator skill's SKILL.md body, for the read-only skill viewer. */
       body: string;
     }
+
+    /**
+     * * `add` - Add
+     * * `remove` - Remove
+     * * `replace` - Replace
+     * * `confirm` - Confirm
+     */
+    export type ReviewerEditActionEnum = typeof ReviewerEditActionEnum[keyof typeof ReviewerEditActionEnum];
+
+
+    export const ReviewerEditActionEnum = {
+      Add: 'add',
+      Remove: 'remove',
+      Replace: 'replace',
+      Confirm: 'confirm',
+    } as const;
 
     export interface RevokeOtherSessionsResponse {
       /** Number of other login sessions that were revoked. */
@@ -104456,6 +104533,19 @@ export namespace Schemas {
      * against the type's schema (see `products/signals/backend/artefact_schemas.py`).
      */
     export interface SignalReportArtefactLogCreate {
+      /** Report reviewer_assignment.state read before selection began. Required when reviewer corrections are enabled. */
+      expected_reviewers?: ReviewerState;
+      /** A successful selection, a deliberate empty result, or an unavailable lookup.
+       *
+       * * `selected` - Selected
+       * * `no_suitable_owner` - No suitable owner
+       * * `lookup_failed` - Lookup failed */
+      reviewer_outcome?: ReviewerSelectionOutcomeEnum;
+      /**
+         * Reason the reviewer lookup failed.
+         * @maxLength 500
+         */
+      reviewer_retry_reason?: string;
       /** Active claim to attribute this work to. Must belong to the caller and report. */
       claim_id?: string;
       /** The artefact type. One of: actionability_judgment, channel_assignment, code_reference, commit, dismissal, note, priority_judgment, related_to, repo_selection, safety_judgment, signal_finding, source_suggestion, suggested_reviewers. Log types accumulate; status types (safety_judgment, actionability_judgment, priority_judgment, repo_selection, suggested_reviewers, channel_assignment, source_suggestion) are latest-wins — appending a new version supersedes the previous one as the report's canonical status. */
@@ -104492,18 +104582,26 @@ export namespace Schemas {
       reason?: string | null;
     }
 
-    /**
-     * PUT body for replacing a `suggested_reviewers` artefact's content.
-     *
-     * Only `suggested_reviewers` artefacts may be modified via this endpoint;
-     * the viewset enforces the type check before validation runs.
-     */
     export interface SignalReportArtefactWrite {
+      /** Add or remove only the supplied people, replace the list, or explicitly confirm it.
+       *
+       * * `add` - Add
+       * * `remove` - Remove
+       * * `replace` - Replace
+       * * `confirm` - Confirm */
+      action?: ReviewerEditActionEnum;
+      /** State from the last read. Required for replacement and confirmation when corrections are enabled. */
+      expected_reviewers?: ReviewerState;
       /**
-         * Full replacement list of reviewers. Empty list clears the artefact. At most 10 entries.
+         * People to add, remove, or keep in a replacement. Send an empty list for confirmation.
          * @maxItems 10
          */
       content: SuggestedReviewerEntryWrite[];
+      /**
+         * Explicit add or remove targets. When supplied, content is only a fallback for older servers.
+         * @maxItems 10
+         */
+      targets?: SuggestedReviewerEntryWrite[];
     }
 
     /**
