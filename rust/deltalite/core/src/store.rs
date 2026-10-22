@@ -218,9 +218,10 @@ impl MultipartPutStore {
             ..Default::default()
         };
         let mut result = self.inner.get_opts(location, options).await?;
-        // A local file would stream in 8 KiB blocking reads; read it straight into `dst`.
+        // A local file would stream in 8 KiB reads; read it straight into `dst` without
+        // blocking a Tokio worker.
         if let GetResultPayload::File(file, _) = &mut result.payload {
-            return read_file_into(file, location, &range, dst);
+            return read_file_into(file, location, &range, dst).await;
         }
         let mut stream = result.into_stream();
         let mut filled = 0usize;
@@ -240,21 +241,25 @@ impl MultipartPutStore {
     }
 }
 
-fn read_file_into(
-    file: &mut std::fs::File,
+async fn read_file_into(
+    file: &std::fs::File,
     location: &Path,
     range: &Range<u64>,
     dst: &mut [u8],
 ) -> object_store::Result<()> {
-    use std::io::{Read, Seek, SeekFrom};
+    use tokio::io::{AsyncReadExt, AsyncSeekExt};
+
     let generic = |e: std::io::Error| object_store::Error::Generic {
         store: "deltalite",
         source: Box::new(e),
     };
-    file.seek(SeekFrom::Start(range.start)).map_err(generic)?;
+    let mut file = tokio::fs::File::from_std(file.try_clone().map_err(generic)?);
+    file.seek(std::io::SeekFrom::Start(range.start))
+        .await
+        .map_err(generic)?;
     let mut filled = 0usize;
     while filled < dst.len() {
-        match file.read(&mut dst[filled..]) {
+        match file.read(&mut dst[filled..]).await {
             Ok(0) => return Err(short_read(location, range, filled)),
             Ok(n) => filled += n,
             Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
