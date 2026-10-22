@@ -82,7 +82,11 @@ def _payload(
 
 
 def _label_payload(
-    *, label: str = "posthog-review", sender: str = "OctoCat", sender_type: str = "User", login: str = "OctoCat"
+    *,
+    label: str = "posthog-review-standard",
+    sender: str = "OctoCat",
+    sender_type: str = "User",
+    login: str = "OctoCat",
 ) -> dict[str, object]:
     return {
         **_payload(action="labeled", login=login),
@@ -220,12 +224,14 @@ class TestAuthoredPRWebhook(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("person_adds_the_label", "posthog-review", "OctoCat", "User", True),
-            ("person_adds_the_legacy_label", "reviewhog", "OctoCat", "User", True),
-            ("label_name_ignores_case", "PostHog-Review", "OctoCat", "User", True),
+            ("person_adds_the_standard_label", "posthog-review-standard", "OctoCat", "User", True, False),
+            ("person_adds_the_deep_label", "posthog-review-deep", "OctoCat", "User", True, True),
+            ("label_name_ignores_case", "PostHog-Review-Deep", "OctoCat", "User", True, True),
             # The task explains the refusal on the pull request and removes the label.
-            ("bot_adds_the_label", "posthog-review", "renovate[bot]", "Bot", True),
-            ("another_label", "bug", "OctoCat", "User", False),
+            ("bot_adds_the_label", "posthog-review-standard", "renovate[bot]", "Bot", True, False),
+            ("retired_label", "reviewhog", "OctoCat", "User", False, False),
+            ("retired_unsuffixed_label", "posthog-review", "OctoCat", "User", False, False),
+            ("another_label", "bug", "OctoCat", "User", False, False),
         ]
     )
     @patch(_QUEUE)
@@ -237,6 +243,7 @@ class TestAuthoredPRWebhook(SimpleTestCase):
         sender: str,
         sender_type: str,
         expected_enqueue: bool,
+        expected_deep: bool,
         label_enqueue: MagicMock,
         enqueue: MagicMock,
     ) -> None:
@@ -255,6 +262,7 @@ class TestAuthoredPRWebhook(SimpleTestCase):
                 head_branch="feature",
                 labeler_login=sender,
                 labeled_by_bot=sender_type == "Bot",
+                deep=expected_deep,
             )
         else:
             label_enqueue.assert_not_called()
@@ -511,26 +519,33 @@ class TestLabelReviewTask(BaseTest):
             review_mode="flash",
         )
 
-    def test_a_label_after_a_published_deep_review_runs_deep(self) -> None:
-        # A Standard request after a published Deep review is dropped, so the label would do nothing.
-        ReviewReport.objects.for_team(self.team.id).create(
-            team=self.team,
-            repository="posthog/posthog",
-            pr_number=42,
-            head_branch="feature",
-            base_branch="master",
-            published_heads_by_mode={"full": _HEAD_SHA},
-        )
+    @parameterized.expand(
+        [
+            # A Standard request after a published Deep review is dropped, so the label would do nothing.
+            ("standard_label_after_a_published_deep_review", "posthog-review-standard", True),
+            ("deep_label", "posthog-review-deep", False),
+        ]
+    )
+    def test_a_label_runs_deep(self, _name: str, label: str, deep_published: bool) -> None:
+        if deep_published:
+            ReviewReport.objects.for_team(self.team.id).create(
+                team=self.team,
+                repository="posthog/posthog",
+                pr_number=42,
+                head_branch="feature",
+                base_branch="master",
+                published_heads_by_mode={"full": _HEAD_SHA},
+            )
 
-        self._run(_label_payload())
+        self._run(_label_payload(label=label))
 
         assert self.start.call_args.kwargs["review_mode"] == "full"
 
     @parameterized.expand(
         [
-            ("another_bot", "posthog-review", "renovate[bot]", False),
-            ("another_bot_legacy_label", "reviewhog", "renovate[bot]", False),
-            ("stamphog_hands_off", "posthog-review", "stamphog[bot]", True),
+            ("another_bot", "posthog-review-standard", "renovate[bot]", False),
+            ("another_bot_deep_label", "posthog-review-deep", "renovate[bot]", False),
+            ("stamphog_hands_off", "posthog-review-standard", "stamphog[bot]", True),
         ]
     )
     def test_only_stamphog_may_label_as_a_bot(self, _name: str, label: str, sender: str, starts: bool) -> None:
@@ -542,8 +557,8 @@ class TestLabelReviewTask(BaseTest):
             assert calls == []
         else:
             assert calls == [
-                ("DELETE", "/repos/PostHog/posthog/issues/42/labels/posthog-review"),
-                ("DELETE", "/repos/PostHog/posthog/issues/42/labels/reviewhog"),
+                ("DELETE", "/repos/PostHog/posthog/issues/42/labels/posthog-review-deep"),
+                ("DELETE", "/repos/PostHog/posthog/issues/42/labels/posthog-review-standard"),
                 ("POST", "/repos/PostHog/posthog/issues/42/comments"),
             ]
 
