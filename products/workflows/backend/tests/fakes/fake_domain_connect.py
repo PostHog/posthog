@@ -16,8 +16,8 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.hazmat.primitives.asymmetric.rsa import RSAPrivateKey, RSAPublicKey
 
-from products.workflows.backend.test.fakes.fake_dns import FakeDnsZone
-from products.workflows.backend.test.fakes.faults import FaultInjector, HttpFault
+from products.workflows.backend.tests.fakes.fake_dns import FakeDnsZone
+from products.workflows.backend.tests.fakes.faults import FaultInjector, HttpFault
 
 TEMPLATE_DIR = (
     Path(__file__).resolve().parents[5] / "frontend" / "src" / "lib" / "components" / "DomainConnect" / "templates"

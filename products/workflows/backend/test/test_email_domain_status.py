@@ -8,7 +8,7 @@ from products.workflows.backend.facade.enums import (
     EmailDomainSetupRecordType as RecordType,
 )
 from products.workflows.backend.services.email_domain_dns import find_published_records
-from products.workflows.backend.test.fakes.world import EmailDomainWorld
+from products.workflows.backend.tests.fakes.world import EmailDomainWorld
 
 DOMAIN = "mail.example.com"
 

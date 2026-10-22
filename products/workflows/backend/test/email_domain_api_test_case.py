@@ -12,7 +12,7 @@ from posthog.models.integration import Integration
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
 
-from products.workflows.backend.test.fakes.world import EmailDomainWorld
+from products.workflows.backend.tests.fakes.world import EmailDomainWorld
 
 DOMAIN = "mail.example.com"
 ROOT_DOMAIN = "example.com"

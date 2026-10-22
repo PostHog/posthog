@@ -23,9 +23,9 @@ from products.workflows.backend.test.email_domain_api_test_case import (
     record_statuses,
     step_states,
 )
-from products.workflows.backend.test.fakes.fake_dns import dns_operation
-from products.workflows.backend.test.fakes.faults import AwsFault, DnsFault
-from products.workflows.backend.test.fakes.world import EmailDomainWorld
+from products.workflows.backend.tests.fakes.fake_dns import dns_operation
+from products.workflows.backend.tests.fakes.faults import AwsFault, DnsFault
+from products.workflows.backend.tests.fakes.world import EmailDomainWorld
 
 SES_STATUS_READS = (
     "ses.get_identity_verification_attributes",
