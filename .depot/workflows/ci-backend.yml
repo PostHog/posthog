@@ -560,6 +560,16 @@ jobs:
                         - '.github/workflows/ci-python.yml'
                         - 'products/ruff.toml'
                         - '.github/scripts/**'
+                        # test_signals_scout_tool_citations.py checks the MCP tool names that the
+                        # canonical scout skills cite against the committed tool catalog. The backend
+                        # filter matches only the .py files in a skill and nothing under services/mcp/.
+                        # The same test fails when a file it reads has no match in this filter.
+                        - 'products/signals/skills/**'
+                        - 'services/mcp/schema/tool-definitions.json'
+                        - 'services/mcp/schema/generated-tool-definitions.json'
+                        # _EXTERNAL_COMPANION_SKILL_DIRS in products/signals/backend/scout_harness/lazy_seed.py
+                        # names this companion skill from another product.
+                        - 'products/replay_vision/skills/exploring-replay-vision-observations/**'
                       sdk_manifests:
                         # Everything the SDK major-version guard reads. Lockfiles are listed
                         # because a floor-only or `*` spec can move to a new major through
