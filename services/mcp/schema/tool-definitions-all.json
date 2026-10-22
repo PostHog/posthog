@@ -16979,8 +16979,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
-        },
-        "feature_flag": "workflows-mcp-disable"
+        }
     },
     "workflows-discard-draft": {
         "description": "Throw away a workflow's staged draft without touching the live config. Idempotent — discarding when nothing is staged is a no-op. Returns the workflow.",

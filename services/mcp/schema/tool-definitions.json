@@ -757,8 +757,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
-        },
-        "feature_flag": "workflows-mcp-disable"
+        }
     },
     "workflows-enable": {
         "description": "Enable / activate a draft workflow and start processing events. From then on it runs on real people: test it first with workflows-test-run and get the user's explicit approval before invoking - don't enable on your own initiative. Once live, content edits stage as a draft you publish with workflows-publish.",
