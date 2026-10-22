@@ -106,20 +106,21 @@ describe("validationCommandKey", () => {
   });
 });
 
-describe("validationLockPrefix", () => {
+describe.runIf(process.platform === "linux")("validationLockPrefix", () => {
   const gib = 1024 ** 3;
 
   it.each([
-    [13 * gib, 75, "", /has 0\.6 GiB of memory left/],
-    [8 * gib, 0, "ran\n", /^$/],
+    [16 * gib, 13 * gib, 75, "", /has 0\.6 GiB of memory left/],
+    [16 * gib, 8 * gib, 0, "ran\n", /^$/],
+    [2 * gib, gib / 2, 0, "ran\n", /^$/],
   ])(
-    "with %d bytes in use of 16 GiB exits %d",
-    (current, status, stdout, stderr) => {
+    "with a %d byte limit and %d bytes in use exits %d",
+    (limit, current, status, stdout, stderr) => {
       const root = mkdtempSync(join(tmpdir(), "validation-lock-"));
       try {
         mkdirSync(join(root, "tmp"));
         mkdirSync(join(root, "sys/fs/cgroup"), { recursive: true });
-        writeFileSync(join(root, "sys/fs/cgroup/memory.max"), `${16 * gib}\n`);
+        writeFileSync(join(root, "sys/fs/cgroup/memory.max"), `${limit}\n`);
         writeFileSync(
           join(root, "sys/fs/cgroup/memory.current"),
           `${current}\n`,

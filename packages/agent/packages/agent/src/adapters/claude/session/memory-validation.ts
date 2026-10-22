@@ -301,7 +301,8 @@ function cgroup(dir, current_file, limit_file, key,  current, limit, inactive) {
   inactive = stat_value(dir "/memory.stat", key)
   if (inactive >= 0 && inactive < current)
     current -= inactive
-  headroom = 0.85 * limit - current
+  threshold = 0.85 * limit
+  headroom = threshold - current
   return 1
 }
 
@@ -319,9 +320,13 @@ BEGIN {
     }
     if (!total || !has_available)
       exit
-    headroom = 0.85 * total - (total - available)
+    threshold = 0.85 * total
+    headroom = threshold - (total - available)
   }
-  if (headroom < floor * 1024 ^ 3)
+  required = floor * 1024 ^ 3
+  if (threshold / 2 < required)
+    required = threshold / 2
+  if (headroom < required)
     printf "%.1f\\n", (headroom > 0 ? headroom : 0) / 1024 ^ 3
 }
 `;
