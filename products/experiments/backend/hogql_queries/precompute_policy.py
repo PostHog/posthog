@@ -168,7 +168,6 @@ BLOCKING_PRECOMPUTE_SKIP_REASONS = frozenset(
         PrecomputeSkipReason.MIN_RUNTIME,
         PrecomputeSkipReason.ACTIVATION_CONFIG,
         PrecomputeSkipReason.COHORT_NOT_CALCULATED,
-        PrecomputeSkipReason.NATIVE_EVENTS_CLUSTER,
     }
 )
 

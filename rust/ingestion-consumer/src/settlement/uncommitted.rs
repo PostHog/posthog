@@ -5,6 +5,7 @@ use std::time::Instant;
 use common_kafka_consumer::{Charge, Held, Offset, Rejection, TopicOffsetLedger, TopicPartition};
 use metrics::gauge;
 
+use super::{Accounting, HandedOut};
 use crate::commit_pacer::CommitPacer;
 
 const UNCOMMITTED_OFFSETS: &str = "kafka_consumer_ledger_uncommitted_offsets";
@@ -17,7 +18,7 @@ const UNCOMMITTED_BYTES: &str = "kafka_consumer_ledger_uncommitted_bytes";
 ///
 /// Every call runs on the consumer loop task, one at a time, so a move between
 /// the ledger and the pacer never interleaves with a read of both.
-pub(super) struct Uncommitted {
+pub(crate) struct Uncommitted {
     ledger: Arc<TopicOffsetLedger>,
     pacer: Mutex<CommitPacer>,
 }
@@ -30,7 +31,19 @@ impl Uncommitted {
         }
     }
 
-    pub(super) fn charge(
+    fn hand_out(&self, due: HashMap<TopicPartition, Offset>) -> HashMap<TopicPartition, HandedOut> {
+        due.into_iter()
+            .map(|(topic_partition, offset)| {
+                let remaining = self.ledger.held(&topic_partition);
+                publish(&topic_partition, remaining);
+                (topic_partition, HandedOut { offset, remaining })
+            })
+            .collect()
+    }
+}
+
+impl Accounting for Uncommitted {
+    fn charge(
         &self,
         topic_partition: &TopicPartition,
         generation: u64,
@@ -44,11 +57,7 @@ impl Uncommitted {
         Ok(uncommitted)
     }
 
-    /// Called after a group run or a poll settles: mark its offsets complete
-    /// and move the frontier that results, with its charge, to the pacer.
-    /// Returns that frontier, `None` while the front of the window is still
-    /// incomplete.
-    pub(super) fn settled(
+    fn settled(
         &self,
         topic_partition: &TopicPartition,
         generation: u64,
@@ -66,22 +75,17 @@ impl Uncommitted {
         Ok(frontier)
     }
 
-    /// Refunds the charge of every frontier handed out; the consumer submits
-    /// their commit right after.
-    pub(super) fn take_due(&self, now: Instant) -> Option<HashMap<TopicPartition, Offset>> {
+    fn take_due(&self, now: Instant) -> Option<HashMap<TopicPartition, HandedOut>> {
         let due = self.pacer.lock().unwrap().take_due(now)?;
-        self.publish_window(&due);
-        Some(due)
+        Some(self.hand_out(due))
     }
 
-    /// Like `take_due`, without waiting for the interval.
-    pub(super) fn take_all(&self) -> Option<HashMap<TopicPartition, Offset>> {
+    fn take_all(&self) -> Option<HashMap<TopicPartition, HandedOut>> {
         let due = self.pacer.lock().unwrap().take_all()?;
-        self.publish_window(&due);
-        Some(due)
+        Some(self.hand_out(due))
     }
 
-    pub(super) fn forget_partitions(&self, topic_partitions: &[TopicPartition]) {
+    fn forget_partitions(&self, topic_partitions: &[TopicPartition]) {
         self.ledger.forget_partitions(
             topic_partitions
                 .iter()
@@ -93,12 +97,6 @@ impl Uncommitted {
             .forget_partitions(topic_partitions);
         for topic_partition in topic_partitions {
             publish(topic_partition, Held::default());
-        }
-    }
-
-    fn publish_window(&self, due: &HashMap<TopicPartition, Offset>) {
-        for topic_partition in due.keys() {
-            publish(topic_partition, self.ledger.held(topic_partition));
         }
     }
 }
@@ -155,12 +153,23 @@ mod tests {
         Uncommitted::new(Arc::new(TopicOffsetLedger::new()), CommitPacer::immediate())
     }
 
-    fn published(snapshotter: &Snapshotter) -> Held {
+    fn published(snapshotter: &Snapshotter, topic_partition: &TopicPartition) -> Held {
+        let partition = topic_partition.partition.to_string();
         let mut published = Held::default();
         for (key, _, _, value) in snapshotter.snapshot().into_vec() {
             let DebugValue::Gauge(value) = value else {
                 continue;
             };
+            let labelled =
+                key.key()
+                    .labels()
+                    .any(|label| label.key() == "partition" && label.value() == partition)
+                    && key.key().labels().any(|label| {
+                        label.key() == "topic" && label.value() == topic_partition.topic
+                    });
+            if !labelled {
+                continue;
+            }
             let value = value.into_inner();
             match key.key().name() {
                 UNCOMMITTED_OFFSETS => published.offsets = value as usize,
@@ -193,7 +202,17 @@ mod tests {
 
         assert_eq!(charge(&uncommitted, 0, 11), held(2));
 
-        uncommitted.take_due(Instant::now()).expect("due");
+        let handed_out = uncommitted.take_due(Instant::now()).expect("due");
+        assert_eq!(
+            handed_out,
+            HashMap::from([(
+                p0(),
+                HandedOut {
+                    offset: Offset(11),
+                    remaining: held(1),
+                }
+            )])
+        );
         assert_eq!(charge(&uncommitted, 0, 12), held(2));
     }
 
@@ -226,6 +245,48 @@ mod tests {
         uncommitted.take_due(Instant::now()).expect("due");
         assert_eq!(charge(&uncommitted, 0, 11), held(1));
         assert_eq!(charge_p1(22), held(3));
+    }
+
+    #[test]
+    fn a_hand_out_carries_each_partitions_own_remaining_charge() {
+        let recorder = DebuggingRecorder::new();
+        let snapshotter = recorder.snapshotter();
+        let _guard = metrics::set_default_local_recorder(&recorder);
+        let uncommitted = uncommitted();
+        let p1 = TopicPartition::new("events", 1);
+        charge(&uncommitted, 0, 10);
+        charge(&uncommitted, 0, 11);
+        for offset in [20, 21, 22] {
+            uncommitted
+                .charge(&p1, 0, &[(Offset(offset), EACH)])
+                .expect("the ledger accepts the charge");
+        }
+        settled(&uncommitted, &[10]);
+        uncommitted
+            .settled(&p1, 0, [Offset(20)])
+            .expect("the ledger settles");
+
+        assert_eq!(
+            uncommitted.take_due(Instant::now()).expect("due"),
+            HashMap::from([
+                (
+                    p0(),
+                    HandedOut {
+                        offset: Offset(11),
+                        remaining: held(1),
+                    }
+                ),
+                (
+                    p1.clone(),
+                    HandedOut {
+                        offset: Offset(21),
+                        remaining: held(2),
+                    }
+                ),
+            ])
+        );
+        assert_eq!(published(&snapshotter, &p0()), held(1));
+        assert_eq!(published(&snapshotter, &p1), held(2));
     }
 
     #[test]
@@ -274,15 +335,19 @@ mod tests {
 
         charge(&uncommitted, 0, 10);
         charge(&uncommitted, 0, 11);
-        assert_eq!(published(&snapshotter), held(2));
+        assert_eq!(published(&snapshotter, &p0()), held(2));
 
         settled(&uncommitted, &[10]);
-        assert_eq!(published(&snapshotter), held(2), "a take moves the charge");
+        assert_eq!(
+            published(&snapshotter, &p0()),
+            held(2),
+            "a take moves the charge"
+        );
 
         uncommitted.take_due(Instant::now()).expect("due");
-        assert_eq!(published(&snapshotter), held(1));
+        assert_eq!(published(&snapshotter, &p0()), held(1));
 
         uncommitted.forget_partitions(&[p0()]);
-        assert_eq!(published(&snapshotter), Held::default());
+        assert_eq!(published(&snapshotter, &p0()), Held::default());
     }
 }

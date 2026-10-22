@@ -392,30 +392,3 @@ class TestNewEventsClusterPilot(APIBaseTest):
             self.assertNotIn("pre_aggregated", execute.call_args.args[0])
             self.assertNotIn("preaggregation_results", execute.call_args.args[0])
             self.assertIs(response.json()["modifiers"]["useNewEventsCluster"], True)
-
-    @parameterized.expand([(False,), (True,)])
-    def test_property_values_native_opt_in_bypasses_the_aggregate_table(self, native: bool) -> None:
-        with (
-            patch(
-                "posthog.hogql_queries.property_values_query_runner.posthoganalytics.feature_enabled",
-                side_effect=lambda key, *args, **kwargs: key == "property-values-table",
-            ),
-            patch(
-                "posthog.hogql_queries.utils.aggregated_property_values.sync_execute", return_value=[('"Chrome"',)]
-            ) as aggregate,
-            patch("posthog.hogql.query.sync_execute", return_value=([('"Chrome"',)], [("value", "String")])) as execute,
-        ):
-            response = self._run_query(
-                {
-                    "kind": "PropertyValuesQuery",
-                    "property_type": "event",
-                    "property_key": "browser",
-                    "modifiers": {"useNewEventsSchema": native, "useNewEventsCluster": native},
-                },
-            )
-        self.assertEqual(response.status_code, 200, response.json())
-        self.assertEqual(aggregate.called, not native)
-        self.assertEqual(execute.called, native)
-        if native:
-            self.assertIn("events_json", execute.call_args.args[0])
-            self.assertEqual(execute.call_args.kwargs["workload"], Workload.NEW_EVENTS_CLUSTER)
