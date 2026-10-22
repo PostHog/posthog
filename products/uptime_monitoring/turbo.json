@@ -7,7 +7,7 @@
                 "backend/presentation/**",
                 "backend/webhook_consumers.py",
                 "backend/tasks/**",
-                "backend/models.py",
+                "backend/models/**",
                 "backend/migrations/**"
             ],
             "outputs": [],

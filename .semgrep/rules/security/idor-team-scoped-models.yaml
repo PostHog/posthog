@@ -459,6 +459,7 @@ rules:
                               |TracesRetentionRule
                               |TracingView
                               |UploadedMedia
+                              |UptimeMonitor
                               |UserInterview
                               |UserInterviewTopic
                               |UserRepoPreference
@@ -924,6 +925,7 @@ rules:
                         |TracesRetentionRule
                         |TracingView
                         |UploadedMedia
+                        |UptimeMonitor
                         |UserInterview
                         |UserInterviewTopic
                         |UserRepoPreference
