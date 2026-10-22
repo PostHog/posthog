@@ -2388,6 +2388,13 @@ describe('CDP API', () => {
             ['a sender without an integration', { ...codeSend, from: { email: 'security@example.com' } }],
             ['no tracking choice', { content: codeSend.content }],
             ['a copy that names two recipients', { ...codeSend, cc: ['jane@example.com, joe@example.com'] }],
+            [
+                'attachments over the size cap',
+                {
+                    ...codeSend,
+                    attachments: [{ filename: 'big.pdf', content: Buffer.alloc(512 * 1024 + 1).toString('base64') }],
+                },
+            ],
         ])('refuses a code send with %s', async (_desc, acceptedSend) => {
             const invalidBefore = await outcomeCount('invalid_request')
 

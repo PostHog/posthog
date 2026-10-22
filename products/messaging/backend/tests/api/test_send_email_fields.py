@@ -1,3 +1,4 @@
+import base64
 from typing import Any
 
 from django.test import SimpleTestCase
@@ -90,3 +91,68 @@ class TestSendEmailFields(SimpleTestCase):
 
         assert not body.is_valid()
         assert field in body.errors, body.errors
+
+
+INVITE = base64.b64encode(b"BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n").decode()
+
+
+def attachment(**fields: Any) -> dict[str, Any]:
+    return {"filename": "invite.ics", "content": INVITE, **fields}
+
+
+class TestSendEmailAttachments(SimpleTestCase):
+    def test_accepts_attachments_and_decodes_their_content(self) -> None:
+        body = SendEmailSerializer(
+            data=rendered(
+                attachments=[
+                    attachment(content_type="text/calendar; method=REQUEST"),
+                    attachment(filename="logo.png", content="iVBORw0KGgo=", content_id="logo"),
+                ]
+            )
+        )
+
+        assert body.is_valid(), body.errors
+        assert body.validated_data["attachments"] == [
+            {
+                "filename": "invite.ics",
+                "content": b"BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n",
+                "content_type": "text/calendar; method=REQUEST",
+            },
+            {"filename": "logo.png", "content": b"\x89PNG\r\n\x1a\n", "content_id": "logo"},
+        ]
+
+    @parameterized.expand(
+        [
+            ("not_base64", [attachment(content="not base64!")]),
+            ("empty", [attachment(content="")]),
+            ("over_the_total_size", [attachment(content=base64.b64encode(b"a" * 300_000).decode())] * 2),
+            ("over_the_count", [attachment(filename=f"file{i}.txt") for i in range(11)]),
+            ("blocked_extension", [attachment(filename="setup.EXE")]),
+            ("blocked_extension_with_a_trailing_dot", [attachment(filename="setup.exe. ")]),
+            ("filename_with_a_line_break", [attachment(filename="invite\r\n.ics")]),
+            ("filename_with_a_path", [attachment(filename="../invite.ics")]),
+            ("filename_too_long", [attachment(filename="a" * 252 + ".ics")]),
+            ("content_type_with_a_line_break", [attachment(content_type="text/plain\r\nBcc: a@example.com")]),
+            ("content_type_not_a_type", [attachment(content_type="calendar")]),
+            ("content_id_with_brackets", [attachment(content_id="<logo>")]),
+            ("content_id_too_long", [attachment(content_id="a" * 129)]),
+        ]
+    )
+    def test_refuses_an_attachment_it_cannot_send(self, _name: str, attachments: list[dict[str, Any]]) -> None:
+        body = SendEmailSerializer(data=rendered(attachments=attachments))
+
+        assert not body.is_valid()
+        assert "attachments" in body.errors, body.errors
+        assert INVITE not in str(body.errors)
+
+    def test_refuses_attachments_on_a_template_made_in_posthog(self) -> None:
+        body = SendEmailSerializer(
+            data={
+                "to": "user@example.com",
+                "template": {"id": "4c1f0c3c-8d1b-4a51-9f3a-0d8f1c0f6d2e"},
+                "attachments": [attachment()],
+            }
+        )
+
+        assert not body.is_valid()
+        assert "attachments" in body.errors, body.errors

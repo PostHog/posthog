@@ -22,6 +22,7 @@ from products.messaging.backend.facade.transactional_email import (
     SENDER_ADDRESS_MAX_LENGTH,
     SENDER_ADDRESS_PATTERN,
     AcceptedSend,
+    EmailAttachment,
     EmailField,
     EmailSendCommand,
     RenderedContent,
@@ -33,6 +34,7 @@ from products.messaging.backend.facade.transactional_email import (
     rendered_content,
     require_code_email_access,
 )
+from products.messaging.backend.presentation.views.send_email_attachments import attachments_field
 from products.messaging.backend.presentation.views.send_email_fields import (
     MAX_COPIES,
     MAX_HEADER_VALUE_LENGTH,
@@ -85,7 +87,7 @@ class TemplateReferenceSerializer(RefusesUnknownFieldsSerializer):
 
 
 CODE_FORM_FIELDS = ("subject", "html", "text")
-CODE_SEND_FIELDS = ("from", "reply_to", "cc", "bcc", "headers", "tags")
+CODE_SEND_FIELDS = ("from", "reply_to", "cc", "bcc", "headers", "tags", "attachments")
 
 
 class SendIdentifiersSerializer(RefusesUnknownFieldsSerializer, TransactionalEmailIdentifiersSerializer):
@@ -162,6 +164,7 @@ class SendEmailSerializer(RefusesUnknownFieldsSerializer, SendTransactionalEmail
         help_text=f"Name and value pairs, at most {MAX_TAGS}, that PostHog adds to the email's engagement events "
         "as `$email_tags`. Not with `template.id`.",
     )
+    attachments = attachments_field()
     capture_engagement = serializers.BooleanField(
         required=False,
         help_text="Whether the email's engagement events (sent, delivered, opened, clicked, bounced) are captured "
@@ -499,6 +502,7 @@ class MessagingSendViewSet(TransactionalEmailViewSetMixin, viewsets.ViewSet):
                 EmailField(name=tag["name"], value=tag["value"])
                 for tag in sorted(data.get("tags", ()), key=lambda tag: tag["name"])
             ),
+            attachments=tuple(EmailAttachment(**attachment) for attachment in data.get("attachments", ())),
         )
 
     @staticmethod

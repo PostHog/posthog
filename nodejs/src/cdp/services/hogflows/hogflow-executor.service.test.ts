@@ -16,6 +16,8 @@ import { PostgresUse } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
 import { FetchResponse, fetch, internalFetch } from '~/common/utils/request'
+import { UUIDT } from '~/common/utils/utils'
+import { waitForExpect } from '~/tests/helpers/expectations'
 import { createTestTeamFixture, uniqueTestId } from '~/tests/helpers/sql'
 
 import { Hub, Team } from '../../../types'
@@ -32,6 +34,7 @@ import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.se
 import { EmailSuppressionService, emailSuppressionConfigFromEnv } from '../messaging/email-suppression.service'
 import { EmailValidationService } from '../messaging/email-validation.service'
 import { EmailService } from '../messaging/email.service'
+import { MailDevAPI } from '../messaging/helpers/maildev'
 import { EmailTrackingCodeSigner } from '../messaging/helpers/tracking-code'
 import { RecipientPreferencesService } from '../messaging/recipient-preferences.service'
 import { RecipientTokensService } from '../messaging/recipient-tokens.service'
@@ -3367,6 +3370,38 @@ describe('Hogflow Executor', () => {
             }
 
             expect(metrics.filter((m) => m.metric_name === 'email_sent')).toHaveLength(sent)
+        })
+
+        it("delivers a code send's attachments", async () => {
+            const subject = `Your invite ${new UUIDT().toString()}`
+            const invocation = flowInvocation(emailFlow(codeKeyStep()))
+            invocation.state.send = {
+                ...codeSend(),
+                content: { subject, html: '<p>See you there</p>', text: 'See you there' },
+                attachments: [
+                    {
+                        filename: 'invite.ics',
+                        content: Buffer.from('BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n').toString('base64'),
+                        contentType: 'text/calendar; method=REQUEST',
+                    },
+                ],
+            }
+
+            let result = await executor.execute(invocation)
+            while (!result.finished) {
+                result = await executor.execute(result.invocation)
+            }
+
+            expect(result.error).toBeUndefined()
+            mockFetch.mockImplementation(jest.requireActual('~/common/utils/request').fetch)
+            const mailDev = new MailDevAPI()
+            await waitForExpect(async () =>
+                expect((await mailDev.getEmails()).filter((email) => email.subject === subject)).toHaveLength(1)
+            )
+            const [delivered] = (await mailDev.getEmails()).filter((email) => email.subject === subject)
+            expect(
+                delivered.attachments.map((a: { fileName: string; contentType: string }) => [a.fileName, a.contentType])
+            ).toEqual([['invite.ics', 'text/calendar']])
         })
 
         it('should complete the full round-trip: hogflow → email queue → email sent → workflow continues', async () => {

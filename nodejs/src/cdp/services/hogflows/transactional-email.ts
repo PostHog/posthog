@@ -3,6 +3,7 @@ import { z } from 'zod'
 
 import {
     BareEmailAddressSchema,
+    EmailAttachmentsSchema,
     EmailHeaderSchema,
     EmailTagSchema,
     MAX_EMAIL_COPIES,
@@ -45,6 +46,7 @@ export const AcceptedSendSchema = z
         bcc: z.array(BareEmailAddressSchema).max(MAX_EMAIL_COPIES).readonly().optional(),
         headers: z.array(EmailHeaderSchema.readonly()).max(MAX_EMAIL_HEADERS).readonly().optional(),
         tags: z.array(EmailTagSchema.readonly()).max(MAX_EMAIL_TAGS).readonly().optional(),
+        attachments: EmailAttachmentsSchema.readonly().optional(),
         tracking: z.object({ captureEngagement: z.boolean() }).readonly(),
     })
     .readonly()
