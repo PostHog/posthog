@@ -224,7 +224,8 @@ export const suppressSimilarIssuesLogic = kea<suppressSimilarIssuesLogicType>([
                     if (!values.selectedOption) {
                         return null
                     }
-                    const projectId = String(teamLogic.values.currentProjectId)
+                    // The rules route reads this ID as the environment, as the rest of the rules UI does.
+                    const teamId = String(teamLogic.values.currentTeamIdStrict)
                     // When a request fails part way, a retry must not create the earlier rules a second time.
                     const created: Map<string, ErrorTrackingSuppressionRuleApi> = (cache.createdRules ??= new Map())
                     for (const filters of values.selectedOption.rules) {
@@ -232,7 +233,7 @@ export const suppressSimilarIssuesLogic = kea<suppressSimilarIssuesLogicType>([
                         if (!created.has(key)) {
                             created.set(
                                 key,
-                                await errorTrackingSuppressionRulesCreate(projectId, { filters, sampling_rate: 1 })
+                                await errorTrackingSuppressionRulesCreate(teamId, { filters, sampling_rate: 1 })
                             )
                         }
                     }
