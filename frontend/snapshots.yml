@@ -10746,6 +10746,10 @@ snapshots:
         hash: v1.k794b7964.71fdce87c3009faea6dd25e6ac817d5790ffed494cb15d66a7043b4ebe90cb60.rYWzblIjD-Ceyh15tkUkDm10Pu7exKRUm9n9TsB9B0Q
     scenes-app-errortracking-linkedreports--several-reports-across-states--light:
         hash: v1.k794b7964.fe2161a3bb0e898689ef58a342d071c353ded71ac270a62998ea566055359e7a.AnoCs1sNoTY6J1yl24yuZPh_1Jkjugz-jnYxHgY8ZyU
+    scenes-app-errortracking-suppress-similar-issues-dialog--similar-messages--dark:
+        hash: v1.k794b7964.06bfdcc39115b67ab785b202c4532c65bbd556dd3b5ed00959489a378005b18b.ILlXOdVw4-RgV2YS3100rk23CIewkm2IIUbv4ttsyH0
+    scenes-app-errortracking-suppress-similar-issues-dialog--similar-messages--light:
+        hash: v1.k794b7964.9602ad6d1980eaf3cab82f8834aa72f52ec0bfdd0c372f7669b6ba64091de364.ecQZoUaGGSNGBQd5lDLr2LldGIc24D4QTsOgD6IWKUk
     scenes-app-etl--healthy--dark:
         hash: v1.k794b7964.342346c35b32e21a02a09fe488480c9d100dbfda52c5b7c6b8dac3d2f83f3cf2.conExopWBDSppCq6BcJkzZ7MFg2JFCvBC0FF5QDc_xs
     scenes-app-etl--healthy--light:
