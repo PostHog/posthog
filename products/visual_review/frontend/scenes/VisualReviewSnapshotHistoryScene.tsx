@@ -21,6 +21,7 @@ import { VisualReviewTabs } from '../components/VisualReviewTabs'
 import { VisualReviewTrail } from '../components/VisualReviewTrail'
 import type { QuarantinedIdentifierEntryApi, SnapshotHistoryEntryApi } from '../generated/api.schemas'
 import { repoFullNameFromParams, runPath, splitRepoFullName } from '../lib/repoPaths'
+import { mergeQueueSourcePrNumber } from '../lib/runPredicates'
 import {
     ThemePair,
     VisualReviewSnapshotHistorySceneLogicProps,
@@ -207,6 +208,13 @@ function QuarantineBanner({
 }): JSX.Element {
     const expires = quarantineEntry.expires_at ? new Date(quarantineEntry.expires_at) : null
     const sourceRun = quarantineEntry.source_run ?? null
+    const mergeQueuePrNumber = sourceRun ? mergeQueueSourcePrNumber(sourceRun.branch) : null
+    const prNumber = mergeQueuePrNumber ?? sourceRun?.pr_number
+    const prLink = prNumber ? (
+        <Link to={`https://github.com/${repoFullName}/pull/${prNumber}`} target="_blank" className="font-mono">
+            #{prNumber}
+        </Link>
+    ) : null
     const openConfirmation = (): void => {
         LemonDialog.open({
             title: `Unquarantine ${label ? `(${label})` : 'this identifier'}?`,
@@ -258,8 +266,14 @@ function QuarantineBanner({
                 </div>
                 {sourceRun && (
                     <div className="text-xs text-muted flex flex-wrap items-center gap-x-2 gap-y-0.5">
-                        <span>Failed on</span>
-                        <span className="font-mono">{sourceRun.branch}</span>
+                        {mergeQueuePrNumber ? (
+                            <span>Failed in the merge queue for {prLink}</span>
+                        ) : (
+                            <>
+                                <span>Failed on</span>
+                                <span className="font-mono">{sourceRun.branch}</span>
+                            </>
+                        )}
                         <span aria-hidden>·</span>
                         <Link
                             to={`https://github.com/${repoFullName}/commit/${sourceRun.commit_sha}`}
@@ -268,16 +282,10 @@ function QuarantineBanner({
                         >
                             {sourceRun.commit_sha.slice(0, 8)}
                         </Link>
-                        {sourceRun.pr_number && (
+                        {!mergeQueuePrNumber && prLink && (
                             <>
                                 <span aria-hidden>·</span>
-                                <Link
-                                    to={`https://github.com/${repoFullName}/pull/${sourceRun.pr_number}`}
-                                    target="_blank"
-                                    className="font-mono"
-                                >
-                                    #{sourceRun.pr_number}
-                                </Link>
+                                {prLink}
                             </>
                         )}
                         <span aria-hidden>·</span>
@@ -287,12 +295,12 @@ function QuarantineBanner({
                 <div className="flex flex-wrap items-center gap-2 pt-1">
                     {sourceRun && (
                         <LemonButton
-                            type="primary"
+                            type="secondary"
                             size="small"
                             to={runPath(sourceRun.id, repoFullName)}
                             data-attr="visual-review-quarantine-source-run"
                         >
-                            View failing run
+                            View run
                         </LemonButton>
                     )}
                     <QuarantineAction

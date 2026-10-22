@@ -7,3 +7,10 @@ import type { RunApi } from '../generated/api.schemas'
 export function isReportingOnlyRun(run: RunApi | null): boolean {
     return !!run && (run.purpose === 'observe' || run.pr_number == null)
 }
+
+// A merge-queue run's `pr_number` is Trunk's temporary PR, which Trunk closes. The PR being merged
+// is only in the branch name. Keep the pattern in sync with `_MERGE_QUEUE_BRANCH_RE` in the backend.
+export function mergeQueueSourcePrNumber(branch: string): number | null {
+    const match = /^trunk-merge\/pr-(\d+)\//.exec(branch)
+    return match ? Number(match[1]) : null
+}
