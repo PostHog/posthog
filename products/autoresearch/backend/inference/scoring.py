@@ -48,6 +48,7 @@ from django.utils import timezone as django_timezone
 
 import numpy as np
 import structlog
+from temporalio.exceptions import CancelledError
 
 from posthog.schema import HogQLQuery
 
@@ -1369,6 +1370,9 @@ def _resolve_distinct_ids(*, team: Team, pipeline_id: str, person_ids: list[str]
         return {}
     try:
         persons = get_persons_by_uuids(team.pk, resolvable, distinct_id_limit=1)
+    except CancelledError:
+        # Temporal raises this inside the call when it cancels the activity. It is not an identity failure.
+        raise
     except Exception as exc:
         logger.exception("autoresearch_identity_resolution_failed", pipeline_id=pipeline_id)
         raise InferenceRunError(
