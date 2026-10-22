@@ -776,7 +776,7 @@ def call_llm_judge(
                     raise StructuredOutputParseError("The endpoint returned an invalid verdict answer.")
                 probability = verdict_answer.probability
                 configured_threshold = BooleanOutputConfig.model_validate(output_config).decision_threshold
-                # boffin: An omitted cutoff preserves saved evaluations; zero is a valid cutoff.
+                # Zero is a valid cutoff.
                 threshold = configured_threshold if configured_threshold is not None else 0.5
                 parsed = (
                     BooleanWithNAEvalResult(

@@ -38,6 +38,7 @@ import {
     evaluationPassRateHogQL,
     evaluationIsDetector,
     booleanOutputConfigError,
+    clearInvalidDecisionThreshold,
     numericOutputConfigError,
     numericScorePasses,
     categoricalResultPasses,
@@ -188,7 +189,7 @@ function toHogEvaluation(evaluation: EvaluationConfig): HogEvaluation {
         model_configuration: null,
         output_config: ['numeric', 'categorical'].includes(evaluation.output_type)
             ? evaluation.output_config
-            : { ...evaluation.output_config, allows_na: false },
+            : { ...clearInvalidDecisionThreshold(evaluation.output_config), allows_na: false },
     }
 }
 
@@ -977,7 +978,14 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                         : state,
                 setJudgeMethod: (state, { judgeMethod }) =>
                     state && isLLMJudgeEvaluation(state)
-                        ? { ...state, evaluation_config: { ...state.evaluation_config, judge_method: judgeMethod } }
+                        ? {
+                              ...state,
+                              evaluation_config: { ...state.evaluation_config, judge_method: judgeMethod },
+                              output_config:
+                                  judgeMethod === 'llm'
+                                      ? clearInvalidDecisionThreshold(state.output_config)
+                                      : state.output_config,
+                          }
                         : state,
                 setEvaluationType: (state, { evaluationType }) => {
                     if (!state) {

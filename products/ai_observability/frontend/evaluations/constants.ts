@@ -29,6 +29,10 @@ export function booleanOutputConfigError(config: EvaluationOutputConfig): string
     return null
 }
 
+export function clearInvalidDecisionThreshold(config: EvaluationOutputConfig): EvaluationOutputConfig {
+    return booleanOutputConfigError(config) ? { ...config, decision_threshold: null } : config
+}
+
 export function numericOutputConfigError(config: EvaluationOutputConfig, requiresBounds = false): string | null {
     const { min, max, step } = config
     const passing_rule = config.passing_rule && 'threshold' in config.passing_rule ? config.passing_rule : null
