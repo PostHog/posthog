@@ -66,6 +66,15 @@ TIER1_SOURCES = [
     # Data quality / observability
     (ExternalDataSourceType.MONTECARLO, "alerts", "monte_carlo", "incident"),
     (ExternalDataSourceType.BIGEYE, "Issues", "bigeye", "incident"),
+    # Tier-2 security tools
+    (ExternalDataSourceType.LACEWORK, "alerts", "lacework", "scanner_finding"),
+    (ExternalDataSourceType.ORCASECURITY, "alerts", "orca_security", "scanner_finding"),
+    (
+        ExternalDataSourceType.TENABLEVULNERABILITYMANAGEMENT,
+        "vulnerabilities",
+        "tenable_vulnerability_management",
+        "scanner_finding",
+    ),
 ]
 
 IDS = [product for _, _, product, _ in TIER1_SOURCES]
