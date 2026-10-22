@@ -291,6 +291,7 @@ def _enqueue_inner(
         run_id=str(task_run.id),
         kind=kind,
         pull_request_url=pull_request_url,
+        on_enqueued=on_enqueued,
     ):
         return True
 

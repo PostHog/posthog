@@ -14,7 +14,7 @@ transition or the pull request sync that triggered it.
 from __future__ import annotations
 
 import hashlib
-from collections.abc import Collection
+from collections.abc import Callable, Collection
 from typing import TYPE_CHECKING
 
 from django.db import transaction
@@ -180,7 +180,13 @@ def notify_pull_request_ready(*, team_id: int, pull_request_id: str) -> list[int
     return pushed
 
 
-def notify_report_task_update(*, task_run: TaskRun, kind: str, pull_request_url: str | None = None) -> bool:
+def notify_report_task_update(
+    *,
+    task_run: TaskRun,
+    kind: str,
+    pull_request_url: str | None = None,
+    on_enqueued: Callable[[], None] | None = None,
+) -> bool:
     """Route meaningful milestones of actual report work through report preferences and links."""
     task = task_run.task
     reports = list(
@@ -246,6 +252,7 @@ def notify_report_task_update(*, task_run: TaskRun, kind: str, pull_request_url:
                 task_run_id=str(task_run.id),
                 pull_request_url=pull_request_url,
                 task_id=str(task.id),
+                on_enqueued=on_enqueued,
             )
         )
     return True
@@ -264,6 +271,7 @@ def _push_report(
     pull_request_id: str | None = None,
     pull_request_url: str | None = None,
     task_id: str | None = None,
+    on_enqueued: Callable[[], None] | None = None,
 ) -> list[int]:
     if not users or report_is_hidden_from_inbox(report.team_id, str(report.id)):
         return []
@@ -308,7 +316,7 @@ def _push_report(
                                 send_user_push.delay(user.id, title, body, data)
 
                         if pull_request_url is not None and task_id is not None:
-                            return enqueue_task_mobile_pr_outcome(
+                            enqueued = enqueue_task_mobile_pr_outcome(
                                 task_id=task_id,
                                 team_id=report.team_id,
                                 user_id=user.id,
@@ -318,7 +326,10 @@ def _push_report(
                             )
                         else:
                             enqueue()
-                            return True
+                            enqueued = True
+                        if enqueued and on_enqueued is not None:
+                            on_enqueued()
+                        return enqueued
                     except Exception:
                         release_mobile_push_cooldown(cooldown_key)
                         raise

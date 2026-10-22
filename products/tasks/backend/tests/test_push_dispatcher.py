@@ -14,6 +14,8 @@ from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.models.user_push_token import UserPushToken
 from posthog.tasks.push_notifications import send_user_push
 
+from products.signals.backend.models import SignalReport
+from products.signals.backend.task_run_artefacts import append_task_run_artefact
 from products.tasks.backend.awaiting_input import dispatch_awaiting_input
 from products.tasks.backend.mobile_push import mobile_push_user_ids, record_mobile_pickup
 from products.tasks.backend.models import Task, TaskRun
@@ -109,10 +111,31 @@ class TestPushDispatcher(TestCase):
             notify_task_run_turn_completed(self.task_run)
         self.assertEqual(mock_delay.call_count, 3)
 
+    def _link_report_work(self, relationship: str) -> None:
+        report = SignalReport.objects.create(
+            team=self.team, status=SignalReport.Status.READY, first_visible_at="2026-10-20T12:00:00Z"
+        )
+        self.task.signal_report = report
+        self.task.save(update_fields=["signal_report"])
+        append_task_run_artefact(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            product="signals",
+            type=relationship,
+            task_id=str(self.task.id),
+            run_id=str(self.task_run.id),
+        )
+
+    @parameterized.expand([None, "implementation", "research"])
     @patch("products.tasks.backend.push_dispatcher.send_user_push.delay")
-    def test_awaiting_cooldown_is_shared_by_permission_requests_and_turn_end(self, mock_delay) -> None:
+    @patch("products.signals.backend.inbox_push_notifications.posthoganalytics.feature_enabled", return_value=True)
+    def test_awaiting_cooldown_is_shared_by_permission_requests_and_turn_end(
+        self, relationship: str | None, _flag: Mock, mock_delay: Mock
+    ) -> None:
         self.task_run.state = {"mode": "interactive"}
         with time_machine.travel("2026-10-20T12:00:00Z", tick=False) as clock:
+            if relationship is not None:
+                self._link_report_work(relationship)
             with self.captureOnCommitCallbacks(execute=True):
                 dispatch_awaiting_input(self.task_run, request_id="request-1")
                 dispatch_awaiting_input(self.task_run, request_id="request-2")
@@ -121,18 +144,31 @@ class TestPushDispatcher(TestCase):
 
             clock.shift(31)
             with self.captureOnCommitCallbacks(execute=True):
-                dispatch_awaiting_input(self.task_run, request_id="request-1")
-                dispatch_awaiting_input(self.task_run, request_id="request-3")
+                self.assertFalse(dispatch_awaiting_input(self.task_run, request_id="request-1"))
+                self.assertTrue(dispatch_awaiting_input(self.task_run, request_id="request-3"))
             self.assertEqual(mock_delay.call_count, 2)
+            self.assertEqual(mock_delay.call_args.args[3]["type"], "report" if relationship else "task")
 
-    @parameterized.expand(["prepare", "immediate", "deferred", "rollback"])
-    def test_awaiting_request_can_retry_after_failed_enqueue(self, failure: str) -> None:
+    @parameterized.expand(
+        [(failure, None) for failure in ("prepare", "immediate", "deferred", "rollback")]
+        + [
+            (failure, relationship)
+            for failure in ("immediate", "deferred", "rollback")
+            for relationship in ("implementation", "research")
+        ]
+    )
+    def test_awaiting_request_can_retry_after_failed_enqueue(self, failure: str, relationship: str | None) -> None:
         self.task_run.state = {"mode": "interactive"}
         with (
             time_machine.travel("2026-10-20T12:00:00Z", tick=False) as clock,
+            patch(
+                "products.signals.backend.inbox_push_notifications.posthoganalytics.feature_enabled", return_value=True
+            ),
             patch("products.tasks.backend.push_dispatcher._project_awaiting_input_activity"),
             patch("products.tasks.backend.push_dispatcher.send_user_push.delay") as send_push,
         ):
+            if relationship is not None:
+                self._link_report_work(relationship)
             send_push.side_effect = RuntimeError("broker unavailable")
             with (
                 patch(
@@ -141,14 +177,14 @@ class TestPushDispatcher(TestCase):
                 )
                 if failure == "prepare"
                 else nullcontext(),
-                patch("products.tasks.backend.push_dispatcher.transaction.on_commit", side_effect=lambda fn: fn())
+                patch("products.tasks.backend.push_dispatcher.transaction.on_commit", side_effect=lambda fn, **_: fn())
                 if failure == "immediate"
                 else nullcontext(),
                 self.captureOnCommitCallbacks(execute=True),
                 transaction.atomic(),
             ):
                 scheduled = dispatch_awaiting_input(self.task_run, request_id="retry-request")
-                self.assertEqual(scheduled, failure in ("deferred", "rollback"))
+                self.assertEqual(scheduled, relationship is not None or failure in ("deferred", "rollback"))
                 if failure == "rollback":
                     transaction.set_rollback(True)
             self.assertEqual(send_push.call_count, int(failure in ("immediate", "deferred")))
