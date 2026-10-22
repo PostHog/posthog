@@ -9,7 +9,7 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
-from posthog.schema import HogQLQuery
+from posthog.schema import EventsQuery, HogQLQuery
 
 from posthog.api_queries_budget import API_QUERIES_BUDGET_ERRORS_COUNTER, budget_spec_for, debit, refill_and_read
 from posthog.clickhouse.query_tagging import Product, get_query_tag_value, reset_query_tags, tag_queries
@@ -19,6 +19,7 @@ from posthog.hogql_queries.query_runner import (
     API_QUERIES_BUDGET_BALANCE_HISTOGRAM,
     API_QUERIES_BUDGET_LIMITED_COUNTER,
     get_api_queries_budget_status,
+    get_query_runner,
 )
 from posthog.models.team.team_event_volume import TeamEventVolume
 
@@ -105,22 +106,21 @@ class TestApiQueriesBudgetEnforcement(BaseTest):
 
     @parameterized.expand(
         [
-            ("explicit_product", {"product": Product.ENDPOINTS}, "endpoints"),
-            ("query_kind", {"query": {"kind": "EventsQuery", "select": ["event"]}}, "product_analytics"),
-            ("raw_hogql", {"query": {"kind": "HogQLQuery", "query": "SELECT 1"}}, "api"),
-            ("no_query", {}, "api"),
+            ("explicit_product", HogQLQuery(query="SELECT 1"), Product.ENDPOINTS, "endpoints"),
+            ("current_query", EventsQuery(select=["event"]), None, "product_analytics"),
+            ("unattributed_query", HogQLQuery(query="SELECT 1"), None, None),
         ]
     )
-    def test_over_budget_event_always_names_a_product(self, _name, tags, expected_product):
+    def test_over_budget_event_resolves_product_from_current_query(self, _name, query, product, expected_product):
         self._drain()
-        tag_queries(access_method="personal_api_key", **tags)
+        tag_queries(access_method="personal_api_key", product=product)
         try:
             with (
                 patch("posthog.hogql_queries.query_runner._api_queries_budget_enforcement_enabled", return_value=False),
                 patch("posthog.hogql_queries.query_runner.report_team_action") as report,
             ):
-                self._runner()._enforce_api_queries_budget()
-            assert get_query_tag_value("product") == tags.get("product")
+                get_query_runner(query, self.team)._enforce_api_queries_budget()
+            assert get_query_tag_value("product") == product
         finally:
             reset_query_tags()
         assert report.call_args.args[2]["product"] == expected_product

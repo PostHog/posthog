@@ -157,7 +157,6 @@ from posthog.clickhouse.client.limit import (
     get_materialized_endpoints_rate_limiter,
 )
 from posthog.clickhouse.query_tagging import (
-    Product,
     add_fallback_query_tags,
     get_query_tag_value,
     get_query_tags,
@@ -544,13 +543,13 @@ def _api_queries_budget_enforcement_enabled(team: Team) -> bool:
         return False
 
 
-def _budget_event_product() -> str:
-    """The budget is checked before the query runs, so the product fallbacks the ClickHouse
-    client applies at execution have not run yet. Apply them to a copy so the event names the
-    same product the query log will. A budgeted read with no other product is a plain API read."""
+def _budget_event_product(query: object | None = None) -> str | None:
+    """Resolve product fallbacks before execution without changing the live query tags."""
     tags = get_query_tags().model_copy(deep=True)
+    if query is not None:
+        tags.query = query
     add_fallback_query_tags(tags)
-    return str(tags.product or Product.API)
+    return str(tags.product) if tags.product else None
 
 
 def api_queries_budget_enforcement_enabled(team: Team) -> bool:
@@ -586,7 +585,7 @@ def get_api_queries_budget_status(team: Team) -> Optional[BudgetStatus]:
         return None
 
 
-def enforce_api_queries_budget(team: Team) -> None:
+def enforce_api_queries_budget(team: Team, query: object | None = None) -> None:
     """Hourly read budget for api key queries. Observe-only until the org is flagged in;
     then an exhausted budget is a 429. The query that crosses the line still runs in full,
     since the budget is debited after the query and the next request is the one refused."""
@@ -611,7 +610,7 @@ def enforce_api_queries_budget(team: Team) -> None:
     if claim_limited_event(str(team.pk)):
         try:
             access_method = get_query_tag_value("access_method")
-            product = _budget_event_product()
+            product = _budget_event_product(query)
             report_team_action(
                 team,
                 "api queries budget limited",
@@ -3140,7 +3139,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         return feature.get("limit") if feature else None
 
     def _enforce_api_queries_budget(self) -> None:
-        enforce_api_queries_budget(self.team)
+        enforce_api_queries_budget(self.team, self.query)
 
     @abstractmethod
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
