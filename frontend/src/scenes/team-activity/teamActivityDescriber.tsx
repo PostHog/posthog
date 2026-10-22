@@ -16,6 +16,7 @@ import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/Pr
 import { Link } from 'lib/lemon-ui/Link'
 import { CURRENCY_SYMBOL_TO_EMOJI_MAP, CURRENCY_SYMBOL_TO_NAME_MAP } from 'lib/utils/currency'
 import { isObject } from 'lib/utils/guards'
+import { objectsEqual } from 'lib/utils/objects'
 import { pluralize } from 'lib/utils/strings'
 import { ExperimentsConfig } from 'scenes/settings/environment/experimentsConfigLogic'
 import { urls } from 'scenes/urls'
@@ -478,17 +479,41 @@ const TEAM_PROPERTIES_MAPPING: Record<
     feature_flag_policy_config: (change) => {
         const before = isObject(change.before) ? change.before : {}
         const after = isObject(change.after) ? change.after : {}
+        const descriptions: JSX.Element[] = []
+        if (!!before.require_tags !== !!after.require_tags) {
+            descriptions.push(
+                <>
+                    {after.require_tags ? 'enabled' : 'disabled'} <em>required tags on feature flags</em>
+                </>
+            )
+        }
         const lists = [
             ['blocked_hosts', 'blocked domains for feature flag requests'],
             ['blocked_ips', 'blocked IP addresses for feature flag requests'],
         ] as const
-        const descriptions = lists
-            .filter(([field]) => JSON.stringify(before[field] ?? []) !== JSON.stringify(after[field] ?? []))
-            .map(([field, label]) => (
-                <>
-                    changed the <em>{label}</em> to <code>[{((after[field] ?? []) as string[]).join(', ')}]</code>
-                </>
-            ))
+        for (const [field, label] of lists) {
+            const beforeEntries = (before[field] ?? []) as string[]
+            const afterEntries = (after[field] ?? []) as string[]
+            if (objectsEqual(beforeEntries, afterEntries)) {
+                continue
+            }
+            const added = afterEntries.filter((entry) => !beforeEntries.includes(entry))
+            const removed = beforeEntries.filter((entry) => !afterEntries.includes(entry))
+            if (added.length) {
+                descriptions.push(
+                    <>
+                        added <code>{added.join(', ')}</code> to the <em>{label}</em>
+                    </>
+                )
+            }
+            if (removed.length) {
+                descriptions.push(
+                    <>
+                        removed <code>{removed.join(', ')}</code> from the <em>{label}</em>
+                    </>
+                )
+            }
+        }
         return descriptions.length ? { description: descriptions } : null
     },
     test_account_filters: (change) => {
