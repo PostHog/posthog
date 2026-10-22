@@ -41,7 +41,7 @@ def inject_incremental_filter(
     query: str,
     *,
     incremental_key: str,
-    since: Any,
+    since: Any = None,
     until: Any = None,
     include_null_keys: bool = False,
 ) -> SelectLike:
@@ -59,7 +59,7 @@ def apply_incremental_filter(
     node: SelectLike,
     *,
     incremental_key: str,
-    since: Any,
+    since: Any = None,
     until: Any = None,
     include_null_keys: bool = False,
 ) -> SelectLike:
@@ -70,9 +70,14 @@ def apply_incremental_filter(
 
 
 def _window_predicate(key: ast.Expr, *, since: Any, until: Any, include_null_keys: bool) -> ast.Expr:
-    bounded: ast.Expr = _compare(key, ast.CompareOperationOp.GtEq, since)
-    if until is not None:
-        bounded = ast.And(exprs=[bounded, _compare(key, ast.CompareOperationOp.Lt, until)])
+    bounds: list[ast.Expr] = [
+        _compare(key, op, value)
+        for op, value in ((ast.CompareOperationOp.GtEq, since), (ast.CompareOperationOp.Lt, until))
+        if value is not None
+    ]
+    if not bounds:
+        raise ValueError("A window needs at least one bound")
+    bounded: ast.Expr = bounds[0] if len(bounds) == 1 else ast.And(exprs=bounds)
     if not include_null_keys:
         return bounded
     return ast.Or(exprs=[bounded, ast.Call(name="isNull", args=[clone_expr(key)])])

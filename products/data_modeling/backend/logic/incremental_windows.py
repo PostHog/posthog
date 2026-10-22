@@ -1,6 +1,7 @@
 """How wide each bounded window of an incremental build is, and whether a team builds in windows at all."""
 
 import dataclasses
+from collections.abc import Awaitable, Callable
 from datetime import date, datetime, timedelta
 from typing import Any, Generic, Optional, TypeVar
 
@@ -21,6 +22,7 @@ INTEGER_INITIAL_SPLITS = 16
 INTEGER_MINIMUM_SPAN = 1
 MAXIMUM_SPAN_MULTIPLE = 32
 FAST_WINDOW = timedelta(seconds=60)
+LOWER_BOUND_SEARCH_DOUBLINGS = 16
 
 Size = TypeVar("Size", timedelta, int)
 
@@ -64,6 +66,25 @@ def temporal_span_for(key: Any) -> Optional[WindowSpan[timedelta]]:
 
 def fits_in_one_window(start: Any, end: Any, span: WindowSpan[Any]) -> bool:
     return start + span.size >= end
+
+
+async def search_lower_bound(has_rows_below: Callable[[Any], Awaitable[bool]], end: Any) -> Optional[Any]:
+    offset = TEMPORAL_INITIAL_SPAN
+    for _ in range(LOWER_BOUND_SEARCH_DOUBLINGS + 1):
+        bound = end - offset
+        if not await has_rows_below(bound):
+            return bound
+        offset *= 2
+    return None
+
+
+async def skip_empty_ranges(
+    has_rows_between: Callable[[Any, Any], Awaitable[bool]], start: Any, step: Any, end: Any
+) -> Any:
+    while start + step < end and not await has_rows_between(start, start + step):
+        start = start + step
+        step = step * 2
+    return start
 
 
 def windowed_materialization_enabled(team_id: int) -> bool:

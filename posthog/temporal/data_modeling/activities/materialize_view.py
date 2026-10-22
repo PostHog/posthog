@@ -80,7 +80,9 @@ from products.data_modeling.backend.facade.api import (
     key_filter_reaches_source,
     record_incremental_history,
     resolve_write_plan,
+    search_lower_bound,
     set_incremental_state,
+    skip_empty_ranges,
     start_first_build,
     temporal_span_for,
     windowed_materialization_enabled,
@@ -1295,6 +1297,7 @@ async def _drop_watermark_after(
 
 
 KEY_RANGE_ALIAS = "__ph_key_range"
+HAS_ROWS_ALIAS = "__ph_has_rows"
 FIRST_BUILD_RESUMED_REASON = "first build resumed"
 
 
@@ -1322,6 +1325,43 @@ async def _probe_key_range(
         if batch.num_rows:
             return batch.column("key_min")[0].as_py(), batch.column("key_max")[0].as_py()
     return None, None
+
+
+async def _sample_key(hogql_query: str, team: Team, logger: FilteringBoundLogger, incremental_key: str) -> typing.Any:
+    key = ast.Field(chain=[KEY_RANGE_ALIAS, incremental_key])
+    sample = ast.SelectQuery(
+        select=[ast.Alias(alias="key_sample", expr=key)],
+        select_from=ast.JoinExpr(table=parse_select(hogql_query), alias=KEY_RANGE_ALIAS),
+        where=ast.CompareOperation(
+            left=key, right=ast.Constant(value=None), op=ast.CompareOperationOp.NotEq, is_null_comparison_style=True
+        ),
+        limit=ast.Constant(value=1),
+    )
+    async for batch, _ in hogql_table(sample, team, logger):
+        if batch.num_rows:
+            return batch.column("key_sample")[0].as_py()
+    return None
+
+
+async def _has_rows(
+    hogql_query: str,
+    team: Team,
+    logger: FilteringBoundLogger,
+    incremental_key: str,
+    *,
+    since: typing.Any = None,
+    until: typing.Any = None,
+) -> bool:
+    bounded = inject_incremental_filter(hogql_query, incremental_key=incremental_key, since=since, until=until)
+    existence = ast.SelectQuery(
+        select=[ast.Alias(alias="hit", expr=ast.Constant(value=1))],
+        select_from=ast.JoinExpr(table=bounded, alias=HAS_ROWS_ALIAS),
+        limit=ast.Constant(value=1),
+    )
+    async for batch, _ in hogql_table(existence, team, logger):
+        if batch.num_rows:
+            return True
+    return False
 
 
 def _now_like(key: typing.Any) -> typing.Any:
@@ -1381,20 +1421,48 @@ def _catch_up_windows(since: typing.Any, state: typing.Any) -> _WindowPlan | Non
 async def _first_build_windows(
     objects: MatviewInputObjects, hogql_query: str, config: IncrementalConfig, logger: FilteringBoundLogger
 ) -> _WindowPlan | None:
-    key_min, key_max = await _probe_key_range(hogql_query, objects.team, logger, config.incremental_key)
-    span = initial_span(key_min, key_max) if key_min is not None else None
-    if span is None:
+    key = config.incremental_key
+    sample = await _sample_key(hogql_query, objects.team, logger, key)
+    if sample is None:
         return None
-    integer_key = isinstance(span.size, int)
-    end = key_max if integer_key else _now_like(key_min)
-    if fits_in_one_window(key_min, end, span):
+    temporal = temporal_span_for(sample)
+    if temporal is not None:
+        return await _first_temporal_build_windows(objects, hogql_query, key, sample, temporal, logger)
+    return await _first_integer_build_windows(objects, hogql_query, key, logger)
+
+
+async def _first_temporal_build_windows(
+    objects: MatviewInputObjects,
+    hogql_query: str,
+    key: str,
+    sample: typing.Any,
+    span: WindowSpan[typing.Any],
+    logger: FilteringBoundLogger,
+) -> _WindowPlan | None:
+    async def has_rows_below(bound: typing.Any) -> bool:
+        return await _has_rows(hogql_query, objects.team, logger, key, until=bound)
+
+    end = _now_like(sample)
+    start = await search_lower_bound(has_rows_below, end)
+    if start is None:
+        start, _ = await _probe_key_range(hogql_query, objects.team, logger, key)
+    if start is None or fits_in_one_window(start, end, span):
+        return None
+    await database_sync_to_async_pool(start_first_build)(objects.saved_query)
+    return _WindowPlan(start=start, end=end, span=span, first_build=True, resumed_first_build=False)
+
+
+async def _first_integer_build_windows(
+    objects: MatviewInputObjects, hogql_query: str, key: str, logger: FilteringBoundLogger
+) -> _WindowPlan | None:
+    key_min, key_max = await _probe_key_range(hogql_query, objects.team, logger, key)
+    span = initial_span(key_min, key_max) if key_min is not None else None
+    if span is None or not isinstance(span.size, int) or fits_in_one_window(key_min, key_max, span):
         return None
     await database_sync_to_async_pool(start_first_build)(
-        objects.saved_query,
-        backfill_until=key_max if integer_key else None,
-        backfill_span=span.size if integer_key else None,
+        objects.saved_query, backfill_until=key_max, backfill_span=span.size
     )
-    return _WindowPlan(start=key_min, end=end, span=span, first_build=True, resumed_first_build=False)
+    return _WindowPlan(start=key_min, end=key_max, span=span, first_build=True, resumed_first_build=False)
 
 
 async def _materialize_in_windows(
@@ -1418,6 +1486,9 @@ async def _materialize_in_windows(
     start = windows.start
     first = windows.first_build
     target_schema = None if first else _target_schema(table_uri, storage_options)
+
+    async def has_rows_between(since: typing.Any, until: typing.Any) -> bool:
+        return await _has_rows(hogql_query, objects.team, logger, config.incremental_key, since=since, until=until)
 
     if first:
         await _delete_table(table_uri, logger)
@@ -1483,8 +1554,11 @@ async def _materialize_in_windows(
             first = False
             if until is None:
                 break
+            window_seconds = time.monotonic() - started_at
             start = until
-            if time.monotonic() - started_at < FAST_WINDOW.total_seconds():
+            if progress.row_count == rows_before_window:
+                start = await skip_empty_ranges(has_rows_between, until, span.size, windows.end)
+            if window_seconds < FAST_WINDOW.total_seconds():
                 span = span.grown()
     except (IncrementalWriteError, IncrementalFilterError) as err:
         await _drop_watermark_after(err, objects, logger)

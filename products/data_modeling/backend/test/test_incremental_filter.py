@@ -126,17 +126,18 @@ class TestInjectIncrementalFilter(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("upper_bound", False, "{key} >= {since} AND {key} < {until}"),
-            ("null_keys_included", True, "({key} >= {since} AND {key} < {until}) OR isNull({key})"),
+            ("upper_bound", SINCE, False, "{key} >= {since} AND {key} < {until}"),
+            ("null_keys_included", SINCE, True, "({key} >= {since} AND {key} < {until}) OR isNull({key})"),
+            ("only_an_upper_bound", None, False, "{key} < {until}"),
         ]
     )
     def test_a_bounded_window_filters_the_source_and_the_guard(
-        self, _name: str, include_null_keys: bool, expected_template: str
+        self, _name: str, since: datetime | None, include_null_keys: bool, expected_template: str
     ) -> None:
         node = inject_incremental_filter(
             "SELECT toStartOfDay(timestamp) AS day, count() AS c FROM events GROUP BY day",
             incremental_key="day",
-            since=SINCE,
+            since=since,
             until=UNTIL,
             include_null_keys=include_null_keys,
         )

@@ -105,6 +105,8 @@ _LAZY = {
     "fits_in_one_window": "logic.incremental_windows",
     "initial_span": "logic.incremental_windows",
     "integer_span": "logic.incremental_windows",
+    "search_lower_bound": "logic.incremental_windows",
+    "skip_empty_ranges": "logic.incremental_windows",
     "temporal_span_for": "logic.incremental_windows",
     "windowed_materialization_enabled": "logic.incremental_windows",
     "WritePlan": "logic.incremental_plan",

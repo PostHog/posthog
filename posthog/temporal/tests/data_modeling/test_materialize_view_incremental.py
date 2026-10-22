@@ -163,42 +163,59 @@ def _in_window(key: Any, window: IncrementalWindow | None) -> bool:
     return key >= window.since and (window.until is None or key < window.until)
 
 
-def _windowed_source(
-    rows: list[tuple[Any, int]],
-    *,
-    windows: list[Any],
-    integer_keys: bool = False,
-    fail: WindowFailure | None = None,
-    partial_on_failure: bool = False,
-):
-    key_type = pa.int64() if integer_keys else pa.timestamp("us", tz="UTC")
-    types = INTEGER_TYPES if integer_keys else TIMESTAMP_TYPES
+class _WindowedSource:
+    def __init__(
+        self,
+        rows: list[tuple[Any, int]],
+        *,
+        windows: list[Any],
+        integer_keys: bool = False,
+        fail: WindowFailure | None = None,
+        partial_on_failure: bool = False,
+    ) -> None:
+        self.rows = rows
+        self._windows = windows
+        self._fail = fail
+        self._partial_on_failure = partial_on_failure
+        self._key_type = pa.int64() if integer_keys else pa.timestamp("us", tz="UTC")
+        self._types = INTEGER_TYPES if integer_keys else TIMESTAMP_TYPES
 
-    def to_batch(selected: list[tuple[Any, int]]) -> pa.RecordBatch:
+    def _batch(self, selected: list[tuple[Any, int]]) -> pa.RecordBatch:
         arrays = cast(
             Collection[pa.Array],
             [
-                pa.array([key for key, _ in selected], type=key_type),
+                pa.array([key for key, _ in selected], type=self._key_type),
                 pa.array([value for _, value in selected], type=pa.int64()),
             ],
         )
         return pa.RecordBatch.from_arrays(arrays, names=["day", "c"])
 
-    def factory(*args, window: IncrementalWindow | None = None, **kwargs):
-        windows.append(window)
+    def __call__(self, *args, window: IncrementalWindow | None = None, **kwargs):
+        self._windows.append(window)
 
         async def generator():
-            selected = [row for row in rows if _in_window(row[0], window)]
-            error = fail(window) if fail is not None and window is not None else None
+            selected = [row for row in self.rows if _in_window(row[0], window)]
+            error = self._fail(window) if self._fail is not None and window is not None else None
             if error is not None:
-                if partial_on_failure and selected:
-                    yield to_batch([max(selected, key=lambda row: row[0])]), types
+                if self._partial_on_failure and selected:
+                    yield self._batch([max(selected, key=lambda row: row[0])]), self._types
                 raise error
-            yield to_batch(selected), types
+            yield self._batch(selected), self._types
 
         return generator()
 
-    return factory
+    async def has_rows(self, *args, since: Any = None, until: Any = None) -> bool:
+        return any(
+            key is not None and (since is None or key >= since) and (until is None or key < until)
+            for key, _ in self.rows
+        )
+
+    async def sample_key(self, *args) -> Any:
+        return next((key for key, _ in self.rows if key is not None), None)
+
+
+def _windowed_source(rows: list[tuple[Any, int]], **options: Any) -> _WindowedSource:
+    return _WindowedSource(rows, **options)
 
 
 def _fails_when_window_holds(key: Any, error: BaseException, *, wider_than: Any = None, times: int | None = None):
@@ -215,11 +232,15 @@ def _fails_when_window_holds(key: Any, error: BaseException, *, wider_than: Any 
     return fail
 
 
-async def _run_windowed(activity_environment, ateam, anode, ajob, adag, source, key_range: tuple[Any, Any]):
+async def _run_windowed(
+    activity_environment, ateam, anode, ajob, adag, source: _WindowedSource, key_range: tuple[Any, Any]
+):
     with (
         _windowing_enabled(),
         unittest.mock.patch(f"{MATERIALIZE_VIEW}.hogql_table", source),
         unittest.mock.patch(f"{MATERIALIZE_VIEW}._probe_key_range", return_value=key_range),
+        unittest.mock.patch(f"{MATERIALIZE_VIEW}._has_rows", source.has_rows),
+        unittest.mock.patch(f"{MATERIALIZE_VIEW}._sample_key", source.sample_key),
     ):
         return await activity_environment.run(
             materialize_view_activity,
@@ -831,7 +852,7 @@ class TestWindowedMaterialization:
 
         assert _rows(result.table_uri) == [(RECENT_2, 1), (None, 5)]
         assert len(windows) > 1
-        assert windows[0].since == RECENT_0 and windows[0].include_null_keys
+        assert windows[0].since <= RECENT_0 and windows[0].include_null_keys
         assert not any(window.include_null_keys for window in windows[1:])
         assert windows[-1].until is None
         state = await _state(asaved_query)
@@ -964,6 +985,27 @@ class TestWindowedMaterialization:
             )
 
         assert _rows(result.table_uri) == rows
+
+    async def test_a_stray_ancient_key_does_not_make_the_build_crawl_through_the_gap(
+        self, activity_environment, ateam, anode, asaved_query, ajob, bucket_name, adag
+    ):
+        await _configure(asaved_query)
+        rows = [(datetime(2001, 1, 1, tzinfo=UTC), 1), (RECENT_0, 10), (RECENT_2, 30)]
+        windows: list[Any] = []
+
+        with _settings(bucket_name):
+            result = await _run_windowed(
+                activity_environment,
+                ateam,
+                anode,
+                ajob,
+                adag,
+                _windowed_source(rows, windows=windows),
+                (rows[0][0], RECENT_2),
+            )
+
+        assert _rows(result.table_uri) == rows
+        assert len(windows) < 40
 
     async def test_a_window_at_the_minimum_span_fails_without_losing_progress(
         self, activity_environment, ateam, anode, asaved_query, ajob, bucket_name, adag
