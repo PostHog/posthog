@@ -4,6 +4,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 export interface SuggestionCardCondensedProps {
     icon: JSX.Element
     title: string
+    draftName: string
     actionLabel: string
     onExpand: () => void
     onDismiss: () => void
@@ -12,6 +13,7 @@ export interface SuggestionCardCondensedProps {
 export function SuggestionCardCondensed({
     icon,
     title,
+    draftName,
     actionLabel,
     onExpand,
     onDismiss,
@@ -22,7 +24,10 @@ export function SuggestionCardCondensed({
             data-attr="posthog-ai-turn-suggestion"
         >
             <span className="shrink-0 text-xl text-accent">{icon}</span>
-            <div className="min-w-0 flex-1 font-semibold">{title}</div>
+            <div className="min-w-0 flex-1">
+                <div className="font-semibold">{title}</div>
+                {draftName && <div className="truncate text-sm text-secondary">{draftName}</div>}
+            </div>
             <div className="flex shrink-0 items-center gap-1">
                 <LemonButton
                     type="secondary"

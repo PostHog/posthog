@@ -36,6 +36,7 @@ export interface turnSuggestionLogicValues {
     currentProjectId: number | null // projectLogic
     suggestion: TurnSuggestion | null // runStreamLogic
     turnSuggestionAcceptedHere: number | null // runStreamLogic
+    turnSuggestionExpandedHere: number | null // runStreamLogic
     completed: boolean
     dismissed: boolean
     expanded: boolean
@@ -51,6 +52,9 @@ export interface turnSuggestionLogicActions {
         outcome: string
     ) => {
         outcome: string
+        turnIndex: number
+    } // runStreamLogic
+    markTurnSuggestionExpanded: (turnIndex: number) => {
         turnIndex: number
     } // runStreamLogic
     dismiss: () => {
@@ -72,6 +76,7 @@ export interface turnSuggestionLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         completed: (turnSuggestionAcceptedHere: number | null, shownSuggestion: TurnSuggestion | null) => boolean
+        expanded: (turnSuggestionExpandedHere: number | null, suggestion: TurnSuggestion | null) => boolean
         visible: (suggestion: TurnSuggestion | null, revealReady: boolean, dismissed: boolean) => boolean
     }
 }
@@ -90,11 +95,14 @@ export const turnSuggestionLogic: LogicWrapper<turnSuggestionLogicType> = kea<tu
     connect((props: TurnSuggestionLogicProps) => ({
         values: [
             runStreamLogic({ streamKey: props.streamKey }),
-            ['turnSuggestion as suggestion', 'turnSuggestionAcceptedHere'],
+            ['turnSuggestion as suggestion', 'turnSuggestionAcceptedHere', 'turnSuggestionExpandedHere'],
             projectLogic,
             ['currentProjectId'],
         ],
-        actions: [runStreamLogic({ streamKey: props.streamKey }), ['recordTurnSuggestionOutcome']],
+        actions: [
+            runStreamLogic({ streamKey: props.streamKey }),
+            ['recordTurnSuggestionOutcome', 'markTurnSuggestionExpanded'],
+        ],
     })),
     actions({
         dismiss: true,
@@ -104,7 +112,6 @@ export const turnSuggestionLogic: LogicWrapper<turnSuggestionLogicType> = kea<tu
     }),
     reducers({
         dismissed: [false, { dismiss: () => true }],
-        expanded: [false, { expand: () => true }],
         revealReady: [false, { reveal: () => true }],
         shownSuggestion: [
             null as TurnSuggestion | null,
@@ -119,6 +126,11 @@ export const turnSuggestionLogic: LogicWrapper<turnSuggestionLogicType> = kea<tu
             (turnSuggestionAcceptedHere: number | null, shownSuggestion: TurnSuggestion | null): boolean =>
                 shownSuggestion !== null && turnSuggestionAcceptedHere === shownSuggestion.turnIndex,
         ],
+        expanded: [
+            (s) => [s.turnSuggestionExpandedHere, s.suggestion],
+            (turnSuggestionExpandedHere: number | null, suggestion: TurnSuggestion | null): boolean =>
+                suggestion !== null && turnSuggestionExpandedHere === suggestion.turnIndex,
+        ],
         visible: [
             (s) => [s.suggestion, s.revealReady, s.dismissed],
             (suggestion: TurnSuggestion | null, revealReady: boolean, dismissed: boolean): boolean =>
@@ -130,8 +142,10 @@ export const turnSuggestionLogic: LogicWrapper<turnSuggestionLogicType> = kea<tu
             captureTurnSuggestionEvent('shown', props, suggestion)
         },
         expand: () => {
-            if (values.suggestion) {
-                captureTurnSuggestionEvent('expanded', props, values.suggestion)
+            const { suggestion } = values
+            if (suggestion && !values.expanded) {
+                actions.markTurnSuggestionExpanded(suggestion.turnIndex)
+                captureTurnSuggestionEvent('expanded', props, suggestion)
             }
         },
         dismiss: () => {

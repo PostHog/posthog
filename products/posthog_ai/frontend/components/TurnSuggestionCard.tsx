@@ -5,6 +5,7 @@ import { IconBell, IconCalendar, IconNotebook, IconTelescope, IconWarning } from
 
 import { TurnSuggestionLogicProps, turnSuggestionLogic } from '../logics/turnSuggestionLogic'
 import type { TurnSuggestion } from '../types/streamTypes'
+import { suggestionDraftName } from '../utils/turnSuggestions'
 import { AlertSuggestionCard } from './AlertSuggestionCard'
 import { ErrorAlertSuggestionCard } from './ErrorAlertSuggestionCard'
 import { NotebookSuggestionCard } from './NotebookSuggestionCard'
@@ -55,6 +56,7 @@ export function TurnSuggestionCard(logicProps: TurnSuggestionLogicProps): JSX.El
                 <SuggestionCardCondensed
                     icon={icon}
                     title={suggestion.title}
+                    draftName={suggestionDraftName(suggestion)}
                     actionLabel={actionLabel}
                     onExpand={expand}
                     onDismiss={dismiss}
