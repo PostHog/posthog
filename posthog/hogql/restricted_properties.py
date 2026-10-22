@@ -168,7 +168,4 @@ def key_read_overlaps_restriction(first_key: str, restricted_keys: Iterable[str]
 def native_property_path_overlaps_restriction(property_name: str, table_type: ast.Type, context: HogQLContext) -> bool:
     if not context.restricted_properties or not context.uses_new_events_schema():
         return False
-    return any(
-        property_name == key or property_name.startswith(key + ".") or key.startswith(property_name + ".")
-        for key in restricted_property_keys_for_table_type(table_type, context)
-    )
+    return key_read_overlaps_restriction(property_name, restricted_property_keys_for_table_type(table_type, context))
