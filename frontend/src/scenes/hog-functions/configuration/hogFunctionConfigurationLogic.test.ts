@@ -301,6 +301,10 @@ describe('hogFunctionConfigurationLogic', () => {
     })
 
     describe('mapping preview filters', () => {
+        beforeEach(() => {
+            initKeaTests()
+        })
+
         it('combines mapping matchers with global properties and ignores unsupported global matchers', async () => {
             const globalFilters: CyclotronJobFiltersType = {
                 events: [{ id: '$pageview', name: '$pageview', type: 'events' }],
