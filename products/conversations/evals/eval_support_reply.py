@@ -20,6 +20,7 @@ import asyncio
 
 from products.conversations.evals.constants import LIVE_EVAL_ENV_VAR
 from products.conversations.evals.fixtures import FIXTURES, FIXTURES_BY_NAME, expected_for
+from products.conversations.evals.offline_config import offline_suite
 from products.conversations.evals.runner import live_eval_enabled, run_fixture
 from products.conversations.evals.scorers import ALL_SCORERS
 from products.conversations.evals.seeders import provision_eval_team, seed_case, teardown_eval_team
@@ -48,9 +49,10 @@ CASES = [
 
 
 async def eval_support_reply(ctx: EvalContext) -> None:
+    live = live_eval_enabled()
+
     async def task(case: BaseEvalCase, task_ctx: EvalContext) -> dict:
         fixture = FIXTURES_BY_NAME[case.name]
-        live = live_eval_enabled()
         eval_team = await asyncio.to_thread(lambda: provision_eval_team(label=fixture.name))
         try:
             seed = await asyncio.to_thread(lambda: seed_case(eval_team=eval_team, fixture=fixture))
@@ -60,7 +62,22 @@ async def eval_support_reply(ctx: EvalContext) -> None:
 
     await OneShotPublicEval(
         experiment_name="support-reply-pipeline",
-        cases=CASES,
+        offline_suite=offline_suite(
+            "conversations/eval_support_reply::eval_support_reply",
+            metrics=[
+                "outcome_match",
+                "citation_precision",
+                "forbidden_claims",
+                "cost",
+                "grounding",
+                "clarifying_question",
+            ],
+            suite_kind=SUITE_KIND,
+        ),
+        cases=[
+            case.model_copy(update={"metadata": {**case.metadata, "mode": "live" if live else "mocked"}})
+            for case in CASES
+        ],
         scorers=list(ALL_SCORERS),
         task=task,
         ctx=ctx,

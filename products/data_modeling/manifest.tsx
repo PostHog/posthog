@@ -1,4 +1,3 @@
-import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { ProductManifest } from '~/types'
@@ -45,7 +44,6 @@ export const manifest: ProductManifest = {
                 {
                     name: 'Data quality',
                     href: urls.models('data-quality'),
-                    flag: FEATURE_FLAGS.DATA_QUALITY_CHECKS,
                     searchKeywords: ['tests', 'checks', 'freshness'],
                 },
             ],

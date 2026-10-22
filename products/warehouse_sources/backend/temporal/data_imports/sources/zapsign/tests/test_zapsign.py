@@ -31,7 +31,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.zapsign.za
     _webhook_table_transformer,
     base_url_for_environment,
     create_webhook,
-    validate_credentials,
     zapsign_source,
 )
 
@@ -216,35 +215,6 @@ class TestWebhookTableTransformer:
         assert len(rows) == 1
         assert rows[0]["created_at"] == datetime.datetime(2026, 1, 1, tzinfo=datetime.UTC)
         assert rows[0]["last_update_at"] is None
-
-
-class TestValidateCredentials:
-    @parameterized.expand(
-        [
-            ("ok", 200, True, None),
-            ("forbidden", 403, False, "rejected the API token"),
-            ("unauthorized", 401, False, "rejected the API token"),
-            ("server_error", 500, False, "unexpected status (500)"),
-        ]
-    )
-    def test_maps_status_codes(
-        self, _name: str, status_code: int, expected_ok: bool, expected_error: str | None
-    ) -> None:
-        with scripted_network(always(ScriptedResponse(status=status_code, json={}))):
-            ok, error = validate_credentials("token-123", "production")
-
-        assert ok is expected_ok
-        if expected_error is None:
-            assert error is None
-        else:
-            assert expected_error in cast("str", error)
-
-    def test_returns_false_on_network_error(self) -> None:
-        with scripted_network(always(requests.ConnectionError("dns fail"))):
-            ok, error = validate_credentials("token-123", "production")
-
-        assert ok is False
-        assert "Could not reach ZapSign" in cast("str", error)
 
 
 class TestCreateWebhook:

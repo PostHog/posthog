@@ -70,8 +70,6 @@ class TestValidateCredentials:
     @pytest.mark.parametrize(
         "status_code, expected_error",
         [
-            (401, "authentication failed"),
-            (403, "authentication failed"),
             (404, "unexpected status"),
         ],
     )

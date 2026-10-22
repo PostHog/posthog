@@ -29,6 +29,7 @@ import { MCP_EXEC_SKILLS_FEATURE_FLAG } from '@/hono/constants'
 import { InstructionsBuilder } from '@/hono/instructions'
 import type { ResolvedState } from '@/hono/request-state-resolver'
 import { MCPClientProfile } from '@/lib/client-detection'
+import { MCP_NO_DATA_INSTALL_NOTICE_FLAG } from '@/lib/no-data-guard'
 import { makeSkillFile, SkillCatalog } from '@/skills/skill-catalog'
 import type { SkillInvocation } from '@/tools/exec-learn'
 import { MAX_CAPTURED_DESCRIPTION_LENGTH, getToolDefinition } from '@/tools/toolDefinitions'
@@ -263,6 +264,74 @@ describe('Hono MCP analytics contexts', () => {
         await trackToolCall('user-get', 12, false, makeState(), undefined, analyticsMeta)
 
         expect(mockCaptureToolCall.mock.calls[0]![0].properties.$mcp_llm_model_missing_reason).toBe(expected)
+    })
+
+    // The no-data experiment compares variants on projects without events, so these properties
+    // must reach every event for those projects and stay off events for projects with data.
+    it.each([
+        {
+            name: 'an untouched call on a project without events',
+            projectHasData: false,
+            variant: 'block',
+            noDataAction: undefined,
+            expected: {
+                mcp_project_has_data: false,
+                mcp_no_data_action: 'none',
+                '$feature/mcp-no-data-install-notice': 'block',
+            },
+        },
+        {
+            name: 'a blocked call on a project without events',
+            projectHasData: false,
+            variant: 'block',
+            noDataAction: 'blocked' as const,
+            expected: {
+                mcp_project_has_data: false,
+                mcp_no_data_action: 'blocked',
+                '$feature/mcp-no-data-install-notice': 'block',
+            },
+        },
+        {
+            name: 'a warned call on a project without events',
+            projectHasData: false,
+            variant: 'warn',
+            noDataAction: 'warned' as const,
+            expected: {
+                mcp_project_has_data: false,
+                mcp_no_data_action: 'warned',
+                '$feature/mcp-no-data-install-notice': 'warn',
+            },
+        },
+        {
+            name: 'a call on a project with events',
+            projectHasData: true,
+            variant: 'block',
+            noDataAction: undefined,
+            expected: {
+                mcp_project_has_data: true,
+                mcp_no_data_action: undefined,
+                '$feature/mcp-no-data-install-notice': undefined,
+            },
+        },
+    ])('stamps the project data state for $name', async ({ projectHasData, variant, noDataAction, expected }) => {
+        const state = makeState({
+            projectHasData,
+            noDataAction,
+            toolFeatureFlags: { [MCP_NO_DATA_INSTALL_NOTICE_FLAG]: variant },
+            reqCtx: {
+                ...makeState().reqCtx,
+                safelyGetAnalyticsContext: vi.fn(async () => ({ projectId: '1', projectHasData })),
+            } as any,
+        })
+
+        await trackToolCall('query-trends', 0, false, state)
+        await trackInitEvent(state)
+
+        const toolCallProperties = mockCaptureToolCall.mock.calls[0]![0].properties
+        for (const [key, value] of Object.entries(expected)) {
+            expect(toolCallProperties[key]).toBe(value)
+        }
+        expect(mockCaptureInitialize.mock.calls[0]![0].properties.mcp_project_has_data).toBe(projectHasData)
     })
 
     it('categorizes a proxied third-party tool and names its server', async () => {

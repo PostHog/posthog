@@ -68,6 +68,28 @@ class TestCustomAgentLogArtefacts(BaseTest):
             priority=PriorityAssessment(explanation="e", priority=Priority.P1),
         )
 
+    @patch("products.signals.backend.reviewer_rules.assignment_writer_enabled", return_value=True)
+    def test_registered_reviewers_use_shared_writer(self, _writer) -> None:
+        result = create_custom_agent_ready_report(
+            team_id=self.team.id,
+            final_report=self._final_report(),
+            repo_selection=RepoSelectionResult(repository=None, reason="No repository"),
+            agent_identifier=("billing", "anomaly_scan"),
+            registered_artefacts=[
+                SuggestedReviewers(
+                    root=[
+                        SuggestedReviewerEntry(user_uuid=str(self.user.uuid)),
+                        SuggestedReviewerEntry(github_login="unlinked-example"),
+                    ]
+                )
+            ],
+        )
+        reviewers = SignalReportArtefact.latest_content(
+            team_id=self.team.id, report_id=result.report_id, model=SuggestedReviewers
+        )
+        assert reviewers is not None and [entry.user_uuid for entry in reviewers.root] == [str(self.user.uuid)]
+        assert SignalReportArtefact.objects.filter(report_id=result.report_id, type="reviewer_corrections").count() == 1
+
     def test_register_artefact_queues_any_content_model(self):
         agent = self._agent()
 

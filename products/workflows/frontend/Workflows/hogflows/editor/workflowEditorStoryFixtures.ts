@@ -277,48 +277,56 @@ const PICKABLE_WORKFLOWS: Record<string, HogFlow> = {
     ...EXAMPLE_WORKFLOWS,
 }
 
-export const workflowEditorStoryDecorator = mswDecorator({
-    get: {
-        '/api/projects/:team_id/hog_flow_templates/': { count: 0, results: [] },
-        // nosemgrep: no-environments-api-urls-frontend -- api.hogFlows has not migrated to generated project routes.
-        '/api/environments/:team_id/hog_flows/:id/': ({ params }) => [
-            200,
-            PICKABLE_WORKFLOWS[String(params.id)] ?? CUSTOMER_ONBOARDING_AND_RETENTION_WORKFLOW,
-        ],
-        // nosemgrep: no-environments-api-urls-frontend -- api.messaging has not migrated to generated project routes.
-        '/api/environments/:team_id/messaging_categories': { count: 0, results: [] },
-    },
-    patch: {
-        // nosemgrep: no-environments-api-urls-frontend -- api.hogFlows has not migrated to generated project routes.
-        '/api/environments/:team_id/hog_flows/:id/': async ({ request, params }) => [
-            200,
-            {
-                ...(PICKABLE_WORKFLOWS[String(params.id)] ?? CUSTOMER_ONBOARDING_AND_RETENTION_WORKFLOW),
-                ...((await request.json()) as Partial<HogFlow>),
-                updated_at: '2026-09-04T12:01:00.000Z',
-            },
-        ],
-    },
-    post: {
-        // nosemgrep: no-environments-api-urls-frontend -- api.hogFlows has not migrated to generated project routes.
-        '/api/environments/:team_id/hog_flows/': async ({ request }) => [
-            201,
-            {
-                ...NEW_WORKFLOW,
-                ...((await request.json()) as Partial<HogFlow>),
-                id: 'storybook-new-workflow',
-                team_id: 1,
-                created_at: '2026-09-04T12:01:00.000Z',
-                updated_at: '2026-09-04T12:01:00.000Z',
-            },
-        ],
-        // nosemgrep: no-environments-api-urls-frontend -- api.hogFlows has not migrated to generated project routes.
-        '/api/environments/:team_id/hog_flows/user_blast_radius/': {
-            affected: 240,
-            total: 1200,
-            limit: 100000,
-            dedupe_key: null,
-            confirm_token: 'storybook-confirm-token',
+/** Pass more workflows to make them loadable by id in a story. */
+export function createWorkflowEditorStoryDecorator(
+    extraWorkflows: Record<string, HogFlow> = {}
+): ReturnType<typeof mswDecorator> {
+    const workflowsById: Record<string, HogFlow> = { ...PICKABLE_WORKFLOWS, ...extraWorkflows }
+    return mswDecorator({
+        get: {
+            '/api/projects/:team_id/hog_flow_templates/': { count: 0, results: [] },
+            // nosemgrep: no-environments-api-urls-frontend -- api.hogFlows has not migrated to generated project routes.
+            '/api/environments/:team_id/hog_flows/:id/': ({ params }) => [
+                200,
+                workflowsById[String(params.id)] ?? CUSTOMER_ONBOARDING_AND_RETENTION_WORKFLOW,
+            ],
+            // nosemgrep: no-environments-api-urls-frontend -- api.messaging has not migrated to generated project routes.
+            '/api/environments/:team_id/messaging_categories': { count: 0, results: [] },
         },
-    },
-})
+        patch: {
+            // nosemgrep: no-environments-api-urls-frontend -- api.hogFlows has not migrated to generated project routes.
+            '/api/environments/:team_id/hog_flows/:id/': async ({ request, params }) => [
+                200,
+                {
+                    ...(workflowsById[String(params.id)] ?? CUSTOMER_ONBOARDING_AND_RETENTION_WORKFLOW),
+                    ...((await request.json()) as Partial<HogFlow>),
+                    updated_at: '2026-09-04T12:01:00.000Z',
+                },
+            ],
+        },
+        post: {
+            // nosemgrep: no-environments-api-urls-frontend -- api.hogFlows has not migrated to generated project routes.
+            '/api/environments/:team_id/hog_flows/': async ({ request }) => [
+                201,
+                {
+                    ...NEW_WORKFLOW,
+                    ...((await request.json()) as Partial<HogFlow>),
+                    id: 'storybook-new-workflow',
+                    team_id: 1,
+                    created_at: '2026-09-04T12:01:00.000Z',
+                    updated_at: '2026-09-04T12:01:00.000Z',
+                },
+            ],
+            // nosemgrep: no-environments-api-urls-frontend -- api.hogFlows has not migrated to generated project routes.
+            '/api/environments/:team_id/hog_flows/user_blast_radius/': {
+                affected: 240,
+                total: 1200,
+                limit: 100000,
+                dedupe_key: null,
+                confirm_token: 'storybook-confirm-token',
+            },
+        },
+    })
+}
+
+export const workflowEditorStoryDecorator = createWorkflowEditorStoryDecorator()

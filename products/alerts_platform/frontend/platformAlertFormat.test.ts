@@ -31,6 +31,8 @@ function makeConfiguration(overrides: Partial<PlatformAlertConfigurationApi> = {
         grouping: { mode: 'single', keys: [], max_instances: 100, on_overflow: 'degrade_visible' },
         snooze_until: null,
         check_status: 'ok',
+        overflowed_groups: 0,
+        overflow_is_lower_bound: false,
         owner: 'source',
         created_at: '2026-10-01T00:00:00Z',
         updated_at: '2026-10-01T00:00:00Z',
@@ -47,6 +49,7 @@ function makeAlert(state: PlatformAlertStateApi): PlatformAlertApi {
         firing_started_at: null,
         last_notified_at: null,
         snooze_until: null,
+        labels: {},
     }
 }
 

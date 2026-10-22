@@ -99,11 +99,6 @@ capabilities:
         requires: [core_infra]
         docker_profiles: []
 
-    ai_capture:
-        description: 'AI event capture service'
-        requires: [event_ingestion, llm_gateway, personhog]
-        docker_profiles: []
-
     embedding_service:
         description: 'Vector embedding worker for AI features'
         requires: [core_infra]
@@ -304,7 +299,6 @@ intents:
         capabilities:
             [
                 event_ingestion,
-                ai_capture,
                 llm_gateway,
                 embedding_service,
                 property_definitions,

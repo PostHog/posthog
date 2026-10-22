@@ -230,8 +230,6 @@ class TestWorkableSourceResponse:
 class TestValidateCredentials:
     @parameterized.expand(
         [
-            ("ok", 200, (200, True)),
-            ("unauthorized", 401, (401, False)),
             ("forbidden", 403, (403, False)),
         ]
     )

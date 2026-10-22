@@ -143,7 +143,7 @@ class SerpstatSource(ResumableSource[SerpstatSourceConfig, SerpstatResumeConfig]
             label="Serpstat",
             iconPath="/static/services/serpstat.png",
             docsUrl="https://posthog.com/docs/cdp/sources/serpstat",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption=(
                 "Create an API token on your [Serpstat profile](https://serpstat.com/users/profile/). "
                 "API access requires the Team plan or higher. "

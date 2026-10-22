@@ -49,8 +49,8 @@ const PATHS_WITHOUT_PROJECT_ID = new Set([
 ])
 // Instance-level pages living under a product's own prefix, so a first-segment check misses them.
 // Mirrors `exactPathsWithoutProjectId` in the same file, including its nested-path rule — that is
-// what keeps the cohorts staff tools at /feature_flags/staff/cohorts out of the project prefix.
-const EXACT_PATHS_WITHOUT_PROJECT_ID = ['/feature_flags/staff', '/experiments/staff']
+// what keeps the cohorts staff tools at /feature-flags/staff/cohorts out of the project prefix.
+const EXACT_PATHS_WITHOUT_PROJECT_ID = ['/feature-flags/staff', '/experiments/staff']
 const isProjectScoped = (template) =>
     !EXACT_PATHS_WITHOUT_PROJECT_ID.some((exact) => template === exact || template.startsWith(`${exact}/`)) &&
     !PATHS_WITHOUT_PROJECT_ID.has(template.split('/')[1] ?? '')

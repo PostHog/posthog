@@ -85,7 +85,7 @@ class YouSignSource(
             name=ExternalDataSourceType.YOUSIGN,
             category=DataWarehouseSourceCategory.SALES,
             label="Yousign",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Sync signature requests, signers, documents, contacts, and more from Yousign into the PostHog Data warehouse.
 
 Create an API key in the Yousign app under **Integrations → API keys**. Keys are environment-scoped, so pick the environment that matches your key — a sandbox key cannot access production data. A read-only, organization-scoped key is enough for syncing; managing webhooks automatically additionally requires a full-access key.""",

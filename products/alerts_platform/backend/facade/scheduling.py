@@ -412,6 +412,14 @@ def to_recurrence_interval(recurrence_unit: str) -> CalendarInterval:
         raise ValueError(f"Unhandled recurrence unit: {recurrence_unit!r}") from None
 
 
+# The minute cadences `next_calendar_check_time` also schedules, so a keyed configuration on one of
+# them can follow the source's own stack.
+_KEYED_MINUTE_CADENCES: Final[dict[int, CalendarInterval]] = {
+    EVERY_15_MINUTES_CADENCE_MINUTES: CalendarInterval.EVERY_15_MINUTES,
+    60: CalendarInterval.HOURLY,
+}
+
+
 def advance_schedule(
     *,
     current_next_check_at: datetime | None,
@@ -422,6 +430,8 @@ def advance_schedule(
     now: datetime,
     configuration_id: UUID | str,
     shard_offset_seconds: int = 0,
+    schedule_key: UUID | str | None = None,
+    blocked_windows: list[BlockedWindow] | None = None,
 ) -> datetime:
     """When a configuration is next due, by whichever recurrence it carries.
 
@@ -433,22 +443,80 @@ def advance_schedule(
     due in the same minute slot. Spreading those would move a time the user chose. A calendar
     unit without an anchor has no chosen time, so `next_calendar_check_time` spreads it after the
     interval boundary by `configuration_id`, as it does for an insight alert.
+
+    `schedule_key` names the alert the source's own stack times this one by. With it, a 15-minute
+    or hourly cadence follows that stack's local interval boundary and offset rather than the UTC
+    grid and shard, a calendar unit spreads by the key rather than by `configuration_id`, and a
+    check that would land in `blocked_windows` moves out of it the way that stack moves it. Without
+    a key, quiet hours never move the schedule: the check runs and only its announcement is held.
     """
     if recurrence_unit is None:
+        keyed_interval = _KEYED_MINUTE_CADENCES.get(check_interval_minutes)
+        if schedule_key is not None and keyed_interval is not None:
+            candidate = next_calendar_check_time(
+                keyed_interval,
+                now=now,
+                tz_name=tz_name,
+                next_check_at=current_next_check_at,
+                alert_id=schedule_key,
+                schedule_start_time=anchor_time,
+            )
+            return snap_out_of_blocked_windows(
+                candidate,
+                tz_name,
+                blocked_windows,
+                interval=keyed_interval,
+                alert_id=schedule_key,
+                anchored=anchor_time is not None,
+            )
         return advance_next_check_at(
             current_next_check_at,
             check_interval_minutes,
             now,
             shard_offset_seconds=shard_offset_seconds,
         )
-    return next_calendar_check_time(
-        to_recurrence_interval(recurrence_unit),
+    interval = to_recurrence_interval(recurrence_unit)
+    candidate = next_calendar_check_time(
+        interval,
         now=now,
         tz_name=tz_name,
         next_check_at=current_next_check_at,
-        alert_id=configuration_id,
+        alert_id=schedule_key if schedule_key is not None else configuration_id,
         schedule_start_time=anchor_time,
     )
+    if schedule_key is None:
+        return candidate
+    return snap_out_of_blocked_windows(
+        candidate, tz_name, blocked_windows, interval=interval, alert_id=schedule_key, anchored=anchor_time is not None
+    )
+
+
+def snap_out_of_blocked_windows(
+    candidate_utc: datetime,
+    tz_name: str,
+    windows: list[BlockedWindow] | None,
+    *,
+    interval: CalendarInterval,
+    alert_id: UUID | str,
+    anchored: bool,
+) -> datetime:
+    """The first unblocked minute at or after `candidate_utc`, the way an insight alert's check moves.
+
+    A snap lands on the end of a quiet window, which is usually on the hour, so every alert behind
+    the same window would check at once. An alert without a chosen start time adds its offset to
+    spread them again, unless the offset lands back in a window.
+    """
+    if not windows:
+        return candidate_utc
+    normalized = candidate_utc.astimezone(UTC).replace(second=0, microsecond=0)
+    snapped = scan_next_unblocked_utc(normalized, tz_name, windows)
+    if snapped is None:
+        # Every minute in the scan is blocked. Try again a day later rather than never.
+        return normalized + timedelta(days=1)
+    if snapped == normalized or anchored:
+        return snapped
+    offset_snap = snapped + alert_check_offset(interval, alert_id)
+    return snapped if is_utc_datetime_blocked(offset_snap, tz_name, windows) else offset_snap
 
 
 # --- Quiet hours (blocked local time windows) ---

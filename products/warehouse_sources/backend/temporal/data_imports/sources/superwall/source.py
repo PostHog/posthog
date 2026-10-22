@@ -145,7 +145,7 @@ class SuperwallSource(ResumableSource[SuperwallSourceConfig, SuperwallResumeConf
             ),
             docsUrl="https://posthog.com/docs/cdp/sources/superwall",
             iconPath="/static/services/superwall.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

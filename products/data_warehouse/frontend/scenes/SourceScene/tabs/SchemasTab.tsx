@@ -920,7 +920,7 @@ function SchemaBulkActions({
                                 LemonDialog.open({
                                     title: `Delete ${pluralize(count, 'table', 'tables')} from PostHog?`,
                                     description:
-                                        'Removes the synced tables from PostHog. The data in the source is not touched.',
+                                        'Removes the synced tables from PostHog and turns off syncing for them. The data in the source is not touched.',
                                     primaryButton: {
                                         children: 'Delete from PostHog',
                                         status: 'danger',
@@ -1091,9 +1091,11 @@ function SchemaRowMore({
                                         onClick={() => {
                                             LemonDialog.open({
                                                 title: `Delete ${schema.table?.name ?? schema.name} from PostHog?`,
-                                                description: source?.source_type
-                                                    ? `The data in ${source.source_type} will not be touched.`
-                                                    : undefined,
+                                                description: `This also turns off syncing for the table.${
+                                                    source?.source_type
+                                                        ? ` The data in ${source.source_type} will not be touched.`
+                                                        : ''
+                                                }`,
                                                 primaryButton: {
                                                     children: 'Delete',
                                                     status: 'danger',

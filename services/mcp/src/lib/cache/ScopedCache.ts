@@ -1,8 +1,9 @@
 export abstract class ScopedCache<T extends Record<string, any>> {
-    constructor(protected scope: string) {}
+    constructor(readonly scope: string) {}
 
     abstract get<K extends keyof T>(key: K): Promise<T[K] | undefined>
     abstract set<K extends keyof T>(key: K, value: T[K]): Promise<void>
+    abstract setIfAbsent<K extends keyof T>(key: K, value: T[K]): Promise<boolean>
     abstract delete<K extends keyof T>(key: K): Promise<void>
     abstract clear(): Promise<void>
 

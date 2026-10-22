@@ -44,6 +44,7 @@ def _context(
     is_running: bool = True,
     variants: list[dict[str, Any]] = EVEN,
     not_checked: FlagHistoryNotCheckedReason | None = None,
+    exposed_units: int | None = None,
 ) -> HealthContext:
     bucketing = [
         BucketingChange(
@@ -64,6 +65,7 @@ def _context(
             exposed_before_first=exposed_before_first,
             exposed_between={ExperimentHealthFlagChangeKind.BUCKETING: exposed_between},
             not_checked=not_checked,
+            exposed_units_before_last={ExperimentHealthFlagChangeKind.BUCKETING: exposed_units},
         ),
     )
 
@@ -79,6 +81,34 @@ class TestBucketingChangedMidRun(TestCase):
                 'variant draw, so every user got a new one. Exposures under "old-key" are no longer in the results, '
                 'and code that still uses "old-key" no longer gets this flag. Reset the experiment, or move its start '
                 f"date to {FIRST_CHANGE}.",
+            ),
+            (
+                "key_changed_before_4_people",
+                _context((KEY, "old-key", "new-key"), exposed_units=4),
+                ("key_changed", ExperimentHealthFindingSeverity.INFO, "The flag key changed after launch"),
+                f'The flag key changed from "old-key" to "new-key" on {FIRST_CHANGE}. The change came 3 hours after '
+                f"launch, when 4 people had been exposed. Move the start date to {FIRST_CHANGE} so the results count only exposures after it. "
+                'Code that still uses "old-key" no longer gets this flag.',
+            ),
+            (
+                "key_changed_before_5_people",
+                _context((KEY, "old-key", "new-key"), exposed_units=5),
+                ("key_changed", ExperimentHealthFindingSeverity.WARNING, "The flag key changed after launch"),
+                f'The flag key changed from "old-key" to "new-key" on {FIRST_CHANGE}. The key is an input of the '
+                'variant draw, so every user got a new one. Exposures under "old-key" are no longer in the results, '
+                'and code that still uses "old-key" no longer gets this flag. Reset the experiment, or move its start '
+                f"date to {FIRST_CHANGE}.",
+            ),
+            (
+                "aggregation_changed_before_4_people",
+                _context((AGGREGATION, None, 0), exposed_units=4),
+                (
+                    "aggregation_changed",
+                    ExperimentHealthFindingSeverity.INFO,
+                    "The flag's variant assignment changed after launch",
+                ),
+                f"The flag changed from matching by users to matching by groups on {FIRST_CHANGE}. The change came 3 "
+                f"hours after launch, when 4 people had been exposed. Move the start date to {FIRST_CHANGE} so the results count only exposures after it.",
             ),
             (
                 "bucketing_identifier_changed_days_after_launch",
@@ -142,6 +172,23 @@ class TestBucketingChangedMidRun(TestCase):
                 f'The flag\'s "Match by" setting changed on {FIRST_CHANGE} and was set back on {SECOND_CHANGE}. '
                 "People exposed in between got a new variant draw, so they may have switched variants. Move the "
                 f"start date to {SECOND_CHANGE}, or reset the experiment.",
+            ),
+            (
+                "set_back_before_4_people",
+                _context(
+                    (IDENTIFIER, "distinct_id", "device_id"),
+                    (IDENTIFIER, "device_id", "distinct_id"),
+                    exposed_between=True,
+                    exposed_units=4,
+                ),
+                (
+                    "reverted",
+                    ExperimentHealthFindingSeverity.INFO,
+                    "The flag's variant assignment changed after launch",
+                ),
+                f'The flag\'s "Match by" setting changed on {FIRST_CHANGE} and was set back on {SECOND_CHANGE}. '
+                "The last change came 3 hours after launch, when 4 people had been exposed. Move the start date to "
+                f"{SECOND_CHANGE} so the results count only exposures after it.",
             ),
             (
                 "set_back_with_nobody_in_between",

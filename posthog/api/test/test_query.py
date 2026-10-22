@@ -30,6 +30,7 @@ from posthog.schema import (
     HogQLAutocomplete,
     HogQLPropertyFilter,
     HogQLQuery,
+    HogQLQueryResponse,
     PersonPropertyFilter,
     PropertyOperator,
     QueryScanAnalysis,
@@ -53,14 +54,17 @@ from posthog.errors import InternalCHQueryError
 from posthog.event_usage import EventSource
 from posthog.exceptions import APIQueriesBudgetExceeded, ClickHouseQueryTimeOut
 from posthog.llm.completions import OpenAICompletion
-from posthog.models import PersonalAPIKey
+from posthog.models import OrganizationMembership, PersonalAPIKey
 from posthog.models.utils import UUIDT, generate_random_token_personal, hash_key_value
 from posthog.query_scan.findings import FindingCause, build_warning
 from posthog.query_scan.flag import QueryScanFlag, QueryScanMode
 from posthog.query_scan.test.slots import stored_slot
 
 from products.event_definitions.backend.models.property_definition import PropertyDefinition, PropertyType
-from products.managed_warehouse.backend.facade.query_labels import MANAGED_WAREHOUSE_QUERY_STATUS_LABEL_PREFIX
+from products.managed_warehouse.backend.facade.query_labels import (
+    MANAGED_TRINO_RAW_QUERY_STATUS_LABEL,
+    MANAGED_WAREHOUSE_QUERY_STATUS_LABEL_PREFIX,
+)
 from products.product_analytics.backend.facade.models import InsightVariable
 from products.warehouse_sources.backend.facade.models import MANAGED_WAREHOUSE_SOURCE_PREFIX, ExternalDataSource
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
@@ -1319,6 +1323,59 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         assert response.results[0][0] == variable_override_value
 
 
+class TestManagedTrinoRawQuery(APIBaseTest):
+    @parameterized.expand(
+        [
+            ("member", OrganizationMembership.Level.MEMBER, False, 200),
+            ("admin", OrganizationMembership.Level.ADMIN, False, 200),
+            ("owner", OrganizationMembership.Level.OWNER, False, 200),
+            ("restricted_api_key", OrganizationMembership.Level.ADMIN, True, 400),
+        ]
+    )
+    def test_raw_trino_execution_requires_a_project_browser_session(
+        self, _name: str, membership_level: int, token: bool, expected_status: int
+    ) -> None:
+        self.organization_membership.level = membership_level
+        self.organization_membership.save()
+        headers = {}
+        if token:
+            value = generate_random_token_personal()
+            PersonalAPIKey.objects.create(
+                label="project-restricted query",
+                user=self.user,
+                secure_value=hash_key_value(value),
+                scopes=["query:read"],
+                scoped_teams=[self.team.pk],
+            )
+            headers["Authorization"] = f"Bearer {value}"
+        with (
+            patch("posthoganalytics.feature_enabled", return_value=True),
+            patch(
+                "posthog.hogql_queries.hogql_query_runner.execute_managed_trino_query",
+                return_value=HogQLQueryResponse(results=[[1]], columns=["value"], types=[["value", "Int64"]]),
+            ) as execute,
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.pk}/query/",
+                {
+                    "query": {
+                        "kind": "HogQLQuery",
+                        "query": "SELECT 1",
+                        "executionTarget": "managed_trino",
+                        "sendRawQuery": True,
+                    }
+                },
+                format="json",
+                headers=headers,
+            )
+        self.assertEqual(response.status_code, expected_status, response.content)
+        if expected_status == 200:
+            self.assertEqual(response.json()["results"], [[1]])
+        else:
+            self.assertIn("browser session", response.json()["detail"])
+            execute.assert_not_called()
+
+
 class TestQueryRetrieve(APIBaseTest):
     def setUp(self):
         super().setUp()
@@ -1432,6 +1489,49 @@ class TestQueryRetrieve(APIBaseTest):
             self.assertEqual(response.json()["code"], MANAGED_WAREHOUSE_QUERY_UNAVAILABLE_CODE)
             self.assertNotIn(self.valid_query_id, response.json()["detail"])
             self.assertNotIn(str(self.team_id), response.json()["detail"])
+
+    @parameterized.expand(
+        [
+            ("member", OrganizationMembership.Level.MEMBER, False, 200),
+            ("admin", OrganizationMembership.Level.ADMIN, False, 200),
+            ("restricted_api_key", OrganizationMembership.Level.ADMIN, True, 403),
+        ]
+    )
+    def test_raw_trino_results_require_current_project_access_and_browser_session(
+        self, _name: str, membership_level: int, token: bool, expected_status: int
+    ) -> None:
+        self.organization_membership.level = membership_level
+        self.organization_membership.save()
+        self.redis_client_mock.get.return_value = json.dumps(
+            {
+                "id": self.valid_query_id,
+                "team_id": self.team_id,
+                "complete": True,
+                "labels": [MANAGED_TRINO_RAW_QUERY_STATUS_LABEL],
+                "results": ["warehouse result"],
+            }
+        ).encode()
+        headers = {}
+        if token:
+            value = generate_random_token_personal()
+            PersonalAPIKey.objects.create(
+                label="project-restricted query results",
+                user=self.user,
+                secure_value=hash_key_value(value),
+                scopes=["query:read"],
+                scoped_teams=[self.team.pk],
+            )
+            headers["Authorization"] = f"Bearer {value}"
+        response = self.client.get(f"/api/projects/{self.team.pk}/query/{self.valid_query_id}/", headers=headers)
+        self.assertEqual(response.status_code, expected_status, response.content)
+        if expected_status == 200:
+            self.assertEqual(response.json()["query_status"]["results"], ["warehouse result"])
+            self.organization_membership.delete()
+            response = self.client.get(f"/api/projects/{self.team.pk}/query/{self.valid_query_id}/")
+            self.assertEqual(response.status_code, 403, response.content)
+            self.assertNotIn("warehouse result", response.content.decode())
+        else:
+            self.assertNotIn("warehouse result", response.content.decode())
 
     def test_failed_query_with_internal_error(self):
         self.redis_client_mock.get.return_value = json.dumps(

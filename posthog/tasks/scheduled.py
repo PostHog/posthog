@@ -122,6 +122,7 @@ from products.signals.backend.tasks import (
     prune_expired_scratchpad_entries_task,
     refresh_signal_repository_activity,
     refresh_signal_scout_background_bands,
+    sweep_first_report_notifications,
     sweep_implementation_dispatches,
     sync_pending_signals_refund_credits,
 )
@@ -436,6 +437,14 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(minute="*/5"),
         sweep_implementation_dispatches.s(),
         name="recover pending signals implementation starts",
+        expires_seconds=5 * 60,
+    )
+
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*/5"),
+        sweep_first_report_notifications.s(),
+        name="send first self-driving report emails",
         expires_seconds=5 * 60,
     )
 
@@ -988,7 +997,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
             name="delete expired delegation invites",
         )
 
-        from ee.tasks.scim_request_log_cleanup import cleanup_old_scim_request_logs
+        from posthog.tasks.scim_request_log_cleanup import cleanup_old_scim_request_logs
 
         add_periodic_task_with_expiry(
             sender,

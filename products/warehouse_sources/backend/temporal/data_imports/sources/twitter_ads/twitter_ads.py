@@ -4,14 +4,13 @@ from typing import Any
 from urllib.parse import quote
 from zoneinfo import ZoneInfo
 
-from django.conf import settings
-
 import requests
 from requests_oauthlib import OAuth1
 
 from posthog.dataclasses import frozen
 from posthog.models.integration.model import Integration
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common import credentials_service
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -21,10 +20,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.twitter_ad
     MAX_STATS_BACKFILL_DAYS,
     MISSING_APP,
     MISSING_INTEGRATION,
+    PAGE_SIZES,
     PARTITION_KEYS,
     PLACEMENTS,
     PRIMARY_KEYS,
     STATS_TABLES,
+    UNSORTABLE_TABLES,
 )
 
 
@@ -93,14 +94,13 @@ class TwitterAdsClient:
         secret = integration.sensitive_config.get("oauth_token_secret")
         if not token or not secret:
             raise ValueError(MISSING_INTEGRATION)
-        if not settings.TWITTER_ADS_CONSUMER_KEY or not settings.TWITTER_ADS_CONSUMER_SECRET:
+        consumer = credentials_service.get_secrets(["TWITTER_ADS_CONSUMER_KEY", "TWITTER_ADS_CONSUMER_SECRET"])
+        consumer_key = consumer["TWITTER_ADS_CONSUMER_KEY"]
+        consumer_secret = consumer["TWITTER_ADS_CONSUMER_SECRET"]
+        if not consumer_key or not consumer_secret:
             raise ValueError(MISSING_APP)
-        self.session = make_tracked_session(
-            allow_redirects=False, redact_values=(token, secret, settings.TWITTER_ADS_CONSUMER_SECRET)
-        )
-        self.session.auth = OAuth1(
-            settings.TWITTER_ADS_CONSUMER_KEY, settings.TWITTER_ADS_CONSUMER_SECRET, token, secret
-        )
+        self.session = make_tracked_session(allow_redirects=False, redact_values=(token, secret, consumer_secret))
+        self.session.auth = OAuth1(consumer_key, consumer_secret, token, secret)
         self.base_url = f"https://ads-api.x.com/{api_version}"
 
     def get(self, path: str, params: dict[str, str | int] | None = None) -> dict[str, Any]:
@@ -118,9 +118,10 @@ class TwitterAdsClient:
         return response.json()
 
     def pages(self, path: str, cursor: str | None = None) -> Iterator[dict[str, Any]]:
+        table = path.rsplit("/", 1)[-1]
         while True:
-            params: dict[str, str | int] = {"count": 1000, "with_deleted": "true"}
-            if path.rsplit("/", 1)[-1] != "media_creatives":
+            params: dict[str, str | int] = {"count": PAGE_SIZES.get(table, 1000), "with_deleted": "true"}
+            if table not in UNSORTABLE_TABLES:
                 params["sort_by"] = "created_at-asc"
             if cursor:
                 params["cursor"] = cursor

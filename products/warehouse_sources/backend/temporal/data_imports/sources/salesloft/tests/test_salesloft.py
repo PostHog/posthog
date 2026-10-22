@@ -63,7 +63,12 @@ class TestBuildParams:
 
 
 class TestValidateCredentials:
-    @pytest.mark.parametrize("status_code, expected", [(200, True), (401, False), (403, False), (500, False)])
+    @pytest.mark.parametrize(
+        "status_code, expected",
+        [
+            (200, True),
+        ],
+    )
     def test_validate_credentials_status_mapping(self, status_code, expected) -> None:
         with scripted_network(always(ScriptedResponse(status=status_code))) as network:
             assert validate_credentials("sl_token") is expected

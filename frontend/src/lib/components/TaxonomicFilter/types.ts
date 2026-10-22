@@ -145,8 +145,9 @@ export interface TaxonomicFilterProps {
     excludedProperties?: ExcludedProperties
     /**
      * Keep offering events whose data is moving out of the `events` table. Set it where the surface
-     * still needs such an event: it reads live capture, or it measures experiment exposure. Leave it
-     * unset everywhere else, so a picker stops saving queries that return nothing once the data moves.
+     * still needs such an event: it reads live capture, it matches events as they arrive (destinations
+     * and workflows), or it measures experiment exposure. Leave it unset everywhere else, so a picker
+     * stops saving queries that return nothing once the data moves.
      */
     includeHiddenEvents?: boolean
     /** use to indicate if a result in a group is selected */

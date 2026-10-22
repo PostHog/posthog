@@ -178,6 +178,73 @@ _TRINO_DATE_PARSE_SPECIFIERS = frozenset(
 )
 
 
+_TRINO_REGEX_PATTERN_ARGUMENTS = {
+    "countmatches": 1,
+    "countmatchescaseinsensitive": 1,
+    "extract": 1,
+    "extractall": 1,
+    "extractallgroups": 1,
+    "extractallgroupshorizontal": 1,
+    "extractallgroupsvertical": 1,
+    "extractgroups": 1,
+    "match": 1,
+    "regexpextract": 1,
+    "replaceregexpall": 1,
+    "replaceregexpone": 1,
+    "splitbyregexp": 0,
+}
+
+
+_POSIX_CLASS_PATTERN = re.compile(r"\[:\^?[a-z]+:\]")
+
+
+def _escape_regex_class_brackets(pattern: str) -> str:
+    """Keep RE2 bracket-expression meaning under Trino's Joni engine.
+
+    RE2 reads `[` inside a class, and `]` as its first member, as literal characters.
+    Joni reads the first as a nested class and the second as an empty class, so both get escaped.
+    """
+    result: list[str] = []
+    index = 0
+    in_class = False
+    while index < len(pattern):
+        char = pattern[index]
+        if char == "\\":
+            if pattern.startswith("\\Q", index):
+                quote_end = pattern.find("\\E", index + 2)
+                end = len(pattern) if quote_end == -1 else quote_end + 2
+                result.append(pattern[index:end])
+                index = end
+                continue
+            result.append(pattern[index : index + 2])
+            index += 2
+            continue
+        if not in_class:
+            result.append(char)
+            index += 1
+            if char == "[":
+                in_class = True
+                if pattern.startswith("^", index):
+                    result.append("^")
+                    index += 1
+                if pattern.startswith("]", index):
+                    result.append("\\]")
+                    index += 1
+            continue
+        posix_class = _POSIX_CLASS_PATTERN.match(pattern, index)
+        if posix_class:
+            result.append(posix_class.group())
+            index = posix_class.end()
+            continue
+        if char == "[":
+            result.append("\\[")
+        else:
+            result.append(char)
+            in_class = char != "]"
+        index += 1
+    return "".join(result)
+
+
 @frozen
 class _BinaryArguments:
     left: str
@@ -372,6 +439,14 @@ class TrinoPrinter(PostgresPrinter):
 
     def visit_call(self, node: ast.Call) -> str:
         name = node.name.lower()
+        pattern_index = _TRINO_REGEX_PATTERN_ARGUMENTS.get(name)
+        if pattern_index is not None and pattern_index < len(node.args):
+            pattern = node.args[pattern_index]
+            if isinstance(pattern, ast.Constant) and isinstance(pattern.value, str):
+                escaped = _escape_regex_class_brackets(pattern.value)
+                if escaped != pattern.value:
+                    node = clone_expr(node, clear_types=False)
+                    node.args[pattern_index] = ast.Constant(value=escaped, type=pattern.type)
         if name in TRINO_WINDOW_ONLY_FUNCTIONS:
             self._invalid_function_arguments(node, f"{node.name} requires an OVER clause in Trino mode.")
         if name in TRINO_AGGREGATE_COMBINATORS:
@@ -793,6 +868,25 @@ class TrinoPrinter(PostgresPrinter):
                 return f"CAST(date_diff('day', DATE '1970-01-01', {self.visit(arg)}) AS DOUBLE)"
             if isinstance(arg_type, ast.DateTimeType):
                 return f"to_unixtime({self.visit(arg)})"
+            # HogQL defines toFloat as accurateCastOrNull, so unparsable input becomes NULL instead of an error.
+            if name == "tofloat" and len(node.args) == 1 and isinstance(arg_type, ast.StringType):
+                return f"TRY_CAST({self.visit(arg)} AS DOUBLE)"
+        if (
+            name == "todate"
+            and len(node.args) == 1
+            and isinstance(self._resolve_type(node.args[0]), ast.StringType)
+            and not (
+                isinstance(node.args[0], ast.Constant)
+                and isinstance(node.args[0].value, str)
+                and re.fullmatch(r"\d{4}-\d{2}-\d{2}", node.args[0].value)
+            )
+        ):
+            # HogQL defines toDate on a string as toDateOrNull, which also accepts a full timestamp.
+            value = self.visit(node.args[0])
+            return (
+                f"coalesce(TRY(date({value})), TRY(date(CAST({value} AS TIMESTAMP(12)))), "
+                f"TRY(date(from_iso8601_timestamp({value}))))"
+            )
         if (
             re.fullmatch(r"(?:add|subtract)(?:Seconds|Minutes|Hours|Days|Weeks|Months|Quarters|Years)", node.name)
             and node.args
@@ -867,7 +961,7 @@ class TrinoPrinter(PostgresPrinter):
             )
         if name == "sum" and len(node.args) == 1 and self._is_dynamic_property(node.args[0]):
             lowered = clone_expr(node)
-            lowered.args = [ast.Call(name="toFloat", args=[lowered.args[0]])]
+            lowered.args = [ast.TypeCast(expr=lowered.args[0], type_name="double")]
             return super().visit_call(lowered)
         if name in {
             "jsonextract",
@@ -1308,6 +1402,10 @@ class TrinoPrinter(PostgresPrinter):
                     if column_type is not None:
                         value_type = column_type
                         continue
+                if isinstance(table_type, ast.ColumnAliasedTableType):
+                    unnest_type = self._unnest_column_type(table_type, value_type.name)
+                    if unnest_type is not None:
+                        return unnest_type
             break
         if isinstance(value_type, ast.CallType) and value_type.name.lower() == "jsonextractarrayraw":
             return ast.ArrayType(item_type=ast.StringType())
@@ -1315,6 +1413,32 @@ class TrinoPrinter(PostgresPrinter):
         if isinstance(resolved, ast.StringArrayType):
             return ast.ArrayType(item_type=ast.StringType(), nullable=resolved.nullable)
         return resolved
+
+    def _unnest_column_type(self, table_type: ast.ColumnAliasedTableType, column: str) -> ast.ConstantType | None:
+        # UNNEST output columns are untyped in the schema; their type is the matching row field of the unnested array.
+        if not isinstance(table_type.table_type, ast.TableType) or not isinstance(
+            table_type.table_type.table, TrinoUnnestTable
+        ):
+            return None
+        for scope in reversed(self.stack):
+            if not isinstance(scope, ast.SelectQuery):
+                continue
+            join = scope.select_from
+            while join is not None:
+                if join.alias == table_type.alias and join.table_args and join.column_aliases:
+                    if column not in join.column_aliases:
+                        return None
+                    rows = self._resolve_type(join.table_args[0])
+                    index = join.column_aliases.index(column)
+                    if (
+                        isinstance(rows, ast.ArrayType)
+                        and isinstance(rows.item_type, ast.TupleType)
+                        and index < len(rows.item_type.item_types)
+                    ):
+                        return rows.item_type.item_types[index]
+                    return None
+                join = join.next_join
+        return None
 
     def _subquery_scalar_type(self, node: ast.SelectQuery | ast.SelectSetQuery) -> ast.ConstantType | None:
         query = node

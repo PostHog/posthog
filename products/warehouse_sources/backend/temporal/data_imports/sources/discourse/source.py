@@ -90,7 +90,7 @@ class DiscourseSource(ResumableSource[DiscourseSourceConfig, DiscourseResumeConf
             name=ExternalDataSourceType.DISCOURSE,
             category=DataWarehouseSourceCategory.COMMUNICATION,
             label="Discourse",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["forum", "community"],
             caption="""Connect your Discourse community forum to sync categories, topics, posts, tags, groups, group members, badges, and user activity into the PostHog Data warehouse.
 

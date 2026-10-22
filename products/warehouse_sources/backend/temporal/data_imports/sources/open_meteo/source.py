@@ -70,7 +70,7 @@ class OpenMeteoSource(ResumableSource[OpenMeteoSourceConfig, OpenMeteoResumeConf
             name=ExternalDataSourceType.OPENMETEO,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="Open-Meteo",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             keywords=["weather", "forecast", "climate", "air quality"],
             caption=CAPTION,
             iconPath="/static/services/open_meteo.png",

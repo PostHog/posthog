@@ -10,13 +10,11 @@ To run:
 
 from __future__ import annotations
 
-from uuid import UUID
-
 from products.posthog_ai.eval_harness.base import SandboxedPublicEval
 from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
-from products.posthog_ai.eval_harness.offline_results import OfflineEvalSuite
 from products.posthog_ai.eval_harness.scorers import AnswerToolCallNot, NoToolCall
+from products.posthog_ai.evals.offline_config import offline_suite
 from products.posthog_ai.evals.product_analytics.scorers import INSIGHT_WRITE_TOOLS
 from products.posthog_ai.evals.retrieval.scorers import SkillLoaded
 from products.posthog_ai.evals.sql.scorers import AnswerQueryRan, SQLResultMessageAlignment, SQLSchemaAlignment
@@ -375,27 +373,16 @@ WHERE properties.interests IS NOT NULL
 
     await SandboxedPublicEval(
         experiment_name="sandboxed-sql-cli",
-        offline_suite=OfflineEvalSuite(
-            key="sql/eval_sql::eval_sql",
-            project_id=2,
-            scorer_kinds={
-                "exit_code_zero": "boolean",
-                "no_persistent_insight_save": "boolean",
-                "execute_sql_called": "boolean",
-                "answer_tool_not_typed_query": "boolean",
-                "querying_posthog_data_skill_loaded": "boolean",
-                "sql_schema_alignment": "numeric",
-                "sql_result_message_alignment": "numeric",
-            },
-            scorer_versions={
-                "exit_code_zero": UUID("01a11724-d52d-704a-af08-2ceaf5c65a6d"),
-                "no_persistent_insight_save": UUID("01a11725-17f6-7673-93e9-4d525fa121ab"),
-                "execute_sql_called": UUID("01a11725-20aa-78c3-af96-1aae34bca429"),
-                "answer_tool_not_typed_query": UUID("01a11725-3002-7a3f-b9b5-3426bdec5f00"),
-                "querying_posthog_data_skill_loaded": UUID("01a11725-54c1-71e0-b606-132d5f4cb339"),
-                "sql_schema_alignment": UUID("01a11725-5da7-7dae-ab09-1c0beaa77224"),
-                "sql_result_message_alignment": UUID("01a11725-6940-7f49-b979-11b3d6521393"),
-            },
+        offline_suite=offline_suite(
+            "sql/eval_sql::eval_sql",
+            metrics=[
+                "no_persistent_insight_save",
+                "execute_sql_called",
+                "answer_tool_not_typed_query",
+                "querying_posthog_data_skill_loaded",
+                "sql_schema_alignment",
+                "sql_result_message_alignment",
+            ],
         ),
         cases=cases,
         scorers=[

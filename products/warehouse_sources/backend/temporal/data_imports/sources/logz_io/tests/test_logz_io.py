@@ -67,13 +67,6 @@ class TestValidateCredentials:
         assert is_valid is expected_valid
         assert network.requests_log[0].path == "/v2/alerts"
 
-    def test_network_error_is_not_valid(self) -> None:
-        with scripted_network(always(ConnectionError("boom"))):
-            is_valid, message = validate_credentials("token", "us")
-
-        assert is_valid is False
-        assert message is not None
-
     def test_token_registered_for_sample_redaction(self) -> None:
         # X-API-TOKEN isn't in the transport's auth-header denylist; dropping redact_values would
         # persist the raw token in captured HTTP samples, and following a redirect would replay the

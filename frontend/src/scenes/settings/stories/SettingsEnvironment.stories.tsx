@@ -329,7 +329,6 @@ export const SettingsEnvironmentAiSubscriptionsCodexConnectModal: Story = {
 
 export const SettingsEnvironmentAgentInstructions: Story = {
     args: { sectionId: 'environment-task-agent-instructions' },
-    parameters: { featureFlags: [...STORYBOOK_FEATURE_FLAGS, FEATURE_FLAGS.INBOX_REDESIGN] },
     decorators: [
         mswDecorator({
             get: {

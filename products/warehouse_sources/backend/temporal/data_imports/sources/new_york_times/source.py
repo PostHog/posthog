@@ -51,7 +51,7 @@ class NewYorkTimesSource(ResumableSource[NewYorkTimesSourceConfig, NewYorkTimesR
             name=ExternalDataSourceType.NEWYORKTIMES,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="New York Times",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption=(
                 "Enter your New York Times API key to pull New York Times content into the PostHog Data warehouse.\n\n"
                 "Create a free developer account and register an app at the "

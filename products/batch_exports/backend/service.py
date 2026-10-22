@@ -312,6 +312,38 @@ def migrate_batch_export_model(old: BatchExportModelInput | None, /) -> AnyBatch
             raise ValueError(f"Invalid model name: '{s}'")
 
 
+def get_batch_export_model(batch_export: BatchExport | BatchExportOnDemand) -> AnyBatchExportModel:
+    match batch_export.model or "events":
+        case "events":
+            schema = batch_export.schema if isinstance(batch_export, BatchExport) else None
+            if schema is not None:
+                return BatchExportEventsCustomModel(schema=schema, filters=batch_export.filters or [])
+            return BatchExportEventsModel(
+                filters=batch_export.filters or [],
+                incremental_mode=IncrementalMode(batch_export.incremental_mode),
+            )
+        case "persons":
+            return BatchExportPersonsModel()
+        case "sessions":
+            return BatchExportSessionsModel()
+        case "hogql":
+            source = batch_export.source
+            if batch_export.last_modified_by_id is None:
+                raise ValueError("HogQL model requires user_id")
+            if source is None or source.hogql_query is None:
+                raise ValueError("HogQL model requires a query")
+            return BatchExportHogQLModel(
+                query=source.hogql_query,
+                user_id=batch_export.last_modified_by_id,
+                modifiers=source.hogql_modifiers or {},
+                incremental_mode=IncrementalMode(batch_export.incremental_mode),
+                primary_key=tuple(source.primary_key or ()),
+                version_key=tuple(source.version_key or ()),
+            )
+        case name:
+            raise ValueError(f"Invalid model name: '{name}'")
+
+
 @dataclass
 class BackfillDetails:
     backfill_id: str | None
@@ -359,7 +391,7 @@ class BaseBatchExportInputs:
     is_backfill: bool = False
     is_earliest_backfill: bool = False
     backfill_details: BackfillDetails | None = None
-    batch_export_model: BatchExportModel | None = None
+    batch_export_model: BatchExportModelInput | None = None
     integration_id: int | None = None
 
     def __post_init__(self) -> None:
@@ -1121,7 +1153,7 @@ def start_file_download_batch_export(
     workflow_id: str,
     data_interval_start: dt.datetime | None,
     data_interval_end: dt.datetime | None,
-    batch_export_model: BatchExportModel,
+    batch_export_model: BatchExportModelInput,
     batch_export_run_id: UUID | None = None,
     compression: str | None = None,
     format: str = "Parquet",
@@ -1351,16 +1383,7 @@ def sync_batch_export(batch_export: BatchExport, created: bool):
                     batch_export_id=str(batch_export.id),
                     interval=str(batch_export.interval),
                     timezone=str(batch_export.timezone_info),
-                    batch_export_model=BatchExportModel(
-                        name=batch_export.model or "events",
-                        schema=batch_export.schema,
-                        filters=batch_export.filters,
-                        hogql_query=batch_export.hogql_query,
-                        user_id=batch_export.last_modified_by_id
-                        if batch_export.model == BatchExport.Model.HOGQL
-                        else None,
-                        hogql_modifiers=batch_export.hogql_modifiers,
-                    ),
+                    batch_export_model=get_batch_export_model(batch_export),
                     integration_id=batch_export.destination.integration_id,
                     **destination_config,
                 )
@@ -1576,7 +1599,7 @@ class BatchExportInsertInputs:
     include_events: list[str] | None = None
     run_id: str | None = None
     backfill_details: BackfillDetails | None = None
-    batch_export_model: BatchExportModel | None = None
+    batch_export_model: BatchExportModelInput | None = None
     # TODO: Remove after updating existing batch exports to use backfill_details
     is_backfill: bool = False
     # TODO - pass these in to all inherited classes

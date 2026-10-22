@@ -3,13 +3,12 @@ import { useValues } from 'kea'
 import { Link } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
-import { apiHostOrigin } from 'lib/utils/apiHost'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 export function TransactionalEmailApiExample({ templateId }: { templateId: string }): JSX.Element {
     const { currentTeamIdStrict } = useValues(teamLogic)
-    const snippet = `curl -X POST ${apiHostOrigin()}/api/projects/${currentTeamIdStrict}/messaging_templates/${templateId}/send/ \\
+    const snippet = `curl -X POST ${window.location.origin}/api/projects/${currentTeamIdStrict}/messaging_templates/${templateId}/send/ \\
   -H "Authorization: Bearer $POSTHOG_PROJECT_SECRET_API_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{

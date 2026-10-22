@@ -129,7 +129,7 @@ class TwelveDataSource(ResumableSource[TwelveDataSourceConfig, TwelveDataResumeC
             caption="Import market data from Twelve Data: instrument catalogs, historical prices, quotes, dividends, splits, and earnings.",
             docsUrl="https://posthog.com/docs/cdp/sources/twelve-data",
             iconPath="/static/services/twelve_data.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["stocks", "forex", "crypto", "market data", "twelvedata"],
             fields=cast(
                 list[FieldType],

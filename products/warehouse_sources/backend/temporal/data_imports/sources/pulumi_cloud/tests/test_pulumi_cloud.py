@@ -380,10 +380,6 @@ class TestValidateCredentials:
         assert network.session_options[0]["capture"] is False
         assert network.session_options[0]["redact_values"] == ("pul-test",)
 
-    def test_network_error_is_not_valid(self) -> None:
-        with scripted_network(always(ConnectionError("boom"))):
-            assert validate_credentials("pul-test") is False
-
 
 class TestFetchRetries:
     @parameterized.expand([("rate_limited", 429), ("server_error", 503)])

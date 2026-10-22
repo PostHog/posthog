@@ -16,6 +16,7 @@ import type {
     DataCatalogMetricBulkApproveApi,
     DataCatalogMetricBulkDeleteApi,
     DataCatalogMetricBulkNamesRequestApi,
+    DataCatalogMetricCreateApi,
     DataCatalogMetricRunApi,
     DataCatalogMetricRunRequestApi,
     DataCatalogMetricsListParams,
@@ -209,18 +210,18 @@ export const getDataCatalogMetricsCreateUrl = (projectId: string) => {
 }
 
 /**
- * Create a metric, or refine the one already holding this name for the team.
+ * Create a metric. When a live metric already holds the name, returns 409 unless overwrite is true, in which case the existing metric is refined with the fields sent.
  */
 export const dataCatalogMetricsCreate = async (
     projectId: string,
-    dataCatalogMetricApi: NonReadonly<DataCatalogMetricApi>,
+    dataCatalogMetricCreateApi: NonReadonly<DataCatalogMetricCreateApi>,
     options?: RequestInit
 ): Promise<DataCatalogMetricApi> => {
     return apiMutator<DataCatalogMetricApi>(getDataCatalogMetricsCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(dataCatalogMetricApi),
+        body: JSON.stringify(dataCatalogMetricCreateApi),
     })
 }
 

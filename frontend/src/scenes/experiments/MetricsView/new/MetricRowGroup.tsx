@@ -221,7 +221,6 @@ function CollapsibleBreakdownSection({
                                                                         <ChartEmptyState
                                                                             height={CELL_HEIGHT}
                                                                             experimentStarted={isLaunched(experiment)}
-                                                                            metric={metric}
                                                                             query={query}
                                                                             onRetry={onRetry}
                                                                             retryDisabledReason={
@@ -910,7 +909,6 @@ export function MetricRowGroup({
                         <ChartEmptyState
                             height={noResultHeight}
                             experimentStarted={isLaunched(experiment)}
-                            metric={metric}
                             error={error}
                             query={debugQuery}
                             onRetry={error?.retriable === true ? handleRetry : undefined}

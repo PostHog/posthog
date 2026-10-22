@@ -570,7 +570,9 @@ where
         .layer(axum::middleware::from_fn(record_concurrency_wait))
         .layer(ConcurrencyLimitLayer::new(config.max_concurrency))
         // Stamps `Instant::now()` after timeout-deadline propagation but
-        // before permit acquisition.
+        // before permit acquisition. The flags handler caps the persons DB
+        // deadline relative to this instant. That cap holds only while this
+        // layer sits directly inside `TimeoutLayer`.
         .layer(axum::middleware::from_fn(record_concurrency_enter))
         .layer(
             ServiceBuilder::new()

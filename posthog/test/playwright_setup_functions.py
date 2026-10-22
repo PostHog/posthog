@@ -11,6 +11,8 @@ from django.utils import timezone
 
 from pydantic import BaseModel
 
+from posthog.schema import PersonsOnEventsMode
+
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.constants import AvailableFeature
 from posthog.management.commands.generate_demo_data import Command as GenerateDemoDataCommand
@@ -225,6 +227,15 @@ def create_organization_with_team(
         update_fields.append("is_staff")
     user.save(update_fields=update_fields)
 
+    # Pin the mode almost every production project runs on. Without this the mode follows the
+    # environment: Playwright CI leaves the PERSON_ON_EVENTS_* variables unset and runs with
+    # DEBUG off, while the local e2e stack sets PERSON_ON_EVENTS_OVERRIDE.
+    team.modifiers = {
+        **(team.modifiers or {}),
+        "personsOnEventsMode": PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS.value,
+    }
+    team_update_fields = ["modifiers"]
+
     # Skip all onboarding tasks if requested (prevents Quick Start popover in tests)
     if data.skip_onboarding:
         team.onboarding_tasks = {
@@ -246,7 +257,9 @@ def create_organization_with_team(
             "create_experiment": "completed",
             "launch_experiment": "completed",
         }
-        team.save()
+        team_update_fields.append("onboarding_tasks")
+
+    team.save(update_fields=team_update_fields)
 
     created_variables = _create_variables(data, team)
     created_insights = _create_insights(data, team, user, created_variables)
@@ -511,8 +524,25 @@ def _create_events_and_persons(
 
     baseline_count = _count_events_in_clickhouse(team.pk)
 
-    for event_spec in events:
-        ts = datetime.fromisoformat(event_spec.timestamp.replace("Z", "+00:00"))
+    dated_events = [
+        (datetime.fromisoformat(event_spec.timestamp.replace("Z", "+00:00")), event_spec) for event_spec in events
+    ]
+
+    # A person-on-events mode resolves `events.person.properties` from the event's own
+    # person_properties column, not from the person table. Apply each $set in timestamp order,
+    # the way ingestion does, so an event carries the properties set by the time it happened.
+    properties_so_far: dict[str, dict[str, Any]] = {
+        distinct_id: dict(person_spec.properties or {})
+        for person_spec in (persons or [])
+        for distinct_id in person_spec.distinct_ids
+    }
+    person_properties_per_event: list[dict[str, Any]] = [{} for _ in dated_events]
+    for index, (_, event_spec) in sorted(enumerate(dated_events), key=lambda item: item[1][0]):
+        person_properties = properties_so_far.setdefault(event_spec.distinct_id, {})
+        person_properties.update((event_spec.properties or {}).get("$set") or {})
+        person_properties_per_event[index] = dict(person_properties)
+
+    for (ts, event_spec), person_properties in zip(dated_events, person_properties_per_event):
         create_event(
             event_uuid=UUIDT(unix_time_ms=int(ts.timestamp() * 1000)),
             event=event_spec.event,
@@ -521,6 +551,7 @@ def _create_events_and_persons(
             timestamp=ts,
             properties=event_spec.properties or {},
             person_id=uuid_module.UUID(person_uuids[event_spec.distinct_id]),
+            person_properties=person_properties,
         )
 
     _wait_for_events_in_clickhouse(team.pk, baseline_count + len(events))

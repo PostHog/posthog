@@ -36,7 +36,6 @@ from posthog.rate_limit import HogQLQueryThrottle
 
 from ..facade import api
 from ..facade.enums import CheckRunStatus, CheckType, SubjectStatus, SubjectType
-from ..facade.flags import is_data_quality_checks_enabled
 from ..facade.models import DataQualityCheck, DataQualityCheckRun, DataQualitySuiteRun
 from .serializers import (
     CheckTypeSerializer,
@@ -139,7 +138,6 @@ class _QualityGatedViewSet(TeamAndOrgViewSetMixin):
 
     def initial(self, request: Request, *args, **kwargs) -> None:
         super().initial(request, *args, **kwargs)
-        self._require_flag()
         if getattr(self, "action", None) in self.QUERY_GATED_ACTIONS:
             self._require_query_access()
 
@@ -151,10 +149,6 @@ class _QualityGatedViewSet(TeamAndOrgViewSetMixin):
         # keep demanding access_control:read rather than riding the warehouse scope alone.
         parent = getattr(super(), "dangerously_get_required_scopes", None)
         return parent(request, view) if parent is not None else None
-
-    def _require_flag(self) -> None:
-        if not is_data_quality_checks_enabled(self.team):
-            raise PermissionDenied("Data quality checks are not enabled for this project.")
 
     def _require_query_access(self) -> None:
         # required_scopes gates tokens; session users carry no scopes and AccessControlPermission
@@ -997,11 +991,9 @@ class DataQualityRunViewSet(
 def data_quality_gate_response(team: Team, request: Request) -> Response:
     """GET/PATCH handler for the team's gate setting, mounted on the warehouse viewset.
 
-    Lives here so the warehouse surface stays a thin mount: the flag gate, the serializer, and the
-    config write all belong to this product.
+    Lives here so the warehouse surface stays a thin mount: the serializer and the config write
+    both belong to this product.
     """
-    if not is_data_quality_checks_enabled(team):
-        raise PermissionDenied("Data quality checks are not enabled for this project.")
     if request.method == "PATCH":
         serializer = DataQualityGateConfigSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)

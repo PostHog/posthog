@@ -58,7 +58,7 @@ class SonarCloudSource(ResumableSource[SonarCloudSourceConfig, SonarCloudResumeC
             name=ExternalDataSourceType.SONARCLOUD,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Sonar Cloud",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your SonarQube Cloud user token and organization key to sync code-quality data into the PostHog Data warehouse.
 
 Generate a **user token** under **My Account → Security** in SonarQube Cloud, and find your **organization key** on your organization's homepage.

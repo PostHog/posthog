@@ -29,14 +29,19 @@ Regenerate the baseline (after confirming a rename, or when a body cites a new t
 """
 
 import re
-from pathlib import Path
+from datetime import date
+from pathlib import Path, PurePosixPath
 
 import pytest
 
-from posthog.mcp_tool_definitions import get_mcp_tool_definitions
+import yaml
+
+from posthog.mcp_tool_definitions import _TOOL_DEFINITION_PATHS, get_mcp_tool_definitions
+from posthog.test.repo_invariants.ratchet import enforce_baseline
 
 REPO_ROOT = Path(__file__).parents[3]
 BASELINE_PATH = Path(__file__).parent / "signals_scout_tool_citations_baseline.txt"
+BLOCKING_FROM = date.fromisoformat("2026-09-19")
 
 TOOL_NAME_VERBS = frozenset(
     {
@@ -161,10 +166,45 @@ def test_baseline_tool_citations_still_resolve() -> None:
         "Repoint each citation at the live tool, then regenerate:\n  DEBUG=1 DJANGO_SETTINGS_MODULE=posthog.settings PYTHONPATH=. python posthog/test/repo_invariants/test_signals_scout_tool_citations.py\n"
         + "\n".join(f"  {name}" for name in missing)
     )
-    assert not added, (
-        "Canonical scouts cite tools the baseline does not pin. Confirm each name is a real "
-        "tool, then regenerate:\n  DEBUG=1 DJANGO_SETTINGS_MODULE=posthog.settings PYTHONPATH=. python posthog/test/repo_invariants/test_signals_scout_tool_citations.py\n"
-        + "\n".join(f"  {name}" for name in added)
+    enforce_baseline(
+        added=added,
+        removed=[],
+        blocking_from=BLOCKING_FROM,
+        message=(
+            "Canonical scouts cite tools the baseline does not pin. Confirm each name is a real "
+            "tool, then regenerate:\n  DEBUG=1 DJANGO_SETTINGS_MODULE=posthog.settings PYTHONPATH=. python posthog/test/repo_invariants/test_signals_scout_tool_citations.py\n"
+            + "\n".join(f"  {name}" for name in added)
+        ),
+    )
+
+
+def repo_invariants_filter(workflow: str) -> list[str]:
+    parsed = yaml.safe_load((REPO_ROOT / workflow).read_text())
+    [step] = [step for step in parsed["jobs"]["changes"]["steps"] if step.get("id") == "filter"]
+    return yaml.safe_load(step["with"]["filters"])["repo_invariants"]
+
+
+def citation_inputs() -> list[PurePosixPath]:
+    from products.signals.backend.scout_harness.lazy_seed import discover_canonical_skills
+
+    paths = list(_TOOL_DEFINITION_PATHS)
+    for skill in discover_canonical_skills():
+        paths.append(skill.source_path / "SKILL.md")
+        paths.extend(skill.source_path / file.path for file in skill.files)
+    root = REPO_ROOT.resolve()
+    return [PurePosixPath(path.resolve().relative_to(root).as_posix()) for path in paths]
+
+
+@pytest.mark.parametrize("workflow", [".github/workflows/ci-backend.yml", ".depot/workflows/ci-backend.yml"])
+def test_repo_checks_runs_when_a_citation_input_changes(workflow: str) -> None:
+    globs = repo_invariants_filter(workflow)
+    # full_match keeps `*` inside one path segment, as picomatch in the paths-filter action does.
+    # fnmatch lets `*` cross `/`, so it would pass a glob that the action never fires on.
+    missing = sorted(str(path) for path in citation_inputs() if not any(path.full_match(glob) for glob in globs))
+    assert missing == [], (
+        "Repo checks skips a pull request that changes only these inputs of the scout citation "
+        f"check. Add a glob that covers each one to the repo_invariants paths filter in {workflow}:\n"
+        + "\n".join(f"  {path}" for path in missing)
     )
 
 

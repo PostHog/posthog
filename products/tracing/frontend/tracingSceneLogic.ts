@@ -116,7 +116,9 @@ export interface tracingSceneLogicValues {
     compareFlameServiceName: string | null // tracingViewerLogic
     compareFlameSpanName: string | null // tracingViewerLogic
     errorsScope: ErrorScope | null // tracingViewerLogic
+    inspectorOpen: boolean // tracingViewerLogic
     inspectorTab: SpanInspectorTab // tracingViewerLogic
+    isFullscreen: boolean // tracingViewerLogic
     isLoadingFullTrace: boolean // tracingViewerLogic
     isTraceOpen: boolean // tracingViewerLogic
     openTraceSpans: Span[] // tracingViewerLogic
@@ -270,6 +272,12 @@ export interface tracingSceneLogicActions {
     selectSpan: (spanId: string | null) => {
         spanId: string | null
     } // tracingViewerLogic
+    toggleFullscreen: () => {
+        value: true
+    } // tracingViewerLogic
+    toggleInspector: () => {
+        value: true
+    } // tracingViewerLogic
     keepSqlEditorMounted: (editorTabId: string) => {
         editorTabId: string
     }
@@ -369,6 +377,8 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
                 'errorsScope',
                 'isLoadingFullTrace',
                 'canLoadMoreTraceSpans',
+                'inspectorOpen',
+                'isFullscreen',
                 'compareFlameSpanName',
                 'compareFlameServiceName',
                 'selectedTraceLoadFailed',
@@ -402,7 +412,16 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
                 'setFilters',
             ],
             tracingViewerLogic({ id: TRACING_SCENE_VIEWER_ID }),
-            ['openTrace', 'selectSpan', 'selectInspectorTab', 'closeTrace', 'openCompareFlame', 'closeCompareFlame'],
+            [
+                'openTrace',
+                'selectSpan',
+                'selectInspectorTab',
+                'closeTrace',
+                'toggleInspector',
+                'toggleFullscreen',
+                'openCompareFlame',
+                'closeCompareFlame',
+            ],
             featureFlagLogic,
             ['setFeatureFlags'],
         ],

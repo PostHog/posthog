@@ -55,7 +55,9 @@ class TestHogFlow(TestCase):
 
     @patch("products.workflows.backend.tasks.hog_flows.refresh_affected_hog_flows.delay")
     def test_team_saved_receiver(self, mock_refresh):
-        self.team.save()
+        with self.captureOnCommitCallbacks(execute=True):
+            self.team.save()
+            mock_refresh.assert_not_called()
         mock_refresh.assert_called_once_with(team_id=self.team.id)
 
     @patch("products.workflows.backend.models.hog_flow.hog_flow.reload_hog_flows_on_workers")

@@ -1,5 +1,6 @@
 import { MenuLabel, cn } from '@posthog/quill'
 
+import { CommandKSearchNotice } from './CommandKSearchNotice'
 import { CommandKSearchRow } from './CommandKSearchRow'
 import { CommandKSection } from './commandKSections'
 
@@ -10,6 +11,15 @@ export function CommandKSearchSection({
     section: CommandKSection
     highlightedKey: string | null
 }): JSX.Element {
+    if (section.key === 'notice') {
+        return (
+            <div className="px-1 pt-1.5 pb-0.5" data-attr="command-k-section-notice">
+                {section.rows.map((row) =>
+                    row.kind === 'notice' ? <CommandKSearchNotice key={row.key} row={row} /> : null
+                )}
+            </div>
+        )
+    }
     return (
         <div
             role="group"
@@ -18,6 +28,11 @@ export function CommandKSearchSection({
         >
             <MenuLabel id={`command-k-section-${section.key}`} className="sticky top-0 z-10 bg-card px-2 pb-0">
                 {section.label}
+                {section.count !== undefined && (
+                    <span className="ml-1.5 font-normal tracking-normal tabular-nums">
+                        {`${section.count.toLocaleString()}${section.countIsLowerBound ? '+' : ''}`}
+                    </span>
+                )}
             </MenuLabel>
             <div
                 className={cn(

@@ -1,10 +1,16 @@
+import json
+
 from posthog.test.base import APIBaseTest
 
 from django.test import override_settings
 
 from rest_framework import status
 
+from posthog.schema import PersonsOnEventsMode
+
+from posthog.clickhouse.client import sync_execute
 from posthog.models import Organization, PersonalAPIKey, Team, User
+from posthog.models.instance_setting import override_instance_config
 
 
 class TestPlaywrightSetup(APIBaseTest):
@@ -64,6 +70,53 @@ class TestPlaywrightSetup(APIBaseTest):
         self.assertEqual(api_key.label, "Test API Key")
         self.assertIn("*", api_key.scopes)  # Should have full access
         self.assertTrue(result["personal_api_key"].startswith("phx_"))
+
+    @override_settings(TEST=True)
+    def test_organization_with_team_pins_the_production_person_on_events_mode(self):
+        # The instance setting is off on purpose, so the assertion proves the team's own modifiers
+        # rather than the ambient setting. Playwright CI runs with it unset and DEBUG off.
+        with override_instance_config("PERSON_ON_EVENTS_V2_ENABLED", False):
+            response = self.client.post(
+                "/api/setup_test/organization_with_team/", {"no_demo_data": True}, format="json"
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+            team = Team.objects.get(id=response.json()["result"]["team_id"])
+            self.assertEqual(team.person_on_events_mode, PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS)
+            self.assertTrue(team.person_on_events_querying_enabled)
+
+    @override_settings(TEST=True)
+    def test_seeded_events_carry_person_properties_as_of_each_event(self):
+        # A person-on-events mode reads person properties off the event, not the person table.
+        payload = {
+            "no_demo_data": True,
+            "persons": [{"distinct_ids": ["seeded-person"], "properties": {"plan": "free"}}],
+            "events": [
+                {
+                    "event": "$pageview",
+                    "distinct_id": "seeded-person",
+                    "timestamp": "2024-11-03T10:00:00Z",
+                },
+                {
+                    "event": "$pageview",
+                    "distinct_id": "seeded-person",
+                    "timestamp": "2024-11-03T12:00:00Z",
+                    "properties": {"$set": {"plan": "paid"}},
+                },
+            ],
+        }
+        response = self.client.post("/api/setup_test/organization_with_team/", payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        team_id = int(response.json()["result"]["team_id"])
+        rows = sync_execute(
+            "SELECT person_properties FROM events WHERE team_id = %(team_id)s ORDER BY timestamp",
+            {"team_id": team_id},
+        )
+        self.assertEqual(
+            [json.loads(row[0]) for row in rows],
+            [{"plan": "free"}, {"plan": "paid"}],
+        )
 
     @override_settings(DEBUG=True)
     def test_endpoint_allowed_in_debug_mode(self):

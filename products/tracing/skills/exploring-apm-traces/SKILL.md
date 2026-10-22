@@ -4,7 +4,7 @@ description: >
   Investigates distributed application performance using PostHog APM (OpenTelemetry span) data via MCP.
   Use when the user asks about service traces, slow HTTP/database spans, error spans, error-rate trends or
   spikes, latency distributions, trace IDs, or span attributes — not AI observability traces or product logs.
-  Uses posthog:query-apm-spans, posthog:apm-trace-get, posthog:apm-spans-sparkline,
+  Uses posthog:apm-service-health, posthog:query-apm-spans, posthog:apm-trace-get, posthog:apm-spans-sparkline,
   posthog:apm-services-list, posthog:apm-attributes-list, and posthog:apm-attribute-values-list.
 ---
 
@@ -22,6 +22,7 @@ When the question asks for SLO burn, call `posthog:metric-list` before the APM t
 
 | Tool                                   | Purpose                                           |
 | -------------------------------------- | ------------------------------------------------- |
+| `posthog:apm-service-health`           | Status per service against a baseline: start here |
 | `posthog:query-apm-spans`              | Search and filter spans (compact list view)       |
 | `posthog:apm-trace-get`                | Get the full span list for one hex `trace_id`     |
 | `posthog:apm-spans-aggregate`          | Per-operation aggregates (count, p50/p95, errors) |
@@ -99,6 +100,19 @@ To rebuild the tree:
 
 ## Investigation patterns
 
+### "How healthy are my services?" (start here)
+
+1. `apm-service-health` scores every service in one call: requests, error rate, p50/p95/p99, the change from a baseline window, and a `status` (`silent`, `regressed`, `degraded`, `new`, `recovered`, `improved`, `ok`) with a `reason`. Rows come worst first.
+2. Pick the baseline with `compare`: `previous_period` (default), `previous_day`, `previous_week`, or an explicit `baselineDateRange` next to `query`. Scope with `environment` and `serviceNames`.
+3. Run the calls in `next`. They are prefilled: `apm-spans-aggregate` for the operations behind the regressed and degraded services, `apm-spans-sparkline` for when a silent service stopped, `query-apm-spans` for error spans.
+4. Do not build a service summary from `apm-spans-aggregate` rows or from one `apm-spans-count` call per service. Percentiles of operation rows do not add up to a service percentile.
+
+#### Daily service health report
+
+1. `apm-service-health` with `dateRange: {"date_from": "-24h"}`, and `compare: "previous_day"`. Follow its `next` calls to the operations behind each unhealthy service.
+2. `logs-patterns-diff` for new error patterns in the services that are not `ok`.
+3. `logs-alerts-list` for alerts that fired in the window.
+
 ### "Where is time going?"
 
 1. Every span from `apm-trace-get` carries `self_time_nano` — duration not covered by children. Sort by it: the top span is where wall-clock actually went. A parent with large `self_time_nano` is an **uninstrumented gap** (the work happened inside it, not in any recorded child).
@@ -116,7 +130,7 @@ To rebuild the tree:
 ### "Did the request hit service X?"
 
 1. Run `print_summary.py` — it prints the set of services involved in the trace.
-2. If service X is missing, the request never reached it (or instrumentation is missing — check `apm-services-list` to confirm X has emitted spans recently at all).
+2. If service X is missing, the request never reached it (or instrumentation is missing — check `apm-service-health` with `serviceNames: ["X"]` to see whether X emitted spans recently, and when it stopped).
 
 ### "What's different about the bad spans?" (over-represented values)
 

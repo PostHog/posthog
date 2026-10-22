@@ -26,7 +26,6 @@ from ee.middleware import admin_oauth2_callback
 from ee.support_sidebar_max.views import MaxChatViewSet
 
 from .api import authentication, billing, conversation, core_memory, organization_billing, project_billing
-from .api.scim import views as scim_views
 
 
 def extend_api_router() -> None:
@@ -191,29 +190,6 @@ urlpatterns: list[Any] = [
         vercel_connect.VercelConnectLinkViewSet.as_view({"get": "session_info"}),
     ),
     path("webhooks/vercel", build_webhook_view(build_vercel_provider()), name="vercel_webhooks"),
-    path("scim/v2/<str:scim_slug>/Users", csrf_exempt(scim_views.SCIMUsersView.as_view()), name="scim_users"),
-    path(
-        "scim/v2/<str:scim_slug>/Users/<int:user_id>",
-        csrf_exempt(scim_views.SCIMUserDetailView.as_view()),
-        name="scim_user_detail",
-    ),
-    path("scim/v2/<str:scim_slug>/Groups", csrf_exempt(scim_views.SCIMGroupsView.as_view()), name="scim_groups"),
-    path(
-        "scim/v2/<str:scim_slug>/Groups/<uuid:group_id>",
-        csrf_exempt(scim_views.SCIMGroupDetailView.as_view()),
-        name="scim_group_detail",
-    ),
-    path(
-        "scim/v2/<str:scim_slug>/ServiceProviderConfig",
-        csrf_exempt(scim_views.SCIMServiceProviderConfigView.as_view()),
-        name="scim_service_provider_config",
-    ),
-    path(
-        "scim/v2/<str:scim_slug>/ResourceTypes",
-        csrf_exempt(scim_views.SCIMResourceTypesView.as_view()),
-        name="scim_resource_types",
-    ),
-    path("scim/v2/<str:scim_slug>/Schemas", csrf_exempt(scim_views.SCIMSchemasView.as_view()), name="scim_schemas"),
     # Stripe Projects provisioning (APP 0.1d)
     path("api/partners/stripe/", include("ee.partners.stripe.api.provisioning.urls")),
     # Agentic provisioning (partner account/resource provisioning + deep-link login)

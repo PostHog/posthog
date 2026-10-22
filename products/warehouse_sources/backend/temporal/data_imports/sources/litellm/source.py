@@ -72,7 +72,7 @@ class LiteLLMSource(ResumableSource[LiteLLMSourceConfig, LiteLLMResumeConfig], V
 Enter the proxy's public https URL and the master key or an admin key. A key without admin rights only syncs its own spend logs.""",
             iconPath="/static/services/litellm.png",
             docsUrl="https://posthog.com/docs/cdp/sources/litellm",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

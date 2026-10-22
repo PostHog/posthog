@@ -1,5 +1,7 @@
+import re
 import json
 import shlex
+import base64
 import asyncio
 import builtins
 import subprocess
@@ -20,6 +22,7 @@ from modal.exception import (
     ServiceError as ModalServiceError,
     TimeoutError as ModalTimeoutError,
 )
+from modal_proto import api_pb2
 from parameterized import parameterized
 from python_socks import ProxyError as SocksProxyError
 from requests.exceptions import (
@@ -50,6 +53,7 @@ from products.tasks.backend.logic.services.agent_server_launcher import (
     AGENT_SERVER_HEALTH_MAX_ATTEMPTS,
     AGENT_SERVER_LAUNCH_CAPABILITIES,
     AGENT_SERVER_PREFLIGHT_CAPABILITY_PREFIX,
+    AGENT_SERVER_PREFLIGHT_CREDENTIAL_EXIT_CODE,
     AGENT_SERVER_PREFLIGHT_REUSE_MARKER,
     HOST_PRESSURE_PROBE_SCRIPT,
     STARTUP_LOG_MAX_BYTES,
@@ -97,6 +101,7 @@ from products.tasks.backend.logic.services.sandbox import (
     ExecutionResult,
     SandboxConfig,
     SandboxTemplate,
+    SandboxWorkload,
     health_check_timeout_seconds,
 )
 
@@ -114,8 +119,13 @@ def _agent_server_launch_command(mock_execute: Any) -> str:
     raise AssertionError("agent-server launch command not found among execute calls")
 
 
+def _decoded_command(command: str) -> str:
+    encoded = re.search(r"printf %s ([A-Za-z0-9+/=]+) \| base64 -d", command)
+    return base64.b64decode(encoded.group(1)).decode() if encoded else command
+
+
 def _is_preflight_command(command: str) -> bool:
-    return AGENT_SERVER_PREFLIGHT_CAPABILITY_PREFIX in command
+    return AGENT_SERVER_PREFLIGHT_CAPABILITY_PREFIX in _decoded_command(command)
 
 
 def _preflight_stdout(*, reused: bool = False, capabilities: tuple[str, ...] = AGENT_SERVER_LAUNCH_CAPABILITIES) -> str:
@@ -661,7 +671,7 @@ class TestModalSandboxAgentServer:
                 mode="background",
             )
 
-        mock_setup.assert_called_once_with(None)
+        mock_setup.assert_not_called()
         command = _agent_server_launch_command(mock_sandbox.execute)
         import shlex
 
@@ -694,7 +704,7 @@ class TestModalSandboxAgentServer:
             wait_for_health=False,
         )
 
-        commands = [call.args[0] for call in mock_sandbox.execute.call_args_list]
+        commands = [_decoded_command(call.args[0]) for call in mock_sandbox.execute.call_args_list]
         clear_index = next(
             index for index, command in enumerate(commands) if "rm -rf" in command and "skills" in command
         )
@@ -722,7 +732,7 @@ class TestModalSandboxAgentServer:
             wait_for_health=False,
         )
 
-        commands = [call.args[0] for call in mock_sandbox.execute.call_args_list]
+        commands = [_decoded_command(call.args[0]) for call in mock_sandbox.execute.call_args_list]
         assert any("rm -rf" in command and "skills" in command for command in commands)
         assert not any("./node_modules/.bin/agent-server" in command for command in commands)
 
@@ -761,7 +771,7 @@ class TestModalSandboxAgentServer:
                 allowed_domains=["example.com"],
             )
 
-        mock_setup_agentsh.assert_called_once_with(["example.com"])
+        mock_setup_agentsh.assert_not_called()
         command = _agent_server_launch_command(mock_sandbox.execute)
         assert "--createPr true" in command
         assert "agentsh exec --client-timeout 2h --timeout 2h" in command
@@ -784,7 +794,7 @@ class TestModalSandboxAgentServer:
                 allowed_domains=[],
             )
 
-        mock_setup_agentsh.assert_called_once_with([])
+        mock_setup_agentsh.assert_not_called()
         command = _agent_server_launch_command(mock_sandbox.execute)
         assert "--allowedDomains" not in command
         assert "agentsh exec --client-timeout 2h --timeout 2h" in command
@@ -983,15 +993,16 @@ class TestModalSandboxAgentServer:
         assert (" --claudeSubscription" in command) is subscription_flag
 
     @pytest.mark.parametrize(
-        "keep_stream_open, debug, expected_env_value",
+        "event_ingest_url, debug, expected_env_value",
         [
-            (True, False, "true"),
-            (False, False, None),
-            (False, True, "false"),
+            (None, False, "true"),
+            ("https://agent-proxy.example.com", False, "true"),
+            (None, True, "false"),
+            ("http://localhost:8003", True, "true"),
         ],
     )
     def test_start_agent_server_keep_stream_open_env(
-        self, mock_sandbox: Any, keep_stream_open, debug, expected_env_value, settings
+        self, mock_sandbox: Any, event_ingest_url, debug, expected_env_value, settings
     ):
         settings.DEBUG = debug
         mock_sandbox.execute = MagicMock(
@@ -1003,14 +1014,11 @@ class TestModalSandboxAgentServer:
             task_id="task-123",
             run_id="run-456",
             mode="background",
-            event_ingest_keep_stream_open=keep_stream_open,
+            event_ingest_url=event_ingest_url,
         )
 
         command = _agent_server_launch_command(mock_sandbox.execute)
-        if expected_env_value is not None:
-            assert f"POSTHOG_TASK_RUN_EVENT_INGEST_KEEP_STREAM_OPEN={expected_env_value}" in command
-        else:
-            assert "POSTHOG_TASK_RUN_EVENT_INGEST_KEEP_STREAM_OPEN" not in command
+        assert f"POSTHOG_TASK_RUN_EVENT_INGEST_KEEP_STREAM_OPEN={expected_env_value}" in command
 
     def test_start_agent_server_raises_when_not_running(self, mock_sandbox: Any):
         mock_sandbox._sandbox.poll.return_value = 0
@@ -1105,12 +1113,56 @@ class TestModalSandboxAgentServer:
         commands = [call.args[0] for call in mock_sandbox.execute.call_args_list]
         # Bundled-skills clear, then refreshed bash-env and gh-guard files before reuse is accepted.
         preflight_index = next(index for index, command in enumerate(commands) if _is_preflight_command(command))
-        assert "task-filesystem.py enter" not in commands[preflight_index]
-        assert "task-filesystem.py enter" in commands[preflight_index - 1]
-        after_preflight = commands[preflight_index + 1 :]
-        assert any("mv" in command and "/tmp/agentsh-bash-env.sh" in command for command in after_preflight)
-        assert any("mv" in command and "/opt/posthog/bin/gh" in command for command in after_preflight)
-        assert any(command == "chmod +x /opt/posthog/bin/gh" for command in after_preflight)
+        preflight = _decoded_command(commands[preflight_index])
+        probe_start = preflight.index(AGENT_SERVER_PREFLIGHT_CAPABILITY_PREFIX)
+        assert preflight.index("task-filesystem.py enter -- /bin/bash -c") < probe_start
+        assert preflight.index("/tmp/agentsh-bash-env.sh") < probe_start
+        assert preflight.index("/opt/posthog/bin/gh") < probe_start
+
+    @pytest.mark.parametrize(
+        ("exit_code", "stderr", "expected_error"),
+        [
+            (
+                AGENT_SERVER_PREFLIGHT_CREDENTIAL_EXIT_CODE,
+                "__posthog_launch_preparation_failed=preflight\n",
+                ProcessTaskFatalError,
+            ),
+            (1, "__posthog_launch_preparation_failed=bundled_skills\n", RuntimeError),
+            (1, "__posthog_launch_preparation_failed=preflight\n", SandboxExecutionError),
+        ],
+    )
+    def test_start_agent_server_maps_combined_preparation_failures(
+        self, mock_sandbox: Any, exit_code: int, stderr: str, expected_error: type[Exception]
+    ) -> None:
+        mock_sandbox.execute = MagicMock(
+            return_value=ExecutionResult(stdout="", stderr=stderr, exit_code=exit_code, error=None)
+        )
+
+        with pytest.raises(expected_error) as raised:
+            mock_sandbox.start_agent_server(repository=None, task_id="task-123", run_id="run-456")
+
+        assert type(raised.value) is expected_error
+
+    @pytest.mark.parametrize(("domain_count", "uploads_script"), [(1, False), (400, True)])
+    def test_start_agent_server_uploads_launch_script_above_modal_command_limit(
+        self, mock_sandbox: Any, domain_count: int, uploads_script: bool
+    ) -> None:
+        mock_sandbox.execute = MagicMock(
+            return_value=ExecutionResult(stdout=_preflight_stdout(), stderr="", exit_code=0, error=None)
+        )
+        mock_sandbox.write_file = MagicMock(return_value=ExecutionResult(stdout="", stderr="", exit_code=0))
+        domains = [f"*.service-{index}-{'x' * 120}.example.com" for index in range(domain_count)]
+
+        mock_sandbox.start_agent_server(
+            repository=None, task_id="task-123", run_id="run-456", wait_for_health=False, allowed_domains=domains
+        )
+
+        preparation = next(
+            call.args[0]
+            for call in mock_sandbox.execute.call_args_list
+            if "posthog-launch-preparation-" in call.args[0]
+        )
+        assert preparation.startswith("bash /tmp/posthog-launch-preparation-") is uploads_script
 
     def test_start_agent_server_relaunches_when_agentsh_is_unhealthy(self, mock_sandbox: Any):
         def execute(command: str, timeout_seconds: int | None = None) -> ExecutionResult:
@@ -1198,7 +1250,7 @@ class TestModalSandboxAgentServer:
 
         commands = [call.args[0] for call in mock_sandbox.execute.call_args_list]
         preflight = next(command for command in commands if _is_preflight_command(command))
-        assert "xargs kill -KILL" in preflight
+        assert "xargs kill -KILL" in _decoded_command(preflight)
         assert commands.index(preflight) < commands.index(_agent_server_launch_command(mock_sandbox.execute))
         command = _agent_server_launch_command(mock_sandbox.execute)
         assert health_ms == 250
@@ -1220,12 +1272,15 @@ class TestModalSandboxAgentServer:
 
         commands = [call.args[0] for call in mock_sandbox.execute.call_args_list]
         launch_index = commands.index(_agent_server_launch_command(mock_sandbox.execute))
-        assert launch_index == 3
-        assert "task-filesystem.py enter" in commands[0]
-        assert "curl" not in commands[0]
-        assert _is_preflight_command(commands[1])
-        assert "task-filesystem.py enter" not in commands[1]
-        assert commands[2].startswith("bash /tmp/posthog-launch-preparation-")
+        assert launch_index == 1
+        assert _is_preflight_command(commands[0])
+        task_cleanup = next(
+            line
+            for line in _decoded_command(commands[0]).splitlines()
+            if "task-filesystem.py enter -- /bin/bash" in line
+        )
+        assert ENV_DISABLE_BUNDLED_SKILLS in task_cleanup
+        assert "curl" not in task_cleanup
 
     def test_create_snapshot_waits_for_container_before_snapshot(self, mock_sandbox: Any) -> None:
         events: list[str] = []
@@ -1552,6 +1607,25 @@ class TestModalSandboxAgentServerStartupHelpers:
         sandbox.config = SandboxConfig(name="test")
         sandbox._sandbox = MagicMock()
         return sandbox
+
+    @pytest.mark.parametrize(
+        "poll_result,status,expected",
+        [
+            (None, api_pb2.GenericResult.GENERIC_STATUS_UNSPECIFIED, "running"),
+            (RuntimeError("provider unavailable"), api_pb2.GenericResult.GENERIC_STATUS_UNSPECIFIED, "unknown"),
+            (137, api_pb2.GenericResult.GENERIC_STATUS_MEMORY_MANAGER_EVICTION, "memory_manager_eviction"),
+            (0, api_pb2.GenericResult.GENERIC_STATUS_IDLE_TIMEOUT, "idle_timeout"),
+        ],
+    )
+    def test_exit_status_reads_modal_generic_status(self, poll_result, status, expected):
+        sandbox = self._make_sandbox()
+        if isinstance(poll_result, Exception):
+            sandbox._sandbox.poll.side_effect = poll_result
+        else:
+            sandbox._sandbox.poll.return_value = poll_result
+        sandbox._sandbox._result.status = status
+
+        assert sandbox.exit_status() == expected
 
     def test_free_agent_server_port_terminates_existing_process(self):
         sandbox = self._make_sandbox()
@@ -1963,7 +2037,7 @@ class TestModalSandboxCreateImageFallback:
         ):
             sandbox = ModalSandbox.create(config)
 
-        assert cpu_requests == [(4.0, 8.0), (0.5, 8.0)]
+        assert cpu_requests == [(2.0, 8.0), (0.5, 8.0)]
         assert sandbox.config.image_fallback is not None
         assert sandbox.config.effective_cpu_request_cores == 0.5
 
@@ -2663,7 +2737,16 @@ class TestResourceCreateKwargs:
     @pytest.mark.parametrize(
         "config_kwargs, expected_cpu, expected_memory",
         [
-            ({"vm_runtime": True, "custom_image_name": "posthog-dev-stack"}, (4.0, 8.0), (65536, 65536)),
+            ({"vm_runtime": True, "custom_image_name": "posthog-dev-stack"}, (2.0, 8.0), (65536, 65536)),
+            (
+                {
+                    "vm_runtime": True,
+                    "custom_image_name": "posthog-dev-stack",
+                    "workload": SandboxWorkload.SELF_DRIVING,
+                },
+                (0.5, 8.0),
+                (16384, 16384),
+            ),
             (
                 {"vm_runtime": True, "custom_image_name": "posthog-dev-stack", "cpu_request_cores": 6},
                 (6.0, 8.0),
@@ -2678,17 +2761,17 @@ class TestResourceCreateKwargs:
             ({"custom_image_name": "posthog-dev-stack"}, (0.5, 8.0), (1024, 16384)),
             (
                 {"template": SandboxTemplate.VM_BASE, "custom_image_name": "posthog-dev-stack"},
-                (4.0, 8.0),
+                (2.0, 8.0),
                 (65536, 65536),
             ),
             (
                 {"vm_runtime": True, "custom_image_name": "posthog-dev-stack", "memory_gb": 16},
-                (4.0, 8.0),
+                (2.0, 8.0),
                 (65536, 65536),
             ),
             (
                 {"vm_runtime": True, "custom_image_name": "posthog-dev-stack", "memory_gb": 80},
-                (4.0, 8.0),
+                (2.0, 8.0),
                 (81920, 81920),
             ),
             (

@@ -1,6 +1,8 @@
+from contextlib import ExitStack
 from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Any, cast
+from uuid import UUID
 
 import pytest
 from posthog.test.base import APIBaseTest
@@ -8,7 +10,7 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
-from products.alerts_platform.backend.delivery import delivery_paths, legacy_webhook
+from products.alerts_platform.backend.delivery import delivery_paths, describers, legacy_webhook
 from products.alerts_platform.backend.delivery.destinations import list_alert_destination_groups
 from products.alerts_platform.backend.delivery.evaluation import LIVE_DELIVERY_FLAG, deliver_evaluation
 from products.alerts_platform.backend.delivery.legacy_webhook import LEGACY_WEBHOOK_BODY_FLAG
@@ -48,6 +50,16 @@ SECOND_WEBHOOK = cast(
 TEAMS = cast(AlertDestinationData, {"type": DestinationType.TEAMS, "webhook_url": "https://example.com/teams"})
 PAGERDUTY = cast(AlertDestinationData, {"type": DestinationType.PAGERDUTY, "pagerduty_routing_key": "R-1"})
 UNSUPPORTED = cast(AlertDestinationData, {"type": "opsgenie"})
+HOG_FUNCTION_SLACK = AlertDestinationGroup(
+    hog_function_ids=(UUID("01900000-0000-0000-0000-0000000000a1"),), data=SLACK, fully_enabled=True
+)
+SUBSCRIBER = AlertDestinationGroup(
+    hog_function_ids=(),
+    data=cast(
+        AlertDestinationData, {"type": DestinationType.SLACK, "slack_workspace_id": 1, "slack_channel_id": "C-2"}
+    ),
+    fully_enabled=True,
+)
 
 
 class RecordingTransport:
@@ -95,6 +107,7 @@ def _request(
     incident_actions: dict[str, IncidentAction] | None = None,
     owned_by_platform: bool = False,
     overflowed: int = 0,
+    overflow_is_lower_bound: bool = False,
     parts: int = 1,
     part: int = 0,
 ) -> AlertDeliveryRequest:
@@ -110,6 +123,7 @@ def _request(
         event_ids_by_incident_action={"trigger": OPENED_EVENT, "resolve": CLOSED_EVENT},
         owned_by_platform=owned_by_platform,
         overflowed=overflowed,
+        overflow_is_lower_bound=overflow_is_lower_bound,
         parts=parts,
         part=part,
     )
@@ -141,8 +155,10 @@ def _announcement(*transitions: AnnouncedTransition) -> EvaluationAnnouncement:
     )
 
 
-def _group(data: AlertDestinationData, fully_enabled: bool = True) -> AlertDestinationGroup:
-    return AlertDestinationGroup(hog_function_ids=(), data=data, fully_enabled=fully_enabled)
+def _group(
+    data: AlertDestinationData, fully_enabled: bool = True, hog_function_ids: tuple[UUID, ...] = ()
+) -> AlertDestinationGroup:
+    return AlertDestinationGroup(hog_function_ids=hog_function_ids, data=data, fully_enabled=fully_enabled)
 
 
 class TestDeliverEvaluation(APIBaseTest):
@@ -160,6 +176,7 @@ class TestDeliverEvaluation(APIBaseTest):
         incident_actions: dict[str, IncidentAction] | None = None,
         owned_by_platform: bool = False,
         overflowed: int = 0,
+        overflow_is_lower_bound: bool = False,
         parts: int = 1,
         part: int = 0,
         kinds: dict[str, AlertEventKind] | None = None,
@@ -194,6 +211,7 @@ class TestDeliverEvaluation(APIBaseTest):
                     incident_actions=incident_actions,
                     owned_by_platform=owned_by_platform,
                     overflowed=overflowed,
+                    overflow_is_lower_bound=overflow_is_lower_bound,
                     parts=parts,
                     part=part,
                 )
@@ -216,22 +234,59 @@ class TestDeliverEvaluation(APIBaseTest):
             ("C-resolves", "Log alert 'API errors' is resolved"),
         ]
 
-    def test_a_destination_subscribed_to_both_hears_about_both(self) -> None:
+    def test_each_send_is_recorded_under_the_hog_function_of_the_event_it_sent(self) -> None:
+        firing_function = UUID("00000000-0000-0000-0000-00000000000f")
+        resolved_function = UUID("00000000-0000-0000-0000-00000000000a")
         announced = _announcement(
             _transition(AlertEventKind.FIRING, "checkout"),
             _transition(AlertEventKind.RESOLVED, "search"),
         )
 
-        self._run(announced, {FIRING_EVENT: [_group(SLACK)], RESOLVED_EVENT: [_group(SLACK)]}, overflowed=3)
+        with patch("products.alerts_platform.backend.delivery.dispatch.record_delivery") as recorded:
+            self._run(
+                announced,
+                {
+                    FIRING_EVENT: [_group(SLACK, hog_function_ids=(firing_function,))],
+                    RESOLVED_EVENT: [_group(SLACK, hog_function_ids=(resolved_function,))],
+                },
+            )
+
+        assert sorted(c.kwargs["destination_id"] for c in recorded.call_args_list) == sorted(
+            [str(firing_function), str(resolved_function)]
+        )
+
+    @parameterized.expand(
+        [
+            ("exact", False, "3 more groups not tracked because this alert is at its group limit"),
+            ("lower_bound", True, "At least 3 more groups not tracked because this alert is at its group limit"),
+        ]
+    )
+    def test_a_destination_subscribed_to_both_hears_about_both(
+        self, _name: str, overflow_is_lower_bound: bool, notice: str
+    ) -> None:
+        announced = _announcement(
+            _transition(AlertEventKind.FIRING, "checkout"),
+            _transition(AlertEventKind.RESOLVED, "search"),
+        )
+
+        self._run(
+            announced,
+            {FIRING_EVENT: [_group(SLACK)], RESOLVED_EVENT: [_group(SLACK)]},
+            overflowed=3,
+            overflow_is_lower_bound=overflow_is_lower_bound,
+        )
 
         assert sorted(m.headline for _, m in RecordingTransport.sends) == [
             "Log alert 'API errors' is firing",
             "Log alert 'API errors' is resolved",
         ]
         overflow_notices = [
-            detail for _, m in RecordingTransport.sends for detail in m.details if detail.label == "Untracked groups"
+            detail.value
+            for _, m in RecordingTransport.sends
+            for detail in m.details
+            if detail.label == "Untracked groups"
         ]
-        assert len(overflow_notices) == 1
+        assert overflow_notices == [notice]
 
     def test_each_destination_hears_the_overflow_once_across_the_parts_of_a_split_delivery(self) -> None:
         # Sorted by key, the firing lands in part 0 and the resolve in part 1, so a destination
@@ -309,6 +364,19 @@ class TestDeliverEvaluation(APIBaseTest):
 
         assert [m.headline for channel, m in RecordingTransport.sends if channel == "C-1"] == chat_headlines
         assert [m.incident_action for channel, m in RecordingTransport.sends if channel == "R-1"] == [action]
+
+    @parameterized.expand([("owned_by_the_platform", True, "posthog-alert-legacy-1"), ("live_delivery", False, None)])
+    def test_only_an_alert_the_platform_owns_resolves_under_its_source_incident_key(
+        self, _name: str, owned_by_platform: bool, expected: str | None
+    ) -> None:
+        self._run(
+            _announcement(_transition(AlertEventKind.RESOLVED)),
+            {CLOSED_EVENT: [_group(PAGERDUTY)]},
+            incident_actions={"": IncidentAction.RESOLVE},
+            owned_by_platform=owned_by_platform,
+        )
+
+        assert [m.source_incident_key for channel, m in RecordingTransport.sends if channel == "R-1"] == [expected]
 
     def test_a_destination_with_no_transport_is_skipped_rather_than_failing_the_send(self) -> None:
         outcome = self._run(
@@ -480,6 +548,10 @@ class TestDeliverEvaluation(APIBaseTest):
     def test_the_destination_owner_registers_its_lookup_at_startup(self) -> None:
         # Every other case here patches the lookup, so none of them notices a missing registration.
         assert delivery_paths._chooser is not None
+        # Without it an insight alert on the HogFunction path sends nothing at all.
+        assert delivery_paths.emitter_for(SourceKind.INSIGHT) is not None
+        # Without it a native insight message carries only the platform's "Value" line.
+        assert SourceKind.INSIGHT in describers._describers
         assert (
             list_alert_destination_groups(team_id=self.team.id, alert_id="unknown", allowed_event_ids=[FIRING_EVENT])
             == []
@@ -506,19 +578,26 @@ class TestDeliveryPath(APIBaseTest):
         owned_by_platform: bool = True,
         incident_actions: dict[str, IncidentAction] | None = None,
         emitter: Any = None,
+        groups: list[AlertDestinationGroup] | None = None,
+        transport: type = RecordingTransport,
+        real_thread_store: bool = False,
     ) -> Any:
-        with (
-            patch(
-                "products.alerts_platform.backend.delivery.team_flags.posthoganalytics.feature_enabled",
-                return_value=True,
-            ),
-            patch(f"{_MODULE}.announcement", return_value=announced),
-            patch(f"{_MODULE}.list_alert_destination_groups", return_value=[_group(SLACK)]),
-            patch(f"{_MODULE}.DatabaseThreadStore"),
-            patch.dict(f"{_MODULE}._TRANSPORTS", {DestinationType.SLACK: RecordingTransport}),
-            patch.dict(delivery_paths._emitters, {SourceKind.LOGS: emitter or self._emit}),
-            patch.object(delivery_paths, "_chooser", chooser),
-        ):
+        with ExitStack() as stack:
+            stack.enter_context(
+                patch(
+                    "products.alerts_platform.backend.delivery.team_flags.posthoganalytics.feature_enabled",
+                    return_value=True,
+                )
+            )
+            stack.enter_context(patch(f"{_MODULE}.announcement", return_value=announced))
+            stack.enter_context(
+                patch(f"{_MODULE}.list_alert_destination_groups", return_value=groups or [HOG_FUNCTION_SLACK])
+            )
+            if not real_thread_store:
+                stack.enter_context(patch(f"{_MODULE}.DatabaseThreadStore"))
+            stack.enter_context(patch.dict(f"{_MODULE}._TRANSPORTS", {DestinationType.SLACK: transport}))
+            stack.enter_context(patch.dict(delivery_paths._emitters, {SourceKind.LOGS: emitter or self._emit}))
+            stack.enter_context(patch.object(delivery_paths, "_chooser", chooser))
             return deliver_evaluation(
                 _request(
                     self.team.id,
@@ -536,32 +615,39 @@ class TestDeliveryPath(APIBaseTest):
     def _fails(**_kwargs: Any) -> DeliveryPath:
         raise RuntimeError("classifier down")
 
+    # The subscriber group stands in for email and in-app, which are no HogFunction and never see an emitted event.
     @parameterized.expand(
         [
-            ("stock_destinations_send_natively", True, DeliveryPath.NATIVE, (0, 1)),
-            ("customized_destinations_emit_for_their_hog_functions", True, DeliveryPath.HOG_FUNCTION, (1, 0)),
+            ("stock_destinations_send_natively", True, DeliveryPath.NATIVE, 0, ["C-1", "C-2"]),
+            ("customized_destinations_emit_for_their_hog_functions", True, DeliveryPath.HOG_FUNCTION, 1, ["C-2"]),
             # The source's own stack still emits these events, so emitting them here would send twice.
-            ("an_alert_the_source_owns_never_emits", False, DeliveryPath.HOG_FUNCTION, (0, 1)),
-            ("a_chooser_that_fails_emits", True, None, (1, 0)),
+            ("an_alert_the_source_owns_never_emits", False, DeliveryPath.HOG_FUNCTION, 0, ["C-1", "C-2"]),
+            ("a_chooser_that_fails_emits", True, None, 1, ["C-2"]),
         ]
     )
     def test_an_alert_delivers_through_the_path_its_destinations_allow(
-        self, _name: str, owned_by_platform: bool, path: DeliveryPath | None, expected: tuple[int, int]
+        self, _name: str, owned_by_platform: bool, path: DeliveryPath | None, emitted: int, native_channels: list[str]
     ) -> None:
         chooser = self._chooses(path) if path else self._fails
         outcome = self._run(
-            _announcement(_transition(AlertEventKind.FIRING)), chooser, owned_by_platform=owned_by_platform
+            _announcement(_transition(AlertEventKind.FIRING)),
+            chooser,
+            owned_by_platform=owned_by_platform,
+            groups=[HOG_FUNCTION_SLACK, SUBSCRIBER],
         )
 
-        assert (len(self.emitted), len(RecordingTransport.sends)) == expected
-        assert outcome.emitted == expected[0]
+        assert len(self.emitted) == emitted
+        assert sorted(channel for channel, _ in RecordingTransport.sends) == native_channels
+        assert (outcome.emitted_transitions, outcome.emitted_events) == (emitted, emitted)
 
     def test_a_firing_and_its_resolve_take_the_path_the_firing_took(self) -> None:
-        self._run(
+        fired = self._run(
             _announcement(_transition(AlertEventKind.FIRING)),
             self._chooses(DeliveryPath.HOG_FUNCTION),
             incident_actions={"": IncidentAction.TRIGGER},
         )
+        # One transition, emitted as its message event and its incident event.
+        assert (fired.emitted_transitions, fired.emitted_events) == (1, 2)
         # Every destination became stock mid-firing. The resolve still closes what the HogFunction opened.
         self._run(
             _announcement(_transition(AlertEventKind.RESOLVED)),
@@ -592,3 +678,27 @@ class TestDeliveryPath(APIBaseTest):
                 self._chooses(DeliveryPath.HOG_FUNCTION),
                 emitter=refuse,
             )
+
+    def test_a_rerun_after_a_refused_subscriber_send_emits_once(self) -> None:
+        for _ in range(2):
+            with pytest.raises(DeliveryError):
+                self._run(
+                    _announcement(_transition(AlertEventKind.FIRING)),
+                    self._chooses(DeliveryPath.HOG_FUNCTION),
+                    groups=[HOG_FUNCTION_SLACK, SUBSCRIBER],
+                    transport=RefusingTransport,
+                    real_thread_store=True,
+                )
+
+        assert len(self.emitted) == 1
+
+    def test_a_held_subscriber_thread_holds_the_emission_for_the_rerun(self) -> None:
+        with pytest.raises(ThreadBusy):
+            self._run(
+                _announcement(_transition(AlertEventKind.FIRING)),
+                self._chooses(DeliveryPath.HOG_FUNCTION),
+                groups=[HOG_FUNCTION_SLACK, SUBSCRIBER],
+                transport=HeldTransport,
+            )
+
+        assert self.emitted == []

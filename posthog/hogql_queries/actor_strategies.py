@@ -5,7 +5,7 @@ from typing import Literal, Optional, cast
 import orjson as json
 import structlog
 
-from posthog.schema import ActorsQuery, InsightActorsQuery, TrendsQuery
+from posthog.schema import ActorsQuery, HogQLQueryModifiers, InsightActorsQuery, TrendsQuery
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
@@ -34,11 +34,13 @@ class ActorStrategy:
         query: ActorsQuery,
         paginator: HogQLHasMorePaginator,
         user: User | None = None,
+        modifiers: HogQLQueryModifiers | None = None,
     ):
         self.team = team
         self.paginator = paginator
         self.query = query
         self.user = user
+        self.modifiers = modifiers
 
     def get_actors(self, actor_ids) -> dict[str, dict]:
         raise NotImplementedError()
@@ -310,6 +312,7 @@ class SessionStrategy(ActorStrategy):
             query=query,
             team=self.team,
             user=self.user,
+            modifiers=self.modifiers,
         )
 
         columns = response.columns or []

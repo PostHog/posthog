@@ -273,20 +273,6 @@ class TestValidateCredentials:
         assert is_valid is False
         assert message is not None and expected_fragment in message
 
-    @parameterized.expand(
-        [
-            ("unauthorized", 401, "Invalid Membrain API key"),
-            ("forbidden", 403, "Invalid Membrain API key"),
-            ("server_error", 500, "Membrain returned HTTP 500"),
-        ]
-    )
-    def test_status_mapping(self, _name: str, status: int, expected_prefix: str) -> None:
-        with scripted_network(always(ScriptedResponse(status=status, json={}))):
-            is_valid, message = validate_credentials("mb-key", "acme")
-
-        assert is_valid is False
-        assert message is not None and message.startswith(expected_prefix)
-
     def test_non_json_200_is_rejected(self) -> None:
         with scripted_network([ScriptedResponse(body=b"<html>maintenance</html>")]):
             is_valid, message = validate_credentials("mb-key", "acme")

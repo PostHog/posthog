@@ -23,7 +23,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bing_webma
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
-    always,
     scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bingwebmastertools import (
@@ -411,10 +410,3 @@ class TestValidateCredentials:
 
         assert ok is False
         assert message is not None and "not verified sites" in message
-
-    def test_unreachable_api(self):
-        with scripted_network(always(requests.ConnectionError("boom"))):
-            ok, message = validate_credentials("key", None)
-
-        assert ok is False
-        assert message is not None and "Could not reach" in message

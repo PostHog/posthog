@@ -4,7 +4,7 @@
 # To keep an operation off on purpose, set enabled: false and give a disabled_reason.
 category: Feature flags
 feature: flags
-url_prefix: /feature_flags
+url_prefix: /feature-flags
 ui_apps:
     feature-flag:
         type: detail

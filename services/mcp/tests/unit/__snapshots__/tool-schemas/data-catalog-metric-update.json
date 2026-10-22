@@ -35,7 +35,7 @@
             "description": "Machine-readable query. Omit for a name+description-only stub. Stored upgrade-canonical."
         },
         "description": {
-            "description": "What the number is, in 1-2 short sentences under 300 characters: its meaning and grain plus any inclusion or exclusion that changes it. Leave out source tables or views, lineage, column lists, and comparisons with other metrics. Never narrate the query - the definition carries the mechanics; put rationale for query choices in 'reasoning'.",
+            "description": "What the number is, in 1-2 short sentences under 300 characters: its meaning and grain plus any inclusion or exclusion that changes it. Leave out source tables or views, lineage, column lists, and comparisons with other metrics. Never narrate the query - the definition carries the mechanics; put the query's design decisions in 'reasoning'.",
             "maxLength": 300,
             "type": "string"
         },
@@ -54,7 +54,7 @@
             "type": "string"
         },
         "reasoning": {
-            "description": "AI author's reasoning, surfaced as review context.",
+            "description": "Why the definition is shaped this way, in 1-3 short sentences. Name the main design decisions and trade-offs: the source table or view, a filter or exclusion, the grain, an approximation. Leave out the use case, who asked, run results, validation figures, and edit history.",
             "type": "string"
         },
         "source_insight_short_id": {

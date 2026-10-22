@@ -111,6 +111,24 @@ describe('LiquidRenderer', () => {
             const result = LiquidRenderer.renderWithHogFunctionGlobals(template, globals)
             expect(result).toMatch(/^\d{8}$/)
         })
+
+        it.each([
+            ['{{ 1234.5 | currency: "USD" }}', '$1,234.50'],
+            ['{{ "500" | currency }}', '$500.00'],
+            ['{{ -20 | currency: "USD" }}', '-$20.00'],
+            ['{{ 1234.5 | currency: "EUR" }}', '€1,234.50'],
+            ['{{ 1234.5 | currency: "en-GB" }}', '£1,234.50'],
+            ['{{ 1234.5 | currency: "en", "EUR" }}', '€1,234.50'],
+            ['{{ 1234.5 | currency: "de-DE" }}', '1.234,50 €'],
+            ['{{ 10 | currency: "zz-QQ" }}', '10'],
+            ['{{ 10 | currency: "qxy-QQ", "USD" }}', '10'],
+            ['{{ 10 | currency: "en-us" }}', '$10.00'],
+            ['{{ missing | default: "ERROR" | currency: "USD" }}', 'ERROR'],
+            ['{{ missing | currency: "USD" }}', ''],
+            ['{{ 10 | currency: "not-a-code" }}', '10'],
+        ])('formats %s with the currency filter', (template, expected) => {
+            expect(LiquidRenderer.renderWithHogFunctionGlobals(template, globals)).toBe(expected)
+        })
     })
 
     describe('HTML decoding', () => {

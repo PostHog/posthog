@@ -55,7 +55,7 @@ class SteamSource(SimpleSource[SteamSourceConfig]):
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             keywords=["games", "gaming", "playtime"],
             label="Steam",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption=(
                 "Sync the games and playtime of a list of Steam players.\n\n"
                 "Create a key on the [Steam Web API key page](https://steamcommunity.com/dev/apikey). "

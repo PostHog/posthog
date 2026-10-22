@@ -27,6 +27,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     process_message,
     process_messages,
 )
+from products.warehouse_sources_queue.backend.core.jobs_db import UnfinishedEarlierBatches
 
 _PROCESSOR = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor"
 
@@ -135,7 +136,7 @@ class _Loader:
 
 
 @pytest.fixture(autouse=True)
-def _boundaries(settings: Any) -> Iterator[None]:
+def _boundaries(settings: Any, queue_database: str) -> Iterator[None]:
     settings.DATA_WAREHOUSE_APPEND_ROLLBACK_ENABLED = True
     with ExitStack() as stack:
         for target in (
@@ -148,7 +149,23 @@ def _boundaries(settings: Any) -> Iterator[None]:
         ):
             stack.enter_context(patch(f"{_PROCESSOR}.{target}"))
         stack.enter_context(patch(f"{_PROCESSOR}.is_batch_already_processed", return_value=False))
+        # The completion check reads the queue DB, whose tables only exist in suites that create
+        # them, so leaving it live makes this one order-dependent on whichever shard it lands in.
+        # Every run here hands over all of its batches, which is what count=0 stands for.
+        stack.enter_context(
+            patch(
+                f"{_PROCESSOR}.BatchQueue.get_unfinished_earlier_batches_sync",
+                return_value=UnfinishedEarlierBatches(count=0, first_batch_index=None, states=()),
+            )
+        )
         stack.enter_context(patch(f"{_PROCESSOR}.finish_row_tracking", new_callable=AsyncMock))
+        # The completion check reads the queue DB, which these tests do not have.
+        stack.enter_context(
+            patch(
+                f"{_PROCESSOR}.BatchQueue.get_unfinished_earlier_batches_sync",
+                return_value=UnfinishedEarlierBatches(count=0, first_batch_index=None, states=()),
+            )
+        )
         stack.enter_context(
             patch(
                 f"{_PROCESSOR}.run_post_load_operations",

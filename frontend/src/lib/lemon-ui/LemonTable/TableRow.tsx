@@ -17,6 +17,7 @@ export interface TableRowProps<T extends Record<string, any>> {
     rowRibbonColorDetermined: string | null | undefined
     rowStatusDetermined: 'highlighted' | 'highlight-new' | null | undefined
     columnGroups: LemonTableColumnGroup<T>[]
+    columnWindow?: { startIndex: number; paddingLeft: number; paddingRight: number }
     onRow: ((record: T, index: number) => Omit<HTMLProps<HTMLTableRowElement>, 'key'>) | undefined
     expandable: ExpandableConfig<T> | undefined
     firstColumnSticky: boolean | undefined
@@ -37,6 +38,7 @@ function TableRowRaw<T extends Record<string, any>>({
     rowRibbonColorDetermined,
     rowStatusDetermined,
     columnGroups,
+    columnWindow,
     onRow,
     expandable,
     firstColumnSticky,
@@ -109,6 +111,7 @@ function TableRowRaw<T extends Record<string, any>>({
                         )}
                     </td>
                 )}
+                {!!columnWindow?.paddingLeft && <td aria-hidden style={{ padding: 0, border: 0 }} />}
                 {columnGroups.flatMap((columnGroup, columnGroupIndex) =>
                     columnGroup.children
                         .filter((column) => !column.isHidden)
@@ -165,6 +168,7 @@ function TableRowRaw<T extends Record<string, any>>({
                             return (
                                 <td
                                     key={`col-${columnGroupIndex}-${columnKeyOrIndex}`}
+                                    aria-colindex={columnWindow ? columnWindow.startIndex + columnIndex + 1 : undefined}
                                     className={clsx(
                                         columnIndex === 0 && 'LemonTable__boundary',
                                         // Hold the value on one line, because a capped cell that wraps grows the row
@@ -193,6 +197,7 @@ function TableRowRaw<T extends Record<string, any>>({
                             )
                         })
                 )}
+                {!!columnWindow?.paddingRight && <td aria-hidden style={{ padding: 0, border: 0 }} />}
                 {rowActions && <td className="w-0">{rowActions(record, recordIndex)}</td>}
             </tr>
 

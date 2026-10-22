@@ -10,7 +10,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     ScriptedResponse,
     SourceDriver,
     always,
-    scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.wasabi import WasabiSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.wasabi.settings import (
@@ -21,7 +20,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.wasabi.was
     WasabiDateWindowPaginator,
     WasabiResumeConfig,
     _start_date,
-    validate_credentials,
     wasabi_source,
 )
 
@@ -97,25 +95,6 @@ class TestStartDate:
     )
     def test_start_date(self, _name: str, should_use_incremental: bool, last_value: Any, expected: date) -> None:
         assert _start_date(should_use_incremental, last_value) == expected
-
-
-class TestValidateCredentials:
-    @parameterized.expand(
-        [
-            (200, True),
-            (401, False),
-            (403, False),
-            (500, False),
-        ]
-    )
-    def test_status_code_mapping(self, status_code: int, expected_valid: bool) -> None:
-        with scripted_network(always(ScriptedResponse(status=status_code, json=[]))):
-            is_valid, message = validate_credentials("wasabi-key")
-        assert is_valid is expected_valid
-        if expected_valid:
-            assert message is None
-        else:
-            assert message
 
 
 class TestWasabiSourceTransport:

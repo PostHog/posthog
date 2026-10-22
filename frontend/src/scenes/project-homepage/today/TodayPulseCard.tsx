@@ -1,6 +1,6 @@
 import { useState } from 'react'
 
-import { IconArrowRight, IconInfo } from '@posthog/icons'
+import { IconArrowRight, IconInfo, IconPin, IconPinFilled } from '@posthog/icons'
 import {
     Button,
     Collapsible,
@@ -33,7 +33,7 @@ const PERIOD_FORMATS: Record<HighlightMetricApi['interval'], string> = {
 }
 
 function openLabel(metric: HighlightMetricApi): string {
-    if (metric.reason === 'dashboard') {
+    if (metric.dashboard_id !== null || metric.reason === 'dashboard') {
         return metric.dashboard_name ? `Open ${metric.dashboard_name}` : 'Open dashboard'
     }
     return metric.key.startsWith('insight:') ? 'Open insight' : 'Open as a trend'
@@ -44,16 +44,22 @@ export function TodayPulseCard({
     tone,
     formatValue,
     onOpen,
+    pinned,
+    pinDisabledReason,
+    onTogglePin,
 }: {
     metric: HighlightMetricApi
     tone: TodayTone
     formatValue: (value: number) => string
     onOpen: () => void
+    pinned: boolean
+    pinDisabledReason?: string
+    onTogglePin: () => void
 }): JSX.Element {
     const [whyOpen, setWhyOpen] = useState(false)
     const previous = metric.previous_value
     const peak = pulsePeak(metric)
-    const why = pulseWhy(metric)
+    const why = pinned ? 'You keep this number on your home. Change it with Edit.' : pulseWhy(metric)
     return (
         <div className="flex flex-col gap-3 p-3" data-attr="today-pulse-card">
             <div className="flex flex-col gap-0.5">
@@ -122,23 +128,37 @@ export function TodayPulseCard({
                     ) : (
                         <span />
                     )}
-                    {why && (
-                        <Tooltip>
-                            <TooltipTrigger
-                                render={
-                                    <CollapsibleTrigger
-                                        iconOnly
-                                        icon={<IconInfo />}
-                                        className="-me-1.5 text-muted-foreground"
-                                        data-attr="today-pulse-card-why"
-                                    />
-                                }
-                            >
-                                Why you see this
-                            </TooltipTrigger>
-                            <TooltipContent>Why you see this</TooltipContent>
-                        </Tooltip>
-                    )}
+                    <div className="-me-1.5 flex items-center">
+                        <Button
+                            size="icon-xs"
+                            aria-label={pinned ? 'Unpin from your home' : 'Pin to your home'}
+                            tooltip={pinned ? 'Unpin from your home' : 'Pin to your home'}
+                            aria-pressed={pinned}
+                            disabledReason={pinDisabledReason}
+                            onClick={onTogglePin}
+                            className={pinned ? undefined : 'text-muted-foreground'}
+                            data-attr="today-pulse-card-pin"
+                        >
+                            {pinned ? <IconPinFilled /> : <IconPin />}
+                        </Button>
+                        {why && (
+                            <Tooltip>
+                                <TooltipTrigger
+                                    render={
+                                        <CollapsibleTrigger
+                                            iconOnly
+                                            icon={<IconInfo />}
+                                            className="text-muted-foreground"
+                                            data-attr="today-pulse-card-why"
+                                        />
+                                    }
+                                >
+                                    Why you see this
+                                </TooltipTrigger>
+                                <TooltipContent>Why you see this</TooltipContent>
+                            </Tooltip>
+                        )}
+                    </div>
                 </div>
                 {why && (
                     <CollapsibleContent className="px-0 pb-0">

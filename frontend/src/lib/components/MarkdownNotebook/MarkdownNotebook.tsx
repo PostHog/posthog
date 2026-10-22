@@ -27,6 +27,7 @@ import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { findMountedCodeEditorWithin } from 'lib/monaco/mountedCodeEditors'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { downloadFile, isMac, uuid } from 'lib/utils/dom'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 
@@ -204,6 +205,7 @@ import {
     serializeMarkdownNotebook,
 } from './markdown'
 import { NOTEBOOK_AI_WRITING_PLACEHOLDER } from './notebookAI'
+import { installNotebookTextSelection } from './notebookTextSelection'
 import {
     NotebookOperation,
     applyNotebookOperations,
@@ -3243,6 +3245,12 @@ function MarkdownNotebookEditor({
 
     useEffect(() => clearFloatingToolbarRevealTimeout, [clearFloatingToolbarRevealTimeout])
 
+    useEffect(() => {
+        if (mode === 'edit' && canvasRef.current) {
+            return installNotebookTextSelection(canvasRef.current)
+        }
+    }, [mode])
+
     const updateSelectedComponentBlocksFromSelection = useCallback((): void => {
         const nextSelectedComponentNodeIds =
             mode === 'edit'
@@ -3520,6 +3528,12 @@ function MarkdownNotebookEditor({
         writeSystemClipboardText(markdown)
     }
 
+    const copyComponentNode = (componentNode: NotebookComponentBlockNode): void => {
+        const markdown = serializeNotebookNodes([componentNode])
+        notebookClipboardMarkdownRef.current = markdown
+        void copyToClipboard(markdown, 'block')
+    }
+
     const pasteNotebookClipboardAfterNode = (nodeId: string): void => {
         const fallbackMarkdown = notebookClipboardMarkdownRef.current
         const pasteMarkdown = (markdown: string | null): void => {
@@ -3534,8 +3548,32 @@ function MarkdownNotebookEditor({
         void readSystemClipboardText().then(pasteMarkdown)
     }
 
+    const getJupyterClipboardCell = (target: EventTarget | null): NotebookJupyterCell | null => {
+        if (!jupyterMode || mode !== 'edit' || !window.getSelection()?.isCollapsed) {
+            return null
+        }
+        if (target === jupyterCommandSinkRef.current) {
+            return findJupyterCell(jupyterStore.getState().activeCellId)
+        }
+        const component = getFocusedComponentNode(
+            target instanceof Element ? target : null,
+            documentRef.current.nodes,
+            blockRefs.current
+        )
+        return component ? findJupyterCell(component.id) : null
+    }
+
     const handleCopy = (event: ReactClipboardEvent<HTMLDivElement>): void => {
         if (event.target instanceof HTMLElement && isNativeEditableElement(event.target)) {
+            return
+        }
+
+        const cell = getJupyterClipboardCell(event.target)
+        if (cell) {
+            const targets = getJupyterTargetCells(cell)
+            const markdown = copyJupyterCells(targets)
+            event.preventDefault()
+            setClipboardMarkdown(event.clipboardData, markdown)
             return
         }
 
@@ -3576,6 +3614,16 @@ function MarkdownNotebookEditor({
 
     const handleCut = (event: ReactClipboardEvent<HTMLDivElement>): void => {
         if (mode !== 'edit' || (event.target instanceof HTMLElement && isNativeEditableElement(event.target))) {
+            return
+        }
+
+        const cell = getJupyterClipboardCell(event.target)
+        if (cell) {
+            const targets = getJupyterTargetCells(cell)
+            const markdown = copyJupyterCells(targets)
+            event.preventDefault()
+            setClipboardMarkdown(event.clipboardData, markdown)
+            deleteJupyterCells(targets)
             return
         }
 
@@ -3661,6 +3709,17 @@ function MarkdownNotebookEditor({
                 insertExternalNodesAtBoundary(result, boundaryIndex)
                 return
             }
+        }
+
+        const cell = getJupyterClipboardCell(event.target)
+        if (cell) {
+            const markdown = getClipboardMarkdown(event.clipboardData)
+            if (markdown) {
+                event.preventDefault()
+                event.stopPropagation()
+                insertJupyterNodesAt(cell.endIndex + 1, copyJupyterNodes(markdown), 'command')
+            }
+            return
         }
 
         const targetComponentNode = getFocusedComponentNode(event.target, documentRef.current.nodes, blockRefs.current)
@@ -5063,6 +5122,10 @@ function MarkdownNotebookEditor({
         }
 
         const key = event.key.toLowerCase()
+        // Native clipboard events carry both markdown and plain text and work without async clipboard permissions.
+        if (!event.shiftKey && ['c', 'x', 'v'].includes(key) && getJupyterClipboardCell(event.target)) {
+            return
+        }
         const inlineMarkShortcuts: Partial<Record<string, NotebookInlineMark['type']>> = {
             b: 'bold',
             i: 'italic',
@@ -5653,11 +5716,12 @@ function MarkdownNotebookEditor({
         }
     }
 
-    const copyJupyterCells = (targets: NotebookJupyterCell[]): void => {
+    const copyJupyterCells = (targets: NotebookJupyterCell[]): string => {
         const nodes = getNotebookNodes()
         jupyterStore.clipboard = serializeJupyterNodes(
             targets.flatMap((cell) => nodes.slice(cell.startIndex, cell.endIndex + 1))
         )
+        return jupyterStore.clipboard
     }
 
     const pasteJupyterCells = (cell: NotebookJupyterCell, position: 'above' | 'below'): void => {
@@ -7034,6 +7098,8 @@ function MarkdownNotebookEditor({
                         ? () => openBtw(serializeMarkdownNotebook({ ...documentRef.current, nodes: [node] }))
                         : undefined,
                     askAIDisabledReason,
+                    // Shared renders have no editor to paste into, matching the legacy notebook's `!isShared` gate.
+                    copyNode: hideResourceLinks ? undefined : copyComponentNode,
                     deleteNode: () => deleteNodeWithRefCleanup(node.id),
                     deleteNodeAndFocusAdjacent: () => {
                         requestFocusAfterRemovingNode(node.id)

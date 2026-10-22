@@ -7,6 +7,11 @@ _COMPANY_DOCS_URL = (
     "https://support.gainsight.com/gainsight_nxt/API_and_Developer_Docs/Company_and_Relationship_API/"
     "Company_API_Documentation"
 )
+_CTA_DOCS_URL = (
+    "https://support.gainsight.com/gainsight_nxt/API_and_Developer_Docs/Cockpit_API/"
+    "Call_To_Action_(CTA)_API_Documentation"
+)
+_TASK_DOCS_URL = "https://support.gainsight.com/gainsight_nxt/API_and_Developer_Docs/Cockpit_API/Task_APIs"
 _TIMELINE_DOCS_URL = "https://support.gainsight.com/gainsight_nxt/API_and_Developer_Docs/Timeline_API/Timeline_APIs"
 
 # Curated from the Gainsight NXT API docs. Each tenant adds its own custom fields on top of these,
@@ -90,5 +95,35 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "description": "Log of emails sent from Gainsight.",
         "docs_url": _DOCS_URL,
         "columns": _SHARED_COLUMNS,
+    },
+    "cta_configuration": {
+        "description": "Company and global CTA picklist values: the types, statuses, priorities, and reasons a Call to Action can take.",
+        "docs_url": _CTA_DOCS_URL,
+        "columns": {
+            "gsid": "Unique Gainsight identifier for the picklist value. Matches the type, status, priority, and reason ids on CTAs.",
+            "name": "Label shown for the picklist value.",
+            "active": "Whether the picklist value is active.",
+            "entityType": "Entity the value applies to, such as GLOBAL or COMPANY.",
+            "picklistCategory": "Picklist the value belongs to: CTA_TYPE, CTA_STATUS, CTA_PRIORITY, or CTA_REASON.",
+            "typeId": "Gainsight identifier of the CTA type the value applies to.",
+            "typeName": "Name of the CTA type the value applies to.",
+        },
+    },
+    "cta_task": {
+        "description": "Tasks attached to Calls to Action, with their owners, due dates, and completion state.",
+        "docs_url": _TASK_DOCS_URL,
+        "columns": {
+            "Gsid": "Unique Gainsight identifier for the task.",
+            "CtaId": "Gainsight identifier of the CTA the task belongs to.",
+            "Name": "Task name.",
+            "DueDate": "Date the task is due.",
+            "ClosedDate": "Date the task was closed.",
+            "IsClosed": "Whether the task is closed.",
+            "CtaId__gr.Name": "Name of the CTA the task belongs to.",
+            "OwnerId__gr.Name": "Name of the user who owns the task.",
+            "PriorityId__gr.Name": "Task priority.",
+            "StatusId__gr.Name": "Task status.",
+            "TypeId__gr.Name": "Task type.",
+        },
     },
 }

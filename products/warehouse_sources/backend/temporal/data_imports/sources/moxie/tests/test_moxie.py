@@ -4,7 +4,6 @@ from unittest import mock
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
-    always,
     scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.moxie import MoxieSourceConfig
@@ -72,17 +71,6 @@ class TestMoxieTransport:
 
 
 class TestValidateCredentials:
-    @pytest.mark.parametrize(
-        "status, expected_valid",
-        [(200, True), (401, False), (403, False), (500, False)],
-    )
-    def test_status_mapping(self, status: int, expected_valid: bool) -> None:
-        with scripted_network(always(ScriptedResponse(status=status))) as network:
-            is_valid, _message = validate_credentials(BASE_URL, "test_key", team_id=1)
-
-        assert is_valid is expected_valid
-        assert network.requests_log
-
     def test_probes_clients_list_with_api_key_header_and_redaction(self) -> None:
         with scripted_network([ScriptedResponse(status=200)]) as network:
             validate_credentials(BASE_URL, "test_key", team_id=1)

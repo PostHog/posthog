@@ -1,6 +1,6 @@
 import re
 import dataclasses
-from collections.abc import Iterator, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
@@ -16,21 +16,27 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.htt
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.instagram.settings import (
-    ACCOUNT_INSIGHT_METRICS,
     ACCOUNT_INSIGHTS_WINDOW_DAYS,
     DEFAULT_INSIGHTS_LOOKBACK_DAYS,
     DEFAULT_MEDIA_INSIGHT_METRICS,
+    ENDPOINTS_REREAD_EVERY_SYNC,
     GRAPH_API_HOST,
     INSTAGRAM_ENDPOINTS,
     MAX_INSIGHTS_LOOKBACK_DAYS,
+    MEDIA_FIELDS,
+    MEDIA_INSIGHT_BREAKDOWNS,
     MEDIA_INSIGHT_METRICS,
+    MEDIA_PAGE_SAFE_FIELDS,
     MEDIA_PARENT_FIELDS,
+    MEDIA_REFUSABLE_FIELDS,
     PAGE_FIELDS,
     PAGE_SIZE,
+    TOP_LEVEL_COMMENT_FIELDS,
     InstagramEndpointConfig,
 )
 
 REQUEST_TIMEOUT_SECONDS = 60
+DAY_SECONDS = 24 * 60 * 60
 MAX_RETRY_ATTEMPTS = 5
 
 # Instagram account node IDs are plain integers. Anything else spliced into the Graph path
@@ -71,6 +77,9 @@ META_AUTH_ERROR_CODES = frozenset({102, 190, 458, 459, 460, 463, 464, 467})
 META_THROTTLE_ERROR_CODES = frozenset({4, 17, 32, 613})
 META_TRANSIENT_ERROR_CODES = frozenset({1, 2})
 META_PERMISSION_ERROR_CODE = 10
+# Meta error code 9005, "Video content was not found": a media page asks a video post that Meta can
+# no longer find for one of `MEDIA_REFUSABLE_FIELDS`.
+META_VIDEO_NOT_FOUND_ERROR_CODE = 9005
 
 
 class InstagramAPIError(Exception):
@@ -90,7 +99,9 @@ class InstagramPermissionError(InstagramAPIError):
 
 
 class InstagramBadRequestError(InstagramAPIError):
-    pass
+    def __init__(self, message: str, code: Any = None) -> None:
+        super().__init__(message)
+        self.code = code
 
 
 class InstagramRequestBudgetError(InstagramAPIError):
@@ -103,6 +114,17 @@ class InstagramResumeConfig:
     # fan-out, and the per-metric insight windows — checkpoints as a URL, so one field
     # covers all of them.
     next_url: str
+
+
+@dataclasses.dataclass(frozen=True)
+class _InsightRequest:
+    metric: str
+    url: str
+    # End of the one-day span for a `total_value` request, which carries no `end_time` of
+    # its own. None for a time series, whose points each name their day.
+    day_end: Optional[int] = None
+    # Dimension Meta splits the `total_value` by. None for an unsplit metric.
+    breakdown: Optional[str] = None
 
 
 def _is_permission_code(code: Any) -> bool:
@@ -303,13 +325,14 @@ class InstagramClient:
             raise InstagramPermissionError(f"{PERMISSION_ERROR_PREFIX}: {detail}")
 
         self._logger.error(f"Instagram API error: {detail}")
-        raise InstagramBadRequestError(f"Instagram API error: {detail}")
+        raise InstagramBadRequestError(f"Instagram API error: {detail}", code=code)
 
 
 def _iter_pages(
     client: InstagramClient,
     url: str,
     max_pages: int,
+    get: Optional[Callable[[str], dict[str, Any]]] = None,
 ) -> Iterator[tuple[list[dict[str, Any]], Optional[str]]]:
     """Yield `(rows, next_url)` per page of a cursor-paginated edge.
 
@@ -320,7 +343,7 @@ def _iter_pages(
     pages = 0
     current: Optional[str] = url
     while current is not None and pages < max_pages and client.has_request_budget():
-        body = client.get(current)
+        body = (get or client.get)(current)
         rows = body.get("data")
         rows = rows if isinstance(rows, list) else []
         paging = body.get("paging") or {}
@@ -358,6 +381,40 @@ def _insight_points(entry: dict[str, Any]) -> list[dict[str, Any]]:
     return []
 
 
+def _media_page(client: InstagramClient, url: str, logger: FilteringBoundLogger) -> dict[str, Any]:
+    """Read one page of the media edge, reading it again without the refusable fields if Meta refuses it.
+
+    Each post on a refused page then reads the refusable fields on its own, so only the post Meta
+    cannot serve keeps them empty. The next page asks for every field again.
+    """
+    try:
+        return client.get(url)
+    except InstagramBadRequestError as error:
+        if error.code != META_VIDEO_NOT_FOUND_ERROR_CODE:
+            raise
+        logger.warning(f"Instagram: re-reading a media page without its refusable fields: {error}")
+
+    body = client.get(_with_query_param(url, "fields", MEDIA_PAGE_SAFE_FIELDS))
+    rows = body.get("data")
+    for row in rows if isinstance(rows, list) else []:
+        if not isinstance(row, dict) or not row.get("id"):
+            continue
+        if not client.has_request_budget():
+            # Without a cursor the checkpoint stays on this page, so a resumed attempt reads it again.
+            body.pop("paging", None)
+            break
+        media_id = str(row["id"])
+        try:
+            extra = client.get(client.build_url(media_id, {"fields": MEDIA_REFUSABLE_FIELDS}))
+        except InstagramBadRequestError as error:
+            if error.code != META_VIDEO_NOT_FOUND_ERROR_CODE:
+                raise
+            logger.warning(f"Instagram: skipping refusable fields for media {media_id}: {error}")
+            continue
+        row.update({name: value for name, value in extra.items() if name != "id"})
+    return body
+
+
 def _media_rows(
     client: InstagramClient,
     instagram_account_id: str,
@@ -375,7 +432,8 @@ def _media_rows(
         _account_path(instagram_account_id, config.edge), params
     )
 
-    for rows, next_url in _iter_pages(client, url, MAX_PAGES_PER_STREAM):
+    get_page = (lambda page_url: _media_page(client, page_url, logger)) if config.fields == MEDIA_FIELDS else None
+    for rows, next_url in _iter_pages(client, url, MAX_PAGES_PER_STREAM, get=get_page):
         if rows:
             yield [_normalize_row(row, config.timestamp_fields) for row in rows]
         # Checkpoint after the yield: a crash then re-yields the last page instead of
@@ -423,7 +481,9 @@ def _fanout_rows(
                 # posts whose children were never fetched.
                 return
 
-            if config.child_edge == "insights":
+            if config.name == "media_insights_breakdowns":
+                rows = _media_insight_breakdown_rows(client, media, logger)
+            elif config.child_edge == "insights":
                 rows = _media_insight_rows(client, media, logger)
             else:
                 rows = _media_comment_rows(client, media, config, logger)
@@ -442,12 +502,22 @@ def _media_comment_rows(
     logger: FilteringBoundLogger,
 ) -> list[dict[str, Any]]:
     media_id = str(media["id"])
-    url = client.build_url(f"{media_id}/comments", {"fields": config.fields, "limit": str(PAGE_SIZE)})
+    url = client.build_url(f"{media_id}/comments", {"fields": TOP_LEVEL_COMMENT_FIELDS, "limit": str(PAGE_SIZE)})
 
     rows: list[dict[str, Any]] = []
     try:
         for page, _ in _iter_pages(client, url, MAX_PAGES_PER_PARENT):
-            rows.extend(_normalize_row({**comment, "media_id": media_id}, config.timestamp_fields) for comment in page)
+            for comment in page:
+                replies = comment.pop("replies", None)
+                rows.append(_normalize_row({**comment, "media_id": media_id}, config.timestamp_fields))
+                comment_id = comment.get("id")
+                if comment_id and isinstance(replies, dict):
+                    rows.extend(
+                        _normalize_row(
+                            {**reply, "media_id": media_id, "parent_id": str(comment_id)}, config.timestamp_fields
+                        )
+                        for reply in _comment_replies(client, str(comment_id), replies, config)
+                    )
     except InstagramBadRequestError as error:
         # Comments are disabled or the post was deleted mid-sync. Neither is fixable by
         # retrying and neither should sink the whole table.
@@ -455,6 +525,28 @@ def _media_comment_rows(
         return []
 
     return rows
+
+
+def _comment_replies(
+    client: InstagramClient,
+    comment_id: str,
+    first_page: dict[str, Any],
+    config: InstagramEndpointConfig,
+) -> Iterator[dict[str, Any]]:
+    """Yield every reply in a thread, starting from the page expanded inline on the comment."""
+    replies = first_page.get("data")
+    yield from (reply for reply in (replies if isinstance(replies, list) else []) if isinstance(reply, dict))
+
+    paging = first_page.get("paging") or {}
+    after = (paging.get("cursors") or {}).get("after")
+    if not (paging.get("next") and after):
+        return
+
+    url = client.build_url(
+        f"{comment_id}/replies", {"fields": config.fields, "limit": str(PAGE_SIZE), "after": str(after)}
+    )
+    for page, _ in _iter_pages(client, url, MAX_PAGES_PER_PARENT):
+        yield from page
 
 
 def _media_insight_rows(
@@ -501,12 +593,73 @@ def _media_insight_rows(
     return rows
 
 
+def _media_insight_breakdown_rows(
+    client: InstagramClient,
+    media: dict[str, Any],
+    logger: FilteringBoundLogger,
+) -> list[dict[str, Any]]:
+    media_id = str(media["id"])
+    product_type = str(media.get("media_product_type") or "")
+    media_timestamp = _normalize_timestamp(media.get("timestamp"))
+
+    rows: list[dict[str, Any]] = []
+    for metric, breakdown in MEDIA_INSIGHT_BREAKDOWNS.get(product_type, ()):
+        if not client.has_request_budget():
+            break
+
+        url = client.build_url(f"{media_id}/insights", {"metric": metric, "breakdown": breakdown})
+        try:
+            body = client.get(url)
+        except InstagramBadRequestError as error:
+            # Meta refuses some breakdowns on old or deleted posts. Skip this pair only.
+            logger.warning(f"Instagram: skipping {metric} by {breakdown} for media {media_id}: {error}")
+            continue
+
+        entries = body.get("data")
+        for entry in entries if isinstance(entries, list) else []:
+            if not isinstance(entry, dict):
+                continue
+            for breakdown_value, value in _breakdown_points(entry):
+                rows.append(
+                    {
+                        "media_id": media_id,
+                        "media_timestamp": media_timestamp,
+                        "media_product_type": product_type or None,
+                        "metric": entry.get("name") or metric,
+                        "breakdown": breakdown,
+                        "breakdown_value": breakdown_value,
+                        "period": entry.get("period"),
+                        "title": entry.get("title"),
+                        "description": entry.get("description"),
+                        "value": value,
+                    }
+                )
+
+    return rows
+
+
+def _breakdown_points(entry: dict[str, Any]) -> list[tuple[str, Any]]:
+    """Flatten `total_value.breakdowns[].results[]` into `(breakdown_value, value)` pairs."""
+    total_value = entry.get("total_value")
+    breakdowns = total_value.get("breakdowns") if isinstance(total_value, dict) else None
+
+    points: list[tuple[str, Any]] = []
+    for breakdown_set in breakdowns if isinstance(breakdowns, list) else []:
+        results = breakdown_set.get("results") if isinstance(breakdown_set, dict) else None
+        for result in results if isinstance(results, list) else []:
+            dimension_values = result.get("dimension_values") if isinstance(result, dict) else None
+            # Each request names one breakdown, so each result has one dimension value.
+            if isinstance(dimension_values, list) and dimension_values:
+                points.append((str(dimension_values[0]), result.get("value")))
+    return points
+
+
 def _insight_windows(since: int, until: int, window_days: int = ACCOUNT_INSIGHTS_WINDOW_DAYS) -> list[tuple[int, int]]:
     """Split a range into windows Meta will accept (it rejects spans over 30 days)."""
     if until <= since:
         return []
 
-    step = window_days * 24 * 60 * 60
+    step = window_days * DAY_SECONDS
     windows: list[tuple[int, int]] = []
     start = since
     while start < until:
@@ -519,38 +672,111 @@ def _insight_windows(since: int, until: int, window_days: int = ACCOUNT_INSIGHTS
 def _account_insight_plan(
     client: InstagramClient,
     instagram_account_id: str,
+    config: InstagramEndpointConfig,
     since: int,
     until: int,
-) -> list[list[tuple[str, str]]]:
-    """Build the request plan as one `(metric, url)` group per time window.
+) -> list[list[_InsightRequest]]:
+    """Build the request plan as one group of requests per time window.
 
     Window-major, not metric-major: every metric for a window is fetched together so the
     rows for that window can be emitted in date order. Walking metric by metric instead
     would rewind the stream to the start of the range on each new metric, which breaks
     the ascending watermark the pipeline checkpoints after every batch.
+
+    A window opens with its time series requests, then one `total_value` request per
+    metric for each complete day in the window. A day that has not ended yet is left
+    for the next sync.
     """
     path = _account_path(instagram_account_id, "insights")
-    plan: list[list[tuple[str, str]]] = []
+    plan: list[list[_InsightRequest]] = []
     for window_since, window_until in _insight_windows(since, until):
-        plan.append(
-            [
-                (
-                    metric,
-                    client.build_url(
+        window = [
+            _InsightRequest(
+                metric=metric,
+                url=client.build_url(
+                    path,
+                    {
+                        "metric": metric,
+                        "period": "day",
+                        "metric_type": "time_series",
+                        "since": str(window_since),
+                        "until": str(window_until),
+                    },
+                ),
+            )
+            for metric in config.insight_time_series_metrics
+        ]
+        day_start = window_since
+        while day_start + DAY_SECONDS <= window_until:
+            day_end = day_start + DAY_SECONDS
+            window.extend(
+                _InsightRequest(
+                    metric=metric,
+                    url=client.build_url(
                         path,
                         {
                             "metric": metric,
                             "period": "day",
-                            "metric_type": "time_series",
-                            "since": str(window_since),
-                            "until": str(window_until),
+                            "metric_type": "total_value",
+                            **({"breakdown": breakdown} if breakdown else {}),
+                            "since": str(day_start),
+                            "until": str(day_end),
                         },
                     ),
+                    day_end=day_end,
+                    breakdown=breakdown,
                 )
-                for metric in ACCOUNT_INSIGHT_METRICS
-            ]
-        )
+                for metric, breakdown in config.insight_total_value_metrics
+            )
+            day_start = day_end
+        # A trailing window shorter than a day has no requests when there is no time series.
+        if window:
+            plan.append(window)
     return plan
+
+
+def _insight_row(
+    instagram_account_id: str, request: _InsightRequest, entry: dict[str, Any], day: str, value: Any, **extra: Any
+) -> dict[str, Any]:
+    return {
+        "instagram_account_id": instagram_account_id,
+        "metric": entry.get("name") or request.metric,
+        **extra,
+        "period": entry.get("period"),
+        "date": day,
+        "value": value,
+        "title": entry.get("title"),
+        "description": entry.get("description"),
+    }
+
+
+def _breakdown_rows(instagram_account_id: str, request: _InsightRequest, entry: dict[str, Any]) -> list[dict[str, Any]]:
+    """One row per breakdown value in a `total_value` entry requested with a `breakdown`."""
+    total_value = entry.get("total_value")
+    if not isinstance(total_value, dict) or request.day_end is None:
+        return []
+    breakdowns = total_value.get("breakdowns")
+    day = datetime.fromtimestamp(request.day_end, UTC).isoformat()
+
+    rows: list[dict[str, Any]] = []
+    for breakdown in breakdowns if isinstance(breakdowns, list) else []:
+        results = breakdown.get("results") if isinstance(breakdown, dict) else None
+        for result in results if isinstance(results, list) else []:
+            dimension_values = result.get("dimension_values") if isinstance(result, dict) else None
+            if not isinstance(dimension_values, list) or not dimension_values:
+                continue
+            rows.append(
+                _insight_row(
+                    instagram_account_id,
+                    request,
+                    entry,
+                    day,
+                    result.get("value"),
+                    breakdown=request.breakdown,
+                    breakdown_value=",".join(str(value) for value in dimension_values),
+                )
+            )
+    return rows
 
 
 def _account_insight_rows(
@@ -571,53 +797,61 @@ def _account_insight_rows(
         if since is not None
         else int((now - timedelta(days=DEFAULT_INSIGHTS_LOOKBACK_DAYS)).timestamp())
     )
+    # Start on a UTC day boundary so each `total_value` request covers one whole day. Step
+    # back one more day: a `reach` point can move the watermark into a day whose totals
+    # this table does not have yet.
+    start = start - start % DAY_SECONDS - DAY_SECONDS
 
-    plan = _account_insight_plan(client, instagram_account_id, start, until)
+    plan = _account_insight_plan(client, instagram_account_id, config, start, until)
 
     resume_url = _resume_url(resumable_source_manager, logger, config.name)
     if resume_url is not None:
-        # A window is identified by the URL of its first metric.
-        heads = [window[0][1] for window in plan]
+        # A window is identified by the URL of its first request.
+        heads = [window[0].url for window in plan]
         if resume_url in heads:
             plan = plan[heads.index(resume_url) :]
         else:
-            logger.warning("Instagram: saved account_insights checkpoint is outside this run's window, restarting")
+            logger.warning(f"Instagram: saved {config.name} checkpoint is outside this run's window, restarting")
+
+    # A metric Meta rejects once is rejected for every day, so stop asking for it.
+    rejected_metrics: set[str] = set()
 
     for index, window in enumerate(plan):
-        if not client.has_request_budget():
-            # The checkpoint saved by the previous window already points here, so a resumed
-            # attempt carries on from this window rather than replaying the whole range.
-            return
-
         rows: list[dict[str, Any]] = []
-        for metric, url in window:
+        for request in window:
+            if request.metric in rejected_metrics:
+                continue
+            if not client.has_request_budget():
+                # Drop the part of the window fetched so far: emitting it would move the
+                # watermark past days that are missing other metrics. The checkpoint saved
+                # by the previous window already points here, so a resumed attempt fetches
+                # this window again.
+                return
             try:
-                body = client.get(url)
+                body = client.get(request.url)
             except (InstagramBadRequestError, InstagramPermissionError) as error:
                 # `impressions` was retired in v22.0 and Meta rejects the whole request
                 # for a metric the account can't serve. Drop the metric, keep the window.
-                logger.warning(f"Instagram: skipping account insight metric '{metric}': {error}")
+                logger.warning(f"Instagram: skipping account insight metric '{request.metric}': {error}")
+                rejected_metrics.add(request.metric)
                 continue
 
             entries = body.get("data")
             entries = entries if isinstance(entries, list) else []
 
             for entry in entries:
+                if request.breakdown is not None:
+                    rows.extend(_breakdown_rows(instagram_account_id, request, entry))
+                    continue
                 for point in _insight_points(entry):
                     end_time = point.get("end_time")
-                    if end_time is None:
+                    if end_time is not None:
+                        day = _normalize_timestamp(end_time)
+                    elif request.day_end is not None:
+                        day = datetime.fromtimestamp(request.day_end, UTC).isoformat()
+                    else:
                         continue
-                    rows.append(
-                        {
-                            "instagram_account_id": instagram_account_id,
-                            "metric": entry.get("name") or metric,
-                            "period": entry.get("period"),
-                            "date": _normalize_timestamp(end_time),
-                            "value": point.get("value"),
-                            "title": entry.get("title"),
-                            "description": entry.get("description"),
-                        }
-                    )
+                    rows.append(_insight_row(instagram_account_id, request, entry, day, point.get("value")))
 
         if rows:
             # Sorted so the batch is genuinely ascending by date, which is what
@@ -627,7 +861,7 @@ def _account_insight_rows(
 
         next_index = index + 1
         if next_index < len(plan):
-            resumable_source_manager.save_state(InstagramResumeConfig(next_url=plan[next_index][0][1]))
+            resumable_source_manager.save_state(InstagramResumeConfig(next_url=plan[next_index][0].url))
 
 
 def _resume_url(
@@ -746,14 +980,18 @@ def get_rows(
 
     since: Optional[int] = None
     if config.supports_time_window:
-        if should_use_incremental_field and db_incremental_field_last_value is not None:
+        if (
+            should_use_incremental_field
+            and db_incremental_field_last_value is not None
+            and endpoint not in ENDPOINTS_REREAD_EVERY_SYNC
+        ):
             since = _to_unix_seconds(db_incremental_field_last_value)
         if since is None:
             since = _to_unix_seconds(start_date)
 
     if endpoint == "account":
         yield from _account_row(client, instagram_account_id, config)
-    elif endpoint == "account_insights":
+    elif config.edge == "insights":
         yield from _account_insight_rows(
             client=client,
             instagram_account_id=instagram_account_id,

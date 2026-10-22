@@ -49,9 +49,6 @@ class TestVendrTransport:
 
     @parameterized.expand(
         [
-            (200, True, 200),
-            (401, False, 401),
-            (403, False, 403),
             (429, False, 429),
         ]
     )

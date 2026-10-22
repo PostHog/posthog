@@ -26,7 +26,7 @@ const getRelatedObjectDescription = (context: any, preposition?: 'to' | 'from'):
     }
 
     const objectType = context.related_object_type
-    const objectTypeDisplayName = objectType.replace(/_/g, ' ')
+    const objectTypeDisplayName = objectType === 'hog_flow' ? 'workflow' : objectType.replace(/_/g, ' ')
     const objectId = context.related_object_id
     let objectName = context.related_object_name || `${objectType} ${objectId}`
 
@@ -83,6 +83,12 @@ const getRelatedObjectDescription = (context: any, preposition?: 'to' | 'from'):
             case 'experiment_saved_metric':
                 return (
                     <Link to={urls.experimentsSharedMetric(objectId)}>
+                        <strong>{displayName}</strong>
+                    </Link>
+                )
+            case 'hog_flow':
+                return (
+                    <Link to={urls.workflow(objectId, 'workflow')}>
                         <strong>{displayName}</strong>
                     </Link>
                 )

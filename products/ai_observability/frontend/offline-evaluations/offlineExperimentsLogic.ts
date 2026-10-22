@@ -447,6 +447,8 @@ export const offlineExperimentsLogic: LogicWrapper<offlineExperimentsLogicType> 
             (s) => [s.filters],
             (filters: OfflineExperimentFilters): OfflineOverviewTrendFilters => ({
                 run_source: filters.run_source,
+                created_by: filters.created_by,
+                created_by_is_null: filters.created_by_is_null,
                 statuses: filters.statuses || OFFLINE_ALL_UPLOAD_STATES,
                 tags: JSON.stringify(filters.tags || []),
                 tag_match: filters.tag_match || 'any',
@@ -494,6 +496,8 @@ export const offlineExperimentsLogic: LogicWrapper<offlineExperimentsLogicType> 
                         trend.query.dateTo !== dateRange.dateTo ||
                         trend.query.refreshKey !== refreshKey ||
                         trend.query.filters?.run_source !== filters.run_source ||
+                        trend.query.filters?.created_by !== filters.created_by ||
+                        trend.query.filters?.created_by_is_null !== filters.created_by_is_null ||
                         (trend.query.filters?.statuses || OFFLINE_ALL_UPLOAD_STATES) !== filters.statuses ||
                         (trend.query.filters?.tags || '[]') !== filters.tags ||
                         (trend.query.filters?.tag_match || 'any') !== filters.tag_match

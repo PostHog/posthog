@@ -1,9 +1,12 @@
+from datetime import timedelta
 from typing import TYPE_CHECKING, cast
 
 from django.db import transaction
 
+from posthog.cache_utils import cache_for
+from posthog.credentials_service.callers import CredentialsCaller
+from posthog.credentials_service.instance_settings import get_many_or_instance_settings
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
-from posthog.models.instance_setting import get_instance_settings
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.utils import mask_key_value
 
@@ -25,11 +28,15 @@ SUPPORT_SLACK_FILE_SCOPES = frozenset({SUPPORT_SLACK_FILE_READ_SCOPE, SUPPORT_SL
 SUPPORT_SLACK_CUSTOM_IDENTITY_SCOPE = "chat:write.customize"
 
 
-def get_support_slack_settings() -> dict:
-    return get_instance_settings(
+# Every SupportHog delivery is verified with the signing secret, so the read is cached and not made
+# once per request. A rotation reaches each process within five minutes.
+@cache_for(timedelta(minutes=5))
+def get_support_slack_settings() -> dict[str, str]:
+    return get_many_or_instance_settings(
         [
             "SUPPORT_SLACK_SIGNING_SECRET",
-        ]
+        ],
+        CredentialsCaller.CONVERSATIONS,
     )
 
 

@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { objectsEqual } from 'lib/utils/objects'
 import { isEmail } from 'lib/utils/url'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -51,6 +52,11 @@ export interface broadcastTestSendLogicValues {
     currentTeamId: number | null // teamLogic
     user: UserType | null // userLogic
     isModalOpen: boolean
+    lastTestSent: {
+        email: BroadcastEmailValue
+        to: string
+    } | null
+    lastTestSentTo: string | null
     recipientEmail: string
     sendDisabledReason: string | undefined
     testSendResult: HogflowTestResult | null
@@ -81,6 +87,13 @@ export interface broadcastTestSendLogicActions {
             value: true
         }
     }
+    markTestSent: (
+        to: string,
+        email: BroadcastEmailValue
+    ) => {
+        email: BroadcastEmailValue
+        to: string
+    }
     sendTestEmail: () => any
     sendTestEmailFailure: (
         error: string,
@@ -108,6 +121,13 @@ export interface broadcastTestSendLogicActions {
 export interface broadcastTestSendLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
+        lastTestSentTo: (
+            lastTestSent: {
+                email: BroadcastEmailValue
+                to: string
+            } | null,
+            email: BroadcastEmailValue
+        ) => string | null
         testSendSkipReason: (testSendResult: HogflowTestResult | null) => string | undefined
         sendDisabledReason: (email: BroadcastEmailValue, recipientEmail: string) => string | undefined
     }
@@ -147,14 +167,19 @@ export const broadcastTestSendLogic = kea<broadcastTestSendLogicType>([
         setModalOpen: (open: boolean) => ({ open }),
         setRecipientEmail: (email: string) => ({ email }),
         clearTestSendResult: true,
+        markTestSent: (to: string, email: BroadcastEmailValue) => ({ to, email }),
     }),
 
     reducers({
         isModalOpen: [false, { setModalOpen: (_, { open }) => open }],
         recipientEmail: ['', { setRecipientEmail: (_, { email }) => email }],
+        lastTestSent: [
+            null as { to: string; email: BroadcastEmailValue } | null,
+            { markTestSent: (_, { to, email }) => ({ to, email }) },
+        ],
     }),
 
-    loaders(({ values }) => ({
+    loaders(({ values, cache }) => ({
         testSendResult: [
             null as HogflowTestResult | null,
             {
@@ -162,6 +187,8 @@ export const broadcastTestSendLogic = kea<broadcastTestSendLogicType>([
                 sendTestEmail: async (): Promise<HogflowTestResult> => {
                     const { broadcast, email, emailSettings, name, previewPerson, recipientEmail, currentTeamId } =
                         values
+                    // The recipient field stays editable while the send runs, so remember what this send used.
+                    cache.pendingTest = { to: recipientEmail, email }
 
                     const emailAction: HogFlowAction = {
                         id: TEST_EMAIL_ACTION_ID,
@@ -239,6 +266,14 @@ export const broadcastTestSendLogic = kea<broadcastTestSendLogicType>([
     })),
 
     selectors({
+        // Only vouches for the email as it was tested. Any later change, typed or from another editor, clears it.
+        lastTestSentTo: [
+            (s) => [s.lastTestSent, s.email],
+            (
+                lastTestSent: { to: string; email: BroadcastEmailValue } | null,
+                email: BroadcastEmailValue
+            ): string | null => (lastTestSent && objectsEqual(lastTestSent.email, email) ? lastTestSent.to : null),
+        ],
         testSendSkipReason: [
             (s) => [s.testSendResult],
             (testSendResult: HogflowTestResult | null): string | undefined => findTestSendSkipReason(testSendResult),
@@ -263,7 +298,7 @@ export const broadcastTestSendLogic = kea<broadcastTestSendLogicType>([
         ],
     }),
 
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, cache }) => ({
         setModalOpen: ({ open }) => {
             // A stale result from a previous attempt must not greet the next one.
             actions.clearTestSendResult()
@@ -276,7 +311,10 @@ export const broadcastTestSendLogic = kea<broadcastTestSendLogicType>([
             if (values.testSendSkipReason) {
                 lemonToast.warning('Nothing was sent, see why below')
             } else if (testSendResult?.status === 'success') {
-                lemonToast.success(`Test email sent to ${values.recipientEmail}`)
+                lemonToast.success(`Test email sent to ${cache.pendingTest?.to ?? values.recipientEmail}`)
+                if (cache.pendingTest) {
+                    actions.markTestSent(cache.pendingTest.to, cache.pendingTest.email)
+                }
                 actions.setModalOpen(false)
             } else if (testSendResult?.status === 'skipped') {
                 lemonToast.warning('The email step was skipped, so nothing was sent')

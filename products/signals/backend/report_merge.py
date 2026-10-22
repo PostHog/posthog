@@ -322,6 +322,7 @@ def _dismiss_as_merged(
         team_id=source.team_id,
         report_id=str(source.id),
         content=Dismissal(
+            state="suppressed",
             reason=MERGE_DISMISSAL_REASON,
             note=f"{note} {reason}" if reason else note,
             user_id=attribution.user_id,

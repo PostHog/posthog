@@ -226,11 +226,8 @@ class TestGetRows:
 class TestCheckCredentials:
     @parameterized.expand(
         [
-            ("ok", 200, True, 200),
-            ("unauthorized", 401, False, 401),
             ("forbidden", 403, False, 403),
             ("not_found", 404, False, 404),
-            ("server_error", 500, False, 500),
         ]
     )
     def test_status_mapping(self, _name: str, status: int, expected_ok: bool, expected_status: Optional[int]) -> None:

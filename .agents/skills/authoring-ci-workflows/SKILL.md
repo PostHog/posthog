@@ -21,6 +21,7 @@ The linters own the mechanical rules (below); this skill is the **judgment calls
   `ci-backend.yml` is the reference for the heavy patterns (bounded-depth checkout, per-SHA concurrency, draft/ready, sharding).
 - Related skills — reach for these instead of duplicating them here:
   - `/gating-production-deploys` — any job that pushes a prod image or dispatches a Charts deploy.
+    Read its [ordered-image reference](../gating-production-deploys/references/ordered-image-releases.md) for new monorepo publishers and shared-build consumers.
   - `/managing-github-actions-secrets` — creating the GitHub App / secret a workflow reads.
   - `/depot-github-runners` — Depot runner labels and sizing.
   - `/debugging-ci-failures` — CI is red and you need to know why.
@@ -28,7 +29,7 @@ The linters own the mechanical rules (below); this skill is the **judgment calls
 ## What the linters already enforce
 
 Run `bin/hogli lint:workflows` and `actionlint` before pushing — they gate CI, and they (not this list) are the source of truth for what's enforced.
-Today that's: `timeout-minutes` on every job, the canonical PR concurrency block, a repo-wide budget for unscoped PR event dispatches, `dorny/paths-filter` negation safety, justification for full-depth checkouts, cache-write gating, semgrep service coverage, MCP path-filter coverage of the trees the MCP build compiles, required-check gate hygiene, secrets a reusable workflow reads being declared and passed by its callers, runner labels that name an OS version rather than a floating `-latest` alias, `#`-free values for the action inputs an inner shell re-parses, and generic GHA correctness (bad `secrets.*` / `needs:` refs, deprecated `::set-output`, unknown runner labels).
+Today that's: `timeout-minutes` on every job, the canonical PR concurrency block, a repo-wide budget for unscoped PR event dispatches, `dorny/paths-filter` negation safety, justification for full-depth checkouts, cache-write gating, semgrep service coverage, MCP path-filter coverage of the trees the MCP build compiles, Storybook path-filter coverage of every `staticDirs` source, required-check gate hygiene, secrets a reusable workflow reads being declared and passed by its callers, runner labels that name an OS version rather than a floating `-latest` alias, `#`-free values for the action inputs an inner shell re-parses, and generic GHA correctness (bad `secrets.*` / `needs:` refs, deprecated `::set-output`, unknown runner labels).
 Third-party action digests are bumped by Renovate.
 
 ## Check what a condition does before you push it
@@ -519,6 +520,8 @@ A workflow edit hits every open PR the instant it merges (it runs against PR-mer
 If the workflow starts _requiring_ something unrebased branches lack, every in-flight PR fails before its tests run.
 Make new behavior degrade gracefully when the prerequisite is absent, or gate it.
 Roll out a new blocking lint the same way: ship `continue-on-error`, clear the inbox, promote to blocking.
+A new or tightened baseline ratchet in `posthog/test/repo_invariants/` meets queued PRs that passed CI before it existed, so report its mismatch through `enforce_baseline` in `ratchet.py` with a `blocking_from` date a few days out: new violations only warn until then.
+Before that date, fix or add to the baseline every violation that landed during the grace period, or master goes red on it.
 
 ## New-workflow checklist
 

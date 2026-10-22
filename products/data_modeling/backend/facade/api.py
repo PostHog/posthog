@@ -55,6 +55,7 @@ _LAZY = {
     "MaterializationFailedError": "facade.contracts",
     "MaterializationForbiddenError": "facade.contracts",
     "MaterializationRefusedError": "facade.contracts",
+    "IncrementalConfigRefusedError": "facade.contracts",
     "enable_saved_query_materialization": "logic.saved_query_materialization",
     "saved_query_materialized_at": "logic.saved_query_freshness",
     "latest_saved_query_materialization_job": "logic.saved_query_freshness",
@@ -97,15 +98,15 @@ _LAZY = {
     "record_incremental_history": "logic.incremental",
     "set_incremental_state": "logic.incremental",
     "window_start": "logic.incremental",
-    "INCREMENTAL_FLAG": "logic.incremental_plan",
     "WritePlan": "logic.incremental_plan",
-    "incremental_enabled": "logic.incremental_plan",
     "resolve_write_plan": "logic.incremental_plan",
     "IncrementalFilterError": "logic.incremental_filter",
     "inject_incremental_filter": "logic.incremental_filter",
     "apply_incremental_filter": "logic.incremental_filter",
     "EligibilityResult": "logic.incremental_eligibility",
     "check_incremental_eligibility": "logic.incremental_eligibility",
+    "propose_incremental_config": "logic.incremental_eligibility",
+    "definition_database": "logic.incremental_eligibility",
 }
 
 __all__ = sorted(_LAZY)

@@ -47,6 +47,8 @@ tools:
                 - cooldown_minutes
                 - schedule_restriction
                 - snooze_until
+                - grouping
+                - platform_owned
                 - next_check_at
                 - last_notified_at
                 - last_checked_at
@@ -171,6 +173,8 @@ tools:
                 - threshold_operator
                 - window_minutes
                 - schedule_restriction
+                - grouping
+                - platform_owned
                 - created_at
                 - updated_at
     logs-alerts-partial-update:
@@ -213,6 +217,8 @@ tools:
                 - cooldown_minutes
                 - schedule_restriction
                 - snooze_until
+                - grouping
+                - platform_owned
                 - next_check_at
                 - last_notified_at
                 - last_checked_at
@@ -249,6 +255,8 @@ tools:
                 - cooldown_minutes
                 - schedule_restriction
                 - snooze_until
+                - grouping
+                - platform_owned
                 - next_check_at
                 - last_notified_at
                 - last_checked_at
@@ -339,6 +347,7 @@ tools:
             Defaults to attribute_type "log" (log-level attributes). To get values for resource-level attributes (e.g.
             service.name, k8s.pod.name), you MUST explicitly pass attribute_type: "resource". Accepts optional
             serviceNames, dateRange, and filterGroup to narrow which logs are scanned.
+        hooks: logs/redactCredentialsHooks
         response:
             include:
                 - results
@@ -404,9 +413,25 @@ tools:
             idempotent: true
         title: Facet log counts
         description_file: ./prompts/logs-facet-values.md
+        hooks: logs/redactCredentialsHooks
         response:
             include:
                 - results
+    logs-group-by:
+        operation: logs_group_by_create
+        enabled: true
+        scopes:
+            - logs:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Group logs by attributes
+        description_file: ./prompts/logs-group-by.md
+        feature_flag: logs-agent-tools
+        response:
+            exclude:
+                - groups.*.value
     logs-patterns:
         operation: logs_patterns_create
         enabled: true
@@ -418,6 +443,7 @@ tools:
             idempotent: true
         title: Mine log patterns
         description_file: ./prompts/logs-patterns.md
+        hooks: logs/redactCredentialsHooks
         response:
             exclude:
                 - patterns.*.examples
@@ -436,8 +462,11 @@ tools:
             idempotent: true
         title: Diff log patterns between two windows
         description_file: ./prompts/logs-patterns-diff.md
+        hooks: logs/redactCredentialsHooks
         response:
             exclude:
+                - entries.*.pattern.pattern
+                - entries.*.pattern.services
                 - entries.*.pattern.examples
                 - entries.*.pattern.sparkline
                 - entries.*.pattern.count
@@ -451,22 +480,15 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
-        title: List services with stats
-        description: |
-            Return the top-25 services by log volume in the window, each with log_count, error_count, and error_rate,
-            plus a per-service sparkline. Use this as the entry point when triaging which services are worth alerting on
-            — high volume × non-zero error_rate is the natural alert candidate. Far cheaper than walking
-            attribute-values + per-service counts.
-
-            Put all parameters in `query`:
-
-            ```json
-            { "query": { "dateRange": { "date_from": "-24h" } } }
-            ```
+        title: List services with health status
+        description_file: ./prompts/logs-services.md
         response:
             include:
                 - services
                 - sparkline
+                - window
+                - summary
+                - next
     logs-sparkline-query:
         operation: logs_sparkline_create
         enabled: true
@@ -490,6 +512,8 @@ tools:
         title: Query logs
         description_file: ./prompts/query-logs.md
         system_prompt_hint: Log filtering by severity/service/attribute
+        hooks: logs/redactCredentialsHooks
+        reads_ingested_data: events
         response:
             include:
                 - results

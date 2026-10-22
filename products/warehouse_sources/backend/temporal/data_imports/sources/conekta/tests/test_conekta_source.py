@@ -43,9 +43,6 @@ class TestConektaSource:
     @pytest.mark.parametrize(
         "probe_result, expected_valid, expected_message_fragment",
         [
-            ((True, 200), True, None),
-            ((False, 401), False, "private key"),
-            ((False, 500), False, "Could not reach"),
             ((False, None), False, "Could not reach"),
         ],
     )

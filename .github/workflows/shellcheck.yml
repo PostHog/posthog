@@ -44,6 +44,12 @@ jobs:
                   shellcheck .github/scripts/prepare-product-junit-for-trunk.sh .github/scripts/prepare-product-junit-for-trunk.test.sh
                   bash .github/scripts/prepare-product-junit-for-trunk.test.sh
 
+            - name: Check ordered image release helper
+              run: |
+                  [ -f .github/scripts/ordered-image-release.test.sh ] || exit 0
+                  shellcheck .github/scripts/ordered-image-release.sh .github/scripts/ordered-image-release.test.sh
+                  bash .github/scripts/ordered-image-release.test.sh
+
             - name: Check Trunk ownership map script
               run: |
                   # An open PR that has not rebased onto this commit does not carry these

@@ -275,12 +275,11 @@ class TestReplySuggestionPlacement(SimpleTestCase):
 
     @patch("products.slack_app.backend.slack_thread.capture_slack_event")
     @patch("products.slack_app.backend.slack_thread.suggest_replies", return_value=[OPEN_PR])
-    @patch("products.slack_app.backend.slack_thread.is_slack_app_reply_suggestions_enabled", return_value=True)
     @patch.object(SlackThreadHandler, "_actor_posthog_user", None)
     @patch.object(SlackThreadHandler, "_get_integration")
     @patch.object(SlackThreadHandler, "_get_client")
     def test_plain_answer_gets_the_buttons_under_its_text(
-        self, mock_get_client, mock_get_integration, _mock_enabled, mock_suggest, _mock_capture
+        self, mock_get_client, mock_get_integration, mock_suggest, _mock_capture
     ) -> None:
         mock_client = MagicMock()
         mock_client.chat_postMessage.return_value = {"ts": "2.0"}

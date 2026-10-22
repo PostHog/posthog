@@ -63,7 +63,7 @@ class ClariSource(ResumableSource[ClariSourceConfig, ClariResumeConfig]):
 Generate an API key in Clari under your account's API settings. The forecast ID is in the URL when viewing a forecast tab in Clari (e.g. `app.clari.com/forecast/<forecast-id>`). Note: Clari retains audit events for ~30 days and limits bulk exports per rolling 30 days, so avoid very frequent syncs of the forecast and activity tables. The first activity sync covers the past year.""",
             iconPath="/static/services/clari.png",
             docsUrl="https://posthog.com/docs/cdp/sources/clari",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

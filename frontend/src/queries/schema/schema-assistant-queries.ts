@@ -2039,12 +2039,16 @@ export interface AssistantDataVisualizationNode {
     tableSettings?: AssistantDataVisualizationTableSettings
 }
 
-// `MCPInsightSerializer.validate_query` wraps these two shapes server-side before it saves the
-// insight, so a query straight out of a `query-*` tool can be passed through unchanged. Both carry
+// `MCPInsightSerializer.validate_query` wraps these shapes server-side before it saves the
+// insight, so a query straight out of a `query-*` tool can be passed through unchanged. Each carries
 // an index signature because zod strips every key the schema does not declare, which would send
 // `{ kind }` alone to the endpoint and save an empty insight.
+// A metrics query is saved bare and is not wrapped. It shares this shape because a separate union
+// member puts `insight-update` over the claude.ai tool schema size limit.
+export type AssistantMetricsNodeKind = NodeKind.MetricsQuery | NodeKind.MetricsHistogramQuery
+
 export interface AssistantBareInsightQuery {
-    kind: InsightNodeKind
+    kind: InsightNodeKind | AssistantMetricsNodeKind
     [key: string]: unknown
 }
 

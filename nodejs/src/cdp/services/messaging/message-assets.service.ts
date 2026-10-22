@@ -13,6 +13,7 @@ import { captureException } from '~/common/utils/posthog'
 
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult, MessageAssetRow } from '../../types'
 import { resolveEmailEngagementDistinctId } from './email-tracking.service'
+import { escapeHtml } from './helpers/escape-html'
 
 export type { MessageAssetRow } from '../../types'
 
@@ -48,18 +49,10 @@ const isoMicroseconds = (date: Date): string => {
     return date.toISOString().replace('T', ' ').replace('Z', '000')
 }
 
-const HTML_ESCAPE: Record<string, string> = {
-    '&': '&amp;',
-    '<': '&lt;',
-    '>': '&gt;',
-    '"': '&quot;',
-    "'": '&#39;',
-}
-
 // Escape user-typed `<`/`>`/`&` so a `<pre>`-wrapped plain-text body can't break
 // surrounding markup or inject scripts.
 const wrapPlainTextAsHtml = (text: string): string => {
-    const escaped = text.replace(/[&<>"']/g, (c) => HTML_ESCAPE[c])
+    const escaped = escapeHtml(text)
     return `<!doctype html><meta charset="utf-8"><pre style="white-space:pre-wrap;font-family:ui-monospace,Menlo,monospace;margin:0;padding:1rem">${escaped}</pre>`
 }
 
@@ -70,8 +63,6 @@ const wrapPlainTextAsHtml = (text: string): string => {
 // unrelated row in it gets swallowed too. Substitute a small placeholder body when we cross
 // the safe budget — the row still lands, the chip works, and the batch is unaffected.
 const MAX_HTML_BYTES = 4 * 1024 * 1024
-
-const escapeHtml = (text: string): string => text.replace(/[&<>"']/g, (c) => HTML_ESCAPE[c])
 
 // A push has no stored body to replay the way an email does, so render the delivered content into the
 // same `html` column. That keeps one asset pipeline and one viewer for both channels: the person view
@@ -108,6 +99,14 @@ const oversizedPlaceholderHtml = (bytes: number): string => {
     return `<!doctype html><meta charset="utf-8"><div style="padding:1rem;font-family:ui-sans-serif,system-ui,sans-serif;color:#555;max-width:640px;margin:2rem auto"><h3 style="margin:0 0 0.5rem">Email too large to capture</h3><p style="margin:0">The rendered email was ${mb}&nbsp;MB, which exceeds the ${MAX_HTML_BYTES / 1024 / 1024}&nbsp;MB capture limit. The send itself succeeded — this placeholder is stored so the &ldquo;View email&rdquo; link works, but the original body is not viewable here.</p></div>`
 }
 
+// Stored instead of the body when the template is marked sensitive, so the person view still shows the send.
+const SENSITIVE_PLACEHOLDER_HTML = `<!doctype html><meta charset="utf-8"><div style="padding:1rem;font-family:ui-sans-serif,system-ui,sans-serif;color:#555;max-width:640px;margin:2rem auto"><h3 style="margin:0 0 0.5rem">Email body not stored</h3><p style="margin:0">This email was sent. Its template is marked sensitive, so PostHog doesn't keep a copy of its content.</p></div>`
+
+const sensitiveSubject = (invocation: CyclotronJobInvocationHogFunction): string => {
+    const subject = invocation.hogFunction.inputs?.email?.value?.subject
+    return typeof subject === 'string' ? subject : 'Subject not stored'
+}
+
 /**
  * Buffers rendered-email snapshots and flushes them as a single bulk Kafka
  * produce at the batch boundary — one round-trip per partition for the whole
@@ -138,8 +137,11 @@ export class MessageAssetsService {
             return null
         }
         const bodyBytes = Buffer.byteLength(body, 'utf8')
+        const sensitive = invocation.hogFunction.metadata?.sensitive === true
         let html = body
-        if (bodyBytes > MAX_HTML_BYTES) {
+        if (sensitive) {
+            html = SENSITIVE_PLACEHOLDER_HTML
+        } else if (bodyBytes > MAX_HTML_BYTES) {
             counterMessageAssetsTruncated.inc()
             html = oversizedPlaceholderHtml(bodyBytes)
         }
@@ -154,7 +156,9 @@ export class MessageAssetsService {
             distinct_id: resolveEmailEngagementDistinctId(invocation) ?? '',
             person_id: invocation.state.globals.person?.id ?? '',
             recipient: params.to.email,
-            subject: params.subject,
+            // A sensitive template's rendered subject can carry a login code, so the row keeps the unrendered
+            // template subject, which still names the email without the values.
+            subject: sensitive ? sensitiveSubject(invocation) : params.subject,
             status: 'sent',
             sent_at: isoMicroseconds(new Date()),
             version: microsecondsSinceEpoch(),
@@ -170,7 +174,10 @@ export class MessageAssetsService {
     buildRowForPush(
         invocation: CyclotronJobInvocationHogFunction,
         params: CyclotronInvocationQueueParametersSendPushNotificationType,
-        platforms: string[]
+        platforms: string[],
+        // The person whose devices took delivery, which the step's Distinct ID input can point away
+        // from the run's own person.
+        recipient: { distinctId: string; personId: string | undefined }
     ): MessageAssetRow | null {
         if (!invocation.state.actionId) {
             return null
@@ -185,7 +192,6 @@ export class MessageAssetsService {
         if (platforms.length === 0) {
             return null
         }
-        const recipient = params.distinctId
         return {
             team_id: invocation.teamId,
             function_kind: 'hog_flow',
@@ -194,11 +200,11 @@ export class MessageAssetsService {
             invocation_id: invocation.id,
             action_id: invocation.state.actionId ?? '',
             kind: 'push',
-            distinct_id: recipient,
-            person_id: invocation.state.globals.person?.id ?? '',
+            distinct_id: recipient.distinctId,
+            person_id: recipient.personId ?? '',
             // The person, not the providers that carried it, so the Assets tab's RECIPIENT column means
             // the same thing for push as it does for email. Per-channel outcomes stay in the run log.
-            recipient,
+            recipient: recipient.distinctId,
             subject: payload.title,
             status: 'sent',
             sent_at: isoMicroseconds(new Date()),

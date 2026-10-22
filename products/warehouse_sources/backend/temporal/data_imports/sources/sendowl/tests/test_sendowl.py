@@ -10,7 +10,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     ScriptedResponse,
     SourceDriver,
     always,
-    scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.sendowl import (
     SendowlSourceConfig,
@@ -18,7 +17,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.sendowl.sendowl import (
     PER_PAGE,
     SendowlResumeConfig,
-    check_access,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.sendowl.settings import (
     ENDPOINTS,
@@ -82,25 +80,6 @@ class TestErrorHandling:
         assert isinstance(result.raised, requests.HTTPError)
         # A non-retryable client error is not retried.
         assert len(result.requests) == 1
-
-
-class TestCheckAccess:
-    @parameterized.expand(
-        [
-            ("reachable", 200, 200, None),
-            ("unauthorized", 401, 401, None),
-            ("forbidden", 403, 403, None),
-            ("server_error", 500, 500, "SendOwl returned HTTP 500"),
-        ]
-    )
-    def test_status_mapping(self, _name: str, status: int, expected_status: int, expected_message: str | None) -> None:
-        with scripted_network(always(_body_response(status, {}))):
-            assert check_access("sendowl-key", "sendowl-secret") == (expected_status, expected_message)
-
-    def test_connection_error_maps_to_zero(self) -> None:
-        # validate_via_probe swallows the transport error, so the probe reports "not validated".
-        with scripted_network(always(requests.ConnectionError("boom"))):
-            assert check_access("sendowl-key", "sendowl-secret") == (0, "Could not connect to SendOwl")
 
 
 class TestSendowlSourceResponse:

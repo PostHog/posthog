@@ -48,6 +48,94 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "aggregation_key": "Key used to group related events together.",
         },
     },
+    "error_tracking_issues": {
+        "description": (
+            "A grouped error from Datadog Error Tracking, combining APM traces, logs, and RUM. "
+            "The table is rebuilt on every sync from the last 14 days of activity, so it holds issues with errors in that window."
+        ),
+        "docs_url": "https://docs.datadoghq.com/api/latest/error-tracking/#search-error-tracking-issues",
+        "columns": {
+            "id": "Unique identifier for the error tracking issue.",
+            "error_type": "Type or class of the error, for example an exception name.",
+            "error_message": "Message of the error that defines the issue.",
+            "file_path": "Path of the source file where the error occurred.",
+            "function_name": "Name of the function where the error occurred.",
+            "service": "Name of the service the error comes from.",
+            "platform": "Platform the error comes from (for example BACKEND, BROWSER, ANDROID, or IOS).",
+            "languages": "Programming languages of the code the error comes from.",
+            "state": "Triage state of the issue (OPEN, ACKNOWLEDGED, RESOLVED, IGNORED, or EXCLUDED).",
+            "is_crash": "Whether the error crashed the application.",
+            "first_seen": "Time the issue was first seen, as an ISO 8601 UTC string.",
+            "last_seen": "Time the issue was last seen, as an ISO 8601 UTC string.",
+            "first_seen_version": "Application version in which the issue was first seen.",
+            "last_seen_version": "Application version in which the issue was last seen.",
+            "regression": "Details of the latest regression of the issue: when it regressed, in which version, and when it was resolved.",
+            "window_total_count": "Number of error events for the issue in the synced window. When the window was split to stay under the API limit, the counts of the parts are added up.",
+            "window_impacted_sessions": "Number of sessions affected in the synced window. When the window was split, this is the largest count of any part, so it can be lower than the true number.",
+            "window_impacted_users": "Number of users affected in the synced window. When the window was split, this is the largest count of any part, so it can be lower than the true number.",
+        },
+    },
+    "error_spans": {
+        "description": (
+            "An APM span with an error status. Only spans matching status:error are synced, "
+            "because span volume is too high to sync in full."
+        ),
+        "docs_url": "https://docs.datadoghq.com/api/latest/spans/#get-a-list-of-spans",
+        "columns": {
+            "id": "Unique identifier for the span.",
+            "service": "Name of the service that emitted the span.",
+            "resource_name": "Resource the span measured, for example an endpoint or a query.",
+            "operation_name": "Name of the operation the span measured.",
+            "resource_hash": "Hash of the span's resource.",
+            "env": "Environment the span was recorded in.",
+            "host": "Host that emitted the span.",
+            "trace_id": "Identifier of the trace the span belongs to.",
+            "span_id": "Identifier of the span within its trace.",
+            "parent_id": "Identifier of the parent span, if any.",
+            "status": "Status of the span. Always error in this table.",
+            "error": "Error details of the span, such as the error type.",
+            "custom": "Custom span attributes, including error message and stack trace when the tracer sets them.",
+            "tags": "Tags attached to the span.",
+            "start_timestamp": "Time at which the span started, as an ISO 8601 UTC string.",
+            "end_timestamp": "Time at which the span ended, as an ISO 8601 UTC string.",
+        },
+    },
+    "error_logs": {
+        "description": (
+            "A log event with the error status. Only logs matching status:error are synced. "
+            "Use the logs table for every log level."
+        ),
+        "docs_url": "https://docs.datadoghq.com/api/latest/logs/#search-logs",
+        "columns": {
+            "id": "Unique identifier for the log event.",
+            "service": "Name of the service that emitted the log.",
+            "host": "Host that emitted the log.",
+            "message": "The log message body.",
+            "status": "Severity status of the log. Always error in this table.",
+            "tags": "Tags attached to the log event.",
+            "timestamp": "Time at which the log event occurred.",
+        },
+    },
+    "monitor_alerts": {
+        "description": (
+            "A Datadog monitor alert event that is firing (status error). "
+            "Only events matching source:alert status:error are synced. "
+            "The table is rebuilt on every sync from the last 7 days."
+        ),
+        "docs_url": "https://docs.datadoghq.com/api/latest/events/#get-a-list-of-events",
+        "columns": {
+            "id": "Unique identifier for the event.",
+            "type": "JSON:API resource type of the event.",
+            "timestamp": "Time at which the alert event occurred, as an ISO 8601 UTC string.",
+            "message": "Free-text notification body of the alert.",
+            "tags": "Tags attached to the event.",
+            "attributes": (
+                "Nested object with the alert details: status (error means firing), title, monitor_id, priority, "
+                "service, evt (type of monitor), and monitor (id, name, type, alert cycle key, state transition, "
+                "result links)."
+            ),
+        },
+    },
     "dashboards": {
         "description": "A Datadog dashboard — a configurable set of widgets visualizing metrics and logs.",
         "docs_url": "https://docs.datadoghq.com/api/latest/dashboards/#get-all-dashboards",

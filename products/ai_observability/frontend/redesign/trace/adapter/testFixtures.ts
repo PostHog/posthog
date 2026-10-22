@@ -1,6 +1,13 @@
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 
-import type { TraceApi, TraceNodeStatsApi } from '../../../generated/api.schemas'
+import type {
+    TraceApi,
+    TraceNodeApi,
+    TraceNodeDetailApi,
+    TraceNodeIOKeysApi,
+    TraceNodeMetadataApi,
+    TraceNodeStatsApi,
+} from '../../../generated/api.schemas'
 
 export function makeEvent(overrides: Partial<LLMTraceEvent> & { id: string }): LLMTraceEvent {
     return { event: '$ai_span', properties: {}, createdAt: '2026-09-01T10:15:00Z', ...overrides }
@@ -28,6 +35,54 @@ const emptyStats: TraceNodeStatsApi = {
     cacheReadTokens: null,
     cacheWriteTokens: null,
     latencyMs: null,
+}
+
+export function decodeIdSegment(segment: string): string {
+    const binary = atob(segment.replace(/-/g, '+').replace(/_/g, '/'))
+    return new TextDecoder().decode(Uint8Array.from(binary, (char) => char.charCodeAt(0)))
+}
+
+interface NodeDetailFixture {
+    id: string
+    kind?: TraceNodeApi['kind']
+    properties?: Record<string, unknown>
+    ioKeys?: Partial<TraceNodeIOKeysApi>
+    error?: string | null
+    metadata?: Partial<TraceNodeMetadataApi>
+    withEvent?: boolean
+}
+
+export function makeNodeDetail({
+    id,
+    kind = 'generation',
+    properties = {},
+    ioKeys = {},
+    error = null,
+    metadata = {},
+    withEvent = true,
+}: NodeDetailFixture): TraceNodeDetailApi {
+    return {
+        id,
+        kind,
+        error,
+        metadata: {
+            provider: null,
+            temperature: null,
+            sessionId: null,
+            promptName: null,
+            promptVersion: null,
+            ...metadata,
+        },
+        event: withEvent
+            ? {
+                  name: `$ai_${kind}`,
+                  uuid: id,
+                  timestamp: '2026-09-01T10:15:02Z',
+                  properties,
+                  ioKeys: { input: null, output: null, tools: null, ...ioKeys },
+              }
+            : null,
+    }
 }
 
 export function makeTraceResource(overrides: Partial<TraceApi> = {}): TraceApi {
@@ -63,6 +118,8 @@ export function makeTraceResource(overrides: Partial<TraceApi> = {}): TraceApi {
         timeline: [],
         totalMs: 0,
         threadNodeIds: ['gen-2'],
+        defaultNodeId: 'trace-1',
+        nodeIdsByAlias: {},
         ...overrides,
     }
 }

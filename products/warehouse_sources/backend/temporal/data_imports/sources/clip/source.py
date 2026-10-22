@@ -139,5 +139,5 @@ class ClipSource(ResumableSource[ClipSourceConfig, ClipResumeConfig]):
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
         )

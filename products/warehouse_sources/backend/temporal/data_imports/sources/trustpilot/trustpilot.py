@@ -2,7 +2,7 @@ import re
 import logging
 import dataclasses
 from datetime import UTC, date, datetime
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 from requests import Response
 
@@ -11,11 +11,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     RESTAPIConfig,
     rest_api_resource,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    build_dependent_resource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     PageNumberPaginator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
     ApiKeyAuthConfig,
+    ClientConfig,
     OAuth2AuthConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -23,9 +27,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.trustpilot.settings import (
     BASE_URL,
     MAX_PAGES,
-    PER_PAGE,
     TOKEN_URL,
     TRUSTPILOT_ENDPOINTS,
+    TrustpilotEndpointConfig,
 )
 
 logger = logging.getLogger(__name__)
@@ -219,8 +223,8 @@ class TrustpilotPaginator(PageNumberPaginator):
     read as a complete sync, so log what was left behind instead.
     """
 
-    def __init__(self) -> None:
-        super().__init__(base_page=1, page_param="page", total_path=None, maximum_page=MAX_PAGES)
+    def __init__(self, maximum_page: int | None = MAX_PAGES) -> None:
+        super().__init__(base_page=1, page_param="page", total_path=None, maximum_page=maximum_page)
 
     def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
         super().update_state(response, data)
@@ -247,6 +251,59 @@ def _build_auth(api_key: str, api_secret: str, requires_oauth: bool) -> ApiKeyAu
     }
 
 
+def _client_config(
+    api_key: str, api_secret: str, requires_oauth: bool, paginator: TrustpilotPaginator | Literal["single_page"]
+) -> ClientConfig:
+    return {
+        "base_url": BASE_URL,
+        "headers": {"Accept": "application/json"},
+        "auth": _build_auth(api_key, api_secret, requires_oauth),
+        "paginator": paginator,
+        # capture=False: private review rows carry consumer emails, order references and
+        # review text, which must stay out of HTTP sample capture (still metered and logged).
+        "session": make_tracked_session(redact_values=(api_key, api_secret), capture=False),
+    }
+
+
+def _has_conversation(row: dict[str, Any]) -> dict[str, Any] | list[dict[str, Any]]:
+    # Reviews without a reply carry no conversation; an empty list drops them before the fan-out.
+    return row if row.get("conversationId") else []
+
+
+def _conversations_source(
+    api_key: str,
+    api_secret: str,
+    endpoint: str,
+    config: TrustpilotEndpointConfig,
+    business_unit_id: str,
+    team_id: int,
+    job_id: str,
+) -> SourceResponse:
+    assert config.fanout is not None
+    parent = TRUSTPILOT_ENDPOINTS[config.fanout.parent_name]
+    resource = build_dependent_resource(
+        endpoint_configs=TRUSTPILOT_ENDPOINTS,
+        child_endpoint=endpoint,
+        fanout=config.fanout,
+        client_config=_client_config(api_key, api_secret, config.requires_oauth, TrustpilotPaginator(parent.max_pages)),
+        path_format_values={"business_unit_id": business_unit_id},
+        team_id=team_id,
+        job_id=job_id,
+        db_incremental_field_last_value=None,
+        parent_endpoint_extra={"data_selector": parent.response_key} if parent.response_key else None,
+        parent_data_map=_has_conversation,
+        child_endpoint_extra={"paginator": "single_page"},
+        page_size_param=None,
+    )
+    return SourceResponse(
+        name=endpoint,
+        items=lambda: resource,
+        primary_keys=config.primary_keys,
+        partition_count=1,
+        partition_size=1,
+    )
+
+
 def trustpilot_source(
     api_key: str,
     api_secret: str,
@@ -260,6 +317,10 @@ def trustpilot_source(
 ) -> SourceResponse:
     config = TRUSTPILOT_ENDPOINTS[endpoint]
     business_unit_id = resolve_business_unit_id(api_key, business_unit)
+
+    if config.fanout is not None:
+        return _conversations_source(api_key, api_secret, endpoint, config, business_unit_id, team_id, job_id)
+
     path = config.path.format(business_unit_id=business_unit_id)
 
     resume: TrustpilotResumeConfig | None = None
@@ -274,24 +335,21 @@ def trustpilot_source(
         elif db_incremental_field_last_value is not None:
             start_date_time = _format_start_datetime(db_incremental_field_last_value)
 
-    params: dict[str, Any] = {}
-    if config.paginated:
-        params["perPage"] = PER_PAGE
+    params: dict[str, Any] = dict(config.params)
+    if config.paginated and config.per_page is not None:
+        params["perPage"] = config.per_page
     if config.order_by:
         params["orderBy"] = config.order_by
     if start_date_time:
         params["startDateTime"] = start_date_time
 
     rest_config: RESTAPIConfig = {
-        "client": {
-            "base_url": BASE_URL,
-            "headers": {"Accept": "application/json"},
-            "auth": _build_auth(api_key, api_secret, config.requires_oauth),
-            "paginator": TrustpilotPaginator() if config.paginated else "single_page",
-            # capture=False: private review rows carry consumer emails, order references and
-            # review text, which must stay out of HTTP sample capture (still metered and logged).
-            "session": make_tracked_session(redact_values=(api_key, api_secret), capture=False),
-        },
+        "client": _client_config(
+            api_key,
+            api_secret,
+            config.requires_oauth,
+            TrustpilotPaginator(config.max_pages) if config.paginated else "single_page",
+        ),
         "resource_defaults": {},
         "resources": [
             {

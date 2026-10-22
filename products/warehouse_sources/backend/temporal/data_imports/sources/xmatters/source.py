@@ -93,7 +93,7 @@ Use HTTP Basic auth with a REST Web Service User (or an API key as the username 
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

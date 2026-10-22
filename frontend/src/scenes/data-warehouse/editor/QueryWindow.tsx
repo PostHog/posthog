@@ -124,7 +124,9 @@ export function QueryWindow({
     const { setVimModeEnabled, openVimrcModal, setEditorSettingsMenuOpen } = useActions(sqlEditorVimLogic)
     const { isDatabaseTreeCollapsed } = useValues(editorSizingLogic)
     // Raw-only connections are forced to raw SQL mode — no toggle to show.
-    const canSendRawQuery = !!selectedConnectionId && selectedConnectionSupportsHogQL
+    const canSendRawQuery =
+        sourceQuery.source.executionTarget === 'managed_trino' ||
+        (!!selectedConnectionId && selectedConnectionSupportsHogQL)
     const debouncedMaxToolQueryInput = useDebouncedValue(queryInput, EMBEDDED_MAX_TOOL_CONTEXT_DEBOUNCE_MS)
     const debouncedMaxToolSourceQuery = useDebouncedValue(sourceQuery, EMBEDDED_MAX_TOOL_CONTEXT_DEBOUNCE_MS)
     const executeSqlToolStateRef = useRef({ queryInput, sourceQuery })
@@ -205,7 +207,7 @@ export function QueryWindow({
     const sendRawQueryLabel = (
         <span className="inline-flex items-center gap-1">
             <span>Send raw query</span>
-            <Tooltip title="Send the query directly to the selected external connection without translating it through HogQL first. This is an escape hatch for SQL syntax that HogQL does not yet support. Your query may be logged to improve the service.">
+            <Tooltip title="Send the query directly to the selected connection without translating it through HogQL first. This is an escape hatch for SQL syntax that HogQL does not yet support. Your query may be logged to improve the service.">
                 <span
                     className="inline-flex cursor-help"
                     onClick={(event) => {
@@ -362,6 +364,7 @@ export function QueryWindow({
                     editorVimrc={vimrc}
                     constrainHeight={showOutputPanel}
                     codeEditorProps={{
+                        ...(sendRawQueryEnabled ? { language: 'sql' } : {}),
                         queryKey: codeEditorKey,
                         autoFocus: autoFocusQueryPane ?? true,
                         // Bind the editor to the tab's persistent Monaco model and keep it

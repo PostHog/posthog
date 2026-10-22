@@ -3,14 +3,9 @@ import { router } from 'kea-router'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
-import {
-    getToolSourceItems,
-    isToolItem,
-    libraryRowProductLabels,
-    toolHrefForPath,
-    toolLabel,
-} from 'scenes/tools/toolsUtils'
+import { getToolSourceItems, isToolItem, toolLabel } from 'scenes/tools/toolsUtils'
 
+import { navProductHrefForPath } from '~/layout/panel-layout/navbar/tabs/navProductItems'
 import { initKeaTests } from '~/test/init'
 
 import { TODAY_RAIL_WIDTH, TODAY_SIDEBAR_MAX_WIDTH, railPaneForPath, todayShellLogic } from './todayShellLogic'
@@ -28,10 +23,10 @@ describe('todayShellLogic', () => {
         ['/project/1/ai', 'spaces'],
         ['/project/1/ai/history', 'spaces'],
         ['/project/1/spaces/abc', 'spaces'],
-        ['/project/1/feature_flags/920847', 'products'],
+        ['/project/1/feature-flags/920847', 'products'],
         ['/project/1/insights/abc', 'analytics'],
         ['/project/1/insights', 'analytics'],
-        ['/project/1/feature_flags', 'products'],
+        ['/project/1/feature-flags', 'products'],
         ['/project/1/data-management/destinations', 'products'],
         ['/project/1/web', 'analytics'],
         ['/project/1/marketing', 'analytics'],
@@ -62,9 +57,14 @@ describe('todayShellLogic', () => {
         ['/data-management/destinations/abc', '/data-management/destinations?tab=all'],
         ['/data-management/events', '/data-management'],
         ['/data-management-old', null],
-    ])('selects the tool for %s', (path, href) => {
-        const tools = [{ href: '/data-management' }, { href: '/data-management/destinations?tab=all' }]
-        expect(toolHrefForPath(path, tools)).toBe(href)
+        ['/replay/abc', '/replay/home'],
+    ])('selects the product for %s', (path, href) => {
+        const products = [
+            { path: 'Data management', href: '/data-management' },
+            { path: 'Destinations', href: '/data-management/destinations?tab=all' },
+            { path: 'Session replay', href: '/replay/home' },
+        ]
+        expect(navProductHrefForPath(path, products)).toBe(href)
     })
 
     test.each([
@@ -82,10 +82,6 @@ describe('todayShellLogic', () => {
         expect(rows.includes(label)).toBe(ownRow)
     })
 
-    it('finds the Feature flags row with a search for the product name', () => {
-        expect(libraryRowProductLabels('feature_flag')).toContain('Feature flags')
-    })
-
     test.each([
         ['home', '/home'],
         ['spaces', '/spaces/new'],
@@ -98,6 +94,18 @@ describe('todayShellLogic', () => {
         router.actions.push('/project/1/airplane')
         logic.actions.pickPane(pane)
         expect(removeProjectIdIfPresent(router.values.location.pathname)).toBe(pathname)
+        expect(logic.values.activePane).toBe(pane)
+    })
+
+    test.each([
+        ['products', 'products'],
+        ['home', 'analytics'],
+    ] as const)('opening Dashboards with the %s pane open shows the %s pane', (openPane, pane) => {
+        const logic = todayShellLogic()
+        logic.mount()
+
+        logic.actions.pickPane(openPane)
+        router.actions.push('/project/1/dashboard')
         expect(logic.values.activePane).toBe(pane)
     })
 

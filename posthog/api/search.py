@@ -23,6 +23,7 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery, Node
 from products.early_access_features.backend.models import EarlyAccessFeature
 from products.endpoints.backend.facade.models import Endpoint
+from products.event_definitions.backend.models.property_definition import effective_project_id_expr
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.models import Notebook
@@ -333,7 +334,16 @@ def class_queryset(
     entity_type = entity_type or class_to_entity_name(klass)
     values = ["type", "result_id", "extra_fields", "_sort_name", "_pk", "_created_by_id"]
 
-    qs: QuerySet[Any] = cast(Any, klass).objects.filter(team__project_id=project_id)  # filter team
+    qs: QuerySet[Any]
+    if klass in (EventDefinition, PropertyDefinition):
+        # A join on team would bypass the project-leading unique index on these large tables.
+        qs = (
+            cast(Any, klass)
+            .objects.alias(effective_project_id=effective_project_id_expr())
+            .filter(effective_project_id=project_id)
+        )
+    else:
+        qs = cast(Any, klass).objects.filter(team__project_id=project_id)  # filter team
     qs = view.user_access_control.filter_queryset_by_access_level(qs)  # filter access level
 
     if annotations:

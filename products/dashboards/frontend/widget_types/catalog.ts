@@ -1,6 +1,15 @@
 import type { ComponentType } from 'react'
 
-import { IconFlask, IconList, IconLive, IconMessage, IconNotebook, IconRewindPlay, IconWarning } from '@posthog/icons'
+import {
+    IconApps,
+    IconFlask,
+    IconList,
+    IconLive,
+    IconMessage,
+    IconNotebook,
+    IconRewindPlay,
+    IconWarning,
+} from '@posthog/icons'
 
 import { urls } from 'scenes/urls'
 
@@ -81,6 +90,7 @@ export const DASHBOARD_WIDGET_GROUP_LABELS = {
     surveys: 'Surveys',
     logs: 'Logs',
     conversations: 'Support',
+    canvas: 'Canvas',
 } as const satisfies Record<string, string>
 
 export function getDashboardWidgetGroupLabel(groupId: string): string {
@@ -97,6 +107,7 @@ export const DASHBOARD_WIDGET_GROUP_ICONS = {
     surveys: IconMessage,
     logs: IconList,
     conversations: IconMessage,
+    canvas: IconApps,
 } as const satisfies Record<keyof typeof DASHBOARD_WIDGET_GROUP_LABELS, ComponentType<{ className?: string }>>
 
 export function getDashboardWidgetGroupIcon(groupId: string): ComponentType<{ className?: string }> | undefined {

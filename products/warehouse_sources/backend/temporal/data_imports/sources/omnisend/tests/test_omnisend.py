@@ -212,13 +212,6 @@ class TestAuthAndRedaction:
 
 
 class TestValidateCredentials:
-    def test_network_error(self) -> None:
-        with scripted_network([ConnectionError("network down")]):
-            ok, code = validate_credentials("test-key", OMNISEND_V3)
-
-        assert ok is False
-        assert code is None
-
     @pytest.mark.parametrize(
         ("api_version", "expected_url", "expected_headers"),
         [

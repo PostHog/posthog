@@ -50,7 +50,6 @@ from posthog.models.person.util import (
 )
 from posthog.models.signals import mute_selected_signals
 from posthog.personhog_client.fake_client import get_active_fake
-from posthog.personhog_client.proto import CONSISTENCY_LEVEL_STRONG
 from posthog.test.persons import add_distinct_id, create_person
 
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
@@ -502,8 +501,8 @@ class TestPersonDivergence(ClickhouseTestMixin, BaseTest):
             assert self._ch_person(person.uuid) == (0, 104, PG_PROPERTIES)
             assert self._ch_mapping("hidden-did") == (str(person.uuid), 0, 101)
         else:
-            get_active_fake().assert_not_called("set_person_version_floor")
-            get_active_fake().assert_not_called("set_person_distinct_id_version_floor")
+            get_active_fake().assert_not_called("raise_person_version_floors")
+            get_active_fake().assert_not_called("write_distinct_ids")
             assert (self._pg_version(person), self._pg_mapping_versions(person)) == (3, {"hidden-did": 0})
             assert self._ch_person(person.uuid) == (1, 103, CH_PROPERTIES)
             assert self._ch_mapping("hidden-did") == (str(person.uuid), 1, 100)
@@ -529,19 +528,19 @@ class TestPersonDivergence(ClickhouseTestMixin, BaseTest):
     def test_publishes_the_properties_postgres_holds_after_the_raise(self) -> None:
         person = self._divergent_person("hidden")
         fake = get_active_fake()
-        raise_floor = fake.set_person_version_floor
+        raise_floor = fake.raise_person_version_floors
         updated = {"email": "updated@example.com"}
 
         def ingestion_update_then_raise(
-            request: person_pb2.SetPersonVersionFloorRequest, timeout: float | None = None
-        ) -> person_pb2.SetPersonVersionFloorResponse:
+            request: person_pb2.RaisePersonVersionFloorsRequest, timeout: float | None = None
+        ) -> person_pb2.RaisePersonVersionFloorsResponse:
             stored = fake.stored_person(self.team.pk, str(person.uuid))
             assert stored is not None
             stored.properties = json.dumps(updated).encode()
             stored.version += 1
             return raise_floor(request, timeout)
 
-        with patch.object(fake, "set_person_version_floor", side_effect=ingestion_update_then_raise):
+        with patch.object(fake, "raise_person_version_floors", side_effect=ingestion_update_then_raise):
             self._repair(person.uuid)
 
         assert self._ch_person(person.uuid) == (0, 104, updated)
@@ -573,10 +572,15 @@ class TestPersonDivergence(ClickhouseTestMixin, BaseTest):
         rereads = 0
 
         def primary_only_raise(
-            request: person_pb2.SetPersonVersionFloorRequest, timeout: float | None = None
-        ) -> person_pb2.SetPersonVersionFloorResponse:
-            raised_to.append(request.min_version)
-            return person_pb2.SetPersonVersionFloorResponse(updated=True)
+            request: person_pb2.RaisePersonVersionFloorsRequest, timeout: float | None = None
+        ) -> person_pb2.RaisePersonVersionFloorsResponse:
+            (floor,) = request.floors
+            raised_to.append(floor.min_version)
+            response = person_pb2.RaisePersonVersionFloorsResponse()
+            response.results.add(
+                person_uuid=floor.person_uuid, outcome=person_pb2.RAISE_OUTCOME_RAISED, version=floor.min_version
+            )
+            return response
 
         def lagging_replica(request: person_pb2.GetPersonsByUuidsRequest) -> person_pb2.PersonsResponse:
             nonlocal rereads
@@ -589,7 +593,7 @@ class TestPersonDivergence(ClickhouseTestMixin, BaseTest):
             return read(request)
 
         with (
-            patch.object(fake, "set_person_version_floor", side_effect=primary_only_raise),
+            patch.object(fake, "raise_person_version_floors", side_effect=primary_only_raise),
             patch.object(fake, "get_persons_by_uuids", side_effect=lagging_replica),
             patch("posthog.models.person.divergence.repairs._sleep") as sleep,
         ):
@@ -607,6 +611,8 @@ class TestPersonDivergence(ClickhouseTestMixin, BaseTest):
             ("clickhouse_timeout_while_planning", "planning", ClickHouseQueryTimeOut()),
             ("personhog_internal_error_on_the_raise", "raise", grpc.StatusCode.INTERNAL),
             ("personhog_unavailable_on_the_raise", "raise", grpc.StatusCode.UNAVAILABLE),
+            # A merge or delete holding the person's lifecycle mark clears once that operation commits.
+            ("personhog_mark_held_on_the_raise", "raise", grpc.StatusCode.FAILED_PRECONDITION),
         ]
     )
     def test_retries_a_transient_error_and_counts_the_person_once(
@@ -636,7 +642,7 @@ class TestPersonDivergence(ClickhouseTestMixin, BaseTest):
         fake = get_active_fake()
 
         with (
-            patch.object(fake, "set_person_version_floor", side_effect=failure) as raise_floor,
+            patch.object(fake, "raise_person_version_floors", side_effect=failure) as raise_floor,
             patch("posthog.models.person.divergence.repairs._sleep") as sleep,
         ):
             with self.assertRaises(type(failure)):
@@ -658,18 +664,18 @@ class TestPersonDivergence(ClickhouseTestMixin, BaseTest):
                 return query(*args, **kwargs)
 
             return patch("posthog.models.person.divergence.lookups.sync_execute", side_effect=ch_fails_once)
-        raise_floor = fake.set_person_version_floor
+        raise_floor = fake.raise_person_version_floors
         calls: list[bool] = []
 
         def raise_fails_once(
-            request: person_pb2.SetPersonVersionFloorRequest, timeout: float | None = None
-        ) -> person_pb2.SetPersonVersionFloorResponse:
+            request: person_pb2.RaisePersonVersionFloorsRequest, timeout: float | None = None
+        ) -> person_pb2.RaisePersonVersionFloorsResponse:
             if not calls:
                 calls.append(True)
                 raise failure
             return raise_floor(request, timeout)
 
-        return patch.object(fake, "set_person_version_floor", side_effect=raise_fails_once)
+        return patch.object(fake, "raise_person_version_floors", side_effect=raise_fails_once)
 
     def _skipped_person(self, case: str) -> UUID:
         if case == "in_sync":
@@ -709,8 +715,8 @@ class TestPersonDivergence(ClickhouseTestMixin, BaseTest):
         _, actions = self._repair(person_uuid)
 
         assert [a.outcome for a in actions] == outcomes
-        get_active_fake().assert_not_called("set_person_version_floor")
-        get_active_fake().assert_not_called("set_person_distinct_id_version_floor")
+        get_active_fake().assert_not_called("raise_person_version_floors")
+        get_active_fake().assert_not_called("write_distinct_ids")
         assert self._ch_person(person_uuid) == before
 
     def test_skips_every_person_of_a_team_that_no_longer_exists(self) -> None:
@@ -731,7 +737,7 @@ class TestPersonDivergence(ClickhouseTestMixin, BaseTest):
 
         assert [a.outcome for a in actions] == ["skipped_team_gone"]
         assert summary.person_outcomes == {"skipped_team_gone": 1}
-        get_active_fake().assert_not_called("set_person_version_floor")
+        get_active_fake().assert_not_called("raise_person_version_floors")
         get_active_fake().assert_not_called("get_persons_by_uuids")
 
     def test_skips_a_person_the_primary_tombstoned_while_the_replica_still_shows_it_live(self) -> None:
@@ -800,54 +806,37 @@ class TestPersonDivergence(ClickhouseTestMixin, BaseTest):
                 target_version=target_version,
             ),
         ]
-        floors = get_active_fake().assert_called("set_person_distinct_id_version_floor", times=1)
-        assert floors[0].request.distinct_id == "divergent"
-        get_active_fake().assert_not_called("set_person_version_floor")
+        floors = get_active_fake().assert_called("write_distinct_ids", times=1)
+        assert [(w.distinct_id, w.min_version) for w in floors[0].request.writes] == [("divergent", target_version)]
+        get_active_fake().assert_not_called("raise_person_version_floors")
         assert self._pg_mapping_versions(person)["divergent"] == target_version
         assert self._ch_mapping("divergent") == (str(person.uuid), 0, target_version)
 
-    @parameterized.expand(
-        [
-            # A personhog-replica build without NULL-version handling leaves the stored version unchanged.
-            ("floor_not_applied", None, "skipped_reread_lagging", 2, (1, 100)),
-            # A concurrent write took the mapping past the target, so the publish carries the stored version.
-            ("stored_past_the_target", 5, "repaired", 106, (0, 106)),
-        ]
-    )
-    def test_publishes_a_mapping_only_at_the_version_the_primary_holds(
-        self,
-        _name: str,
-        extra_versions: int | None,
-        outcome: RepairOutcome,
-        stored_version: int,
-        ch_deleted_and_version: tuple[int, int],
-    ) -> None:
+    def test_publishes_a_mapping_at_the_version_the_primary_holds_after_the_raise(self) -> None:
         person = self._pg_person(version=3, distinct_ids={"divergent": 2})
         self._ch_person_row(person.uuid, 3)
         self._ch_mapping_row("divergent", person.uuid, 100, deleted=True)
         fake = get_active_fake()
-        raise_floor = fake.set_person_distinct_id_version_floor
+        write = fake.write_distinct_ids
 
-        def raise_floor_differently(
-            request: person_pb2.SetPersonDistinctIdVersionFloorRequest, timeout: float | None = None
-        ) -> person_pb2.SetPersonDistinctIdVersionFloorResponse:
-            min_version = 0 if extra_versions is None else request.min_version + extra_versions
-            return raise_floor(
-                person_pb2.SetPersonDistinctIdVersionFloorRequest(
-                    team_id=request.team_id, distinct_id=request.distinct_id, min_version=min_version
-                ),
-                timeout,
-            )
+        def concurrent_write_past_the_target(
+            request: person_pb2.WriteDistinctIdsRequest, timeout: float | None = None
+        ) -> person_pb2.WriteDistinctIdsResponse:
+            moved_on = person_pb2.WriteDistinctIdsRequest()
+            moved_on.CopyFrom(request)
+            for w in moved_on.writes:
+                w.min_version += 5
+            return write(moved_on, timeout)
 
-        with patch.object(fake, "set_person_distinct_id_version_floor", side_effect=raise_floor_differently):
+        with patch.object(fake, "write_distinct_ids", side_effect=concurrent_write_past_the_target):
             _, actions = self._repair(person.uuid)
 
         assert [(a.distinct_id, a.outcome, a.target_version) for a in actions] == [
             (None, "skipped_not_divergent", None),
-            ("divergent", outcome, 101),
+            ("divergent", "repaired", 101),
         ]
-        assert self._pg_mapping_versions(person)["divergent"] == stored_version
-        assert self._ch_mapping("divergent") == (str(person.uuid), *ch_deleted_and_version)
+        assert self._pg_mapping_versions(person)["divergent"] == 106
+        assert self._ch_mapping("divergent") == (str(person.uuid), 0, 106)
 
     @parameterized.expand(
         [
@@ -936,8 +925,8 @@ class TestPersonDivergence(ClickhouseTestMixin, BaseTest):
             "properties": {"$set_once": CH_ONLY_PROPERTIES},
             "process_person_profile": True,
         }
-        get_active_fake().assert_not_called("set_person_version_floor")
-        get_active_fake().assert_not_called("set_person_distinct_id_version_floor")
+        get_active_fake().assert_not_called("raise_person_version_floors")
+        get_active_fake().assert_not_called("write_distinct_ids")
         assert self._pg_version(person) == 5
         assert self._ch_person(person.uuid) == (0, 10, {**CH_PROPERTIES, **CH_ONLY_PROPERTIES})
 
@@ -988,8 +977,8 @@ class TestPersonDivergence(ClickhouseTestMixin, BaseTest):
         assert summary is not None
         assert (summary.person_outcomes, summary.mapping_outcomes) == ({person_outcome: 1}, {"skipped_stale": 1})
         assert capture.called == capture_called
-        get_active_fake().assert_not_called("set_person_version_floor")
-        get_active_fake().assert_not_called("set_person_distinct_id_version_floor")
+        get_active_fake().assert_not_called("raise_person_version_floors")
+        get_active_fake().assert_not_called("write_distinct_ids")
         assert self._pg_version(person) == 5
         assert self._ch_person(person.uuid) == (0, 10, {**CH_PROPERTIES, **CH_ONLY_PROPERTIES})
 
@@ -1011,7 +1000,7 @@ class TestPersonDivergence(ClickhouseTestMixin, BaseTest):
         )
         reads = get_active_fake().assert_called("get_distinct_ids_for_persons", times=1)
         assert reads[0].request.limit_per_person == 3
-        get_active_fake().assert_not_called("set_person_distinct_id_version_floor")
+        get_active_fake().assert_not_called("write_distinct_ids")
         assert self._ch_person(person.uuid) == (0, 104, PG_PROPERTIES)
         assert self._ch_mapping("a") == (str(person.uuid), 1, 100)
 
@@ -1032,21 +1021,23 @@ class TestPersonDivergence(ClickhouseTestMixin, BaseTest):
         ]
         assert self._ch_mapping("moved") == (str(person.uuid), 1, 100)
 
-    def test_leaves_a_mapping_unpublished_once_the_primary_no_longer_lists_it_after_the_raise(self) -> None:
+    def test_leaves_a_mapping_unpublished_once_the_primary_tombstoned_it(self) -> None:
         person = self._pg_person(version=3, distinct_ids={"gone": 0})
         self._ch_person_row(person.uuid, 3)
         self._ch_mapping_row("gone", person.uuid, 100, deleted=True)
         fake = get_active_fake()
-        list_distinct_ids = fake.get_distinct_ids_for_persons
+        write = fake.write_distinct_ids
 
-        def primary_lost_the_mapping(
-            request: person_pb2.GetDistinctIdsForPersonsRequest,
-        ) -> person_pb2.GetDistinctIdsForPersonsResponse:
-            if request.read_options.consistency == CONSISTENCY_LEVEL_STRONG:
-                return person_pb2.GetDistinctIdsForPersonsResponse()
-            return list_distinct_ids(request)
+        def primary_tombstoned_the_mapping(
+            request: person_pb2.WriteDistinctIdsRequest, timeout: float | None = None
+        ) -> person_pb2.WriteDistinctIdsResponse:
+            response = write(request, timeout)
+            for result in response.results:
+                result.outcome = person_pb2.DISTINCT_ID_WRITE_OUTCOME_PRECONDITION_FAILED
+                result.row.is_deleted = True
+            return response
 
-        with patch.object(fake, "get_distinct_ids_for_persons", side_effect=primary_lost_the_mapping):
+        with patch.object(fake, "write_distinct_ids", side_effect=primary_tombstoned_the_mapping):
             _, actions = self._repair(person.uuid)
 
         assert [(a.distinct_id, a.outcome) for a in actions] == [

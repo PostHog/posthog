@@ -54,7 +54,7 @@ class HexSource(ResumableSource[HexSourceConfig, HexResumeConfig]):
             name=ExternalDataSourceType.HEX,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="Hex",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Hex API token to pull your Hex projects, run history, cells, queried tables, data connections, agent threads, users, groups, and collections into the PostHog Data warehouse.
 
 You can create an API token in Hex under **Workspace settings > API keys**. A personal token inherits your permissions; workspace tokens are available on some plans and can read across the workspace. The threads table needs a token from a user with the Manager role or higher.

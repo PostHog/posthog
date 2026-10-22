@@ -440,7 +440,48 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         assert log.detail is not None
         self.assertEqual(log.detail.get("name"), "delete_test")
 
-    def test_delete_endpoint_is_refused_when_a_model_depends_on_it(self):
+    @parameterized.expand(
+        [
+            ("delete", "delete", None, "dag_view", "Can't delete blocked_endpoint_v1 yet.", "downstream_view", True),
+            (
+                "disable_materialization",
+                "patch",
+                {"is_materialized": False},
+                "dag_view",
+                "Can't turn off materialization for blocked_endpoint yet.",
+                "downstream_view",
+                True,
+            ),
+            (
+                "deactivate_endpoint",
+                "patch",
+                {"is_active": False},
+                "dag_view",
+                "Can't turn off materialization for blocked_endpoint yet.",
+                "downstream_view",
+                True,
+            ),
+            (
+                "disable_materialization_for_untracked_endpoint_reader",
+                "patch",
+                {"is_materialized": False},
+                "untracked_endpoint",
+                "Can't turn off materialization for blocked_endpoint yet.",
+                "reader",
+                False,
+            ),
+        ]
+    )
+    def test_removing_endpoint_materialization_is_refused_when_a_model_depends_on_it(
+        self,
+        _name: str,
+        method: str,
+        body: dict[str, Any] | None,
+        reader: str,
+        refusal: str,
+        dependent_name: str,
+        has_lineage_link: bool,
+    ):
         endpoint = create_endpoint_with_version(
             name="blocked_endpoint",
             team=self.team,
@@ -454,11 +495,6 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
             query=self.sample_hogql_query,
         )
         version.enable_materialization(backing_query)
-        downstream_query = DataWarehouseSavedQuery.objects.create(
-            team=self.team,
-            name="downstream_view",
-            query={"kind": "HogQLQuery", "query": "SELECT * FROM blocked_endpoint_v1"},
-        )
         dag = DAG.get_or_create_default(self.team)
         endpoint_node = Node.objects.create(
             team=self.team,
@@ -466,27 +502,47 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
             saved_query=backing_query,
             type=NodeType.ENDPOINT,
         )
-        downstream_node = Node.objects.create(
-            team=self.team,
-            dag=dag,
-            saved_query=downstream_query,
-            type=NodeType.VIEW,
-        )
-        Edge.objects.create(team=self.team, dag=dag, source=endpoint_node, target=downstream_node)
+        if reader == "dag_view":
+            downstream_query = DataWarehouseSavedQuery.objects.create(
+                team=self.team,
+                name="downstream_view",
+                query={"kind": "HogQLQuery", "query": "SELECT * FROM blocked_endpoint_v1"},
+            )
+            downstream_node = Node.objects.create(
+                team=self.team,
+                dag=dag,
+                saved_query=downstream_query,
+                type=NodeType.VIEW,
+            )
+            Edge.objects.create(team=self.team, dag=dag, source=endpoint_node, target=downstream_node)
+        else:
+            reader_endpoint = Endpoint.objects.create(name="reader", team=self.team, created_by=self.user)
+            EndpointVersion.objects.create(
+                endpoint=reader_endpoint,
+                version=1,
+                query={"kind": "HogQLQuery", "query": "SELECT * FROM blocked_endpoint_v1"},
+                created_by=self.user,
+            )
 
-        response = self.client.delete(f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/")
+        response = getattr(self.client, method)(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/", body, format="json"
+        )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["code"], "has_dependents")
-        self.assertEqual(response.json()["extra"], {"node_id": str(endpoint_node.id)})
+        if has_lineage_link:
+            self.assertEqual(response.json()["extra"], {"node_id": str(endpoint_node.id)})
+        else:
+            self.assertNotIn("extra", response.json())
         self.assertEqual(
             response.json()["detail"],
-            "Can't delete blocked_endpoint_v1 yet. Something else reads from it. Update or delete it first.",
+            f"{refusal} These read from it: {dependent_name} ({'endpoint' if reader == 'untracked_endpoint' else 'view'}). Update or delete them first.",
         )
         endpoint.refresh_from_db()
         backing_query.refresh_from_db()
         version.refresh_from_db()
         self.assertFalse(endpoint.deleted)
+        self.assertTrue(endpoint.is_active)
         self.assertFalse(backing_query.deleted)
         self.assertEqual(version.saved_query_id, backing_query.id)
         self.assertTrue(Node.objects.filter(id=endpoint_node.id).exists())

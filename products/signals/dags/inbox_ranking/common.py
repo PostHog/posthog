@@ -38,8 +38,9 @@ LABELS_EPOCH = "2026-04-01T00:00:00+00:00"
 # head predicts). already_fixed and wontfix_irrelevant are deliberately not here. Shared by the
 # labels SQL (cumulative count) and the head definition.
 WRONG_DISMISSAL_REASONS = ("analysis_wrong", "report_unclear", "wontfix_intentional")
-# The resolve button used as a dismissal: the report was resolved, but the problem was not fixed.
+# A report can be resolved without an implemented fix, so these reasons do not label a fix.
 NOT_FIXED_RESOLUTION_REASONS = (
+    "no_action_needed",
     "analysis_wrong",
     "wontfix_intentional",
     "wontfix_irrelevant",

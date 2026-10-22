@@ -57,7 +57,7 @@ class BrowserbaseSource(SimpleSource[BrowserbaseSourceConfig]):
             name=ExternalDataSourceType.BROWSERBASE,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Browserbase",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Browserbase API key to sync your Browserbase sessions and projects into the PostHog Data warehouse.
 
 You can find your project API key in your [Browserbase dashboard](https://www.browserbase.com/settings). API keys are scoped to a single project.""",

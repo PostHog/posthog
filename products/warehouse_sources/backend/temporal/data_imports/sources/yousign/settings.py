@@ -86,6 +86,22 @@ YOUSIGN_ENDPOINTS: dict[str, YousignEndpointConfig] = {
         ),
         description="Signer details for every signature request, one row per signer.",
     ),
+    "approvers": YousignEndpointConfig(
+        name="approvers",
+        path="/signature_requests/{signatureRequestId}/approvers",
+        data_selector="$",
+        primary_key=["signature_request_id", "id"],
+        paginated=False,
+        fanout=DependentEndpointConfig(
+            parent_name="signature_requests",
+            resolve_param="signatureRequestId",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "signature_request_id"},
+            parent_params={"source[in]": SIGNATURE_REQUEST_SOURCES},
+        ),
+        description="Approver details for every signature request, one row per approver.",
+    ),
     "documents": YousignEndpointConfig(
         name="documents",
         path="/signature_requests/{signatureRequestId}/documents",

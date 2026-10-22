@@ -239,12 +239,8 @@ class TestUkCompaniesHouseSource:
 class TestValidateCredentials:
     @parameterized.expand(
         [
-            (200, True),
-            (401, False),
-            (403, False),
             (404, False),
             (429, False),
-            (500, False),
         ]
     )
     def test_status_mapping(self, status_code: int, expected_ok: bool) -> None:

@@ -18,7 +18,11 @@ import { collectAllElementsDeep } from 'query-selector-shadow-dom'
 
 import type { PaginatedResponse } from 'lib/api'
 import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
-import { escapeUnescapedRegex, heatmapUrlPatternToRegex } from 'lib/components/heatmaps/heatmapUrlMatch'
+import {
+    escapeUnescapedRegex,
+    heatmapUrlPatternToRegex,
+    resolveHeatmapUrlFilter,
+} from 'lib/components/heatmaps/heatmapUrlMatch'
 import { HeatmapBoundsFilter } from 'lib/components/heatmaps/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { createSliceYielder } from 'lib/utils/async'
@@ -171,17 +175,20 @@ export function buildElementStatsProperties(
     wildcardHref: string,
     areaSelector: string | null
 ): AnyPropertyFilter[] {
+    const urlFilter = wildcardHref === href ? null : resolveHeatmapUrlFilter(wildcardHref)
     const properties: AnyPropertyFilter[] = [
-        wildcardHref === href
+        wildcardHref === href || urlFilter?.matchType === 'exact'
             ? {
                   key: '$current_url',
-                  value: href,
+                  value: urlFilter?.href ?? href,
                   operator: PropertyOperator.Exact,
                   type: PropertyFilterType.Event,
               }
             : {
                   key: '$current_url',
-                  value: heatmapUrlPatternToRegex(wildcardHref.split('*').map(escapeUnescapedRegex).join('*')),
+                  value:
+                      urlFilter?.regex ??
+                      heatmapUrlPatternToRegex(wildcardHref.split('*').map(escapeUnescapedRegex).join('*')),
                   operator: PropertyOperator.Regex,
                   type: PropertyFilterType.Event,
               },
@@ -1219,7 +1226,14 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
         },
 
         enableHeatmap: () => {
-            actions.setDataHref(values.href)
+            if (values.wildcardHref === values.href) {
+                actions.setHrefMatchType('exact')
+                actions.setDataHref(values.href)
+            } else {
+                const urlFilter = resolveHeatmapUrlFilter(values.wildcardHref)
+                actions.setHrefMatchType(urlFilter?.matchType ?? 'exact')
+                actions.setDataHref(urlFilter?.href ?? '')
+            }
             actions.loadAllEnabled()
             toolbarPosthogJS.capture('toolbar mode triggered', { mode: 'heatmap', enabled: true })
         },
@@ -1359,7 +1373,7 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
 
         setHref: ({ href }) => {
             if (values.heatmapEnabled) {
-                actions.setHrefMatchType(href === window.location.href ? 'exact' : 'pattern')
+                actions.setHrefMatchType('exact')
                 actions.setDataHref(href)
             }
             // the area filter describes an element on the page it was picked on; carrying it
@@ -1375,8 +1389,9 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
 
         setWildcardHref: ({ href }) => {
             if (values.heatmapEnabled) {
-                actions.setHrefMatchType(href === window.location.href ? 'exact' : 'pattern')
-                actions.setDataHref(href)
+                const urlFilter = resolveHeatmapUrlFilter(href)
+                actions.setHrefMatchType(urlFilter?.matchType ?? 'exact')
+                actions.setDataHref(urlFilter?.href ?? '')
             }
             actions.maybeLoadClickmap()
         },

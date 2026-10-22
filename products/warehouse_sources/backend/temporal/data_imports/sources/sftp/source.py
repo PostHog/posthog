@@ -106,7 +106,7 @@ class SFTPSource(SimpleSource[SFTPSourceConfig], ValidateDatabaseHostMixin):
             docsUrl="https://posthog.com/docs/cdp/sources/sftp",
             iconPath="/static/services/sftp.svg",
             keywords=["ssh file transfer", "ssh", "files"],
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

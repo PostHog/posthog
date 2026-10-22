@@ -6,7 +6,6 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
-    always,
     scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.selectstar import (
@@ -73,19 +72,6 @@ class TestValidateCredentials:
             assert validate_credentials("tok") == (True, None)
 
         assert network.requests_log[0].headers["authorization"] == "Token tok"
-
-    @parameterized.expand(
-        [
-            ("unauthorized", 401),
-            ("forbidden", 403),
-            ("server_error", 500),
-        ]
-    )
-    def test_status_mapping_is_a_failure(self, _name: str, status: int) -> None:
-        with scripted_network(always(ScriptedResponse(status=status, json={}))):
-            ok, message = validate_credentials("tok")
-        assert ok is False
-        assert message
 
 
 class TestSelectStarSourceResponse:

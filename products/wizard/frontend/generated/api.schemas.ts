@@ -7,6 +7,152 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export interface WizardInstallStartRequestApi {
+    /**
+     * GitHub repository to set up, in owner/name format. The project's GitHub connection must have access to it.
+     * @maxLength 255
+     */
+    repository: string
+    /**
+     * Branch to start from and to open the pull request against. Defaults to the repository's default branch.
+     * @maxLength 255
+     */
+    branch?: string
+    /**
+     * Unique key for this request. A retry with the same key returns the same run instead of starting another.
+     * @maxLength 255
+     */
+    idempotency_key?: string
+}
+
+/**
+ * * `created` - created
+ * * `running` - running
+ * * `completed` - completed
+ * * `failed` - failed
+ * * `cancelled` - cancelled
+ */
+export type WizardRunStatusEnumApi = (typeof WizardRunStatusEnumApi)[keyof typeof WizardRunStatusEnumApi]
+
+export const WizardRunStatusEnumApi = {
+    Created: 'created',
+    Running: 'running',
+    Completed: 'completed',
+    Failed: 'failed',
+    Cancelled: 'cancelled',
+} as const
+
+export interface WizardInstallStartApi {
+    /** ID of the setup run. Pass it to the status endpoint. */
+    readonly run_id: string
+    /** Current lifecycle status of the setup run.
+     *
+     * * `created` - created
+     * * `running` - running
+     * * `completed` - completed
+     * * `failed` - failed
+     * * `cancelled` - cancelled */
+    readonly status: WizardRunStatusEnumApi
+    /** PostHog page where the user can follow their setup runs. */
+    readonly url: string
+}
+
+export interface WizardRunErrorApi {
+    /** Error category. */
+    readonly type: string
+    /** Machine-readable error code. */
+    readonly code: string
+    /** What happened and how to continue. */
+    readonly detail: string
+    /**
+     * Request field associated with the error, when available.
+     * @nullable
+     */
+    readonly attr: string | null
+}
+
+/**
+ * * `dispatching` - dispatching
+ * * `provisioning` - provisioning
+ * * `preparing_workspace` - preparing_workspace
+ * * `executing_wizard` - executing_wizard
+ * * `creating_artifacts` - creating_artifacts
+ */
+export type WizardRunStageEnumApi = (typeof WizardRunStageEnumApi)[keyof typeof WizardRunStageEnumApi]
+
+export const WizardRunStageEnumApi = {
+    Dispatching: 'dispatching',
+    Provisioning: 'provisioning',
+    PreparingWorkspace: 'preparing_workspace',
+    ExecutingWizard: 'executing_wizard',
+    CreatingArtifacts: 'creating_artifacts',
+} as const
+
+/**
+ * * `created` - created
+ * * `running` - running
+ * * `completed` - completed
+ * * `failed` - failed
+ */
+export type WizardTaskStatusEnumApi = (typeof WizardTaskStatusEnumApi)[keyof typeof WizardTaskStatusEnumApi]
+
+export const WizardTaskStatusEnumApi = {
+    Created: 'created',
+    Running: 'running',
+    Completed: 'completed',
+    Failed: 'failed',
+} as const
+
+export interface WizardInstallTaskApi {
+    /** Task the setup agent planned. */
+    readonly name: string
+    /** Current task status reported by the setup agent.
+     *
+     * * `created` - created
+     * * `running` - running
+     * * `completed` - completed
+     * * `failed` - failed */
+    readonly status: WizardTaskStatusEnumApi
+}
+
+export interface WizardInstallStatusApi {
+    /** Lifecycle status of the setup run. created and running mean it is still in progress.
+     *
+     * * `created` - created
+     * * `running` - running
+     * * `completed` - completed
+     * * `failed` - failed
+     * * `cancelled` - cancelled */
+    readonly status: WizardRunStatusEnumApi
+    /** Step the setup run is on while it is in progress, or null otherwise.
+     *
+     * * `dispatching` - dispatching
+     * * `provisioning` - provisioning
+     * * `preparing_workspace` - preparing_workspace
+     * * `executing_wizard` - executing_wizard
+     * * `creating_artifacts` - creating_artifacts */
+    readonly stage: WizardRunStageEnumApi | null
+    /**
+     * Machine-readable failure reason, or null if the run has not failed.
+     * @nullable
+     */
+    readonly error_code: string | null
+    /**
+     * Failure explanation, or null if the run has not failed.
+     * @nullable
+     */
+    readonly error_message: string | null
+    /**
+     * Pull request with the setup changes, or null until the run opens one.
+     * @nullable
+     */
+    readonly pull_request_url: string | null
+    /** Tasks the setup agent planned, in order. */
+    readonly tasks: readonly WizardInstallTaskApi[]
+    /** What happens next, in a sentence to relay to the user. */
+    readonly next_step: string
+}
+
 /**
  * * `local` - local
  * * `cloud` - cloud
@@ -97,40 +243,6 @@ export interface GitRepositoryWorkspaceApi {
 }
 
 export type WizardWorkspaceApi = LocalFolderWorkspaceApi | GitRepositoryWorkspaceApi
-
-/**
- * * `created` - created
- * * `running` - running
- * * `completed` - completed
- * * `failed` - failed
- * * `cancelled` - cancelled
- */
-export type WizardRunStatusEnumApi = (typeof WizardRunStatusEnumApi)[keyof typeof WizardRunStatusEnumApi]
-
-export const WizardRunStatusEnumApi = {
-    Created: 'created',
-    Running: 'running',
-    Completed: 'completed',
-    Failed: 'failed',
-    Cancelled: 'cancelled',
-} as const
-
-/**
- * * `dispatching` - dispatching
- * * `provisioning` - provisioning
- * * `preparing_workspace` - preparing_workspace
- * * `executing_wizard` - executing_wizard
- * * `creating_artifacts` - creating_artifacts
- */
-export type WizardRunStageEnumApi = (typeof WizardRunStageEnumApi)[keyof typeof WizardRunStageEnumApi]
-
-export const WizardRunStageEnumApi = {
-    Dispatching: 'dispatching',
-    Provisioning: 'provisioning',
-    PreparingWorkspace: 'preparing_workspace',
-    ExecutingWizard: 'executing_wizard',
-    CreatingArtifacts: 'creating_artifacts',
-} as const
 
 export interface WizardRunApi {
     /** Unique ID of the Wizard run. */
@@ -232,20 +344,6 @@ export interface WizardRunCreateRequestApi {
     idempotency_key?: string
     /** Wizard package version to run. Defaults to the backend pin and accepts latest explicitly. */
     wizard_version?: string
-}
-
-export interface WizardRunErrorApi {
-    /** Error category. */
-    readonly type: string
-    /** Machine-readable error code. */
-    readonly code: string
-    /** What happened and how to continue. */
-    readonly detail: string
-    /**
-     * Request field associated with the error, when available.
-     * @nullable
-     */
-    readonly attr: string | null
 }
 
 /**
@@ -365,21 +463,6 @@ export interface PaginatedWizardRunArtifactListApi {
     previous?: string | null
     results: WizardRunArtifactApi[]
 }
-
-/**
- * * `created` - created
- * * `running` - running
- * * `completed` - completed
- * * `failed` - failed
- */
-export type WizardTaskStatusEnumApi = (typeof WizardTaskStatusEnumApi)[keyof typeof WizardTaskStatusEnumApi]
-
-export const WizardTaskStatusEnumApi = {
-    Created: 'created',
-    Running: 'running',
-    Completed: 'completed',
-    Failed: 'failed',
-} as const
 
 export interface WizardRunTaskApi {
     /** Task name, unique within this run. */

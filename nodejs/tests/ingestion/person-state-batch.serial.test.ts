@@ -1220,7 +1220,7 @@ describe('PersonState.processEvent()', () => {
             expect(distinctIds).toEqual(expect.arrayContaining([oldUserDistinctId, newUserDistinctId]))
         })
 
-        it(`skips database write when is_identified doesn't change (batch-level filtering)`, async () => {
+        it(`writes the identified flag at the call when both ids already share an unidentified person`, async () => {
             await createPerson(
                 hub,
                 timestamp,
@@ -1251,13 +1251,14 @@ describe('PersonState.processEvent()', () => {
             const context = mergeService.getContext()
             await flushPersonStoreToKafka(kafkaProducer, context.personStore, kafkaAcks)
 
+            // The same-person outcome commits the identified flag at the call, ahead of the batch flush.
             expect(person).toMatchObject({
                 id: expect.any(String),
                 uuid: newUserUuid,
                 properties: {},
                 created_at: timestamp,
-                version: 0,
-                is_identified: false,
+                version: 1,
+                is_identified: true,
             })
             expect(mergeService.getUpdateIsIdentified()).toBeTruthy()
 
@@ -1267,9 +1268,9 @@ describe('PersonState.processEvent()', () => {
                 id: person!.id,
                 uuid: newUserUuid,
                 created_at: timestamp,
-                is_identified: false,
+                is_identified: true,
                 properties: {},
-                version: 0,
+                version: 1,
             })
         })
 
@@ -1970,14 +1971,15 @@ describe('PersonState.processEvent()', () => {
             await kafkaAcks
 
             expect(personS.getUpdateIsIdentified()).toBeTruthy()
+            // The refused merge commits the target's identified flag at the call, ahead of the batch flush.
             expect(person).toEqual(
                 expect.objectContaining({
                     id: expect.any(String),
                     uuid: newUserUuid,
                     properties: {},
                     created_at: timestamp2,
-                    version: 0,
-                    is_identified: false,
+                    version: 1,
+                    is_identified: true,
                 })
             )
 

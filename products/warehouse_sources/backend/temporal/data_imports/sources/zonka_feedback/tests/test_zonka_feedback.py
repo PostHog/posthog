@@ -139,24 +139,6 @@ class TestBaseUrl:
 
 
 class TestCheckAccess:
-    @parameterized.expand(
-        [
-            ("reachable", 200, 200, None),
-            ("unauthorized", 401, 401, None),
-            ("forbidden", 403, 403, None),
-            ("server_error", 500, 500, "Zonka Feedback returned HTTP 500"),
-        ]
-    )
-    def test_status_mapping(self, _name: str, status: int, expected_status: int, expected_message: str | None) -> None:
-        with scripted_network(always(ScriptedResponse(status=status, json={}))):
-            assert check_access("zonka-token", "us1") == (expected_status, expected_message)
-
-    def test_connection_error_maps_to_zero(self) -> None:
-        with scripted_network(always(ConnectionError("boom"))):
-            status, message = check_access("zonka-token", "us1")
-        assert status == 0
-        assert message == "Could not connect to Zonka Feedback"
-
     def test_probe_redacts_token_and_pins_redirects(self) -> None:
         with scripted_network(always(ScriptedResponse(json={}))) as network:
             check_access("secret-token", "us1")

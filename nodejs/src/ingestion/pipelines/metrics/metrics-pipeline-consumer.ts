@@ -59,6 +59,7 @@ export class MetricsPipelineConsumer {
     private promiseScheduler: FailureLatchingPromiseScheduler
     private pipeline: MetricsIngestionPipeline
     private outputs: MetricsIngestionOutputs
+    private teamManager: TeamManager
 
     constructor(config: MetricsIngestionConsumerConfig, deps: MetricsPipelineConsumerDeps) {
         // consumer-v1 stores a batch's offsets even when its background task rejects,
@@ -68,6 +69,7 @@ export class MetricsPipelineConsumer {
             topic: config.METRICS_INGESTION_CONSUMER_CONSUME_TOPIC,
         })
         this.outputs = deps.outputs
+        this.teamManager = deps.teamManager
         this.promiseScheduler = new FailureLatchingPromiseScheduler()
         this.pipeline = createMetricsIngestionPipeline({
             outputs: deps.outputs,
@@ -116,6 +118,9 @@ export class MetricsPipelineConsumer {
         return {
             backgroundTask: instrumentFn('metricsIngestionConsumer.awaitScheduledWork', async () => {
                 await this.promiseScheduler.waitForAllOrFail()
+                await this.teamManager.setTeamsIngestedData(
+                    [...usage.entries()].filter(([, stats]) => stats.recordsAllowed > 0).map(([teamId]) => teamId)
+                )
                 await emitMetricsUsage(this.outputs, usage)
             }),
         }

@@ -207,6 +207,7 @@ impl CatalogHandle {
     /// The staleness metrics are stamped here rather than in [`run_refresh_loop`] so the boot load
     /// in `main` counts too — otherwise a pod that booted fine and then lost its refresh loop would
     /// look identical to one that never loaded.
+    #[hotpath::measure(impl_type = "CatalogHandle")]
     pub async fn refresh(&self, pool: &PgPool) -> Result<CatalogStats, CatalogRefreshError> {
         match self.refresh_from(|| load_realtime_cohorts(pool)).await {
             Ok(stats) => {

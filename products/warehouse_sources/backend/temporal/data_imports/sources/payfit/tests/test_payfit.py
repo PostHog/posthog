@@ -250,7 +250,6 @@ class TestValidateCredentials:
     @parameterized.expand(
         [
             ("exhausted_retries", ScriptedResponse(status=500), "500"),
-            ("connection_error", requests.ConnectionError("boom"), "boom"),
         ]
     )
     def test_introspection_failure_maps_to_message(

@@ -46,7 +46,7 @@ class HoorayHRSource(SimpleSource[HoorayHRSourceConfig]):
             name=ExternalDataSourceType.HOORAYHR,
             category=DataWarehouseSourceCategory.HR___RECRUITING,
             label="HoorayHR",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your HoorayHR API key to pull your HR data (users, time off, sick leave, contracts, and more) into the PostHog Data warehouse.
 
 You need the admin role in your HoorayHR company to create an API key: go to [Settings → API keys](https://app.hoorayhr.io/settings/api-keys) and click "New API key". The key (prefixed `pk_`) is shown only once, so copy it right away.""",

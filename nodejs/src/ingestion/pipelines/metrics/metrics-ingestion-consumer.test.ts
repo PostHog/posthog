@@ -11,7 +11,7 @@ import { APP_METRICS_OUTPUT, AppMetricsOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { SingleIngestionOutput } from '~/common/outputs/single-ingestion-output'
 import { closeHub, createHub } from '~/common/utils/db/hub'
-import { createTestTeamFixture } from '~/tests/helpers/sql'
+import { createTeam, createTestTeamFixture, getTeam } from '~/tests/helpers/sql'
 import { Hub, Team } from '~/types'
 
 import { getDefaultMetricsIngestionConsumerConfig } from './config'
@@ -86,6 +86,21 @@ describe('MetricsIngestionConsumer', () => {
     afterEach(async () => {
         await consumer.stop()
         await closeHub(hub)
+    })
+
+    it('marks a team that receives its first metrics as having ingested data', async () => {
+        const newTeamId = await createTeam(hub.postgres, team.organization_id, undefined, { ingested_event: false })
+        const newTeam = await getTeam(hub.postgres, newTeamId)
+        const message = createKafkaMessage({
+            token: newTeam!.api_token,
+            bytes_uncompressed: '100',
+            record_count: '1',
+        })
+
+        const { backgroundTask } = await consumer.processKafkaBatch([message])
+        await backgroundTask
+
+        expect((await getTeam(hub.postgres, newTeamId))?.ingested_event).toBe(true)
     })
 
     it('stamps the default retention-days header on messages produced to ClickHouse', async () => {

@@ -509,6 +509,24 @@ class SurveyQuestionValidationRuleSerializer(serializers.Serializer):
     )
 
 
+class SurveyQuestionTranslationSchemaSerializer(serializers.Serializer):
+    question = serializers.CharField(required=False, allow_blank=True, help_text="Translated question text.")
+    description = serializers.CharField(required=False, allow_blank=True, help_text="Translated helper text.")
+    buttonText = serializers.CharField(required=False, allow_blank=True, help_text="Translated button label.")
+    lowerBoundLabel = serializers.CharField(
+        required=False, allow_blank=True, help_text="Translated lowest rating label. Rating questions only."
+    )
+    upperBoundLabel = serializers.CharField(
+        required=False, allow_blank=True, help_text="Translated highest rating label. Rating questions only."
+    )
+    choices = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        help_text="Translated choices. Must have the same length as the question choices. Choice questions only.",
+    )
+    link = serializers.CharField(required=False, allow_blank=True, help_text="Translated URL. Link questions only.")
+
+
 class DescriptionContentType(models.TextChoices):
     TEXT = "text", "text"
     HTML = "html", "html"
@@ -537,15 +555,31 @@ class SurveyBaseQuestionSchemaSerializer(serializers.Serializer):
     )
     optional = serializers.BooleanField(required=False, help_text="Whether respondents may skip this question.")
     buttonText = serializers.CharField(required=False, allow_blank=True, help_text="Custom button label.")
+    translations = serializers.DictField(
+        child=SurveyQuestionTranslationSchemaSerializer(),
+        required=False,
+        help_text=(
+            "Inline translations keyed by language code (for example 'es' or 'pt-BR'). "
+            "Send back the current value when editing other question fields, or the translations are lost."
+        ),
+    )
 
 
 class SurveyOpenQuestionSchemaSerializer(SurveyBaseQuestionSchemaSerializer):
     type = serializers.ChoiceField(choices=["open"], required=True)
+    validation = SurveyQuestionValidationRuleSerializer(
+        many=True,
+        required=False,
+        allow_null=True,
+        help_text="Validation rules for the response text, for example a minimum length.",
+    )
+    branching = SurveyBranchingSchemaField(required=False, allow_null=True)
 
 
 class SurveyLinkQuestionSchemaSerializer(SurveyBaseQuestionSchemaSerializer):
     type = serializers.ChoiceField(choices=["link"], required=True)
     link = serializers.CharField(required=True, help_text="HTTPS or mailto URL for link questions.")
+    branching = SurveyBranchingSchemaField(required=False, allow_null=True)
 
 
 class SurveyRatingQuestionSchemaSerializer(SurveyBaseQuestionSchemaSerializer):
@@ -569,6 +603,10 @@ class SurveyRatingQuestionSchemaSerializer(SurveyBaseQuestionSchemaSerializer):
         required=False,
         allow_blank=True,
         help_text="Label for the highest rating (e.g., 'Excellent')",
+    )
+    isNpsQuestion = serializers.BooleanField(
+        required=False,
+        help_text="Whether a rating question with a scale of 10 shows NPS scoring. A missing value counts as true.",
     )
     branching = SurveyBranchingSchemaField(required=False, allow_null=True)
 

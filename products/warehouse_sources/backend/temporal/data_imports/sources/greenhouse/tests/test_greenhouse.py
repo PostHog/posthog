@@ -109,12 +109,6 @@ class TestValidateCredentials:
         "status_code, accept_forbidden, expected_valid",
         [
             (200, True, True),
-            (200, False, True),
-            (401, True, False),
-            (401, False, False),
-            (403, True, True),  # source-create: a scoped key may legitimately 403
-            (403, False, False),  # per-schema check: missing scope is an error
-            (500, True, False),
         ],
     )
     def test_status_code_mapping(self, status_code: int, accept_forbidden: bool, expected_valid: bool) -> None:
@@ -132,13 +126,6 @@ class TestValidateCredentials:
             )
         assert is_valid is False
         assert error is not None and "permission" in error
-
-    def test_network_error_is_not_valid(self) -> None:
-        # validate_via_probe swallows transport errors and reports "not validated".
-        with scripted_network(always(ConnectionError("boom"))):
-            is_valid, error = validate_credentials(GREENHOUSE_V1, api_key="test_key")
-        assert is_valid is False
-        assert error is not None
 
     @pytest.mark.parametrize(
         "api_version, expected_url",

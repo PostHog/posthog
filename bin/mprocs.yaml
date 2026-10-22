@@ -408,7 +408,7 @@ procs:
         shell: |-
             bin/wait-for-docker && \
             bin/start-rust-service capture-ai
-        capability: ai_capture
+        capability: event_ingestion
         ready_pattern: 'listening on *'
         groups:
             layer: Ingestion pipeline
@@ -493,8 +493,8 @@ procs:
 
     personhog-etcd-init:
         shell: |-
-            bin/wait-for-docker && \
-            docker exec posthog-etcd-1 etcdctl put /personhog/config/total_partitions 4 && \
+            bin/wait-for-docker --only etcd && \
+            docker exec posthog-etcd-1 etcdctl put /personhog/config/changelog '{"topic":"personhog_updates","partitions":4,"epoch":1,"writer_group":"personhog-writer","draining":[]}' && \
             echo 'etcd init complete'
         capability: personhog
         ready_pattern: 'etcd init complete'

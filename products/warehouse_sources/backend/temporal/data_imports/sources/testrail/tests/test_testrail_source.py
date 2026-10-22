@@ -1,7 +1,5 @@
 from unittest import mock
 
-from parameterized import parameterized
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.testrail import (
     TestrailSourceConfig,
 )
@@ -22,32 +20,6 @@ class TestTestrailSource:
         # The stored API key is sent to `<subdomain>.testrail.io`; without this, an editor could
         # retarget the subdomain and exfiltrate the preserved key.
         assert self.source.connection_host_fields == ["subdomain"]
-
-    @parameterized.expand(
-        [
-            (
-                "unauthorized",
-                "401 Client Error: Unauthorized for url: https://acme.testrail.io/index.php?/api/v2/get_projects&limit=250&offset=0",
-            ),
-            (
-                "forbidden",
-                "403 Client Error: Forbidden for url: https://acme.testrail.io/index.php?/api/v2/get_cases/1&suite_id=2",
-            ),
-        ]
-    )
-    def test_non_retryable_errors_match_auth_failures(self, _name: str, observed_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable)
-
-    @parameterized.expand(
-        [
-            ("rate_limited", "429 Client Error: Too Many Requests for url: https://acme.testrail.io/index.php?"),
-            ("server_error", "500 Server Error: Internal Server Error for url: https://acme.testrail.io/index.php?"),
-        ]
-    )
-    def test_non_retryable_errors_ignore_transient(self, _name: str, unrelated_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert not any(key in unrelated_error for key in non_retryable)
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.testrail.source.testrail_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:

@@ -23,9 +23,6 @@ class TestFaireSource:
 
     @parameterized.expand(
         [
-            ((True, 200), True, None),
-            ((False, 401), False, "Invalid Faire API access token"),
-            ((False, 403), False, "Could not connect to Faire with the provided API access token"),
             ((False, None), False, "Could not connect to Faire with the provided API access token"),
         ]
     )

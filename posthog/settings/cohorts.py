@@ -113,3 +113,8 @@ BEHAVIORAL_BACKFILL_FINALIZER_MAX_RUNS_PER_PASS: int = get_from_env(
 COHORT_DEPENDENCY_INCREMENTAL_MAINTENANCE: bool = get_from_env(
     "COHORT_DEPENDENCY_INCREMENTAL_MAINTENANCE", True, type_cast=str_to_bool
 )
+# Bounds one static cohort CSV upload. The IDs are collected in memory and sent to Celery in one
+# message, so the byte size and the row count both need a ceiling. 50 MB matches MAX_UPLOAD_SIZE_BYTES
+# in products/warehouse_sources/backend/file_uploads.py.
+COHORT_CSV_UPLOAD_MAX_BYTES: int = get_from_env("COHORT_CSV_UPLOAD_MAX_BYTES", 50 * 1024 * 1024, type_cast=int)
+COHORT_CSV_UPLOAD_MAX_ROWS: int = get_from_env("COHORT_CSV_UPLOAD_MAX_ROWS", 1_000_000, type_cast=int)

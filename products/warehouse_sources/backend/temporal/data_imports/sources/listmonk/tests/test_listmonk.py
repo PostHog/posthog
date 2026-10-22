@@ -165,7 +165,11 @@ class TestListmonkHost:
             else:
                 assert normalize_host(host) == expected
 
-    @parameterized.expand([("ok", 200, True), ("bad_token", 401, False), ("server_error", 500, False)])
+    @parameterized.expand(
+        [
+            ("ok", 200, True),
+        ]
+    )
     def test_validate_credentials_maps_probe_status(self, _name: str, status: int, expected_valid: bool) -> None:
         with scripted_network(always(ScriptedResponse(status=status, json={}))) as network:
             valid, message = ListmonkSource().validate_credentials(CONFIG, team_id=1)

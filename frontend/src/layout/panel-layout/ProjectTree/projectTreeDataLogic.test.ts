@@ -1,5 +1,6 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { sceneFileLogic } from 'lib/components/Scenes/sceneFileLogic'
@@ -123,17 +124,25 @@ describe('projectTreeDataLogic', () => {
         expect(logic.values.shortcutData).toEqual(updatedShortcuts)
     })
 
-    it('does not list a shortcut twice when starring returns one that already exists', async () => {
+    it.each([
+        { listedLocally: true, created: false },
+        { listedLocally: false, created: false },
+        { listedLocally: false, created: true },
+    ])('lists a star once and counts it as added only when created (%o)', async ({ listedLocally, created }) => {
         await expectLogic(logic).toFinishAllListeners()
         const existing = { id: 'star-dash', path: 'Dashboards', type: 'dashboard', ref: '42' }
-        logic.actions.loadShortcutsSuccess([existing])
-        jest.spyOn(api.fileSystemShortcuts, 'create').mockResolvedValue(existing)
+        logic.actions.loadShortcutsSuccess(listedLocally ? [existing] : [])
+        jest.spyOn(api.fileSystemShortcuts, 'create').mockResolvedValue({ shortcut: existing, created })
+        const capture = jest.spyOn(posthog, 'capture')
 
         await expectLogic(logic, () => {
             logic.actions.addShortcutItem({ id: 'dash', path: 'Dashboards', type: 'dashboard', ref: '42' })
         }).toFinishAllListeners()
 
         expect(logic.values.shortcutData.map((shortcut) => shortcut.id)).toEqual(['star-dash'])
+        expect(capture.mock.calls.filter(([event]) => event === 'navbar starred item added')).toHaveLength(
+            created ? 1 : 0
+        )
     })
 
     it.each([false, true])('keeps starred navigation in place unless explicitly revealed (%s)', async (explicit) => {

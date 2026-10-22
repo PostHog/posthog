@@ -674,3 +674,124 @@ message ListPersonsForTeamResponse {
   // Absent when this page is the last one.
   optional int64 next_after_person_id = 2;
 }
+
+// Raise live persons' versions for the person consistency repair. Tombstoned and
+// missing persons are left unchanged; EnsurePersonVersionFloors handles tombstones.
+message RaisePersonVersionFloorsRequest {
+  int64 team_id = 1;
+  // At most 250, no repeated uuid.
+  repeated PersonVersionFloor floors = 2;
+}
+
+enum RaiseOutcome {
+  RAISE_OUTCOME_UNSPECIFIED = 0;
+  RAISE_OUTCOME_RAISED = 1;
+  RAISE_OUTCOME_AT_OR_ABOVE = 2;
+  RAISE_OUTCOME_NOT_LIVE = 3;
+  RAISE_OUTCOME_MISSING = 4;
+}
+
+message RaisePersonVersionFloorResult {
+  string person_uuid = 1;
+  RaiseOutcome outcome = 2;
+  // The version the row holds after the call; 0 when missing.
+  int64 version = 3;
+}
+
+message RaisePersonVersionFloorsResponse {
+  repeated RaisePersonVersionFloorResult results = 1;
+}
+
+// A person to insert from its ClickHouse copy.
+message RestoredPerson {
+  string person_uuid = 1;
+  // JSON object.
+  bytes properties = 2;
+  int64 created_at_ms = 3;
+  bool is_identified = 4;
+  int64 version = 5;
+  // Distinct ids to insert on the person in the same transaction, where no row exists for them.
+  // When the person is inserted but none of these can be, the person is not inserted either
+  // (RESTORE_OUTCOME_NO_DISTINCT_ID), so a restore never leaves a person nothing points to.
+  repeated RestoredDistinctId distinct_ids = 6;
+}
+
+message RestoredDistinctId {
+  string distinct_id = 1;
+  int64 version = 2;
+}
+
+message RestorePersonsRequest {
+  int64 team_id = 1;
+  // At most 250, no repeated uuid.
+  repeated RestoredPerson persons = 2;
+}
+
+enum RestoreOutcome {
+  RESTORE_OUTCOME_UNSPECIFIED = 0;
+  RESTORE_OUTCOME_INSERTED = 1;
+  // A row with the uuid exists, live or tombstoned; it is left unchanged.
+  RESTORE_OUTCOME_EXISTS_LIVE = 2;
+  RESTORE_OUTCOME_EXISTS_TOMBSTONED = 3;
+  // The request listed distinct ids, and every one of them already had a row; nothing was inserted.
+  RESTORE_OUTCOME_NO_DISTINCT_ID = 4;
+}
+
+message RestorePersonResult {
+  string person_uuid = 1;
+  RestoreOutcome outcome = 2;
+  int64 person_id = 3;
+  int64 version = 4;
+  // For INSERTED: the requested distinct ids inserted on the person, at their requested versions.
+  repeated string restored_distinct_ids = 5;
+}
+
+message RestorePersonsResponse {
+  repeated RestorePersonResult results = 1;
+}
+
+enum DistinctIdWriteAction {
+  DISTINCT_ID_WRITE_ACTION_UNSPECIFIED = 0;
+  // Insert a live row on the person when no row exists for the distinct id.
+  DISTINCT_ID_WRITE_ACTION_INSERT = 1;
+  // Raise a live row on the person to at least min_version.
+  DISTINCT_ID_WRITE_ACTION_RAISE = 2;
+}
+
+message DistinctIdWrite {
+  string distinct_id = 1;
+  DistinctIdWriteAction action = 2;
+  // The person the row must point at: the insert target, or the current owner for raise.
+  string person_uuid = 3;
+  int64 min_version = 4;
+  // When set, raise applies only while the row holds exactly this version.
+  optional int64 expected_version = 5;
+}
+
+message WriteDistinctIdsRequest {
+  int64 team_id = 1;
+  // At most 250, no repeated distinct id.
+  repeated DistinctIdWrite writes = 2;
+}
+
+enum DistinctIdWriteOutcome {
+  DISTINCT_ID_WRITE_OUTCOME_UNSPECIFIED = 0;
+  DISTINCT_ID_WRITE_OUTCOME_APPLIED = 1;
+  // The row already satisfies the write (raise at or above min_version).
+  DISTINCT_ID_WRITE_OUTCOME_UNCHANGED = 2;
+  // The row is not in the state the write expects; it is left unchanged and reported.
+  DISTINCT_ID_WRITE_OUTCOME_PRECONDITION_FAILED = 3;
+  // The person does not exist or is tombstoned.
+  DISTINCT_ID_WRITE_OUTCOME_PERSON_NOT_LIVE = 4;
+}
+
+message DistinctIdWriteResult {
+  string distinct_id = 1;
+  DistinctIdWriteOutcome outcome = 2;
+  // The row after the call, when one exists.
+  optional DistinctIdRow row = 3;
+}
+
+message WriteDistinctIdsResponse {
+  repeated DistinctIdWriteResult results = 1;
+}

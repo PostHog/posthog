@@ -10,7 +10,7 @@ from products.warehouse_sources.backend.types import IncrementalField, Increment
 class PagerDutyEndpointConfig:
     path: str  # Path under the API base URL, e.g. "/incidents"
     envelope_key: str  # Key the list of objects is wrapped under in the response body
-    primary_key: str = "id"
+    primary_keys: list[str] = field(default_factory=lambda: ["id"])
     partition_key: Optional[str] = None  # Stable datetime field used to partition (never a mutable field)
     incremental_fields: list[IncrementalField] = field(default_factory=list)
     # True only when the endpoint exposes a server-side `since` filter on created_at AND
@@ -28,6 +28,11 @@ class PagerDutyEndpointConfig:
     # still raise instead of being swallowed as an empty table.
     plan_gated_feature: Optional[str] = None
     plan_gated_status: Optional[int] = None
+    # Fan-out child: `parent` names the endpoint whose rows supply the `{id}` in `path`, and that id
+    # lands on each child row as `parent_id_column`. Child ids are only documented as unique within
+    # their parent, so the parent id belongs in the child's primary key.
+    parent: Optional[str] = None
+    parent_id_column: Optional[str] = None
 
 
 _CREATED_AT_INCREMENTAL: list[IncrementalField] = [
@@ -53,6 +58,17 @@ PAGERDUTY_ENDPOINTS: dict[str, PagerDutyEndpointConfig] = {
         # would be needed for true change capture.
         supports_since=True,
     ),
+    "incident_alerts": PagerDutyEndpointConfig(
+        path="/incidents/{id}/alerts",
+        envelope_key="alerts",
+        primary_keys=["incident_id", "id"],
+        partition_key="created_at",
+        # Full refresh only: the child endpoint has no `since` filter, and an open incident keeps
+        # collecting alerts after it was created, so a window on the parent would miss them. The
+        # fan-out covers the incidents the parent listing returns, which is its default date range.
+        parent="incidents",
+        parent_id_column="incident_id",
+    ),
     "log_entries": PagerDutyEndpointConfig(
         path="/log_entries",
         envelope_key="log_entries",
@@ -60,6 +76,13 @@ PAGERDUTY_ENDPOINTS: dict[str, PagerDutyEndpointConfig] = {
         # `/log_entries` accepts a `since` filter but exposes no controllable sort param, so
         # we can't guarantee an ascending watermark. Ship full refresh rather than risk the
         # cursor advancing past unread rows.
+    ),
+    "change_events": PagerDutyEndpointConfig(
+        path="/change_events",
+        envelope_key="change_events",
+        partition_key="timestamp",
+        # `/change_events` accepts `since`/`until` but no sort param, and `timestamp` is set by the
+        # tool that emits the event, so a late-arriving event can predate the watermark. Full refresh.
     ),
     "services": PagerDutyEndpointConfig(
         path="/services",
@@ -77,6 +100,15 @@ PAGERDUTY_ENDPOINTS: dict[str, PagerDutyEndpointConfig] = {
         plan_gated_feature="teams",
         plan_gated_status=402,
     ),
+    "team_members": PagerDutyEndpointConfig(
+        path="/teams/{id}/members",
+        envelope_key="members",
+        primary_keys=["team_id", "user_id"],
+        plan_gated_feature="teams",
+        plan_gated_status=402,
+        parent="teams",
+        parent_id_column="team_id",
+    ),
     "escalation_policies": PagerDutyEndpointConfig(
         path="/escalation_policies",
         envelope_key="escalation_policies",
@@ -84,6 +116,12 @@ PAGERDUTY_ENDPOINTS: dict[str, PagerDutyEndpointConfig] = {
     "schedules": PagerDutyEndpointConfig(
         path="/schedules",
         envelope_key="schedules",
+    ),
+    "oncalls": PagerDutyEndpointConfig(
+        path="/oncalls",
+        envelope_key="oncalls",
+        # Without `since`/`until` the API answers the on-call entries at the current time, so each
+        # sync replaces the table with who is on call now.
     ),
     "priorities": PagerDutyEndpointConfig(
         path="/priorities",

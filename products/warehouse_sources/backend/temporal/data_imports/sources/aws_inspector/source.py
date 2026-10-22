@@ -142,7 +142,7 @@ Enter your access key ID and secret access key. Add a session token if you use t
 This source reads one AWS region.""",
             iconPath="/static/services/aws_inspector.png",
             docsUrl="https://posthog.com/docs/cdp/sources/aws-inspector",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["aws", "inspector", "security", "vulnerabilities"],
             fields=cast(
                 list[FieldType],

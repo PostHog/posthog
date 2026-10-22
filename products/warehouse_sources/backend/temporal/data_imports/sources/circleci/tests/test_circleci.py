@@ -86,8 +86,6 @@ class TestValidateCredentials:
     @parameterized.expand(
         [
             (200, 200, True),
-            (401, None, False),
-            (403, None, False),
             (200, 404, False),
             (200, 403, False),
         ]

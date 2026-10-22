@@ -57,6 +57,8 @@ export const INBOX_EVENTS = {
     SOURCE_TOGGLE_FAILED: 'Signal source toggle failed',
     SOURCE_CONFIGS_LOAD_FAILED: 'Signal source configs load failed',
     SOURCE_INTEREST: 'signals source interest',
+    SOURCE_CATALOG_OPENED: 'Signal source catalog opened',
+    SOURCE_CATALOG_SOURCE_SELECTED: 'Signal source catalog source selected',
     SOURCE_STEERING_CHANGED: 'Signal source steering changed',
     SOURCE_FILTERS_CHANGED: 'Signal source filters changed',
     // Scout-troop management. Names and property shapes match the desktop app one-for-one so both
@@ -120,6 +122,7 @@ export type InboxReportOpenMethod = 'click' | 'deeplink' | 'triage' | 'unknown'
  * `ReportLinkSource` in `products/signals/backend/report_urls.py`.
  */
 export const INBOX_REPORT_LINK_SOURCES = [
+    'first_report_email',
     'mcp',
     'slack',
     'slack_scout',
@@ -826,6 +829,31 @@ export function captureSignalSourceConfigsLoadFailed(errorMessage: string): void
 
 export function captureSignalSourceInterest(source: string): void {
     captureInboxEvent(INBOX_EVENTS.SOURCE_INTEREST, { source })
+}
+
+export type SignalSourceCatalogOrigin = 'catalog' | 'recommendation'
+
+/** The add-source catalog opened. Pairs with {@link captureSignalSourceConnected} to show how many opens end in a connection. */
+export function captureSignalSourceCatalogOpened(params: {
+    recommendationCount: number
+    connectedCount: number
+}): void {
+    captureInboxEvent(INBOX_EVENTS.SOURCE_CATALOG_OPENED, {
+        recommendation_count: params.recommendationCount,
+        connected_count: params.connectedCount,
+    })
+}
+
+export function captureSignalSourceCatalogSourceSelected(params: {
+    source: string
+    origin: SignalSourceCatalogOrigin
+    reason: string | null
+}): void {
+    captureInboxEvent(INBOX_EVENTS.SOURCE_CATALOG_SOURCE_SELECTED, {
+        source: params.source,
+        origin: params.origin,
+        recommendation_reason: params.reason,
+    })
 }
 
 /**

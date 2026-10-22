@@ -370,6 +370,17 @@ describe('evaluationBackfillsLogic', () => {
         }
     )
 
+    it('blocks the start button on a disabled evaluation even when the estimate has a count', async () => {
+        await mountAndSettle()
+
+        saveEvaluation({ enabled: false })
+        logic.actions.requestEstimateSuccess(estimate({ total_units: 42 }))
+
+        await expectLogic(logic).toMatchValues({
+            startDisabledReason: 'Enable the evaluation before backfilling it',
+        })
+    })
+
     it('says it is counting while an estimate is in flight, then surfaces the failure', async () => {
         await mountAndSettle()
 

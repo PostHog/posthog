@@ -110,7 +110,7 @@ class SpotIoSource(ResumableSource[SpotIoSourceConfig, SpotIoResumeConfig]):
             caption="Import Elastigroup and Ocean cloud cost optimization data from your Spot by Flexera account.",
             docsUrl="https://posthog.com/docs/cdp/sources/spot-io",
             iconPath="/static/services/spot_io.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["spot", "spotinst", "finops", "cloud cost", "kubernetes"],
             fields=cast(
                 list[FieldType],

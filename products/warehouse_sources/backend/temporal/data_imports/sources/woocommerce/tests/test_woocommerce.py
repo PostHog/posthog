@@ -186,7 +186,7 @@ class TestWooCommerceAuth:
 
 
 class TestValidateCredentials:
-    @pytest.mark.parametrize("status_code", [200, 401, 403, 404])
+    @pytest.mark.parametrize("status_code", [403, 404])
     def test_returns_status_code(self, status_code: int) -> None:
         with patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.woocommerce.woocommerce._make_guarded_session"

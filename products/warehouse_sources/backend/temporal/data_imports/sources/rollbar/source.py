@@ -156,7 +156,7 @@ class RollbarSource(ResumableSource[RollbarSourceConfig, RollbarResumeConfig]):
 You can find or create a project access token in your Rollbar project under Settings > Project Access Tokens. A token with the `read` scope is sufficient. Each PostHog source connects to one Rollbar project — add one source per project.""",
             iconPath="/static/services/rollbar.png",
             docsUrl="https://posthog.com/docs/cdp/sources/rollbar",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

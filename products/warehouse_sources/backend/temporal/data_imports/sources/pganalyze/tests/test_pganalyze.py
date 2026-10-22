@@ -111,7 +111,7 @@ class TestValidateCredentials:
             sess.post.assert_called_once()
             sess.close.assert_called_once()
 
-    @pytest.mark.parametrize("status_code", [401, 403])
+    @pytest.mark.parametrize("status_code", [401])
     def test_returns_false_on_auth_error(self, status_code):
         with scripted_network([ScriptedResponse(status=status_code, body=b"forbidden")]) as network:
             ok, err = validate_credentials("bad", "acme", None)

@@ -49,7 +49,7 @@ export function SceneDashboardChoiceModal({ scene }: SceneDashboardChoiceModalPr
                                 closeSceneDashboardChoiceModal()
                             }}
                         >
-                            {scene === Scene.ProductAnalyticsHomeTab ? 'Use PostHog Home' : 'Reset to "new tab"'}
+                            {scene === Scene.ProductAnalyticsHomeTab ? 'Use default dashboard' : 'Reset to "new tab"'}
                         </LemonButton>
                     ) : null}
                     <LemonButton

@@ -13,7 +13,8 @@ import { AccessControlLevel, AccessControlResourceType, AppContext } from '~/typ
 import { logsViewerModalLogic } from 'products/logs/frontend/components/LogsViewer/LogsViewerModal/logsViewerModalLogic'
 import type { Span } from 'products/tracing/frontend/types'
 
-import { traceDialogLogic } from './traceDialogLogic'
+import { traceViewLogic } from '../TraceView/traceViewLogic'
+import { TRACE_DIALOG_VIEW_ID, traceDialogLogic } from './traceDialogLogic'
 
 type TracePage = Awaited<ReturnType<typeof api.tracing.getTrace>>
 
@@ -43,6 +44,7 @@ function page(spanIds: string[], nextOffset: number | null): TracePage {
 
 describe('traceDialogLogic', () => {
     let logic: ReturnType<typeof traceDialogLogic.build>
+    let view: ReturnType<typeof traceViewLogic.build>
     let getTraceSpy: jest.SpyInstance
 
     beforeEach(() => {
@@ -63,6 +65,7 @@ describe('traceDialogLogic', () => {
         router.actions.push('/logs')
         logic = traceDialogLogic()
         logic.mount()
+        view = traceViewLogic({ id: TRACE_DIALOG_VIEW_ID })
     })
 
     afterEach(() => {
@@ -101,7 +104,7 @@ describe('traceDialogLogic', () => {
             logic.actions.openTraceDialog({ traceId: 'abc123', spanId: openedSpanId }, { entryPoint: 'log_details' })
         }).toDispatchActions(['loadTraceSpansSuccess'])
 
-        expect(logic.values.selectedSpan?.span_id).toBe('B1')
+        expect(view.values.selectedSpan?.span_id).toBe('B1')
     })
 
     it.each([
@@ -170,8 +173,8 @@ describe('traceDialogLogic', () => {
 
         logic.actions.toggleSpanCollapsed('A')
 
-        expect(logic.values.selectedSpanId).toBe('A')
-        expect(logic.values.flatSpans.map((node) => node.span.span_id)).toEqual(['ROOT', 'A'])
+        expect(view.values.selectedSpanId).toBe('A')
+        expect(view.values.flatSpans.map((node) => node.span.span_id)).toEqual(['ROOT', 'A'])
     })
 
     it('clears the failure once a retry succeeds', async () => {
@@ -197,9 +200,8 @@ describe('traceDialogLogic', () => {
 
         await expectLogic(logic, () => {
             logic.actions.openTraceDialog({ traceId: 'abc123', spanId: 'a' }, { entryPoint: 'log_details' })
-        })
-            .toDispatchActions(['loadTraceSpansSuccess'])
-            .toMatchValues({ activeInspectorTab: expectedTab })
+        }).toDispatchActions(['loadTraceSpansSuccess'])
+        expect(view.values.activeInspectorTab).toBe(expectedTab)
     })
 
     it('keeps a picked tab across spans, and drops it for the next trace', async () => {
@@ -208,15 +210,13 @@ describe('traceDialogLogic', () => {
         await expectLogic(logic).toDispatchActions(['loadTraceSpansSuccess'])
 
         logic.actions.setInspectorTab('attributes')
-        await expectLogic(logic, () => {
-            logic.actions.selectSpan('b')
-        }).toMatchValues({ activeInspectorTab: 'attributes' })
+        logic.actions.selectSpan('b')
+        expect(view.values.activeInspectorTab).toBe('attributes')
 
         await expectLogic(logic, () => {
             logic.actions.openTraceDialog({ traceId: 'def456', spanId: 'a' }, { entryPoint: 'log_details' })
-        })
-            .toDispatchActions(['loadTraceSpansSuccess'])
-            .toMatchValues({ activeInspectorTab: 'errors' })
+        }).toDispatchActions(['loadTraceSpansSuccess'])
+        expect(view.values.activeInspectorTab).toBe('errors')
     })
 
     it('treats a missing parent row as its own selection, not the root span', async () => {
@@ -225,13 +225,11 @@ describe('traceDialogLogic', () => {
         logic.actions.openTraceDialog({ traceId: 'abc123', spanId: 'a' }, { entryPoint: 'log_details' })
         await expectLogic(logic).toDispatchActions(['loadTraceSpansSuccess'])
 
-        await expectLogic(logic, () => {
-            logic.actions.selectSpan('GONE')
-        }).toMatchValues({ missingParentSpanId: 'GONE' })
+        logic.actions.selectSpan('GONE')
+        expect(view.values.missingParentSpanId).toBe('GONE')
 
-        await expectLogic(logic, () => {
-            logic.actions.selectSpan('child')
-        }).toMatchValues({ missingParentSpanId: null })
+        logic.actions.selectSpan('child')
+        expect(view.values.missingParentSpanId).toBeNull()
     })
 
     it.each([
@@ -281,9 +279,9 @@ describe('traceDialogLogic', () => {
 
         it('steps through spans and keeps the key from the page under the dialog', () => {
             press('j')
-            expect(logic.values.selectedSpan?.span_id).toBe('b')
+            expect(view.values.selectedSpan?.span_id).toBe('b')
             press('k')
-            expect(logic.values.selectedSpan?.span_id).toBe('a')
+            expect(view.values.selectedSpan?.span_id).toBe('a')
             expect(pageListener).not.toHaveBeenCalled()
         })
 
@@ -299,11 +297,11 @@ describe('traceDialogLogic', () => {
             })
             logic.actions.openTraceDialog({ traceId: 'abc123', spanId: 'A1' }, { entryPoint: 'log_details' })
             await expectLogic(logic).toDispatchActions(['loadTraceSpansSuccess'])
-            const visible = (): string[] => logic.values.flatSpans.map((node) => node.span.span_id)
+            const visible = (): string[] => view.values.flatSpans.map((node) => node.span.span_id)
 
             // A1 has nothing to collapse, so left climbs to A, then collapses A.
             press('ArrowLeft')
-            expect(logic.values.selectedSpanId).toBe('A')
+            expect(view.values.selectedSpanId).toBe('A')
             press('ArrowLeft')
             expect(visible()).toEqual(['ROOT', 'A'])
 
@@ -311,7 +309,7 @@ describe('traceDialogLogic', () => {
             press('ArrowRight')
             expect(visible()).toEqual(['ROOT', 'A', 'A1'])
             press('ArrowRight')
-            expect(logic.values.selectedSpanId).toBe('A1')
+            expect(view.values.selectedSpanId).toBe('A1')
             expect(pageListener).not.toHaveBeenCalled()
         })
 
@@ -333,7 +331,7 @@ describe('traceDialogLogic', () => {
             })
             logic.actions.openTraceDialog({ traceId: 'abc123', spanId: 'ROOT' }, { entryPoint: 'log_details' })
             await expectLogic(logic).toDispatchActions(['loadTraceSpansSuccess'])
-            const visible = (): string[] => logic.values.flatSpans.map((node) => node.span.span_id)
+            const visible = (): string[] => view.values.flatSpans.map((node) => node.span.span_id)
             expect(visible()).toEqual(['ROOT', 'A', 'LEAF'])
 
             logic.actions.selectSpan('A')
@@ -342,7 +340,7 @@ describe('traceDialogLogic', () => {
 
             logic.actions.selectSpan('C')
             logic.actions.toggleChain('A')
-            expect(logic.values.selectedSpanId).toBe('A')
+            expect(view.values.selectedSpanId).toBe('A')
         })
 
         it('steps onto a missing parent row and on past it', async () => {
@@ -352,14 +350,14 @@ describe('traceDialogLogic', () => {
             await expectLogic(logic).toDispatchActions(['loadTraceSpansSuccess'])
 
             press('j')
-            expect(logic.values.missingParentSpanId).toBe('GONE')
+            expect(view.values.missingParentSpanId).toBe('GONE')
             press('j')
-            expect(logic.values.missingParentSpanId).toBeNull()
-            expect(logic.values.selectedSpan?.span_id).toBe('b')
+            expect(view.values.missingParentSpanId).toBeNull()
+            expect(view.values.selectedSpan?.span_id).toBe('b')
             press('k')
-            expect(logic.values.missingParentSpanId).toBe('GONE')
+            expect(view.values.missingParentSpanId).toBe('GONE')
             press('k')
-            expect(logic.values.selectedSpan?.span_id).toBe('a')
+            expect(view.values.selectedSpan?.span_id).toBe('a')
         })
 
         it('leaves keys typed into an input in the dialog alone, but not one hidden behind it', () => {
@@ -371,11 +369,11 @@ describe('traceDialogLogic', () => {
             document.body.append(dialog, behind)
 
             press('j', inDialog)
-            expect(logic.values.selectedSpan?.span_id).toBe('a')
+            expect(view.values.selectedSpan?.span_id).toBe('a')
             expect(pageListener).toHaveBeenCalledTimes(1)
 
             press('j', behind)
-            expect(logic.values.selectedSpan?.span_id).toBe('b')
+            expect(view.values.selectedSpan?.span_id).toBe('b')
             expect(pageListener).toHaveBeenCalledTimes(1)
             dialog.remove()
             behind.remove()
@@ -385,7 +383,7 @@ describe('traceDialogLogic', () => {
             logic.actions.closeTraceDialog()
             press('j')
 
-            expect(logic.values.selectedSpan?.span_id).toBe('a')
+            expect(view.values.selectedSpan?.span_id).toBe('a')
             expect(pageListener).toHaveBeenCalledTimes(1)
         })
     })

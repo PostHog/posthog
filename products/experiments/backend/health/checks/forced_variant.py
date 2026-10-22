@@ -35,6 +35,7 @@ from products.experiments.backend.health.pinned_share import (
     pinned_share_severity,
     pinned_variant_keys,
 )
+from products.experiments.backend.health.skips import CheckSkip, flag_setup_skip
 from products.experiments.backend.health.split_changes import format_change_time
 
 # pinned: the subcodes are sent as `finding_variant` on the health finding events, so insights group on them.
@@ -64,6 +65,11 @@ def overrides_to_grade(ctx: HealthContext) -> PinnedConditions | None:
     if not ctx.is_launched or pins is None or pins.all_pinned:
         return None
     return pins.graded
+
+
+def forced_variant_skip(ctx: HealthContext) -> CheckSkip | None:
+    # The same states as `_pins`, which returns None for them.
+    return flag_setup_skip(ctx, before_launch=True)
 
 
 def forced_variant_release_condition(ctx: HealthContext) -> ExperimentHealthFinding | None:

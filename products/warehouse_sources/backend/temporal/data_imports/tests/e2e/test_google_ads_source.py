@@ -6,8 +6,6 @@ from dataclasses import dataclass
 import pytest
 from unittest import mock
 
-from django.test import override_settings
-
 import pyarrow as pa
 
 from posthog.models import Team
@@ -62,78 +60,40 @@ def developer_token() -> str:
 
 
 @pytest.fixture
-def service_account_config() -> dict[str, str]:
-    """Return a Service Account configuration dictionary to use in tests."""
+def service_account_secrets(developer_token: str):
+    """Serve the platform service account credentials through the credentials service wrapper."""
     credentials_file_path = os.environ["GOOGLE_SERVICE_ACCOUNT_CREDENTIALS"]
     with open(credentials_file_path) as f:
         credentials = json.load(f)
 
-    return {
-        "private_key": credentials["private_key"],
-        "private_key_id": credentials["private_key_id"],
-        "token_uri": credentials["token_uri"],
-        "client_email": credentials["client_email"],
-    }
-
-
-def test_google_ads_source_config_loads(customer_id: str, developer_token: str):
-    private_key = "private_key"
-    private_key_id = "id"
-    client_email = "posthog@posthog.com"
-    token_uri = "https://posthog.com"
-
-    job_inputs = {
-        "resource_name": "campaign",
-        "customer_id": customer_id,
-    }
-
-    with override_settings(
-        GOOGLE_ADS_SERVICE_ACCOUNT_PRIVATE_KEY=private_key,
-        GOOGLE_ADS_SERVICE_ACCOUNT_PRIVATE_KEY_ID=private_key_id,
-        GOOGLE_ADS_SERVICE_ACCOUNT_CLIENT_EMAIL=client_email,
-        GOOGLE_ADS_SERVICE_ACCOUNT_TOKEN_URI=token_uri,
-        GOOGLE_ADS_DEVELOPER_TOKEN=developer_token,
+    with mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads.credentials_service.get_secrets",
+        return_value={
+            "GOOGLE_ADS_SERVICE_ACCOUNT_PRIVATE_KEY": credentials["private_key"],
+            "GOOGLE_ADS_SERVICE_ACCOUNT_PRIVATE_KEY_ID": credentials["private_key_id"],
+            "GOOGLE_ADS_SERVICE_ACCOUNT_TOKEN_URI": credentials["token_uri"],
+            "GOOGLE_ADS_SERVICE_ACCOUNT_CLIENT_EMAIL": credentials["client_email"],
+            "GOOGLE_ADS_DEVELOPER_TOKEN": developer_token,
+        },
     ):
-        cfg = GoogleAdsServiceAccountSourceConfig.from_dict(job_inputs)
-
-    assert cfg.private_key == private_key
-    assert cfg.private_key_id == private_key_id
-    assert cfg.client_email == client_email
-    assert cfg.token_uri == token_uri
-    assert cfg.developer_token == developer_token
-    assert cfg.customer_id == customer_id
+        yield
 
 
-def test_google_ads_source_config_handles_customer_id_with_dashes(developer_token: str):
-    private_key = "private_key"
-    private_key_id = "id"
-    client_email = "posthog@posthog.com"
-    token_uri = "https://posthog.com"
+@pytest.mark.parametrize(
+    "raw_customer_id,expected",
+    [
+        ("1111111111", "1111111111"),
+        ("111-111-1111", "1111111111"),
+    ],
+)
+def test_google_ads_service_account_config_loads(raw_customer_id: str, expected: str):
+    cfg = GoogleAdsServiceAccountSourceConfig.from_dict({"resource_name": "campaign", "customer_id": raw_customer_id})
 
-    job_inputs = {
-        "resource_name": "campaign",
-        "customer_id": "111-111-1111",
-    }
-
-    with override_settings(
-        GOOGLE_ADS_SERVICE_ACCOUNT_PRIVATE_KEY=private_key,
-        GOOGLE_ADS_SERVICE_ACCOUNT_PRIVATE_KEY_ID=private_key_id,
-        GOOGLE_ADS_SERVICE_ACCOUNT_CLIENT_EMAIL=client_email,
-        GOOGLE_ADS_SERVICE_ACCOUNT_TOKEN_URI=token_uri,
-        GOOGLE_ADS_DEVELOPER_TOKEN=developer_token,
-    ):
-        cfg = GoogleAdsServiceAccountSourceConfig.from_dict(job_inputs)
-
-    assert cfg.private_key == private_key
-    assert cfg.private_key_id == private_key_id
-    assert cfg.client_email == client_email
-    assert cfg.token_uri == token_uri
-    assert cfg.developer_token == developer_token
-    assert cfg.customer_id == "1111111111"
+    assert cfg.customer_id == expected
 
 
 @SKIP_IF_MISSING_GOOGLE_ADS_CREDENTIALS
-def test_get_schemas(customer_id: str, developer_token: str, service_account_config: dict[str, str]):
+def test_get_schemas(customer_id: str, service_account_secrets: None):
     """Test get_schemas returns well-known schemas.
 
     This test is not exhaustive and merely limits itself to asserting a handful
@@ -142,9 +102,7 @@ def test_get_schemas(customer_id: str, developer_token: str, service_account_con
     org = Organization.objects.create(name="org")
     team = Team.objects.create(organization=org)
 
-    cfg = GoogleAdsServiceAccountSourceConfig(
-        customer_id=customer_id, developer_token=developer_token, **service_account_config
-    )
+    cfg = GoogleAdsServiceAccountSourceConfig(customer_id=customer_id)
     schemas = get_schemas(cfg, team_id=team.id, api_version=GoogleAdsSource().default_version)
 
     assert "campaign" in schemas
@@ -171,7 +129,7 @@ def test_get_schemas(customer_id: str, developer_token: str, service_account_con
 
 
 @SKIP_IF_MISSING_GOOGLE_ADS_CREDENTIALS
-def test_google_ads_source(customer_id: str, developer_token: str, service_account_config: dict[str, str]):
+def test_google_ads_source(customer_id: str, service_account_secrets: None):
     """Test google_ads_source can iterate rows.
 
     This test is not exhaustive and merely limits itself to attempting to
@@ -181,9 +139,7 @@ def test_google_ads_source(customer_id: str, developer_token: str, service_accou
     org = Organization.objects.create(name="org")
     team = Team.objects.create(organization=org)
 
-    cfg = GoogleAdsServiceAccountSourceConfig(
-        customer_id=customer_id, developer_token=developer_token, **service_account_config
-    )
+    cfg = GoogleAdsServiceAccountSourceConfig(customer_id=customer_id)
     for resource in (
         "campaign",
         "campaign_stats",
@@ -606,6 +562,9 @@ class TestGoogleAdsClientStaleConnection:
         assert call_order.index("close_old_connections") < call_order.index("integration_get")
 
     @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads.credentials_service.get_secrets"
+    )
+    @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads.service_account"
     )
     @mock.patch(
@@ -615,20 +574,28 @@ class TestGoogleAdsClientStaleConnection:
         "products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads.close_old_connections"
     )
     def test_service_account_client_does_not_touch_django_connections(
-        self, mock_close_old_connections, mock_client_cls, mock_service_account
+        self, mock_close_old_connections, mock_client_cls, mock_service_account, mock_get_secrets
     ):
-        config = GoogleAdsServiceAccountSourceConfig(
-            customer_id="1234567890",
-            private_key="pk",
-            private_key_id="pk_id",
-            client_email="sa@example.com",
-            token_uri="https://example.com",
-            developer_token="dev",
-        )
+        mock_get_secrets.return_value = {
+            "GOOGLE_ADS_SERVICE_ACCOUNT_PRIVATE_KEY": "pk",
+            "GOOGLE_ADS_SERVICE_ACCOUNT_PRIVATE_KEY_ID": "pk_id",
+            "GOOGLE_ADS_SERVICE_ACCOUNT_CLIENT_EMAIL": "sa@example.com",
+            "GOOGLE_ADS_SERVICE_ACCOUNT_TOKEN_URI": "https://example.com",
+            "GOOGLE_ADS_DEVELOPER_TOKEN": "dev",
+        }
+        config = GoogleAdsServiceAccountSourceConfig(customer_id="1234567890")
 
         google_ads_client(config, team_id=7)
 
         mock_close_old_connections.assert_not_called()
+        mock_service_account.Credentials.from_service_account_info.assert_called_once()
+        assert mock_service_account.Credentials.from_service_account_info.call_args.args[0] == {
+            "private_key": "pk",
+            "private_key_id": "pk_id",
+            "token_uri": "https://example.com",
+            "client_email": "sa@example.com",
+        }
+        assert mock_client_cls.call_args.kwargs["developer_token"] == "dev"
 
 
 def test_source_registration_does_not_import_google_ads_sdk(google_ads_sdk_leak_check) -> None:

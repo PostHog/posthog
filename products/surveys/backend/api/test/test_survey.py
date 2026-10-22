@@ -19,7 +19,7 @@ from django.test import SimpleTestCase, override_settings
 
 from nanoid import generate
 from parameterized import parameterized
-from rest_framework import status
+from rest_framework import serializers, status
 
 from posthog.hogql.constants import DEFAULT_RETURNED_ROWS
 
@@ -42,6 +42,8 @@ from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.api.survey import (
     SURVEY_APPEARANCE_HTML_FIELDS,
     SurveyAppearanceSchemaSerializer,
+    SurveyOpenQuestionSchemaSerializer,
+    SurveySerializerCreateUpdateOnly,
     get_survey_api_translations,
     get_surveys_response,
     nh3_clean_with_allow_list,
@@ -5128,6 +5130,22 @@ class TestGetSurveyConditionsActionSanitization(SimpleTestCase):
         assert set(value.keys()) <= {"id", "name", "steps"}, value
         assert "created_by" not in value
         assert value["name"] == "person subscribed"
+
+
+class TestSurveyQuestionSchema(SimpleTestCase):
+    @parameterized.expand([("validation", True), ("translations", False)])
+    def test_nullability_matches_runtime_validation(self, field: str, allows_null: bool) -> None:
+        question = {"type": "open", "question": "How was your experience?", field: None}
+        runtime_serializer = SurveySerializerCreateUpdateOnly()
+        schema_serializer = SurveyOpenQuestionSchemaSerializer(data=question)
+
+        if allows_null:
+            assert runtime_serializer.validate_questions([question]) == [question]
+        else:
+            with pytest.raises(serializers.ValidationError, match="translations must be an object"):
+                runtime_serializer.validate_questions([question])
+
+        assert schema_serializer.is_valid() == allows_null, schema_serializer.errors
 
 
 class TestSurveyAppearanceSchema(SimpleTestCase):

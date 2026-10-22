@@ -6,11 +6,14 @@ from urllib.parse import urlencode
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from posthog.exceptions_capture import capture_exception
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    make_tracked_session,
+    retry_with_deadline,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.open_exchange_rates.settings import (
@@ -226,7 +229,7 @@ def get_rows(
     session = make_tracked_session(headers=_auth_headers(app_id), redact_values=(app_id,) if app_id else ())
     base = base_currency or DEFAULT_BASE_CURRENCY
 
-    @retry(
+    @retry_with_deadline(
         retry=retry_if_exception_type(
             (OpenExchangeRatesRetryableError, requests.ReadTimeout, requests.ConnectionError)
         ),

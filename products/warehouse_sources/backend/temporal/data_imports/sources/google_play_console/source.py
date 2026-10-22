@@ -108,14 +108,14 @@ class GooglePlayConsoleSource(ResumableSource[GooglePlayConsoleSourceConfig, Goo
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             keywords=["android", "play store", "vitals", "crash"],
             label="Google Play Console",
-            caption="""Sync Android vitals and error reporting from the Play Developer Reporting API: crash and ANR rates, excessive wakeups and stuck wakelocks, slow starts and slow rendering, low-memory kills, plus error issues, error reports, and the anomalies Play detects.
+            caption="""Sync Android vitals and error reporting from the Play Developer Reporting API: crash and ANR rates, excessive wakeups and stuck wakelocks, slow starts and slow rendering, low-memory kills, memory usage, plus error issues, error reports, release tracks, and the anomalies Play detects.
 
 To connect, create a Google Cloud service account and enable the **Play Developer Reporting API** in its project. Then, in Play Console under **Users and permissions**, invite the service account's email and give it access to view app quality data. Upload that service account's JSON key below.
 
 Leave the package names blank to sync every app the service account can see.""",
             iconPath="/static/services/google_play_console.png",
             docsUrl="https://posthog.com/docs/cdp/sources/google-play-console",
-            releaseStatus=ReleaseStatus.BETA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

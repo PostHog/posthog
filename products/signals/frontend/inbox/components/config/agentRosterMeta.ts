@@ -1,6 +1,7 @@
 import { FEATURE_FLAGS, FeatureFlagKey } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
+import { EXTERNAL_SIGNAL_SOURCES, ExternalSignalSource } from '../../externalSignalSources'
 import { SignalSourceProduct } from '../../types'
 
 /**
@@ -15,10 +16,7 @@ export type AgentRosterSource =
     | 'llm_analytics'
     | 'analytics'
     | 'health_checks'
-    | 'github'
-    | 'linear'
-    | 'zendesk'
-    | 'pganalyze'
+    | ExternalSignalSource
     | 'engineering_analytics'
 
 export interface AgentRosterDefinition {
@@ -26,6 +24,7 @@ export interface AgentRosterDefinition {
     /** Key into `SOURCE_PRODUCT_META` for the icon tile. */
     sourceProduct: SignalSourceProduct
     label: string
+    category?: string
     /** The tagline: one truncated line under the source name, saying what this source watches. */
     watches: string
     /**
@@ -66,12 +65,14 @@ export interface AgentRosterDefinition {
 }
 
 export interface AgentRosterGroup {
+    id: 'posthog' | 'external'
     label: string
     agents: AgentRosterDefinition[]
 }
 
 export const AGENT_ROSTER_GROUPS: AgentRosterGroup[] = [
     {
+        id: 'posthog',
         label: 'PostHog data',
         agents: [
             {
@@ -141,48 +142,27 @@ export const AGENT_ROSTER_GROUPS: AgentRosterGroup[] = [
         ],
     },
     {
+        id: 'external',
         label: 'External sources',
         agents: [
-            {
-                source: 'github',
-                sourceProduct: SignalSourceProduct.Github,
-                label: 'GitHub issues',
-                watches: 'Issues filed in GitHub',
-                detail: 'Reads the issues from the GitHub repositories you sync to the warehouse.',
+            ...EXTERNAL_SIGNAL_SOURCES.map((source) => ({
+                source: source.source,
+                sourceProduct: source.source,
+                label: source.label,
+                category: source.category,
+                watches: source.watches,
+                detail: `Reads the ${source.label} data you sync to Data warehouse.`,
                 steerable: true,
-            },
+            })),
             {
                 source: 'engineering_analytics',
                 sourceProduct: SignalSourceProduct.EngineeringAnalytics,
                 label: 'GitHub CI',
+                category: 'Engineering',
                 watches: 'Flaky checks and slowing GitHub Actions workflows',
                 detail: 'Reads workflow runs and pull requests from the GitHub repositories you sync.',
                 alpha: true,
                 flag: FEATURE_FLAGS.ENGINEERING_ANALYTICS,
-            },
-            {
-                source: 'linear',
-                sourceProduct: SignalSourceProduct.Linear,
-                label: 'Linear',
-                watches: 'Issues tracked in Linear',
-                detail: 'Reads the issues from the Linear workspace you sync to the warehouse.',
-                steerable: true,
-            },
-            {
-                source: 'zendesk',
-                sourceProduct: SignalSourceProduct.Zendesk,
-                label: 'Zendesk',
-                watches: 'Incoming Zendesk tickets',
-                detail: 'Reads the tickets from the Zendesk account you sync to the warehouse.',
-                steerable: true,
-            },
-            {
-                source: 'pganalyze',
-                sourceProduct: SignalSourceProduct.Pganalyze,
-                label: 'pganalyze',
-                watches: 'Slow Postgres queries and bad indexes',
-                detail: 'Reads the issues from the pganalyze account you sync to the warehouse.',
-                steerable: true,
             },
         ],
     },

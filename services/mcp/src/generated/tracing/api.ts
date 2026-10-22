@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 12 enabled ops
+ * PostHog API - MCP 13 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -292,6 +292,15 @@ export const TracingSpansAttributesRetrieveQueryParams = () => zod.object({
         .describe(
             'Type of attributes: \"span_attribute\" for span-level attributes, \"span_resource_attribute\" for resource-level attributes.\n\n\* `span_attribute` - span_attribute\n\* `span_resource_attribute` - span_resource_attribute'
         ),
+    dateRange: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+            'JSON-encoded date range object, e.g. {\"date_from\": \"-1h\"}. Malformed JSON returns 400. Or pass date_from and date_to.'
+        ),
+    date_from: zod.string().min(1).optional().describe('Range start: -1h, -7d or ISO 8601. Defaults to -1h.'),
+    date_to: zod.string().min(1).optional().describe('Range end, same format. Omit for \"now\".'),
     limit: zod
         .number()
         .min(1)
@@ -802,8 +811,95 @@ export const TracingSpansServiceNamesRetrieveParams = () => zod.object({
 })
 
 export const TracingSpansServiceNamesRetrieveQueryParams = () => zod.object({
-    dateRange: zod.string().min(1).optional().describe('JSON-encoded date range, e.g. \'{\"date_from\": \"-1h\"}\'.'),
+    dateRange: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+            'JSON-encoded date range object, e.g. {\"date_from\": \"-1h\"}. Malformed JSON returns 400. Or pass date_from and date_to.'
+        ),
+    date_from: zod.string().min(1).optional().describe('Range start: -1h, -7d or ISO 8601. Defaults to -1h.'),
+    date_to: zod.string().min(1).optional().describe('Range end, same format. Omit for \"now\".'),
     search: zod.string().min(1).optional().describe('Search filter for service names.'),
+})
+
+export const TracingSpansServiceHealthCreateParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const tracingSpansServiceHealthCreateBodyQueryOneCompareDefault = `previous_period`
+export const tracingSpansServiceHealthCreateBodyQueryOneServiceNamesMax = 100
+
+export const tracingSpansServiceHealthCreateBodyQueryOneSpanScopeDefault = `entry`
+export const tracingSpansServiceHealthCreateBodyQueryOneOrderByDefault = `status`
+export const tracingSpansServiceHealthCreateBodyQueryOneLimitDefault = 25
+export const tracingSpansServiceHealthCreateBodyQueryOneLimitMax = 200
+
+export const TracingSpansServiceHealthCreateBody = () => zod.object({
+    query: zod
+        .object({
+            dateRange: zod
+                .object({
+                    date_from: zod.string().nullish().describe('Relative (-30m, -6h, -7d) or ISO 8601.'),
+                    date_to: zod.string().nullish().describe('Same format. Omit or null for \"now\".'),
+                })
+                .optional()
+                .describe('The window to score. Defaults to the last hour.'),
+            compare: zod
+                .enum(['none', 'previous_period', 'previous_day', 'previous_week'])
+                .describe(
+                    '\* `none` - None\n\* `previous_period` - Previous Period\n\* `previous_day` - Previous Day\n\* `previous_week` - Previous Week'
+                )
+                .default(tracingSpansServiceHealthCreateBodyQueryOneCompareDefault)
+                .describe(
+                    'The baseline. previous_period (default) is the same length just before the window. previous_day and previous_week shift the window back 1 or 7 days. none skips it. baselineDateRange overrides it.\n\n\* `none` - None\n\* `previous_period` - Previous Period\n\* `previous_day` - Previous Day\n\* `previous_week` - Previous Week'
+                ),
+            environment: zod
+                .string()
+                .nullish()
+                .describe(
+                    'Only this environment, matched without case on deployment.environment.name, then deployment.environment, then env.'
+                ),
+            serviceNames: zod
+                .array(zod.string())
+                .max(tracingSpansServiceHealthCreateBodyQueryOneServiceNamesMax)
+                .optional()
+                .describe('Only these services.'),
+            spanScope: zod
+                .enum(['entry', 'all'])
+                .describe('\* `entry` - Entry\n\* `all` - All')
+                .default(tracingSpansServiceHealthCreateBodyQueryOneSpanScopeDefault)
+                .describe(
+                    'entry (default) counts root, server and consumer spans, one per request. all counts every span.\n\n\* `entry` - Entry\n\* `all` - All'
+                ),
+            orderBy: zod
+                .enum(['status', 'error_rate', 'p95', 'throughput', 'error_count'])
+                .describe(
+                    '\* `status` - Status\n\* `error_rate` - Error Rate\n\* `p95` - P95\n\* `throughput` - Throughput\n\* `error_count` - Error Count'
+                )
+                .default(tracingSpansServiceHealthCreateBodyQueryOneOrderByDefault)
+                .describe(
+                    'status (default) puts silent, regressed and degraded first. The others sort high to low.\n\n\* `status` - Status\n\* `error_rate` - Error Rate\n\* `p95` - P95\n\* `throughput` - Throughput\n\* `error_count` - Error Count'
+                ),
+            limit: zod
+                .number()
+                .min(1)
+                .max(tracingSpansServiceHealthCreateBodyQueryOneLimitMax)
+                .default(tracingSpansServiceHealthCreateBodyQueryOneLimitDefault)
+                .describe('Max service rows, 1-200.'),
+        })
+        .describe('The service health query. Every field is optional.'),
+    baselineDateRange: zod
+        .object({
+            date_from: zod.string().nullish().describe('Relative (-30m, -6h, -7d) or ISO 8601.'),
+            date_to: zod.string().nullish().describe('Same format. Omit or null for \"now\".'),
+        })
+        .optional()
+        .describe('An explicit baseline window. Overrides query.compare.'),
 })
 
 export const TracingSpansSparklineCreateParams = () => zod.object({
@@ -1077,6 +1173,15 @@ export const TracingSpansValuesRetrieveQueryParams = () => zod.object({
         .describe(
             'Type of attribute: \"span\" for built-in span fields (e.g. name), \"span_attribute\" for span-level attributes, \"span_resource_attribute\" for resource-level attributes.\n\n\* `span` - span\n\* `span_attribute` - span_attribute\n\* `span_resource_attribute` - span_resource_attribute'
         ),
+    dateRange: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+            'JSON-encoded date range object, e.g. {\"date_from\": \"-1h\"}. Malformed JSON returns 400. Or pass date_from and date_to.'
+        ),
+    date_from: zod.string().min(1).optional().describe('Range start: -1h, -7d or ISO 8601. Defaults to -1h.'),
+    date_to: zod.string().min(1).optional().describe('Range end, same format. Omit for \"now\".'),
     key: zod.string().min(1).describe('The attribute key to get values for.'),
     limit: zod
         .number()

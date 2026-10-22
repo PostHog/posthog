@@ -45,7 +45,7 @@ class HeightSource(SimpleSource[HeightSourceConfig]):
             name=ExternalDataSourceType.HEIGHT,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Height",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Height API key to pull your project management data into the PostHog Data warehouse.
 
 You can create an API key on the **Settings → API** page in [Height](https://height.app/). The key grants read access to your workspace's users, lists, and field templates.

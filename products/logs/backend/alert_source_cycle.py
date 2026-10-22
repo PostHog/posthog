@@ -478,6 +478,7 @@ def _request(
         else None,
         owned_by_platform=check.owned_by_platform,
         overflowed=recorded.overflowed,
+        overflow_is_lower_bound=recorded.overflow_is_lower_bound,
         parts=delivery_parts(recorded, actions),
     )
 
@@ -857,6 +858,7 @@ def _evaluate_grouped(
         evaluation_key=_evaluation_key(check, date_to),
         grouping=check.grouping,
         query_duration_ms=result.query_duration_ms,
+        results_cut=result.truncated,
     )
     return recorded, _request(
         check,

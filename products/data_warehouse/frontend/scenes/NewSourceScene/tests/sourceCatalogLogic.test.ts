@@ -54,6 +54,25 @@ const AVAILABLE_SOURCES: Record<string, SourceConfigResponseApi> = {
         category: 'Engineering & monitoring',
         fields: [],
     } as unknown as SourceConfigResponseApi,
+    // Unreleased duplicates of a connector that already works, `BingAds` and the self-managed `aws`.
+    BingAds: {
+        name: 'BingAds',
+        label: 'Bing Ads',
+        keywords: ['microsoft advertising'],
+        fields: [],
+    } as unknown as SourceConfigResponseApi,
+    MicrosoftAdvertising: {
+        name: 'MicrosoftAdvertising',
+        label: 'Microsoft Advertising (Bing Ads)',
+        unreleasedSource: true,
+        fields: [],
+    } as unknown as SourceConfigResponseApi,
+    AmazonS3: {
+        name: 'AmazonS3',
+        label: 'Amazon S3',
+        featureFlag: 'dwh-amazon-s3-test',
+        fields: [],
+    } as unknown as SourceConfigResponseApi,
 }
 
 const CONNECTED_SOURCES = {
@@ -302,6 +321,26 @@ describe('sourceCatalogLogic', () => {
             logic.actions.setSearch(search)
 
             expect(logic.values.filteredItems.filter((item) => item.name === name)).toHaveLength(expectedMatches)
+        }
+    )
+
+    it.each([
+        { search: 'microsoft advertising', hidden: ['MicrosoftAdvertising'], live: 'BingAds', flagOn: false },
+        { search: 'amazon s3', hidden: ['AmazonS3'], live: 'aws', flagOn: false },
+        { search: 'amazon s3', hidden: [], live: 'AmazonS3', flagOn: true },
+    ])(
+        'offers $live and not a "Coming soon" duplicate for "$search" (flag on: $flagOn)',
+        ({ search, hidden, live, flagOn }) => {
+            const logic = sourceCatalogLogic()
+            featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags(flagOn ? ['dwh-amazon-s3-test'] : [], {
+                'dwh-amazon-s3-test': flagOn,
+            })
+            logic.actions.setSearch(search)
+
+            const names = logic.values.filteredItems.map((item) => item.name)
+            expect(names).toContain(live)
+            expect(names.filter((name) => hidden.includes(name))).toEqual([])
         }
     )
 

@@ -9,6 +9,7 @@ import type { InboxRankingSortField } from '../../logics/inboxFiltersLogic'
 import { SignalReport } from '../../types'
 import {
     formatRankingLift,
+    formatRankingLiftComparison,
     formatRankingProbability,
     RANKING_STRENGTH_LABELS,
     RankingStrength,
@@ -152,15 +153,20 @@ export function ReportCardRankingTag({
         )
     }
     return (
-        <Tooltip title={<RankingHoverCard ranking={ranking} active={score} />} onOpen={onOpen}>
+        <Tooltip title={<RankingHoverCard ranking={ranking} active={score} />} onOpen={onOpen} openOnClick>
             <LemonTag
                 size="small"
                 type={strength ? STRENGTH_TAG_TYPES[strength] : 'default'}
                 className="cursor-help tabular-nums"
                 data-attr="inbox-ranking-tag"
+                // The card is a link. A tap on the pill opens the details instead of the report.
+                onClick={(event) => {
+                    event.preventDefault()
+                    event.stopPropagation()
+                }}
             >
-                {strength
-                    ? RANKING_STRENGTH_LABELS[strength]
+                {lift !== null
+                    ? formatRankingLiftComparison(lift)
                     : `${formatRankingProbability(probability ?? 0)} ${score.tagLabel}`}
             </LemonTag>
         </Tooltip>

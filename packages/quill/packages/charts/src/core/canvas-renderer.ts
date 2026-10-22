@@ -31,6 +31,9 @@ export interface DrawContext {
  *  `yFloor`/left-clip callers use to keep strokes flush against drawn axis lines. */
 export const LINE_STROKE_WIDTH = 2
 
+/** Dot radius for a point with no line through it, e.g. a series with one value. */
+const ISOLATED_POINT_RADIUS = 3
+
 export function drawLine(drawCtx: DrawContext, series: ResolvedSeries, yValues?: number[]): void {
     const data = yValues ?? series.data
     if (data.length === 0) {
@@ -584,11 +587,9 @@ function fillAreaPath(ctx: CanvasRenderingContext2D, top: Point[], bottom: Point
 export function drawPoints(drawCtx: DrawContext, series: ResolvedSeries, yValues?: number[]): void {
     const { ctx, xScale, yScale, labels } = drawCtx
     const data = yValues ?? series.data
-    const radius = series.points?.radius ?? 0
-
-    if (radius <= 0) {
-        return
-    }
+    const radius = series.points?.radius
+    const isDrawable = (i: number): boolean =>
+        i >= 0 && i < data.length && xScale(labels[i]) != null && isFinite(yScale(data[i]))
 
     ctx.fillStyle = series.color
 
@@ -598,8 +599,13 @@ export function drawPoints(drawCtx: DrawContext, series: ResolvedSeries, yValues
         if (x == null || !isFinite(y)) {
             continue
         }
+        // No line passes through a point without drawable neighbors, so it needs a dot to be visible.
+        const r = radius ?? (!isDrawable(i - 1) && !isDrawable(i + 1) ? ISOLATED_POINT_RADIUS : 0)
+        if (r <= 0) {
+            continue
+        }
         ctx.beginPath()
-        ctx.arc(x, y, radius, 0, Math.PI * 2)
+        ctx.arc(x, y, r, 0, Math.PI * 2)
         ctx.fill()
     }
 }
@@ -665,7 +671,10 @@ export interface DrawAxesOptions {
 
 /** Draws just the L-shaped axis baselines — the left value axis and the bottom category axis —
  *  without any interior grid lines. For charts that want axis framing but a clean, grid-free plot. */
-export function drawAxes(drawCtx: DrawContext, options: DrawAxesOptions = {}): void {
+export function drawAxes(
+    drawCtx: { ctx: CanvasRenderingContext2D; dimensions: ChartDimensions },
+    options: DrawAxesOptions = {}
+): void {
     const { ctx, dimensions } = drawCtx
     const { xLine = true, yLine = true } = options
     ctx.strokeStyle = options.axisColor ?? 'rgba(0, 0, 0, 0.15)'
@@ -754,6 +763,8 @@ export interface DrawGridOptions {
     orientation?: 'vertical' | 'horizontal'
     /** Cross-axis grid line positions (x-pixels in vertical mode, y-pixels in horizontal). */
     categoryTicks?: number[]
+    /** Value-axis ticks for a `yScale` with no `.ticks()`, such as the core's `ChartScales.y`. */
+    valueTicks?: number[]
 }
 
 /** Draws the grid lines and the full plot-area frame.
@@ -765,14 +776,18 @@ export interface DrawGridOptions {
  * In both modes, `yScale` maps a value to a pixel on the value axis — for vertical that's a y-pixel,
  * for horizontal that's an x-pixel. The function uses `dimensions` to size the perpendicular axis.
  */
-export function drawGrid(drawCtx: DrawContext, options: DrawGridOptions = {}): void {
+export function drawGrid(
+    drawCtx: { ctx: CanvasRenderingContext2D; dimensions: ChartDimensions; yScale: (value: number) => number },
+    options: DrawGridOptions = {}
+): void {
     const { ctx, yScale, dimensions } = drawCtx
     const gridColor = options.gridColor ?? 'rgba(0, 0, 0, 0.1)'
     const orientation = options.orientation ?? 'vertical'
     const tickAxisLength = orientation === 'horizontal' ? dimensions.plotWidth : dimensions.plotHeight
     const categoryTicks = options.categoryTicks ?? []
 
-    const valueTicks = (yScale as ScaleLinear<number, number>).ticks?.(yTickCountForHeight(tickAxisLength)) ?? []
+    const valueTicks =
+        options.valueTicks ?? (yScale as ScaleLinear<number, number>).ticks?.(yTickCountForHeight(tickAxisLength)) ?? []
     const frame = options.frame ?? true
 
     ctx.strokeStyle = gridColor
@@ -1313,10 +1328,14 @@ export interface DrawBoxOptions {
     color: string
     /** Box fill — typically the series color at reduced alpha. */
     fillColor: string
+    /** Whisker stem and cap color. Defaults to `color`. */
+    whiskerColor?: string
     /** Optional explicit median stroke color. Defaults to `color`. */
     medianColor?: string
     /** Optional mean marker fill. Defaults to `fillColor`. */
     meanFillColor?: string
+    /** Box corner radius in CSS pixels, clamped to half the box size. Defaults to 3. */
+    cornerRadius?: number
     /** Mean marker radius in CSS pixels. Defaults to 3. */
     meanRadius?: number
     /** Line width for the box outline, whiskers, and median. Defaults to 1.5. */
@@ -1334,10 +1353,12 @@ function transposeAxes(ctx: CanvasRenderingContext2D): void {
     ctx.transform(0, 1, 1, 0, 0, 0)
 }
 
-/** Paint a whole series of box-and-whiskers, batching path operations so the number of
- *  `beginPath`/`stroke` pairs is `4 + N` instead of `5N` (whisker stems, caps, box outlines,
- *  and medians are each one shared path; mean markers stay per-box since each needs both
- *  fill and stroke). Pure: takes pre-laid-out {@link BoxRect}s; no scale access. */
+const ALL_CORNERS: BarRoundedCorners = { topLeft: true, topRight: true, bottomLeft: true, bottomRight: true }
+const DEFAULT_BOX_CORNER_RADIUS = 3
+
+/** Paint a whole series of box-and-whiskers. Whisker stems, caps, and medians are each one
+ *  shared path; boxes and mean markers stay per-box since each needs its own fill and stroke.
+ *  Pure: takes pre-laid-out {@link BoxRect}s; no scale access. */
 export function drawBoxes(ctx: CanvasRenderingContext2D, boxes: BoxRect[], options: DrawBoxOptions): void {
     if (boxes.length === 0) {
         return
@@ -1345,12 +1366,14 @@ export function drawBoxes(ctx: CanvasRenderingContext2D, boxes: BoxRect[], optio
     const {
         color,
         fillColor,
+        whiskerColor = color,
         medianColor = color,
         meanFillColor = fillColor,
         meanRadius = 3,
         lineWidth = 1.5,
         whiskerCapRatio = 0.6,
         horizontal = false,
+        cornerRadius = DEFAULT_BOX_CORNER_RADIUS,
     } = options
 
     ctx.save()
@@ -1358,7 +1381,7 @@ export function drawBoxes(ctx: CanvasRenderingContext2D, boxes: BoxRect[], optio
         transposeAxes(ctx)
     }
     ctx.lineWidth = lineWidth
-    ctx.strokeStyle = color
+    ctx.strokeStyle = whiskerColor
     ctx.setLineDash([])
 
     // 1. Whisker stems — only emit a stem when the whisker extends past the box edge.
@@ -1394,19 +1417,23 @@ export function drawBoxes(ctx: CanvasRenderingContext2D, boxes: BoxRect[], optio
     }
     ctx.stroke()
 
-    // 3. Box rectangles (p25 → p75) — fill then outline. `fillRect` / `strokeRect` are
-    //    already optimal — no `beginPath` accumulation needed.
+    // 3. Rounded boxes (p25 → p75) — fill then outline. Each box is its own rounded path.
     ctx.fillStyle = fillColor
+    ctx.strokeStyle = color
     for (const box of boxes) {
         const boxHeight = Math.max(0, box.bottom - box.top)
-        if (boxHeight > 0 && box.width > 0) {
-            ctx.fillRect(box.x, box.top, box.width, boxHeight)
-            ctx.strokeRect(box.x, box.top, box.width, boxHeight)
+        if (boxHeight <= 0 || box.width <= 0) {
+            continue
         }
+        ctx.beginPath()
+        traceRoundedBarPath(ctx, box.x, box.top, box.width, boxHeight, cornerRadius, ALL_CORNERS)
+        ctx.fill()
+        ctx.stroke()
     }
 
-    // 4. Median lines.
+    // 4. Median lines — thicker than the outline so the median stands out.
     ctx.strokeStyle = medianColor
+    ctx.lineWidth = lineWidth * 3
     ctx.beginPath()
     for (const box of boxes) {
         const medianClamped = Math.max(box.top, Math.min(box.bottom, box.medianY))
@@ -1414,6 +1441,7 @@ export function drawBoxes(ctx: CanvasRenderingContext2D, boxes: BoxRect[], optio
         ctx.lineTo(box.x + box.width, medianClamped)
     }
     ctx.stroke()
+    ctx.lineWidth = lineWidth
 
     // 5. Mean markers — filled circle outlined in the series color. Stays per-box because
     //    each marker requires both a fill and a stroke pass.
@@ -1434,7 +1462,8 @@ export function drawBoxHighlight(
     ctx: CanvasRenderingContext2D,
     box: BoxRect,
     overlayColor: string,
-    horizontal = false
+    horizontal = false,
+    cornerRadius = DEFAULT_BOX_CORNER_RADIUS
 ): void {
     const boxHeight = Math.max(0, box.bottom - box.top)
     if (box.width <= 0 || boxHeight <= 0) {
@@ -1445,7 +1474,9 @@ export function drawBoxHighlight(
         transposeAxes(ctx)
     }
     ctx.fillStyle = overlayColor
-    ctx.fillRect(box.x, box.top, box.width, boxHeight)
+    ctx.beginPath()
+    traceRoundedBarPath(ctx, box.x, box.top, box.width, boxHeight, cornerRadius, ALL_CORNERS)
+    ctx.fill()
     ctx.restore()
 }
 

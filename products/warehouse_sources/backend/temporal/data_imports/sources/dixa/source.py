@@ -67,7 +67,7 @@ class DixaSource(ResumableSource[DixaSourceConfig, DixaResumeConfig]):
 An admin can generate an API token in Dixa under Settings > Integrations > API Tokens. The same token covers both the main API (agents, queues, tags, end users) and the Exports API (conversations). Note that conversation exports are rate limited to 10 requests per minute, so large historical backfills take a while.""",
             iconPath="/static/services/dixa.png",
             docsUrl="https://posthog.com/docs/cdp/sources/dixa",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

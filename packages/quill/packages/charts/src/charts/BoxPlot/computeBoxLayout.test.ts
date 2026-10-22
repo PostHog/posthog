@@ -90,6 +90,23 @@ describe('computeBoxRect', () => {
         expect(box.whiskerBottom).toBeGreaterThan(box.bottom)
     })
 
+    it('draws whiskers at whiskerMin and whiskerMax instead of min and max when set', () => {
+        const data = [
+            datum({ min: 0, p25: 20, median: 50, mean: 55, p75: 80, max: 100, whiskerMin: 5, whiskerMax: 95 }),
+        ]
+        const scales = makeScales(['Mon'], [{ key: 'a', data }], 'stacked')
+        const box = computeBoxRect({
+            seriesKey: 'a',
+            label: 'Mon',
+            dataIndex: 0,
+            datum: data[0]!,
+            scales,
+            grouped: false,
+        })!
+        expect(box.whiskerTop).toBeCloseTo(scales.value(95), 5)
+        expect(box.whiskerBottom).toBeCloseTo(scales.value(5), 5)
+    })
+
     it('uses the full band width when not grouped', () => {
         const data = [datum()]
         const scales = makeScales(['Mon'], [{ key: 'a', data }], 'stacked')

@@ -494,7 +494,6 @@ class EvaluationBackfillViewSet(
     def estimate(self, request: Request, **kwargs: Any) -> Response:
         """Count what a backfill over the given window would evaluate, without creating one."""
         evaluation = self._evaluation_for_url()
-        self._require_enabled(evaluation)
         data = self._validated_request(request)
         window = self._clamped_window(evaluation, data)
         conditions = self._conditions(evaluation, data)

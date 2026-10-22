@@ -5,15 +5,26 @@ import { TooltipSurface, TooltipSwatch } from '../../overlays/TooltipSurface'
 import type { BoxPlotAdaptedMeta } from './BoxPlot'
 import type { BoxPlotDatum } from './types'
 
-/** Rows shown per box, in the same order the legacy BoxPlotChart used. */
-const ROWS: { label: string; key: keyof BoxPlotDatum }[] = [
-    { label: 'Max', key: 'max' },
-    { label: '75th percentile', key: 'p75' },
-    { label: 'Median', key: 'median' },
-    { label: 'Mean', key: 'mean' },
-    { label: '25th percentile', key: 'p25' },
-    { label: 'Min', key: 'min' },
-]
+interface TooltipRow {
+    label: string
+    value: number
+}
+
+/** Whisker rows only appear when a whisker is clipped, so it differs from the true bound. */
+function tooltipRows(datum: BoxPlotDatum): TooltipRow[] {
+    const { whiskerMin, whiskerMax } = datum
+    const rows: (TooltipRow | null)[] = [
+        { label: 'Max', value: datum.max },
+        whiskerMax !== undefined && whiskerMax !== datum.max ? { label: 'Upper whisker', value: whiskerMax } : null,
+        { label: '75th percentile', value: datum.p75 },
+        { label: 'Median', value: datum.median },
+        { label: 'Mean', value: datum.mean },
+        { label: '25th percentile', value: datum.p25 },
+        whiskerMin !== undefined && whiskerMin !== datum.min ? { label: 'Lower whisker', value: whiskerMin } : null,
+        { label: 'Min', value: datum.min },
+    ]
+    return rows.filter((row): row is TooltipRow => row !== null)
+}
 
 export interface BoxPlotTooltipProps<Meta = unknown> {
     ctx: TooltipContext<BoxPlotAdaptedMeta<Meta>>
@@ -72,12 +83,10 @@ export function BoxPlotTooltip<Meta = unknown>({
                     )}
                     <table className="border-collapse">
                         <tbody>
-                            {ROWS.map((row) => (
-                                <tr key={row.key}>
+                            {tooltipRows(entry.datum).map((row) => (
+                                <tr key={row.label}>
                                     <td className="pr-3 opacity-70">{row.label}</td>
-                                    <td className="font-medium">
-                                        {defaultFormatValue(entry.datum[row.key] as number)}
-                                    </td>
+                                    <td className="font-medium">{defaultFormatValue(row.value)}</td>
                                 </tr>
                             ))}
                         </tbody>

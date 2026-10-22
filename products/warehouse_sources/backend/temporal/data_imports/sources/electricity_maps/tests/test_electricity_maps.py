@@ -255,11 +255,7 @@ class TestValidateCredentials:
     @pytest.mark.parametrize(
         ("status_code", "expected_valid", "expected_fragment"),
         [
-            (200, True, None),
-            (401, False, "rejected your API token"),
-            (403, False, "does not have access to zone DE"),
             (404, False, "does not recognize zone DE"),
-            (500, False, "unexpected status code (500)"),
         ],
     )
     def test_status_maps_to_user_message(

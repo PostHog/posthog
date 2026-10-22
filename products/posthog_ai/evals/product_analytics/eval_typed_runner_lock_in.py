@@ -33,6 +33,7 @@ from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.scorers import NoToolCall
 from products.posthog_ai.evals.cli_mcp.scorers import FirstRelevantTool
+from products.posthog_ai.evals.offline_config import offline_suite
 from products.posthog_ai.evals.product_analytics.scorers import INSIGHT_WRITE_TOOLS
 
 from .eval_sql_shaped_routing import ANALYSIS_QUERY_TOOLS
@@ -106,6 +107,16 @@ async def eval_typed_runner_no_lock_in_control(ctx: EvalContext) -> None:
 
     await SandboxedPublicEval(
         experiment_name="sandboxed-typed-runner-no-lock-in-control-cli",
+        offline_suite=offline_suite(
+            "product_analytics/eval_typed_runner_lock_in::eval_typed_runner_no_lock_in_control",
+            metrics=[
+                "no_persistent_insight_save",
+                "first_relevant_tool_t1",
+                "first_relevant_tool_t2",
+                "first_relevant_tool_t3",
+                "first_relevant_tool_t4",
+            ],
+        ),
         cases=cases,
         scorers=_lock_in_scorers(turn2_expected="query-trends"),
         ctx=ctx,
@@ -140,6 +151,16 @@ async def eval_typed_runner_lock_in(ctx: EvalContext) -> None:
 
     await SandboxedPublicEval(
         experiment_name="sandboxed-typed-runner-lock-in-cli",
+        offline_suite=offline_suite(
+            "product_analytics/eval_typed_runner_lock_in::eval_typed_runner_lock_in",
+            metrics=[
+                "no_persistent_insight_save",
+                "first_relevant_tool_t1",
+                "first_relevant_tool_t2",
+                "first_relevant_tool_t3",
+                "first_relevant_tool_t4",
+            ],
+        ),
         cases=cases,
         scorers=_lock_in_scorers(turn2_expected="execute-sql"),
         ctx=ctx,

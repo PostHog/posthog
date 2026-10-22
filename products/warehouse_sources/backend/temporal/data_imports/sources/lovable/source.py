@@ -135,5 +135,5 @@ class LovableSource(ResumableSource[LovableSourceConfig, LovableResumeConfig]):
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
         )

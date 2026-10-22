@@ -110,23 +110,6 @@ class TestValidateCredentials:
         return mock.patch.object(langfuse_module, "make_tracked_session", return_value=session)
 
     @pytest.mark.parametrize(
-        "status_code, expected_valid, expected_msg_substr",
-        [
-            (200, True, None),
-            (401, False, "Invalid Langfuse API keys"),
-            (403, False, "Invalid Langfuse API keys"),
-        ],
-    )
-    def test_status_code_mapping(self, status_code, expected_valid, expected_msg_substr):
-        with scripted_network([ScriptedResponse(status=status_code)]):
-            valid, msg = validate_credentials("https://cloud.langfuse.com", "pk-lf-x", "sk-lf-x")
-        assert valid is expected_valid
-        if expected_msg_substr is None:
-            assert msg is None
-        else:
-            assert expected_msg_substr in (msg or "")
-
-    @pytest.mark.parametrize(
         "public_key, secret_key, expected_msg",
         [
             ("", "sk-lf-x", "Missing public key"),

@@ -382,9 +382,12 @@ export function HogFunctionFilters({
                                                   : 'Add event matcher'
                                         }
                                         excludedProperties={excludedProperties}
-                                        // Transformations run before ingestion stops writing $feature_flag_called
-                                        // to `events`, so they receive the event at every flag evaluations mode.
-                                        includeHiddenEvents={isTransformation}
+                                        // Every function type here receives $feature_flag_called at every flag
+                                        // evaluations mode. Transformations run during ingestion, before the step
+                                        // that drops the call from `events`. Site destinations run in the browser.
+                                        // Destinations also consume `realtime_only_events_json`, which carries the
+                                        // call when ingestion does not write it to `events`.
+                                        includeHiddenEvents
                                         allowNonCapturedEvents
                                     />
                                     {selectedFullRefreshView ? (

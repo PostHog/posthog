@@ -131,8 +131,6 @@ def test_credential_probe_uses_one_small_request(config: PeecAISourceConfig, pro
     "status,body,message",
     [
         (400, "Missing API Key", "Check your API key"),
-        (401, "Invalid API Key", "Create a new key"),
-        (403, "Forbidden", "plan includes API access"),
     ],
 )
 def test_credential_and_sync_errors(

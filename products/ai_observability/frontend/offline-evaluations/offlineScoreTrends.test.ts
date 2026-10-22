@@ -256,6 +256,11 @@ describe('offline score trends', () => {
         expect(panels.every((panel) => !panel.elapsed)).toBe(true)
         expect(panels[0].yDomain).toEqual(panels[2].yDomain)
         expect(panels[0].series[0].points[0].x).toBe(Date.parse(first.experiment.started_at))
+        const combined = buildOfflineTrendPanels([{ key: 'primary', label: 'Selected', points: [first, third] }], true)
+        expect(combined).toHaveLength(1)
+        expect(combined[0].series).toHaveLength(2)
+        expect(combined[0].series.map((series) => series.points[0].y)).toEqual([2, 80])
+        expect(combined[0].passingRule).toBeNull()
     })
 
     it('aligns equal windows by elapsed time without changing the actual execution date', () => {

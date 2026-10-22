@@ -117,6 +117,7 @@ class TestRage(SimpleTestCase):
             description="Cannot read properties of undefined",
             status="active",
             severity=None,
+            first_seen=None,
         )
         registered = next(s for s in load_sources() if s.name == "rage")
 

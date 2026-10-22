@@ -72,7 +72,7 @@ class TursoSource(ResumableSource[TursoSourceConfig, TursoResumeConfig]):
             label="Turso",
             iconPath="/static/services/turso.png",
             docsUrl="https://posthog.com/docs/cdp/sources/turso",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             keywords=["sqlite", "database", "libsql", "edge"],
             caption=(
                 "Import Turso Platform API metadata and usage. Tables stored inside your SQLite databases are not imported. "

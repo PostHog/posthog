@@ -5,6 +5,7 @@ from typing import Any
 import pytest
 from unittest.mock import MagicMock
 
+import pyarrow as pa
 from requests import Response
 from requests.exceptions import HTTPError, RequestException
 from structlog.testing import capture_logs
@@ -14,6 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.clerk.cler
     ClerkResumeConfig,
     _convert_timestamps,
     _strip_sensitive_fields,
+    _webhook_table_transformer,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.clerk.settings import (
@@ -413,3 +415,26 @@ class TestClerkValidateCredentials:
         assert "Couldn't reach Clerk" in (message or "")
         assert "connection reset by peer" not in (message or "")
         assert network.requests_log[0].path == "/v1/users"
+
+
+class TestClerkWebhookTransformer:
+    def test_keeps_latest_event_and_skips_deletes(self) -> None:
+        table = pa.Table.from_pylist(
+            [
+                {
+                    "type": "user.updated",
+                    "timestamp": 1767312000000,
+                    "data": '{"id":"user_1","email":"new@example.com","created_at":1767225600000}',
+                },
+                {
+                    "type": "user.created",
+                    "timestamp": 1767225600000,
+                    "data": '{"id":"user_1","email":"old@example.com","created_at":1767225600000}',
+                },
+                {"type": "user.deleted", "timestamp": 1767398400000, "data": '{"id":"user_1","deleted":true}'},
+            ]
+        )
+
+        assert _webhook_table_transformer(table).to_pylist() == [
+            {"id": "user_1", "email": "new@example.com", "created_at": 1767225600}
+        ]

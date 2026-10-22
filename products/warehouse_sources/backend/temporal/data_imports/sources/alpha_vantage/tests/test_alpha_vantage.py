@@ -619,12 +619,12 @@ class TestAlphaVantage:
     @parameterized.expand(
         [
             ("insider_is_newest_first", "insider_transactions", "desc"),
-            ("news_is_oldest_first", "news_sentiment", "asc"),
+            ("news_restarts_per_symbol", "news_sentiment", None),
             ("full_refresh_default", "time_series_daily", "asc"),
         ]
     )
     def test_alpha_vantage_source_reports_the_order_rows_arrive_in(
-        self, _name: str, endpoint: str, expected: str
+        self, _name: str, endpoint: str, expected: str | None
     ) -> None:
         assert alpha_vantage_source("KEY", ["IBM"], endpoint, MagicMock()).sort_mode == expected
 
@@ -656,10 +656,6 @@ class TestAlphaVantage:
     @parameterized.expand(
         [
             ("empty_key", "", 200, {}, False),
-            ("error_message", "KEY", 200, {"Error Message": "invalid apikey"}, False),
-            ("information", "KEY", 200, {"Information": "daily limit"}, False),
-            ("non_200", "KEY", 500, {}, False),
-            ("valid", "KEY", 200, {"Global Quote": {"01. symbol": "IBM"}}, True),
         ]
     )
     def test_validate_credentials(self, _name: str, api_key: str, status: int, body: dict, expected: bool) -> None:

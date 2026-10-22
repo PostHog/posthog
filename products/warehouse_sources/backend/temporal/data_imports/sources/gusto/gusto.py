@@ -377,6 +377,12 @@ def get_rows(
                 resumable_source_manager.save_state(
                     GustoResumeConfig(company_index=company_index, employee_index=employee_index + 1)
                 )
+        elif not config.paginated:
+            # These lists document no `page`/`per` and return everything at once, so one request covers them.
+            body, _ = client.get_json(config.path.format(company_uuid=company_uuid))
+            rows = _stamp_parents(extract_rows(config, body), parents)
+            if rows:
+                yield rows
         else:
             first_page = resume.next_page if (resuming_here and resume is not None) else 1
             yield from _paginate(

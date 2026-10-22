@@ -33,6 +33,7 @@ env:
 jobs:
     cleanup-hogbox-preview:
         name: Reap stale hogbox previews
+        if: github.repository == 'PostHog/posthog'
         runs-on: ubuntu-24.04
         timeout-minutes: 15
         steps:

@@ -1,10 +1,12 @@
 import datetime as dt
 
 import pytest
+from unittest.mock import patch
 
 from django.test.client import Client as HttpClient
 
 from products.batch_exports.backend.models.batch_export import BatchExportBackfill
+from products.batch_exports.backend.presentation.views.batch_export.backfills import BackfillsCursorPagination
 from products.batch_exports.backend.tests.api.fixtures import create_backfill, create_batch_export, create_destination
 from products.batch_exports.backend.tests.api.operations import list_batch_export_backfills_ok
 
@@ -35,6 +37,32 @@ def test_list_batch_export_backfills(client: HttpClient, organization, team, use
     client.force_login(user)
     response = list_batch_export_backfills_ok(client, team.pk, batch_export.id)
     assert len(response["results"]) == 2
+
+
+@pytest.mark.parametrize("ordering", ["start_at", "-start_at"])
+def test_list_batch_export_backfills_pages_through_tied_values(client: HttpClient, team, user, ordering):
+    batch_export = create_batch_export(team, create_destination())
+    early = dt.datetime(2021, 1, 1, tzinfo=dt.UTC)
+    late = dt.datetime(2021, 1, 2, tzinfo=dt.UTC)
+    backfill_ids = {
+        str(create_backfill(team, batch_export, start_at, None, BatchExportBackfill.Status.COMPLETED, None).id)
+        for start_at in [early, early, early, late, late]
+    }
+
+    client.force_login(user)
+    pages = []
+    with patch.object(BackfillsCursorPagination, "page_size", 2):
+        page = client.get(
+            f"/api/projects/{team.pk}/batch_exports/{batch_export.id}/backfills/?ordering={ordering}"
+        ).json()
+        pages.append(page)
+        # Bounded, so a cursor that never advances fails instead of hanging.
+        while page["next"] and len(pages) <= len(backfill_ids):
+            page = client.get(page["next"]).json()
+            pages.append(page)
+
+    listed = [backfill["id"] for page in pages for backfill in page["results"]]
+    assert sorted(listed) == sorted(backfill_ids)
 
 
 def test_cannot_list_batch_export_backfills_for_other_organizations(client: HttpClient, organization, team, user):

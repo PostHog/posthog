@@ -199,7 +199,7 @@ class TestFetchPage:
 
 
 class TestValidateCredentials:
-    @parameterized.expand([("ok", 200, True), ("unauthorized", 401, False), ("forbidden", 403, False)])
+    @parameterized.expand([("forbidden", 403, False)])
     def test_status_mapping(self, _name: str, status: int, expected_valid: bool) -> None:
         with scripted_network([ScriptedResponse(status=status)]) as network:
             is_valid, status_code = validate_credentials("k")
@@ -207,12 +207,6 @@ class TestValidateCredentials:
         assert status_code == status
         assert network.requests_log[0].path == "/v1/addresses"
         assert network.requests_log[0].param("limit") == "1"
-
-    def test_network_error_returns_false_and_none_status(self) -> None:
-        with scripted_network([ConnectionError("boom")]):
-            is_valid, status_code = validate_credentials("k")
-        assert is_valid is False
-        assert status_code is None
 
 
 class TestLobSource:

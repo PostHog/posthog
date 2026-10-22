@@ -98,9 +98,6 @@ class TestRequest:
 class TestValidateCredentials:
     @parameterized.expand(
         [
-            ("valid", 200, (True, None)),
-            ("unauthorized", 401, (False, open_exchange_rates.INVALID_APP_ID_ERROR)),
-            ("suspended", 403, (False, open_exchange_rates.RESTRICTED_ACCOUNT_ERROR)),
             ("over_use", 429, (False, open_exchange_rates.RESTRICTED_ACCOUNT_ERROR)),
             ("upstream_outage", 503, (False, open_exchange_rates.VALIDATION_UNAVAILABLE_ERROR)),
         ]

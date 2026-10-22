@@ -89,7 +89,10 @@ export function Legend({
                             {item.label}
                         </span>
                         {item.secondaryLabel != null && item.secondaryLabel !== '' && (
-                            <span className="shrink-0 text-muted" data-attr="hog-chart-legend-secondary">
+                            <span
+                                className="shrink-0 text-(--color-graph-axis-label)"
+                                data-attr="hog-chart-legend-secondary"
+                            >
                                 {item.secondaryLabel}
                             </span>
                         )}

@@ -1,3 +1,5 @@
+import { combineUrl } from 'kea-router'
+
 import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
@@ -20,17 +22,23 @@ export const manifest: ProductManifest = {
         },
     },
     routes: {
-        // nosemgrep: frontend-route-hyphen -- shipped app URL, existing links point here
-        '/feature_flags/templates': ['FeatureFlagTemplates', 'featureFlagTemplates'],
-        // nosemgrep: frontend-route-hyphen -- shipped app URL, existing links point here
-        '/feature_flags/staff': ['FeatureFlagsStaffTools', 'featureFlagsStaffTools'],
+        '/feature-flags/templates': ['FeatureFlagTemplates', 'featureFlagTemplates'],
+        '/feature-flags/staff': ['FeatureFlagsStaffTools', 'featureFlagsStaffTools'],
+    },
+    // The product shipped under /feature_flags. Emails, Slack messages, comments and bookmarks link there,
+    // so every old path forwards and keeps its search and hash params.
+    redirects: {
+        '/feature_flags': (_params, searchParams, hashParams): string =>
+            combineUrl(urls.featureFlags(), searchParams, hashParams).url,
+        '/feature_flags/*': ({ _ }, searchParams, hashParams): string =>
+            combineUrl(`/feature-flags/${_}`, searchParams, hashParams).url,
     },
     urls: {
-        featureFlag: (id: string | number): string => `/feature_flags/${id}`,
-        featureFlags: (tab?: string): string => `/feature_flags${tab ? `?tab=${tab}` : ''}`,
-        featureFlagTemplates: (): string => '/feature_flags/templates',
+        featureFlag: (id: string | number): string => `/feature-flags/${id}`,
+        featureFlags: (tab?: string): string => `/feature-flags${tab ? `?tab=${tab}` : ''}`,
+        featureFlagTemplates: (): string => '/feature-flags/templates',
         featureFlagsStaffTools: (teamId?: number): string =>
-            `/feature_flags/staff${teamId ? `?team_id=${teamId}` : ''}`,
+            `/feature-flags/staff${teamId ? `?team_id=${teamId}` : ''}`,
         featureFlagNew: ({
             type,
             sourceId,
@@ -66,7 +74,7 @@ export const manifest: ProductManifest = {
             if (properties?.length) {
                 params.set('properties', JSON.stringify(properties))
             }
-            return `/feature_flags/new?${params.toString()}`
+            return `/feature-flags/new?${params.toString()}`
         },
     },
     fileSystemTypes: {

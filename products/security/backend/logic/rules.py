@@ -1,5 +1,6 @@
 """One rule as the hub's snapshot delivers it. Values are already normalized by the hub."""
 
+import re
 import ipaddress
 from datetime import datetime
 from typing import Any
@@ -7,6 +8,63 @@ from typing import Any
 from posthog.dataclasses import frozen
 
 _TEXT_FIELDS = ("id", "targetType", "targetValue", "effect", "scope")
+_EMAIL_TYPES = ("email", "email_root", "email_domain", "email_pattern")
+
+_WILDCARD = "*"
+_MAX_PATTERN_WILDCARDS = 3
+_MIN_PATTERN_LOCAL_LITERALS = 3
+_MAX_PATTERN_DOMAIN_LENGTH = 253
+_PATTERN_DOMAIN_LABEL = re.compile(r"[a-z0-9*-]+")
+
+
+@frozen
+class EmailPattern:
+    """A whole-address glob. `*` matches any run of characters, and every other character is literal."""
+
+    segments: tuple[str, ...]
+
+    @classmethod
+    def parse(cls, value: str) -> "EmailPattern | None":
+        """The pattern, or None when it breaks the hub's limits.
+
+        The hub refuses these values when a rule is written. Refusing them again here means a
+        bad row can never match everyone, as `*@*` would. The hub also refuses a pattern whose
+        literal domain is posthog.com. That check is not repeated here, because a decision never
+        blocks a posthog.com account.
+        """
+        local, at, domain = value.partition("@")
+        if not at or "@" in domain or re.search(r"\s", value):
+            return None
+        if value.count(_WILDCARD) > _MAX_PATTERN_WILDCARDS:
+            return None
+        if len(local.replace(_WILDCARD, "")) < _MIN_PATTERN_LOCAL_LITERALS:
+            return None
+        if domain != _WILDCARD:
+            labels = domain.split(".")
+            if len(domain) > _MAX_PATTERN_DOMAIN_LENGTH:
+                return None
+            if not all(_PATTERN_DOMAIN_LABEL.fullmatch(label) for label in labels):
+                return None
+            if all(_WILDCARD in label for label in labels):
+                return None
+        return cls(segments=tuple(value.split(_WILDCARD)))
+
+    def matches(self, address: str) -> bool:
+        # Not a regex: with three wildcards a backtracking regex does cubic work on a crafted
+        # address, and signup and login run this for every pattern rule.
+        if len(self.segments) == 1:
+            return address == self.segments[0]
+        head, *middle, tail = self.segments
+        end = len(address) - len(tail)
+        if end < len(head) or not address.startswith(head) or not address.endswith(tail):
+            return False
+        position = len(head)
+        for segment in middle:
+            found = address.find(segment, position, end)
+            if found < 0:
+                return False
+            position = found + len(segment)
+        return True
 
 
 @frozen
@@ -17,8 +75,9 @@ class SnapshotRule:
     effect: str
     scope: str
     expires_at: datetime | None = None
-    # Parsed once when the snapshot loads, so a decision never re-parses a range.
+    # Parsed once when the snapshot loads, so a decision never re-parses a range or a pattern.
     network: ipaddress.IPv4Network | ipaddress.IPv6Network | None = None
+    email_pattern: EmailPattern | None = None
 
     @classmethod
     def from_wire(cls, raw: object) -> "SnapshotRule | None":
@@ -56,8 +115,18 @@ class SnapshotRule:
         # snapshot un-normalized would match nobody, and nothing would report it. The Redis
         # list this replaced lowercased on read, so it could not be defeated that way.
         target_value = values["targetValue"]
-        if values["targetType"] in ("email", "email_root", "email_domain"):
+        if values["targetType"] in _EMAIL_TYPES:
             target_value = target_value.strip().lower()
+
+        email_pattern = None
+        if values["targetType"] == "email_pattern":
+            # The hub writes pattern rules as blocks only. An exemption on a pattern would
+            # drop the login email code for every address it covers.
+            if values["effect"] != "block":
+                return None
+            email_pattern = EmailPattern.parse(target_value)
+            if email_pattern is None:
+                return None
 
         return cls(
             id=values["id"],
@@ -67,4 +136,5 @@ class SnapshotRule:
             scope=values["scope"],
             expires_at=expires_at,
             network=network,
+            email_pattern=email_pattern,
         )

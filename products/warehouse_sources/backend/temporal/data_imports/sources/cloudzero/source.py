@@ -152,7 +152,7 @@ class CloudzeroSource(ResumableSource[CloudzeroSourceConfig, CloudzeroResumeConf
             ),
             docsUrl="https://posthog.com/docs/cdp/sources/cloudzero",
             iconPath="/static/services/cloudzero.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["cloud cost", "finops", "billing"],
             fields=cast(
                 list[FieldType],

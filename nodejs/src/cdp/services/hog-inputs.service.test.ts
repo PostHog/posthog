@@ -382,6 +382,37 @@ describe('Hog Inputs', () => {
             )
         })
 
+        it('escapes liquid output only in the email fields that are written into html', async () => {
+            const value = '{{ event.properties.feature }}'
+            globals.event.properties.feature = `Logs & "Traces" <beta>`
+            hogFunction.inputs = {
+                email: {
+                    templating: 'liquid',
+                    value: {
+                        to: { email: '{{person.properties.email}}', name: value },
+                        from: { email: 'hey@example.com', name: value },
+                        subject: `Welcome to ${value}`,
+                        text: `Welcome to ${value}`,
+                        preheader: value,
+                        html: `<p>${value}</p>`,
+                    },
+                },
+            }
+            hogFunction.inputs_schema = [{ key: 'email', type: 'native_email', required: true, templating: true }]
+
+            const inputs = await hogInputsService.buildInputs(hogFunction, globals)
+            const raw = `Logs & "Traces" <beta>`
+            const escaped = 'Logs &amp; &#34;Traces&#34; &lt;beta&gt;'
+            expect(inputs.email).toMatchObject({
+                to: { name: raw },
+                from: { name: raw },
+                subject: `Welcome to ${raw}`,
+                text: `Welcome to ${raw}`,
+                preheader: escaped,
+                html: `<p>${escaped}</p>`,
+            })
+        })
+
         it('drops the editor design from a liquid email instead of rendering it', async () => {
             const tag = '{% if event.event == "test" %}Hi{% endif %}'
             hogFunction.inputs = {

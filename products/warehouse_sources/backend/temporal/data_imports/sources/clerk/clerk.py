@@ -1,17 +1,22 @@
 import functools
 import dataclasses
-from collections.abc import Iterator
+from collections.abc import AsyncIterable, Iterable, Iterator
 from typing import Any, Optional
 
+import orjson
+import pyarrow as pa
+from asgiref.sync import async_to_sync
 from requests import Request, Response
 from requests.exceptions import HTTPError, RequestException
 from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions_capture import capture_exception
 
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import table_from_py_list
 from products.warehouse_sources.backend.temporal.data_imports.sources.clerk.settings import (
     CLERK_ENDPOINTS,
     RETIRED_ENDPOINTS,
+    WEBHOOK_SCHEMA_NAMES,
     ClerkEndpointConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
@@ -26,6 +31,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 
 
 @dataclasses.dataclass
@@ -339,6 +345,33 @@ def _skip_when_feature_disabled(
         )
 
 
+def _webhook_table_transformer(table: pa.Table) -> pa.Table:
+    """Extract the Clerk object from each webhook event and keep the latest event per id."""
+    rows_by_id: dict[str, tuple[int, dict[str, Any]]] = {}
+    for event in table.to_pylist():
+        event_type = event.get("type")
+        resource = event.get("data")
+        if isinstance(resource, str):
+            try:
+                resource = orjson.loads(resource)
+            except orjson.JSONDecodeError:
+                continue
+        if not isinstance(event_type, str) or not isinstance(resource, dict) or not resource.get("id"):
+            continue
+        # The Hog template already drops deletions. This keeps a hand-configured webhook from
+        # writing an id-only payload over a stored row. See WEBHOOK_EVENTS_BY_SCHEMA.
+        if event_type.endswith(".deleted") or resource.get("deleted") is True:
+            continue
+
+        raw_timestamp = event.get("timestamp")
+        timestamp = raw_timestamp if isinstance(raw_timestamp, int) and not isinstance(raw_timestamp, bool) else 0
+        current = rows_by_id.get(str(resource["id"]))
+        if current is None or timestamp >= current[0]:
+            rows_by_id[str(resource["id"])] = (timestamp, _convert_timestamps(resource))
+
+    return table_from_py_list([row for _, row in rows_by_id.values()])
+
+
 def clerk_source(
     secret_key: str,
     endpoint: str,
@@ -346,6 +379,7 @@ def clerk_source(
     job_id: str,
     resumable_source_manager: ResumableSourceManager[ClerkResumeConfig],
     logger: FilteringBoundLogger,
+    webhook_source_manager: WebhookSourceManager,
 ) -> SourceResponse:
     retired_reason = RETIRED_ENDPOINTS.get(endpoint)
     if retired_reason is not None:
@@ -407,7 +441,14 @@ def clerk_source(
 
     gated_feature = endpoint_config.gated_feature
 
-    def items() -> Iterator[Any]:
+    webhook_enabled = endpoint in WEBHOOK_SCHEMA_NAMES and async_to_sync(webhook_source_manager.webhook_enabled)()
+
+    def items() -> Iterable[Any] | AsyncIterable[Any]:
+        if webhook_enabled:
+            return webhook_source_manager.get_items(table_transformer=_webhook_table_transformer)
+        return polled_items()
+
+    def polled_items() -> Iterator[Any]:
         if gated_feature is None:
             yield from resource
             return

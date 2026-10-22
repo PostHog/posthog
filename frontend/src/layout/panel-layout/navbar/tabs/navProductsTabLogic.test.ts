@@ -58,6 +58,17 @@ describe('navProductsTabLogic', () => {
         expect(actual).toHaveLength(expected.size)
     })
 
+    it('pins the welcome page first for a new project on the simple onboarding arm', () => {
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.ONBOARDING_SIMPLE_FLOW]: 'test' })
+        teamLogic.actions.loadCurrentTeamSuccess({
+            ...teamLogic.values.currentTeam!,
+            created_at: new Date().toISOString(),
+        })
+        expect(navProductsTabLogic.values.pinnedItems[0]).toEqual(
+            expect.objectContaining({ path: 'Welcome', href: urls.onboardingWelcome() })
+        )
+    })
+
     it('searches display names and sorts categories in a fixed order and products alphabetically', async () => {
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PRODUCT_AUTONOMY]: true })
         expect(navProductsTabLogic.values.pinnedItems.map(productsItemName)).toEqual([
@@ -171,7 +182,7 @@ describe('navProductsTabLogic', () => {
     it('saves staged stars in one request without touching files, folders, or other shortcuts', async () => {
         const saved = [
             { id: 'folder', path: 'Feature flags', type: 'folder', ref: 'Feature flags' },
-            { id: 'app-star', path: 'Feature flags', type: 'feature_flag', href: '/feature_flags' },
+            { id: 'app-star', path: 'Feature flags', type: 'feature_flag', href: '/feature-flags' },
         ]
         const bulkUpdate = jest.fn(async ({ request }: { request: Request }) => {
             bulkUpdate.body = await request.json()
@@ -198,7 +209,7 @@ describe('navProductsTabLogic', () => {
             .toMatchValues({ customizeSidebarOpen: false, starredProductsSaving: false })
         expect(bulkUpdate).toHaveBeenCalledTimes(1)
         expect(bulkUpdate.body).toEqual({
-            add: [{ path: 'Feature flags', type: 'feature_flag', href: '/feature_flags' }],
+            add: [{ path: 'Feature flags', type: 'feature_flag', href: '/feature-flags' }],
             remove_ids: ['analytics'],
         })
         expect(projectTreeDataLogic.values.shortcutData).toEqual(saved)

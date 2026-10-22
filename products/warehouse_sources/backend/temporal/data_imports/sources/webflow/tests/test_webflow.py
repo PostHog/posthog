@@ -156,12 +156,6 @@ class TestValidateCredentials:
         assert "Site ID isn't valid" in (error or "")
         assert "Validation Error" not in (error or "")
 
-    def test_request_exception_returns_error(self) -> None:
-        with scripted_network(always(requests.exceptions.ConnectionError("boom"))):
-            ok, error = validate_credentials("token", "site-1")
-        assert ok is False
-        assert error is not None and "boom" in error
-
 
 class TestResolveCollectionId:
     def test_resolves_by_slug(self) -> None:

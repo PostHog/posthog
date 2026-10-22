@@ -54,7 +54,7 @@ class NewsApiSource(ResumableSource[NewsApiSourceConfig, NewsApiResumeConfig]):
             name=ExternalDataSourceType.NEWSAPI,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="NewsAPI",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["newsapi", "news api"],
             caption="""Enter your NewsAPI key to pull live and historical news articles into the PostHog Data warehouse.
 

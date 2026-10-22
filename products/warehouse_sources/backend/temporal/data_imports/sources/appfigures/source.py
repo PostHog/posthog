@@ -53,7 +53,7 @@ class AppfiguresSource(ResumableSource[AppfiguresSourceConfig, AppfiguresResumeC
             name=ExternalDataSourceType.APPFIGURES,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="Appfigures",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter an Appfigures Personal Access Token to pull your app-store analytics into the PostHog Data warehouse.
 
 Create an API client and Personal Access Token at [appfigures.com/developers/keys](https://appfigures.com/developers/keys). When creating the client, grant the data sets you want to sync:
@@ -106,6 +106,11 @@ Stores, Categories, and Countries are reference tables that need no data set gra
             # account no longer owns one or more products the request covers — no retry fixes that.
             "Some given products are not owned by your account": "Your Appfigures account doesn't own one or more products this sync needs credits for. Check product ownership and available credits in Appfigures, then reconnect.",
         }
+
+    def get_retryable_errors(self) -> set[str]:
+        # _fetch raises this only after its own backoff runs out on a 429 or 5xx. Temporal then
+        # retries the activity, so log it at warning instead of raising an error tracking issue.
+        return {"Appfigures API error (retryable)"}
 
     def get_schemas(
         self,

@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { IconArrowLeft, IconCompass } from '@posthog/icons'
+import { IconCompass } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -12,7 +12,6 @@ import { scoutFleetLogic } from '../../logics/scoutFleetLogic'
 import { signalSourcesLogic } from '../../signalSourcesLogic'
 import { AgentsRoster } from './AgentsRoster'
 import { ConnectionsSection } from './ConnectionsSection'
-import { DataSourceSetup } from './DataSourceSetup'
 import { SlackNotificationsSection } from './SlackNotificationsSection'
 
 function Subsection({
@@ -59,43 +58,20 @@ function ScoutsSubsectionLink(): JSX.Element {
     )
 }
 
-function BackLink({ onClick }: { onClick: () => void }): JSX.Element {
-    return (
-        <LemonButton type="tertiary" size="small" icon={<IconArrowLeft />} onClick={onClick} className="-ml-2 w-fit">
-            Back
-        </LemonButton>
-    )
-}
-
 /**
  * Full-page Agents tab body for cloud Inbox – a high-fidelity port of the
  * PostHog Desktop Agents view. Composes Connections, the agent roster,
- * Slack, and MCP servers. Session-analysis and data-source setup
- * render inline (replacing the roster) when their sub-flow is open.
+ * Slack, and MCP servers. Adding a source opens the catalog modal from the roster.
  */
 export function AgentsTab(): JSX.Element {
-    const { dataSourceSetupSource } = useValues(signalSourcesLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const { loadSources, loadSourceConfigs, loadProductDataEvents, closeDataSourceSetup, onDataSourceSetupComplete } =
-        useActions(signalSourcesLogic)
+    const { loadSources, loadSourceConfigs, loadProductDataEvents } = useActions(signalSourcesLogic)
 
     useEffect(() => {
         loadSources()
         loadSourceConfigs()
         loadProductDataEvents()
     }, []) // eslint-disable-line react-hooks/exhaustive-deps
-
-    let agentsBody: JSX.Element
-    if (dataSourceSetupSource !== null) {
-        agentsBody = (
-            <div className="flex flex-col gap-3">
-                <BackLink onClick={closeDataSourceSetup} />
-                <DataSourceSetup source={dataSourceSetupSource} onComplete={() => onDataSourceSetupComplete()} />
-            </div>
-        )
-    } else {
-        agentsBody = <AgentsRoster />
-    }
 
     return (
         <div className="flex flex-col">
@@ -118,7 +94,7 @@ export function AgentsTab(): JSX.Element {
                     title="Signal sources"
                     description="Each source watches for signals, and spins up an agent to look into them."
                 >
-                    {agentsBody}
+                    <AgentsRoster />
                 </Subsection>
 
                 {featureFlags[FEATURE_FLAGS.INBOX_SLACK_NOTIFICATIONS] && (

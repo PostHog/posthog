@@ -64,6 +64,8 @@ interface DashboardProps {
     /** When set, the "Edit dashboard" menu item links to the dashboard editor with a back button pointing here. */
     backTo?: { url: string; name: string }
     showCreateAnomalyAlertButton?: boolean
+    /** Shows the dashboard without tile menus or drag-to-edit controls. */
+    readOnly?: boolean
 }
 
 export const parseDashboardId = (id: string | undefined): number => {
@@ -95,11 +97,12 @@ export function Dashboard({
     themes,
     backTo,
     showCreateAnomalyAlertButton,
+    readOnly,
 }: DashboardProps): JSX.Element {
     useMountedLogic(dataThemeLogic({ themes }))
 
     return (
-        <BindLogic logic={dashboardLogic} props={{ id: parseDashboardId(id), placement, dashboard }}>
+        <BindLogic logic={dashboardLogic} props={{ id: parseDashboardId(id), placement, dashboard, readOnly }}>
             <DashboardScene backTo={backTo} showCreateAnomalyAlertButton={showCreateAnomalyAlertButton} />
         </BindLogic>
     )

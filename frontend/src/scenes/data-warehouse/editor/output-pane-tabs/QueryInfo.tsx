@@ -5,13 +5,11 @@ import { IconExternal, IconTarget } from '@posthog/icons'
 import { LemonBanner, LemonTable, Link, Spinner, lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
 import { MaterializationStatusPanel } from 'scenes/data-warehouse/saved_queries/MaterializationStatusPanel'
@@ -52,7 +50,6 @@ export function QueryInfo({ tabId, view, tabbed = false }: QueryInfoProps): JSX.
     const { saveAsView, setUpstreamViewMode, editView, loadUpstream } = useActions(sqlEditorLogic)
     // The loaded lineage is shared across views, so only use it when it was loaded for this one.
     const upstream = loadedUpstream && targetView && loadedUpstream.modelId === targetView.id ? loadedUpstream : null
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const currentNodeId = upstream?.nodes.find((n) => n.saved_query_id && n.saved_query_id === targetView?.id)?.id
     const openInEditor = async (node: DataModelingNode): Promise<void> => {
@@ -89,9 +86,7 @@ export function QueryInfo({ tabId, view, tabbed = false }: QueryInfoProps): JSX.
                     tabs={[
                         { key: 'materialization', label: 'Materialization' },
                         { key: 'lineage', label: 'Lineage' },
-                        ...(featureFlags[FEATURE_FLAGS.DATA_QUALITY_CHECKS]
-                            ? [{ key: 'quality' as const, label: 'Data quality' }]
-                            : []),
+                        { key: 'quality', label: 'Data quality' },
                     ]}
                 />
             )}
@@ -105,11 +100,9 @@ export function QueryInfo({ tabId, view, tabbed = false }: QueryInfoProps): JSX.
                                 showRunActions={!tabbed}
                             />
                         </div>
-                        {featureFlags[FEATURE_FLAGS.DATA_QUALITY_CHECKS] && (
-                            <div className={tabbed && activeSection !== 'quality' ? 'hidden' : undefined}>
-                                <ViewDataQualityChecks view={targetView} />
-                            </div>
-                        )}
+                        <div className={tabbed && activeSection !== 'quality' ? 'hidden' : undefined}>
+                            <ViewDataQualityChecks view={targetView} />
+                        </div>
                     </>
                 ) : (
                     <div>

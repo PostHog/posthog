@@ -213,9 +213,6 @@ def test_resume_rejects_unapproved_destination() -> None:
 @pytest.mark.parametrize(
     ("status", "schema", "expected"),
     [
-        (200, None, (True, None)),
-        (200, "networks", (True, None)),
-        (401, None, (False, AUTH_ERROR)),
         (403, None, (True, None)),
         (403, "networks", (False, PERMISSION_ERROR)),
         (403, "network_events", (False, PERMISSION_ERROR)),

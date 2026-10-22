@@ -69,7 +69,7 @@ function SchemaSceneContent({ sourceId, schemaId }: SchemaSceneProps): JSX.Eleme
     const showSyncs = shouldShowManagedSourceSyncsTab(source)
     const showMetrics = shouldShowManagedSourceMetricsTab(source, !!featureFlags[FEATURE_FLAGS.DWH_SOURCE_METRICS])
     // The warehouse table only exists once the schema has synced, and checks hang off that table.
-    const showDataQuality = !!featureFlags[FEATURE_FLAGS.DATA_QUALITY_CHECKS] && !!schema?.table?.id
+    const showDataQuality = !!schema?.table?.id
     const showColumnsSection = supportsColumnSelection
     // Same gate as the source's Destinations tab. Without it a table offers a destination set that
     // the sync ignores, because a run only snapshots destinations when the flag is on.

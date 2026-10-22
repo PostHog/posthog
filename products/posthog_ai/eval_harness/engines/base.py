@@ -41,7 +41,7 @@ class EvalEngine(Protocol):
     """Whether the engine has a notion of a public experiment (``is_public``)."""
 
     @classmethod
-    def required_env(cls) -> tuple[EnvVarSpec, ...]:
+    def required_env(cls, *, no_send_logs: bool = False) -> tuple[EnvVarSpec, ...]:
         """The environment variables this engine needs, validated in preflight."""
         ...
 

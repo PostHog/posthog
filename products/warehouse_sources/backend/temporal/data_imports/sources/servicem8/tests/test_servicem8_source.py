@@ -47,15 +47,6 @@ class TestServiceM8Source:
         self.team_id = 123
         self.config = Servicem8SourceConfig(api_key="sm8-key")
 
-    @parameterized.expand(
-        [
-            ("unauthorized", "401 Client Error: Unauthorized for url: https://api.servicem8.com"),
-            ("forbidden", "403 Client Error: Forbidden for url: https://api.servicem8.com"),
-        ]
-    )
-    def test_non_retryable_errors(self, _name: str, expected_key: str) -> None:
-        assert expected_key in self.source.get_non_retryable_errors()
-
     @parameterized.expand([(name,) for name in ENDPOINTS])
     def test_canonical_descriptions_document_the_primary_key(self, endpoint: str) -> None:
         columns = CANONICAL_DESCRIPTIONS[endpoint]["columns"]

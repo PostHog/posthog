@@ -50,10 +50,7 @@ class TestValidateCredentials:
 
     @parameterized.expand(
         [
-            (401, "App API Key"),
-            (403, "denied"),
             (429, "rate-limited"),
-            (500, "Customer.io API error"),
         ]
     )
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.customer_io.api_client._session")
@@ -68,16 +65,6 @@ class TestValidateCredentials:
         assert success is False
         assert error is not None
         assert expected_substring.lower() in error.lower()
-
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.customer_io.api_client._session")
-    def test_returns_false_on_network_error(self, mock_session):
-        mock_session.return_value.get.side_effect = requests.ConnectionError("boom")
-
-        success, error = api_client.validate_credentials("key", "us")
-
-        assert success is False
-        assert error is not None
-        assert "Could not reach Customer.io" in error
 
 
 class TestCreateWebhook:

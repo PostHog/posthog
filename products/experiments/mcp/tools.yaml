@@ -295,7 +295,12 @@ tools:
                     e.g. 20 for a 20% lift), recommended_sample_size (total across all variants),
                     recommended_running_time (days), and exposure_estimate_config. When minimum_detectable_effect is
                     omitted, the project's default MDE is stored instead, if the project has one.
+            variant_notes:
+                input_schema: ExperimentVariantNotesSchema
+            variant_screenshot_media_ids:
+                input_schema: ExperimentVariantScreenshotMediaIdsSchema
         ui_app: experiment
+        hooks: experiments/createExperimentHooks
         response:
             include:
                 - id
@@ -309,6 +314,8 @@ tools:
                 - end_date
                 - created_at
                 - running_time_calculation
+                - parameters.variant_notes
+                - parameters.variant_screenshot_media_ids
                 - metrics
                 - metrics_secondary
                 - conclusion
@@ -556,7 +563,8 @@ tools:
             custom exposure event is configured — resolved server-side to $feature_flag_called or $experiment_exposure;
             use it in SQL instead of hardcoding either name. When it is $feature_flag_called, also read
             $experiment_exposure (event IN ('$feature_flag_called', '$experiment_exposure')), and count persons, not
-            rows).
+            rows). variant_screenshot_urls maps each variant key to the viewable URLs of its screenshots in
+            parameters.variant_screenshot_media_ids.
         param_overrides:
             id:
                 cast: string-int
@@ -564,6 +572,7 @@ tools:
                     - experimentId
                     - experiment_id
         ui_app: experiment
+        hooks: experiments/getExperimentHooks
         response:
             exclude:
                 - saved_metrics.*.effective_query
@@ -764,8 +773,9 @@ tools:
             maps to stopped, or "all"), archived state (defaults to non-archived), feature_flag_id, created_by_id, tags
             / excluded_tags (JSON-encoded lists of tag names), and free-text search on name and feature flag key.
             Supports ordering by an allowlisted set of fields (model fields plus computed "duration" and "status").
-            Returns paginated results with each experiment's status, dates, feature flag key, and metrics summary. Use
-            the returned ID for get/update/lifecycle tools.
+            Returns paginated results with each experiment's status, dates, feature flag key, and metrics summary.
+            variants_with_notes and variants_with_screenshots list the keys of the variants that have notes or
+            screenshots. Call experiment-get to read them. Use the returned ID for get/update/lifecycle tools.
         param_overrides:
             status:
                 description: >
@@ -780,6 +790,7 @@ tools:
             feature_flag_id:
                 cast: string-int
         ui_app: experiment-list
+        hooks: experiments/listExperimentsHooks
         response:
             include:
                 - id
@@ -795,6 +806,8 @@ tools:
                 - created_at
                 - updated_at
                 - tags
+                - parameters.variant_notes
+                - parameters.variant_screenshot_media_ids
     experiment-metrics-recalculation-create:
         operation: experiments_metrics_recalculation_create
         enabled: true
@@ -820,6 +833,12 @@ tools:
             This queues background work that can take minutes on large experiments. Safe to call more than once: if a
             run is already pending or in progress, it returns that run (with is_existing true, HTTP 200) instead of
             starting a second one.
+
+
+            An experiment that started too long ago cannot be recalculated. The response is then a run that is already
+            failed, and every metric in metric_errors has error_type recalculation_window_too_long. Do not retry or poll
+            it; tell the user the message from metric_errors. The earlier results stay available from
+            experiment-metrics-recalculation-latest-retrieve.
 
 
             The response has no results array, the run has only just been queued. Take the returned id and poll
@@ -1536,6 +1555,10 @@ tools:
             Do NOT use this to change lifecycle state — use the dedicated launch, end, pause, resume, archive, or
             experiment-ship-variant tools instead. The description accepts at most 3,000 characters and longer text is
             rejected, so keep the hypothesis summary short.
+
+
+            Updating variant notes or screenshots checks the version read before the update. A concurrent edit returns
+            409 without overwriting it. Read the latest experiment before retrying.
         include_params:
             - name
             - description
@@ -1578,7 +1601,12 @@ tools:
                     recommended_running_time (days), and exposure_estimate_config.
             saved_metrics_ids:
                 input_schema: SavedMetricsAttachSchema
+            variant_notes:
+                input_schema: ExperimentVariantNotesSchema
+            variant_screenshot_media_ids:
+                input_schema: ExperimentVariantScreenshotMediaIdsSchema
         ui_app: experiment
+        hooks: experiments/updateExperimentHooks
         response:
             include:
                 - id
@@ -1592,6 +1620,8 @@ tools:
                 - end_date
                 - created_at
                 - running_time_calculation
+                - parameters.variant_notes
+                - parameters.variant_screenshot_media_ids
                 - excluded_variants
                 - metrics
                 - metrics_secondary

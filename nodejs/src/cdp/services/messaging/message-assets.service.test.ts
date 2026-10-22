@@ -39,6 +39,8 @@ const pushParams = (
         },
     }) as unknown as CyclotronInvocationQueueParametersSendPushNotificationType
 
+const pushRecipient = { distinctId: 'user-1', personId: 'person-1' }
+
 const invocationWithAction = (id: string, teamId = 7): CyclotronJobInvocationHogFunction => {
     const invocation = createExampleInvocation({ id, team_id: teamId })
     invocation.state.actionId = 'email-step'
@@ -129,13 +131,40 @@ describe('MessageAssetsService', () => {
             expect(row!.recipient).toBe('recipient@example.com')
             expect(row!.subject).toBe('Welcome aboard')
         })
+
+        it('keeps a placeholder instead of the body when the template is marked sensitive', () => {
+            const invocation = invocationWithAction('flow-1')
+            invocation.hogFunction.metadata = { message_category_type: 'transactional', sensitive: true }
+            invocation.hogFunction.inputs = { email: { value: { subject: 'Your code is {{ variables.code }}' } } }
+
+            const row = service.buildRowForEmail(
+                invocation,
+                emailParams({
+                    subject: 'Your code is 482913',
+                    html: '<a href="https://example.com/reset?token=s3cret">Reset</a>',
+                })
+            )
+
+            expect(row).toMatchObject({
+                recipient: 'recipient@example.com',
+                subject: 'Your code is {{ variables.code }}',
+                status: 'sent',
+            })
+            expect(row!.html).toContain('Email body not stored')
+            expect(row!.html).not.toContain('s3cret')
+        })
     })
 
     describe('buildRowForPush', () => {
         it('names the person as the recipient, matching how email fills that column', () => {
             // The Assets tab shows `recipient` as its RECIPIENT column, and for email that is the
             // address — so a push has to name who it reached, not which providers carried it.
-            const row = service.buildRowForPush(invocationWithAction('flow-1', 7), pushParams(), ['Firebase', 'APNs'])
+            const row = service.buildRowForPush(
+                invocationWithAction('flow-1', 7),
+                pushParams(),
+                ['Firebase', 'APNs'],
+                pushRecipient
+            )
 
             expect(row).not.toBeNull()
             expect(row!.kind).toBe('push')
@@ -155,7 +184,7 @@ describe('MessageAssetsService', () => {
             // An asset is a snapshot of what a recipient received, so a send that reached nobody has
             // nothing to show — it would render as an ordinary row with a blank recipient. The attempt
             // stays visible through the `push_skipped` metric and the run log explaining why.
-            const row = service.buildRowForPush(invocationWithAction('flow-1'), pushParams(), [])
+            const row = service.buildRowForPush(invocationWithAction('flow-1'), pushParams(), [], pushRecipient)
 
             expect(row).toBeNull()
         })
@@ -166,7 +195,8 @@ describe('MessageAssetsService', () => {
             const row = service.buildRowForPush(
                 invocationWithAction('flow-1'),
                 pushParams({ apns: { subtitle: 'Your account is ready' } }),
-                ['APNs']
+                ['APNs'],
+                pushRecipient
             )
 
             expect(row!.html).toContain('Your account is ready')
@@ -178,7 +208,8 @@ describe('MessageAssetsService', () => {
             const row = service.buildRowForPush(
                 invocationWithAction('flow-1'),
                 pushParams({ data: { internal_ref: 'super-secret-value' } }),
-                ['Firebase']
+                ['Firebase'],
+                pushRecipient
             )
 
             expect(row!.html).not.toContain('super-secret-value')
@@ -188,7 +219,8 @@ describe('MessageAssetsService', () => {
             const row = service.buildRowForPush(
                 invocationWithAction('flow-1'),
                 pushParams({ title: '<img src=x onerror=alert(1)>' }),
-                ['Firebase']
+                ['Firebase'],
+                pushRecipient
             )
 
             expect(row!.html).not.toContain('<img src=x')
@@ -199,7 +231,7 @@ describe('MessageAssetsService', () => {
             const invocation = invocationWithAction('flow-1')
             invocation.state.actionId = undefined
 
-            expect(service.buildRowForPush(invocation, pushParams(), ['Firebase'])).toBeNull()
+            expect(service.buildRowForPush(invocation, pushParams(), ['Firebase'], pushRecipient)).toBeNull()
         })
     })
 

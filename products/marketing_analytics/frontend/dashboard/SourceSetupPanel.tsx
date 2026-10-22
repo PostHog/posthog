@@ -28,6 +28,7 @@ export interface SourceSetupPanelProps {
     }[]
     compact?: boolean
     footer?: ReactNode
+    headerAction?: ReactNode
     onRetry?: () => void
     rescanLoading?: boolean
     rescanDisabledReason?: string | null
@@ -40,6 +41,7 @@ export function SourceSetupPanel({
     suggestions = [],
     connections = [],
     footer,
+    headerAction,
     compact = false,
     onRetry,
     rescanLoading = false,
@@ -113,6 +115,7 @@ export function SourceSetupPanel({
                         <p className="text-secondary mb-0 max-w-xl">{description}</p>
                     </div>
                     {!busy && <HedgehogMoney className={compact ? 'w-12 shrink-0' : 'w-20 shrink-0'} />}
+                    {headerAction}
                 </div>
                 {state === 'empty' && (
                     <p className="text-secondary text-sm mb-4">

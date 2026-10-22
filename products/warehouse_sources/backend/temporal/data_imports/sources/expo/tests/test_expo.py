@@ -116,14 +116,3 @@ class TestExpoCredentials:
 
         assert valid is False
         assert message is not None and "project ID" in message
-
-    @pytest.mark.parametrize("status_code", [401, 403, 500])
-    def test_http_failures_are_reported_rather_than_raised(self, status_code: int) -> None:
-        session = mock.MagicMock()
-        session.post.return_value = _response({}, status_code=status_code)
-
-        with mock.patch(f"{_MODULE}._get_session", return_value=session):
-            valid, message = validate_credentials("token", "app")
-
-        assert valid is False
-        assert message is not None

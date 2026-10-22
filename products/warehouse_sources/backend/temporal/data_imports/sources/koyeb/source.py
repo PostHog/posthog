@@ -58,7 +58,7 @@ class KoyebSource(ResumableSource[KoyebSourceConfig, KoyebResumeConfig]):
             name=ExternalDataSourceType.KOYEB,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Koyeb",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter a Koyeb API token to pull your Koyeb projects, apps, services, deployments, instances, event streams, usage details, and the instance and region catalogs into the PostHog Data warehouse.
 
 Create an API token under [API settings](https://app.koyeb.com/user/settings/api) in the Koyeb console. Tokens are scoped to the organization they were created in.""",

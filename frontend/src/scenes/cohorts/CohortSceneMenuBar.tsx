@@ -2,7 +2,6 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { IconClock, IconCopy, IconLetter, IconRefresh, IconSend, IconTrash } from '@posthog/icons'
-import { LemonDialog } from '@posthog/lemon-ui'
 
 import { SceneMenuBarAddToNotebook } from 'lib/components/Scenes/SceneMenuBarAddToNotebook'
 import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
@@ -15,6 +14,7 @@ import {
     cohortBroadcastDisabledReason,
     urlForCohortWorkflow,
 } from 'scenes/cohorts/cohortUtils'
+import { openDeleteCohortDialog } from 'scenes/cohorts/DeleteCohortDialog'
 import { NotebookNodeType } from 'scenes/notebooks/types'
 import { interProjectCopyLogic } from 'scenes/resource-transfer/interProjectCopyLogic'
 import { urls } from 'scenes/urls'
@@ -142,20 +142,10 @@ function CohortSceneMenuBarInner({ id }: { id?: CohortType['id'] }): JSX.Element
                     <SceneMenuBarItem
                         variant="destructive"
                         onClick={() => {
-                            LemonDialog.open({
-                                title: 'Delete cohort?',
-                                description: `Are you sure you want to delete "${cohort.name}"?`,
-                                primaryButton: {
-                                    children: 'Delete',
-                                    status: 'danger',
-                                    onClick: () => deleteCohort(),
-                                    size: 'small',
-                                },
-                                secondaryButton: {
-                                    children: 'Cancel',
-                                    type: 'tertiary',
-                                    size: 'small',
-                                },
+                            openDeleteCohortDialog({
+                                cohortId: cohort.id,
+                                cohortName: cohort.name,
+                                onConfirm: () => deleteCohort(),
                             })
                         }}
                         data-attr={`${RESOURCE_TYPE}-menubar-delete`}

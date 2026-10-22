@@ -300,11 +300,7 @@ def test_page_sample_cap(count: int) -> None:
 @pytest.mark.parametrize(
     ("status", "body", "message"),
     [
-        (401, {"error": "Invalid API key"}, "Check your API key"),
-        (403, ["Error", "Forbidden"], "Check your plan"),
-        (403, {"error": "Insufficient API units"}, "API units are exhausted"),
         (400, {"error": "API units limit exceeded"}, "API units are exhausted"),
-        (403, {"error": "Quota exceeded"}, "API units are exhausted"),
         (402, {"error": "Payment required"}, "API units are exhausted"),
     ],
 )

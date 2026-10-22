@@ -18,6 +18,8 @@ import {
 import {
     BaseMathType,
     ChartDisplayType,
+    DashboardTemplateStoredInsightTile,
+    DashboardTemplateType,
     FilterLogicalOperator,
     IntervalType,
     PropertyMathType,
@@ -28,7 +30,7 @@ import {
     TrendResult,
 } from '~/types'
 
-import type { HomeTabMetricKey } from './homeTabDefaultLogic'
+import { HOME_TAB_DEFAULT_DATE_RANGE, type HomeTabMetricKey } from './homeTabDefaultLogic'
 
 /** A single-number stat shown in the compact tile row at the top of the Home tab. */
 export interface HomeTabStatQuery {
@@ -471,4 +473,108 @@ export function getHomeTabBreakdownOptions(dateRange: DateRange): HomeTabChartOp
 export function getHomeTabExploreUrl(query: HomeTabChartOption['query']): string {
     const insightQuery: HomeTabChartOption['query'] = { ...query, embedded: undefined }
     return urls.insightNew({ query: insightQuery })
+}
+
+interface HomeTabDashboardTile {
+    name: string
+    description: string
+    source: TrendsQuery | RetentionQuery
+    w: number
+    h: number
+}
+
+// The Metric display (number with a sparkline) sums the interval points, which counts a person once per
+// active day. Weekly active users on the latest day counts each person once and still has a daily trend.
+const HOME_TAB_STAT_METRIC_SUMMARIES: Record<HomeTabMetricKey, 'total' | 'average' | 'latest'> = {
+    active_users: 'latest',
+    sessions: 'total',
+    new_users: 'total',
+    session_duration: 'average',
+    daily_active_users: 'average',
+}
+
+const HOME_TAB_STAT_DASHBOARD_NAMES: Partial<Record<HomeTabMetricKey, string>> = {
+    active_users: 'Weekly active users',
+    session_duration: 'Avg. session duration',
+}
+
+/** PostHog Home as a dashboard template, so a copy keeps the Home charts and the user can edit them. */
+export function getHomeTabDashboardTemplate(): DashboardTemplateType {
+    const dateRange = HOME_TAB_DEFAULT_DATE_RANGE
+    const compare = true
+    const charts = new Map(
+        [
+            ...getHomeTabChartOptions(dateRange, compare),
+            ...getHomeTabBreakdownOptions(dateRange),
+            ...getHomeTabAudienceOptions(dateRange),
+        ].map((option) => [option.key, option])
+    )
+    const chartTile = (key: string, w: number, h: number): HomeTabDashboardTile => {
+        const chart = charts.get(key)
+        if (!chart) {
+            throw new Error(`Home chart ${key} does not exist`)
+        }
+        return { name: chart.title, description: chart.description, source: chart.query.source, w, h }
+    }
+    const statTiles = getHomeTabStatQueries(dateRange, compare).map((stat): HomeTabDashboardTile => {
+        const weeklyActiveUsers = stat.key === 'active_users'
+        return {
+            name: HOME_TAB_STAT_DASHBOARD_NAMES[stat.key] ?? stat.title,
+            description: '',
+            source: {
+                ...stat.query,
+                ...(weeklyActiveUsers
+                    ? {
+                          series: [activityEvent(BaseMathType.WeeklyActiveUsers)],
+                          interval: 'day',
+                          compareFilter: { compare: false },
+                      }
+                    : {}),
+                trendsFilter: {
+                    ...stat.query.trendsFilter,
+                    display: ChartDisplayType.Metric,
+                    metricSummary: HOME_TAB_STAT_METRIC_SUMMARIES[stat.key],
+                    ...(stat.kind === 'duration_s' ? { aggregationAxisFormat: 'duration' } : {}),
+                },
+            },
+            w: weeklyActiveUsers || stat.key === 'daily_active_users' ? 3 : 2,
+            h: 3,
+        }
+    })
+    const rows: HomeTabDashboardTile[][] = [
+        statTiles,
+        [chartTile('daily_active_users', 12, 5)],
+        [chartTile('top_pages', 6, 5), chartTile('top_screens', 6, 5)],
+        [chartTile('top_events', 6, 5), chartTile('retention', 6, 5)],
+        [chartTile('users_by_country', 8, 6), chartTile('sessions_by_device', 4, 6)],
+    ]
+
+    const tiles: DashboardTemplateStoredInsightTile[] = []
+    let y = 0
+    let stackedY = 0
+    for (const row of rows) {
+        let x = 0
+        for (const { name, description, source, w, h } of row) {
+            tiles.push({
+                type: 'INSIGHT',
+                name,
+                description,
+                query: { kind: NodeKind.InsightVizNode, source },
+                layouts: { sm: { x, y, w, h }, xs: { x: 0, y: stackedY, w: 1, h } },
+            })
+            x += w
+            stackedY += h
+        }
+        y += Math.max(...row.map(({ h }) => h))
+    }
+
+    return {
+        id: 'product-analytics-home',
+        template_name: 'My product analytics Home',
+        dashboard_description: 'A copy of the default product analytics dashboard. You can edit, add, or remove tiles.',
+        dashboard_filters: {},
+        tiles,
+        variables: [],
+        tags: [],
+    }
 }

@@ -24,9 +24,15 @@ const row = (type: string, ref: string, path: string): Record<string, unknown> =
 
 describe('analyticsSpacesLogic', () => {
     let requests: string[]
+    let folders: string[]
+    let folderRequests: URLSearchParams[]
+    let metadataRequests: string[]
 
     beforeEach(() => {
         requests = []
+        folders = ['Growth', 'Unfiled', 'Finance', 'Users']
+        folderRequests = []
+        metadataRequests = []
         useMocks({
             get: {
                 '/api/projects/:team_id/file_system_shortcut/': {
@@ -40,13 +46,19 @@ describe('analyticsSpacesLogic', () => {
                     const parent = params.get('parent')
                     const type = params.get('type') ?? params.get('type__startswith')
                     if (params.get('depth') === '1' && type === 'folder') {
+                        folderRequests.push(params)
+                        const search = params.get('search')?.toLowerCase() ?? ''
+                        const matches = folders.filter((name) => name.toLowerCase().includes(search))
+                        const offset = Number(params.get('offset') ?? 0)
+                        const limit = Number(params.get('limit') ?? 20)
                         return {
-                            results: ['Growth', 'Unfiled', 'Finance', 'Users'].map(folder),
-                            count: 4,
-                            next: null,
+                            results: matches.slice(offset, offset + limit).map(folder),
+                            count: matches.length,
+                            next: offset + limit < matches.length ? '/next-page' : null,
                         }
                     }
                     if (parent && type) {
+                        metadataRequests.push(parent)
                         // Per-type counts come from `count`, not from the one row the page holds.
                         const count = parent === 'Growth' ? ({ insight: 7, dashboard: 2 }[type] ?? 0) : 0
                         return { results: count ? [row(type, `${type}-x`, `${parent}/X`)] : [], count, next: null }
@@ -95,5 +107,40 @@ describe('analyticsSpacesLogic', () => {
         ).toDispatchActions(['loadShortcuts'])
 
         expect(requests).toEqual(['delete shortcut sc-growth'])
+    })
+
+    it('pages metadata after pin and literal name filters, and reuses metadata across searches', async () => {
+        folders = [
+            ...Array.from({ length: 22 }, (_, index) => `Collection ${String(index + 1).padStart(2, '0')}`),
+            'Growth',
+            '-Finance',
+        ]
+        const logic = analyticsSpacesLogic()
+        logic.mount()
+
+        await expectLogic(logic, () => logic.actions.loadSpaces()).toDispatchActions(['loadSpacesSuccess'])
+        expect(logic.values.spaces).toHaveLength(20)
+        expect(logic.values.visibleSpaces[0].name).toBe('Growth')
+        expect(logic.values.pagination).toEqual({ offset: 20, hasMore: true })
+        expect(folderRequests).toHaveLength(1)
+        expect(folderRequests[0].get('limit')).toBe('200')
+
+        await expectLogic(logic, () => {
+            logic.actions.loadMore()
+            logic.actions.loadMore()
+        }).toDispatchActions(['loadSpacesSuccess'])
+        expect(logic.values.spaces.map((space) => space.name)).toEqual([...folders].sort((a, b) => a.localeCompare(b)))
+        expect(logic.values.pagination).toEqual({ offset: 24, hasMore: false })
+        expect(folderRequests).toHaveLength(1)
+        expect(metadataRequests).toHaveLength(24 * 4)
+
+        for (const search of ['Collection 22', '-Finance', 'Collection', '-Finance']) {
+            await expectLogic(logic, () => logic.actions.setSearch(search)).toDispatchActions(['loadSpacesSuccess'])
+            expect(logic.values.visibleSpaces.map((space) => space.name)).toEqual(
+                folders.filter((name) => name.includes(search)).slice(0, 20)
+            )
+        }
+        expect(folderRequests).toHaveLength(1)
+        expect(metadataRequests).toHaveLength(24 * 4)
     })
 })

@@ -58,7 +58,7 @@ class MailosaurSource(ResumableSource[MailosaurSourceConfig, MailosaurResumeConf
             name=ExternalDataSourceType.MAILOSAUR,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Mailosaur",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Mailosaur API key to sync your email and SMS testing data into the PostHog Data warehouse.
 
 You can find your API key in your [Mailosaur account settings](https://mailosaur.com/app/keys).

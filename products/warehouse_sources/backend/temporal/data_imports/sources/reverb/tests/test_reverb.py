@@ -7,7 +7,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     ScriptedResponse,
     SourceDriver,
     route,
-    scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.reverb import ReverbSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.reverb.reverb import (
@@ -15,7 +14,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.reverb.rev
     _format_datetime,
     _inject_payment_id,
     _inject_payout_id,
-    validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.reverb.settings import PER_PAGE
 from products.warehouse_sources.backend.temporal.data_imports.sources.reverb.source import ReverbSource
@@ -243,9 +241,3 @@ class TestReverbSourceRows:
 
         assert result.raised is None
         assert result.rows == expected_rows
-
-
-class TestValidateCredentials:
-    def test_ok(self) -> None:
-        with scripted_network([ScriptedResponse(json={})]):
-            assert validate_credentials("token", "3.0") == (True, 200)

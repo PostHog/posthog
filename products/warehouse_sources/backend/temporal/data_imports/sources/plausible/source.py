@@ -105,7 +105,7 @@ class PlausibleSource(ResumableSource[PlausibleSourceConfig, PlausibleResumeConf
 Works with Plausible Cloud and self-hosted instances. Create an API key under **Account settings → API keys** with the `stats read` scope, then enter your site's domain (e.g. `example.com`). Leave the host blank for Plausible Cloud, or set it to your instance URL for self-hosted (e.g. `https://plausible.example.com`).""",
             iconPath="/static/services/plausible.png",
             docsUrl="https://posthog.com/docs/cdp/sources/plausible",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

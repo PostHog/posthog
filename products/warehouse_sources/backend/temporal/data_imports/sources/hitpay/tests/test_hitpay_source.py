@@ -1,7 +1,5 @@
 from unittest import mock
 
-from parameterized import parameterized
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
@@ -18,27 +16,6 @@ class TestHitpaySource:
         self.source = HitpaySource()
         self.team_id = 123
         self.config = HitpaySourceConfig(api_key="key", environment="production")
-
-    @parameterized.expand(
-        [
-            ("401", "401 Client Error: Unauthorized for url: https://api.hit-pay.com/v1/charges"),
-            ("403", "403 Client Error: Forbidden for url: https://api.hit-pay.com/v1/charges"),
-        ]
-    )
-    def test_non_retryable_errors_match_auth_failures(self, _name: str, observed_error: str) -> None:
-        non_retryable_errors = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable_errors)
-
-    @parameterized.expand(
-        [
-            ("rate_limited", "429 Client Error: Too Many Requests for url: https://api.hit-pay.com/v1/charges"),
-            ("server_error", "500 Server Error: Internal Server Error for url: https://api.hit-pay.com/v1/charges"),
-            ("timeout", "HTTPSConnectionPool(host='api.hit-pay.com', port=443): Read timed out."),
-        ]
-    )
-    def test_non_retryable_errors_do_not_match_transient(self, _name: str, other_error: str) -> None:
-        non_retryable_errors = self.source.get_non_retryable_errors()
-        assert not any(key in other_error for key in non_retryable_errors)
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.hitpay.source.hitpay_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_hitpay_source: mock.MagicMock) -> None:

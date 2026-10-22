@@ -7,7 +7,6 @@ from django.conf import settings
 from django.core.cache import cache
 
 import structlog
-import posthoganalytics
 from drf_spectacular.utils import extend_schema
 from prometheus_client import Counter
 from rest_framework import exceptions, serializers, status, viewsets
@@ -71,7 +70,7 @@ WIZARD_GATEWAY_TOKEN_REQUESTS_TOTAL = Counter(
     "posthog_wizard_gateway_token_requests_total",
     "Wizard gateway-token mint requests, by outcome (minted/unconfigured/invalid_token/"
     "not_wizard_app/scope_missing/team_ambiguous/team_missing/unauthorized/blocked/"
-    "program_unknown/not_rolled_out/throttled/mint_failed)",
+    "program_unknown/throttled/mint_failed)",
     labelnames=["outcome"],
 )
 
@@ -181,7 +180,7 @@ class SetupWizardViewSet(viewsets.ViewSet):
             _refuse_mint(outcome, exc, program=program, product_node=product, user=user, team=team)
 
         def refuse_absent_gateway(outcome: str, message: str, *, user: User | None = None) -> NoReturn:
-            """Refuse one of the three outcomes the CLI's legacy fallback absorbed.
+            """Refuse one of the outcomes the CLI's legacy fallback absorbed.
 
             A build that still falls back needs the 404 to reach the legacy
             gateway, which carries its own retirement message; it renders a 403
@@ -277,29 +276,6 @@ class SetupWizardViewSet(viewsets.ViewSet):
         if refused:
             # The flag's refusal, word for word, so a client cannot tell which blocklist matched.
             refuse("blocked", exceptions.PermissionDenied(WIZARD_BLOCKED_DETAIL), user=user)
-
-        # A kill switch, not a rollout gate: only a literal False refuses. With the
-        # legacy product off there is no second path, so reading an outage as "not
-        # rolled out" turns a flag-service blip into a global wizard outage.
-        try:
-            rolled_out = posthoganalytics.feature_enabled(
-                "wizard-gateway-v2",
-                distinct_id,
-                groups={"organization": str(team.organization_id), "project": str(team.id)},
-                group_properties={"organization": {"id": str(team.organization_id)}},
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-        except Exception as e:
-            logger.warning("wizard_gateway_token: rollout flag unavailable, minting", error=str(e))
-            rolled_out = None
-        else:
-            if rolled_out is None:
-                logger.warning("wizard_gateway_token: rollout flag returned no verdict, minting")
-        if rolled_out is False:
-            refuse_absent_gateway(
-                "not_rolled_out", "Wizard gateway tokens are switched off for this organization.", user=user
-            )
 
         # Read once, after every gate that needs no flag, so an unauthenticated or
         # refused request costs no flag read. A policy flag that is off or broken

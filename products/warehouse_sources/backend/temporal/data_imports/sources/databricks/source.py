@@ -100,7 +100,7 @@ class DatabricksSource(SQLSource[DatabricksSourceConfig], ValidateDatabaseHostMi
             caption="Enter your Databricks SQL warehouse credentials to automatically pull your Databricks data into the PostHog Data warehouse. Requires a Unity Catalog catalog.",
             iconPath="/static/services/databricks.png",
             docsUrl="https://posthog.com/docs/cdp/sources/databricks",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             keywords=["delta lake", "spark", "unity catalog", "sql warehouse"],
             fields=cast(
                 list[FieldType],

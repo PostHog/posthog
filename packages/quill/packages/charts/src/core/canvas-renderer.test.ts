@@ -10,6 +10,7 @@ import {
     drawGrid,
     drawLine,
     drawLineSeriesLayer,
+    drawPoints,
     drawSelectionRect,
     drawTickMarks,
     resolveAxisLineColor,
@@ -138,6 +139,39 @@ describe('hog-charts canvas-renderer', () => {
             drawLine(makeDrawContext(ctx, labels), series, [10, 90])
             expect(ctx.moveTo).toHaveBeenCalledTimes(1)
             expect(ctx.lineTo).toHaveBeenCalledTimes(1)
+        })
+    })
+
+    describe('drawPoints — isolated points', () => {
+        it.each([
+            { name: 'draws a dot for a single-value series', labels: ['a'], data: [10], radius: undefined, arcs: [3] },
+            {
+                name: 'draws no dots for a connected line',
+                labels: ['a', 'b'],
+                data: [10, 90],
+                radius: undefined,
+                arcs: [],
+            },
+            {
+                name: 'draws a dot for a point between two gaps',
+                labels: ['a', 'b', 'c'],
+                data: [50, 10, 50],
+                radius: undefined,
+                arcs: [3],
+            },
+            {
+                name: 'keeps an explicit radius on every point',
+                labels: ['a', 'b'],
+                data: [10, 90],
+                radius: 5,
+                arcs: [5, 5],
+            },
+            { name: 'draws no dot when the radius is explicitly zero', labels: ['a'], data: [10], radius: 0, arcs: [] },
+        ])('$name', ({ labels, data, radius, arcs }) => {
+            const ctx = mockCanvasContext()
+            const series = makeSeries({ key: 's1', data, points: radius === undefined ? undefined : { radius } })
+            drawPoints(makeDrawContextWithGaps(ctx, labels, new Set([50])), series)
+            expect(ctx.arc.mock.calls.map((call) => call[2])).toEqual(arcs)
         })
     })
 
@@ -930,6 +964,20 @@ describe('hog-charts canvas-renderer', () => {
                     expect(withNonFinite.moveTo.mock.calls.length).toBe(finiteOnly.moveTo.mock.calls.length)
                 }
             )
+        })
+
+        it('draws value lines at valueTicks for a plain value-to-pixel yScale, as a custom chart passes', () => {
+            const ctx = mockCanvasContext()
+            const plotBottom = dimensions.plotTop + dimensions.plotHeight
+            const y = (value: number): number => plotBottom - value
+            const snap = (coord: number): number => Math.round(coord) + 0.5
+
+            drawGrid({ ctx, dimensions, yScale: y }, { frame: false, valueTicks: [0, 50, 100] })
+
+            expect(ctx.moveTo.mock.calls).toEqual([
+                [dimensions.plotLeft, snap(y(50))],
+                [dimensions.plotLeft, snap(y(100))],
+            ])
         })
     })
 

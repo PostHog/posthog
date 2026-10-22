@@ -51,7 +51,7 @@ class PapersignSource(ResumableSource[PapersignSourceConfig, PapersignResumeConf
             name=ExternalDataSourceType.PAPERSIGN,
             category=DataWarehouseSourceCategory.SALES,
             label="Papersign",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Paperform API key to sync your Papersign documents, folders, and spaces into the PostHog Data warehouse.
 
 Create an API key on your [Paperform account page](https://paperform.co/account/developer/api-keys). The key has full account access — Paperform does not offer per-resource scopes.

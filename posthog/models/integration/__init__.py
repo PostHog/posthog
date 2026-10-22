@@ -30,7 +30,13 @@ from .aws import (
 )
 from .azure_blob import AzureBlobIntegration, AzureBlobIntegrationError
 from .clickup import ClickUpIntegration
-from .common import ERROR_TOKEN_REFRESH_FAILED, META_GRAPH_API_VERSION, IntegrationError, dot_get
+from .common import (
+    ERROR_TOKEN_REFRESH_FAILED,
+    META_GRAPH_API_VERSION,
+    IntegrationError,
+    OauthClientCredentials,
+    dot_get,
+)
 from .databricks import DatabricksIntegration, DatabricksIntegrationError
 from .email import EmailIntegration, cleanup_ses_identity_on_integration_delete
 from .external_issues import (
@@ -50,7 +56,12 @@ from .github import (
     invalidate_github_repository_caches_for_installation,
 )
 from .gitlab import GitLabIntegration, GitLabIntegrationError
-from .google_ads import GoogleAdsIntegration, GoogleAdsScopeInsufficientError, google_ads_hierarchy_level
+from .google_ads import (
+    GoogleAdsIntegration,
+    GoogleAdsQuotaExhaustedError,
+    GoogleAdsScopeInsufficientError,
+    google_ads_hierarchy_level,
+)
 from .google_cloud import (
     GoogleCloudIntegration,
     GoogleCloudServiceAccountIntegration,
@@ -71,6 +82,7 @@ from .model import (
 )
 from .oauth import (
     INSTAGRAM_OAUTH_SCOPE,
+    OAUTH_CLIENT_CREDENTIAL_KEYS,
     POSTHOG_CONNECT_ALLOWED_REGIONS,
     POSTHOG_CONNECT_DEFAULT_SCOPES,
     POSTHOG_CONNECT_GRANTABLE_SCOPES,
@@ -176,8 +188,10 @@ __all__ = [
     "FirebaseIntegration",
     "ApplePushIntegration",
     "INSTAGRAM_OAUTH_SCOPE",
+    "OauthClientCredentials",
     "OauthConfig",
     "POSTHOG_SLACK_SCOPE",
+    "OAUTH_CLIENT_CREDENTIAL_KEYS",
     "SALESFORCE_OAUTH_KINDS",
     "POSTHOG_CONNECT_KIND",
     "POSTHOG_CONNECT_ALLOWED_REGIONS",
@@ -198,6 +212,7 @@ __all__ = [
     "validate_slack_request",
     "google_ads_hierarchy_level",
     "GoogleAdsIntegration",
+    "GoogleAdsQuotaExhaustedError",
     "GoogleAdsScopeInsufficientError",
     "is_unique_service_account_by_organization_id",
     "GoogleCloudServiceAccountIntegration",

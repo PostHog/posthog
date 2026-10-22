@@ -6,10 +6,17 @@ column missing from the output).
 """
 
 import pytest
+from unittest.mock import MagicMock, patch
+
+from django.test import override_settings
 
 import pyarrow as pa
 
-from posthog.temporal.data_modeling.activities.incremental_write import IncrementalWriteError, UniqueKeyTracker
+from posthog.temporal.data_modeling.activities.incremental_write import (
+    IncrementalWriteError,
+    UniqueKeyTracker,
+    upsert_batch,
+)
 
 
 def _batch(ids: list[int | None], names: list[str | None]) -> pa.RecordBatch:
@@ -70,3 +77,28 @@ def test_exceeding_the_memory_cap_fails_loudly() -> None:
 
     with pytest.raises(IncrementalWriteError, match="too many unique keys"):
         tracker.check(_batch([1, 2, 3, 4], ["a", "b", "c", "d"]))
+
+
+@pytest.mark.parametrize(
+    "row_group_cap,expected",
+    [
+        pytest.param(16 * 1024 * 1024, 16 * 1024 * 1024, id="cap_on"),
+        pytest.param(0, None, id="zero_is_off"),
+        pytest.param(-1, None, id="negative_is_off"),
+    ],
+)
+def test_upsert_batch_passes_the_row_group_cap(row_group_cap: int, expected: int | None) -> None:
+    fake_table = MagicMock()
+    fake_deltalite = MagicMock()
+    fake_deltalite.DeltaLiteTable.open.return_value = fake_table
+
+    with (
+        patch.dict("sys.modules", {"deltalite": fake_deltalite}),
+        override_settings(DATA_WAREHOUSE_DELTALITE_MAX_ROW_GROUP_BYTES=row_group_cap),
+    ):
+        upsert_batch("s3://b/t", {}, _batch([1], ["a"]), ("id",), commit_metadata={"run_uuid": "abc"})
+
+    fake_table.upsert.assert_called_once()
+    kwargs = fake_table.upsert.call_args.kwargs
+    assert kwargs["max_row_group_bytes"] == expected
+    assert kwargs["commit_metadata"] == {"run_uuid": "abc"}

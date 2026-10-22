@@ -122,6 +122,20 @@ class AutoresearchPipeline(TeamScopedRootMixin, UUIDModel):
         choices=ResearchIntervalDays.choices,
         help_text="Days between scheduled research runs once the first burst of daily runs ends",
     )
+    # Null means the autoresearch default (training/agent_model.py), so the default can change
+    # without rewriting stored rows.
+    agent_model = models.CharField(
+        max_length=100,
+        null=True,
+        blank=True,
+        help_text="Tasks model id the training agent runs on. Null uses the autoresearch default",
+    )
+    agent_reasoning_effort = models.CharField(
+        max_length=20,
+        null=True,
+        blank=True,
+        help_text="Reasoning effort for the training agent. Null uses the autoresearch default",
+    )
 
     # Stop criteria
     success_auc = models.FloatField(
@@ -347,6 +361,10 @@ class AutoresearchTrainingRun(PipelineScopedModel):
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
     # Null on runs started before the field existed.
     kickoff_reason = models.CharField(max_length=20, choices=KickoffReason.choices, null=True, blank=True)
+    # What the run was dispatched with. Null on older runs and on runs with no task (stubs, external agents).
+    agent_runtime_adapter = models.CharField(max_length=20, null=True, blank=True)
+    agent_model = models.CharField(max_length=100, null=True, blank=True)
+    agent_reasoning_effort = models.CharField(max_length=20, null=True, blank=True)
     iteration_budget = models.IntegerField(default=50, validators=[MinValueValidator(1)])
     iteration_count = models.IntegerField(default=0, validators=[MinValueValidator(0)])
     best_holdout_score = models.FloatField(null=True, blank=True, validators=UNIT_INTERVAL_VALIDATORS)

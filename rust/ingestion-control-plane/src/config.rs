@@ -141,6 +141,9 @@ pub struct Config {
     #[envconfig(from = "DEBUG_API_SECRET")]
     pub debug_api_secret: Option<String>,
 
+    #[envconfig(from = "PARITY_MONITOR_URL")]
+    pub parity_monitor_url: Option<String>,
+
     #[envconfig(default = "10000")]
     pub kafka_metadata_timeout_ms: u64,
 
@@ -162,6 +165,14 @@ pub struct Config {
     #[envconfig(from = "PERSONHOG_ETCD_PREFIX", default = "/personhog/")]
     pub personhog_etcd_prefix: String,
 
+    /// The personhog changelog's Kafka cluster; unset means `KAFKA_HOSTS`.
+    #[envconfig(from = "PERSONHOG_KAFKA_HOSTS")]
+    pub personhog_kafka_hosts: Option<String>,
+
+    /// TLS for `PERSONHOG_KAFKA_HOSTS`; unset means `KAFKA_TLS`.
+    #[envconfig(from = "PERSONHOG_KAFKA_TLS")]
+    pub personhog_kafka_tls: Option<bool>,
+
     /// Per-phase handoff deadline used to flag stuck handoffs; must match
     /// the coordinator's `COORDINATOR_HANDOFF_DEADLINE_SECS` to agree with
     /// its cancellation decisions.
@@ -176,6 +187,22 @@ pub struct Config {
 impl Config {
     pub fn init_with_defaults() -> Result<Self, envconfig::Error> {
         Self::init_from_env()
+    }
+
+    /// This config pointed at the personhog changelog's Kafka cluster.
+    pub fn personhog_kafka(&self) -> Config {
+        let mut config = self.clone();
+        if let Some(hosts) = self
+            .personhog_kafka_hosts
+            .as_ref()
+            .filter(|h| !h.is_empty())
+        {
+            config.kafka_hosts = hosts.clone();
+        }
+        if let Some(tls) = self.personhog_kafka_tls {
+            config.kafka_tls = tls;
+        }
+        config
     }
 
     pub fn etcd_endpoint_list(&self) -> Vec<String> {
@@ -241,6 +268,26 @@ pub struct PodTarget {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_personhog_cluster_overrides_only_what_is_set() {
+        let mut config = Config::init_with_defaults().expect("config defaults are valid");
+        config.kafka_hosts = "main:9092".to_string();
+        config.kafka_tls = false;
+        let unset = config.personhog_kafka();
+        assert_eq!(
+            (unset.kafka_hosts.as_str(), unset.kafka_tls),
+            ("main:9092", false)
+        );
+
+        config.personhog_kafka_hosts = Some("personhog:9094".to_string());
+        config.personhog_kafka_tls = Some(true);
+        let set = config.personhog_kafka();
+        assert_eq!(
+            (set.kafka_hosts.as_str(), set.kafka_tls),
+            ("personhog:9094", true)
+        );
+    }
 
     #[test]
     fn pod_targets_support_namespace_prefix_with_default_fallback() {

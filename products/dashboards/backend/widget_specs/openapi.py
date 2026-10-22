@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from typing import Any, cast
 
-from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema_field
+from django.db import models
+
+from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema_field, extend_schema_serializer
 from pydantic import BaseModel
 from rest_framework import serializers
 
@@ -11,7 +13,6 @@ from products.dashboards.backend.constants import (
     MAX_GROUP_KEY_LENGTH,
     MAX_GROUP_TITLE_LENGTH,
 )
-from products.dashboards.backend.facade.enums import RestrictionLevel
 from products.dashboards.backend.models.dashboard import DASHBOARD_GRID_COMPACTION_MODES, DASHBOARD_GRID_SPACING_GAPS
 from products.dashboards.backend.models.dashboard_tile import DashboardTileBadge
 from products.dashboards.backend.widget_specs.pydantic_openapi import pydantic_config_field, pydantic_stub_serializer
@@ -35,6 +36,30 @@ WIDGET_BATCH_ADD_OPENAPI_HELP = (
     "Widget tiles to add atomically. Supported widget_type values: "
     + ", ".join(sorted(EXPECTED_WIDGET_TYPES))
     + ". Use dashboard-widget-catalog-list for per-type config_schema documentation."
+)
+
+
+class DashboardWidgetType(models.TextChoices):
+    """Every registered widget type. test_widget_openapi_enums checks it against WIDGET_SPECS."""
+
+    ACTIVITY_EVENTS_LIST = "activity_events_list"
+    CANVAS_APP = "canvas_app"
+    CONVERSATIONS_RECENT_TICKETS = "conversations_recent_tickets"
+    ERROR_TRACKING_LIST = "error_tracking_list"
+    EXPERIMENT_RESULTS = "experiment_results"
+    EXPERIMENTS_LIST = "experiments_list"
+    LOGS_LIST = "logs_list"
+    NOTEBOOK_WIDGET = "notebook_widget"
+    SESSION_REPLAY_LIST = "session_replay_list"
+    SURVEY_RESULTS = "survey_results"
+
+
+# Batch tool schemas leave config untyped so they do not grow with each widget type.
+# validate_widget_config still checks every config against its widget type.
+WIDGET_CONFIG_BATCH_HELP = (
+    "Widget configuration as a JSON object. Its keys depend on widget_type: read that type's config_schema "
+    "from dashboard-widget-catalog-list. The API validates the config and returns a 400 that names each "
+    "invalid field."
 )
 
 
@@ -132,31 +157,11 @@ class _AddDashboardWidgetTileFieldsOpenApiSerializer(serializers.Serializer):
     )
 
 
-def _build_openapi_serializers() -> tuple[
-    dict[str, type[serializers.Serializer]],
-    dict[str, type[serializers.Serializer]],
-    dict[str, type[serializers.Serializer]],
-]:
-    config_serializers: dict[str, type[serializers.Serializer]] = {}
-    add_request_serializers: dict[str, type[serializers.Serializer]] = {}
+def _build_catalog_entry_serializers() -> dict[str, type[serializers.Serializer]]:
     catalog_entry_serializers: dict[str, type[serializers.Serializer]] = {}
 
     for widget_type, spec in WIDGET_SPECS.items():
-        config_serializer = pydantic_stub_serializer(spec.config_model)
-        config_serializers[widget_type] = config_serializer
-
         prefix = _config_model_openapi_prefix(spec.config_model)
-        add_request_serializers[widget_type] = type(
-            f"{prefix}AddRequestOpenApiSerializer",
-            (_AddDashboardWidgetTileFieldsOpenApiSerializer,),
-            {
-                "widget_type": serializers.ChoiceField(choices=[widget_type]),
-                "config": pydantic_config_field(
-                    spec.config_model,
-                    help_text=f"Configuration for the {spec.label.lower()} widget.",
-                ),
-            },
-        )
         catalog_entry_serializers[widget_type] = type(
             f"{prefix}CatalogEntryOpenApiSerializer",
             (serializers.Serializer,),
@@ -170,7 +175,8 @@ def _build_openapi_serializers() -> tuple[
                     spec.config_model,
                     read_only=True,
                     help_text=(
-                        "OpenAPI config shape for this widget type (documentation; matches batch-add/PATCH schemas)."
+                        "Config shape for this widget type. Build the config for the batch add and batch update "
+                        "tools from it, because their schemas do not list config keys."
                     ),
                 ),
                 "required_product_access": serializers.CharField(required=False, allow_null=True),
@@ -184,12 +190,13 @@ def _build_openapi_serializers() -> tuple[
             },
         )
 
-    return config_serializers, add_request_serializers, catalog_entry_serializers
+    return catalog_entry_serializers
 
 
-WIDGET_CONFIG_SERIALIZERS, _WIDGET_ADD_REQUEST_SERIALIZERS, _WIDGET_CATALOG_ENTRY_SERIALIZERS = (
-    _build_openapi_serializers()
-)
+WIDGET_CONFIG_SERIALIZERS: dict[str, type[serializers.Serializer]] = {
+    widget_type: pydantic_stub_serializer(spec.config_model) for widget_type, spec in WIDGET_SPECS.items()
+}
+_WIDGET_CATALOG_ENTRY_SERIALIZERS = _build_catalog_entry_serializers()
 
 DashboardWidgetConfigOpenApi = PolymorphicProxySerializer(
     component_name="DashboardWidgetConfig",
@@ -205,11 +212,16 @@ class DashboardWidgetConfigField(serializers.JSONField):
     pass
 
 
-AddDashboardWidgetRequestOpenApi = PolymorphicProxySerializer(
-    component_name="AddDashboardWidgetRequest",
-    serializers=cast("dict[str, Any]", _WIDGET_ADD_REQUEST_SERIALIZERS),
-    resource_type_field_name="widget_type",
-)
+@extend_schema_serializer(component_name="AddDashboardWidgetRequest")
+class _AddDashboardWidgetRequestOpenApiSerializer(_AddDashboardWidgetTileFieldsOpenApiSerializer):
+    widget_type = serializers.ChoiceField(
+        choices=DashboardWidgetType.choices,
+        help_text="Widget type to add. Use dashboard-widget-catalog-list to pick one.",
+    )
+    config = serializers.DictField(child=serializers.JSONField(), help_text=WIDGET_CONFIG_BATCH_HELP)
+
+
+AddDashboardWidgetRequestOpenApi = _AddDashboardWidgetRequestOpenApiSerializer()
 
 
 class _UpdateDashboardWidgetTileFieldsOpenApiSerializer(serializers.Serializer):
@@ -230,32 +242,24 @@ class _UpdateDashboardWidgetTileFieldsOpenApiSerializer(serializers.Serializer):
     )
 
 
-def _build_update_request_serializers() -> dict[str, type[serializers.Serializer]]:
-    update_request_serializers: dict[str, type[serializers.Serializer]] = {}
-    for widget_type, spec in WIDGET_SPECS.items():
-        prefix = _config_model_openapi_prefix(spec.config_model)
-        update_request_serializers[widget_type] = type(
-            f"{prefix}UpdateRequestOpenApiSerializer",
-            (_UpdateDashboardWidgetTileFieldsOpenApiSerializer,),
-            {
-                "widget_type": serializers.ChoiceField(choices=[widget_type]),
-                "config": pydantic_config_field(
-                    spec.config_model,
-                    required=False,
-                    help_text=f"New configuration for the {spec.label.lower()} widget. Omit to leave unchanged.",
-                ),
-            },
-        )
-    return update_request_serializers
+@extend_schema_serializer(component_name="UpdateDashboardWidgetRequest")
+class _UpdateDashboardWidgetRequestOpenApiSerializer(_UpdateDashboardWidgetTileFieldsOpenApiSerializer):
+    widget_type = serializers.ChoiceField(
+        choices=DashboardWidgetType.choices,
+        required=False,
+        help_text="The tile's widget type. It cannot be changed, so omit it or pass the current type.",
+    )
+    config = serializers.DictField(
+        child=serializers.JSONField(),
+        required=False,
+        help_text=(
+            f"{WIDGET_CONFIG_BATCH_HELP} Each top-level key you send replaces the stored value, and keys you "
+            "leave out stay as they are. Omit config to leave it unchanged."
+        ),
+    )
 
 
-_WIDGET_UPDATE_REQUEST_SERIALIZERS = _build_update_request_serializers()
-
-UpdateDashboardWidgetRequestOpenApi = PolymorphicProxySerializer(
-    component_name="UpdateDashboardWidgetRequest",
-    serializers=cast("dict[str, Any]", _WIDGET_UPDATE_REQUEST_SERIALIZERS),
-    resource_type_field_name="widget_type",
-)
+UpdateDashboardWidgetRequestOpenApi = _UpdateDashboardWidgetRequestOpenApiSerializer()
 
 WidgetCatalogEntryOpenApi = PolymorphicProxySerializer(
     component_name="WidgetCatalogEntry",
@@ -267,7 +271,7 @@ WidgetCatalogEntryOpenApi = PolymorphicProxySerializer(
 class WidgetCatalogResponseSerializer(serializers.Serializer):
     results = serializers.ListField(
         child=WidgetCatalogEntryOpenApi,
-        help_text="Registered dashboard widget types available when dashboard-widgets is enabled.",
+        help_text="Registered dashboard widget types.",
     )
 
 
@@ -277,7 +281,7 @@ class DashboardPatchWidgetOpenApiSerializer(serializers.Serializer):
         help_text="Existing widget row ID when updating a widget tile via dashboard PATCH.",
     )
     widget_type = serializers.ChoiceField(
-        choices=sorted(EXPECTED_WIDGET_TYPES),
+        choices=DashboardWidgetType.choices,
         required=False,
         help_text="Widget type identifier (cannot be changed on update).",
     )
@@ -436,14 +440,6 @@ class PatchedDashboardOpenApiSerializer(serializers.Serializer):
         help_text="ID of the color theme used for chart visualizations.",
     )
     tags = serializers.ListField(child=serializers.CharField(), required=False)
-    restriction_level = serializers.IntegerField(
-        min_value=RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT.value,
-        max_value=RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT.value,
-        required=False,
-        help_text=(
-            "Only restriction level 21 is accepted on create and update. Legacy value 37 is deprecated and rejected."
-        ),
-    )
     quick_filter_ids = serializers.ListField(
         child=serializers.CharField(),
         required=False,

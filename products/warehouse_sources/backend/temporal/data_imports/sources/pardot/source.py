@@ -79,7 +79,7 @@ class PardotSource(ResumableSource[PardotSourceConfig, PardotResumeConfig], OAut
             category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             keywords=["salesforce pardot", "marketing cloud account engagement"],
             label="Pardot",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Connect Salesforce Marketing Cloud Account Engagement (formerly Pardot) to pull your marketing data into the PostHog Data warehouse.
 
 Connect a Salesforce account that has access to Account Engagement, then enter the ID of the business unit you want to sync.""",

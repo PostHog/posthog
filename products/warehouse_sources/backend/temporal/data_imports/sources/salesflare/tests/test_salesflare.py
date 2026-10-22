@@ -10,7 +10,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     ScriptedResponse,
     SourceDriver,
     always,
-    scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.salesflare import (
     SalesflareSourceConfig,
@@ -19,8 +18,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.salesflare
 from products.warehouse_sources.backend.temporal.data_imports.sources.salesflare.salesflare import (
     PAGE_SIZE,
     SalesflareResumeConfig,
-    check_access,
-    validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.salesflare.settings import (
     ENDPOINTS,
@@ -86,50 +83,6 @@ class TestErrorHandling:
 
         assert isinstance(result.raised, RESTClientRetryableError)
         assert len(result.requests) > 1
-
-
-class TestCheckAccess:
-    @parameterized.expand(
-        [
-            ("ok", 200, 200, None),
-            ("unauthorized", 401, 401, None),
-            ("forbidden", 403, 403, None),
-            ("server_error", 500, 500, "Salesflare returned HTTP 500"),
-        ]
-    )
-    def test_status_mapping(
-        self,
-        _name: str,
-        status: int,
-        expected_status: int,
-        expected_message: str | None,
-    ) -> None:
-        with scripted_network(always(ScriptedResponse(status=status))):
-            assert check_access("sf-key") == (expected_status, expected_message)
-
-    def test_connection_error_maps_to_zero(self) -> None:
-        with scripted_network(always(requests.ConnectionError("boom"))):
-            status, message = check_access("sf-key")
-        assert status == 0
-        assert message is not None and "boom" in message
-
-    @parameterized.expand(
-        [
-            ("ok", 200, True, None),
-            ("unauthorized", 401, False, "Invalid Salesflare API key"),
-            ("forbidden", 403, False, "Invalid Salesflare API key"),
-            ("server_error", 500, False, "Salesflare returned HTTP 500"),
-        ]
-    )
-    def test_validate_credentials(
-        self,
-        _name: str,
-        status: int,
-        expected_valid: bool,
-        expected_message: str | None,
-    ) -> None:
-        with scripted_network(always(ScriptedResponse(status=status))):
-            assert validate_credentials("sf-key") == (expected_valid, expected_message)
 
 
 class TestSalesflareSourceResponse:

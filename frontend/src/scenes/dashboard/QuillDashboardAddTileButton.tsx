@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
 
 import { IconPlus } from '@posthog/icons'
 import {
@@ -30,11 +29,10 @@ const ADD_TILE_MENU_DATA_ATTRS: Record<DashboardAddTileKey, string> = {
     image: 'dashboard-add-image-tile',
     button: 'dashboard-add-button-tile',
     widget: 'dashboard-add-widget',
-    'widget-preview': 'dashboard-add-widget-preview',
 }
 
 export function QuillDashboardAddTileButton(): JSX.Element | null {
-    const { dashboard, dashboardWidgetsEnabled, tiles } = useValues(dashboardLogic)
+    const { dashboard, tiles } = useValues(dashboardLogic)
     const {
         loadDashboard,
         setAddWidgetModalOpen,
@@ -43,7 +41,6 @@ export function QuillDashboardAddTileButton(): JSX.Element | null {
         openImageTileModal,
         openButtonTileModal,
     } = useActions(dashboardLogic)
-    const { push } = useActions(router)
     const { reportDashboardAddMenuOpened } = useActions(eventUsageLogic)
 
     if (!dashboard || tiles.length === 0) {
@@ -56,12 +53,10 @@ export function QuillDashboardAddTileButton(): JSX.Element | null {
         dashboard.user_access_level
     )
     const options = getDashboardAddTileOptions({
-        dashboardWidgetsEnabled,
         onAddInsight: openAddInsightModal,
         onAddText: openTextTileModal,
         onAddImage: openImageTileModal,
         onAddButton: openButtonTileModal,
-        push,
         setAddWidgetModalOpen,
     })
 
@@ -110,15 +105,11 @@ export function QuillDashboardAddTileButton(): JSX.Element | null {
                                     <DropdownMenuItem
                                         key={option.key}
                                         onClick={option.onClick}
-                                        tooltip={option.tooltip}
                                         data-attr={ADD_TILE_MENU_DATA_ATTRS[option.key]}
                                     >
                                         {option.label}
                                         {option.tag && (
-                                            <Badge
-                                                variant={option.tag === 'new' ? 'success' : 'warning'}
-                                                className="ml-auto"
-                                            >
+                                            <Badge variant="success" className="ml-auto">
                                                 {option.tag.toUpperCase()}
                                             </Badge>
                                         )}

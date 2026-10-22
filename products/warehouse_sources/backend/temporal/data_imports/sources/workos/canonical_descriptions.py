@@ -101,4 +101,15 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             name="The group's name.",
         ),
     },
+    "waitlist_entries": {
+        "description": "An email address on an AuthKit waitlist, with its approval state.",
+        "docs_url": "https://workos.com/docs/reference/authkit/waitlist",
+        "columns": _columns(
+            email="The email address of the user on the waitlist.",
+            state="State of the entry: pending, approved, or denied.",
+            approved_at="Time at which the entry was approved. Null if it is not approved.",
+            additional_fields="Additional fields the user submitted when they joined the waitlist.",
+            waitlist_id="ID of the waitlist the entry belongs to.",
+        ),
+    },
 }

@@ -71,6 +71,10 @@ def context_block(text: str) -> dict[str, Any]:
     return {"type": "context", "elements": [{"type": "mrkdwn", "text": text}]}
 
 
+def image_block(url: str, alt_text: str) -> dict[str, Any]:
+    return {"type": "image", "image_url": url, "alt_text": alt_text}
+
+
 def section_block(text: str, button: SlackButton | None = None) -> dict[str, Any]:
     """One mrkdwn section, with a link button on its right when the section has one action."""
     block: dict[str, Any] = {"type": "section", "text": {"type": "mrkdwn", "text": text}}

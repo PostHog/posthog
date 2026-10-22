@@ -89,7 +89,7 @@ class DynatraceSource(ResumableSource[DynatraceSourceConfig, DynatraceResumeConf
             name=ExternalDataSourceType.DYNATRACE,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Dynatrace",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["apm", "observability", "monitoring"],
             caption="""Enter your Dynatrace environment URL and an API access token to sync problems, events, entity inventory, tags, releases, audit logs, vulnerabilities, attacks, metrics, SLOs, and synthetic monitoring into the PostHog Data warehouse.
 

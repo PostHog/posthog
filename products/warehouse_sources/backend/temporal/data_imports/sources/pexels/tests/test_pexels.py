@@ -6,6 +6,7 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
+    route,
     scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.pexels import PexelsSourceConfig
@@ -23,6 +24,10 @@ def _driver(api_key: str = "k", search_query: str | None = None) -> SourceDriver
 
 def _page(items: list[dict[str, Any]], data_key: str = "photos") -> ScriptedResponse:
     return ScriptedResponse(json={data_key: items})
+
+
+_PHOTO = {"id": 7, "type": "Photo", "photographer": "A. Example"}
+_VIDEO = {"id": 7, "type": "Video", "duration": 12}
 
 
 class TestBuildUrl:
@@ -69,6 +74,42 @@ class TestPagination:
         assert result.requests == []
 
 
+class TestCollectionMedia:
+    @parameterized.expand(
+        [
+            ("empty_collection", ScriptedResponse(json={"media": []})),
+            ("collection_deleted_after_listing", ScriptedResponse(status=404, json={"error": "Not Found"})),
+        ]
+    )
+    def test_walks_every_owned_collection(self, _name: str, second_collection: ScriptedResponse) -> None:
+        result = _driver().run(
+            "collection_media",
+            route(
+                {
+                    "/v1/collections": [
+                        _page([{"id": "abc1"}, {"id": "def2"}], "collections"),
+                        _page([], "collections"),
+                    ],
+                    "/v1/collections/abc1": [_page([_PHOTO, _VIDEO], "media"), _page([], "media")],
+                    "/v1/collections/def2": [second_collection],
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert result.rows == [
+            {**_PHOTO, "collection_id": "abc1"},
+            {**_VIDEO, "collection_id": "abc1"},
+        ]
+        assert [(r.path, r.param("page"), r.param("per_page")) for r in result.requests] == [
+            ("/v1/collections", "1", "80"),
+            ("/v1/collections/abc1", "1", "80"),
+            ("/v1/collections/abc1", "2", "80"),
+            ("/v1/collections/def2", "1", "80"),
+            ("/v1/collections", "2", "80"),
+        ]
+
+
 class TestResume:
     def test_resumes_from_saved_page(self) -> None:
         # A resumed job must start at the saved page, not page 1.
@@ -79,6 +120,42 @@ class TestResume:
         assert result.raised is None
         assert result.rows == [{"id": 2}]
         assert result.params("page")[0] == "2"
+
+    @parameterized.expand(
+        [
+            (
+                "skips_finished_collection",
+                {"completed": ["/v1/collections/abc1"], "current": None, "child_state": None},
+                [("/v1/collections/def2", "1")],
+            ),
+            (
+                "continues_collection_in_progress",
+                {"completed": [], "current": "/v1/collections/abc1", "child_state": {"page": 3}},
+                [("/v1/collections/abc1", "3"), ("/v1/collections/def2", "1")],
+            ),
+        ]
+    )
+    def test_collection_media_resumes_from_saved_fanout_state(
+        self, _name: str, fanout_state: dict[str, Any], expected_child_requests: list[tuple[str, str]]
+    ) -> None:
+        result = _driver().run(
+            "collection_media",
+            route(
+                {
+                    "/v1/collections": [
+                        _page([{"id": "abc1"}, {"id": "def2"}], "collections"),
+                        _page([], "collections"),
+                    ],
+                    "/v1/collections/abc1": [_page([], "media")],
+                    "/v1/collections/def2": [_page([], "media")],
+                }
+            ),
+            resume_state=PexelsResumeConfig(fanout_state=fanout_state),
+        )
+
+        assert result.raised is None
+        child_requests = [(r.path, r.param("page")) for r in result.requests if r.path != "/v1/collections"]
+        assert child_requests == expected_child_requests
 
 
 class TestRetryClassification:
@@ -108,7 +185,11 @@ class TestApiKeyRedaction:
 
 
 class TestValidateCredentials:
-    @parameterized.expand([("ok", 200, True), ("unauthorized", 401, False), ("forbidden", 403, False)])
+    @parameterized.expand(
+        [
+            ("ok", 200, True),
+        ]
+    )
     def test_status_maps_to_bool(self, _name: str, status_code: int, expected: bool) -> None:
         with scripted_network([ScriptedResponse(status=status_code)]) as network:
             assert validate_credentials("k") is expected

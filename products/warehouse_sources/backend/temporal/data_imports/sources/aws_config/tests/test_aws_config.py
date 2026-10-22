@@ -4,6 +4,7 @@ from collections.abc import Iterable, Iterator
 from typing import Any, cast
 
 import pytest
+import time_machine
 from unittest.mock import MagicMock, patch
 
 import requests
@@ -245,6 +246,38 @@ FAN_OUT_CASES = [
             }
         ),
     ),
+    (
+        "conformance_pack_evaluation_results",
+        ("DescribeConformancePacks", "ConformancePackDetails", "ConformancePackName", 20),
+        ("GetConformancePackComplianceDetails", "ConformancePackRuleEvaluationResults"),
+        {"Limit": 100},
+        lambda parent, index: {
+            "ComplianceType": "COMPLIANT",
+            "EvaluationResultIdentifier": {
+                "EvaluationResultQualifier": {
+                    "ConfigRuleName": f"{parent}-rule",
+                    "ResourceType": "AWS::S3::Bucket",
+                    "ResourceId": f"bucket-{index}",
+                },
+                "OrderingTimestamp": 1735689600,
+            },
+            "ConfigRuleInvokedTime": 1735689600,
+            "ResultRecordedTime": 1735689600,
+        },
+    ),
+    (
+        "remediation_execution_statuses",
+        ("DescribeConfigRules", "ConfigRules", "ConfigRuleName", None),
+        ("DescribeRemediationExecutionStatus", "RemediationExecutionStatuses"),
+        {"Limit": 100},
+        lambda parent, index: {
+            "ResourceKey": {"resourceType": "AWS::S3::Bucket", "resourceId": f"bucket-{index}"},
+            "State": "FAILED",
+            "StepDetails": [{"Name": "step-1", "State": "FAILED", "ErrorMessage": "Example failure"}],
+            "InvocationTime": 1735689600,
+            "LastUpdatedTime": 1735689600,
+        },
+    ),
 ]
 
 
@@ -273,9 +306,12 @@ def test_fan_out_walks_every_parent_and_child_page(
         ("c", "bucket-3"),
     ]
     assert all(row.get(key) is not None for row in rows for key in response.primary_keys or [])
-    if endpoint == "rule_evaluation_results":
+    if endpoint in ("rule_evaluation_results", "conformance_pack_evaluation_results"):
         assert rows[0]["ordering_timestamp"] == dt.datetime(2025, 1, 1, tzinfo=dt.UTC)
         assert "evaluation_result_identifier" not in rows[0]
+    if endpoint == "remediation_execution_statuses":
+        assert rows[0]["invocation_time"] == dt.datetime(2025, 1, 1, tzinfo=dt.UTC)
+        assert "resource_key" not in rows[0]
     parent_params = {} if parent_limit is None else {"Limit": parent_limit}
     expected_requests = [
         (parent_operation, parent_params),
@@ -312,6 +348,149 @@ def test_fan_out_resumes_at_saved_parent(session: MagicMock) -> None:
     payloads = [json.loads(call.kwargs["data"]) for call in session.post.call_args_list]
     assert payloads[0] == {"NextToken": "parent-2"}
     assert [(payload["ConfigRuleName"], payload.get("NextToken")) for payload in payloads[1:]] == [("b", "child-2")]
+    manager.clear_state.assert_called_once()
+
+
+def history_item(resource_id: str, state: str) -> dict[str, Any]:
+    return {
+        "accountId": "111111111111",
+        "awsRegion": "eu-west-1",
+        "resourceType": "AWS::S3::Bucket",
+        "resourceId": resource_id,
+        "configurationStateId": state,
+        "configurationItemStatus": "OK",
+        "configurationItemCaptureTime": 1735689600,
+        "configuration": '{"versioning":"Enabled"}',
+    }
+
+
+def test_resource_history_walks_composite_parent_keys_and_skips_undiscovered(session: MagicMock) -> None:
+    resource = '{{"resourceType":"AWS::{0}","resourceId":"{1}"}}'
+    session.post.side_effect = [
+        make_response(
+            {
+                "Results": [resource.format("S3::Bucket", "bucket-1"), resource.format("S3::Bucket", "bucket-2")],
+                "NextToken": "parent-2",
+            }
+        ),
+        make_response({"configurationItems": [history_item("bucket-1", "3")], "nextToken": "history-2"}),
+        make_response({"configurationItems": [history_item("bucket-1", "2")]}),
+        make_response({"__type": "ResourceNotDiscoveredException", "message": "Unknown resource"}, 400),
+        make_response({"Results": [resource.format("S3::Bucket", "bucket-3")]}),
+        make_response({"configurationItems": [history_item("bucket-3", "1")]}),
+    ]
+    manager = make_manager()
+    response = aws_config_source(
+        make_config(), "resource_config_history", "2014-11-12", manager, True, dt.datetime(2025, 1, 1, tzinfo=dt.UTC)
+    )
+    rows = [row for batch in cast(Iterable[Any], response.items()) for row in batch]
+
+    assert [(row["resource_id"], row["configuration_state_id"]) for row in rows] == [
+        ("bucket-1", "3"),
+        ("bucket-1", "2"),
+        ("bucket-3", "1"),
+    ]
+    assert rows[0]["configuration_item_capture_time"] == dt.datetime(2025, 1, 1, tzinfo=dt.UTC)
+    assert all(row.get(key) is not None for row in rows for key in response.primary_keys or [])
+    assert response.partition_keys == ["configuration_item_capture_time"]
+    child = {"limit": 100, "earlierTime": 1735689600.0, "resourceType": "AWS::S3::Bucket"}
+    assert [
+        (call.kwargs["headers"]["X-Amz-Target"].split(".")[1], json.loads(call.kwargs["data"]))
+        for call in session.post.call_args_list
+    ] == [
+        ("SelectResourceConfig", {"Limit": 100, "Expression": "SELECT resourceType, resourceId"}),
+        ("GetResourceConfigHistory", {**child, "resourceId": "bucket-1"}),
+        ("GetResourceConfigHistory", {**child, "resourceId": "bucket-1", "nextToken": "history-2"}),
+        ("GetResourceConfigHistory", {**child, "resourceId": "bucket-2"}),
+        (
+            "SelectResourceConfig",
+            {"Limit": 100, "Expression": "SELECT resourceType, resourceId", "NextToken": "parent-2"},
+        ),
+        ("GetResourceConfigHistory", {**child, "resourceId": "bucket-3"}),
+    ]
+    assert [call.args[0] for call in manager.save_state.call_args_list] == [
+        AwsConfigResumeConfig(parent_key='["AWS::S3::Bucket", "bucket-1"]', next_token="history-2", since=1735689600.0),
+        AwsConfigResumeConfig(parent_key='["AWS::S3::Bucket", "bucket-2"]', since=1735689600.0),
+        AwsConfigResumeConfig(parent_next_token="parent-2", since=1735689600.0),
+        AwsConfigResumeConfig(complete=True),
+    ]
+
+
+@time_machine.travel(dt.datetime(2025, 4, 1, tzinfo=dt.UTC), tick=False)
+@pytest.mark.parametrize(
+    "endpoint,should_use_incremental_field,last_value,expected_filter",
+    [
+        (
+            "resource_evaluations",
+            True,
+            dt.datetime(2025, 1, 1, tzinfo=dt.UTC),
+            {"Filters": {"TimeWindow": {"StartTime": 1735689600.0}}},
+        ),
+        (
+            "resource_evaluations",
+            True,
+            "2025-01-01T00:00:00Z",
+            {"Filters": {"TimeWindow": {"StartTime": 1735689600.0}}},
+        ),
+        ("resource_evaluations", True, None, {}),
+        ("resource_evaluations", False, dt.datetime(2025, 1, 1, tzinfo=dt.UTC), {}),
+        ("resource_config_history", True, dt.datetime(2025, 1, 1), {"earlierTime": 1735689600.0}),
+        ("resource_config_history", True, dt.date(2025, 1, 1), {"earlierTime": 1735689600.0}),
+        ("resource_config_history", False, dt.datetime(2025, 3, 1, tzinfo=dt.UTC), {"earlierTime": 1735689600.0}),
+        ("resource_config_history", True, None, {"earlierTime": 1735689600.0}),
+        ("config_rules", True, dt.datetime(2025, 1, 1, tzinfo=dt.UTC), {}),
+    ],
+)
+def test_incremental_start_shapes_request(
+    session: MagicMock,
+    endpoint: str,
+    should_use_incremental_field: bool,
+    last_value: Any,
+    expected_filter: dict[str, Any],
+) -> None:
+    parent_page = make_response({"Results": ['{"resourceType":"AWS::S3::Bucket","resourceId":"bucket-1"}']})
+    pages = [make_response({})]
+    session.post.side_effect = [parent_page, *pages] if endpoint == "resource_config_history" else pages
+    manager = make_manager()
+    response = aws_config_source(
+        make_config(), endpoint, "2014-11-12", manager, should_use_incremental_field, last_value
+    )
+    list(cast(Iterable[Any], response.items()))
+
+    payload = json.loads(session.post.call_args_list[-1].kwargs["data"])
+    for key in ("Limit", "limit", "resourceType", "resourceId", "Expression"):
+        payload.pop(key, None)
+    assert payload == expected_filter
+
+
+def test_resume_keeps_incremental_start_of_interrupted_attempt(session: MagicMock) -> None:
+    session.post.side_effect = [
+        make_response(
+            {
+                "Results": [
+                    '{"resourceType":"AWS::S3::Bucket","resourceId":"bucket-1"}',
+                    '{"resourceType":"AWS::S3::Bucket","resourceId":"bucket-2"}',
+                ]
+            }
+        ),
+        make_response({"configurationItems": []}),
+    ]
+    manager = make_manager(
+        AwsConfigResumeConfig(parent_key='["AWS::S3::Bucket", "bucket-2"]', next_token="history-2", since=1735689600.0)
+    )
+    response = aws_config_source(
+        make_config(), "resource_config_history", "2014-11-12", manager, True, dt.datetime(2025, 2, 1, tzinfo=dt.UTC)
+    )
+    list(cast(Iterable[Any], response.items()))
+
+    payloads = [json.loads(call.kwargs["data"]) for call in session.post.call_args_list]
+    assert payloads[1] == {
+        "limit": 100,
+        "earlierTime": 1735689600.0,
+        "resourceType": "AWS::S3::Bucket",
+        "resourceId": "bucket-2",
+        "nextToken": "history-2",
+    }
     manager.clear_state.assert_called_once()
 
 
@@ -470,18 +649,34 @@ def test_credential_errors_are_actionable(code: str, message: str) -> None:
             [{"ConfigurationAggregators": [{"ConfigurationAggregatorName": "example-aggregator"}]}, {}],
             [("DescribeConfigurationAggregators", 1), ("SelectAggregateResourceConfig", 1)],
         ),
+        (
+            "resource_config_history",
+            [{"Results": ['{"resourceType":"AWS::S3::Bucket","resourceId":"example-bucket"}']}, {}],
+            [("SelectResourceConfig", 1), ("GetResourceConfigHistory", 1)],
+        ),
+        (
+            "remediation_execution_statuses",
+            [
+                {"ConfigRules": [{"ConfigRuleName": "example-rule"}]},
+                ScriptedResponse(status=400, json={"__type": "NoSuchRemediationConfigurationException"}),
+            ],
+            [("DescribeConfigRules", None), ("DescribeRemediationExecutionStatus", 1)],
+        ),
+        ("resource_evaluations", [{}], [("ListResourceEvaluations", 1)]),
     ],
 )
 def test_credential_probe_reads_parent_then_one_child(
-    schema: str | None, responses: list[dict[str, Any]], expected: list[tuple[str, int | None]]
+    schema: str | None, responses: list[Any], expected: list[tuple[str, int | None]]
 ) -> None:
-    with scripted_network([ScriptedResponse(json=body) for body in responses]) as network:
+    script = [body if isinstance(body, ScriptedResponse) else ScriptedResponse(json=body) for body in responses]
+    with scripted_network(script) as network:
         assert validate_credentials(make_config(), "2014-11-12", schema) == (True, None)
     assert [
-        (request.headers["x-amz-target"].split(".")[1], request.json().get("Limit")) for request in network.requests_log
+        (request.headers["x-amz-target"].split(".")[1], request.json().get("Limit", request.json().get("limit")))
+        for request in network.requests_log
     ] == expected
     if len(expected) == 2:
-        assert set(network.requests_log[1].json()) & {"ConfigRuleName", "ConfigurationAggregatorName"}
+        assert set(network.requests_log[1].json()) & {"ConfigRuleName", "ConfigurationAggregatorName", "resourceId"}
 
 
 def test_fan_out_access_denied_names_child_permission() -> None:

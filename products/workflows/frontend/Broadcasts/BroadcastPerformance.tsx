@@ -18,7 +18,7 @@ export function BroadcastPerformance({
     ...props
 }: BroadcastPerformanceLogicProps & { hasGoal?: boolean }): JSX.Element {
     const logic = broadcastPerformanceLogic(props)
-    const { stats, totalsLoading, totalsFailed, links, linksLoading } = useValues(logic)
+    const { stats, trackingOff, totalsLoading, totalsFailed, links, linksLoading } = useValues(logic)
     const { loadTotals } = useActions(logic)
 
     if (totalsFailed && !totalsLoading) {
@@ -43,11 +43,21 @@ export function BroadcastPerformance({
         { label: 'Failed', value: share(stats.failed, stats.sent), detail: stats.failed },
     ]
     const engagement = [
-        { label: 'Opened', part: stats.opened, whole: stats.trackedSends },
-        { label: 'Clicked', part: stats.clicked, whole: stats.trackedSends },
-        { label: 'Clicked to opened', part: stats.clicked, whole: stats.opened },
+        ...(trackingOff
+            ? []
+            : [
+                  { label: 'Opened', part: stats.opened, whole: stats.trackedSends },
+                  { label: 'Clicked', part: stats.clicked, whole: stats.trackedSends },
+                  { label: 'Clicked to opened', part: stats.clicked, whole: stats.opened },
+              ]),
         ...(hasGoal ? [{ label: 'Converted', part: stats.converted, whole: stats.sent }] : []),
     ]
+    const footnote = [
+        trackingOff ? null : 'Opens and clicks are counted against sends with tracking on.',
+        hasGoal ? 'Conversions are counted against all sends.' : null,
+    ]
+        .filter(Boolean)
+        .join(' ')
 
     return (
         <div className="flex flex-col gap-4 rounded-lg border border-border bg-surface-primary p-4">
@@ -62,6 +72,14 @@ export function BroadcastPerformance({
                 ))}
             </div>
 
+            {trackingOff ? (
+                <LemonBanner type="info">
+                    Open and click tracking was off for this send, so opens and clicks weren't recorded. Before the next
+                    send, check the tracking setting on the email and the email tracking consent setting in your
+                    environment settings.
+                </LemonBanner>
+            ) : null}
+
             <div className="flex flex-col gap-3">
                 {engagement.map(({ label, part, whole }) => (
                     <div key={label} className="grid grid-cols-[9rem_minmax(0,1fr)] items-center gap-3">
@@ -74,18 +92,17 @@ export function BroadcastPerformance({
                         <LemonProgress percent={whole > 0 ? (part / whole) * 100 : 0} size="large" />
                     </div>
                 ))}
-                <span className="text-xs text-muted">
-                    Opens and clicks are counted against sends with tracking on.
-                    {hasGoal ? ' Conversions are counted against all sends.' : ''}
-                </span>
+                {footnote ? <span className="text-xs text-muted">{footnote}</span> : null}
             </div>
 
             <BroadcastSendActivity {...props} />
 
-            <div className="flex flex-col gap-2">
-                <h3 className="m-0 text-sm font-semibold">Top clicked links</h3>
-                <EmailLinksTable links={links} loading={linksLoading} emptyState="No link clicks yet" />
-            </div>
+            {trackingOff ? null : (
+                <div className="flex flex-col gap-2">
+                    <h3 className="m-0 text-sm font-semibold">Top clicked links</h3>
+                    <EmailLinksTable links={links} loading={linksLoading} emptyState="No link clicks yet" />
+                </div>
+            )}
         </div>
     )
 }

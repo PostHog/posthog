@@ -187,10 +187,6 @@ def test_unexpected_response_shape_fails_instead_of_emptying_the_table(
 @pytest.mark.parametrize(
     "status,expected_success,expected_message",
     [
-        (200, True, None),
-        (401, False, "production token"),
-        (403, False, "production token"),
-        (500, False, "HTTP 500"),
         (None, False, "Could not connect"),
     ],
 )

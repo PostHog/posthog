@@ -156,7 +156,7 @@ class RazorpaySource(ResumableSource[RazorpaySourceConfig, RazorpayResumeConfig]
             caption="Enter your Razorpay API key pair to pull payments, orders, refunds, settlements, and subscription data into the PostHog Data warehouse. Generate a key ID and key secret in the Razorpay Dashboard under Account & Settings → API keys. Use a `rzp_live_` key for live-mode data or a `rzp_test_` key for test-mode data.",
             docsUrl="https://posthog.com/docs/cdp/sources/razorpay",
             iconPath="/static/services/razorpay.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

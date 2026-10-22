@@ -7,7 +7,7 @@ import { withUiApp } from '@/resources/ui-apps'
 import { validateDistinctIdPersonIdExclusive } from '@/schema/tool-inputs'
 import { castStringToInt, normalizeParamAliases } from '@/tools/cast-helpers'
 import hooks_updateFeatureFlag from '@/tools/featureFlags/updateFeatureFlagHooks'
-import { withToolHooks } from '@/tools/tool-hooks'
+import { transformRequestBody, withToolHooks } from '@/tools/tool-hooks'
 import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
@@ -73,7 +73,7 @@ const createFeatureFlag = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/feature_flags/`,
             body,
         })
-        return await withPostHogUrl(context, result, `/feature_flags/${result.id}`)
+        return await withPostHogUrl(context, result, `/feature-flags/${result.id}`)
     },
 })
 
@@ -131,7 +131,7 @@ const featureFlagArchive = (): ToolBase<
             'status',
             'version',
         ]) as typeof result
-        return await withPostHogUrl(context, filtered, `/feature_flags/${filtered.id}`)
+        return await withPostHogUrl(context, filtered, `/feature-flags/${filtered.id}`)
     },
 })
 
@@ -165,7 +165,7 @@ const featureFlagDisable = (): ToolBase<
             'status',
             'version',
         ]) as typeof result
-        return await withPostHogUrl(context, filtered, `/feature_flags/${filtered.id}`)
+        return await withPostHogUrl(context, filtered, `/feature-flags/${filtered.id}`)
     },
 })
 
@@ -199,7 +199,7 @@ const featureFlagEnable = (): ToolBase<
             'status',
             'version',
         ]) as typeof result
-        return await withPostHogUrl(context, filtered, `/feature_flags/${filtered.id}`)
+        return await withPostHogUrl(context, filtered, `/feature-flags/${filtered.id}`)
     },
 })
 
@@ -266,10 +266,10 @@ const featureFlagGetAll = (): ToolBase<
             {
                 ...filtered,
                 results: await Promise.all(
-                    (filtered.results ?? []).map((item) => withPostHogUrl(context, item, `/feature_flags/${item.id}`))
+                    (filtered.results ?? []).map((item) => withPostHogUrl(context, item, `/feature-flags/${item.id}`))
                 ),
             },
-            '/feature_flags'
+            '/feature-flags'
         )
     },
 })
@@ -296,7 +296,7 @@ const featureFlagGetDefinition = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/feature_flags/${encodeURIComponent(String(params.id))}/`,
         })
-        return await withPostHogUrl(context, result, `/feature_flags/${result.id}`)
+        return await withPostHogUrl(context, result, `/feature-flags/${result.id}`)
     },
 })
 
@@ -340,7 +340,7 @@ const featureFlagRollOutToEveryone = (): ToolBase<
             'version',
             'filters',
         ]) as typeof result
-        return await withPostHogUrl(context, filtered, `/feature_flags/${filtered.id}`)
+        return await withPostHogUrl(context, filtered, `/feature-flags/${filtered.id}`)
     },
 })
 
@@ -394,7 +394,7 @@ const featureFlagSetReleaseConditionRollout = (): ToolBase<
             'version',
             'filters',
         ]) as typeof result
-        return await withPostHogUrl(context, filtered, `/feature_flags/${filtered.id}`)
+        return await withPostHogUrl(context, filtered, `/feature-flags/${filtered.id}`)
     },
 })
 
@@ -428,7 +428,7 @@ const featureFlagUnarchive = (): ToolBase<
             'status',
             'version',
         ]) as typeof result
-        return await withPostHogUrl(context, filtered, `/feature_flags/${filtered.id}`)
+        return await withPostHogUrl(context, filtered, `/feature-flags/${filtered.id}`)
     },
 })
 
@@ -701,7 +701,7 @@ const featureFlagsMyFlagsRetrieve = (): ToolBase<
                 groups: params.groups,
             },
         })
-        return await withPostHogUrl(context, result, '/feature_flags')
+        return await withPostHogUrl(context, result, '/feature-flags')
     },
 })
 
@@ -919,7 +919,7 @@ const scheduledChangesList = (): ToolBase<
                 record_id: params.record_id,
             },
         })
-        return await withPostHogUrl(context, result, '/feature_flags')
+        return await withPostHogUrl(context, result, '/feature-flags')
     },
 })
 
@@ -1050,9 +1050,9 @@ const updateFeatureFlag = (): ToolBase<
             const result = await context.api.request<Schemas.FeatureFlag>({
                 method: 'PATCH',
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/feature_flags/${encodeURIComponent(String(params.id))}/`,
-                body,
+                body: await transformRequestBody(hooks_updateFeatureFlag, context, params, body),
             })
-            return await withPostHogUrl(context, result, `/feature_flags/${result.id}`)
+            return await withPostHogUrl(context, result, `/feature-flags/${result.id}`)
         }
     ),
 })

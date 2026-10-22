@@ -4,12 +4,8 @@ import { ApiError } from 'lib/api-error'
 import {
     ChartDisplayType,
     FilterType,
-    FunnelsFilterType,
     InsightLogicProps,
     InsightType,
-    LifecycleFilterType,
-    PathsFilterType,
-    RetentionFilterType,
     StickinessFilterType,
     TrendsFilterType,
 } from '~/types'
@@ -73,20 +69,8 @@ export function filterTrendsClientSideParams(
 export function isTrendsFilter(filters?: Partial<FilterType>): filters is Partial<TrendsFilterType> {
     return filters?.insight === InsightType.TRENDS || (!!filters && !filters.insight)
 }
-export function isFunnelsFilter(filters?: Partial<FilterType>): filters is Partial<FunnelsFilterType> {
-    return filters?.insight === InsightType.FUNNELS
-}
-export function isRetentionFilter(filters?: Partial<FilterType>): filters is Partial<RetentionFilterType> {
-    return filters?.insight === InsightType.RETENTION
-}
 export function isStickinessFilter(filters?: Partial<FilterType>): filters is Partial<StickinessFilterType> {
     return filters?.insight === InsightType.STICKINESS
-}
-export function isLifecycleFilter(filters?: Partial<FilterType>): filters is Partial<LifecycleFilterType> {
-    return filters?.insight === InsightType.LIFECYCLE
-}
-export function isPathsFilter(filters?: Partial<FilterType>): filters is Partial<PathsFilterType> {
-    return filters?.insight === InsightType.PATHS
 }
 
 export function isFilterWithDisplay(

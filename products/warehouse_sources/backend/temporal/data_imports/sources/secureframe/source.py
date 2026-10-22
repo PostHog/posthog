@@ -65,7 +65,7 @@ class SecureframeSource(ResumableSource[SecureframeSourceConfig, SecureframeResu
 You can create an API key and secret in the Secureframe Console under **Your Profile → Company settings → API keys**. The key's role-based permissions govern which tables you can sync.""",
             iconPath="/static/services/secureframe.png",
             docsUrl="https://posthog.com/docs/cdp/sources/secureframe",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["compliance", "grc", "soc2", "audit"],
             fields=cast(
                 list[FieldType],

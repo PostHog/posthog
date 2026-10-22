@@ -3,9 +3,11 @@ use std::fs;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-use anyhow::{bail, Context, Result};
+use anyhow::{bail, ensure, Context, Result};
 use personhog_coordination::store::PersonhogStore;
-use personhog_coordination::types::HandoffPhase;
+use personhog_coordination::types::{
+    ChangelogTarget, HandoffPhase, MigrationPhase, MigrationRequest,
+};
 
 mod etcd;
 pub(crate) mod kafka;
@@ -32,6 +34,7 @@ const REPLICA_METRICS_PORT: u16 = 24151;
 const IDENTITY_METRICS_PORT: u16 = 24152;
 const WRITER_METRICS_PORT: u16 = 24153;
 const ROUTER_METRICS_BASE_PORT: u16 = 24154;
+const WRITER_CONSUMER_GROUP: &str = "personhog-test-harness-writer";
 const LEADER_METRICS_BASE_PORT: u16 = 24160;
 /// Above the leader range, which grows with every scale-up.
 const PUBLISHER_METRICS_BASE_PORT: u16 = 24200;
@@ -48,6 +51,10 @@ const PUBLISH_TOPIC_PARTITIONS: u32 = 4;
 
 const ETCD_PREFIX: &str = "/personhog-test-harness/";
 const READY_DEADLINE: Duration = Duration::from_secs(90);
+const MIGRATION_DEADLINE: Duration = Duration::from_secs(180);
+const MIGRATION_POLL: Duration = Duration::from_millis(100);
+const RETIREMENT_DEADLINE: Duration = Duration::from_secs(60);
+const WRITER_MOVE_DEADLINE: Duration = Duration::from_secs(10);
 const SHUTDOWN_GRACE: Duration = Duration::from_secs(5);
 
 pub struct StackConfig {
@@ -70,6 +77,7 @@ pub struct StackConfig {
     /// Extra environment for spawned leaders, appended after the
     /// standard set (so it can override any of it).
     pub extra_leader_env: Vec<(String, String)>,
+    pub extra_router_env: Vec<(String, String)>,
     pub recovery_pool_size: usize,
     /// etcd lease TTL for leaders, in seconds. Bounds how long a crashed
     /// (unrevoked) leader stays the registered owner.
@@ -132,6 +140,10 @@ pub struct Stack {
     next_leader_index: u32,
     store: PersonhogStore,
     topic: String,
+    /// Topics a migration moved off; deleted with the live one at teardown.
+    retired_topics: Vec<String>,
+    /// Old generations awaiting the writer's drain and the retire op, with the saga's end.
+    pending_retire: Vec<(String, Instant)>,
     pub router_url: String,
     /// Set when the stack spawned a personhog-identity service: the traffic
     /// router's URL, which proxies identity RPCs to it.
@@ -228,7 +240,7 @@ impl Stack {
         );
 
         let store = etcd::connect(&config.etcd_endpoints, ETCD_PREFIX).await?;
-        etcd::reset(&store, config.partitions).await?;
+        etcd::reset(&store, &topic, config.partitions, WRITER_CONSUMER_GROUP).await?;
         let publish_topics = config.publish.as_ref().map(|_| PublishTopics {
             distinct_ids: format!("{topic}_distinct_ids"),
             merge_events: format!("{topic}_merge_events"),
@@ -259,11 +271,9 @@ impl Stack {
             &[
                 ("DATABASE_URL", config.persons_db_url.clone()),
                 ("KAFKA_HOSTS", config.kafka_hosts.clone()),
-                ("KAFKA_TOPIC", topic.clone()),
-                (
-                    "KAFKA_CONSUMER_GROUP",
-                    "personhog-test-harness-writer".to_string(),
-                ),
+                ("ETCD_ENDPOINTS", config.etcd_endpoints.clone()),
+                ("ETCD_PREFIX", ETCD_PREFIX.to_string()),
+                ("KAFKA_CONSUMER_GROUP", WRITER_CONSUMER_GROUP.to_string()),
                 ("PG_TARGET_TABLE", config.pg_target_table.clone()),
                 (
                     "FLUSH_INTERVAL_MS",
@@ -288,7 +298,7 @@ impl Stack {
             }
             let name = format!("harness-router-{i}");
             let is_traffic_router = config.routers >= 2 && i == config.routers - 1;
-            let proc = ServiceProcess::spawn(
+            let proc = ServiceProcess::spawn_with_extra(
                 &name,
                 &config.bin_dir.join("personhog-router"),
                 &[
@@ -317,6 +327,7 @@ impl Stack {
                         (ROUTER_METRICS_BASE_PORT + i as u16).to_string(),
                     ),
                 ],
+                &config.extra_router_env,
                 &log_dir,
             )?;
             routers.push((name, proc));
@@ -471,6 +482,8 @@ impl Stack {
             next_leader_index: 0,
             store,
             topic,
+            retired_topics: Vec::new(),
+            pending_retire: Vec::new(),
             router_url,
             identity_url,
             publish_topics,
@@ -527,14 +540,10 @@ impl Stack {
                 ("ETCD_ENDPOINTS", self.config.etcd_endpoints.clone()),
                 ("ETCD_PREFIX", ETCD_PREFIX.to_string()),
                 ("KAFKA_HOSTS", self.config.kafka_hosts.clone()),
-                ("KAFKA_PERSON_STATE_TOPIC", self.topic.clone()),
                 // Must match the spawned writer's consumer group or the
                 // leader's committed-offset queries (warming ranges, dirty
                 // index pruning) silently see no progress at all.
-                (
-                    "WRITER_CONSUMER_GROUP",
-                    "personhog-test-harness-writer".to_string(),
-                ),
+                ("WRITER_CONSUMER_GROUP", WRITER_CONSUMER_GROUP.to_string()),
                 ("FALLBACK_DATABASE_URL", self.config.persons_db_url.clone()),
                 // Pair the fallback with the spawned writer's target: the
                 // dirty index treats an unmarked person's PG row as
@@ -613,6 +622,57 @@ impl Stack {
         tracing::info!(pod = %pod_name, "SIGSTOPped leader (zombie)");
         etcd::revoke_pod_lease(&self.store, &pod_name).await?;
         self.paused.push((pod_name.clone(), proc));
+        Ok(pod_name)
+    }
+
+    /// SIGSTOP the busiest leader with its lease intact: registered and
+    /// owning, but unable to drain, ack or serve until `resume_stalled`.
+    pub async fn stall_leader(&mut self) -> Result<String> {
+        let victim = self.busiest_leader().await?;
+        self.stall_named(&victim)
+    }
+
+    fn stall_named(&mut self, victim: &str) -> Result<String> {
+        let (pod_name, proc) = self.remove_leader(victim)?;
+        proc.sigstop();
+        tracing::info!(pod = %pod_name, "SIGSTOPped leader (stalled, lease kept)");
+        self.paused.push((pod_name.clone(), proc));
+        Ok(pod_name)
+    }
+
+    /// SIGKILL the stalled leader and revoke its lease.
+    async fn kill_stalled(&mut self) -> Result<String> {
+        let (pod_name, mut proc) = self.paused.pop().context("no stalled leader to kill")?;
+        proc.kill_now().await;
+        etcd::revoke_pod_lease(&self.store, &pod_name).await?;
+        tracing::info!(pod = %pod_name, "killed stalled leader");
+        self.retired.push(proc);
+        Ok(pod_name)
+    }
+
+    /// Whether every partition the saga holds on `pod` carries its drained ack.
+    async fn holder_drained(&self, pod: &str) -> Result<bool> {
+        for held in self.store.list_handoffs().await? {
+            if held.held_by.is_none() || held.new_owner != pod {
+                continue;
+            }
+            let acks = self.store.list_drained_acks(held.partition).await?;
+            if !acks
+                .iter()
+                .any(|a| a.pod_name == pod && a.handoff_id == held.handoff_id)
+            {
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    }
+
+    /// SIGCONT the stalled leader; it resumes exactly where it was.
+    pub fn resume_stalled(&mut self) -> Result<String> {
+        let (pod_name, proc) = self.paused.pop().context("no stalled leader to resume")?;
+        proc.sigcont();
+        tracing::info!(pod = %pod_name, "SIGCONTed stalled leader");
+        self.leaders.push((pod_name.clone(), proc));
         Ok(pod_name)
     }
 
@@ -1001,7 +1061,8 @@ impl Stack {
 
         // Every topic is attempted even when one delete fails, so a failed
         // teardown leaves at most that one topic behind.
-        let mut topics = vec![self.topic.as_str()];
+        let mut topics: Vec<&str> = self.retired_topics.iter().map(String::as_str).collect();
+        topics.push(self.topic.as_str());
         if let Some(publish) = &self.publish_topics {
             topics.push(publish.distinct_ids.as_str());
             topics.push(publish.merge_events.as_str());
@@ -1017,6 +1078,326 @@ impl Stack {
             None => Ok(()),
         }
     }
+
+    /// Run a changelog migration to its end, with chaos keyed to its phases.
+    /// Retirement of the old generation is deferred to `retire_drained`.
+    pub async fn migrate(&mut self, chaos: MigrationChaos) -> Result<Duration> {
+        // Admission refuses a migration while an earlier generation still drains.
+        if !self.pending_retire.is_empty() {
+            self.retire_drained().await?;
+        }
+        let from = self
+            .store
+            .get_changelog_config()
+            .await?
+            .context("config/changelog must be seeded")?;
+        let generation = self.retired_topics.len() + 2;
+        let to_topic = format!("{}_g{generation}", self.topic);
+        kafka::create_topic(&self.config.kafka_hosts, &to_topic, chaos.to_partitions).await?;
+        let migration = MigrationRequest {
+            id: format!("harness-g{generation}"),
+            from: from.target(),
+            to: ChangelogTarget {
+                topic: to_topic.clone(),
+                partitions: chaos.to_partitions,
+            },
+            requested_at_ms: now_millis(),
+            seen_at_ms: None,
+            waiting: Vec::new(),
+        };
+        // A leader stalled before the request keeps its lease, so the fleet still
+        // reads as quiet; the saga starts, holds its partitions and never drains them.
+        let mut stalled: Option<String> = None;
+        if chaos.stall == Some(StallAt::BeforeStart) {
+            let name = self.stall_leader().await?;
+            println!("Migration chaos: stalled leader {name} before the request");
+            stalled = Some(name);
+        }
+        ensure!(
+            self.store.create_migration_request(&migration).await?,
+            "a migration is already requested or in flight"
+        );
+        // The coordinator starts it once the fleet is quiet.
+        let requested = Instant::now();
+        // The request is read before the saga: the start creates one and
+        // deletes the other in a single transaction, so this order never sees neither.
+        loop {
+            let waiting = self
+                .store
+                .get_migration_request_with_mod_revision()
+                .await?
+                .is_some();
+            if self.store.get_migration().await?.is_some() {
+                break;
+            }
+            ensure!(
+                waiting,
+                "the request was rejected before starting: {:?}",
+                self.store
+                    .list_migration_history()
+                    .await?
+                    .into_iter()
+                    .find(|m| m.id == migration.id)
+            );
+            ensure!(
+                requested.elapsed() < MIGRATION_DEADLINE,
+                "the request did not start within {MIGRATION_DEADLINE:?}"
+            );
+            tokio::time::sleep(MIGRATION_POLL).await;
+        }
+        if chaos.pause_writer.is_some() {
+            self.pause_writer()?;
+        }
+        tracing::info!(
+            from = %from.topic,
+            to = %to_topic,
+            partitions = chaos.to_partitions,
+            waited_ms = requested.elapsed().as_millis() as u64,
+            "changelog migration started"
+        );
+
+        let start = Instant::now();
+        let mut last_phase = None;
+        let mut writer_paused = chaos.pause_writer;
+        let mut coordinator_killed = !chaos.kill_coordinator;
+        let mut leader_killed = chaos.kill_leader_at.is_none();
+        let mut leader_restarted = !chaos.restart_leader;
+        let mut sealed_while_stalled = chaos.stall != Some(StallAt::Sealing);
+        // A leader stopped at Sealing may already have sealed, which tests nothing, so the
+        // victim is stopped once it has drained and must hold no seal ack when Sealing begins.
+        let seal_victim_wanted = chaos.kill_leader_at == Some(MigrationPhase::Sealing)
+            || chaos.stall == Some(StallAt::Sealing);
+        let mut seal_victim: Option<String> = None;
+        let mut seal_victim_checked = false;
+        loop {
+            if let Some(pause) = writer_paused {
+                if start.elapsed() >= pause {
+                    self.resume_writer()?;
+                    writer_paused = None;
+                }
+            }
+            let Some(current) = self.store.get_migration().await? else {
+                break;
+            };
+            if last_phase != Some(current.phase) {
+                println!(
+                    "Migration {:.1}s: {:?} {}",
+                    start.elapsed().as_secs_f64(),
+                    current.phase,
+                    current.blocking.join("; ")
+                );
+                last_phase = Some(current.phase);
+            }
+            let holding = matches!(
+                current.phase,
+                MigrationPhase::Freezing | MigrationPhase::Draining
+            );
+            if seal_victim_wanted
+                && seal_victim.is_none()
+                && current.phase == MigrationPhase::Draining
+            {
+                let name = self.busiest_leader().await?;
+                if self.holder_drained(&name).await? {
+                    self.stall_named(&name)?;
+                    println!("Migration chaos: stalled leader {name} once drained");
+                    seal_victim = Some(name);
+                }
+            }
+            if let Some(name) = seal_victim.clone().filter(|_| !seal_victim_checked) {
+                if current.phase == MigrationPhase::Sealing {
+                    let sealed = self
+                        .store
+                        .list_seal_acks()
+                        .await?
+                        .into_iter()
+                        .any(|a| a.migration_id == current.id && a.pod_name == name);
+                    ensure!(!sealed, "leader {name} sealed before it stalled");
+                    seal_victim_checked = true;
+                    if chaos.kill_leader_at == Some(MigrationPhase::Sealing) {
+                        self.kill_stalled().await?;
+                        println!("Migration chaos: killed leader {name} at Sealing");
+                        leader_killed = true;
+                    } else {
+                        stalled = Some(name);
+                    }
+                }
+            }
+            if chaos.stall == Some(StallAt::Sealing) {
+                // Past Sealing, the seal grace let its peers seal for it; resume it so Resuming can restart it.
+                if stalled.is_some()
+                    && matches!(
+                        current.phase,
+                        MigrationPhase::Resuming | MigrationPhase::Complete
+                    )
+                {
+                    let name = stalled.take().expect("checked above");
+                    self.resume_stalled()?;
+                    println!(
+                        "Migration chaos: the saga flipped while {name} was stalled; resumed it"
+                    );
+                    sealed_while_stalled = true;
+                }
+            }
+            if !leader_restarted && holding {
+                let name = self.restart_leader().await?;
+                println!("Migration chaos: crash-restarted leader {name}");
+                leader_restarted = true;
+            }
+            if !coordinator_killed && current.phase == MigrationPhase::Sealing {
+                let name = self.kill_coordinator_router(true).await?;
+                println!("Migration chaos: killed coordinator router {name}");
+                coordinator_killed = true;
+            }
+            if !leader_killed
+                && chaos.kill_leader_at != Some(MigrationPhase::Sealing)
+                && Some(current.phase) == chaos.kill_leader_at
+            {
+                let name = self.kill_leader(true).await?;
+                println!("Migration chaos: killed leader {name}");
+                leader_killed = true;
+            }
+            if start.elapsed() > MIGRATION_DEADLINE {
+                bail!(
+                    "migration did not finish within {MIGRATION_DEADLINE:?}: {current:?}; {}",
+                    self.coordination_report().await
+                );
+            }
+            tokio::time::sleep(MIGRATION_POLL).await;
+        }
+        let saga = start.elapsed();
+        // A chaos step the harness never got to apply would let the gate pass vacuously.
+        ensure!(
+            coordinator_killed && leader_killed && leader_restarted && sealed_while_stalled,
+            "a requested chaos step never ran (coordinator killed {coordinator_killed}, \
+             leader killed {leader_killed}, leader restarted {leader_restarted}, \
+             sealed while stalled {sealed_while_stalled}); slow the coordinator so the phase is observable"
+        );
+        if let Some(name) = stalled {
+            self.resume_stalled()?;
+            println!("Migration chaos: resumed stalled leader {name}");
+        }
+        // The saga never waits for the writer, so the lag it injects outlives the saga.
+        if let Some(pause) = writer_paused {
+            tokio::time::sleep(pause.saturating_sub(start.elapsed())).await;
+            self.resume_writer()?;
+            println!(
+                "Migration chaos: resumed the writer {:.1}s after the saga started",
+                start.elapsed().as_secs_f64()
+            );
+        }
+        let archived = self
+            .store
+            .list_migration_history()
+            .await?
+            .into_iter()
+            .find(|m| m.id == migration.id)
+            .context("the migration record vanished without an archive")?;
+        let expected = if chaos.stall == Some(StallAt::BeforeStart) {
+            MigrationPhase::Cancelled
+        } else {
+            MigrationPhase::Complete
+        };
+        ensure!(
+            archived.phase == expected,
+            "migration ended in {:?}, expected {expected:?}: {}",
+            archived.phase,
+            archived.blocking.join("; ")
+        );
+        if expected == MigrationPhase::Cancelled {
+            kafka::delete_topic(&self.config.kafka_hosts, &to_topic).await?;
+            return Ok(saga);
+        }
+        self.config.partitions = chaos.to_partitions;
+        let old_topic = std::mem::replace(&mut self.topic, to_topic);
+        self.retired_topics.push(old_topic.clone());
+        self.pending_retire.push((old_topic, Instant::now()));
+        Ok(saga)
+    }
+
+    /// Wait for the coordinator to retire every old generation on its own,
+    /// once the writer reports it drained.
+    pub async fn retire_drained(&mut self) -> Result<()> {
+        let pending = std::mem::take(&mut self.pending_retire);
+        for (old_topic, saga_end) in pending {
+            let waited_from = Instant::now();
+            loop {
+                let draining = self
+                    .store
+                    .get_changelog_config()
+                    .await?
+                    .is_some_and(|c| c.draining.iter().any(|g| g.topic == old_topic));
+                if !draining {
+                    break;
+                }
+                ensure!(
+                    waited_from.elapsed() < RETIREMENT_DEADLINE,
+                    "the coordinator did not retire {old_topic} within {RETIREMENT_DEADLINE:?}"
+                );
+                tokio::time::sleep(MIGRATION_POLL).await;
+            }
+            println!(
+                "Migration: {old_topic} retired by the coordinator; checked {:.1}s after the saga, waited {:.1}s",
+                saga_end.elapsed().as_secs_f64(),
+                waited_from.elapsed().as_secs_f64()
+            );
+        }
+        // The writer re-checks the drain every 2s and flushes every second.
+        let moved_at = Instant::now();
+        loop {
+            if kafka::group_has_committed_offsets(
+                &self.config.kafka_hosts,
+                WRITER_CONSUMER_GROUP,
+                &self.topic,
+            )
+            .await?
+            {
+                break;
+            }
+            ensure!(
+                moved_at.elapsed() < WRITER_MOVE_DEADLINE,
+                "the writer did not commit on {} within {WRITER_MOVE_DEADLINE:?}",
+                self.topic
+            );
+            tokio::time::sleep(MIGRATION_POLL).await;
+        }
+        println!(
+            "Migration: the writer committed on {} {:.1}s after the last drain",
+            self.topic,
+            moved_at.elapsed().as_secs_f64()
+        );
+        Ok(())
+    }
+}
+
+/// When migration chaos stalls a leader.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StallAt {
+    /// Before the request: its partitions are held and never drain, so the
+    /// pre-flip deadline cancels the saga.
+    BeforeStart,
+    /// Once drained, before Sealing: its peers seal for it after the seal grace, and the saga completes.
+    Sealing,
+}
+
+pub struct MigrationChaos {
+    pub to_partitions: u32,
+    pub kill_coordinator: bool,
+    /// SIGKILL the busiest leader, lease revoked, when the saga reaches this phase; for Sealing it
+    /// is stalled once drained first.
+    pub kill_leader_at: Option<MigrationPhase>,
+    /// Crash-restart the busiest leader under its own name while the saga holds.
+    pub restart_leader: bool,
+    /// SIGSTOP the busiest leader with its lease kept.
+    pub stall: Option<StallAt>,
+    /// Pause the writer for this long as the migration starts.
+    pub pause_writer: Option<Duration>,
+}
+
+fn now_millis() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("clock before the epoch")
+        .as_millis() as i64
 }
 
 async fn wait_tcp(addr: &str, deadline: Duration) -> Result<()> {

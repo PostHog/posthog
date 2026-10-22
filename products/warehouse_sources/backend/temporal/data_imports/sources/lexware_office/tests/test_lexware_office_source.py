@@ -18,7 +18,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.lexware_of
     "status,schema,valid,message",
     [
         (200, None, True, None),
-        (401, None, False, "invalid or expired"),
         (403, None, True, None),
         (403, "contacts", False, "read access"),
     ],

@@ -79,7 +79,7 @@ You can create a token in your [Brex dashboard](https://dashboard.brex.com/setti
 Note: Brex tokens expire after 90 days without API activity, so a token that hasn't been used recently may need to be regenerated.""",
             iconPath="/static/services/brex.png",
             docsUrl="https://posthog.com/docs/cdp/sources/brex",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

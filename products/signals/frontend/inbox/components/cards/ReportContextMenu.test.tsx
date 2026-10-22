@@ -134,8 +134,8 @@ describe('ReportContextMenu', () => {
     it.each([
         {
             submenu: 'Resolve',
-            reason: 'PR was merged',
-            body: { state: 'resolved', dismissal_reason: 'pr_merged' },
+            reason: 'No action needed',
+            body: { state: 'resolved', dismissal_reason: 'no_action_needed' },
         },
         {
             submenu: 'Resolve',

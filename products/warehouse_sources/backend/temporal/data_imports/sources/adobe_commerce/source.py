@@ -191,7 +191,7 @@ class AdobeCommerceSource(ResumableSource[AdobeCommerceSourceConfig, AdobeCommer
             category=DataWarehouseSourceCategory.E_COMMERCE,
             keywords=["magento", "magento 2", "adobe"],
             label="Adobe Commerce (Magento)",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption=CAPTION,
             iconPath="/static/services/adobe_commerce.png",
             docsUrl="https://posthog.com/docs/cdp/sources/adobe-commerce",

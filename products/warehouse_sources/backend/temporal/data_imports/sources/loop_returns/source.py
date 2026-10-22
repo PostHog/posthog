@@ -66,7 +66,7 @@ class LoopReturnsSource(ResumableSource[LoopReturnsSourceConfig, LoopReturnsResu
             name=ExternalDataSourceType.LOOPRETURNS,
             category=DataWarehouseSourceCategory.E_COMMERCE,
             label="Loop Returns",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             docsUrl="https://posthog.com/docs/cdp/sources/loop-returns",
             caption="""Enter your Loop API key to pull your returns data into the PostHog Data warehouse.
 

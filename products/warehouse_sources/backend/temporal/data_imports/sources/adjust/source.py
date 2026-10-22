@@ -104,7 +104,7 @@ Find your API token in the Adjust dashboard under your account menu > Account se
 Adjust's Report Service API returns metrics aggregated per day, so these tables are daily time series rather than user-level events. Raw user-level data needs server callbacks or a cloud storage upload, which can't be set up through the API.""",
             iconPath="/static/services/adjust.png",
             docsUrl="https://posthog.com/docs/cdp/sources/adjust",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             keywords=["mobile attribution", "mmp"],
             fields=cast(
                 list[FieldType],

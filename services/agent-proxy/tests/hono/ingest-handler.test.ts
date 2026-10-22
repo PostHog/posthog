@@ -28,7 +28,7 @@ import {
 } from '@/lib/constants.js'
 import { logger } from '@/lib/logging.js'
 import { TaskRunRedisStream, getCompletedKey, getStreamKey, getWatchedKey } from '@/lib/redis-stream.js'
-import { heartbeatWorkflowIfNeeded } from '@/lib/side-effects.js'
+import { heartbeatWorkflowIfNeeded, notifyPermissionRequestIfNeeded } from '@/lib/side-effects.js'
 import type { SandboxEventIngestTokenPayload } from '@/lib/types.js'
 
 // ---------------------------------------------------------------------------
@@ -728,6 +728,46 @@ describe('ingest-handler', () => {
                 },
             })
             expect(String(request?.body)).not.toContain('not-for-analytics')
+        } finally {
+            callback.mockRestore()
+        }
+    })
+
+    it('reports an accepted permission request once, and skips replays and malformed requests', async () => {
+        const callback = vi
+            .spyOn(globalThis, 'fetch')
+            .mockResolvedValue(new Response(JSON.stringify({ dispatched: true }), { status: 200 }))
+        try {
+            const config = makeConfig({ djangoCallbackBaseUrl: 'http://django.example.com' })
+            const params = { requestId: 'perm-1', toolCall: { title: 'Run tests' }, options: [{ optionId: 'allow' }] }
+            const request = { type: 'notification', notification: { method: '_posthog/permission_request', params } }
+            const malformed = {
+                type: 'notification',
+                notification: { method: '_posthog/permission_request', params: { ...params, options: [] } },
+            }
+            const lines = [
+                { seq: 1, event: request },
+                { seq: 1, event: request },
+                { seq: 2, event: malformed },
+            ]
+            for (const line of lines) {
+                const response = await handleIngest(
+                    makeContext({ body: makeStringBody(JSON.stringify(line) + '\n') }),
+                    fakeRedis as unknown as Redis,
+                    config,
+                    [] as CryptoKey[]
+                )
+                expect(response.status).toBe(200)
+            }
+            expect(callback).toHaveBeenCalledTimes(1)
+            expect(JSON.parse(String(callback.mock.calls[0]![1]?.body))).toMatchObject({
+                kind: 'permission_requested',
+                agent_active: false,
+                task_id: TASK_ID,
+                team_id: TEAM_ID,
+                sequence: 1,
+                request_id: 'perm-1',
+            })
         } finally {
             callback.mockRestore()
         }
@@ -1600,6 +1640,13 @@ describe('ingest-handler', () => {
             type: 'notification',
             notification: { method: 'session/update', params: { update: { sessionUpdate: 'agent_message_chunk' } } },
         }
+        const permissionRequest = {
+            type: 'notification',
+            notification: {
+                method: '_posthog/permission_request',
+                params: { requestId: 'perm-1', toolCall: {}, options: [{ optionId: 'allow' }] },
+            },
+        }
         const networkFailure = Object.assign(new TypeError('fetch failed'), { cause: { code: 'ECONNRESET' } })
 
         it.each([
@@ -1608,6 +1655,7 @@ describe('ingest-handler', () => {
             ['awaiting_input', turnComplete, '400', new Response('', { status: 400 }), 1],
             ['turn_failed', piTurnError, 'network failure', networkFailure, 2],
             ['turn_failed', piTurnError, '503', new Response('', { status: 503 }), 2],
+            ['permission_requested', permissionRequest, '503', new Response('', { status: 503 }), 2],
             ['heartbeat', sessionUpdate, 'network failure', networkFailure, 1],
             ['heartbeat', sessionUpdate, '503', new Response('', { status: 503 }), 1],
         ])(
@@ -1626,6 +1674,7 @@ describe('ingest-handler', () => {
                 await redisStream.claimFirstAgentActivity()
                 const config = makeConfig({ djangoCallbackBaseUrl: 'http://django' })
                 await heartbeatWorkflowIfNeeded(redisStream, RUN_ID, event, TASK_ID, TEAM_ID, 'tok', config)
+                notifyPermissionRequestIfNeeded(RUN_ID, 1, event, TASK_ID, TEAM_ID, 'tok', config)
                 await vi.advanceTimersByTimeAsync(2000)
 
                 expect(fetchMock).toHaveBeenCalledTimes(expectedCalls)

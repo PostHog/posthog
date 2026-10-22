@@ -1464,6 +1464,7 @@ async fn test_fetch_and_filter_preserves_evaluation_metadata() {
         dependency_stages: vec![vec![1], vec![2]],
         flags_with_missing_deps: vec![],
         transitive_deps: HashMap::from([(2, std::collections::HashSet::from([1]))]),
+        ..Default::default()
     };
     let wrapper = HypercacheFlagsWrapper {
         flags: flags.clone(),

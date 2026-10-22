@@ -38,6 +38,7 @@ use crate::workers::worker::{produce_cascades, produce_membership};
 /// Re-evaluate every referrer of the flipped cohort carried by one `cohort_cascade_events` message,
 /// emit their flips, continue the chain, and settle the cascade offset.
 #[allow(clippy::too_many_arguments)]
+#[hotpath::measure]
 pub(crate) async fn handle_cascade(
     partition_id: u16,
     handle: &StoreHandle,

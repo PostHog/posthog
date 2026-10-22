@@ -28,7 +28,7 @@ const TRACKED_SENDS_TOOLTIP =
     'Untracked sends can never record opens or clicks, so engagement is shown against tracked sends (sent minus untracked). Counts and rates compare activity within the selected date range, so opens of emails sent before the range can push a rate above 100%.'
 
 const ISSUE_RATES_TOOLTIP =
-    'Bounces and spam complaints are shown as a share of emails sent. A prevented bounce or a frequency-capped send is skipped before it is sent, so it is shown as a share of every send the step attempted (sent plus skipped).'
+    'Bounces and spam complaints are shown as a share of emails sent. A prevented bounce, a send with no email address, or a frequency-capped send is skipped before it is sent, so it is shown as a share of every send the step attempted (sent plus skipped).'
 
 // Opens and clicks are only possible on tracked sends, so pair the raw count with the denominator it
 // should be read against, plus the rate over that denominator. A step with no tracked sends shows a
@@ -127,10 +127,10 @@ export function WorkflowMetricsSummary({
                 key: 'issues',
                 tooltip: ISSUE_RATES_TOOLTIP,
                 render: (_, row) => {
-                    // A prevented bounce or a frequency-capped send is skipped before the provider sees
-                    // it, so neither is part of `sent` and their rates read against everything the
-                    // step attempted to send.
-                    const attempted = row.sent + row.bouncePrevented + row.frequencyCapped
+                    // A prevented bounce, a missing recipient, or a frequency-capped send is skipped
+                    // before the provider sees it, so none is part of `sent` and their rates read
+                    // against everything the step attempted to send.
+                    const attempted = row.sent + row.bouncePrevented + row.missingRecipient + row.frequencyCapped
                     const classifiedBounces = row.bouncedHard + row.bouncedSoft + row.bouncedUnknown
                     const bounceIssues: { label: string; value: number; metric: EmailMetricName }[] = [
                         { label: 'hard bounced', value: row.bouncedHard, metric: 'email_bounced_hard' },
@@ -167,6 +167,13 @@ export function WorkflowMetricsSummary({
                             total: attempted,
                             type: 'warning' as const,
                             metric: 'email_bounce_prevented' as EmailMetric,
+                        },
+                        {
+                            label: 'no email address',
+                            value: row.missingRecipient,
+                            total: attempted,
+                            type: 'warning' as const,
+                            metric: 'email_missing_recipient' as EmailMetric,
                         },
                         {
                             label: 'frequency capped',

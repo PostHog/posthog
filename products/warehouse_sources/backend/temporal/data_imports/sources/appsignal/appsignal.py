@@ -6,7 +6,7 @@ from urllib.parse import quote
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from posthog.dataclasses import frozen
 
@@ -14,7 +14,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.appsignal.
     APPSIGNAL_ENDPOINTS,
     AppsignalEndpointConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    make_tracked_session,
+    retry_with_deadline,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.url_utils import (
     redact_literal_values,
     scrub_url,
@@ -115,7 +118,7 @@ def _raise_for_status_scrubbed(response: requests.Response) -> None:
     )
 
 
-@retry(
+@retry_with_deadline(
     retry=retry_if_exception_type((AppsignalRetryableError, requests.ReadTimeout, requests.ConnectionError)),
     stop=stop_after_attempt(MAX_RETRIES),
     wait=wait_exponential_jitter(initial=1, max=60),
@@ -147,7 +150,7 @@ def _fetch_json(
     return response.json()
 
 
-@retry(
+@retry_with_deadline(
     retry=retry_if_exception_type((AppsignalRetryableError, requests.ReadTimeout, requests.ConnectionError)),
     stop=stop_after_attempt(MAX_RETRIES),
     wait=wait_exponential_jitter(initial=1, max=60),
@@ -485,7 +488,7 @@ def _resolve_walk_start(
     return start
 
 
-@retry(
+@retry_with_deadline(
     retry=retry_if_exception_type((AppsignalRetryableError, requests.ReadTimeout, requests.ConnectionError)),
     stop=stop_after_attempt(MAX_RETRIES),
     wait=wait_exponential_jitter(initial=1, max=60),

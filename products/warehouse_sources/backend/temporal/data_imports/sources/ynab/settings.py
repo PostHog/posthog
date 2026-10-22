@@ -19,6 +19,8 @@ class YnabEndpoint:
     default_incremental_field: str | None = None
     page_size: int = 0
     fanout: DependentEndpointConfig | None = None
+    # Binds {month} to each month in the plan's first_month..last_month range.
+    per_month: bool = False
 
 
 PLAN_FANOUT = DependentEndpointConfig(
@@ -61,6 +63,36 @@ ENDPOINTS: dict[str, YnabEndpoint] = {
         data_selector="data.months",
         primary_keys=("plan_id", "month"),
         partition_key="month",
+        fanout=PLAN_FANOUT,
+    ),
+    "month_categories": YnabEndpoint(
+        name="month_categories",
+        path="plans/{plan_id}/months/{month}",
+        data_selector="data.month.categories",
+        primary_keys=("plan_id", "month", "id"),
+        partition_key="month",
+        per_month=True,
+        fanout=DependentEndpointConfig(
+            parent_name="plans",
+            resolve_param="plan_id",
+            resolve_field="id",
+            include_from_parent=["id", "month"],
+            parent_field_renames={"id": "plan_id", "month": "month"},
+            # A month inside the plan's range that YNAB has no record of returns 404.
+            child_response_actions=[{"status_code": 404, "action": "ignore"}],
+        ),
+    ),
+    "money_movements": YnabEndpoint(
+        name="money_movements",
+        path="plans/{plan_id}/money_movements",
+        data_selector="data.money_movements",
+        fanout=PLAN_FANOUT,
+    ),
+    "money_movement_groups": YnabEndpoint(
+        name="money_movement_groups",
+        path="plans/{plan_id}/money_movement_groups",
+        data_selector="data.money_movement_groups",
+        partition_key="group_created_at",
         fanout=PLAN_FANOUT,
     ),
     "transactions": YnabEndpoint(

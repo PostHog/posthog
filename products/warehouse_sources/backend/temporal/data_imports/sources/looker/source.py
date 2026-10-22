@@ -182,5 +182,5 @@ class LookerSource(ResumableSource[LookerSourceConfig, LookerResumeConfig]):
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
         )

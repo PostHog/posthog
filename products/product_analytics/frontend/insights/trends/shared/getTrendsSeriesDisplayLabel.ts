@@ -1,7 +1,6 @@
 import { alphabet } from 'lib/utils/strings'
 import { formatBreakdownLabel } from 'scenes/insights/utils'
 import { getResultSeries } from 'scenes/insights/utils/resultSeries'
-import { getResultSeriesName } from 'scenes/insights/utils/resultSeriesName'
 
 import type { FormatPropertyValueForDisplayFunction } from '~/models/propertyDefinitionsModel'
 import type { BreakdownFilter, InsightQueryNode } from '~/queries/schema/schema-general'
@@ -9,6 +8,7 @@ import type { CohortType } from '~/types'
 
 import type { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
 
+import { getResultSeriesName } from '../../shared/resultSeriesName'
 import type { SeriesIdentification } from '../../shared/seriesIdentification'
 import { humanizeSeriesLabel } from './humanizeSeriesLabel'
 

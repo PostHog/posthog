@@ -116,6 +116,7 @@ describe('health finding reporting', () => {
                     diagnostic_ref: 'A5',
                 },
             ],
+            checks: [],
         })
         logic.actions.loadExposuresSuccess(exposures)
         render(

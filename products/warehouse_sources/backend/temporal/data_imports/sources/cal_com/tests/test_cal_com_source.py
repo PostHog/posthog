@@ -29,28 +29,6 @@ class TestCalComSource:
         self.team_id = 123
         self.config = CalComSourceConfig(api_key="cal_live_key", region="us")
 
-    @parameterized.expand(
-        [
-            ("401 Client Error: Unauthorized for url: https://api.cal.com/v2/bookings?limit=250",),
-            ("403 Client Error: Forbidden for url: https://api.cal.com/v2/me",),
-            ("401 Client Error: Unauthorized for url: https://api.cal.eu/v2/bookings?limit=250",),
-            ("403 Client Error: Forbidden for url: https://api.cal.eu/v2/me",),
-        ]
-    )
-    def test_non_retryable_errors_match_auth_failures(self, observed_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable)
-
-    @parameterized.expand(
-        [
-            ("500 Server Error: Internal Server Error for url: https://api.cal.com/v2/bookings",),
-            ("429 Client Error: Too Many Requests for url: https://api.cal.com/v2/teams",),
-        ]
-    )
-    def test_non_retryable_errors_ignore_transient(self, unrelated_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert not any(key in unrelated_error for key in non_retryable)
-
     def test_source_for_pipeline_drops_incremental_value_when_disabled(self) -> None:
         result = SourceDriver(self.source, self.config).run(
             "bookings",

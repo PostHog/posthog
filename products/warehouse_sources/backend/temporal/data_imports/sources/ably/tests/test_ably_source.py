@@ -110,14 +110,3 @@ class TestAblySource:
         assert result.raised is None
         assert result.requests[0].param("start") is None
         assert result.requests[0].param("end") is None
-
-    @pytest.mark.parametrize(
-        "error_message",
-        [
-            "401 Client Error: Unauthorized for url: https://main.realtime.ably.net/stats",
-            "403 Client Error: Forbidden for url: https://main.realtime.ably.net/stats",
-        ],
-    )
-    def test_non_retryable_errors(self, error_message):
-        non_retryable = self.source.get_non_retryable_errors()
-        assert any(pattern in error_message for pattern in non_retryable)

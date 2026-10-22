@@ -6,6 +6,21 @@
             "enum": ["span", "span_attribute", "span_resource_attribute"],
             "type": "string"
         },
+        "date_from": {
+            "description": "Range start: -1h, -7d or ISO 8601. Defaults to -1h.",
+            "minLength": 1,
+            "type": "string"
+        },
+        "date_to": {
+            "description": "Range end, same format. Omit for \"now\".",
+            "minLength": 1,
+            "type": "string"
+        },
+        "dateRange": {
+            "description": "JSON-encoded date range object, e.g. {\"date_from\": \"-1h\"}. Malformed JSON returns 400. Or pass date_from and date_to.",
+            "minLength": 1,
+            "type": "string"
+        },
         "key": {
             "description": "The attribute key to get values for.",
             "minLength": 1,

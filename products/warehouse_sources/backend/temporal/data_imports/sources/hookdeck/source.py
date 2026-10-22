@@ -65,7 +65,7 @@ class HookdeckSource(ResumableSource[HookdeckSourceConfig, HookdeckResumeConfig]
             name=ExternalDataSourceType.HOOKDECK,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Hookdeck",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             keywords=["webhooks", "event gateway"],
             caption="""Enter your Hookdeck project API key to pull your webhook delivery history into the PostHog Data warehouse.
 

@@ -89,7 +89,6 @@ errorTrackingIssueMerge projects/{}/error_tracking/issues/{}/merge
 errorTrackingIssueSplit projects/{}/error_tracking/issues/{}/split
 errorTrackingIssues projects/{}/error_tracking/issues
 errorTrackingIssuesExists projects/{}/error_tracking/issues/exists
-errorTrackingRecommendations projects/{}/error_tracking/recommendations
 errorTrackingRelease projects/{}/error_tracking/releases/{}
 errorTrackingReleases projects/{}/error_tracking/releases
 errorTrackingSpikeDetectionConfig projects/{}/error_tracking/spike_detection_config

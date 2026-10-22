@@ -106,5 +106,5 @@ class TVMazeSource(ResumableSource[TVMazeSourceConfig, TVMazeResumeConfig]):
             iconPath="/static/services/tvmaze.png",
             keywords=["tv", "television", "tv shows"],
             fields=cast(list[FieldType], []),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
         )

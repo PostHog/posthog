@@ -5,7 +5,7 @@ from urllib.parse import urlencode
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.codacy.settings import (
     CODACY_ENDPOINTS,
@@ -13,7 +13,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.codacy.set
     METRICS_PERIOD,
     CodacyEndpointConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    make_tracked_session,
+    retry_with_deadline,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 CODACY_BASE_URL = "https://api.codacy.com/api/v3"
@@ -33,7 +36,7 @@ def _get_headers(api_token: str) -> dict[str, str]:
     }
 
 
-@retry(
+@retry_with_deadline(
     retry=retry_if_exception_type(
         (
             CodacyRetryableError,

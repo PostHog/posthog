@@ -10,9 +10,9 @@ import { InsightType, RetentionDashboardDisplayType } from '~/types'
 
 import { RetentionEmptyResultsBanner } from './RetentionEmptyResultsBanner'
 import { RetentionGraph } from './RetentionGraph'
+import { RetentionHeatmap } from './RetentionHeatmap/RetentionHeatmap'
 import { retentionLogic } from './retentionLogic'
 import { RetentionModal } from './RetentionModal'
-import { RetentionTable } from './RetentionTable/RetentionTable'
 
 export function RetentionContainer({
     inCardView,
@@ -48,7 +48,7 @@ export function RetentionContainer({
             {showLineGraph && showTable ? <LemonDivider /> : null}
             {showTable && (
                 <div className="RetentionContainer__table overflow-x-auto">
-                    <RetentionTable inSharedMode={inSharedMode} embedded={embedded} />
+                    <RetentionHeatmap inSharedMode={inSharedMode} embedded={embedded} />
                 </div>
             )}
             {!inSharedMode ? <RetentionModal /> : null}

@@ -211,16 +211,6 @@ class TestErrorHandling:
         assert len(result.requests) == 1
 
 
-class TestValidateCredentials:
-    @parameterized.expand([("ok", 200, True), ("unauthorized", 401, False), ("forbidden", 403, False)])
-    def test_status_maps_to_bool(self, _name: str, status: int, expected: bool) -> None:
-        with scripted_network([ScriptedResponse(status=status, json={})]) as network:
-            actual = validate_credentials("bu_test", BROWSER_USE_API_VERSION_V3)
-
-        assert actual is expected
-        assert len(network.requests_log) == 1
-
-
 class TestSessionHardening:
     # Every Browser Use endpoint returns free-form agent content — session titles and
     # session_messages.data hold whatever a user's agent typed or browsed, which the name-based

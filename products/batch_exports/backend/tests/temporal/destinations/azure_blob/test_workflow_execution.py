@@ -1,6 +1,11 @@
 import pytest
 
-from products.batch_exports.backend.service import BatchExportModel, BatchExportSchema
+from products.batch_exports.backend.service import (
+    AnyBatchExportModel,
+    BatchExportEventsCustomModel,
+    BatchExportEventsModel,
+    BatchExportSchema,
+)
 from products.batch_exports.backend.tests.temporal.destinations.azure_blob.utils import (
     SUPPORTED_FILE_FORMAT_COMPRESSIONS,
     TEST_AZURE_BLOB_MODELS,
@@ -37,10 +42,10 @@ async def test_workflow_exports_model_successfully(
     data_interval_start,
     data_interval_end,
     generate_test_data,
-    model: BatchExportModel | BatchExportSchema | None,
+    model: AnyBatchExportModel | BatchExportSchema | None,
 ):
     """Test that the workflow exports events, persons, or sessions to Azure Blob Storage."""
-    batch_export_model = BatchExportModel(name="events", schema=model) if isinstance(model, dict) else model
+    batch_export_model = BatchExportEventsCustomModel(schema=model) if isinstance(model, dict) else model
 
     run = await run_azure_blob_batch_export_workflow(
         team=ateam,
@@ -101,7 +106,7 @@ async def test_workflow_names_parquet_blobs_by_the_extension_setting(
         integration_id=azure_batch_export.destination.integration.id,
         file_format=file_format,
         compression=compression,
-        batch_export_model=BatchExportModel(name="events", schema=None),
+        batch_export_model=BatchExportEventsModel(),
         legacy_parquet_extension=legacy_parquet_extension,
     )
 

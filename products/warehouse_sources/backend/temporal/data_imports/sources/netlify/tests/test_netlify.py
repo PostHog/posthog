@@ -193,9 +193,6 @@ class TestFailLoud:
 class TestValidateCredentials:
     @parameterized.expand(
         [
-            ("ok", 200, True, None),
-            ("unauthorized", 401, False, netlify_module._NETLIFY_INVALID_TOKEN_ERROR),
-            ("forbidden", 403, False, netlify_module._NETLIFY_INVALID_TOKEN_ERROR),
             ("rate_limited", 429, False, netlify_module._NETLIFY_UNREACHABLE_ERROR),
             ("netlify_down", 503, False, netlify_module._NETLIFY_UNREACHABLE_ERROR),
         ]

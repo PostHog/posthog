@@ -6,7 +6,6 @@ import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 import type { CaptureOptions } from 'posthog-js'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
@@ -146,10 +145,7 @@ describe('inboxSceneLogic routing', () => {
 
     afterEach(() => logic?.unmount())
 
-    function mountWithRedesign(enabled: boolean): void {
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_REDESIGN], {
-            [FEATURE_FLAGS.INBOX_REDESIGN]: enabled,
-        })
+    function mountLogic(): void {
         logic = inboxSceneLogic()
         logic.mount()
     }
@@ -160,115 +156,49 @@ describe('inboxSceneLogic routing', () => {
         ['/inbox/config', urls.inbox('settings'), 'settings'],
         ['/inbox/runs', urls.inboxRuns(), 'scouts'],
         ['/inbox/pulls/report-1', urls.inboxReport('reports', 'report-1'), 'reports'],
-    ])('under the redesign %s lands on %s', (path, expectedPath, expectedTab) => {
-        mountWithRedesign(true)
+    ])('old-layout link %s lands on %s', (path, expectedPath, expectedTab) => {
+        mountLogic()
         router.actions.push(path)
         expect(router.values.location.pathname.endsWith(expectedPath)).toBe(true)
         expect(logic.values.activeTab).toBe(expectedTab)
     })
 
-    it.each<[string, string, string]>([
-        ['/inbox/settings', urls.inbox('config'), 'config'],
-        ['/inbox/scouts/runs', urls.inbox('runs'), 'runs'],
-        ['/inbox/reports/triage', urls.inbox('reports'), 'reports'],
-        ['/inbox/pulls', urls.inbox('pulls'), 'pulls'],
-        ['/inbox/pulls/report-1', urls.inboxReport('pulls', 'report-1'), 'pulls'],
-    ])('with the flag off %s lands on %s', (path, expectedPath, expectedTab) => {
-        mountWithRedesign(false)
-        router.actions.push(path)
-        expect(router.values.location.pathname.endsWith(expectedPath)).toBe(true)
-        expect(logic.values.activeTab).toBe(expectedTab)
-    })
-
-    it.each([
-        [true, 'reports'],
-        [false, 'pulls'],
-    ])('with the redesign flag %p a bare /inbox lands on the %s tab', (enabled, expectedTab) => {
-        mountWithRedesign(enabled)
+    it('a bare /inbox lands on the reports tab', () => {
+        mountLogic()
         router.actions.push(urls.inbox())
-        expect(logic.values.activeTab).toBe(expectedTab)
-    })
-
-    // A flag that flips mid-session leaves the URL addressed to the other layout. The current URL is
-    // routed again for the new layout, so its surface opens rather than a tab body that renders nothing.
-    it.each<[boolean, string, string, string]>([
-        [false, '/inbox/runs', urls.inboxRuns(), 'scouts'],
-        [true, '/inbox/settings', urls.inbox('config'), 'config'],
-    ])('a mid-session flag flip (from redesign=%p) re-routes %s to %s', (initial, path, expectedPath, expectedTab) => {
-        mountWithRedesign(initial)
-        router.actions.push(path)
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_REDESIGN], {
-            [FEATURE_FLAGS.INBOX_REDESIGN]: !initial,
-        })
-        expect(router.values.location.pathname.endsWith(expectedPath)).toBe(true)
-        expect(logic.values.activeTab).toBe(expectedTab)
-    })
-
-    function mountBeforeFlagsResolve(persistedRedesign: boolean): void {
-        // `featureFlags` persists through kea-localstorage, so a cold load routes against the value the
-        // last visit stored until PostHog answers. Seed that value and leave `receivedFeatureFlags` false.
-        window.localStorage.setItem(
-            'lib.logic.featureFlagLogic.featureFlags',
-            JSON.stringify({ [FEATURE_FLAGS.INBOX_REDESIGN]: persistedRedesign })
-        )
-        initKeaTests()
-        featureFlagLogic.mount()
-        logic = inboxSceneLogic()
-        logic.mount()
-    }
-
-    // On a cold load the route handlers run before PostHog returns flags. A layout redirect issued then
-    // would erase the surface the URL names, so the URL is held and routed again once flags land.
-    it.each<[string, boolean, string, (values: typeof logic.values) => boolean]>([
-        ['/inbox/reports/triage', true, urls.inboxTriage(), (values) => values.isTriageOpen],
-        ['/inbox/scouts/runs', true, urls.inboxRuns(), (values) => values.isRunsOpen],
-        ['/inbox/pulls', true, urls.inbox('reports'), (values) => values.activeTab === 'reports'],
-        ['/inbox/settings', false, urls.inbox('config'), (values) => values.activeTab === 'config'],
-    ])('before flags resolve %s is held, then routed for redesign=%p to %s', (path, redesign, expectedPath, opened) => {
-        mountBeforeFlagsResolve(!redesign)
-        router.actions.push(path)
-        expect(router.values.location.pathname.endsWith(path)).toBe(true)
-        expect(opened(logic.values)).toBe(false)
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_REDESIGN], {
-            [FEATURE_FLAGS.INBOX_REDESIGN]: redesign,
-        })
-        expect(router.values.location.pathname.endsWith(expectedPath)).toBe(true)
-        expect(opened(logic.values)).toBe(true)
+        expect(logic.values.activeTab).toBe('reports')
     })
 
     // The scout page's tabs live in the URL, so a link to a scout's runs has to survive a reload.
     // Selecting a scout resets the tab, so the URL's tab had to be applied after that reset.
     describe('the scout page tab in the URL', () => {
-        it.each([true, false])(
-            'keeps trials separate from an existing scout named trials with redesign=%p',
-            (redesign) => {
-                mountWithRedesign(redesign)
-                router.actions.push(urls.inboxScoutTrials())
-                expect(logic.values.selectedScoutSkillName).toBeNull()
-                expect(router.values.location.pathname.endsWith('/inbox/scout-trials')).toBe(true)
-                router.actions.push(urls.inboxScout('trials'))
-                expect(logic.values.selectedScoutSkillName).toBe('trials')
-                router.actions.push(urls.inboxScout('trials', 'finding-1'))
-                expect(logic.values.selectedScoutSkillName).toBe('trials')
-                expect(logic.values.selectedScoutFindingId).toBe('finding-1')
-            }
-        )
+        it('keeps trials separate from an existing scout named trials', () => {
+            mountLogic()
+            router.actions.push(urls.inboxScoutTrials())
+            expect(logic.values.selectedScoutSkillName).toBeNull()
+            expect(router.values.location.pathname.endsWith('/inbox/scout-trials')).toBe(true)
+            router.actions.push(urls.inboxScout('trials'))
+            expect(logic.values.selectedScoutSkillName).toBe('trials')
+            router.actions.push(urls.inboxScout('trials', 'finding-1'))
+            expect(logic.values.selectedScoutSkillName).toBe('trials')
+            expect(logic.values.selectedScoutFindingId).toBe('finding-1')
+        })
 
         it.each(['runs', 'trials'] as const)('opens the %s tab a reloaded URL names', (tab) => {
-            mountWithRedesign(true)
+            mountLogic()
             router.actions.push(urls.inboxScout('signals-scout-web-vitals'), { tab })
             expect(logic.values.selectedScoutSkillName).toBe('signals-scout-web-vitals')
             expect(logic.values.scoutDetailTab).toBe(tab)
         })
 
         it('leaves the tab on its default for a bare scout URL', () => {
-            mountWithRedesign(true)
+            mountLogic()
             router.actions.push(urls.inboxScout('signals-scout-web-vitals'))
             expect(logic.values.scoutDetailTab).toBeNull()
         })
 
         it('ignores a tab the page has no pane for', () => {
-            mountWithRedesign(true)
+            mountLogic()
             router.actions.push(urls.inboxScout('signals-scout-web-vitals'), { tab: 'nonsense' })
             expect(logic.values.scoutDetailTab).toBeNull()
         })
@@ -276,7 +206,7 @@ describe('inboxSceneLogic routing', () => {
         it.each(['learned', 'trials'] as const)(
             'writes the chosen %s tab to the URL and drops it on the default',
             (tab) => {
-                mountWithRedesign(true)
+                mountLogic()
                 router.actions.push(urls.inboxScout('signals-scout-web-vitals'))
                 logic.actions.setScoutDetailTab(tab)
                 expect(router.values.searchParams.tab).toBe(tab)
@@ -297,7 +227,7 @@ describe('inboxSceneLogic routing', () => {
                 { tab: 'runs' },
             ],
         ])('opens %s with one history entry', (_name, path, searchParams) => {
-            mountWithRedesign(true)
+            mountLogic()
             const push = jest.spyOn(router.actions, 'push')
             router.actions.push(path, searchParams)
             expect(push).toHaveBeenCalledTimes(1)
@@ -305,21 +235,21 @@ describe('inboxSceneLogic routing', () => {
         })
 
         it('opens Signals for a finding deep-link, which is what the link is asking for', () => {
-            mountWithRedesign(true)
+            mountLogic()
             router.actions.push(urls.inboxScout('signals-scout-web-vitals', 'finding-1'))
             expect(logic.values.scoutDetailTab).toBe('signals')
         })
 
         // A finding opens on Signals, but the reader can move to another pane and share that URL.
         it('opens the pane a finding URL names instead of resetting to Signals', () => {
-            mountWithRedesign(true)
+            mountLogic()
             router.actions.push(urls.inboxScout('signals-scout-web-vitals', 'finding-1'), { tab: 'runs' })
             expect(logic.values.scoutDetailTab).toBe('runs')
             expect(logic.values.selectedScoutFindingId).toBe('finding-1')
         })
 
         it('records a pane move on a finding page, and drops the param back on Signals', () => {
-            mountWithRedesign(true)
+            mountLogic()
             router.actions.push(urls.inboxScout('signals-scout-web-vitals', 'finding-1'))
             logic.actions.setScoutDetailTab('runs')
             expect(router.values.location.pathname.endsWith('/finding-1')).toBe(true)
@@ -329,20 +259,6 @@ describe('inboxSceneLogic routing', () => {
         })
     })
 
-    // A held report deep-link still opens the report under the persisted layout, so the page is not
-    // empty while flags load; the replay only settles the tab once the layout is known.
-    it('before flags resolve /inbox/pulls/<id> opens the report and lands on Reports once the redesign resolves', () => {
-        mountBeforeFlagsResolve(true)
-        router.actions.push('/inbox/pulls/report-1')
-        expect(logic.values.selectedReportId).toBe('report-1')
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_REDESIGN], {
-            [FEATURE_FLAGS.INBOX_REDESIGN]: true,
-        })
-        expect(router.values.location.pathname.endsWith(urls.inboxReport('reports', 'report-1'))).toBe(true)
-        expect(logic.values.selectedReportId).toBe('report-1')
-        expect(logic.values.activeTab).toBe('reports')
-    })
-
     // The triage card's "Full report" link opens the report by URL (with a triage `back`), not through
     // `openCurrent`, so the open-method must be recovered from that `back` or triage opens split between
     // the `triage` and `click` analytics values.
@@ -350,7 +266,7 @@ describe('inboxSceneLogic routing', () => {
         ['a triage back link records the triage open method', true, 'triage'],
         ['a plain report deep-link is not attributed to triage', false, 'deeplink'],
     ])('%s', async (_name, withTriageBack, expectedMethod) => {
-        mountWithRedesign(true)
+        mountLogic()
         const url = withTriageBack
             ? combineUrl(urls.inboxReport('reports', 'r1'), {
                   back: combineUrl(urls.inboxTriage(), { report: 'r1', at: 0 }).url,
@@ -380,13 +296,13 @@ describe('inboxSceneLogic routing', () => {
             expected: 'deeplink',
         },
     ])('a report URL loaded fresh in $where after the list was visited reads $expected', async ({ team, expected }) => {
-        mountWithRedesign(true)
+        mountLogic()
         router.actions.push(urls.inbox('reports'))
         logic.unmount()
 
         initKeaTests(true, team)
         featureFlagLogic.mount()
-        mountWithRedesign(true)
+        mountLogic()
 
         let openMethod: string | undefined
         await expectLogic(logic, () => router.actions.push(urls.inboxReport('reports', 'r1'))).toDispatchActions([
@@ -407,6 +323,13 @@ describe('inboxSceneLogic routing', () => {
         { name: 'no param', source: undefined, visitedList: false, method: 'deeplink', linkSource: null },
         { name: 'a known source', source: 'slack', visitedList: false, method: 'deeplink', linkSource: 'slack' },
         {
+            name: 'the first report email',
+            source: 'first_report_email',
+            visitedList: false,
+            method: 'deeplink',
+            linkSource: 'first_report_email',
+        },
+        {
             name: 'an unknown source',
             source: 'carrier-pigeon',
             visitedList: false,
@@ -418,7 +341,7 @@ describe('inboxSceneLogic routing', () => {
     ])(
         'a report link with $name opens as $method with link source $linkSource',
         async ({ source, visitedList, method, linkSource }) => {
-            mountWithRedesign(true)
+            mountLogic()
             if (visitedList) {
                 router.actions.push(urls.inbox('reports'))
             }
@@ -458,7 +381,7 @@ describe('inboxSceneLogic routing', () => {
             },
         })
         const captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
-        mountWithRedesign(false)
+        mountLogic()
         const listLogic = reportListLogic(sectionListLogicProps('needs-decision'))
         listLogic.mount()
         listLogic.actions.loadReports()
@@ -468,9 +391,14 @@ describe('inboxSceneLogic routing', () => {
         logic.actions.loadSelectedReportSuccess(report)
         const afterOpen = Date.now()
         expect(openedEvents(captureSpy)).toHaveLength(0)
+        // kea-disposables runs the poll setup again on a resume, and one without a pause leaves the
+        // first interval running. That leftover interval must not send the open again on each tick.
+        document.dispatchEvent(new Event('visibilitychange'))
 
         await waitForOpenRankRetry()
+        await waitForOpenRankRetry()
 
+        expect(openedEvents(captureSpy)).toHaveLength(1)
         expect(openedEvents(captureSpy)[0]).toMatchObject({
             rank: 1,
             list_size: 1,
@@ -507,7 +435,7 @@ describe('inboxSceneLogic routing', () => {
             },
         })
         const captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
-        mountWithRedesign(true)
+        mountLogic()
         const needsDecision = reportListLogic(sectionListLogicProps('needs-decision'))
         const monitoring = reportListLogic(sectionListLogicProps('monitoring'))
         needsDecision.mount()
@@ -536,7 +464,7 @@ describe('inboxSceneLogic routing', () => {
     it('a page unload while an open is still waiting sends the open instantly, ahead of the close', () => {
         const report = { id: 'r1', title: 'Crash on login' } as SignalReport
         const captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
-        mountWithRedesign(true)
+        mountLogic()
 
         // No list is mounted, so the rank never resolves and the open stays pending.
         logic.actions.setSelectedReportId('r1')
@@ -559,7 +487,7 @@ describe('inboxSceneLogic routing', () => {
         // Opening a report flips `isRunsOpen` false through a mutual-exclusion reducer, not
         // `setRunsOpen(false)`, so the poll teardown cannot hang off the `setRunsOpen` listener alone
         // or it leaks two requests every few seconds for the rest of the visit.
-        mountWithRedesign(true)
+        mountLogic()
         const clearSpy = jest.spyOn(global, 'clearInterval')
 
         logic.actions.setRunsOpen(true)
@@ -610,7 +538,7 @@ describe('inboxSceneLogic routing', () => {
 
         it('re-fetches the open report when the tab becomes visible again', async () => {
             const reportGet = mockReportGet()
-            mountWithRedesign(true)
+            mountLogic()
             logic.actions.setSelectedReportId('report-1')
             await expectLogic(logic).toDispatchActions(['loadSelectedReportSuccess'])
             expect(reportGet).toHaveBeenCalledTimes(1)
@@ -623,7 +551,7 @@ describe('inboxSceneLogic routing', () => {
 
         it('does not re-fetch while the tab is hidden, nor with no report open', async () => {
             const reportGet = mockReportGet()
-            mountWithRedesign(true)
+            mountLogic()
             logic.actions.setSelectedReportId('report-1')
             await expectLogic(logic).toDispatchActions(['loadSelectedReportSuccess'])
 
@@ -640,7 +568,7 @@ describe('inboxSceneLogic routing', () => {
             const addEventListenerSpy = jest.spyOn(document, 'addEventListener')
             const removeEventListenerSpy = jest.spyOn(document, 'removeEventListener')
             try {
-                mountWithRedesign(true)
+                mountLogic()
                 logic.actions.setSelectedReportId('report-1')
                 await expectLogic(logic).toDispatchActions(['loadSelectedReportSuccess'])
 
@@ -678,7 +606,7 @@ describe('inboxSceneLogic routing', () => {
             },
         ])('$case', async ({ refreshedStatus, broadcasts }) => {
             mockReportGet(refreshedStatus)
-            mountWithRedesign(true)
+            mountLogic()
             logic.actions.setSelectedReportId('report-1')
             await expectLogic(logic).toDispatchActions(['loadSelectedReportSuccess'])
 

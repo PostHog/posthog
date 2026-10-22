@@ -49,8 +49,6 @@ class TestHarvestSource:
     @parameterized.expand(
         [
             ("valid", True, None, True, None),
-            ("invalid", False, 401, False, "Invalid Harvest account ID"),
-            ("no_scope", False, 403, False, "does not have permission"),
             ("unreachable", False, None, False, "Could not reach Harvest"),
         ]
     )

@@ -4,9 +4,12 @@
 //!
 //! 1. A leftover staging directory from a killed restore is deleted.
 //! 2. **Reopened.** An intact live store reopens. If it carries a restore marker, the restore it
-//!    published is still pending and resumes instead.
+//!    published is still pending and resumes instead. A reshard child that is taking its
+//!    partitions over discards a live store without a marker, because its parent advanced them.
 //! 3. With checkpoints enabled, candidates are tried newest first, the freshest local checkpoint
-//!    before S3. The first one that publishes wins.
+//!    before S3. A reshard child that is taking over searches only its parent's S3 lineage. A
+//!    candidate restores on any pod whose partitions its split covers. The first one that
+//!    publishes wins.
 //! 4. **Created.** Nothing is restorable: no candidate, or only unusable ones. Every slice then
 //!    begins when its worker spawns, behind the coverage fence.
 //!
@@ -42,11 +45,11 @@ use crate::observability::metrics::{
     CHECKPOINT_RESTORE_BLOCKED, CHECKPOINT_RESTORE_CANDIDATES_TOTAL,
     CHECKPOINT_RESTORE_DURATION_SECONDS, CHECKPOINT_RESTORE_TOTAL,
 };
-use crate::partitions::{InputGroups, InputTopic};
+use crate::partitions::{AdmittedSplit, InputGroups, InputTopic, PartitionOwnership, StoreSource};
 use crate::store::{CohortStore, StoreError, STORE_SCHEMA_VERSION};
 
-const RETRY_START: Duration = Duration::from_secs(30);
-const RETRY_MAX: Duration = Duration::from_secs(300);
+pub(crate) const RETRY_START: Duration = Duration::from_secs(30);
+pub(crate) const RETRY_MAX: Duration = Duration::from_secs(300);
 
 /// Where the live store came from.
 #[derive(Debug)]
@@ -108,8 +111,10 @@ enum Unusable {
     MetadataFormat { found: u32 },
     #[error("manifest format {found}")]
     ManifestFormat { found: u32 },
-    #[error("the broker no longer holds what it lacks on any partition")]
+    #[error("the broker no longer holds what it lacks on any partition this pod owns")]
     NothingToReplay,
+    #[error("its manifest's split, {found}, does not cover this pod's partitions")]
+    OtherSplit { found: PartitionOwnership },
 }
 
 /// A candidate whose stage failed validation, so later rounds fail it without downloading it
@@ -197,16 +202,19 @@ impl Search {
 /// reset. A restore comes back with it, for the events consumer to finish before anything folds.
 ///
 /// A restore that cannot finish blocks here, retrying with backoff, until the operator fixes the
-/// cause or turns checkpoints off. `lineage` is `None` when checkpoints are disabled.
+/// cause or turns checkpoints off. `lineage` is this pod's own, and `None` when checkpoints are
+/// disabled. The store refuses to open when it was written under a split that does not cover the
+/// one `admitted`.
 pub async fn open_store(
     config: &Config,
+    admitted: &AdmittedSplit,
     lineage: Option<CheckpointLineage>,
     groups: Arc<InputGroups>,
 ) -> Result<(CohortStore, Option<PendingRestore>), StoreError> {
-    let boot = restore_until_ready(config.clone(), lineage, groups).await;
+    let boot = restore_until_ready(config.clone(), admitted.clone(), lineage, groups).await;
 
     // A published restore leaves a store at the path, so `effective_wipe_on_start` keeps it.
-    let store_config = config.store_config();
+    let store_config = config.store_config(admitted.ownership());
     info!(
         durable_restore_enabled = config.durable_restore_enabled,
         wipe_store_on_start = config.wipe_store_on_start,
@@ -226,14 +234,16 @@ pub async fn open_store(
     Ok((store, restore))
 }
 
-/// Retries [`prepare_store`] with backoff until the boot has a store, and positions the follower
-/// groups of a restore before returning it.
+/// Retries [`prepare_store`] with backoff until the boot has a store. For a restore, it waits until
+/// the fence admits `admitted`'s split again, then positions the follower groups on the partitions
+/// the split owns before returning it.
 ///
 /// The restore runs on a blocking thread: staging, validation and the Kafka position calls block,
 /// and the health server must keep answering meanwhile. A SIGTERM here kills the process; staging
 /// survives a kill.
 async fn restore_until_ready(
     config: Config,
+    admitted: AdmittedSplit,
     lineage: Option<CheckpointLineage>,
     groups: Arc<InputGroups>,
 ) -> BootStore {
@@ -250,6 +260,8 @@ async fn restore_until_ready(
                 let started = Instant::now();
                 let attempt = match prepare_store(
                     &config,
+                    admitted.source(),
+                    admitted.ownership(),
                     lineage,
                     groups.as_ref(),
                     searched_at,
@@ -257,10 +269,16 @@ async fn restore_until_ready(
                 )
                 .await
                 {
-                    Ok((BootStore::Restored(pending), source)) => pending
-                        .position_followers(&groups)
-                        .map(|()| (BootStore::Restored(pending), source))
-                        .map_err(RestoreBlocked::Positions),
+                    Ok((BootStore::Restored(pending), source)) => {
+                        // Another split can claim while the restore runs, so the boot's admission
+                        // no longer covers the follower commits.
+                        let admitted =
+                            AdmittedSplit::admit(admitted.split_claim(), groups.clone()).await;
+                        pending
+                            .position_followers(&groups, &admitted)
+                            .map(|()| (BootStore::Restored(pending), source))
+                            .map_err(RestoreBlocked::Positions)
+                    }
                     other => other,
                 };
                 match attempt {
@@ -297,6 +315,8 @@ async fn restore_until_ready(
 /// Blocks on file and Kafka I/O; see [`restore_until_ready`].
 async fn prepare_store(
     config: &Config,
+    source: StoreSource,
+    ownership: PartitionOwnership,
     lineage: Option<CheckpointLineage>,
     window: &impl ReplayWindow,
     searched_at: DateTime<Utc>,
@@ -309,7 +329,18 @@ async fn prepare_store(
     if !config.effective_wipe_on_start() && live_store_is_intact(&live) {
         match PendingRestore::resume(&live, window, config.partition_count()) {
             Ok(Some(pending)) => return Ok((BootStore::Restored(Box::new(pending)), "pending")),
-            Ok(None) => return Ok((BootStore::Reopened, "reopen_live")),
+            Ok(None) => match source {
+                StoreSource::Own => return Ok((BootStore::Reopened, "reopen_live")),
+                StoreSource::TakeOver { parent } => {
+                    warn!(
+                        %parent,
+                        store = %live.display(),
+                        "taking the partitions over from the parent, which advanced them since this \
+                         store; deleting the store",
+                    );
+                    discard_live_store(&live, &stage).map_err(RestoreBlocked::Local)?;
+                }
+            },
             Err(ResumeError::Undecodable(err)) => {
                 warn!(
                     error = %err,
@@ -317,11 +348,7 @@ async fn prepare_store(
                     "the pending restore's marker is unreadable, so its positions are unknown; \
                      deleting the store and restoring again",
                 );
-                // Renamed first, because a deletion cut short could leave `CURRENT` without the
-                // marker, which would reopen at the broker's old offsets. The next boot deletes a
-                // leftover stage.
-                std::fs::rename(&live, &stage).map_err(RestoreBlocked::Local)?;
-                remove_dir_if_present(&stage).map_err(RestoreBlocked::Local)?;
+                discard_live_store(&live, &stage).map_err(RestoreBlocked::Local)?;
             }
             Err(ResumeError::Window(err)) => return Err(RestoreBlocked::Positions(err)),
             Err(ResumeError::Io(err)) => return Err(RestoreBlocked::Local(err)),
@@ -342,20 +369,29 @@ async fn prepare_store(
         stage,
         uploaded: local_dir.join(UPLOADED_FILENAME),
         s3_bucket: &durability.s3_bucket,
-        lineage,
+        ownership,
         events_topic: InputTopic::new(&config.cohort_stream_events_topic),
         window,
-        partition_count: config.partition_count(),
         wipe_on_schema_mismatch: config.cohort_wipe_on_schema_mismatch,
         rejected,
     };
     let mut search = Search::default();
 
-    let local = newest_fresh_local_checkpoint(
-        &local_dir,
-        durability.local_checkpoint_max_staleness,
-        searched_at,
-    );
+    let (local, searched, s3_label) = match source {
+        StoreSource::Own => (
+            newest_fresh_local_checkpoint(
+                &local_dir,
+                durability.local_checkpoint_max_staleness,
+                searched_at,
+            ),
+            lineage,
+            "s3",
+        ),
+        // The local directory holds only this pod's own lineage.
+        StoreSource::TakeOver { parent } => {
+            (None, CheckpointLineage::new(parent.ordinal()), "parent_s3")
+        }
+    };
     if let Some(attempt) = local {
         let verdict = match attempt {
             Ok(attempt) => restore.local(attempt)?,
@@ -366,7 +402,7 @@ async fn prepare_store(
         }
     }
 
-    let downloader = S3Downloader::new(&durability, lineage)
+    let downloader = S3Downloader::new(&durability, searched)
         .await
         .map_err(RestoreBlocked::Listing)?;
     let importer =
@@ -380,7 +416,7 @@ async fn prepare_store(
         )
         .await?
     {
-        return Ok((BootStore::Restored(pending), "s3"));
+        return Ok((BootStore::Restored(pending), s3_label));
     }
     search.conclude().map(|store| (store, "cold"))
 }
@@ -417,10 +453,10 @@ struct Restore<'a, W> {
     /// The lineage's `uploaded.json`, which a publish rewrites.
     uploaded: PathBuf,
     s3_bucket: &'a str,
-    lineage: CheckpointLineage,
+    /// This pod's split. A candidate restores only when its split covers it.
+    ownership: PartitionOwnership,
     events_topic: InputTopic,
     window: &'a W,
-    partition_count: u16,
     wipe_on_schema_mismatch: bool,
     rejected: &'a mut HashSet<Rejected>,
 }
@@ -457,6 +493,8 @@ impl<W: ReplayWindow> Restore<'_, W> {
 
     /// Tries the S3 candidates newest first, up to `depth` of them. An unfinished upload does not
     /// count toward the depth, so a run of failed uploads cannot hide a complete one behind it.
+    /// Neither does a candidate whose split does not cover this pod: a reshard child that starts
+    /// late passes over its parent's checkpoints from after the reshard.
     async fn search_s3(
         &mut self,
         importer: &CheckpointImporter,
@@ -474,7 +512,10 @@ impl<W: ReplayWindow> Restore<'_, W> {
                 break;
             }
             let verdict = self.s3(importer, metadata_key).await?;
-            if !matches!(verdict, Verdict::Unusable(Unusable::Unfinished)) {
+            if !matches!(
+                verdict,
+                Verdict::Unusable(Unusable::Unfinished | Unusable::OtherSplit { .. })
+            ) {
                 tried += 1;
             }
             let timed_out = matches!(verdict, Verdict::TimedOut(_));
@@ -547,21 +588,18 @@ impl<W: ReplayWindow> Restore<'_, W> {
         store_schema: u32,
         manifest: &OffsetManifest,
     ) -> Result<Option<Verdict>, RestoreBlocked> {
+        // Before the schema check: a candidate of another split never restores on this pod, so a
+        // schema mismatch must not fail it and block the boot.
+        if !manifest.split().covers(&self.ownership) {
+            return Ok(Some(Verdict::Unusable(Unusable::OtherSplit {
+                found: manifest.split(),
+            })));
+        }
         if store_schema != STORE_SCHEMA_VERSION {
             return Ok(Some(schema_mismatch(
                 checkpoint_id,
                 store_schema,
                 self.wipe_on_schema_mismatch,
-            )));
-        }
-        if manifest.ordinal() != self.lineage.ordinal() {
-            return Ok(Some(failed(
-                checkpoint_id,
-                format_args!(
-                    "its manifest belongs to ordinal {}, not {}",
-                    manifest.ordinal(),
-                    self.lineage.ordinal()
-                ),
             )));
         }
         // An input the manifest lacks resumes from its group's commit. For the events group that
@@ -582,9 +620,9 @@ impl<W: ReplayWindow> Restore<'_, W> {
 
     /// The window check.
     fn replay_plan(&self, manifest: &OffsetManifest) -> Result<Admission, RestoreBlocked> {
-        let plan = RestorePlan::check(manifest, self.window, self.partition_count)
+        let plan = RestorePlan::check(manifest, self.window, self.ownership.partition_count())
             .map_err(RestoreBlocked::Positions)?;
-        if !plan.resumes_any() {
+        if !plan.resumes_any(&self.ownership) {
             // Older candidates hold older positions, which the broker deletes first, so retrying
             // cannot help.
             return Ok(Admission::Rejected(Unusable::NothingToReplay));
@@ -644,6 +682,14 @@ impl<W: ReplayWindow> Restore<'_, W> {
         }?;
         sync_dir(parent_dir(&self.uploaded))
     }
+}
+
+/// Renames the live store to the stage before deleting it, because a deletion cut short could leave
+/// `CURRENT` without the marker, which would reopen at the broker's old offsets. The next boot
+/// deletes a leftover stage.
+fn discard_live_store(live: &Path, stage: &Path) -> io::Result<()> {
+    std::fs::rename(live, stage)?;
+    remove_dir_if_present(stage)
 }
 
 /// True when `path` is an opened RocksDB store: the directory holds `CURRENT`, RocksDB's manifest
@@ -740,7 +786,7 @@ mod tests {
     use tempfile::TempDir;
     use tokio_util::sync::CancellationToken;
 
-    use crate::partitions::{InputPositions, InputTopic, ResumeOffset};
+    use crate::partitions::{InputPositions, InputTopic, OwnedPositions, ResumeOffset};
     use crate::store::durability::lineage::PodOrdinal;
     use crate::store::durability::stage::MARKER_FILENAME;
     use crate::store::durability::{CheckpointDownloader, CheckpointInfo};
@@ -780,6 +826,16 @@ mod tests {
 
     fn window() -> FixedWindow {
         window_at(Some(0))
+    }
+
+    /// Pod `ordinal` of `pods`, over two partitions.
+    fn split(pods: u16, ordinal: u16) -> PartitionOwnership {
+        PartitionOwnership::new(
+            std::num::NonZeroU16::new(pods).unwrap(),
+            PodOrdinal::from(ordinal),
+            2,
+        )
+        .unwrap()
     }
 
     fn failure() -> Verdict {
@@ -838,6 +894,7 @@ mod tests {
     struct Boot {
         root: TempDir,
         config: Config,
+        ownership: PartitionOwnership,
     }
 
     impl Boot {
@@ -850,7 +907,18 @@ mod tests {
             config.cohort_partition_count = 1;
             config.store_path = root.path().join("store").to_string_lossy().into_owned();
             config.checkpoint_local_dir = root.path().join("ckpt").to_string_lossy().into_owned();
-            Self { root, config }
+            Self {
+                root,
+                config,
+                ownership: PartitionOwnership::single(1),
+            }
+        }
+
+        fn of(ownership: PartitionOwnership) -> Self {
+            let mut boot = Self::new();
+            boot.config.cohort_partition_count = u32::from(ownership.partition_count());
+            boot.ownership = ownership;
+            boot
         }
 
         fn live(&self) -> PathBuf {
@@ -862,61 +930,78 @@ mod tests {
                 .local_dir(Path::new(&self.config.checkpoint_local_dir))
         }
 
-        /// A fresh checkpoint attempt under `parent`, laid out as the sweeper lays it out: the
-        /// RocksDB files, `offsets.json`, then `metadata.json`. Returns its metadata.
-        fn checkpoint_attempt(&self, parent: &Path) -> CheckpointMetadata {
+        /// A checkpoint attempt under `parent`, captured at `at` by `split`, laid out as the
+        /// sweeper lays it out: the RocksDB files, `offsets.json`, then `metadata.json`. Every slice
+        /// the split owns resumes the events at 42. Returns its metadata.
+        fn checkpoint_attempt(
+            &self,
+            parent: &Path,
+            split: PartitionOwnership,
+            at: DateTime<Utc>,
+        ) -> CheckpointMetadata {
             let store = CohortStore::open(&StoreConfig {
                 path: self.root.path().join("source"),
                 ..StoreConfig::default()
             })
             .unwrap();
             std::fs::create_dir_all(parent).unwrap();
-            let metadata = CheckpointMetadata::new(
-                PodOrdinal::STANDALONE,
-                Utc::now(),
-                store.db_identity().unwrap(),
-            );
+            let metadata =
+                CheckpointMetadata::new(split.ordinal(), at, store.db_identity().unwrap());
             let dir = parent.join(&metadata.id);
             store.create_checkpoint(&dir).unwrap();
-            OffsetManifest::capture(
-                PodOrdinal::STANDALONE,
-                &BTreeSet::from([0]),
-                vec![InputPositions::new(
-                    InputTopic::new(EVENTS),
-                    BTreeMap::from([(0, ResumeOffset::try_from(42).unwrap())]),
-                )],
-            )
-            .unwrap()
-            .write_to_dir(&dir)
-            .unwrap();
+            let slices: BTreeSet<u16> = split.partitions().collect();
+            let events = InputPositions::new(
+                InputTopic::new(EVENTS),
+                slices
+                    .iter()
+                    .map(|&partition| (partition, ResumeOffset::try_from(42).unwrap()))
+                    .collect(),
+            );
+            OffsetManifest::capture(&slices, OwnedPositions::for_test(split, vec![events]))
+                .unwrap()
+                .write_to_dir(&dir)
+                .unwrap();
             metadata.save(&dir.join(METADATA_FILENAME)).unwrap();
             metadata
         }
 
         fn local_checkpoint(&self) -> CheckpointMetadata {
-            self.checkpoint_attempt(&self.lineage_dir())
+            self.checkpoint_attempt(&self.lineage_dir(), self.ownership, Utc::now())
         }
 
-        /// An uploaded checkpoint, listed after a newer attempt whose upload never finished.
-        fn uploaded_checkpoint(&self) -> (FakeS3, String) {
+        /// A checkpoint by `split` at `at`, uploaded to the objects of `s3`. Returns its id and
+        /// metadata key.
+        fn upload(
+            &self,
+            s3: &mut HashMap<String, PathBuf>,
+            split: PartitionOwnership,
+            at: DateTime<Utc>,
+        ) -> (String, String) {
             let parent = self.root.path().join("uploaded");
-            let mut metadata = self.checkpoint_attempt(&parent);
+            let mut metadata = self.checkpoint_attempt(&parent, split, at);
             let dir = parent.join(&metadata.id);
             let mut info = CheckpointInfo::new(metadata.clone(), "checkpoints".to_string());
-            let mut objects = HashMap::new();
             for entry in std::fs::read_dir(&dir).unwrap() {
                 let path = entry.unwrap().path();
                 let name = path.file_name().unwrap().to_string_lossy().into_owned();
                 if name != METADATA_FILENAME {
                     info.metadata
                         .track_file(info.get_file_key(&name), String::new());
-                    objects.insert(info.get_file_key(&name), path);
+                    s3.insert(info.get_file_key(&name), path);
                 }
             }
             metadata.files = info.metadata.files.clone();
-            let metadata_file = parent.join("uploaded-metadata.json");
+            let metadata_file = parent.join(format!("{}-metadata.json", metadata.id));
             metadata.save(&metadata_file).unwrap();
-            objects.insert(info.get_metadata_key(), metadata_file);
+            s3.insert(info.get_metadata_key(), metadata_file);
+            (metadata.id, info.get_metadata_key())
+        }
+
+        /// An uploaded checkpoint, listed after a newer attempt whose upload never finished.
+        fn uploaded_checkpoint(&self) -> (FakeS3, String) {
+            let mut objects = HashMap::new();
+            let (id, key) = self.upload(&mut objects, self.ownership, Utc::now());
+            let metadata = CheckpointMetadata::load(&objects[&key]).unwrap();
 
             let unfinished = CheckpointInfo::new(
                 CheckpointMetadata::new(
@@ -926,13 +1011,13 @@ mod tests {
                 ),
                 "checkpoints".to_string(),
             );
-            let listing = vec![unfinished.get_metadata_key(), info.get_metadata_key()];
+            let listing = vec![unfinished.get_metadata_key(), key];
             let s3 = FakeS3 {
                 listing,
                 objects,
                 stalled: false,
             };
-            (s3, metadata.id)
+            (s3, id)
         }
 
         fn restore<'a, W: ReplayWindow>(
@@ -945,19 +1030,34 @@ mod tests {
                 stage: staging_path(Path::new(&self.config.store_path)),
                 uploaded: self.lineage_dir().join(UPLOADED_FILENAME),
                 s3_bucket: &self.config.checkpoint_s3_bucket,
-                lineage: CheckpointLineage::new(PodOrdinal::STANDALONE),
+                ownership: self.ownership,
                 events_topic: InputTopic::new(EVENTS),
                 window,
-                partition_count: 1,
                 wipe_on_schema_mismatch: false,
                 rejected,
             }
         }
 
         async fn prepare(&self, window: &impl ReplayWindow) -> Result<BootStore, RestoreBlocked> {
+            self.prepare_from(
+                StoreSource::Own,
+                Some(CheckpointLineage::new(PodOrdinal::STANDALONE)),
+                window,
+            )
+            .await
+        }
+
+        async fn prepare_from(
+            &self,
+            source: StoreSource,
+            lineage: Option<CheckpointLineage>,
+            window: &impl ReplayWindow,
+        ) -> Result<BootStore, RestoreBlocked> {
             prepare_store(
                 &self.config,
-                Some(CheckpointLineage::new(PodOrdinal::STANDALONE)),
+                source,
+                self.ownership,
+                lineage,
                 window,
                 Utc::now(),
                 &mut HashSet::new(),
@@ -1057,6 +1157,73 @@ mod tests {
             checkpoint_id,
             "the restored upload becomes the next upload's baseline",
         );
+    }
+
+    #[tokio::test]
+    async fn a_candidate_of_a_split_that_does_not_cover_this_pod_is_passed_over_outside_the_depth()
+    {
+        // Pod 1 of 2 restores its parent's lineage: the newest checkpoint is from after the
+        // reshard, under the parent's new split, and the one before is from the old split.
+        let boot = Boot::of(split(2, 1));
+        let mut objects = HashMap::new();
+        let now = Utc::now();
+        let (_, after_reshard) = boot.upload(&mut objects, split(2, 0), now);
+        let (before_id, before_reshard) = boot.upload(
+            &mut objects,
+            split(1, 0),
+            now - chrono::Duration::minutes(15),
+        );
+        let s3 = FakeS3 {
+            listing: vec![after_reshard, before_reshard],
+            objects,
+            stalled: false,
+        };
+        let importer = CheckpointImporter::new(Box::new(s3), Duration::from_secs(60));
+        let mut search = Search::default();
+
+        let outcome = boot
+            .restore(&window(), &mut HashSet::new())
+            .search_s3(&importer, 1, Utc::now(), &mut search)
+            .await
+            .unwrap();
+
+        let ControlFlow::Break(pending) = outcome else {
+            panic!(
+                "the checkpoint of the old split restores: {:?}",
+                search.failed
+            );
+        };
+        assert_eq!(pending.source().checkpoint_id(), before_id);
+        assert!(search.failed.is_empty(), "{:?}", search.failed);
+    }
+
+    #[tokio::test]
+    async fn a_takeover_deletes_a_live_store_but_resumes_a_pending_restore() {
+        let takeover = StoreSource::TakeOver {
+            parent: PartitionOwnership::single(1),
+        };
+
+        let boot = Boot::new();
+        drop(CohortStore::open(&StoreConfig {
+            path: boot.live(),
+            ..StoreConfig::default()
+        }));
+        assert!(matches!(
+            boot.prepare_from(takeover, None, &window()).await,
+            Ok(BootStore::Created)
+        ));
+        assert!(!boot.live().exists(), "the parent advanced what it holds");
+
+        let boot = Boot::new();
+        boot.local_checkpoint();
+        let Ok(BootStore::Restored(published)) = boot.prepare(&window()).await else {
+            panic!("a fresh local checkpoint restores");
+        };
+        let Ok(BootStore::Restored(resumed)) = boot.prepare_from(takeover, None, &window()).await
+        else {
+            panic!("a restore the takeover published resumes");
+        };
+        assert_eq!(resumed.source(), published.source());
     }
 
     #[tokio::test(start_paused = true)]
@@ -1213,12 +1380,14 @@ mod tests {
             }),
             ("its manifest records no events position", |attempt| {
                 attempt.manifest = OffsetManifest::capture(
-                    PodOrdinal::STANDALONE,
                     &BTreeSet::from([0]),
-                    vec![InputPositions::new(
-                        InputTopic::new("person_merge_events"),
-                        BTreeMap::from([(0, ResumeOffset::try_from(7).unwrap())]),
-                    )],
+                    OwnedPositions::for_test(
+                        PartitionOwnership::single(1),
+                        vec![InputPositions::new(
+                            InputTopic::new("person_merge_events"),
+                            BTreeMap::from([(0, ResumeOffset::try_from(7).unwrap())]),
+                        )],
+                    ),
                 )
                 .unwrap()
             }),

@@ -105,7 +105,7 @@ class TestAuthoredPRWebhook(SimpleTestCase):
         dispatcher = WebhookDispatcher(ConsumerRegistry(providers=SPECS, consumers=WEBHOOK_CONSUMERS))
         self.enterContext(patch("posthog.ingress.views.get_dispatcher", return_value=dispatcher))
         self.secret = self.enterContext(
-            patch("posthog.ingress.github.provider.get_instance_setting", return_value=_SECRET)
+            patch("posthog.credentials_service.instance_settings.get_instance_setting", return_value=_SECRET)
         )
 
     def _cache_summary(

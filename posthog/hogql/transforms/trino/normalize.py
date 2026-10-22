@@ -10,7 +10,7 @@ from posthog.hogql.transforms.trino.asof_join import TrinoAsOfJoinLowerer
 from posthog.hogql.transforms.trino.errors import TrinoLoweringError
 from posthog.hogql.transforms.trino.expressions import expression_key, positional_index
 from posthog.hogql.transforms.trino.limits import TrinoCompilationBudget
-from posthog.hogql.transforms.trino.query_wrappers import lower_trino_query_wrappers
+from posthog.hogql.transforms.trino.query_wrappers import _AggregateFunctionFinder, lower_trino_query_wrappers
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
 _T_AST = TypeVar("_T_AST", bound=ast.AST | None)
@@ -447,7 +447,20 @@ class TrinoNormalizer(TraversingVisitor):
             node.prewhere = None
         node.settings = None
         self._lower_array_join(node)
+        self._lower_row_filter_having(node)
         super().visit_select_query(node)
+
+    def _lower_row_filter_having(self, node: ast.SelectQuery) -> None:
+        # ClickHouse reads HAVING without GROUP BY or aggregates as a row filter; Trino makes it a global aggregation.
+        if node.having is None or node.group_by:
+            return
+        finder = _AggregateFunctionFinder()
+        for expr in [*node.select, node.having, *(order.expr for order in node.order_by or [])]:
+            finder.visit(expr)
+        if finder.found:
+            return
+        node.where = ast.And(exprs=[node.where, node.having]) if node.where is not None else node.having
+        node.having = None
 
     def _lower_array_join(self, node: ast.SelectQuery) -> None:
         if node.array_join_op is None and not node.array_join_list:

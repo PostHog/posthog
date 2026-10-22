@@ -563,7 +563,14 @@ impl From<FlagDetails> for FlagDetailsV3 {
                     condition_index: rule.map(|rule| rule.index as i32),
                     description: Some(evaluation.description),
                 };
-                (evaluation.value, reason, rule, 2, None, None)
+                (
+                    evaluation.value,
+                    reason,
+                    rule,
+                    2,
+                    None,
+                    evaluation.variant_key,
+                )
             }
             ConfigOutcome::V2(None) => {
                 let reason = FlagEvaluationReason {

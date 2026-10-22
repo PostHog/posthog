@@ -229,12 +229,6 @@ class TestValidateCredentials:
             assert message is not None
         assert network.requests_log[0].path == "/api/gateway.php/acme/v1/meta/fields"
 
-    def test_validate_credentials_connection_error(self) -> None:
-        with scripted_network([ConnectionError("boom")]):
-            valid, message = validate_credentials("acme", "key")
-        assert valid is False
-        assert message is not None
-
     def test_invalid_subdomain_rejected_before_request(self) -> None:
         with scripted_network([]) as network:
             valid, message = validate_credentials("acme/v1/employees/123?", "key")

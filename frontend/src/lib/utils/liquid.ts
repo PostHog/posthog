@@ -3,6 +3,108 @@ import { Liquid, Output, Template } from 'liquidjs'
 
 const LIQUID_REGEX = /\{\{(.*?)\}\}|{%(.*?)%}/g
 
+// Copy of the currency filter in nodejs/src/cdp/utils/liquid.ts, so previews format money the way sends do.
+const REGION_CURRENCIES: Record<string, string> = {
+    US: 'USD',
+    GB: 'GBP',
+    CA: 'CAD',
+    AU: 'AUD',
+    NZ: 'NZD',
+    IN: 'INR',
+    JP: 'JPY',
+    CH: 'CHF',
+    SE: 'SEK',
+    NO: 'NOK',
+    DK: 'DKK',
+    PL: 'PLN',
+    BR: 'BRL',
+    MX: 'MXN',
+    ...Object.fromEntries(
+        ['AT', 'BE', 'DE', 'ES', 'FI', 'FR', 'GR', 'IE', 'IT', 'LU', 'NL', 'PT'].map((region) => [region, 'EUR'])
+    ),
+}
+
+// The languages a locale argument may name, with the region a bare language implies.
+const LANGUAGE_REGIONS: Record<string, string> = {
+    en: 'US',
+    fr: 'FR',
+    de: 'DE',
+    es: 'ES',
+    it: 'IT',
+    nl: 'NL',
+    pt: 'PT',
+    fi: 'FI',
+    sv: 'SE',
+    da: 'DK',
+    nb: 'NO',
+    no: 'NO',
+    pl: 'PL',
+    ja: 'JP',
+}
+const LOCALE_ARGUMENT = /^([a-z]{2})(?:[-_]([a-z]{2}))?$/i
+const CURRENCY_CODE = /^[a-z]{3}$/i
+
+// Customer.io's `currency` takes `locale, code` (`"en", "EUR"`) or a locale alone (`"en-GB"`), and
+// templates also pass a bare ISO code (`"USD"`), so all three forms resolve to a locale and a code.
+// Arguments are checked against fixed patterns and tables, never parsed with Intl.Locale: a filter
+// call runs to completion before the render deadline is checked, and exotic locale tags are slow to parse.
+const resolveCurrencyFormat = (first: unknown, second: unknown): [string, string] | null => {
+    if (first === undefined) {
+        return ['en-US', 'USD']
+    }
+    if (typeof first !== 'string' || (second !== undefined && typeof second !== 'string')) {
+        return null
+    }
+    if (second === undefined && CURRENCY_CODE.test(first)) {
+        return ['en-US', first.toUpperCase()]
+    }
+    const locale = LOCALE_ARGUMENT.exec(first)
+    const language = locale?.[1].toLowerCase()
+    if (!locale || !language || !LANGUAGE_REGIONS[language]) {
+        return null
+    }
+    const region = (locale[2] ?? LANGUAGE_REGIONS[language]).toUpperCase()
+    const code =
+        second === undefined ? REGION_CURRENCIES[region] : CURRENCY_CODE.test(second) ? second.toUpperCase() : null
+    return code ? [`${language}-${region}`, code] : null
+}
+
+// Building a formatter costs far more than using one, so templates that repeat their arguments reuse it.
+// Cleared when full, so tenant-chosen arguments can't grow it without bound.
+const CURRENCY_FORMATTER_CACHE_LIMIT = 256
+const currencyFormatters = new Map<string, Intl.NumberFormat | null>()
+
+const currencyFormatter = (first: unknown, second: unknown): Intl.NumberFormat | null => {
+    const format = resolveCurrencyFormat(first, second)
+    if (!format) {
+        return null
+    }
+    const key = format.join(' ')
+    let formatter = currencyFormatters.get(key)
+    if (formatter === undefined) {
+        try {
+            formatter = new Intl.NumberFormat(format[0], { style: 'currency', currency: format[1] })
+        } catch {
+            formatter = null
+        }
+        if (currencyFormatters.size >= CURRENCY_FORMATTER_CACHE_LIMIT) {
+            currencyFormatters.clear()
+        }
+        currencyFormatters.set(key, formatter)
+    }
+    return formatter
+}
+
+// A value that isn't a number, or arguments that don't resolve, pass through unchanged, so a bad value
+// stays visible instead of turning into "$0.00".
+const formatCurrency = (value: unknown, first?: unknown, second?: unknown): unknown => {
+    const amount = typeof value === 'number' ? value : typeof value === 'string' && value.trim() ? Number(value) : NaN
+    if (!Number.isFinite(amount)) {
+        return value
+    }
+    return currencyFormatter(first, second)?.format(amount) ?? value
+}
+
 // NOTE: This should be moved to common package but currently is a copy of nodejs/src/cdp/utils/liquid.ts
 export class LiquidRenderer {
     private static _liquid: Liquid | null = null
@@ -15,6 +117,7 @@ export class LiquidRenderer {
                 // partial loading, so user-controlled templates can't read local files via include/render/layout.
                 templates: {},
             })
+            this._liquid.registerFilter('currency', formatCurrency)
         }
         return this._liquid
     }

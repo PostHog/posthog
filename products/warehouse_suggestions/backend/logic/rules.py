@@ -102,7 +102,7 @@ class MaterializeRules:
     min_seconds_saved: float
     min_bytes_saved: float
     min_saved_share: float
-    require_incremental_eligibility: bool
+    incremental_lookback_seconds: int
 
 
 @frozen
@@ -201,7 +201,7 @@ RULES = Rules(
         min_seconds_saved=600.0,
         min_bytes_saved=float(TERABYTE),
         min_saved_share=0.5,
-        require_incremental_eligibility=True,
+        incremental_lookback_seconds=int(timedelta(days=3).total_seconds()),
     ),
     refresh=RefreshRules(max_interval=timedelta(hours=24), min_read_day_share_below_max_interval=0.5),
     lifecycle=LifecycleRules(

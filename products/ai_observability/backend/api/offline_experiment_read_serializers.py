@@ -6,6 +6,8 @@ from drf_spectacular.utils import extend_schema_serializer
 from rest_framework import serializers
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
+from posthog.api.shared import UserBasicSerializer
+
 from products.ai_observability.backend.api.offline_experiment_serializers import (
     ItemPayloadField,
     ResultPayloadField,
@@ -110,6 +112,12 @@ class OfflineResultCellQuerySerializer(_OfflineQuerySerializer[OfflineResultCell
 
 
 class OfflineHistoryQuerySerializer(OfflineResultQuerySerializer):
+    created_by = serializers.IntegerField(
+        required=False, min_value=1, help_text="Filter experiments by the author's user ID."
+    )
+    created_by_is_null = serializers.BooleanField(
+        required=False, help_text="Only include experiments without an author."
+    )
     tags = ResourceTagFilterField()
     tag_match = serializers.ChoiceField(
         choices=TagMatch.choices,
@@ -162,6 +170,8 @@ class OfflineHistoryQuerySerializer(OfflineResultQuerySerializer):
             "date_to",
             "search",
             "run_source",
+            "created_by",
+            "created_by_is_null",
             "statuses",
             "suite_key",
             "dataset_source",
@@ -202,6 +212,9 @@ class OfflineExperimentQuerySerializer(OfflineHistoryQuerySerializer):
 
 
 class OfflineExperimentReadSerializer(serializers.Serializer):
+    created_by = UserBasicSerializer(
+        read_only=True, allow_null=True, help_text="User who submitted the experiment, or null for service credentials."
+    )
     tags = serializers.ListField(
         child=serializers.CharField(), help_text="Project tag names assigned to this experiment."
     )

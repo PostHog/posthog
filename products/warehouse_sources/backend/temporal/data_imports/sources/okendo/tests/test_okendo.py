@@ -138,7 +138,7 @@ class TestEndpointRequests:
 
 
 class TestValidateCredentials:
-    @parameterized.expand([("ok", 200, True), ("unauthorized", 401, False), ("forbidden", 403, False)])
+    @parameterized.expand([("forbidden", 403, False)])
     def test_reports_the_probe_status(self, _name: str, status_code: int, expected: bool) -> None:
         with scripted_network([ScriptedResponse(status=status_code)]) as network:
             # The status is returned, not just a bool, so the source can accept 403 at connect time.

@@ -9,10 +9,14 @@ from requests.auth import HTTPBasicAuth
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
-    rest_api_resource,
+    rest_api_resources,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     OffsetPaginator,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    Endpoint,
+    EndpointResource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
@@ -33,10 +37,13 @@ PICQER_USER_AGENT = "PostHog (https://posthog.com - hey@posthog.com)"
 _ACCOUNT_RE = re.compile(r"^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?$")
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class PicqerResumeConfig:
     # Next offset to fetch. None means "start from offset 0".
     offset: int | None = None
+    # Framework fan-out resume state for fan-out endpoints:
+    # {"completed": [child_path, ...], "current": child_path | None, "child_state": {"offset": ...} | None}.
+    fanout_state: dict | None = None
 
 
 class PicqerOffsetPaginator(OffsetPaginator):
@@ -112,6 +119,48 @@ def _build_params(
     return params
 
 
+def flatten_warehouse_stock_row(row: dict[str, Any]) -> dict[str, Any]:
+    """Lift the nested per-warehouse `stock` object to the row root.
+
+    Picqer returns `{"idproduct", "productcode", "stock": {"idwarehouse", "stock", ...}}`, so the
+    `idwarehouse` half of the primary key only exists inside the nested object. The parent
+    warehouse id injected by the fan-out is the fallback when the nested object omits it.
+    """
+    parent_idwarehouse = row.pop("_warehouses_idwarehouse", None)
+    stock = row.pop("stock", None)
+    if isinstance(stock, dict):
+        row.update(stock)
+    if row.get("idwarehouse") is None:
+        row["idwarehouse"] = parent_idwarehouse
+    return row
+
+
+_ROW_MAPPERS = {"warehouse_stock": flatten_warehouse_stock_row}
+
+
+def _resources(config: PicqerEndpointConfig, params: dict[str, Any]) -> list[str | EndpointResource]:
+    endpoint: Endpoint = {"path": config.path, "params": params}
+    if not config.paginated:
+        endpoint["paginator"] = "single_page"
+    resource: EndpointResource = {"name": config.name, "endpoint": endpoint}
+    if config.name in _ROW_MAPPERS:
+        resource["data_map"] = _ROW_MAPPERS[config.name]
+
+    fanout = config.fanout
+    if fanout is None:
+        return [resource]
+
+    parent = PICQER_ENDPOINTS[fanout.parent_name]
+    endpoint["params"] = {
+        **params,
+        fanout.resolve_field: {"type": "resolve", "resource": parent.name, "field": fanout.resolve_field},
+    }
+    # A parent deleted between the parent listing and the child fetch 404s; skip it.
+    endpoint["response_actions"] = [{"status_code": 404, "action": "ignore"}]
+    resource["include_from_parent"] = [fanout.resolve_field]
+    return [{"name": parent.name, "endpoint": {"path": parent.path, "params": {}}}, resource]
+
+
 def picqer_source(
     account: str,
     api_key: str,
@@ -141,30 +190,28 @@ def picqer_source(
             "allowed_hosts": [],
         },
         "resource_defaults": {},
-        "resources": [
-            {
-                "name": endpoint,
-                "endpoint": {
-                    "path": config.path,
-                    "params": params,
-                },
-            }
-        ],
+        "resources": _resources(config, params),
     }
 
+    is_fanout = config.fanout is not None
     initial_paginator_state: Optional[dict[str, Any]] = None
     if resumable_source_manager.can_resume():
         resume = resumable_source_manager.load_state()
         if resume is not None:
-            initial_paginator_state = {"offset": resume.offset}
+            if is_fanout:
+                initial_paginator_state = resume.fanout_state or None
+            elif resume.offset is not None:
+                initial_paginator_state = {"offset": resume.offset}
 
     def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
         # Persist only when a next page remains; save AFTER a page is yielded so a crash re-yields
         # the last page (merge dedupes on the primary key) rather than skipping it.
-        if state and state.get("offset") is not None:
+        if is_fanout:
+            resumable_source_manager.save_state(PicqerResumeConfig(fanout_state=state))
+        elif state and state.get("offset") is not None:
             resumable_source_manager.save_state(PicqerResumeConfig(offset=int(state["offset"])))
 
-    resource = rest_api_resource(
+    resources = rest_api_resources(
         rest_config,
         team_id,
         job_id,
@@ -172,6 +219,7 @@ def picqer_source(
         resume_hook=save_checkpoint,
         initial_paginator_state=initial_paginator_state,
     )
+    resource = next(r for r in resources if r.name == endpoint)
 
     return SourceResponse(
         name=endpoint,

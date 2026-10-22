@@ -79,7 +79,24 @@ The same hook also increments the `db_connection_created_total` counter when `po
 
 `PERSONS_DB_DEADLINE_MS` (default 2500ms) bounds all persons DB work in one flag evaluation.
 The hash key override check, write, and read, the group type mapping lookup, and the person, cohort, and group properties fetch share one deadline, so sequential calls cannot add up past it.
-The deadline starts when the matcher is built, just before evaluation.
+The budget starts when the matcher is built, just before evaluation.
+The request timeout (`REQUEST_TIMEOUT_MS`) starts earlier, when the request arrives and before it waits for a concurrency permit.
+So the deadline is the earlier of two instants: the budget's end, and `PERSONS_DB_DEADLINE_RESERVE_MS` (default 500ms) before the request timeout ends.
+After a long permit wait, the second instant comes first.
+A request that starts evaluation before that instant has the full reserve to finish after its persons DB calls stop.
+A request that waited past that instant has less than the reserve left, so the request timeout can still return a 503.
+Its persons DB calls fail without taking a connection.
+Those flags report `timeout:persons_db_deadline` even when the persons DB is healthy.
+`persons_db_deadline_bound` on the canonical log line says which limit set the deadline: `request_timeout` for the cap, `budget` otherwise.
+`request_timeout` means time spent before evaluation shortened the deadline.
+It does not show that the persons DB was healthy, because a stall lengthens permit waits and makes the cap set the deadline more often.
+When the cap sets the deadline, raising `PERSONS_DB_DEADLINE_MS` has no effect.
+Setting it to `0` removes the cap, and it also removes the bound on a stalled persons DB.
+The realtime cohort lookup runs after the persons DB calls, and only `REALTIME_COHORT_LOOKUP_TIMEOUT_MS` (default 1000ms) bounds it.
+The default lookup timeout exceeds the default reserve, so a request near the cap that evaluates realtime cohorts can still reach the request timeout.
+Startup clamps the reserve to between 100ms and 2000ms.
+Startup logs a warning when `REQUEST_TIMEOUT_MS` is not more than the reserve, because every `/flags` persons DB call then fails.
+It also logs a warning when `PERSONS_DB_DEADLINE_MS` plus the reserve is at least `REQUEST_TIMEOUT_MS`, because the budget then has no effect on `/flags`.
 Postgres `statement_timeout` cannot cancel a query on a database that has stopped answering, so once a query is in flight this client-side timer is the only bound.
 When the pool has no free connection, the pool acquire timeout (`ACQUIRE_TIMEOUT_SECS`) can fire first, and the call fails with `timeout:pool_timeout` instead.
 
@@ -106,6 +123,7 @@ The canonical log line records the first stopped call in `persons_db_deadline_ex
 The internal batch evaluation endpoint applies the deadline to each person's evaluation.
 A person that fails at the deadline is evaluated once more with a fresh deadline, up to `MAX_PERSON_RETRIES_PER_PAGE` retries per page.
 The deadline bounds each person, not the page.
+`REQUEST_TIMEOUT_MS` does not cover this endpoint, so its deadline is the budget alone, with no reserve.
 A persons database that stays unresponsive still ends the page at `BATCH_FLAG_EVAL_TIMEOUT_MS`.
 When a person's evaluation still returns an error, Django leaves that person out of the static cohort, keeps the persons that matched, and records the run as failed.
 Set `PERSONS_DB_DEADLINE_MS=0` to disable the deadline.
@@ -418,6 +436,7 @@ Queries exceeding 500ms are logged at WARN level with timing information.
 | `BEHAVIORAL_COHORTS_READ_DATABASE_URL`      | empty    | Behavioral cohorts database (enables realtime cohort evaluation) |
 | `BATCH_FLAG_EVAL_SCAN_STATEMENT_TIMEOUT_MS` | 10000    | Statement timeout for the batch evaluation person scan           |
 | `PERSONS_DB_DEADLINE_MS`                    | 2500     | Deadline shared by all persons DB calls in one evaluation        |
+| `PERSONS_DB_DEADLINE_RESERVE_MS`            | 500      | Time left for the rest of the request after that deadline        |
 
 ### Tuning guidance
 

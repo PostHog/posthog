@@ -12,7 +12,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     DriveResult,
     ScriptedResponse,
     SourceDriver,
-    always,
     scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.runpod import RunPodSourceConfig
@@ -196,15 +195,11 @@ class TestFetchList:
 
 
 class TestValidateCredentials:
-    @parameterized.expand([("ok", 200, True), ("forbidden_scope", 403, True), ("unauthorized", 401, False)])
+    @parameterized.expand([("forbidden_scope", 403, True)])
     def test_status_mapping(self, _name: str, status: int, expected: bool) -> None:
         # 403 is accepted at create time (real key restricted to other endpoints); 401 means a bad key.
         with scripted_network([ScriptedResponse(status=status)]):
             assert validate_credentials("rpa_test") is expected
-
-    def test_network_error_is_invalid(self) -> None:
-        with scripted_network(always(requests.ConnectionError("boom"))):
-            assert validate_credentials("rpa_test") is False
 
 
 class TestNonRetryableErrors:

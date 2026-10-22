@@ -31,6 +31,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
+# Cronitor answers an unknown key with a 401 and a real key without the probed scope with a 403.
+_KEY_REJECTED_ERROR = (
+    "Cronitor rejected your API key. Copy the full key from Settings → API keys in your Cronitor account, "
+    "then try again."
+)
+_MISSING_MONITOR_SCOPE_ERROR = (
+    "Your Cronitor API key is missing the monitor:read scope. Update the key's scopes in Cronitor, then reconnect."
+)
+
 
 @SourceRegistry.register
 class CronitorSource(ResumableSource[CronitorSourceConfig, CronitorResumeConfig]):
@@ -55,7 +64,7 @@ class CronitorSource(ResumableSource[CronitorSourceConfig, CronitorResumeConfig]
             name=ExternalDataSourceType.CRONITOR,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Cronitor",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Import your Cronitor monitors, monitor groups, recent job invocations, time-series reliability metrics, issues, and RUM sites with their JavaScript errors into the PostHog Data warehouse.
 
 Create an API key under **Settings → API keys** in your Cronitor account, and enter it here. The key needs `monitor:read` to connect. Add `issue:read` to sync issues, and `site:read` to sync sites and site errors.""",
@@ -129,8 +138,10 @@ Create an API key under **Settings → API keys** in your Cronitor account, and 
         ok, status_code = validate_cronitor_credentials(config.api_key)
         if ok:
             return True, None
-        if status_code in (401, 403):
-            return False, "Invalid Cronitor API key. Make sure the key has the monitor:read scope."
+        if status_code == 401:
+            return False, _KEY_REJECTED_ERROR
+        if status_code == 403:
+            return False, _MISSING_MONITOR_SCOPE_ERROR
         return False, "Could not connect to Cronitor with the provided API key"
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[CronitorResumeConfig]:

@@ -50,6 +50,9 @@ from products.posthog_ai.evals.experiments.seeders import (
     seed_day_old_experiment,
     seed_running_experiment,
 )
+from products.posthog_ai.evals.offline_config import offline_suite
+
+NO_SEND_LOGS = True
 
 
 async def eval_interpretation_traps(ctx: EvalContext) -> None:
@@ -160,7 +163,13 @@ async def eval_interpretation_traps(ctx: EvalContext) -> None:
     ]
 
     await SandboxedPrivateEval(
+        no_send_logs=NO_SEND_LOGS,
         experiment_name="sandboxed-experiments-diagnose-interpretation-cli",
+        send_to_posthog=True,
+        offline_suite=offline_suite(
+            "experiments/eval_interpretation_traps::eval_interpretation_traps",
+            metrics=["diagnosis_group", "advises_against_shipping"],
+        ),
         cases=cases,
         scorers=[
             CitesDiagnosticGroup(),

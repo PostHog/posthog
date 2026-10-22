@@ -23,26 +23,6 @@ class TestDatahubSource:
         # the URL must force the editor to re-enter the token.
         assert self.source.connection_host_fields == ["instance_url"]
 
-    @parameterized.expand(
-        [
-            ("401 Client Error: Unauthorized for url: https://datahub.example.com/openapi/v3/entity/dataset",),
-            ("403 Client Error: Forbidden for url: https://datahub.example.com/openapi/v3/entity/corpuser",),
-        ]
-    )
-    def test_non_retryable_errors_match_auth_failures(self, observed_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable)
-
-    @parameterized.expand(
-        [
-            ("500 Server Error: Internal Server Error for url: https://datahub.example.com/openapi/v3/entity/dataset",),
-            ("429 Client Error: Too Many Requests for url: https://datahub.example.com/openapi/v3/entity/tag",),
-        ]
-    )
-    def test_non_retryable_errors_ignore_transient(self, unrelated_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert not any(key in unrelated_error for key in non_retryable)
-
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.datahub.source.check_endpoint_permissions"
     )

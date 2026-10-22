@@ -215,7 +215,7 @@ class TestFileSystemShortcutAPI(APIBaseTest):
         second = self.client.post(f"/api/projects/{self.team.id}/file_system_shortcut/", payload, format="json")
 
         self.assertEqual(first.status_code, status.HTTP_201_CREATED, first.json())
-        self.assertEqual(second.status_code, status.HTTP_201_CREATED, second.json())
+        self.assertEqual(second.status_code, status.HTTP_200_OK, second.json())
         self.assertEqual(second.json()["id"], first.json()["id"])
         self.assertEqual(FileSystemShortcut.objects.filter(team=self.team, user=self.user).count(), 1)
 

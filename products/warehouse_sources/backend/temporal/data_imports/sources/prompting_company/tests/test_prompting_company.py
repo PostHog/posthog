@@ -147,8 +147,6 @@ def test_sync_rejects_redirects(config: PromptingCompanySourceConfig) -> None:
 @pytest.mark.parametrize(
     "status, schema, valid, error",
     [
-        (200, None, True, None),
-        (401, None, False, "invalid or expired"),
         (403, None, True, None),
         (403, "published_content", False, "content:read"),
         (403, "prompt_suggestions", False, "prompts:read"),

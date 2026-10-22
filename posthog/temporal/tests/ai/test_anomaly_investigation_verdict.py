@@ -201,11 +201,13 @@ class TestInvestigationVerdictPersistence(NonAtomicBaseTest):
             model="test-model",
         )
         await sync_to_async(self._create_slack_destination)()
+        # A render records the user it ran as, and the URL is minted only for that user's asset.
         asset = await sync_to_async(ExportedAsset.objects.create)(
             team=self.team,
             insight=self.insight,
             export_format=ExportedAsset.ExportFormat.PNG,
             content=b"png-bytes",
+            created_by=self.user,
         )
         mock_render.return_value = (asset, b"png-bytes")
 

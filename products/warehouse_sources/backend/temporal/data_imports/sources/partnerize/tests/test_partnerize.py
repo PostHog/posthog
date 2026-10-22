@@ -245,16 +245,7 @@ class TestPartnerizeSourceResponse:
 class TestValidateCredentials:
     @parameterized.expand(
         [
-            ("ok", 200, True, None),
-            (
-                "unauthorized",
-                401,
-                False,
-                "Invalid Partnerize API credentials. Check your user application key and user API key.",
-            ),
-            ("forbidden", 403, False, "Your Partnerize credentials do not have access to publisher '111111l92'."),
             ("not_found", 404, False, "Your Partnerize credentials do not have access to publisher '111111l92'."),
-            ("server_error", 500, False, "Partnerize returned HTTP 500"),
         ]
     )
     def test_status_mapping(

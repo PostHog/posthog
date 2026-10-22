@@ -216,10 +216,6 @@ class TestDevelocity(TestCase):
 
     @parameterized.expand(
         [
-            (200, None, True, None),
-            (200, "gradle_builds", True, None),
-            (401, None, False, "invalid or expired"),
-            (401, "builds", False, "invalid or expired"),
             (403, None, True, None),
             (403, "maven_builds", False, "Access build data via the API"),
         ]

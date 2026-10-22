@@ -716,6 +716,34 @@ class JobsTable:
             return bool(row and row[0])
 
     @staticmethod
+    async def lock_live_lease(
+        conn: psycopg.AsyncConnection[Any],
+        *,
+        lane: str,
+        group_key: str,
+        owner_token: str,
+    ) -> bool:
+        """Confirm this owner holds a live lease and lock the lease row until the transaction ends.
+
+        Call inside a transaction, before the work that the lease guards. A
+        takeover (``try_acquire_sentinel_slot`` or a lease steal) waits on the
+        row lock, so it cannot start until this transaction ends, also when the
+        lease expires during the transaction. False means that the lease
+        expired or has a different owner, so the caller must not do the work.
+        """
+        async with conn.cursor() as cur:
+            await cur.execute(
+                f"""
+                SELECT 1 FROM {JOB_LEASE_TABLE}
+                WHERE lane = %(lane)s AND group_key = %(group_key)s
+                  AND owner_token = %(owner)s AND expires_at > now()
+                FOR UPDATE
+                """,
+                {"lane": lane, "group_key": group_key, "owner": owner_token},
+            )
+            return (await cur.fetchone()) is not None
+
+    @staticmethod
     async def delete_expired_lease(
         conn: psycopg.AsyncConnection[Any],
         *,

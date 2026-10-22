@@ -568,7 +568,7 @@ export const ErrorTrackingIssuesBulkCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Fetch one error tracking issue with impact counts, top in_app frame, latest release, and optional sparkline and event breakdown.
+ * Fetch one error tracking issue with impact counts, trend, top in_app frame, first and latest release, and optional sparkline and event breakdown.
  * @summary Get compact error tracking issue details
  */
 export const errorTrackingQueryIssueCreateBodyFilterTestAccountsDefault = true
@@ -1009,7 +1009,7 @@ export const ErrorTrackingQueryIssuesListCreateBody = /* @__PURE__ */ zod.object
         .string()
         .max(errorTrackingQueryIssuesListCreateBodyReleaseMax)
         .optional()
-        .describe('Filter by exact release ID, version, or git commit ID captured in $exception_releases.'),
+        .describe('Filter by exact release ID, version, or git commit ID captured in $exception_release.'),
     fingerprint: zod
         .union([zod.string(), zod.array(zod.string()).min(1)])
         .optional()
@@ -1312,6 +1312,14 @@ export const ErrorTrackingSymbolSetsBulkDeleteCreateBody = /* @__PURE__ */ zod.o
 })
 
 export const ErrorTrackingSymbolSetsBulkFinishUploadCreateBody = /* @__PURE__ */ zod.object({
+    upload_attempt_id: zod
+        .uuid()
+        .optional()
+        .describe('Optional ID from the corresponding bulk start request for upload analytics.'),
+    upload_run_id: zod
+        .uuid()
+        .optional()
+        .describe('Optional ID shared by every batch in one CLI upload run, including release-ID retries.'),
     content_hashes: zod.record(zod.string(), zod.string()).describe('Map of symbol set ID to uploaded content hash.'),
 })
 
@@ -1352,6 +1360,14 @@ export const ErrorTrackingSymbolSetsBulkStartUploadCreateBody = /* @__PURE__ */ 
         .boolean()
         .default(errorTrackingSymbolSetsBulkStartUploadCreateBodySkipOnConflictDefault)
         .describe('Whether to skip uploaded symbol sets whose content hash changed instead of failing.'),
+    upload_attempt_id: zod
+        .uuid()
+        .optional()
+        .describe('Optional ID used to correlate upload analytics across start and finish requests.'),
+    upload_run_id: zod
+        .uuid()
+        .optional()
+        .describe('Optional ID shared by every batch in one CLI upload run, including release-ID retries.'),
     chunk_ids: zod
         .array(zod.string())
         .optional()

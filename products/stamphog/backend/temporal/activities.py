@@ -1205,6 +1205,7 @@ def _run_reviewer(
     token_path = shlex.quote(STAMPHOG_SANDBOX_GATEWAY_TOKEN_PATH)
     command = (
         f'export AI_GATEWAY_API_KEY="$(cat {token_path})" && rm -f {token_path} && '
+        f'{_SANDBOX_PYTHON_VAR}="$(command -v python3)" && '
         f"cd {shlex.quote(STAMPHOG_SANDBOX_REPO_DIR)} && "
         f"STAMPHOG_REPO_ROOT={shlex.quote(STAMPHOG_SANDBOX_REPO_DIR)} "
         f"STAMPHOG_LAUNCHED_AT_MS=$(date +%s%3N) {_harden_reviewer_command(invocation.command)}"
@@ -1997,6 +1998,9 @@ def mark_review_failed(input: MarkReviewFailedInput) -> None:
         _post_failure_notice(client, run, input.team_id)
 
 
+_SANDBOX_PYTHON_VAR = "STAMPHOG_PYTHON"
+
+
 def _harden_reviewer_command(command: Sequence[str] | str) -> str:
     """Turn the reviewer invocation into a shell string that runs uv in isolation.
 
@@ -2006,10 +2010,17 @@ def _harden_reviewer_command(command: Sequence[str] | str) -> str:
     to a hostile package index — arbitrary code execution inside a sandbox that holds a live
     installation token. ``--no-config`` ignores discovered uv config, ``--no-project`` ignores
     the surrounding project/lockfile; the engine's own PEP 723 script pins its deps.
+
+    Interpreter discovery reads the checkout too: uv looks for a virtual environment in the working
+    directory and its parents, and it executes each candidate to query it before any version or
+    ``--managed-python`` filter applies. Only an absolute ``--python`` path skips that discovery, so
+    the caller resolves the image's ``python3`` into ``_SANDBOX_PYTHON_VAR`` before it changes into
+    the checkout.
     """
     parts = shlex.split(command) if isinstance(command, str) else list(command)
     if len(parts) >= 2 and parts[0] == "uv" and parts[1] == "run":
-        parts = [*parts[:2], "--no-config", "--no-project", *parts[2:]]
+        uv_run = shlex.join([*parts[:2], "--no-config", "--no-project"])
+        return f'{uv_run} --python "${_SANDBOX_PYTHON_VAR}" {shlex.join(parts[2:])}'
     return shlex.join(parts)
 
 

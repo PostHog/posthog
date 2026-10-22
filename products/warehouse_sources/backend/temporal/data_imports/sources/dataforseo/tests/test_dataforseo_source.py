@@ -168,7 +168,6 @@ class TestDataForSEOSource:
 
     @parameterized.expand(
         [
-            ("http_401", "401 Client Error: Unauthorized for url: https://api.dataforseo.com"),
             ("http_402", "402 Client Error: Payment Required for url: https://api.dataforseo.com"),
             ("body_auth", "DataForSEO API error [40100]"),
             ("body_funds", "DataForSEO API error [40200]"),

@@ -128,7 +128,7 @@ class WorkizSource(ResumableSource[WorkizSourceConfig, WorkizResumeConfig]):
             ),
             docsUrl="https://posthog.com/docs/cdp/sources/workiz",
             iconPath="/static/services/workiz.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             keywords=["field service", "jobs", "leads"],
             fields=cast(
                 list[FieldType],

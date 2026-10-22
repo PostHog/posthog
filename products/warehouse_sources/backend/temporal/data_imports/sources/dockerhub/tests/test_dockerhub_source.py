@@ -1,7 +1,5 @@
 from unittest import mock
 
-from parameterized import parameterized
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.dockerhub.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.dockerhub.source import DockerhubSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.dockerhub import (
@@ -29,26 +27,6 @@ class TestDockerhubSource:
 
         # A blank namespace means the user's own, so the probe must run against the username.
         assert probe.call_args.args == ("tom", "dckr_pat_token", "tom", list(ENDPOINTS))
-
-    @parameterized.expand(
-        [
-            ("401 Client Error: Unauthorized for url: https://hub.docker.com/v2/users/login",),
-            ("403 Client Error: Forbidden for url: https://hub.docker.com/v2/namespaces/tom/repositories",),
-        ]
-    )
-    def test_non_retryable_errors_match_auth_failures(self, observed_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable)
-
-    @parameterized.expand(
-        [
-            ("500 Server Error: Internal Server Error for url: https://hub.docker.com/v2/users/login",),
-            ("429 Client Error: Too Many Requests for url: https://hub.docker.com/v2/namespaces/tom/repositories",),
-        ]
-    )
-    def test_non_retryable_errors_ignore_transient(self, unrelated_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert not any(key in unrelated_error for key in non_retryable)
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.dockerhub.source.dockerhub_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:

@@ -123,7 +123,7 @@ class RKICovidSource(SimpleSource[RKICovidSourceConfig]):
             name=ExternalDataSourceType.RKICOVID,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="RKI COVID-19",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["covid", "corona", "coronavirus", "rki", "germany", "public health"],
             caption="""Pull German COVID-19 statistics (nationwide, per state, and per district) into the PostHog Data warehouse from the public RKI COVID-19 API at [api.corona-zahlen.org](https://api.corona-zahlen.org).
 

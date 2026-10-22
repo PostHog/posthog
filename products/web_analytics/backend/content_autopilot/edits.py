@@ -71,6 +71,10 @@ def _headings(lines: list[str]) -> dict[int, tuple[int, str]]:
     return headings
 
 
+def heading_levels(markdown: str) -> list[int]:
+    return [level for level, _ in _headings(markdown.splitlines()).values()]
+
+
 def page_headings(markdown: str) -> list[str]:
     return [parsed[1] for parsed in _headings(markdown.splitlines()).values() if parsed[0] >= 2]
 

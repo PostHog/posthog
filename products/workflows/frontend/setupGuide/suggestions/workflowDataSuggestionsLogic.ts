@@ -221,7 +221,7 @@ export const workflowDataSuggestionsLogic = kea<workflowDataSuggestionsLogicType
                 // pinned: analytics event name - renaming breaks dashboards
                 posthog.capture('workflows data suggestions shown', {
                     surface: props.surface,
-                    source: 'ai',
+                    source: aiResult.suggestions.some((suggestion) => suggestion.premade) ? 'premade' : 'ai',
                     trigger_events: aiResult.suggestions.map((suggestion) => suggestion.trigger_event),
                     stages: aiResult.suggestions.map((suggestion) => suggestion.stage),
                 })
@@ -240,7 +240,7 @@ export const workflowDataSuggestionsLogic = kea<workflowDataSuggestionsLogicType
                 // pinned: analytics event name - renaming breaks dashboards
                 posthog.capture('workflows data suggestion clicked', {
                     surface: props.surface,
-                    source: 'ai',
+                    source: card.premade ? 'premade' : 'ai',
                     trigger_event: card.triggerEvent,
                     weekly_count: card.weeklyCount,
                     stage: card.stage,
@@ -256,7 +256,20 @@ export const workflowDataSuggestionsLogic = kea<workflowDataSuggestionsLogicType
                         { suggestion_id: card.suggestionId, retry },
                         { signal: AbortSignal.timeout(Math.max(deadline - Date.now(), 0)) }
                     )
-                try {
+                // A premade card is saved and linked to its idea in one request, so a failure cannot leave an
+                // unlinked draft behind for the next click to duplicate.
+                const saveDraft = async (): Promise<{ workflowId: string; usesSavedTemplate: boolean }> => {
+                    const saved = await workflowDataSuggestionsBuild(
+                        projectId,
+                        { suggestion_id: card.suggestionId, save_draft: true },
+                        { signal: AbortSignal.timeout(SAVE_REQUEST_TIMEOUT_MS) }
+                    )
+                    if (saved.status !== 'ready' || !saved.workflow_id) {
+                        throw new Error(BUILD_FAILED_MESSAGE)
+                    }
+                    return { workflowId: saved.workflow_id, usesSavedTemplate: saved.uses_saved_template }
+                }
+                const buildAndSave = async (): Promise<{ workflowId: string; usesSavedTemplate: boolean }> => {
                     // The build runs in the background. Asking again is free while it runs, and breakpoint stops
                     // the loop, the save and the redirect once the person leaves the page.
                     let built = await requestBuild(true)
@@ -287,21 +300,25 @@ export const workflowDataSuggestionsLogic = kea<workflowDataSuggestionsLogicType
                         >[1],
                         { signal: AbortSignal.timeout(SAVE_REQUEST_TIMEOUT_MS) }
                     )
+                    return { workflowId: workflow.id, usesSavedTemplate: built.uses_saved_template }
+                }
+                try {
+                    const { workflowId, usesSavedTemplate } = card.premade ? await saveDraft() : await buildAndSave()
                     breakpoint()
                     // pinned: entry source value - 'workflow enabled' reports it, so renaming breaks the funnel
-                    saveEntrySource(workflow.id, 'data_suggestion')
+                    saveEntrySource(workflowId, 'data_suggestion')
                     // pinned: analytics event name - renaming breaks dashboards
                     posthog.capture('workflows data suggestion built', {
-                        workflow_id: workflow.id,
+                        workflow_id: workflowId,
                         surface: props.surface,
                         trigger_event: card.triggerEvent,
                         stage: card.stage,
-                        uses_saved_template: built.uses_saved_template,
+                        uses_saved_template: usesSavedTemplate,
                     })
                     if (props.surface === 'onboarding_wizard') {
                         workflowsOnboardingWizardLogic.findMounted()?.actions.finishWithSuggestion()
                     }
-                    router.actions.push(urls.workflow(workflow.id, 'workflow'))
+                    router.actions.push(urls.workflow(workflowId, 'workflow'))
                 } catch (error: any) {
                     if (isBreakpoint(error)) {
                         throw error

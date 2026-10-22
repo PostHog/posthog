@@ -14,6 +14,7 @@ import {
 } from 'kea'
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
+import posthog from 'posthog-js'
 
 import { ApiError, readableErrorMessage } from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
@@ -120,6 +121,8 @@ export interface RunContinuationHandoff {
  * `unconfirmed` the message may already be with the agent — only an explicit send may repeat it.
  */
 export type QueueHold = 'cancelled' | 'unconfirmed' | null
+
+type TurnCancelCause = 'user_stop' | 'steer' | 'unknown'
 
 /** One follow-up staged in the queue while the agent is mid-turn. */
 export interface QueuedMessage {
@@ -1266,6 +1269,41 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
         }
 
         return {
+            // Only a Stop the cancellation logic accepts counts: one it ignores or fails to send must not claim
+            // the next cancel, which a later steer may cause.
+            [runCancellationLogic({ streamKey: props.streamKey ?? props.runId }).actionTypes.setCancellationState]: ({
+                state,
+            }) => {
+                if (state === 'waiting') {
+                    cache.turnCancelCause = 'user_stop'
+                }
+            },
+            [runCancellationLogic({ streamKey: props.streamKey ?? props.runId }).actionTypes.cancellationFailed]:
+                () => {
+                    cache.turnCancelCause = undefined
+                },
+            // Separates a cancel the user asked for from one a steer caused, which the thread can't tell apart.
+            [runStreamLogic({ streamKey: props.streamKey ?? props.runId }).actionTypes.ingestAcpFrame]: ({
+                entry,
+                source,
+            }) => {
+                if (
+                    source !== 'live' ||
+                    entry.notification.method !== '_posthog/turn_complete' ||
+                    (entry.source_run_id && entry.source_run_id !== values.bootstrappedRunId)
+                ) {
+                    return
+                }
+                const cause: TurnCancelCause = cache.turnCancelCause ?? 'unknown'
+                cache.turnCancelCause = undefined
+                if (entry.notification.params?.stopReason === 'cancelled') {
+                    posthog.capture('task_run_turn_cancelled', {
+                        cause,
+                        task_id: props.taskId,
+                        run_id: values.bootstrappedRunId,
+                    })
+                }
+            },
             handleEscape: () => {
                 if (values.cancellationState || values.steerPending) {
                     return
@@ -1471,6 +1509,9 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                     if (!isCurrent() || values.hasUnresolvedApproval) {
                         throw new Error('The run cannot accept this message yet')
                     }
+                    if (steer && !cache.turnCancelCause) {
+                        cache.turnCancelCause = 'steer'
+                    }
                     const response = await tasksRunsCommandCreate(String(projectId), taskId, runId, {
                         jsonrpc: '2.0',
                         method: 'user_message',
@@ -1521,6 +1562,9 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                     } else {
                         actions.queueDeliveryFailed()
                         restoreQueuedRows(rows, content)
+                        if (steer && cache.turnCancelCause === 'steer') {
+                            cache.turnCancelCause = undefined
+                        }
                     }
                     actions.finishTaskDraftDelivery()
                     lemonToast.error('Failed to send message. Please try again.')

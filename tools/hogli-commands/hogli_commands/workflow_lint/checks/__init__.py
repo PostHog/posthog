@@ -24,6 +24,7 @@ from .required_gates import RequiredGateCheck
 from .reusable_secret_passthrough import ReusableSecretPassthroughCheck
 from .semgrep_services_coverage import SemgrepServicesCoverageCheck
 from .shell_split_action_args import ShellSplitActionArgsCheck
+from .storybook_static_dirs_coverage import StorybookStaticDirsCoverageCheck
 
 CHECKS: list[WorkflowCheck] = [
     JobTimeoutsCheck(),
@@ -38,6 +39,7 @@ CHECKS: list[WorkflowCheck] = [
     ReusableSecretPassthroughCheck(),
     PinnedRunnerImagesCheck(),
     ShellSplitActionArgsCheck(),
+    StorybookStaticDirsCoverageCheck(),
 ]
 
 

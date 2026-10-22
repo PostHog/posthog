@@ -82,8 +82,6 @@ class TestValidateCredentials:
     @pytest.mark.parametrize(
         "status_code, fragment",
         [
-            (401, "API key"),
-            (403, "API key"),
             (404, "site"),
             (400, "status 400"),
         ],

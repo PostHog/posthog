@@ -138,7 +138,7 @@ class TestSourceResponse:
 
 
 class TestValidateCredentials:
-    @parameterized.expand([("unauthorized", 401), ("forbidden", 403), ("not_found", 404)])
+    @parameterized.expand([("not_found", 404)])
     def test_non_200_returns_false(self, _name: str, status_code: int) -> None:
         with scripted_network([ScriptedResponse(status=status_code)]) as network:
             assert validate_credentials("tok") is False

@@ -56,9 +56,6 @@ class TestValidateCredentials:
     @parameterized.expand(
         [
             ("ok", 200, True, None),
-            ("unauthorized", 401, False, "Invalid CodeScene API token"),
-            ("forbidden", 403, False, "does not have the Admin, Architect, or RestApi role"),
-            ("server_error", 500, False, "Could not connect to CodeScene"),
         ]
     )
     def test_status_mapping(

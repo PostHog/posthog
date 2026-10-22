@@ -5,8 +5,8 @@ from collections.abc import Callable
 from products.workflows.backend.facade.contracts import LifecycleStage
 
 # For a team with no workflows yet, welcome and onboarding flows convert best, but their events fire far less
-# often than product usage events. These weights let a quiet sign-up event outrank a busy usage event, while
-# volume still counts within a stage.
+# often than product usage events. These weights let a quiet sign-up event outrank a busy usage event. Volume
+# counts within a stage only when events are picked for the prompt.
 STAGE_WEIGHTS: dict[LifecycleStage, float] = {
     "signup": 5.0,
     "onboarding": 4.0,
@@ -30,7 +30,7 @@ _STAGE_REGEXES: tuple[tuple[LifecycleStage, str], ...] = (
     ("signup", r"sign.?up|signed.?up|regist|(account|user|workspace|organi[sz]ation|team).?created"),
     ("onboarding", r"onboard|activat|welcome|invite"),
     ("trial", r"trial"),
-    ("churn_risk", r"cancel|churn|downgrad|unsubscri|(account|user|workspace|organi[sz]ation).?delet"),
+    ("churn_risk", r"cancel|churn|downgrad|unsubscri|paus|(account|user|workspace|organi[sz]ation).?delet"),
     ("failure", r"fail|error"),
     ("purchase", r"subscri|upgrad|purchas|order|checkout|payment|paid|plan"),
     ("support", r"ticket|survey|feedback"),

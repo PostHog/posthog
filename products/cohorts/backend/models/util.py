@@ -61,6 +61,9 @@ from products.cohorts.backend.models.dependencies import get_cohort_dependents
 from products.cohorts.backend.models.sql import GET_COHORT_SIZE_SQL, RECALCULATE_COHORT_BY_ID
 
 if TYPE_CHECKING:
+    from celery import Task
+    from celery.result import AsyncResult
+
     from posthog.personhog_client import ReadConsistency
 
 # temporary marker to denote when cohortpeople table started being populated
@@ -205,6 +208,18 @@ def save_recovery_bookkeeping(save_fn: Callable[[], None], *, cohort_id: int, te
             capture_exception(retry_error, additional_properties={"cohort_id": cohort_id, "team_id": team_id})
 
 
+def _schedule_cohort_stats_collection(
+    task: Task, args: list[Any], *, countdown: int, cohort_id: int
+) -> AsyncResult | None:
+    """Queue the optional stats task. A broker failure must not fail the cohort calculation."""
+    try:
+        return task.apply_async(args=args, countdown=countdown)
+    except Exception as e:
+        logger.warning("cohort_stats_collection_schedule_failed", cohort_id=cohort_id, exc_info=True)
+        capture_exception(e, additional_properties={"cohort_id": cohort_id})
+        return None
+
+
 def run_cohort_query(
     fn, *args, cohort_id: int, history: CohortCalculationHistory | None = None, query: str | None = None, **kwargs
 ):
@@ -241,9 +256,11 @@ def run_cohort_query(
         # Schedule delayed task to collect stats after query_log_archive is synced
         # Only if we have a history record to update and not in test mode
         if history and query and not (settings.TEST or settings.IN_EVAL_TESTING):
-            delayed_task = collect_cohort_query_stats.apply_async(
-                args=[cohort_tag, cohort_id, start_time.isoformat(), history.id, query],
+            delayed_task = _schedule_cohort_stats_collection(
+                collect_cohort_query_stats,
+                [cohort_tag, cohort_id, start_time.isoformat(), history.id, query],
                 countdown=COHORT_QUERY_TIMEOUT_SECONDS + COHORT_STATS_COLLECTION_DELAY_SECONDS,
+                cohort_id=cohort_id,
             )
 
     try:
@@ -253,13 +270,18 @@ def run_cohort_query(
         # If calculation succeeded and we scheduled a delayed task, cancel it and run immediately
         # This avoids waiting the full timeout when the query completed quickly
         if delayed_task and history and query and not settings.TEST:
-            if delayed_task.state in ["PENDING", "RECEIVED"]:
+            try:
                 delayed_task.revoke()  # Cancel the delayed task
+            except Exception as e:
+                logger.warning("cohort_stats_collection_revoke_failed", cohort_id=cohort_id, exc_info=True)
+                capture_exception(e, additional_properties={"cohort_id": cohort_id})
 
             # Run immediately since the query already completed
-            collect_cohort_query_stats.apply_async(
-                args=[cohort_tag, cohort_id, start_time.isoformat(), history.id, query],
+            _schedule_cohort_stats_collection(
+                collect_cohort_query_stats,
+                [cohort_tag, cohort_id, start_time.isoformat(), history.id, query],
                 countdown=COHORT_STATS_COLLECTION_DELAY_SECONDS,
+                cohort_id=cohort_id,
             )
 
         return result, end_time
@@ -636,6 +658,11 @@ def _trim_trailing_settings(sql: str) -> str:
     return sql[: sql.rfind("SETTINGS")]
 
 
+# Every INSERT creates a new part. Callers that add a few people per call, such as a workflow step that runs once
+# per person, would create one part per person, so ClickHouse buffers small inserts into shared parts instead.
+STATIC_COHORT_ASYNC_INSERT_MAX_ROWS = 100
+
+
 def insert_static_cohort(person_uuids: Sequence[Optional[uuid.UUID]], cohort_id: int, *, team_id: int):
     tag_queries(
         product=ProductKey.COHORTS,
@@ -654,7 +681,12 @@ def insert_static_cohort(person_uuids: Sequence[Optional[uuid.UUID]], cohort_id:
         }
         for person_uuid in person_uuids
     ]
-    sync_execute(INSERT_PERSON_STATIC_COHORT, persons)
+    # wait_for_async_insert returns only after the buffer is flushed, so a failed write still raises and a
+    # following membership read sees the row.
+    insert_settings = (
+        {"async_insert": 1, "wait_for_async_insert": 1} if len(persons) <= STATIC_COHORT_ASYNC_INSERT_MAX_ROWS else None
+    )
+    sync_execute(INSERT_PERSON_STATIC_COHORT, persons, settings=insert_settings)
 
 
 def remove_person_from_static_cohort(person_uuid: uuid.UUID, cohort_id: int, *, team_id: int):

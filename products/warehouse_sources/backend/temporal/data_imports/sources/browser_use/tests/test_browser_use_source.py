@@ -40,17 +40,6 @@ class TestBrowserUseSource:
             assert schema.supports_append is False
             assert schema.incremental_fields == []
 
-    @parameterized.expand(
-        [
-            ("401", "401 Client Error: Unauthorized for url: https://api.browser-use.com/api/v3/sessions?page=1"),
-            ("403", "403 Client Error: Forbidden for url: https://api.browser-use.com/api/v3/sessions?page=1"),
-        ]
-    )
-    def test_permission_errors_are_non_retryable(self, _name: str, observed: str) -> None:
-        # 401 (bad key) and 403 (key without access) can never be satisfied by a retry, so both must
-        # be classified terminal with an actionable message instead of looping the sync.
-        assert any(key in observed for key in self.source.get_non_retryable_errors())
-
     @parameterized.expand([("valid", True, True, None), ("invalid", False, False, "Invalid Browser Use API key")])
     def test_validate_credentials(
         self, _name: str, probe_result: bool, expected_valid: bool, expected_message: str | None

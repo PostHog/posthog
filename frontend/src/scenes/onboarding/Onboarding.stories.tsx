@@ -380,3 +380,55 @@ export const InviteTeammates: Story = {
         return <App />
     },
 }
+
+// ==========================================
+// Simple flow (experiment arm)
+// ==========================================
+
+const CONNECTED_APP = {
+    id: '0197c2a2-0000-0000-0000-000000000001',
+    name: 'Claude Code',
+    logo_uri: null,
+    scopes: ['openid'],
+    authorized_at: '2023-05-25T00:00:00Z',
+    is_verified: true,
+    is_first_party: false,
+    is_self_registered: true,
+}
+
+// A new organization has no subscription yet, so the simple flow ends with the plan step.
+function simpleFlowStory(
+    stepKey: OnboardingStepKey,
+    connectedApps: (typeof CONNECTED_APP)[],
+    waitForLoadersToDisappear: boolean
+): Story {
+    return {
+        render: () => {
+            useMountedLogic(onboardingLogic)
+
+            useStorybookMocks({
+                get: { '/api/oauth/connected-apps/': connectedApps, '/api/billing/': { ...billingUnsubscribedJson } },
+            })
+
+            useDelayedOnMountEffect(() => {
+                router.actions.push(urls.simpleOnboarding(), {
+                    step: `${stepKey}:${ProductKey.PRODUCT_ANALYTICS}`,
+                })
+            })
+
+            return <App />
+        },
+        parameters: {
+            featureFlags: { [FEATURE_FLAGS.ONBOARDING_SIMPLE_FLOW]: 'test' },
+            testOptions: { waitForSelector: '[data-attr="wizard-command-block"]', waitForLoadersToDisappear },
+        },
+    }
+}
+
+// The install step's realtime check keeps a spinner up until the first event arrives.
+export const SimpleFlowInstall: Story = simpleFlowStory(OnboardingStepKey.INSTALL, [], false)
+
+// The MCP step shows a spinner for as long as no agent is connected, which is the state under test.
+export const SimpleFlowConnectMcp: Story = simpleFlowStory(OnboardingStepKey.MCP, [], false)
+
+export const SimpleFlowMcpConnected: Story = simpleFlowStory(OnboardingStepKey.MCP, [CONNECTED_APP], true)

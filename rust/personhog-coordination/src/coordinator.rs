@@ -15,6 +15,8 @@ use k8s_awareness::types::{ControllerKind, ControllerRef};
 use k8s_awareness::{classify_departure, ClusterIntent, DepartureReason, K8sAwareness};
 
 use crate::error::{Error, Result};
+use crate::migration;
+use crate::protocol::migration::planner_may_place;
 use crate::protocol::{
     drain_satisfied, freeze_quorum_met, missing_freeze_ackers, past_phase_deadline,
     plan_partial_rebalance, warm_satisfied,
@@ -90,6 +92,9 @@ pub struct CoordinatorConfig {
     /// not exceed the server's value — a larger transaction is refused
     /// outright, and the planner would retry it forever.
     pub max_txn_ops: usize,
+    /// Frozen partitions are a write outage, so the saga cancels past this.
+    pub migration_pre_flip_deadline: Duration,
+    pub migration_debounce_interval: Duration,
 }
 
 impl Default for CoordinatorConfig {
@@ -116,6 +121,8 @@ impl Default for CoordinatorConfig {
             // etcd's own default; deployments that raise the server
             // flag raise this with it from the same chart value.
             max_txn_ops: 128,
+            migration_pre_flip_deadline: Duration::from_secs(30),
+            migration_debounce_interval: Duration::from_millis(10),
         }
     }
 }
@@ -648,6 +655,10 @@ impl Coordinator {
         let drained_acks_stream = self.store.watch_drained_acks_from(anchor).await?;
         let warmed_acks_stream = self.store.watch_warmed_acks_from(anchor).await?;
         let routers_stream = self.store.watch_routers_from(anchor).await?;
+        let migration_stream = self.store.watch_migration_from(anchor).await?;
+        let seal_acks_stream = self.store.watch_seal_acks_from(anchor).await?;
+        let request_stream = self.store.watch_migration_request_from(anchor).await?;
+        let drain_reports_stream = self.store.watch_drain_reports_from(anchor).await?;
 
         let mut tasks = tokio::task::JoinSet::new();
 
@@ -659,6 +670,8 @@ impl Coordinator {
         // single planner task; `Notify` stores a permit, so a wake fired
         // mid-plan is picked up on the next iteration rather than lost.
         let replan = Arc::new(Notify::new());
+        // The migration driver's own wake; the planner stands down while holds exist.
+        let migrate = Arc::new(Notify::new());
 
         {
             let store = Arc::clone(&self.store);
@@ -668,6 +681,7 @@ impl Coordinator {
             let deadlines = self.config.phase_deadlines();
             let max_txn_ops = self.config.max_txn_ops;
             let replan = Arc::clone(&replan);
+            let migrate = Arc::clone(&migrate);
             let token = cancel.child_token();
             tasks.spawn(async move {
                 Self::watch_pods_loop(
@@ -678,6 +692,7 @@ impl Coordinator {
                     deadlines,
                     max_txn_ops,
                     replan,
+                    migrate,
                     token,
                     pods_stream,
                 )
@@ -691,6 +706,7 @@ impl Coordinator {
             let k8s_awareness = self.k8s_awareness.clone();
             let deadlines = self.config.phase_deadlines();
             let max_txn_ops = self.config.max_txn_ops;
+            let migrate = Arc::clone(&migrate);
             let token = cancel.child_token();
             tasks.spawn(async move {
                 Self::watch_handoffs_loop(
@@ -699,6 +715,7 @@ impl Coordinator {
                     k8s_awareness,
                     deadlines,
                     max_txn_ops,
+                    migrate,
                     token,
                     handoffs_stream,
                 )
@@ -708,25 +725,56 @@ impl Coordinator {
 
         {
             let store = Arc::clone(&self.store);
+            let migrate = Arc::clone(&migrate);
             let token = cancel.child_token();
             tasks.spawn(async move {
-                Self::run_ack_watch("freeze", freeze_acks_stream, &store, token).await
+                Self::run_ack_watch("freeze", freeze_acks_stream, &store, migrate, token).await
             });
         }
 
         {
             let store = Arc::clone(&self.store);
+            let migrate = Arc::clone(&migrate);
             let token = cancel.child_token();
             tasks.spawn(async move {
-                Self::run_ack_watch("drained", drained_acks_stream, &store, token).await
+                Self::run_ack_watch("drained", drained_acks_stream, &store, migrate, token).await
             });
         }
 
         {
             let store = Arc::clone(&self.store);
+            let migrate = Arc::clone(&migrate);
             let token = cancel.child_token();
             tasks.spawn(async move {
-                Self::run_ack_watch("warmed", warmed_acks_stream, &store, token).await
+                Self::run_ack_watch("warmed", warmed_acks_stream, &store, migrate, token).await
+            });
+        }
+
+        {
+            let store = Arc::clone(&self.store);
+            let strategy = Arc::clone(&self.strategy);
+            let k8s_awareness = self.k8s_awareness.clone();
+            let pre_flip_deadline = self.config.migration_pre_flip_deadline;
+            let debounce_interval = self.config.migration_debounce_interval;
+            let max_txn_ops = self.config.max_txn_ops;
+            let migrate = Arc::clone(&migrate);
+            let token = cancel.child_token();
+            tasks.spawn(async move {
+                Self::migration_loop(
+                    store,
+                    strategy,
+                    k8s_awareness,
+                    pre_flip_deadline,
+                    debounce_interval,
+                    max_txn_ops,
+                    migrate,
+                    token,
+                    migration_stream,
+                    seal_acks_stream,
+                    request_stream,
+                    drain_reports_stream,
+                )
+                .await
             });
         }
 
@@ -742,10 +790,11 @@ impl Coordinator {
             let store = Arc::clone(&self.store);
             let interval = self.config.reconcile_interval;
             let replan = Arc::clone(&replan);
+            let migrate = Arc::clone(&migrate);
             let token = cancel.child_token();
-            tasks.spawn(
-                async move { Self::reconcile_tick_loop(store, interval, replan, token).await },
-            );
+            tasks.spawn(async move {
+                Self::reconcile_tick_loop(store, interval, replan, migrate, token).await
+            });
         }
 
         // Reconcile any handoffs that already have full ack quorum.
@@ -777,6 +826,7 @@ impl Coordinator {
         deadlines: PhaseDeadlines,
         max_txn_ops: usize,
         replan: Arc<Notify>,
+        migrate: Arc<Notify>,
         cancel: CancellationToken,
         mut stream: WatchStream,
     ) -> Result<()> {
@@ -814,7 +864,128 @@ impl Coordinator {
                 max_txn_ops,
             )
             .await?;
+            migrate.notify_one();
         }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn migration_loop(
+        store: Arc<PersonhogStore>,
+        strategy: Arc<dyn AssignmentStrategy>,
+        k8s_awareness: Option<Arc<K8sAwareness>>,
+        pre_flip_deadline: Duration,
+        debounce_interval: Duration,
+        max_txn_ops: usize,
+        migrate: Arc<Notify>,
+        cancel: CancellationToken,
+        mut migration_stream: WatchStream,
+        mut seal_acks_stream: WatchStream,
+        mut request_stream: WatchStream,
+        mut drain_reports_stream: WatchStream,
+    ) -> Result<()> {
+        let _gauge = migration::PhaseGauge;
+        migration::register_transition_metrics();
+        migration::register_retire_metrics();
+        loop {
+            tokio::select! {
+                _ = cancel.cancelled() => return Ok(()),
+                _ = migrate.notified() => {}
+                msg = migration_stream.message() => {
+                    util::live_watch_response(msg?, "migration")?;
+                }
+                msg = seal_acks_stream.message() => {
+                    util::live_watch_response(msg?, "seal ack")?;
+                }
+                msg = request_stream.message() => {
+                    util::live_watch_response(msg?, "migration request")?;
+                }
+                msg = drain_reports_stream.message() => {
+                    util::live_watch_response(msg?, "drain report")?;
+                }
+            }
+            let deadline = tokio::time::Instant::now() + debounce_interval;
+            loop {
+                tokio::select! {
+                    _ = cancel.cancelled() => return Ok(()),
+                    _ = tokio::time::sleep_until(deadline) => break,
+                    _ = migrate.notified() => {}
+                    msg = migration_stream.message() => {
+                        util::live_watch_response(msg?, "migration")?;
+                    }
+                    msg = seal_acks_stream.message() => {
+                        util::live_watch_response(msg?, "seal ack")?;
+                    }
+                    msg = request_stream.message() => {
+                        util::live_watch_response(msg?, "migration request")?;
+                    }
+                    msg = drain_reports_stream.message() => {
+                        util::live_watch_response(msg?, "drain report")?;
+                    }
+                }
+            }
+            Self::drive_migration_static(
+                &store,
+                strategy.as_ref(),
+                k8s_awareness.as_deref(),
+                pre_flip_deadline,
+                max_txn_ops,
+            )
+            .await?;
+        }
+    }
+
+    async fn drive_migration_static(
+        store: &PersonhogStore,
+        strategy: &dyn AssignmentStrategy,
+        k8s_awareness: Option<&K8sAwareness>,
+        pre_flip_deadline: Duration,
+        max_txn_ops: usize,
+    ) -> Result<()> {
+        let Some((migration, mod_revision)) = store.get_migration_with_mod_revision().await? else {
+            migration::record_phase(None);
+            // No saga: a drained generation retires, then a waiting request may
+            // start once nothing drains and the fleet is quiet.
+            let draining = match migration::retire_drained(store).await? {
+                migration::Retirement::Retired => return Ok(()),
+                migration::Retirement::Waiting(waiting) => waiting,
+                migration::Retirement::Clear => Vec::new(),
+            };
+            let Some((request, request_revision)) =
+                store.get_migration_request_with_mod_revision().await?
+            else {
+                return Ok(());
+            };
+            let pods = store.list_pods().await?;
+            let members = match k8s_awareness {
+                Some(k8s) => members_for_k8s(k8s, &pods, request.to.partitions).await,
+                None => Member::active_all(&active_pod_names(&pods)),
+            };
+            return migration::consider_request(
+                store,
+                &members,
+                &pods,
+                request,
+                request_revision,
+                draining,
+            )
+            .await;
+        };
+        let pods = store.list_pods().await?;
+        let members = match k8s_awareness {
+            Some(k8s) => members_for_k8s(k8s, &pods, migration.to.partitions).await,
+            None => Member::active_all(&active_pod_names(&pods)),
+        };
+        migration::reconcile(
+            store,
+            strategy,
+            &members,
+            &pods,
+            pre_flip_deadline,
+            max_txn_ops,
+            migration,
+            mod_revision,
+        )
+        .await
     }
 
     fn log_pod_events(resp: &etcd_client::WatchResponse) {
@@ -826,12 +997,14 @@ impl Coordinator {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn watch_handoffs_loop(
         store: Arc<PersonhogStore>,
         strategy: Arc<dyn AssignmentStrategy>,
         k8s_awareness: Option<Arc<K8sAwareness>>,
         deadlines: PhaseDeadlines,
         max_txn_ops: usize,
+        migrate: Arc<Notify>,
         cancel: CancellationToken,
         mut stream: WatchStream,
     ) -> Result<()> {
@@ -840,6 +1013,7 @@ impl Coordinator {
                 _ = cancel.cancelled() => return Ok(()),
                 msg = stream.message() => {
                     let resp = util::live_watch_response(msg?, "handoff")?;
+                    migrate.notify_one();
                     for event in resp.events() {
                         if event.event_type() == EventType::Put {
                             match parse_watch_value::<HandoffState>(event) {
@@ -887,6 +1061,7 @@ impl Coordinator {
         kind: &str,
         mut stream: WatchStream,
         store: &PersonhogStore,
+        migrate: Arc<Notify>,
         cancel: CancellationToken,
     ) -> Result<()> {
         loop {
@@ -894,6 +1069,7 @@ impl Coordinator {
                 _ = cancel.cancelled() => return Ok(()),
                 msg = stream.message() => {
                     let resp = util::live_watch_response(msg?, kind)?;
+                    migrate.notify_one();
                     for event in resp.events() {
                         if event.event_type() == EventType::Put {
                             let partition = event.kv().and_then(|kv| {
@@ -949,6 +1125,7 @@ impl Coordinator {
         store: Arc<PersonhogStore>,
         interval: Duration,
         replan: Arc<Notify>,
+        migrate: Arc<Notify>,
         cancel: CancellationToken,
     ) -> Result<()> {
         let mut tick = tokio::time::interval(interval);
@@ -988,6 +1165,7 @@ impl Coordinator {
                     // planning decision — the planner replaces a doomed
                     // handoff with whatever resolves its stashes.
                     replan.notify_one();
+                    migrate.notify_one();
                     // The gauge refresh is best-effort and runs after the
                     // reconcile pass: its reads exist only for metrics and
                     // must never delay or interrupt handoff advancement.
@@ -1163,6 +1341,10 @@ impl Coordinator {
                 }
             }
             HandoffPhase::Draining => {
+                // Held records stop here; the migration driver replaces them.
+                if handoff.is_held() {
+                    return Ok(());
+                }
                 // Drain semantics live in `protocol::drain_satisfied`
                 // (shared with the stateright model).
                 let pods = store.list_pods().await?;
@@ -1281,14 +1463,21 @@ impl Coordinator {
         max_txn_ops: usize,
     ) -> Result<()> {
         let pods = store.list_pods().await?;
-        let total_partitions = match store.get_total_partitions().await {
-            Ok(n) => n,
-            Err(Error::NotFound(_)) => {
-                tracing::debug!("total_partitions not set, skipping assignment");
-                return Ok(());
-            }
-            Err(e) => return Err(e),
+        // Every plan this pass writes requires the basis unchanged; the
+        // fallback deletes below are guarded on their own records instead.
+        let basis = store.read_plan_basis().await?;
+        let Some(changelog) = &basis.config else {
+            tracing::debug!("changelog config not seeded, skipping assignment");
+            return Ok(());
         };
+        let (total_partitions, config_epoch) = (changelog.partitions, changelog.epoch);
+        let in_flight = store.list_handoffs_with_mod_revisions().await?;
+        if !planner_may_place(
+            basis.migration.as_ref().map(|m| m.phase),
+            in_flight.iter().any(|(h, _)| h.is_held()),
+        ) {
+            return Ok(());
+        }
 
         // K8s-aware placement policies for smarter rebalancing
         let members = match k8s_awareness {
@@ -1309,11 +1498,11 @@ impl Coordinator {
         // Everything else pins its partition: the plan excludes it and
         // attributes it to its target, so a stuck handoff defers only
         // its own partition.
-        let in_flight = store.list_handoffs_with_mod_revisions().await?;
         let registered: HashSet<&str> = pods.iter().map(|p| p.pod_name.as_str()).collect();
         let now_ms = util::now_millis();
         let (cancelled, pinned): (Vec<_>, Vec<_>) = in_flight.into_iter().partition(|(h, _)| {
             h.phase != HandoffPhase::Complete
+                && !h.is_held()
                 && (!registered.contains(h.new_owner.as_str())
                     || past_phase_deadline(h, now_ms, deadlines.handoff, deadlines.warming))
         });
@@ -1380,6 +1569,8 @@ impl Coordinator {
                 freeze_quorum_ref: Some(freeze_quorum_id.clone()),
                 created_at_ms: now_ms,
                 phase_entered_at_ms: now_ms,
+                held_by: None,
+                config_epoch,
             })
             .collect();
 
@@ -1468,6 +1659,8 @@ impl Coordinator {
                             freeze_quorum_ref: None,
                             created_at_ms: now_ms,
                             phase_entered_at_ms: now_ms,
+                            held_by: None,
+                            config_epoch,
                         },
                         expected_mod_revision: mod_revision,
                     });
@@ -1525,8 +1718,8 @@ impl Coordinator {
             crate::store::PlanApplication::default()
         } else {
             store
-                .apply_plan(
-                    &[],
+                .apply_plan_on(
+                    &basis,
                     &creations,
                     &replacements,
                     &preconditions,
@@ -1541,6 +1734,12 @@ impl Coordinator {
                 )
                 .await?
         };
+        if !application.stood_down.is_empty() {
+            tracing::info!(
+                stood_down = application.stood_down.len(),
+                "the plan's basis moved (a migration began or ended, or the config changed); the rest stood down"
+            );
+        }
         if !application.conflicted.is_empty() {
             // A concurrent invocation (the empty-set re-trigger racing a
             // pod event, or a failing-over coordinator) got to these

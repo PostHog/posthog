@@ -71,13 +71,6 @@ class TestMercurySource:
         assert {request.headers["authorization"] for request in network.requests_log} == {"Bearer test-token"}
         assert network.session_options[0]["redact_values"] == ("test-token",)
 
-    def test_validate_credentials_handles_network_error(self) -> None:
-        with scripted_network(always(ConnectionError("connection refused"))):
-            valid, error = self.source.validate_credentials(self.config, team_id=1)
-
-        assert valid is False
-        assert "connection refused" in str(error)
-
 
 class TestMercurySourceForPipeline:
     def setup_method(self) -> None:

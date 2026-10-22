@@ -57,7 +57,7 @@ class TestrailSource(ResumableSource[TestrailSourceConfig, TestrailResumeConfig]
             name=ExternalDataSourceType.TESTRAIL,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="TestRail",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your TestRail Cloud address, email, and API key to pull your test management data into the PostHog Data warehouse.
 
 Generate an API key under **My Settings → API keys** in TestRail, and make sure the API is enabled for your instance under **Administration → Site Settings → API**. Self-hosted TestRail Server instances on custom domains are not supported yet.""",

@@ -855,6 +855,25 @@ class TestRESTClient:
 
         assert _parse_retry_after(response) == 120
 
+    @parameterized.expand(
+        [
+            ("epoch_milliseconds", 1_772_798_430_000, 30.0),
+            ("epoch_seconds", 1_772_798_430, 30.0),
+            ("elapsed_epoch_milliseconds", 1_772_798_390_000, None),
+            ("plain_delay", 45, 45.0),
+        ]
+    )
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.datetime")
+    def test_parse_retry_after_reads_a_reset_instant_in_retry_after(
+        self, _name: str, header_value: int, expected: float | None, mock_datetime
+    ) -> None:
+        mock_datetime.now.return_value = datetime(2026, 3, 6, 12, 0, 0, tzinfo=UTC)
+
+        response = _make_response({"error": "rate limited"}, status_code=429)
+        response.headers["Retry-After"] = str(header_value)
+
+        assert _parse_retry_after(response) == expected
+
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.datetime")
     def test_parse_retry_after_ignores_already_elapsed_sentry_reset(self, mock_datetime) -> None:
         now = datetime(2026, 3, 6, 12, 0, 0, tzinfo=UTC)

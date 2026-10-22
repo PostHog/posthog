@@ -113,8 +113,16 @@ Per-call (arguments to `DeltaLiteTable.upsert`): `max_parallel_partitions` (2),
 (128 MiB: compressed row-group bytes readers hold before decoding), `prune_strategy`
 (`probe`), `probe_concurrency` (8), `read_batch_size` (8192),
 `target_file_size` (table's `delta.targetFileSize`, else delta-rs's 100 MiB),
-`max_source_bytes` (2 GiB guard), `multipart_threshold` (64 MiB) /
-`multipart_part_size` (16 MiB), `commit_max_retries` (15).
+`isolate_source_rows` (off: the batch's rows share an output file with the copied
+survivors; on: they get their own files),
+`max_row_group_bytes` (`None`: row groups close only at the encoder's row cap),
+`max_source_bytes` (2 GiB guard), `multipart_threshold` (16 MiB) /
+`multipart_part_size` (8 MiB) / `multipart_concurrency` (4 parts at once; `1`
+uploads parts one after another, with the earlier 64 MiB / 16 MiB defaults),
+`range_get_part_size` (8 MiB) / `range_get_concurrency` (4; `1` reads a row group
+with one request), `read_ahead_row_groups` (off), `commit_max_retries` (15), `use_probe_cache`
+(on: the probe decides a file whose PK hashes the process-wide probe cache holds
+without reading it; see `python/README.md`, "Probe cache").
 
 Process-global (environment, enforced on top of the per-call knobs so that
 ~15 concurrent upsert threads in one Temporal worker cannot multiply the
@@ -122,7 +130,10 @@ budgets): `DELTALITE_PROCESS_MAX_PARALLEL_PARTITIONS` (8),
 `DELTALITE_PROCESS_MAX_PARALLEL_FILES` (16),
 `DELTALITE_PROCESS_MAX_BUFFERED_BYTES` (256 MiB),
 `DELTALITE_PROCESS_MAX_FETCH_BYTES` (256 MiB), `DELTALITE_MAX_SOURCE_BYTES`,
-`DELTALITE_MULTIPART_THRESHOLD_BYTES`, `DELTALITE_MULTIPART_PART_SIZE_BYTES`.
+`DELTALITE_MULTIPART_THRESHOLD_BYTES`, `DELTALITE_MULTIPART_PART_SIZE_BYTES`,
+`DELTALITE_MULTIPART_CONCURRENCY`, `DELTALITE_RANGE_GET_PART_SIZE_BYTES`,
+`DELTALITE_RANGE_GET_CONCURRENCY`,
+`DELTALITE_PROBE_CACHE_BYTES` (128 MiB, `0` off: the byte cap of the probe cache).
 
 Kill switches for the request savings on the log and on small files (set to `0`
 to restore the earlier requests): `DELTALITE_PROBE_REFRESH`,
@@ -139,7 +150,7 @@ suggests knob values from concurrency + pod memory, e.g.
 
 Metrics (`metrics` crate, static labels only): `deltalite_upserts_total`
 (`outcome`, `prune_strategy`, `error_kind`), `deltalite_upsert_duration_seconds`,
-`deltalite_files_{added,removed,carried_over,probed}_total`,
+`deltalite_files_{added,removed,carried_over,probed,probe_cached}_total`,
 `deltalite_rows_{updated,inserted,copied}_total`.
 
 ## Pre-rollout conditions (from the spike verdict, still open)

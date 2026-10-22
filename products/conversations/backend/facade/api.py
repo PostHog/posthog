@@ -803,6 +803,8 @@ def list_email_threads_for_account_matching(
     team_id: int,
     *,
     thread_ids: list[str] | None = None,
+    participant_emails: list[str] | None = None,
+    participant_domains: list[str] | None = None,
     after_id: str | None = None,
     limit: int = 100,
 ) -> list[EmailThreadForAccountMatching]:
@@ -812,6 +814,11 @@ def list_email_threads_for_account_matching(
     )
     if thread_ids is not None:
         threads = threads.filter(id__in=thread_ids)
+    if participant_emails is not None or participant_domains is not None:
+        matching_participants = Q(email__in=participant_emails or [])
+        for domain in participant_domains or []:
+            matching_participants |= Q(email__endswith=f"@{domain}")
+        threads = threads.filter(Exists(participants.filter(matching_participants, thread_id=OuterRef("id"))))
     if after_id is not None:
         threads = threads.filter(id__gt=after_id)
 
@@ -861,22 +868,62 @@ def list_email_threads_for_account_matching(
     return matching_threads
 
 
+def _validate_match_source(link: EmailThreadAccountLinkInput) -> None:
+    if link.match_source not in EmailThreadAccountMatchSource.values:
+        raise ValueError(f"Unknown email account match source: {link.match_source}")
+
+
 @transaction.atomic
-def replace_email_thread_account_links(
+def create_email_thread_account_links(
     team_id: int,
     thread_id: str,
     links: list[EmailThreadAccountLinkInput],
 ) -> None:
     thread = EmailThread.objects.for_team(team_id).select_for_update().get(id=thread_id)
+    linked_account_ids = set(
+        EmailThreadAccountLink.objects.for_team(team_id).filter(thread=thread).values_list("account_id", flat=True)
+    )
     links_by_account_id = {link.account_id: link for link in links}
-    EmailThreadAccountLink.objects.for_team(team_id).filter(thread=thread).exclude(
-        account_id__in=links_by_account_id
-    ).delete()
+    for link in links_by_account_id.values():
+        _validate_match_source(link)
+    EmailThreadAccountLink.objects.for_team(team_id).bulk_create(
+        [
+            EmailThreadAccountLink(
+                team_id=team_id,
+                thread=thread,
+                account_id=account_id,
+                account_external_id=link.account_external_id,
+                match_source=link.match_source,
+            )
+            for account_id, link in links_by_account_id.items()
+            if account_id not in linked_account_ids
+        ]
+    )
 
-    valid_sources = set(EmailThreadAccountMatchSource.values)
+
+@transaction.atomic
+def replace_email_thread_account_links(
+    team_id: int,
+    thread_id: str,
+    links: list[EmailThreadAccountLinkInput],
+    *,
+    match_sources: list[str] | None = None,
+) -> None:
+    thread = EmailThread.objects.for_team(team_id).select_for_update().get(id=thread_id)
+    links_by_account_id = {link.account_id: link for link in links}
+    existing_links = EmailThreadAccountLink.objects.for_team(team_id).filter(thread=thread)
+    preserved_account_ids: set[str] = set()
+    if match_sources is not None:
+        preserved_account_ids = set(
+            existing_links.exclude(match_source__in=match_sources).values_list("account_id", flat=True)
+        )
+        existing_links = existing_links.filter(match_source__in=match_sources)
+    existing_links.exclude(account_id__in=links_by_account_id).delete()
+
     for account_id, link in links_by_account_id.items():
-        if link.match_source not in valid_sources:
-            raise ValueError(f"Unknown email account match source: {link.match_source}")
+        _validate_match_source(link)
+        if account_id in preserved_account_ids:
+            continue
         EmailThreadAccountLink.objects.for_team(team_id).update_or_create(
             team_id=team_id,
             thread=thread,

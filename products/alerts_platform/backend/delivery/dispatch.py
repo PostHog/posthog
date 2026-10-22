@@ -13,7 +13,12 @@ from products.alerts_platform.backend.delivery.message import AlertMessage, buil
 from products.alerts_platform.backend.delivery.root_state import state_line
 from products.alerts_platform.backend.delivery.telemetry import record_delivery
 from products.alerts_platform.backend.delivery.thread_store import ThreadBusy, ThreadKey, ThreadStore
-from products.alerts_platform.backend.delivery.transport import DeliveryTransport, MessageHandle, RootEditor
+from products.alerts_platform.backend.delivery.transport import (
+    DeliveryError,
+    DeliveryTransport,
+    MessageHandle,
+    RootEditor,
+)
 from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationData,
     AnnouncedTransition,
@@ -34,9 +39,11 @@ def deliver(
     configuration_id: str,
     evaluation_key: str,
     target: AlertDestinationData,
+    destination_id: str | None,
     announcement: EvaluationAnnouncement,
     incident_action: IncidentAction | None = None,
     source_alert_url: str | None = None,
+    source_incident_key: str | None = None,
 ) -> None:
     channel_target = transport.channel_target(target)
     busy = 0
@@ -51,24 +58,6 @@ def deliver(
             channel_target=channel_target,
             transition=transition,
         )
-        if key is None:
-            _send(
-                transport=transport,
-                team_id=team_id,
-                configuration_id=configuration_id,
-                target=target,
-                message=build_message(
-                    announcement,
-                    transition,
-                    team_id=team_id,
-                    incident_action=incident_action,
-                    source_alert_url=source_alert_url,
-                    overflowed=overflowed,
-                ),
-                in_reply_to=None,
-            )
-            continue
-
         try:
             claim = thread_store.claim(key, evaluation_key)
         except ThreadBusy:
@@ -86,6 +75,7 @@ def deliver(
                 team_id=team_id,
                 configuration_id=configuration_id,
                 target=target,
+                destination_id=destination_id,
                 message=build_message(
                     announcement,
                     transition,
@@ -93,6 +83,7 @@ def deliver(
                     incident_action=incident_action,
                     source_alert_url=source_alert_url,
                     overflowed=overflowed,
+                    source_incident_key=source_incident_key,
                 ),
                 in_reply_to=claim.handle,
             )
@@ -116,19 +107,32 @@ def _send(
     team_id: int,
     configuration_id: str,
     target: AlertDestinationData,
+    destination_id: str | None,
     message: AlertMessage,
     in_reply_to: MessageHandle | None,
 ) -> MessageHandle | None:
     try:
         sent = transport.deliver(team_id=team_id, target=target, message=message, in_reply_to=in_reply_to)
-    except Exception:
+    except Exception as error:
         # Every failure class. Counting only the refusals a provider names leaves an outage
-        # reading as no delivery attempted at all.
+        # reading as no delivery attempted at all. A transport words its own refusals safely, and
+        # any other exception's text can carry a credential URL, so it is named by class.
         record_delivery(
-            team_id=team_id, configuration_id=configuration_id, provider=transport.provider, succeeded=False
+            team_id=team_id,
+            configuration_id=configuration_id,
+            provider=transport.provider,
+            destination_id=destination_id,
+            succeeded=False,
+            error=str(error) if isinstance(error, DeliveryError) else type(error).__name__,
         )
         raise
-    record_delivery(team_id=team_id, configuration_id=configuration_id, provider=transport.provider, succeeded=True)
+    record_delivery(
+        team_id=team_id,
+        configuration_id=configuration_id,
+        provider=transport.provider,
+        destination_id=destination_id,
+        succeeded=True,
+    )
     return sent
 
 
@@ -162,19 +166,19 @@ def _thread_key(
     provider: str,
     channel_target: str,
     transition: AnnouncedTransition,
-) -> ThreadKey | None:
-    """Which conversation this message belongs to, or None when it belongs to none.
+) -> ThreadKey:
+    """Which conversation this message belongs to.
 
-    A message about no firing, which is a failed or a turned-off check, continues no
-    conversation and starts none. Keying one on the absent firing would thread every such
-    message for a configuration into the first one, which is the defect the episode prevents.
+    A message about no known firing, which is a failed or a turned-off check or the resolve of a
+    firing that began before the platform recorded starts, continues no conversation. Keying one
+    on the absent firing would thread every such message for a configuration into the first one,
+    which is the defect the episode prevents. So it is keyed on its own transition: it starts a
+    conversation nothing else joins, and a retried delivery still finds its claim and sends nothing.
     """
-    if transition.episode_started_at is None:
-        return None
     return ThreadKey(
         configuration_id=configuration_id,
         grouping_key=transition.grouping_key,
         provider=provider,
         channel_target=channel_target,
-        episode_started_at=transition.episode_started_at,
+        episode_started_at=transition.episode_started_at or transition.occurred_at,
     )

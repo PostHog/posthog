@@ -134,7 +134,7 @@ class StaleFeatureFlagsCheck(HealthCheck):
                 f"{evidence_text}.{rollout_sentence} "
                 "Review code references and linked systems before removing anything."
             ),
-            link=f"/feature_flags/{flag_id}" if flag_id is not None else "/feature_flags",
+            link=f"/feature-flags/{flag_id}" if flag_id is not None else "/feature-flags",
         )
 
     @classmethod

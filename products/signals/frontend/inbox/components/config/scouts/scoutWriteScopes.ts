@@ -14,7 +14,9 @@ export interface ScoutWriteScopeRow {
         | 'Data'
         | 'Replay vision'
         | 'Workflows'
+        | 'Support'
         | 'Canvases'
+        | 'Experiments'
     label: string
     description: string
     /** Flag the product is still released behind. Its MCP tools share it, so a grant without it is inert. */
@@ -108,11 +110,25 @@ export const SCOUT_WRITE_SCOPE_ROWS: ScoutWriteScopeRow[] = [
             'Suggest changes to workflows whose owner turned suggestions on. A person approves or rejects each one; the scout cannot publish',
     },
     {
+        scope: 'ticket:write',
+        group: 'Support',
+        label: 'Support tickets',
+        description:
+            'Update tickets, manage saved views, and add private notes. Scouts cannot send public replies or change existing notes or customer identity fields. Ticket changes can start workflows that message customers',
+    },
+    {
         scope: 'canvas:write',
         group: 'Canvases',
         label: 'Canvases',
         description:
             'Publish new versions of any canvas in a public space and of canvases you created, and change their layout and state. A scout cannot create a canvas, so create the one it should keep up to date',
+    },
+    {
+        scope: 'experiment:write',
+        group: 'Experiments',
+        label: 'Experiments',
+        description:
+            'Create and edit any experiment in the project, and launch, pause, resume, and end it. Launching and pausing change what your users see. Scouts cannot delete experiments, copy them to another project, ship a variant, or change the rollout once an experiment has launched',
     },
 ]
 

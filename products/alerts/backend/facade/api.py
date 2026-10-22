@@ -18,6 +18,7 @@ from django.utils import timezone
 
 import structlog
 
+from posthog.exceptions_capture import capture_exception
 from posthog.models.activity_logging.model_activity import ActingUserContext
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -37,6 +38,7 @@ from products.alerts.backend.judge.contract import (
     LLMDetectorMisconfiguredError,
     LLMDetectorUnavailableError,
 )
+from products.alerts.backend.judge.executor import LLM_EVALUATE_EXECUTOR
 from products.alerts.backend.llm_detector_limits import (
     LLMAlertRefusal,
     LLMAlertWrite,
@@ -45,10 +47,11 @@ from products.alerts.backend.llm_detector_limits import (
     llm_detector_access_error,
 )
 from products.alerts.backend.models.alert import METRICS_INSIGHT_QUERY_FILTER, AlertCheck, AlertConfiguration
+from products.alerts_platform.backend.facade.contracts import InvalidPlatformAlertEdit
 
 logger = structlog.get_logger(__name__)
 
-SlackSnoozeOutcome = Literal["snoozed", "no_access", "disabled", "not_found", "invalid_until"]
+SlackSnoozeOutcome = Literal["snoozed", "no_access", "disabled", "not_found", "invalid_until", "not_snoozable"]
 
 # Mirrors the in-app SnoozeButton's DateFilter max — Slack's datetimepicker has no bounds of
 # its own, so the cap has to live here.
@@ -170,6 +173,19 @@ def snooze_alert_from_slack(
             state_fields = apply_snooze(locked_alert)
             locked_alert.snoozed_until = snoozed_until
             locked_alert.save(update_fields=[*state_fields, "snoozed_until"])
+            if locked_alert.platform_owned:
+                # The platform's copy mutes delivery, so it takes the snooze under the same lock.
+                from products.alerts.backend.platform_ownership import (  # noqa: PLC0415 - platform_ownership reaches this module back
+                    on_updated,
+                )
+
+                try:
+                    on_updated(locked_alert, snooze_changed=True)
+                except (contracts.PlatformCannotOwn, InvalidPlatformAlertEdit) as error:
+                    # Neither row takes the snooze, so the alert does not mute on one stack only.
+                    capture_exception(error, {"alert_id": str(alert_id)})
+                    transaction.set_rollback(True)
+                    return "not_snoozable"
             AlertCheck.objects.create(
                 alert_configuration=locked_alert,
                 calculated_value=None,
@@ -214,6 +230,7 @@ def list_firing_alerts_created_by(
 __all__ = [
     "LLM_DETECTOR_UNAVAILABLE_ERROR_CODE",
     "LLM_DETECTOR_UNAVAILABLE_MESSAGE",
+    "LLM_EVALUATE_EXECUTOR",
     "MAX_CONCURRENT_MODEL_CALLS",
     "MAX_PROMPT_POINTS",
     "LLMAlertRefusal",

@@ -42,6 +42,7 @@ from products.data_warehouse.backend.facade.api import (
     unpause_external_data_schedule,
     update_external_job_status,
 )
+from products.warehouse_sources.backend.facade.contracts import ConfigValueError, UndecryptedConfigError
 from products.warehouse_sources.backend.facade.models import (
     CDC_SNAPSHOT_LANE_KEY,
     MAX_FULL_REFRESH_INTERVAL_DAYS,
@@ -122,6 +123,27 @@ def source_supports_row_filters(source_type: str) -> bool:
         return False
     # `bool()` guards against test mocks whose attribute access returns a Mock — orjson can't serialize.
     return bool(source.supports_row_filters)
+
+
+ON_DEMAND_SYNC_ERROR = "This table syncs only when its data changes, so its sync schedule can't be turned on."
+
+
+def source_syncs_on_demand(source_type: str) -> bool:
+    try:
+        source = SourceRegistry.get_source(ExternalDataSourceType(source_type))
+    except Exception as e:
+        capture_exception(e)
+        return False
+    return source.syncs_on_demand is True
+
+
+def manual_sync_refusal(source_model: ExternalDataSource) -> str | None:
+    try:
+        source = SourceRegistry.get_source(ExternalDataSourceType(source_model.source_type))
+    except Exception as e:
+        capture_exception(e)
+        return None
+    return source.manual_sync_refusal(source_model)
 
 
 def source_row_filter_columns(source_type: str, schema_name: str) -> tuple[Any, ...] | None:
@@ -227,6 +249,12 @@ NO_SYNC_FREQUENCY_ERROR = (
     "This table has no sync frequency, so its sync cannot be scheduled. Set a sync frequency first."
 )
 
+# The stored source settings cannot be read, for example after the instance encryption keys change.
+# Only new settings from the user can fix this, so it is not a bug to report.
+UNREADABLE_SOURCE_CONFIG_ERROR = (
+    "PostHog could not read the saved settings for this source. Reconnect the source, then try again."
+)
+
 # A CDC table's own schedule loads its captured changes, and the change buffer expires them after 14
 # days, so a slower schedule would lose changes for good.
 CDC_MAX_SYNC_FREQUENCY_INTERVAL = dt.timedelta(days=7)
@@ -275,6 +303,10 @@ def _trigger_schema_sync(instance: ExternalDataSchema) -> None:
 
 
 def resync_schema(instance: ExternalDataSchema) -> Response:
+    refusal = manual_sync_refusal(instance.source)
+    if refusal is not None:
+        return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": refusal})
+
     if is_any_external_data_schema_paused(instance.team_id):
         return Response(
             status=status.HTTP_400_BAD_REQUEST,
@@ -941,6 +973,10 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
 
     def update(self, instance: ExternalDataSchema, validated_data: dict[str, Any]) -> ExternalDataSchema:
         data = self.initial_data if isinstance(self.initial_data, dict) else {}
+
+        # Each scheduled run of such a table would bill the same rows again.
+        if validated_data.get("should_sync") is True and source_syncs_on_demand(instance.source.source_type):
+            raise ValidationError({"should_sync": ON_DEMAND_SYNC_ERROR})
 
         # Capture the previous cdc_table_mode before any mutation so the post-save hook below can decide
         # whether the change adds a new physical write target (and therefore needs a re-snapshot).
@@ -1709,7 +1745,10 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         if not isinstance(source_impl, WebhookSource):
             return
 
-        config = source_impl.parse_config(source.job_inputs)
+        try:
+            config = source_impl.parse_config(source.job_inputs)
+        except (UndecryptedConfigError, ConfigValueError) as e:
+            raise ValidationError(UNREADABLE_SOURCE_CONFIG_ERROR) from e
         # Source pin only: webhook-sync schemas cannot carry a schema-level override (validate()
         # rejects it), so there is no per-schema precedence to honor here.
         effective_api_version = source_impl.resolve_api_version(source.api_version)
@@ -2156,6 +2195,10 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def reload(self, request: Request, *args: Any, **kwargs: Any):
         instance: ExternalDataSchema = self.get_object()
 
+        refusal = manual_sync_refusal(instance.source)
+        if refusal is not None:
+            return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": refusal})
+
         if is_any_external_data_schema_paused(self.team_id):
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
@@ -2343,6 +2386,13 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             instance.save(update_fields=["should_sync", "updated_at"])
             return Response(status=status.HTTP_200_OK)
 
+        # Turn syncing off first, or the next scheduled run rebuilds the deleted table. The serializer
+        # also pauses the schedule and takes a CDC table out of the publication. It runs even when
+        # should_sync is already false, so a retry after a failed pause pauses the schedule again.
+        serializer = self.get_serializer(instance, data={"should_sync": False}, partial=True)
+        serializer.is_valid(raise_exception=True)
+        instance = serializer.save()
+
         instance.delete_table()
 
         return Response(status=status.HTTP_200_OK)
@@ -2362,12 +2412,20 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         source_type_enum = ExternalDataSourceType(source.source_type)
 
         new_source = SourceRegistry.get_source(source_type_enum)
-        config = new_source.parse_config(source.job_inputs)
+        try:
+            config = new_source.parse_config(source.job_inputs)
+        except (UndecryptedConfigError, ConfigValueError):
+            return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": UNREADABLE_SOURCE_CONFIG_ERROR})
 
         effective_api_version = new_source.resolve_api_version(instance.api_version or source.api_version)
-        credentials_valid, credentials_error = new_source.validate_credentials(
-            config, self.team_id, instance.name, api_version=effective_api_version
-        )
+        try:
+            credentials_valid, credentials_error = new_source.validate_credentials(
+                config, self.team_id, instance.name, api_version=effective_api_version
+            )
+        except Exception as e:
+            credentials_valid, credentials_error = source_helpers._credentials_validation_failed(
+                new_source, self.team_id, e
+            )
         if not credentials_valid:
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,

@@ -40,21 +40,13 @@ import { LiveBotTrafficCard } from './LiveBotTrafficCard'
 import { CONTENT_CARD_SPAN, LiveContentCardId, LiveStatCardId } from './liveCards'
 import { LiveChartCard } from './LiveChartCard'
 import { LiveLocationsCard } from './LiveLocationsCard'
-import { LivePersonDrillDown } from './LivePersonDrillDown'
-import { LivePersonDrillDownSelection, livePersonDrillDownDrawerLogic } from './livePersonDrillDownDrawerLogic'
 import { LiveStatCard, LiveStatDivider } from './LiveStatCard'
 import { LiveTopPathsTable } from './LiveTopPathsTable'
 import { LiveTopReferrersTable } from './LiveTopReferrersTable'
 import { liveWebAnalyticsLayoutLogic } from './liveWebAnalyticsLayoutLogic'
 import { BotEventsPerMinuteChart, UsersPerMinuteChart } from './liveWebAnalyticsMetricsCharts'
 import { liveWebAnalyticsMetricsLogic } from './liveWebAnalyticsMetricsLogic'
-import {
-    BrowserBreakdownItem,
-    buildCityKey,
-    CityBreakdownItem,
-    CountryBreakdownItem,
-    DeviceBreakdownItem,
-} from './LiveWebAnalyticsMetricsTypes'
+import { BrowserBreakdownItem, CountryBreakdownItem, DeviceBreakdownItem } from './LiveWebAnalyticsMetricsTypes'
 import { LiveWorldMap } from './LiveWorldMap'
 
 const LIVE_FEED_COLUMNS_WITH_RECORDINGS: LiveEventsFeedColumn[] = ['event', 'person', 'url', 'recording', 'timestamp']
@@ -320,53 +312,9 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
 
     const { featureFlags } = useValues(featureFlagLogic)
     const { currentTeam } = useValues(teamLogic)
-    const drillDownEnabled = !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_LIVE_PERSON_DRILLDOWN]
     const liveFeedColumns = currentTeam?.session_recording_opt_in
         ? LIVE_FEED_COLUMNS_WITH_RECORDINGS
         : LIVE_FEED_COLUMNS_WITHOUT_RECORDINGS
-    const { openDrillDown } = useActions(livePersonDrillDownDrawerLogic)
-
-    const buildRowClickHandler = <T,>(
-        isClickable: (item: T) => boolean,
-        toSelection: (item: T) => LivePersonDrillDownSelection
-    ): ((item: T) => void) | undefined =>
-        drillDownEnabled
-            ? (item: T): void => {
-                  if (isClickable(item)) {
-                      openDrillDown(toSelection(item))
-                  }
-              }
-            : undefined
-
-    const countrySelection = (countryCode: string): LivePersonDrillDownSelection => ({
-        breakdownType: 'country',
-        breakdownValue: countryCode,
-        breakdownLabel: COUNTRY_CODE_TO_LONG_NAME[countryCode] ?? countryCode,
-    })
-
-    const onCountryRowClick = buildRowClickHandler<CountryBreakdownItem>(
-        (item) => item.country !== 'Other',
-        (item) => countrySelection(item.country)
-    )
-    const onCityRowClick = buildRowClickHandler<CityBreakdownItem>(
-        (item) => item.cityName !== 'Other',
-        (item) => ({
-            breakdownType: 'city',
-            breakdownValue: buildCityKey(item.cityName, item.countryCode),
-            breakdownLabel: item.countryCode ? `${item.cityName}, ${item.countryCode}` : item.cityName,
-        })
-    )
-    const onDeviceRowClick = buildRowClickHandler<DeviceBreakdownItem>(
-        (item) => item.device !== 'Other',
-        (item) => ({ breakdownType: 'device', breakdownValue: item.device, breakdownLabel: item.device })
-    )
-    const onBrowserRowClick = buildRowClickHandler<BrowserBreakdownItem>(
-        (item) => item.browser !== 'Other',
-        (item) => ({ breakdownType: 'browser', breakdownValue: item.browser, breakdownLabel: item.browser })
-    )
-    const onMapCountryClick = drillDownEnabled
-        ? (countryCode: string): void => openDrillDown(countrySelection(countryCode))
-        : undefined
     const { isVisible } = usePageVisibility()
     useEffect(() => {
         if (isVisible) {
@@ -453,7 +401,6 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
                         emptyMessage="No device data"
                         statLabel="unique devices"
                         isLoading={isLoading}
-                        onItemClick={onDeviceRowClick}
                     />
                 )
             case 'browsers':
@@ -468,7 +415,6 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
                         statLabel="unique browsers"
                         totalCount={totalBrowsers}
                         isLoading={isLoading}
-                        onItemClick={onBrowserRowClick}
                     />
                 )
             case 'top_countries':
@@ -483,7 +429,6 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
                             emptyMessage="No country data"
                             statLabel="unique visitors"
                             isLoading={isLoading}
-                            onItemClick={onCountryRowClick}
                         />
                     )
                 }
@@ -492,8 +437,6 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
                         countryData={topCountryBreakdown}
                         cityData={topCityBreakdown}
                         isLoading={isLoading}
-                        onCountryClick={onCountryRowClick}
-                        onCityClick={onCityRowClick}
                     />
                 )
             case 'bot_events_chart':
@@ -538,7 +481,6 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
                         <LiveWorldMap
                             data={countryBreakdown}
                             totalEvents={countryBreakdown.reduce((sum, c) => sum + c.count, 0)}
-                            onCountryClick={onMapCountryClick}
                         />
                     </LiveChartCard>
                 )
@@ -627,8 +569,6 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
                     </div>
                 </SortableContext>
             </DndContext>
-
-            {drillDownEnabled && <LivePersonDrillDown />}
         </div>
     )
 }

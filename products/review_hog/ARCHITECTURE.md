@@ -364,6 +364,13 @@ everything would otherwise refill it. Pull requests split into two arms by a has
 (`budget_arm`). Only the `budget` arm applies the budget, and `finding_budget_arm` on `reviewhog_review_completed` and
 `reviewhog_finding_outcome` splits the measurement.
 
+The same module counts review rounds (`ReviewRound`): the turns that published on the pull request before this one, by
+any mode and trigger, plus one. From round `ROUND_CAP` (3) on, a review that posts findings ends with a line that names
+the round and asks the author to reconsider the approach, because an author and a reviewer that fix one finding at a
+time loop, and most of what a late round flags was already there in the first. A clean turn carries no note. Every
+`reviewhog_review_completed` event carries `review_round`, so convergence (how many rounds a pull request takes before
+a clean turn) reads from the events.
+
 Every finding the turn drops after scope cleaning persists as a `dropped_finding` artefact (`DroppedFindingArtefact`,
 written by `replace_dropped_findings` beside `replace_deduplicated_findings` in the dedup activity): the full finding
 with its `reported_priority`, the session's pass and part, the `disposition` (`old_code`, `dedup_prior`, `dedup_comment`,

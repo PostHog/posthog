@@ -504,7 +504,7 @@ class TestSourceResponse:
         )
         assert response.name == endpoint
         assert response.primary_keys == primary_keys
-        assert response.sort_mode == "asc"
+        assert response.sort_mode is None
         if partition_key is None:
             assert response.partition_mode is None
         else:

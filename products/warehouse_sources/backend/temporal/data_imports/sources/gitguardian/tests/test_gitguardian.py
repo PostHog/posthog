@@ -95,6 +95,7 @@ class TestLinkHeaderPagination:
         )
         assert result.raised is None
         assert result.params("date_after") == [expected]
+        assert result.params("ordering") == ["date"]
 
     @parameterized.expand(
         [

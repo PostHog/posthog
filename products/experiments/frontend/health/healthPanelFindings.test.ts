@@ -61,21 +61,21 @@ describe('healthPanelFindings', () => {
         },
         {
             name: 'no exposure finding before the exposures load',
-            health: { findings: [serverFinding('no_metric')] },
+            health: { findings: [serverFinding('no_metric')], checks: [] },
             exposures: null,
             isExperimentDraft: false,
             expected: ['no_metric'],
         },
         {
             name: 'the findings of the exposure answer join those of the experiment read',
-            health: { findings: [serverFinding('no_metric')] },
+            health: { findings: [serverFinding('no_metric')], checks: [] },
             exposures: UNEVEN_EXPOSURES,
             isExperimentDraft: false,
             expected: ['no_metric', 'srm', 'bias_risk_multiple_excluded'],
         },
         {
             name: 'a draft shows no finding of the exposure answer that a reset left in the page',
-            health: { findings: [serverFinding('flag_live_before_launch')] },
+            health: { findings: [serverFinding('flag_live_before_launch')], checks: [] },
             exposures: UNEVEN_EXPOSURES,
             isExperimentDraft: true,
             expected: ['flag_live_before_launch'],
@@ -84,6 +84,7 @@ describe('healthPanelFindings', () => {
             name: 'an info finding sorts below the warnings of both sources',
             health: {
                 findings: [serverFinding('forced_variant_release_condition', 'info'), serverFinding('no_metric')],
+                checks: [],
             },
             exposures: UNEVEN_EXPOSURES,
             isExperimentDraft: false,
@@ -91,7 +92,7 @@ describe('healthPanelFindings', () => {
         },
         {
             name: 'a code the experiment read sent is not added again from the exposure answer',
-            health: { findings: [serverFinding('bias_risk_multiple_excluded')] },
+            health: { findings: [serverFinding('bias_risk_multiple_excluded')], checks: [] },
             exposures: UNEVEN_EXPOSURES,
             isExperimentDraft: false,
             expected: ['bias_risk_multiple_excluded', 'srm'],
@@ -114,6 +115,8 @@ describe('healthPanelFindings', () => {
             expected: ['no_metric'],
         },
     ])('$name', ({ findings, expected }) => {
-        expect(healthIssues(healthPanelFindings({ findings }, null, false)).map(({ code }) => code)).toEqual(expected)
+        expect(
+            healthIssues(healthPanelFindings({ findings, checks: [] }, null, false)).map(({ code }) => code)
+        ).toEqual(expected)
     })
 })

@@ -22,6 +22,8 @@ stays on delta-rs.
 
 from typing import Any, Optional
 
+from django.conf import settings
+
 import pyarrow as pa
 import pyarrow.compute as pc
 
@@ -40,6 +42,14 @@ class SchemaDriftError(IncrementalWriteError):
 
     Separate from its parent because the caller reacts differently: it clears the watermark so the
     next attempt rebuilds the table at the new schema, instead of null-padding rows into the old one.
+    """
+
+
+class TableUnreadableError(IncrementalWriteError):
+    """deltalite found no usable log for a table that opened earlier in the same run.
+
+    The cause can be a storage listing glitch or a concurrent rewrite. An upsert cannot repair the
+    table in place, so the caller clears the watermark and the retry rebuilds it.
     """
 
 
@@ -163,12 +173,19 @@ def upsert_batch(
     """
     import deltalite
 
-    lite = deltalite.DeltaLiteTable.open(table_uri, storage_options)
+    max_row_group_bytes = settings.DATA_WAREHOUSE_DELTALITE_MAX_ROW_GROUP_BYTES
+    try:
+        lite = deltalite.DeltaLiteTable.open(table_uri, storage_options)
+    except deltalite.DeltaLiteTableNotFoundError as err:
+        raise TableUnreadableError(
+            "The stored table could not be read during an incremental update. It will be rebuilt on the next attempt."
+        ) from err
     return lite.upsert(
         pa.Table.from_batches([batch]),
         list(unique_key),
         None,
         commit_metadata=commit_metadata,
+        max_row_group_bytes=max_row_group_bytes if max_row_group_bytes > 0 else None,
     )
 
 

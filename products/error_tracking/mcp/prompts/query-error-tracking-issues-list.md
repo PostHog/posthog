@@ -15,7 +15,7 @@ Be minimalist. Only add filters needed to answer the user’s question. Do not a
 - `status`: `active`, `resolved`, `suppressed`, `pending_release`, `archived`, or `all`. Defaults to `active`.
 - `searchQuery`: free-text search for exception names, values, stack frames, and email text.
 - `library`: exact `$lib` match, for example `posthog-js`.
-- `release`: exact release ID, release version, or git commit ID captured in `$exception_releases`. This intentionally does not match project name, branch, or timestamp fragments.
+- `release`: exact release ID, release version, or git commit ID captured in `$exception_release`. This intentionally does not match project name, branch, or timestamp fragments.
 - `fingerprint`: exact `$exception_fingerprint` match.
 - `url`: substring match on `$current_url`.
 - `personId`: exact PostHog person UUID.

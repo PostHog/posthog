@@ -131,7 +131,7 @@ All tables use full refresh. The API does not support a date-range filter for fi
 Finding recommendations only include recommendations that you already generated in AWS. The sync does not generate new ones.""",
             iconPath="/static/services/aws_iam_access_analyzer.png",
             docsUrl=API_DOCS_URL,
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["aws", "iam", "access analyzer", "security"],
             fields=cast(
                 list[FieldType],

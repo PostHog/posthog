@@ -3,7 +3,6 @@ import { useState } from 'react'
 import { IconChevronRight, IconImage } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { isTrustedPostHogUrl } from 'lib/utils/trustedUrl'
 
@@ -67,10 +66,8 @@ function TicketImageThumbnail({ image }: { image: ConversationsTicketImageApi })
 }
 
 export function ConversationsTicketSignalCard({ signal }: SignalCardProps): JSX.Element {
-    const redesign = useFeatureFlag('INBOX_REDESIGN')
     const extra = ticketExtra(signal.extra)
-    // Attachment thumbnails are part of the redesign's evidence rail.
-    const images = redesign && Array.isArray(extra.images) ? extra.images : []
+    const images = Array.isArray(extra.images) ? extra.images : []
     const ticketUrl = conversationsTicketUrl(signal)
 
     return (

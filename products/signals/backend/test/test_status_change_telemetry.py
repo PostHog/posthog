@@ -31,7 +31,7 @@ class TestCaptureStatusChangeAnalytics(BaseTest):
     @parameterized.expand(
         [
             ("dismiss", SignalReport.Status.READY, SignalReport.Status.SUPPRESSED, {}),
-            ("resolve_on_pr_merge", SignalReport.Status.READY, SignalReport.Status.RESOLVED, {}),
+            ("resolve_without_feedback", SignalReport.Status.READY, SignalReport.Status.RESOLVED, {}),
             ("snooze", SignalReport.Status.READY, SignalReport.Status.POTENTIAL, {"snooze_for": 5}),
         ]
     )
@@ -52,6 +52,8 @@ class TestCaptureStatusChangeAnalytics(BaseTest):
         assert kwargs["properties"]["status"] == new_status
         assert kwargs["properties"]["signal_count"] == 3
         assert kwargs["properties"]["total_weight"] == 2.5
+        assert kwargs["properties"].get("resolution_reason") is None
+        assert kwargs["properties"].get("dismissal_cause") is None
 
     @parameterized.expand(
         [

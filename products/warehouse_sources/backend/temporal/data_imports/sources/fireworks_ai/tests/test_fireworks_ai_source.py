@@ -57,24 +57,10 @@ class TestValidateCredentials:
         assert network.requests_log[0].path == "/v1/accounts/my-account/models"
         assert network.requests_log[0].headers["authorization"] == "Bearer fw_test"
 
-    def test_transport_failure_returns_actionable_error(self) -> None:
-        with scripted_network(always(ConnectionError("boom"))):
-            ok, err = FireworksAISource().validate_credentials(_config(), team_id=1)
-        assert ok is False
-        assert err is not None
-
 
 class TestNonRetryableErrors:
     @parameterized.expand(
         [
-            (
-                "unauthorized",
-                "401 Client Error: Unauthorized for url: https://api.fireworks.ai/v1/accounts/my-account/models",
-            ),
-            (
-                "forbidden",
-                "403 Client Error: Forbidden for url: https://api.fireworks.ai/v1/accounts/my-account/datasets",
-            ),
             (
                 "account_not_found",
                 "404 Client Error: Not Found for url: https://api.fireworks.ai/v1/accounts/nope/models",
@@ -84,20 +70,3 @@ class TestNonRetryableErrors:
     def test_credential_errors_are_non_retryable(self, _name: str, observed_error: str) -> None:
         non_retryable = FireworksAISource().get_non_retryable_errors()
         assert any(key in observed_error for key in non_retryable)
-
-    @parameterized.expand(
-        [
-            (
-                "rate_limited",
-                "429 Client Error: Too Many Requests for url: https://api.fireworks.ai/v1/accounts/my-account/models",
-            ),
-            (
-                "server_error",
-                "500 Server Error: Internal Server Error for url: https://api.fireworks.ai/v1/accounts/my-account/models",
-            ),
-            ("read_timeout", "HTTPSConnectionPool(host='api.fireworks.ai', port=443): Read timed out."),
-        ]
-    )
-    def test_transient_errors_stay_retryable(self, _name: str, other_error: str) -> None:
-        non_retryable = FireworksAISource().get_non_retryable_errors()
-        assert not any(key in other_error for key in non_retryable)

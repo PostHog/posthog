@@ -1236,12 +1236,17 @@ def _get_partition_settings(
     except ClickHouseError as e:
         # Partitioning is a best-effort optimization; any failure here degrades
         # to default partitioning. A transient rate-limit/gateway response from
-        # the source, or a blip reaching our own egress proxy, isn't actionable
-        # on our side, so don't add error-tracking noise for it. clickhouse-connect
-        # wraps the proxy failure in the ClickHouseError caught here, so it never
-        # reaches the shared classification in `_handle_import_error`.
+        # the source, a read timeout from a slow or cold-starting source host, or a
+        # blip reaching our own egress proxy, isn't actionable on our side, so don't
+        # add error-tracking noise for it. clickhouse-connect wraps the proxy failure
+        # in the ClickHouseError caught here, so it never reaches the shared
+        # classification in `_handle_import_error`.
         message = str(e)
-        if not _is_transient_http_response(message) and not is_transient_egress_proxy_error(message):
+        if (
+            not _is_transient_http_response(message)
+            and "Read timed out" not in message
+            and not is_transient_egress_proxy_error(message)
+        ):
             capture_exception(e)
         logger.debug(f"_get_partition_settings: failed: {e}")
         return None
@@ -1301,6 +1306,24 @@ def _needs_to_string_cast(inner: str) -> bool:
     if inner in _ARROW_UNSUPPORTED_EXACT:
         return True
     return any(inner.startswith(prefix) for prefix in _ARROW_UNSUPPORTED_PREFIXES)
+
+
+def _reads_in_incremental_order(
+    columns: list[ClickHouseColumn], should_use_incremental_field: bool, incremental_field: str | None
+) -> bool:
+    """Whether the read returns its rows in ascending order of the incremental value.
+
+    The query has `ORDER BY <incremental field>`, and a paged read walks ascending ranges of that
+    field. A column that the SELECT list casts with `toString()` has an alias with the column's
+    name, so the server can order by the text and not by the number.
+    """
+    if not should_use_incremental_field or incremental_field is None:
+        return False
+    column = next((column for column in columns if column.name == incremental_field), None)
+    if column is None:
+        return False
+    inner, _ = _strip_type_modifiers(column.data_type)
+    return not _needs_to_string_cast(inner)
 
 
 def _build_select_list(columns: list[ClickHouseColumn]) -> str:
@@ -1905,4 +1928,9 @@ def clickhouse_source(
         partition_size=partition_settings.partition_size if partition_settings else None,
         rows_to_sync=rows_to_sync,
         has_duplicate_primary_keys=has_duplicate_primary_keys,
+        sort_mode=(
+            "asc"
+            if _reads_in_incremental_order(list(table.columns), should_use_incremental_field, incremental_field)
+            else None
+        ),
     )

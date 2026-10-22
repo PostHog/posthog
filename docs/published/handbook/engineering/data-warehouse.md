@@ -147,6 +147,18 @@ Both cards have **AND / OR groups**. Choose **AND (match all)** or **OR (match a
 
 Top N selects categories before result filters run. Comparison periods apply the same result conditions independently. Result filters hide detail groups; totals still aggregate all data matching the row filters. Table calculations use the full aggregated result before result filtering. Query usage events include result-filter and group counts without their values.
 
+## Marketing analytics cost charts
+
+The `marketing-analytics-costs-precomputation` flag controls whether the cost trend can use precomputed costs.
+The backend checks materialization jobs for every displayed source over the requested date range and comparison period.
+It uses precomputed costs only when all windows are ready and unexpired.
+An in-progress refresh can temporarily route the chart to the original sources until coverage is ready.
+Opening the chart as an editable insight uses its original source series without the automatic precompute selection.
+Completed windows with zero rows count as covered.
+Missing, expired, inaccessible, or unmaterializable sources use the original live warehouse series for the whole chart.
+Coverage check errors also fall back to the live query.
+This read-only check does not start or wait for materialization jobs.
+
 ## Apple Ads in Marketing analytics
 
 Marketing analytics support is controlled by the boolean organization flag `marketing-analytics-apple-ads` and is off by default.
@@ -278,6 +290,29 @@ This changes setup recommendations and diagnostic actions, not report attributio
    6. schema = public
 3. Hit next, then select which tables you'd like to import. [More info on the sync types can be found here](https://posthog.com/docs/cdp/sources#incremental-vs-append-only-vs-full-table). For the Postgres-specific `xmin` (cursorless incremental) sync type and its limitations, see the [Postgres source README](https://github.com/PostHog/posthog/blob/master/products/warehouse_sources/backend/temporal/data_imports/sources/postgres/README.md)
 4. Hit next and finish the import - `temporal-worker-data-warehouse` will then import the data into your local object storage
+
+## Validating ad source metric imports
+
+Meta Ads requests `video_play_actions` and `video_thruplay_watched_actions` on its campaign, ad set, ad, and supported breakdown statistics tables.
+Hourly statistics and `ad_stats_by_link_url` exclude both fields because these breakdowns do not support them.
+See [hourly restrictions](https://fivetran.com/docs/connectors/applications/facebook-ads/custom-reports#breakdowns) and [creative-asset metric restrictions](https://docs.streamkap.com/facebook-ads-source#custom-insights).
+Custom conversion counts and values remain in the `actions` and `action_values` arrays returned by Meta.
+
+Google Ads exposes daily Search and Display impression share through the optional `campaign_impression_share_stats` table.
+This table omits the click-type segmentation used by `campaign_stats` because impression share does not support that combination.
+The `campaign.labels` resource names in campaign metadata can be matched to `label.resource_name` in label metadata.
+
+TikTok Ads requests `total_landing_page_view`, `engaged_view_15s`, `cta_conversion`, and `cta_purchase` in its campaign, ad group, and ad BASIC reports.
+The CTA fields describe app conversions and purchases attributed to clicks; they do not establish a click-only website purchase metric.
+The optional `advertiser_report` table requests daily `spend` and `cash_spend` at advertiser level.
+Cash spend can arrive later than other performance metrics.
+
+Reddit Ads requests purchase click and view counts, sign-up click counts, average purchase value, fully viewable video impressions, and viewable video impressions in its campaign, ad group, ad, and breakdown reports.
+The conversion window still follows the account's attribution settings.
+
+When validating these changes locally, enable the optional tables and inspect the requested fields in a completed sync.
+Existing historical rows do not acquire newly requested fields until their date range is synced again.
+Unit tests cover request construction and response handling; a live sync is needed to check that the provider accepts each metric combination and returns data for the connected account.
 
 ## Accessing object storage
 

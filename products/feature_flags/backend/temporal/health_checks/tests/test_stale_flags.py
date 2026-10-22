@@ -983,7 +983,7 @@ class TestStaleFlagsContract(SimpleTestCase):
         assert "PostHog has not received a call for this flag in 45 days" in content.summary
         assert "fully rolled out" in content.summary
         assert "Review code references" in content.summary
-        assert content.link == "/feature_flags/42"
+        assert content.link == "/feature-flags/42"
 
     def test_render_alert_truncates_flag_key(self) -> None:
         content = StaleFeatureFlagsCheck.render_alert(
@@ -1012,7 +1012,7 @@ class TestStaleFlagsContract(SimpleTestCase):
         )
         assert "no usage data" in content.summary
         assert "serves a fixed result" in content.summary
-        assert content.link == "/feature_flags/7"
+        assert content.link == "/feature-flags/7"
 
     def test_render_alert_for_effectively_full_rollout_evidence(self) -> None:
         content = StaleFeatureFlagsCheck.render_alert(
@@ -1031,7 +1031,7 @@ class TestStaleFlagsContract(SimpleTestCase):
         # days_since_evidence is the flag's age on this class, so it must not be narrated as a
         # gap since the last call.
         assert "200" not in content.summary
-        assert content.link == "/feature_flags/11"
+        assert content.link == "/feature-flags/11"
 
     def test_render_signal_returns_none(self) -> None:
         issue = self._issue({"flag_id": 42, "flag_key": "checkout-v2"})

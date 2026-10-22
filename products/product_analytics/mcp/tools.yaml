@@ -28,6 +28,7 @@ tools:
             This powers heatmap/clickmap views; use it to answer "what do users click most" and "which elements get rage
             or dead clicks". Responses can be very large on busy projects — always pass a small `limit` (e.g. 100) and
             paginate with `offset` if you need more results.
+        reads_ingested_data: events
     insight-create:
         operation: insights_create
         enabled: true
@@ -64,6 +65,10 @@ tools:
 
             Bare `TrendsQuery`, `HogQLQuery`, and `EventsQuery` definitions are accepted too. They are wrapped for you,
             so a query you just ran through one of the `query-*` tools can be passed straight through.
+
+
+            Save a `MetricsQuery` or `MetricsHistogramQuery` bare, as the top-level `query`. Do not put it in an
+            `InsightVizNode`.
 
 
             Choose the TrendsQuery `trendsFilter.display` from the question the insight answers:

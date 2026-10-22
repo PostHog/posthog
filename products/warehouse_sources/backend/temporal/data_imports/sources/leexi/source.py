@@ -53,7 +53,7 @@ class LeexiSource(ResumableSource[LeexiSourceConfig, LeexiResumeConfig]):
             name=ExternalDataSourceType.LEEXI,
             category=DataWarehouseSourceCategory.SALES,
             label="Leexi",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["notetaker", "call recording", "conversation intelligence", "transcription"],
             caption="""Enter a Leexi API key pair to pull your Leexi calls, notes, meeting events, users, and teams into the PostHog Data warehouse.
 

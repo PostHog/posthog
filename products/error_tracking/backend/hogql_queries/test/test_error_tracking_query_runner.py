@@ -60,6 +60,7 @@ from products.error_tracking.backend.hogql_queries.error_tracking_query_builder 
 from products.error_tracking.backend.hogql_queries.error_tracking_query_runner import ErrorTrackingQueryRunner
 from products.error_tracking.backend.hogql_queries.error_tracking_query_runner_utils import (
     SEVERITY_RANKING,
+    extract_event,
     search_tokenizer,
 )
 from products.error_tracking.backend.hogql_queries.error_tracking_similar_issues_query_runner import (
@@ -1793,6 +1794,19 @@ class TestSeverityRanking(TestCase):
         # model enum is what reaches the `severity` column, the schema enum is what the API offers.
         self.assertEqual(set(SEVERITY_RANKING), {severity.value for severity in ErrorTrackingQueryIssueSeverity})
         self.assertEqual(set(SEVERITY_RANKING), set(ErrorTrackingIssue.Severity.values))
+
+
+class TestExtractEvent(TestCase):
+    @parameterized.expand(
+        [
+            ("utc", ZoneInfo("UTC"), "2026-09-01T10:00:30.659000+00:00"),
+            ("project_timezone", ZoneInfo("America/Denver"), "2026-09-01T10:00:30.659000-06:00"),
+        ]
+    )
+    def test_timestamp_is_iso_8601(self, _name, tz, expected):
+        event = extract_event(("uuid", "distinct_id", datetime(2026, 9, 1, 10, 0, 30, 659000, tzinfo=tz), "{}"))
+        assert event is not None
+        self.assertEqual(event["timestamp"], expected)
 
 
 class TestSearchTokenizer(TestCase):

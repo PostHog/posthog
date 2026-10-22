@@ -49,7 +49,7 @@ class SwarmiaSource(ResumableSource[SwarmiaSourceConfig, SwarmiaResumeConfig]):
             name=ExternalDataSourceType.SWARMIA,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Swarmia",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             keywords=["dora", "engineering metrics", "developer productivity"],
             caption="""Enter your Swarmia API token to pull your engineering metrics reports (pull requests, DORA, investment balance, software capitalization, and effort) into the PostHog Data warehouse.
 

@@ -103,6 +103,6 @@ class GleifSource(ResumableSource[GleifSourceConfig, GleifResumeConfig]):
             ),
             iconPath="/static/services/gleif.png",
             docsUrl="https://posthog.com/docs/cdp/sources/gleif",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(list[FieldType], []),
         )

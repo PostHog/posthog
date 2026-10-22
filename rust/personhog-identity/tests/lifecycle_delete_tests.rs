@@ -36,7 +36,7 @@ impl TestContext {
             leader.clone(),
             self.tables.clone(),
             common::FAN_OUT_CONCURRENCY,
-            common::NUM_PARTITIONS,
+            common::changelog(),
             outbox_writes,
         )
     }
@@ -597,7 +597,7 @@ impl FencedHarness {
             leader.clone(),
             ctx.tables.clone(),
             common::FAN_OUT_CONCURRENCY,
-            common::NUM_PARTITIONS,
+            common::changelog(),
             OutboxWrites::Disabled,
         );
         Self {

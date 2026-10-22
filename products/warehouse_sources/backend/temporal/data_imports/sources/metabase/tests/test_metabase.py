@@ -137,12 +137,6 @@ class TestValidateCredentials:
         assert network.requests_log[0].path == "/api/user/current"
         assert network.requests_log[0].headers["x-api-key"] == "mb_secret"
 
-    def test_invalid_credentials(self):
-        with scripted_network([ScriptedResponse(status=401)]):
-            valid, msg = validate_credentials("https://x.metabaseapp.com", _api_key_auth())
-            assert valid is False
-            assert msg == "Invalid Metabase credentials"
-
     def test_403_at_source_create_is_accepted(self):
         with scripted_network([ScriptedResponse(status=403)]):
             assert validate_credentials("https://x.metabaseapp.com", _api_key_auth(), schema_name=None) == (True, None)

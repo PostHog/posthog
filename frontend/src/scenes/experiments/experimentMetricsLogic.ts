@@ -121,6 +121,9 @@ export const RECALCULATION_STATUSES = {
     failed: 'failed',
 } as const
 
+/** pinned: the backend writes this error_type on a run it rejects because the experiment is too old. */
+const RECALCULATION_WINDOW_TOO_LONG_ERROR_TYPE = 'recalculation_window_too_long'
+
 /** Transient per-metric retry state written by the calc activity between failed attempts. */
 export interface MetricRetryInfo {
     attempt: number
@@ -155,6 +158,11 @@ type MetricErrorEntry = { step?: string; message?: string; error_type?: string; 
 
 const metricErrorEntries = (recalculation: RecalculationPayload): Record<string, MetricErrorEntry> =>
     (recalculation.metric_errors as Record<string, MetricErrorEntry> | null) ?? {}
+
+const rejectionMessage = (recalculation: RecalculationPayload): string | null =>
+    Object.values(metricErrorEntries(recalculation)).find(
+        (entry) => entry.error_type === RECALCULATION_WINDOW_TOO_LONG_ERROR_TYPE
+    )?.message ?? null
 
 /**
  * Metric uuids the run has an entry for: a result or an error. A failure, retriable or not, counts as
@@ -234,18 +242,24 @@ const resolveResultByUuid = (
 /**
  * Resolver: a metric's failure as `{ detail, retriable }` (the MetricErrorState shape), or null. `metric_errors`
  * wins (it covers FAILED rows AND discovery-step failures absent from `results`), falling back to a
- * failed row's error_message.
+ * failed row's error_message. A rejected run carries the earlier run's rows, so its error is dropped on a
+ * metric that has a row: the banner shows the message and the cell keeps the earlier result.
  */
 const resolveErrorByUuid = (recalculation: RecalculationPayload): ResolveByUuid<MetricErrorState> => {
     const metricErrors = metricErrorEntries(recalculation)
+    const uuidsWithRow = new Set((recalculation.results ?? []).map((r) => r.metric_uuid))
     const failedResultMessageByUuid = new Map(
         (recalculation.results ?? [])
             .filter((r) => r.status === 'failed' && r.error_message)
             .map((r) => [r.metric_uuid, r.error_message as string])
     )
     return (uuid) => {
-        const message = metricErrors[uuid]?.message ?? failedResultMessageByUuid.get(uuid)
-        return message ? { detail: message, retriable: metricErrors[uuid]?.retriable === true } : null
+        const entry =
+            metricErrors[uuid]?.error_type === RECALCULATION_WINDOW_TOO_LONG_ERROR_TYPE && uuidsWithRow.has(uuid)
+                ? undefined
+                : metricErrors[uuid]
+        const message = entry?.message ?? failedResultMessageByUuid.get(uuid)
+        return message ? { detail: message, retriable: entry?.retriable === true } : null
     }
 }
 
@@ -278,6 +292,7 @@ export interface experimentMetricsLogicValues {
         completed: number
         total: number
     }
+    recalculationRejectionMessage: string | null
     refreshEligibilityTick: number
     secondaryMetricsResults: CachedNewExperimentQueryResponse[]
     secondaryMetricsResultsErrors: (unknown | null)[]
@@ -348,6 +363,7 @@ export interface experimentMetricsLogicMeta {
             total: number
         }
         totalMetricsCount: (arg: any) => number
+        recalculationRejectionMessage: (currentRecalculation: RecalculationPayload | null) => string | null
         lastRefresh: (currentRecalculation: RecalculationPayload | null) => string | null
         nextAllowedManualRefresh: (currentRecalculation: RecalculationPayload | null) => string | null
         isManualRefreshBlocked: (
@@ -519,6 +535,10 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
             () => [(_, props) => props.experiment],
             (experiment: Experiment): number =>
                 metricsInOrder(experiment, 'primary').length + metricsInOrder(experiment, 'secondary').length,
+        ],
+        recalculationRejectionMessage: [
+            (s) => [s.currentRecalculation],
+            (recalc: RecalculationPayload | null): string | null => (recalc ? rejectionMessage(recalc) : null),
         ],
         lastRefresh: [
             (s) => [s.currentRecalculation],
@@ -781,7 +801,8 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                      * otherwise the uncovered metric shows a perpetual loading state, since nothing else re-runs
                      * on page load. What is already shown stays visible and cells update in place as the run polls.
                      */
-                    if (recalculationHasGap(props.experiment, recalculation)) {
+                    /** A rejected run gets the same answer on every heal, so a heal would only loop. */
+                    if (!rejectionMessage(recalculation) && recalculationHasGap(props.experiment, recalculation)) {
                         actions.triggerRecalculation(HEAL_TRIGGER_BY_RESULT_SOURCE[recalculation.result_source])
                     }
                 } catch (error: any) {
@@ -942,9 +963,20 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                     ) {
                         /**
                          * Create can return an already-terminal run (e.g. a completed one finished between
-                         * request and response). Load its results directly rather than polling.
+                         * request and response). Load its results directly rather than polling. A rejected
+                         * run has no results on the create response, so latest serves the earlier ones.
                          */
-                        applyResults(recalculation)
+                        if (rejectionMessage(recalculation)) {
+                            /** A failed reload never reaches applyResults, so the marks of this create clear here. */
+                            actions.setRecalculatingMetricUuids(
+                                values.recalculatingMetricUuids.filter(
+                                    (uuid) => !(uuid in metricErrorEntries(recalculation))
+                                )
+                            )
+                            actions.loadLatestRecalculation()
+                        } else {
+                            applyResults(recalculation)
+                        }
                         emitTerminalEvent(recalculation)
                         // Terminal-on-create arms no poll, so drain any rerun queued during this create here,
                         // the way the poll's terminal branch does. Otherwise a config change made mid-create

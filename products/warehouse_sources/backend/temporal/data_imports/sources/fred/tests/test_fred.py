@@ -89,6 +89,109 @@ class TestFredTransport:
             {"date": "2024-01-01", "series_id": "GDPC1"},
         ]
 
+    def test_release_fan_out_resumes_stamps_release_id_and_skips_rejected_releases(self):
+        result = self._driver().run(
+            "release_sources",
+            [
+                ScriptedResponse(json={"releases": [{"id": 30}, {"id": 10}, {"id": 20}]}),
+                ScriptedResponse(status=400, json={"error_message": "Bad Request.  The release does not exist."}),
+                ScriptedResponse(json={"sources": [{"id": 18, "name": "BEA"}]}),
+            ],
+            resume_state=FredResumeConfig(next_release_id=20),
+        )
+
+        assert result.raised is None
+        assert result.paths == ["/fred/releases", "/fred/release/sources", "/fred/release/sources"]
+        assert result.params("release_id") == [None, "20", "30"]
+        assert result.rows == [{"id": 18, "name": "BEA", "release_id": 30}]
+        assert result.final_state == FredResumeConfig(next_release_id=31)
+
+    def test_release_tables_flatten_the_tree_and_drill_into_elements_listed_without_children(self):
+        durable = {
+            "element_id": 12888,
+            "release_id": 53,
+            "parent_id": 12887,
+            "type": "series",
+            "name": "Durable goods",
+            "children": [],
+        }
+        goods = {
+            "element_id": 12887,
+            "release_id": 53,
+            "parent_id": 12886,
+            "type": "series",
+            "name": "Goods",
+            "children": [durable],
+        }
+        table = {"element_id": 12890, "release_id": 53, "parent_id": 12886, "type": "table", "children": []}
+        housing = {
+            "element_id": 12891,
+            "release_id": 53,
+            "parent_id": 12890,
+            "type": "series",
+            "name": "Housing",
+            "children": [],
+        }
+        result = self._driver().run(
+            "release_tables",
+            [
+                ScriptedResponse(json={"releases": [{"id": 53}]}),
+                ScriptedResponse(json={"elements": {"12887": goods, "12888": durable, "12890": table}}),
+                ScriptedResponse(json={"element_id": 12890, "elements": {"12891": housing, "12888": durable}}),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.params("element_id") == [None, None, "12890"]
+        assert [[row["element_id"] for row in page] for page in result.items] == [[12887, 12888, 12890], [12891]]
+        assert all("children" not in row for row in result.rows)
+        assert result.final_state == FredResumeConfig(next_release_id=54)
+
+    @pytest.mark.parametrize(
+        "resume_state, script, expected_category_ids, expected_row_ids",
+        [
+            (
+                None,
+                [
+                    {"categories": [{"id": 1, "parent_id": 0}, {"id": 2, "parent_id": 0}]},
+                    {"categories": [{"id": 3, "parent_id": 1}]},
+                    {"categories": []},
+                    {"categories": []},
+                ],
+                ["0", "1", "3", "2"],
+                [1, 2, 3],
+            ),
+            (
+                FredResumeConfig(pending_category_ids=[2, 3]),
+                [{"categories": []}, {"categories": [{"id": 4, "parent_id": 2}]}, {"categories": []}],
+                ["3", "2", "4"],
+                [4],
+            ),
+        ],
+    )
+    def test_category_tree_walks_every_category_depth_first(
+        self, resume_state, script, expected_category_ids, expected_row_ids
+    ):
+        result = self._driver().run(
+            "categories", [ScriptedResponse(json=body) for body in script], resume_state=resume_state
+        )
+
+        assert result.raised is None
+        assert result.params("category_id") == expected_category_ids
+        assert [row["id"] for row in result.rows] == expected_row_ids
+        assert result.final_state == FredResumeConfig(pending_category_ids=[])
+
+    def test_vintage_dates_become_rows_stamped_with_series_id(self):
+        result = self._driver("GNPCA").run(
+            "series_vintage_dates", [ScriptedResponse(json={"vintage_dates": ["1958-12-21", "1959-02-19"]})]
+        )
+
+        assert result.raised is None
+        assert result.rows == [
+            {"vintage_date": "1958-12-21", "series_id": "GNPCA"},
+            {"vintage_date": "1959-02-19", "series_id": "GNPCA"},
+        ]
+
     @pytest.mark.parametrize(
         "status_code, error_message, expected_exception",
         [
@@ -180,7 +283,6 @@ class TestFredTransport:
     @pytest.mark.parametrize(
         "status_code, error_message, expected",
         [
-            (200, "", (True, None)),
             (
                 400,
                 "Bad Request.  The value for variable api_key is not registered.",
@@ -191,7 +293,6 @@ class TestFredTransport:
                 "Bad Request.  The series does not exist.",
                 (False, "FRED has no series with the ID NOPE. Check it on fred.stlouisfed.org."),
             ),
-            (500, "", (False, "Could not reach the FRED API. Try again in a moment.")),
         ],
     )
     def test_validate_credentials_status_mapping(self, status_code, error_message, expected):

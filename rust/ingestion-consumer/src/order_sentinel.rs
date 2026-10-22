@@ -1,5 +1,4 @@
-//! The per-key send-order sentinel and the consumer's rdkafka context. The
-//! commit sentinel lives in [`crate::commit_sentinel`].
+//! The per-key send-order sentinel.
 //!
 //! **Per-key send order** ([`KeyOrderSentinel`]): for every routing key
 //! (the Kafka message key), messages must be handed to workers in Kafka offset
@@ -15,25 +14,16 @@
 //! and offsets from different partitions are not comparable. Skipped messages
 //! are counted in `ingestion_consumer_key_sentinel_unkeyed_total`.
 //!
-//! [`SentinelContext`] is the consumer's rdkafka context: it resets sentinel
-//! baselines on rebalances, where Kafka legitimately re-deals partitions and
-//! the invariants must re-baseline instead of firing false positives.
-//!
 //! The sentinel is a pure observer: it never influences routing.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use metrics::{counter, gauge};
-use rdkafka::consumer::{BaseConsumer, ConsumerContext, Rebalance};
-use rdkafka::{ClientContext, Statistics, TopicPartitionList};
-use tracing::{info, warn};
+use tracing::warn;
 
-use crate::commit_pacer::ImmediateCommitPacer;
-use crate::commit_sentinel::CommitSentinel;
 use crate::types::SerializedKafkaMessage;
-use common_kafka_consumer::{AssignmentEpoch, TopicOffsetLedger, TopicPartition};
 
 /// The first and last Kafka offsets a batch holds for one topic-partition.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -405,166 +395,6 @@ pub fn ack_mark(
         .max()
 }
 
-/// The consumer's rdkafka context: observes async commit results (a
-/// fire-and-forget `CommitMode::Async` failure is otherwise invisible until
-/// restart-time redelivery), forgets revoked partitions around rebalances, and
-/// exports librdkafka's internal statistics (see [`crate::kafka_stats`]).
-pub struct SentinelContext {
-    /// Where the consumer's frontiers go. Held here so the rebalance
-    /// callbacks tell it which partitions leave the assignment.
-    commit_sentinel: Arc<CommitSentinel>,
-    /// The offset ledger the commit path settles against. Owned here so the
-    /// rebalance callbacks forget partitions on the same ledger.
-    topic_offset_ledger: Arc<TopicOffsetLedger>,
-    /// Advanced once per assignment callback; the gRPC transport stamps it
-    /// on sub-batches so the worker's feed-order sentinel rebaselines across
-    /// rebalances. Distinct from the offset ledger's generations, which move
-    /// per partition and stamp offset accounting rather than stream order.
-    assignment_epoch: Option<AssignmentEpoch>,
-    /// Called with the revoked `(topic, partition)` pairs, so the batcher
-    /// can drop their queued messages before the new owner replays them.
-    revoke_hook: OnceLock<RevokeHook>,
-}
-
-pub type RevokeHook = Box<dyn Fn(&[(String, i32)]) + Send + Sync>;
-
-impl SentinelContext {
-    pub fn new(
-        commit_sentinel: Arc<CommitSentinel>,
-        topic_offset_ledger: Arc<TopicOffsetLedger>,
-    ) -> Self {
-        Self {
-            commit_sentinel,
-            topic_offset_ledger,
-            assignment_epoch: None,
-            revoke_hook: OnceLock::new(),
-        }
-    }
-
-    /// Wire the revocation hook; a second call is ignored. Settable after
-    /// construction because the rdkafka consumer only hands out `&self`.
-    pub fn set_revoke_hook(&self, hook: RevokeHook) {
-        let _ = self.revoke_hook.set(hook);
-    }
-
-    /// Wire the process-wide assignment epoch. Call before the context is
-    /// handed to the Kafka consumer.
-    pub fn set_assignment_epoch(&mut self, epoch: AssignmentEpoch) {
-        self.assignment_epoch = Some(epoch);
-    }
-
-    /// A context with its own free-standing sentinels, ledger, and commit
-    /// pacer, for tests and tools that build the Kafka consumer separately
-    /// from the batcher.
-    pub fn detached() -> Self {
-        Self::new(
-            Arc::new(CommitSentinel::new(ImmediateCommitPacer::new())),
-            Arc::new(TopicOffsetLedger::new()),
-        )
-    }
-
-    pub fn commit_sentinel(&self) -> Arc<CommitSentinel> {
-        Arc::clone(&self.commit_sentinel)
-    }
-
-    pub fn topic_offset_ledger(&self) -> Arc<TopicOffsetLedger> {
-        Arc::clone(&self.topic_offset_ledger)
-    }
-
-    /// Start a new ledger generation for every partition in `tpl`, dropping
-    /// its window and any frontier it had ready to commit.
-    fn forget_ledger_partitions(&self, tpl: &TopicPartitionList) {
-        let elements = tpl.elements();
-        self.topic_offset_ledger
-            .forget_partitions(elements.iter().map(|e| (e.topic(), e.partition())));
-        let topic_partitions: Vec<TopicPartition> = elements
-            .iter()
-            .map(|e| TopicPartition::new(e.topic(), e.partition()))
-            .collect();
-        self.commit_sentinel.forget_partitions(&topic_partitions);
-    }
-}
-
-fn partition_names(tpl: &TopicPartitionList) -> Vec<String> {
-    let elements = tpl.elements();
-    let mut partitions: Vec<(&str, i32)> = elements
-        .iter()
-        .map(|element| (element.topic(), element.partition()))
-        .collect();
-    partitions.sort_unstable();
-    partitions
-        .into_iter()
-        .map(|(topic, partition)| format!("{topic}:{partition}"))
-        .collect()
-}
-
-impl ClientContext for SentinelContext {
-    /// Fired on a librdkafka thread every `statistics.interval.ms`; disabled
-    /// when that is 0.
-    fn stats(&self, stats: Statistics) {
-        crate::kafka_stats::export(&stats);
-    }
-}
-
-impl ConsumerContext for SentinelContext {
-    fn pre_rebalance(&self, _consumer: &BaseConsumer<Self>, rebalance: &Rebalance) {
-        match rebalance {
-            Rebalance::Revoke(tpl) => {
-                counter!("ingestion_consumer_rebalances_total", "event" => "revoke").increment(1);
-                info!(
-                    partitions = tpl.count(),
-                    topic_partitions = ?partition_names(tpl),
-                    "Rebalance: partitions revoked"
-                );
-                self.forget_ledger_partitions(tpl);
-                // The hook must run after the ledger forget above: it stamps
-                // each revocation with the bumped generation so only older
-                // poll slices are stripped.
-                if let Some(hook) = self.revoke_hook.get() {
-                    let partitions: Vec<(String, i32)> = tpl
-                        .elements()
-                        .iter()
-                        .map(|e| (e.topic().to_string(), e.partition()))
-                        .collect();
-                    hook(&partitions);
-                }
-            }
-            Rebalance::Assign(_) => {}
-            Rebalance::Error(err) => {
-                counter!("ingestion_consumer_rebalances_total", "event" => "error").increment(1);
-                warn!(error = %err, "Rebalance error");
-            }
-        }
-    }
-
-    fn post_rebalance(&self, _consumer: &BaseConsumer<Self>, rebalance: &Rebalance) {
-        if let Rebalance::Assign(tpl) = rebalance {
-            counter!("ingestion_consumer_rebalances_total", "event" => "assign").increment(1);
-            info!(
-                partitions = tpl.count(),
-                topic_partitions = ?partition_names(tpl),
-                "Rebalance: partitions assigned"
-            );
-            // An assign list names partitions that start a new assignment, so
-            // any surviving ledger for them is stale. The revoke callback
-            // normally dropped it already; this covers losses with no revoke
-            // callback (an error rebalance, a fenced member).
-            self.forget_ledger_partitions(tpl);
-            if let Some(epoch) = &self.assignment_epoch {
-                epoch.bump();
-            }
-        }
-    }
-
-    // NOTE: `ConsumerContext::commit_callback` is deliberately not implemented.
-    // librdkafka only propagates a commit result to the application when a
-    // conf-level `offset_commit_cb` is registered (rust-rdkafka never does) or
-    // when the commit is synchronous (a replyq is attached); manual async
-    // commits silently drop their result (`rd_kafka_cgrp_propagate_commit_result`).
-    // Commit success is instead verified by the consumer's commit monitor via
-    // `CommitSentinel::observe_broker_committed`.
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -867,18 +697,5 @@ mod tests {
             .batch()
             .note_sent("t:a", &[msg_at(0, 101)], SendKind::Fresh)
             .is_empty());
-    }
-
-    #[test]
-    fn partition_names_sort_by_topic_then_partition_number() {
-        let mut tpl = TopicPartitionList::new();
-        tpl.add_partition("overflow", 2);
-        tpl.add_partition("events", 10);
-        tpl.add_partition("events", 9);
-
-        assert_eq!(
-            partition_names(&tpl),
-            vec!["events:9", "events:10", "overflow:2"]
-        );
     }
 }

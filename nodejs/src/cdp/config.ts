@@ -104,6 +104,13 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_FREQUENCY_CAP_VALKEY_PASSWORD: string
     CDP_FREQUENCY_CAP_VALKEY_TLS: boolean
 
+    // Valkey for caller-supplied idempotency keys, such as an `Idempotency-Key` header. When it is
+    // unset, each route decides what a request with a key does.
+    CDP_IDEMPOTENCY_VALKEY_HOST: string
+    CDP_IDEMPOTENCY_VALKEY_PORT: number
+    CDP_IDEMPOTENCY_VALKEY_PASSWORD: string
+    CDP_IDEMPOTENCY_VALKEY_TLS: boolean
+
     CDP_SES_RATE_LIMIT_REFILL_PER_SECOND: number
     CDP_SES_RATE_LIMIT_CAPACITY: number
     CDP_SES_RATE_LIMIT_THROTTLED_POLL_DELAY_MS: number
@@ -235,6 +242,10 @@ export type CdpConfig = ClickhouseConfig & {
     // Scoped JWT keys signing the workflow engine's Replay Vision scan calls to Django. Its own key for the
     // same reason as the run-scout one, with the same rotation and fail-closed-when-empty semantics.
     WORKFLOW_VISION_REQUEST_JWT_SECRET: string
+    // Scoped JWT keys signing the workflow engine's "Add to static cohort" calls to Django. Its own key, for the same reason.
+    WORKFLOW_ADD_TO_STATIC_COHORT_JWT_SECRET: string
+    // Scoped JWT keys signing the workflow engine's "Opt out of messages" calls to Django. Its own key, for the same reason.
+    WORKFLOW_MESSAGE_OPT_OUT_JWT_SECRET: string
     CYCLOTRON_NODE_RESCHEDULE_FLOOR_SECONDS: number
     CYCLOTRON_NODE_RESCHEDULE_WAKE_RATE_PER_SECOND: number
     CYCLOTRON_NODE_RESCHEDULE_MIN_WINDOW_SECONDS: number
@@ -331,6 +342,11 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_FREQUENCY_CAP_VALKEY_PORT: isTestEnv() || isDevEnv() ? 6390 : 6379,
         CDP_FREQUENCY_CAP_VALKEY_PASSWORD: '',
         CDP_FREQUENCY_CAP_VALKEY_TLS: false,
+
+        CDP_IDEMPOTENCY_VALKEY_HOST: isTestEnv() || isDevEnv() ? '127.0.0.1' : '',
+        CDP_IDEMPOTENCY_VALKEY_PORT: isTestEnv() || isDevEnv() ? 6390 : 6379,
+        CDP_IDEMPOTENCY_VALKEY_PASSWORD: '',
+        CDP_IDEMPOTENCY_VALKEY_TLS: false,
 
         CDP_SES_RATE_LIMIT_REFILL_PER_SECOND: 100,
         CDP_SES_RATE_LIMIT_CAPACITY: 50,
@@ -447,6 +463,11 @@ export function getDefaultCdpConfig(): CdpConfig {
         // Dev/test default must match Django's (posthog/settings/data_stores.py).
         WORKFLOW_CLASSIFY_JWT_SECRET: isTestEnv() || isDevEnv() ? 'local-dev-workflow-classify-jwt' : '',
         WORKFLOW_VISION_REQUEST_JWT_SECRET: isTestEnv() || isDevEnv() ? 'local-dev-workflow-vision-request-jwt' : '',
+        // Dev/test default must match Django's (posthog/settings/data_stores.py).
+        WORKFLOW_ADD_TO_STATIC_COHORT_JWT_SECRET:
+            isTestEnv() || isDevEnv() ? 'local-dev-workflow-add-to-static-cohort-jwt' : '',
+        // Dev/test default must match Django's (posthog/settings/data_stores.py).
+        WORKFLOW_MESSAGE_OPT_OUT_JWT_SECRET: isTestEnv() || isDevEnv() ? 'local-dev-workflow-message-opt-out-jwt' : '',
         CYCLOTRON_NODE_RESCHEDULE_FLOOR_SECONDS: 600,
         CYCLOTRON_NODE_RESCHEDULE_WAKE_RATE_PER_SECOND: 200,
         CYCLOTRON_NODE_RESCHEDULE_MIN_WINDOW_SECONDS: 300,

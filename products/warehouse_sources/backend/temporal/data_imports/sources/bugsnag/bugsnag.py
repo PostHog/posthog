@@ -7,7 +7,7 @@ from urllib.parse import parse_qs, quote, urlencode, urlparse, urlunparse
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import Batcher
 from products.warehouse_sources.backend.temporal.data_imports.sources.bugsnag.settings import (
@@ -15,7 +15,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bugsnag.se
     BugsnagEndpointConfig,
     BugsnagScope,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    make_tracked_session,
+    retry_with_deadline,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
@@ -104,7 +107,7 @@ def _next_offset_url(url: str, page_len: int) -> str | None:
     return urlunparse(parsed._replace(query=urlencode(query, doseq=True)))
 
 
-@retry(
+@retry_with_deadline(
     retry=retry_if_exception_type((BugsnagRetryableError, requests.ReadTimeout, requests.ConnectionError)),
     stop=stop_after_attempt(5),
     wait=wait_exponential_jitter(initial=1, max=60),

@@ -131,7 +131,7 @@ class AwsSavingsPlansSource(ResumableSource[AwsSavingsPlansSourceConfig, AwsSavi
             ),
             iconPath="/static/services/aws_savings_plans.png",
             docsUrl=self.api_docs_url,
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

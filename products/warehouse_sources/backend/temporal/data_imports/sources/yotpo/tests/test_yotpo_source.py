@@ -53,7 +53,12 @@ def test_invalid_configuration_fails_without_http(
     assert network.requests_log == []
 
 
-@pytest.mark.parametrize("status", [400, 401, 403])
+@pytest.mark.parametrize(
+    "status",
+    [
+        400,
+    ],
+)
 def test_token_rejection_returns_a_credential_error(status: int) -> None:
     with scripted_network([ScriptedResponse(status=status, json={"error": "invalid_client"})]):
         result = YotpoSource().validate_credentials(

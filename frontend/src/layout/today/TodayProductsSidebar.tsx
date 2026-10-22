@@ -1,70 +1,49 @@
 import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
 
-import { IconFolder } from '@posthog/icons'
 import { Text } from '@posthog/quill'
 
-import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
-import { LibraryCreateButton } from 'scenes/library/LibraryCreateButton'
-import { libraryLogic } from 'scenes/library/libraryLogic'
-import { libraryListHref, libraryTypeForPath } from 'scenes/library/libraryUtils'
-import { libraryRowProductLabels, toolHrefForPath, toolLabel } from 'scenes/tools/toolsUtils'
-import { urls } from 'scenes/urls'
-
-import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
-import { FileSystemIconType, FileSystemImport } from '~/queries/schema/schema-general'
+import { NavProductIcon } from '~/layout/panel-layout/navbar/tabs/NavProductIcon'
+import { productsItemName } from '~/layout/panel-layout/navbar/tabs/productsCatalog'
+import { FileSystemImport } from '~/queries/schema/schema-general'
 
 import { TodayPaneGroupLabel } from './TodayPaneGroupLabel'
 import { TodayPaneRow } from './TodayPaneRow'
-import { analyticsTypesForPaneSearch, matchesPaneQuery } from './todayPaneSearch'
+import { analyticsTypesForPaneSearch } from './todayPaneSearch'
 import { TodayPaneSearchList } from './TodayPaneSearchList'
+import { TodayPaneSection } from './TodayPaneSection'
+import { TodayProductRow } from './TodayProductRow'
 import { TodayProductsAnalyticsHint } from './TodayProductsAnalyticsHint'
-import { todayToolsLogic } from './todayToolsLogic'
+import { todayProductsLogic } from './todayProductsLogic'
 
-/** The Products sub-nav: recently viewed tools, every saved object type, then the tools by category. */
 export function TodayProductsSidebar(): JSX.Element {
-    const { tools, toolGroups, recentTools, search } = useValues(todayToolsLogic)
-    const { setSearch } = useActions(todayToolsLogic)
-    const { objectTypes } = useValues(libraryLogic)
-    const { location } = useValues(router)
-    const path = removeProjectIdIfPresent(location.pathname)
-    const activeHref = toolHrefForPath(path, tools)
-    const objectPageType = libraryTypeForPath(path)
-
-    const showAllObjects = matchesPaneQuery('All objects', search)
-    const libraryTypes = objectTypes.filter((type) =>
-        [type.pluralLabel, ...libraryRowProductLabels(type.value)].some((label) => matchesPaneQuery(label, search))
-    )
-    const showLibrary = showAllObjects || libraryTypes.length > 0
+    const {
+        pinnedProducts,
+        productGroups,
+        productCount,
+        starredProducts,
+        starredHrefs,
+        starredOpen,
+        allProductsOpen,
+        activeHref,
+        search,
+    } = useValues(todayProductsLogic)
+    const { setSearch, setStarredOpen, setAllProductsOpen } = useActions(todayProductsLogic)
+    const searching = !!search.trim()
     const searchedAnalyticsTypes = analyticsTypesForPaneSearch(search)
-    const recentSection = recentTools.length ? { key: 'recent', label: 'Recently viewed', tools: recentTools } : null
-    const categorySections = toolGroups.map((group) => ({
-        key: group.category,
-        label: group.category,
-        tools: group.tools,
-    }))
-    const hasProducts = !!recentSection || showLibrary || categorySections.length > 0
-    // A tool can show in Recently viewed and in its own group, so the group keeps the two rows apart on the keyboard path.
-    const optionValue = (groupKey: string, tool: FileSystemImport): string => `${groupKey}:${tool.href ?? ''}`
+    const hasProducts = pinnedProducts.length > 0 || starredProducts.length > 0 || productCount > 0
 
-    const renderToolSection = (section: (typeof categorySections)[number], first: boolean): JSX.Element => (
-        <div key={section.key}>
-            <TodayPaneGroupLabel first={first}>{section.label}</TodayPaneGroupLabel>
-            {section.tools.map((tool) => {
-                const href = tool.href ?? ''
-                return (
-                    <TodayPaneRow
-                        key={href}
-                        value={optionValue(section.key, tool)}
-                        label={toolLabel(tool)}
-                        icon={iconForType((tool.iconType ?? tool.type) as FileSystemIconType, tool.iconColor)}
-                        to={href}
-                        active={!!href && href === activeHref}
-                        dataAttr={section.key === 'recent' ? 'today-tool-recent' : 'today-tool'}
-                    />
-                )
-            })}
-        </div>
+    // A product can show in Starred and in its category, so the group keeps the rows apart on the keyboard path.
+    const renderProduct = (item: FileSystemImport, group: string): JSX.Element => (
+        <TodayProductRow
+            key={item.href}
+            value={`${group}:${item.href}`}
+            label={productsItemName(item)}
+            product={item}
+            to={item.href ?? ''}
+            active={item.href === activeHref}
+            starred={starredHrefs.has(item.href ?? '')}
+            inStarredGroup={group === 'starred'}
+        />
     )
 
     return (
@@ -75,47 +54,55 @@ export function TodayProductsSidebar(): JSX.Element {
                 searchLabel="Search products"
                 dataAttr="today-products-search"
             >
-                {!hasProducts && !searchedAnalyticsTypes.length && (
-                    <Text size="xs" variant="muted" className="block px-2 py-1">
-                        No products match that search.
-                    </Text>
-                )}
-                {recentSection && renderToolSection(recentSection, true)}
-                {showLibrary && (
-                    <div>
-                        <TodayPaneGroupLabel first={!recentSection}>Library</TodayPaneGroupLabel>
-                        {showAllObjects && (
+                {!hasProducts &&
+                    (searchedAnalyticsTypes.length > 0 ? (
+                        <TodayProductsAnalyticsHint analyticsTypes={searchedAnalyticsTypes} />
+                    ) : (
+                        <Text size="xs" variant="muted" className="block px-2 py-1">
+                            No products match that search.
+                        </Text>
+                    ))}
+                {pinnedProducts.length > 0 && (
+                    <div className="flex flex-col gap-px pb-2">
+                        {pinnedProducts.map((item) => (
                             <TodayPaneRow
-                                value="library:all"
-                                label="All objects"
-                                icon={<IconFolder />}
-                                to={urls.library()}
-                                active={path === urls.library()}
-                                dataAttr="today-library-all"
-                            />
-                        )}
-                        {libraryTypes.map((type) => (
-                            <TodayPaneRow
-                                key={type.value}
-                                value={`library:${type.value}`}
-                                label={type.pluralLabel}
-                                icon={iconForType(type.value as FileSystemIconType)}
-                                to={libraryListHref(type.value) ?? urls.library(type.value)}
-                                // A product page can share a scene with a Library list. The product's own row then takes the highlight.
-                                active={
-                                    path === urls.library(type.value) || (objectPageType === type.value && !activeHref)
-                                }
-                                action={<LibraryCreateButton objectType={type.value} />}
-                                dataAttr="today-library-type"
+                                key={item.href}
+                                value={`pinned:${item.href}`}
+                                label={productsItemName(item)}
+                                icon={<NavProductIcon item={item} />}
+                                to={item.href ?? ''}
+                                active={item.href === activeHref}
+                                dataAttr="today-tool-pinned"
                             />
                         ))}
                     </div>
                 )}
-                {categorySections.map((section, index) =>
-                    renderToolSection(section, !recentSection && !showLibrary && index === 0)
+                {starredProducts.length > 0 && (
+                    <TodayPaneSection
+                        label="Starred"
+                        open={starredOpen || searching}
+                        count={starredProducts.length}
+                        onToggle={() => setStarredOpen(!starredOpen)}
+                        dataAttr="today-section-starred"
+                    >
+                        {starredProducts.map((item) => renderProduct(item, 'starred'))}
+                    </TodayPaneSection>
                 )}
-                {searchedAnalyticsTypes.length > 0 && (
-                    <TodayProductsAnalyticsHint analyticsTypes={searchedAnalyticsTypes} />
+                {productCount > 0 && (
+                    <TodayPaneSection
+                        label="All products"
+                        open={allProductsOpen || searching}
+                        count={productCount}
+                        onToggle={() => setAllProductsOpen(!allProductsOpen)}
+                        dataAttr="today-section-all-products"
+                    >
+                        {productGroups.map((group, index) => (
+                            <div key={group.label}>
+                                <TodayPaneGroupLabel first={index === 0}>{group.label}</TodayPaneGroupLabel>
+                                {group.items.map((item) => renderProduct(item, group.label))}
+                            </div>
+                        ))}
+                    </TodayPaneSection>
                 )}
             </TodayPaneSearchList>
         </div>

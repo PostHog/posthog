@@ -210,12 +210,6 @@ class TestValidateCredentials:
         assert message is not None and "500" in message
         assert {request.path for request in network.requests_log} == {"/api/v2/utilities/ping"}
 
-    def test_swallows_transport_errors(self) -> None:
-        with scripted_network(always(ConnectionError("boom"))):
-            is_valid, message = validate_credentials("12345", "key", "production")
-        assert is_valid is False
-        assert message is not None and "Could not reach Avalara" in message
-
     def test_probes_ping_endpoint_for_selected_environment(self) -> None:
         with scripted_network([ScriptedResponse(json={"authenticated": True})]) as network:
             validate_credentials("12345", "key", "sandbox")

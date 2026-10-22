@@ -4,9 +4,10 @@ from posthog.test.base import BaseTest, _create_person, flush_persons_and_events
 from unittest.mock import MagicMock, patch
 
 from django.db import DEFAULT_DB_ALIAS, OperationalError
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 
 from clickhouse_driver.errors import SocketTimeoutError
+from kombu.exceptions import OperationalError as KombuOperationalError
 from parameterized import parameterized
 from pydantic import (
     BaseModel,
@@ -28,6 +29,8 @@ from posthog.models.person.sql import PERSON_STATIC_COHORT_TABLE
 
 from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty
 from products.cohorts.backend.models.util import (
+    COHORT_QUERY_TIMEOUT_SECONDS,
+    COHORT_STATS_COLLECTION_DELAY_SECONDS,
     ERROR_CODE_MESSAGES,
     CohortErrorCode,
     _recalculate_cohortpeople_for_team,
@@ -39,6 +42,7 @@ from products.cohorts.backend.models.util import (
     insert_cohort_query_actors_into_ch,
     parse_error_code,
     print_cohort_hogql_query,
+    run_cohort_query,
     simplified_cohort_filter_properties,
     sort_cohorts_topologically,
     validate_actors_query_for_cohort,
@@ -88,6 +92,46 @@ class TestCohortQueryValidation(SimpleTestCase):
                 validate_actors_query_for_cohort(query)
         else:
             validate_actors_query_for_cohort(query)
+
+
+class TestRunCohortQueryStatsScheduling(SimpleTestCase):
+    @override_settings(TEST=False, IN_EVAL_TESTING=False)
+    @patch("products.cohorts.backend.models.util.capture_exception")
+    @patch("posthog.tasks.calculate_cohort.collect_cohort_query_stats")
+    def test_broker_failure_does_not_fail_calculation(
+        self, mock_stats_task: MagicMock, mock_capture: MagicMock
+    ) -> None:
+        mock_stats_task.apply_async.side_effect = KombuOperationalError("Timeout connecting to server")
+        fn = MagicMock(return_value=42)
+
+        result, _ = run_cohort_query(fn, cohort_id=1, history=MagicMock(id=1), query="SELECT 1")
+
+        self.assertEqual(result, 42)
+        fn.assert_called_once()
+        self.assertEqual(mock_stats_task.apply_async.call_count, 1)
+        mock_capture.assert_called_once()
+
+    @override_settings(TEST=False, IN_EVAL_TESTING=False)
+    @patch("products.cohorts.backend.models.util.capture_exception")
+    @patch("posthog.tasks.calculate_cohort.collect_cohort_query_stats")
+    def test_broker_failure_after_query_returns_result(
+        self, mock_stats_task: MagicMock, mock_capture: MagicMock
+    ) -> None:
+        delayed_task = MagicMock()
+        mock_stats_task.apply_async.side_effect = [delayed_task, KombuOperationalError("Timeout connecting to server")]
+        delayed_task.revoke.side_effect = KombuOperationalError("Timeout connecting to server")
+
+        result, _ = run_cohort_query(MagicMock(return_value=42), cohort_id=1, history=MagicMock(id=1), query="SELECT 1")
+
+        self.assertEqual(result, 42)
+        self.assertEqual(
+            [c.kwargs["countdown"] for c in mock_stats_task.apply_async.call_args_list],
+            [
+                COHORT_QUERY_TIMEOUT_SECONDS + COHORT_STATS_COLLECTION_DELAY_SECONDS,
+                COHORT_STATS_COLLECTION_DELAY_SECONDS,
+            ],
+        )
+        self.assertEqual(mock_capture.call_count, 2)
 
 
 class TestCohortUtils(BaseTest):

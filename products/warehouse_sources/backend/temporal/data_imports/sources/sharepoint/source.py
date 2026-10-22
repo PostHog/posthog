@@ -218,7 +218,7 @@ class SharePointSource(ResumableSource[SharePointSourceConfig, SharePointResumeC
             ),
             docsUrl="https://posthog.com/docs/cdp/sources/sharepoint",
             iconPath="/static/services/sharepoint.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

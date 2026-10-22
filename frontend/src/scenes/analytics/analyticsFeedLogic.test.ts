@@ -5,8 +5,14 @@ import { teamLogic } from 'scenes/teamLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { AnalyticsFeedQuery, EMPTY_ANALYTICS_FEED_QUERY } from './analyticsFeed'
+import {
+    AnalyticsFeedQuery,
+    AnalyticsSourceState,
+    EMPTY_ANALYTICS_FEED_QUERY,
+    mergeAnalyticsSources,
+} from './analyticsFeed'
 import { analyticsFeedLogic, resetAnalyticsFeedSnapshot, selectAnalyticsFeed } from './analyticsFeedLogic'
+import { fileSystemEntryToAnalytics } from './analyticsUtils'
 
 const ALL: AnalyticsFeedQuery = EMPTY_ANALYTICS_FEED_QUERY
 
@@ -164,4 +170,39 @@ describe('analyticsFeedLogic', () => {
 
         expect(feed(second)).toEqual(['dashboard:10', 'notebook:n9', 'dashboard:8'])
     })
+})
+
+describe('mergeAnalyticsSources view order', () => {
+    test.each(['-last_viewed_at', 'last_viewed_at'] as const)(
+        'merges %s across types with unviewed rows last',
+        (orderBy) => {
+            const source = (type: 'dashboard' | 'notebook', days: (number | null)[]): AnalyticsSourceState => ({
+                projectId: '1',
+                query: { ...ALL, orderBy },
+                type,
+                items: days.map((day, index) => ({
+                    ...fileSystemEntryToAnalytics({
+                        id: `fs-${type}-${index}`,
+                        type,
+                        ref: `${type}-${index}`,
+                        path: `${type}/${index}`,
+                        created_at: at(30 - index),
+                    })!,
+                    timestamp: day === null ? null : at(day),
+                })),
+                offset: days.length,
+                hasMore: false,
+                initialized: true,
+                refreshing: false,
+                loading: false,
+                failed: false,
+                generation: 0,
+            })
+            const dashboards = orderBy === '-last_viewed_at' ? [5, 2, null] : [2, 5, null]
+            const { items } = mergeAnalyticsSources([source('dashboard', dashboards), source('notebook', [3, null])])
+            const expected = orderBy === '-last_viewed_at' ? [5, 3, 2, null, null] : [2, 3, 5, null, null]
+            expect(items.map((item) => item.timestamp)).toEqual(expected.map((day) => (day === null ? null : at(day))))
+            expect(items.slice(-2).map((item) => item.type)).toEqual(['notebook', 'dashboard'])
+        }
+    )
 })

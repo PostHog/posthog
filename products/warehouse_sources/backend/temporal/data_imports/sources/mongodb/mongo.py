@@ -1065,4 +1065,7 @@ def mongo_source(
         chunk_size_bytes=MONGO_CHUNK_SIZE_BYTES,
         supports_resume=resume_manager is not None,
         on_complete=resume_manager.clear_state if resume_manager is not None else None,
+        # The read is in `_id` order, because the cursor reopens after the last `_id`. A row with a
+        # lower incremental value can thus follow a higher one.
+        sort_mode=None,
     )

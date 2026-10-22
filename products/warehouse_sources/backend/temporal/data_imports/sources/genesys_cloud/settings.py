@@ -46,8 +46,9 @@ class GenesysCloudEndpointConfig:
     name: str
     primary_keys: list[str]
     # "analytics" endpoints read the conversation details query in time windows;
-    # "listing" endpoints page through a plain GET entity listing.
-    kind: Literal["analytics", "listing"]
+    # "listing" endpoints page through a plain GET entity listing by page number;
+    # "scan" endpoints page through a GET listing by cursor.
+    kind: Literal["analytics", "listing", "scan"]
     path: str
     # Permission a Genesys Cloud role must grant for the OAuth client to read this endpoint.
     permission: str | None = None
@@ -117,6 +118,34 @@ GENESYS_CLOUD_ENDPOINTS: dict[str, GenesysCloudEndpointConfig] = {
         path="/api/v2/routing/queues",
         permission="routing:queue:view",
         params={"sortOrder": "asc"},
+    ),
+    "wrapup_codes": GenesysCloudEndpointConfig(
+        name="wrapup_codes",
+        primary_keys=["id"],
+        kind="listing",
+        path="/api/v2/routing/wrapupcodes",
+        permission="routing:wrapupCode:view",
+    ),
+    "skills": GenesysCloudEndpointConfig(
+        name="skills",
+        primary_keys=["id"],
+        kind="listing",
+        path="/api/v2/routing/skills",
+        permission="routing:skill:view",
+    ),
+    "divisions": GenesysCloudEndpointConfig(
+        name="divisions",
+        primary_keys=["id"],
+        kind="listing",
+        path="/api/v2/authorization/divisions",
+    ),
+    # The plain /externalcontacts/organizations listing stops at the first 1,000 records, so read the scan listing.
+    "external_organizations": GenesysCloudEndpointConfig(
+        name="external_organizations",
+        primary_keys=["id"],
+        kind="scan",
+        path="/api/v2/externalcontacts/scan/organizations",
+        permission="externalContacts:externalOrganization:view",
     ),
 }
 

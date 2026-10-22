@@ -38,6 +38,7 @@ use std::{fmt, mem};
 
 use common_kafka::config::KafkaConfig;
 use common_kafka::transaction::{ConnectedTransactionalProducer, TransactionalProducer};
+use personhog_coordination::types::ChangelogTarget;
 
 use crate::producer_stats::FencedProducerContext;
 
@@ -162,6 +163,17 @@ impl Gate {
             }
         }
     }
+}
+
+/// Producers a queue budget is divided among: one per lane per partition.
+pub fn fenced_producer_count(partitions: u32, lanes: usize) -> u32 {
+    let lanes = u32::try_from(lanes.max(1)).unwrap_or(u32::MAX);
+    partitions.max(1).saturating_mul(lanes)
+}
+
+/// One producer's share of an aggregate queue limit, never below 1.
+pub fn queue_share(aggregate: u32, producers: u32) -> u32 {
+    (aggregate / producers.max(1)).max(1)
 }
 
 struct Dial {
@@ -361,6 +373,7 @@ impl PartitionFence {
 /// producer's next transaction for a while after it commits, so a write
 /// takes the lane least likely to be held.
 struct PartitionLanes {
+    topic: String,
     lanes: Vec<Arc<PartitionFence>>,
     /// Serializes lane decisions: a writer holds it from reading the gates
     /// to moving one, and a committer while it clears `committing`, so a
@@ -662,15 +675,18 @@ enum Prepared {
     Connecting { token: u64, since: Instant },
     /// A finished dial, one connection per lane, parked for the next
     /// acquire to consume.
-    Ready(Vec<ConnectedFencedProducer>),
+    Ready {
+        topic: String,
+        connected: Vec<ConnectedFencedProducer>,
+    },
 }
 
 /// Per-partition fenced producers for the changelog. Constructed once
 /// and shared; partitions are acquired at warm completion and released
 /// with ownership.
 pub struct FencedChangelogProducers {
+    /// Queue limits here are the aggregate every producer shares (see `queue_share`).
     kafka: KafkaConfig,
-    topic: String,
     init_timeout: Duration,
     commit_timeout: Duration,
     /// How long the broker keeps one of our windows open before
@@ -733,7 +749,6 @@ pub struct FencedChangelogProducers {
 /// every fenced write.
 pub struct FencedProducerConfig {
     pub kafka: KafkaConfig,
-    pub topic: String,
     pub init_timeout: Duration,
     pub commit_timeout: Duration,
     pub broker_txn_timeout: Duration,
@@ -747,7 +762,6 @@ impl FencedChangelogProducers {
     pub fn new(config: FencedProducerConfig) -> Self {
         let FencedProducerConfig {
             kafka,
-            topic,
             init_timeout,
             commit_timeout,
             broker_txn_timeout,
@@ -762,7 +776,6 @@ impl FencedChangelogProducers {
         let produce_bound = (window + commit_timeout * (COMMIT_RETRIES as u32 + 2)) * 2;
         Self {
             kafka,
-            topic,
             init_timeout,
             commit_timeout,
             broker_txn_timeout,
@@ -795,24 +808,25 @@ impl FencedChangelogProducers {
     /// every previous owner of them. The claims run as one blocking task
     /// and their producers travel back in a guard, so a cancelled acquire
     /// never destroys a producer on a runtime worker.
-    async fn acquire_installed(&self, partition: u32) -> Result<Arc<PartitionLanes>, String> {
+    async fn acquire_installed(
+        &self,
+        partition: u32,
+        target: &ChangelogTarget,
+    ) -> Result<Arc<PartitionLanes>, String> {
+        let topic = target.topic.as_str();
         let start = Instant::now();
         // The removal also clears a Connecting claim: acquisition is
         // happening now, so a dial still in flight is too late to help,
         // and losing its claim makes it discard on completion instead
         // of parking a connection nothing will consume.
-        let mut parked: Vec<Option<ConnectedFencedProducer>> =
-            match self.prepared.remove(&partition) {
-                Some((_, Prepared::Ready(parked))) => parked.into_iter().map(Some).collect(),
-                _ => Vec::new(),
-            };
+        let mut parked = self.take_prepared(partition, topic);
         let path = if parked.is_empty() {
             "cold"
         } else {
             "prepared"
         };
         parked.resize_with(self.lanes, || None);
-        let dial = self.dial(partition);
+        let dial = self.dial(partition, target);
         let claimed = spawn_blocking(move || {
             let mut producers = Vec::with_capacity(parked.len());
             let mut failure = None;
@@ -885,7 +899,11 @@ impl FencedChangelogProducers {
                 })
             })
             .collect();
-        let installed = Arc::new(PartitionLanes { lanes, turn });
+        let installed = Arc::new(PartitionLanes {
+            topic: topic.to_string(),
+            lanes,
+            turn,
+        });
         if let Some(replaced) = self.partitions.insert(partition, Arc::clone(&installed)) {
             // The heal path installs over a still-present condemned
             // fence, and by then the commit task has usually dropped its
@@ -897,10 +915,22 @@ impl FencedChangelogProducers {
         Ok(installed)
     }
 
-    fn dial(&self, partition: u32) -> Dial {
+    /// Each producer's queue is its share of the aggregate under the generation's partition count.
+    fn dial(&self, partition: u32, target: &ChangelogTarget) -> Dial {
+        let producers = fenced_producer_count(target.partitions, self.lanes);
         Dial {
-            kafka: self.kafka.clone(),
-            topic: self.topic.clone(),
+            kafka: KafkaConfig {
+                kafka_producer_queue_mib: queue_share(
+                    self.kafka.kafka_producer_queue_mib,
+                    producers,
+                ),
+                kafka_producer_queue_messages: queue_share(
+                    self.kafka.kafka_producer_queue_messages,
+                    producers,
+                ),
+                ..self.kafka.clone()
+            },
+            topic: target.topic.clone(),
             partition,
             timeout: self.init_timeout,
             broker_txn_timeout: self.broker_txn_timeout,
@@ -909,10 +939,91 @@ impl FencedChangelogProducers {
         }
     }
 
+    /// The partition's parked connections for `topic`, removing its slot; one
+    /// parked for another topic is discarded.
+    fn take_prepared(&self, partition: u32, topic: &str) -> Vec<Option<ConnectedFencedProducer>> {
+        match self.prepared.remove(&partition) {
+            Some((
+                _,
+                Prepared::Ready {
+                    topic: parked_topic,
+                    connected,
+                },
+            )) if parked_topic == topic => connected.into_iter().map(Some).collect(),
+            Some((_, Prepared::Ready { connected, .. })) => {
+                counter!("personhog_leader_fence_preconnect_total", "outcome" => "stale_topic")
+                    .increment(1);
+                spawn_blocking(move || drop(connected));
+                Vec::new()
+            }
+            _ => Vec::new(),
+        }
+    }
+
     /// Take the partition's fence, discarding the handle. The caller
-    /// relies on the map rather than on holding the fence itself.
-    pub async fn acquire(&self, partition: u32) -> Result<(), String> {
-        self.acquire_installed(partition).await.map(|_| ())
+    /// relies on the map rather than on holding the fence itself. Ids are
+    /// topic-scoped: a new generation fences nothing on the old one.
+    pub async fn acquire(&self, partition: u32, target: &ChangelogTarget) -> Result<(), String> {
+        self.acquire_installed(partition, target).await.map(|_| ())
+    }
+
+    /// Claim and drop each lane's id; a dial in flight is waited for, not duplicated.
+    pub async fn seal(
+        &self,
+        partition: u32,
+        target: &ChangelogTarget,
+    ) -> Result<&'static str, String> {
+        let topic = target.topic.as_str();
+        let start = Instant::now();
+        while start.elapsed() < self.init_timeout
+            && self
+                .prepared
+                .get(&partition)
+                .is_some_and(|slot| matches!(slot.value(), Prepared::Connecting { .. }))
+        {
+            sleep(Duration::from_millis(10)).await;
+        }
+        let mut parked = self.take_prepared(partition, topic);
+        let path = if parked.is_empty() {
+            "cold"
+        } else {
+            "prepared"
+        };
+        parked.resize_with(self.lanes, || None);
+        let dial = self.dial(partition, target);
+        let claimed = spawn_blocking(move || {
+            let fell_back = AtomicBool::new(false);
+            let results = per_lane(parked, |lane, parked| {
+                claim_lane(&dial, lane, parked, &fell_back)
+            });
+            let mut producers = Vec::with_capacity(results.len());
+            let mut failure = None;
+            for result in results {
+                match result {
+                    Ok(producer) => producers.push(producer),
+                    Err(e) => {
+                        failure.get_or_insert(e);
+                    }
+                }
+            }
+            // The ids are claimed once init returns; the destroy that
+            // follows takes hundreds of milliseconds and nobody waits for it.
+            drop_off_worker(producers);
+            match failure {
+                Some(e) => Err(e),
+                None => Ok(()),
+            }
+        })
+        .await
+        .map_err(|join| format!("seal join: {join}"))?;
+        histogram!("personhog_leader_fence_seal_ms", "path" => path)
+            .record(start.elapsed().as_secs_f64() * 1000.0);
+        counter!(
+            "personhog_leader_fence_seal_total",
+            "outcome" => if claimed.is_ok() { "ok" } else { "error" }
+        )
+        .increment(1);
+        claimed.map(|()| path)
     }
 
     /// Mark the installed lanes as about to be fenced by this pod's own
@@ -953,7 +1064,7 @@ impl FencedChangelogProducers {
     /// Single-flight per partition: the slot is claimed before the dial
     /// begins, so however often convergence fires this through a drain
     /// window, one dial runs and the rest return as coalesced.
-    pub async fn preconnect(&self, partition: u32) {
+    pub async fn preconnect(&self, partition: u32, target: &ChangelogTarget) {
         // The claim must precede the dial, and the entry guard must not
         // be held across it: the guard holds a shard lock.
         let token = self.dial_token.fetch_add(1, Ordering::Relaxed);
@@ -973,7 +1084,7 @@ impl FencedChangelogProducers {
             }
         }
         let start = Instant::now();
-        let dial = self.dial(partition);
+        let dial = self.dial(partition, target);
         let lanes = self.lanes;
         let dialed = spawn_blocking(move || {
             // All or nothing: each connection carries its own lane's id.
@@ -990,7 +1101,7 @@ impl FencedChangelogProducers {
                 counter!("personhog_leader_fence_preconnect_total", "outcome" => "ok").increment(1);
                 histogram!("personhog_leader_fence_preconnect_ms")
                     .record(start.elapsed().as_secs_f64() * 1000.0);
-                self.park(partition, token, connected);
+                self.park(partition, token, &target.topic, connected);
             }
             Err(e) => {
                 counter!("personhog_leader_fence_preconnect_total", "outcome" => "error")
@@ -1014,11 +1125,20 @@ impl FencedChangelogProducers {
     /// finding a replacement dial's claim here must not usurp it, or
     /// the replacement's own park would discard the newer connection
     /// while later convergence passes see whatever raced in.
-    fn park(&self, partition: u32, token: u64, connected: Vec<ConnectedFencedProducer>) {
+    fn park(
+        &self,
+        partition: u32,
+        token: u64,
+        topic: &str,
+        connected: Vec<ConnectedFencedProducer>,
+    ) {
         match self.prepared.entry(partition) {
             Entry::Occupied(mut slot) if matches!(slot.get(), Prepared::Connecting { token: t, .. } if *t == token) =>
             {
-                slot.insert(Prepared::Ready(connected));
+                slot.insert(Prepared::Ready {
+                    topic: topic.to_string(),
+                    connected,
+                });
             }
             _ => {
                 counter!("personhog_leader_fence_preconnect_total", "outcome" => "discarded")
@@ -1033,7 +1153,7 @@ impl FencedChangelogProducers {
     /// claim is removed without a drop: its dial discards on
     /// completion once the claim is gone.
     fn discard_prepared(&self, partition: u32) {
-        if let Some((_, Prepared::Ready(connected))) = self.prepared.remove(&partition) {
+        if let Some((_, Prepared::Ready { connected, .. })) = self.prepared.remove(&partition) {
             spawn_blocking(move || drop(connected));
         }
     }
@@ -1061,12 +1181,12 @@ impl FencedChangelogProducers {
             // dial that parks between the scan and this removal is not
             // swept as a stale claim.
             match self.prepared.remove_if(&partition, |_, slot| match slot {
-                Prepared::Ready(_) => true,
+                Prepared::Ready { .. } => true,
                 Prepared::Connecting { since, .. } => {
                     now.duration_since(*since) > stale_claim_bound
                 }
             }) {
-                Some((_, Prepared::Ready(connected))) => {
+                Some((_, Prepared::Ready { connected, .. })) => {
                     counter!("personhog_leader_fence_preconnect_total", "outcome" => "swept")
                         .increment(1);
                     warn!(
@@ -1090,7 +1210,7 @@ impl FencedChangelogProducers {
     pub fn has_prepared(&self, partition: u32) -> bool {
         self.prepared
             .get(&partition)
-            .is_some_and(|slot| matches!(*slot, Prepared::Ready(_)))
+            .is_some_and(|slot| matches!(*slot, Prepared::Ready { .. }))
     }
 
     /// How many dials have been attempted.
@@ -1547,7 +1667,7 @@ impl FencedChangelogProducers {
         if let Some(fill) = opened {
             let fence_for_commit = Arc::clone(&fence);
             let window = self.window;
-            let topic = self.topic.clone();
+            let topic = lanes.topic.clone();
             let part = partition;
             tokio::spawn(async move {
                 commit_window_after(fence_for_commit, window, fill, topic, part).await;
@@ -1563,7 +1683,7 @@ impl FencedChangelogProducers {
         // fencing rollout. Recorded before the send so a payload rejected
         // by the broker (message.max.bytes) still shows up.
         histogram!("personhog_leader_kafka_produce_bytes").record(payload.len() as f64);
-        let record = FutureRecord::to(&self.topic)
+        let record = FutureRecord::to(&lanes.topic)
             .partition(partition as i32)
             .key(&key)
             .payload(&payload);
@@ -2120,7 +2240,7 @@ async fn commit_window_after(
 /// first-increment lazy registration — fence acquisition in particular
 /// fires exactly during deploys. A touched histogram renders with zero
 /// count until its first sample.
-pub fn preregister_fencing_metrics(partitions: u32) {
+pub fn preregister_fencing_metrics() {
     for outcome in ["ok", "error"] {
         counter!("personhog_leader_fence_init_total", "outcome" => outcome).increment(0);
     }
@@ -2166,38 +2286,39 @@ pub fn preregister_fencing_metrics(partitions: u32) {
         counter!("personhog_coordination_repair_passes_total", "outcome" => outcome).increment(0);
     }
     counter!("personhog_leader_kafka_produce_errors_total").increment(0);
-    for partition in 0..partitions {
-        let p = partition.to_string();
-        counter!("personhog_leader_fence_aborts_total", "partition" => p.clone()).increment(0);
-        counter!(
-            "personhog_leader_fenced_partition_drops_total",
-            "partition" => p.clone()
-        )
-        .increment(0);
-        counter!(
-            "personhog_leader_fence_heal_failures_total",
-            "partition" => p.clone()
-        )
-        .increment(0);
-
-        counter!(
-            "personhog_leader_fence_commit_indeterminate_total",
-            "partition" => p.clone()
-        )
-        .increment(0);
-        for cause in ["takeover", "heal"] {
-            counter!(
-                "personhog_leader_produce_fenced_total",
-                "partition" => p.clone(),
-                "cause" => cause
-            )
-            .increment(0);
-        }
-    }
     counter!("personhog_leader_fence_produce_bound_exceeded_total").increment(0);
     // Histograms are deliberately absent: the Prometheus exporter
     // renders one only once it has a sample, so there is nothing a
     // startup call can materialize.
+}
+
+/// Registers one partition's fencing series when it is captured.
+pub fn preregister_partition_fencing_metrics(partition: u32) {
+    let p = partition.to_string();
+    counter!("personhog_leader_fence_aborts_total", "partition" => p.clone()).increment(0);
+    counter!(
+        "personhog_leader_fenced_partition_drops_total",
+        "partition" => p.clone()
+    )
+    .increment(0);
+    counter!(
+        "personhog_leader_fence_heal_failures_total",
+        "partition" => p.clone()
+    )
+    .increment(0);
+    counter!(
+        "personhog_leader_fence_commit_indeterminate_total",
+        "partition" => p.clone()
+    )
+    .increment(0);
+    for cause in ["takeover", "heal"] {
+        counter!(
+            "personhog_leader_produce_fenced_total",
+            "partition" => p.clone(),
+            "cause" => cause
+        )
+        .increment(0);
+    }
 }
 
 /// `FencedProduceError` holds a String and cannot derive Clone cheaply
@@ -2256,13 +2377,14 @@ pub async fn heal_fence(
     inflight: &InflightTracker,
     authority: &AuthorityClock,
     partition: u32,
+    target: &ChangelogTarget,
 ) -> Result<HealOutcome, String> {
     let lost_standing = !authority.is_valid();
     if lost_standing || fenced.holds(partition) || inflight.is_fenced(partition) {
         return Ok(HealOutcome::Intact);
     }
     fenced.expect_self_fence(partition);
-    let taken = match fenced.acquire_installed(partition).await {
+    let taken = match fenced.acquire_installed(partition, target).await {
         Ok(taken) => taken,
         Err(e) => {
             // Partition-labeled: a wedged partition must be attributable
@@ -2318,6 +2440,39 @@ pub async fn heal_fence(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use envconfig::Envconfig;
+
+    #[test]
+    fn a_producer_queue_is_its_share_under_the_generation_it_dials() {
+        let mut kafka = KafkaConfig::init_from_hashmap(&std::collections::HashMap::new()).unwrap();
+        kafka.kafka_producer_queue_mib = 1024;
+        kafka.kafka_producer_queue_messages = 64_000;
+        let producers = FencedChangelogProducers::new(FencedProducerConfig {
+            kafka,
+            init_timeout: Duration::from_secs(1),
+            commit_timeout: Duration::from_secs(1),
+            broker_txn_timeout: Duration::from_secs(10),
+            window: Duration::from_millis(5),
+            window_max_writes: 32,
+            settle_budget: Duration::from_secs(1),
+            lanes: 2,
+        });
+        for (partitions, mib, messages) in [(8, 64, 4_000), (16, 32, 2_000)] {
+            let target = ChangelogTarget {
+                topic: format!("g{partitions}"),
+                partitions,
+            };
+            let dial = producers.dial(0, &target);
+            assert_eq!(
+                (
+                    dial.kafka.kafka_producer_queue_mib,
+                    dial.kafka.kafka_producer_queue_messages
+                ),
+                (mib, messages),
+                "{partitions} partitions"
+            );
+        }
+    }
 
     /// The verdict the caller acts on, as a truth table over the two
     /// independent facts it combines.

@@ -32,6 +32,7 @@ from social_django.models import UserSocialAuth
 from social_django.strategy import DjangoStrategy
 from social_django.utils import load_backend, load_strategy
 
+from posthog.api.scim.utils import mask_email
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.constants import AvailableFeature
 from posthog.exceptions_capture import capture_exception
@@ -43,7 +44,6 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
 
 from ee import settings
-from ee.api.scim.utils import mask_email
 from ee.api.vercel.types import VercelClaims, VercelSystemClaims, VercelUser, VercelUserClaims
 from ee.api.vercel.utils import get_vercel_jwks
 

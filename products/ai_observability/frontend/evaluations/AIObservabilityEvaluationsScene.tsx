@@ -258,7 +258,7 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
                 const isBlocked = !canEnable && !evaluation.enabled
                 const blockedReason = 'Add a provider API key to enable this evaluation.'
                 return (
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                         <AccessControlAction
                             resourceType={AccessControlResourceType.Evaluation}
                             minAccessLevel={AccessControlLevel.Editor}
@@ -579,10 +579,10 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
                 </LemonBanner>
             )}
 
-            <div className={showEmptyState ? 'hidden' : 'flex justify-between items-start gap-3'}>
-                <div className="min-w-0 flex-1">
+            <div className={showEmptyState ? 'hidden' : 'flex flex-wrap justify-between items-start gap-3'}>
+                <div className="min-w-0 flex-1 basis-64">
                     {selectedDirectory ? (
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
                             <LemonButton
                                 type="tertiary"
                                 size="small"
@@ -592,7 +592,7 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
                                 Online evals
                             </LemonButton>
                             <span className="text-muted">/</span>
-                            <h2 className="text-xl font-semibold m-0">{selectedDirectory.name}</h2>
+                            <h2 className="text-xl font-semibold m-0 break-words min-w-0">{selectedDirectory.name}</h2>
                         </div>
                     ) : (
                         <h2 className="text-xl font-semibold">Online evals</h2>
@@ -602,7 +602,7 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
                         evaluation run is billed as an AI observability event.
                     </p>
                 </div>
-                <div className="flex shrink-0 items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                     {!selectedDirectoryId && (
                         <AccessControlAction
                             resourceType={AccessControlResourceType.Evaluation}
@@ -643,7 +643,7 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
 
                     <EvaluationMetrics />
 
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                         <LemonInput
                             type="search"
                             placeholder="Search online evals..."

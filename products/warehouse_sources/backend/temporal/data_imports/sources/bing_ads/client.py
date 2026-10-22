@@ -8,8 +8,6 @@ from bingads import AuthorizationData, OAuthTokens, OAuthWebAuthCodeGrant, Servi
 from bingads.v13 import reporting
 from suds import WebFault
 
-from posthog.settings import integrations
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
     IntegrationAccount,
 )
@@ -90,14 +88,14 @@ def _wrap_with_fault_detail(e: Exception, context: str) -> ValueError:
 
 
 class BingAdsClient:
-    def __init__(self, access_token: str, refresh_token: str, developer_token: str):
+    def __init__(self, access_token: str, refresh_token: str, developer_token: str, client_id: str, client_secret: str):
         self.developer_token = developer_token
         self._customer_id: int | None = None
 
         # The SDK requires OAuth setup
         self.oauth = OAuthWebAuthCodeGrant(
-            client_id=integrations.BING_ADS_CLIENT_ID,
-            client_secret=integrations.BING_ADS_CLIENT_SECRET,
+            client_id=client_id,
+            client_secret=client_secret,
             redirection_uri="",
         )
 

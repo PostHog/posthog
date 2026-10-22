@@ -136,7 +136,7 @@ class SplitIoSource(ResumableSource[SplitIoSourceConfig, SplitIoResumeConfig]):
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             keywords=["harness", "fme", "feature flags", "experimentation"],
             label="Split.io",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Split (Harness FME) Admin API key to pull your workspaces, environments, feature flags, segments, and change requests into the PostHog Data warehouse.
 
 You can create an Admin API key in Split under **Admin settings → API keys** — choose the **Admin** type (client- and server-side SDK keys won't work). The key grants read access to every resource this source syncs.""",

@@ -64,7 +64,7 @@ class FleetioSource(ResumableSource[FleetioSourceConfig, FleetioResumeConfig]):
             name=ExternalDataSourceType.FLEETIO,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Fleetio",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Fleetio API key and account token to pull your Fleetio fleet data into the PostHog Data warehouse.
 
 Create an API key under **Account Menu → Account Settings → API Keys** in Fleetio. Your account token is shown on the same page (it identifies your Fleetio account).""",

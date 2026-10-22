@@ -80,9 +80,11 @@
 ;; Canonicalization (realpath) lstats every path component, so uv resolving its
 ;; managed-interpreter symlinks needs metadata on the dir nodes between $HOME and
 ;; ~/.local/share/uv. Metadata only — contents of ~/.local{,/share} stay denied.
+;; pnpm opens its SQLite store index under ~/Library/pnpm the same way.
 (allow file-read-metadata
     (literal (string-append (param "HOME") "/.local"))
-    (literal (string-append (param "HOME") "/.local/share")))
+    (literal (string-append (param "HOME") "/.local/share"))
+    (literal (string-append (param "HOME") "/Library")))
 
 ;; Keep the crates.io publish token blocked even though ~/.cargo is allowed above.
 (deny file-read*

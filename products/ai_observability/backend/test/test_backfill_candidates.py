@@ -160,14 +160,28 @@ class TestBackfillCandidates(ClickhouseTestMixin, APIBaseTest):
         assert self._count(target="generation", window_end=BASE + timedelta(minutes=1)) == 1
         assert self._count(target="generation", window_start=BASE + timedelta(hours=1)) == 2
 
-    def test_property_condition_filters_units_and_full_rollout_keeps_them_all(self) -> None:
-        conditions = [
-            {
-                "properties": [{"key": "$ai_model", "value": "gpt-4o", "operator": "exact", "type": "event"}],
-                "rollout_percentage": 100,
-            }
+    @parameterized.expand(
+        [
+            (
+                "event_property",
+                {"key": "$ai_model", "value": "gpt-4o", "operator": "exact", "type": "event"},
+                ["t1", "t3"],
+            ),
+            # `distinct_id` is an events column, so a select alias of the same name would capture it in WHERE.
+            (
+                "distinct_id_column",
+                {"key": "distinct_id", "value": "d-t1", "operator": "exact", "type": "person"},
+                ["t1"],
+            ),
         ]
-        assert self._count(target="trace", conditions=conditions) == 2
+    )
+    def test_property_condition_filters_units_and_full_rollout_keeps_them_all(
+        self, _case: str, property_filter: dict[str, Any], expected: list[str]
+    ) -> None:
+        conditions = [{"properties": [property_filter], "rollout_percentage": 100}]
+        assert self._count(target="trace", conditions=conditions) == len(expected)
+        page = self._fetch(target="trace", conditions=conditions, limit=10)
+        assert sorted(candidate.unit_id for candidate in page.candidates) == expected
 
     @parameterized.expand([("a tenth", 10), ("two fifths", 40), ("just under the first bucket", 8)])
     def test_sampling_picks_the_units_the_live_scheduler_would_pick(self, _case: str, rollout: int) -> None:

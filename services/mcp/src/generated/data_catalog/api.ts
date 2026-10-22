@@ -82,7 +82,7 @@ export const DataCatalogMetricsListQueryParams = () => zod.object({
 })
 
 /**
- * Create a metric, or refine the one already holding this name for the team.
+ * Create a metric. When a live metric already holds the name, returns 409 unless overwrite is true, in which case the existing metric is refined with the fields sent.
  */
 export const DataCatalogMetricsCreateParams = () => zod.object({
     project_id: zod
@@ -108,54 +108,71 @@ export const dataCatalogMetricsCreateBodyAiModelMax = 128
 export const dataCatalogMetricsCreateBodyConfidenceMin = 0
 export const dataCatalogMetricsCreateBodyConfidenceMax = 1
 
-export const DataCatalogMetricsCreateBody = () => zod.object({
-    name: zod
-        .string()
-        .max(dataCatalogMetricsCreateBodyNameMax)
-        .regex(dataCatalogMetricsCreateBodyNameRegExp)
-        .describe(
-            "Identifier-safe run handle, unique among the team's live metrics. Renaming or deleting a metric frees its name for reuse, and anything referencing the old name (SQL over information_schema.metrics, run URLs, links) stops resolving."
-        ),
-    display_name: zod
-        .string()
-        .max(dataCatalogMetricsCreateBodyDisplayNameMax)
-        .optional()
-        .describe('Human-friendly label. Mutable, unlike name.'),
-    description: zod
-        .string()
-        .max(dataCatalogMetricsCreateBodyDescriptionMax)
-        .describe(
-            "What the number is, in 1-2 short sentences under 300 characters: its meaning and grain plus any inclusion or exclusion that changes it. Leave out source tables or views, lineage, column lists, and comparisons with other metrics. Never narrate the query - the definition carries the mechanics; put rationale for query choices in 'reasoning'."
-        ),
-    unit: zod
-        .string()
-        .max(dataCatalogMetricsCreateBodyUnitMax)
-        .optional()
-        .describe('Unit of the result, e.g. usd, percent, cents.'),
-    definition: zod
-        .record(zod.string(), zod.unknown())
-        .nullish()
-        .describe('Machine-readable query. Omit for a name+description-only stub. Stored upgrade-canonical.'),
-    source_insight_short_id: zod
-        .string()
-        .max(dataCatalogMetricsCreateBodySourceInsightShortIdMax)
-        .nullish()
-        .describe(
-            "Create the metric from this insight's query (snapshotted server-side). Set to null to unlink. Mutually exclusive with definition."
-        ),
-    ai_model: zod
-        .string()
-        .max(dataCatalogMetricsCreateBodyAiModelMax)
-        .optional()
-        .describe('Model that generated the metric, if AI-authored.'),
-    confidence: zod
-        .number()
-        .min(dataCatalogMetricsCreateBodyConfidenceMin)
-        .max(dataCatalogMetricsCreateBodyConfidenceMax)
-        .nullish()
-        .describe("AI author's confidence in the proposal, 0-1."),
-    reasoning: zod.string().optional().describe("AI author's reasoning, surfaced as review context."),
-})
+export const dataCatalogMetricsCreateBodyOverwriteDefault = false
+
+export const DataCatalogMetricsCreateBody = () => zod
+    .object({
+        name: zod
+            .string()
+            .max(dataCatalogMetricsCreateBodyNameMax)
+            .regex(dataCatalogMetricsCreateBodyNameRegExp)
+            .describe(
+                "Identifier-safe run handle, unique among the team's live metrics. Renaming or deleting a metric frees its name for reuse, and anything referencing the old name (SQL over information_schema.metrics, run URLs, links) stops resolving."
+            ),
+        display_name: zod
+            .string()
+            .max(dataCatalogMetricsCreateBodyDisplayNameMax)
+            .optional()
+            .describe('Human-friendly label. Mutable, unlike name.'),
+        description: zod
+            .string()
+            .max(dataCatalogMetricsCreateBodyDescriptionMax)
+            .describe(
+                "What the number is, in 1-2 short sentences under 300 characters: its meaning and grain plus any inclusion or exclusion that changes it. Leave out source tables or views, lineage, column lists, and comparisons with other metrics. Never narrate the query - the definition carries the mechanics; put the query's design decisions in 'reasoning'."
+            ),
+        unit: zod
+            .string()
+            .max(dataCatalogMetricsCreateBodyUnitMax)
+            .optional()
+            .describe('Unit of the result, e.g. usd, percent, cents.'),
+        definition: zod
+            .record(zod.string(), zod.unknown())
+            .nullish()
+            .describe('Machine-readable query. Omit for a name+description-only stub. Stored upgrade-canonical.'),
+        source_insight_short_id: zod
+            .string()
+            .max(dataCatalogMetricsCreateBodySourceInsightShortIdMax)
+            .nullish()
+            .describe(
+                "Create the metric from this insight's query (snapshotted server-side). Set to null to unlink. Mutually exclusive with definition."
+            ),
+        ai_model: zod
+            .string()
+            .max(dataCatalogMetricsCreateBodyAiModelMax)
+            .optional()
+            .describe('Model that generated the metric, if AI-authored.'),
+        confidence: zod
+            .number()
+            .min(dataCatalogMetricsCreateBodyConfidenceMin)
+            .max(dataCatalogMetricsCreateBodyConfidenceMax)
+            .nullish()
+            .describe("AI author's confidence in the proposal, 0-1."),
+        reasoning: zod
+            .string()
+            .optional()
+            .describe(
+                'Why the definition is shaped this way, in 1-3 short sentences. Name the main design decisions and trade-offs: the source table or view, a filter or exclusion, the grain, an approximation. Leave out the use case, who asked, run results, validation figures, and edit history.'
+            ),
+        overwrite: zod
+            .boolean()
+            .default(dataCatalogMetricsCreateBodyOverwriteDefault)
+            .describe(
+                "Replace the fields of the live metric that already holds this name. When false, a taken name returns 409 with code 'metric_name_taken' and the existing metric stays unchanged. Overwriting an approved metric with a changed name, description, unit, or definition resets it to 'proposed'."
+            ),
+    })
+    .describe(
+        'Create input. ``overwrite`` exists only here, because PATCH addresses an existing metric by its URL name.'
+    )
 
 /**
  * CRUD for catalog metrics, addressed by their ``name`` (e.g. /metrics/mrr/).
@@ -216,7 +233,7 @@ export const DataCatalogMetricsPartialUpdateBody = () => zod.object({
         .max(dataCatalogMetricsPartialUpdateBodyDescriptionMax)
         .optional()
         .describe(
-            "What the number is, in 1-2 short sentences under 300 characters: its meaning and grain plus any inclusion or exclusion that changes it. Leave out source tables or views, lineage, column lists, and comparisons with other metrics. Never narrate the query - the definition carries the mechanics; put rationale for query choices in 'reasoning'."
+            "What the number is, in 1-2 short sentences under 300 characters: its meaning and grain plus any inclusion or exclusion that changes it. Leave out source tables or views, lineage, column lists, and comparisons with other metrics. Never narrate the query - the definition carries the mechanics; put the query's design decisions in 'reasoning'."
         ),
     unit: zod
         .string()
@@ -245,7 +262,12 @@ export const DataCatalogMetricsPartialUpdateBody = () => zod.object({
         .max(dataCatalogMetricsPartialUpdateBodyConfidenceMax)
         .nullish()
         .describe("AI author's confidence in the proposal, 0-1."),
-    reasoning: zod.string().optional().describe("AI author's reasoning, surfaced as review context."),
+    reasoning: zod
+        .string()
+        .optional()
+        .describe(
+            'Why the definition is shaped this way, in 1-3 short sentences. Name the main design decisions and trade-offs: the source table or view, a filter or exclusion, the grain, an approximation. Leave out the use case, who asked, run results, validation figures, and edit history.'
+        ),
 })
 
 /**

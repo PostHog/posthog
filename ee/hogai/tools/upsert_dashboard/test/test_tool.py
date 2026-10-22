@@ -347,7 +347,6 @@ class TestUpsertDashboardTool(BaseTest):
             team=self.team,
             name="Restricted Dashboard",
             created_by=self.user,
-            restriction_level=Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
         )
 
         new_insight = await self._create_insight("New Insight")
@@ -375,7 +374,6 @@ class TestUpsertDashboardTool(BaseTest):
             team=self.team,
             name="Unrestricted Dashboard",
             created_by=self.user,
-            restriction_level=Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT,
         )
 
         new_insight = await self._create_insight("New Insight")

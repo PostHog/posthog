@@ -62,13 +62,45 @@ export const WarehouseSuggestionsAcceptCreateParams = () => zod.object({
 
 export const warehouseSuggestionsAcceptCreateBodyRefreshIntervalSecondsMax = 2592000
 
+export const warehouseSuggestionsAcceptCreateBodyLookbackSecondsMin = 0
+export const warehouseSuggestionsAcceptCreateBodyLookbackSecondsMax = 2592000
+
 export const WarehouseSuggestionsAcceptCreateBody = () => zod.object({
     refresh_interval_seconds: zod
         .number()
         .min(1)
         .max(warehouseSuggestionsAcceptCreateBodyRefreshIntervalSecondsMax)
         .optional()
-        .describe('Materialize only: refresh interval to use instead of the proposed one, in seconds.'),
+        .describe(
+            'Materialize only: refresh interval to use instead of the proposed one, in seconds. Omit to keep the proposed interval.'
+        ),
+    refresh_mode: zod
+        .enum(['full', 'incremental'])
+        .describe('\* `full` - Full\n\* `incremental` - Incremental')
+        .optional()
+        .describe(
+            'Materialize only: incremental or full, instead of the proposed refresh_mode. Omit to keep the proposed one. Switching to incremental needs incremental_key and unique_key when the payload has none.\n\n\* `full` - Full\n\* `incremental` - Incremental'
+        ),
+    incremental_key: zod
+        .string()
+        .optional()
+        .describe(
+            'Materialize only, incremental refresh only: an output column whose value only grows as rows arrive, such as a date, a datetime or an increasing number, instead of the proposed one. view-check-incremental lists the columns that qualify. Omit to keep the proposed key.'
+        ),
+    unique_key: zod
+        .array(zod.string())
+        .optional()
+        .describe(
+            'Materialize only, incremental refresh only: output columns that identify a row, instead of the proposed ones. Must include every GROUP BY column. Omit to keep the proposed key.'
+        ),
+    lookback_seconds: zod
+        .number()
+        .min(warehouseSuggestionsAcceptCreateBodyLookbackSecondsMin)
+        .max(warehouseSuggestionsAcceptCreateBodyLookbackSecondsMax)
+        .optional()
+        .describe(
+            "Materialize only, incremental refresh only: how far before the last refresh's highest incremental_key value each refresh reads again, in seconds, so late rows are picked up. Omit to keep the proposed lookback."
+        ),
 })
 
 export const warehouseSuggestionsDismissCreatePathIdRegExp = new RegExp(

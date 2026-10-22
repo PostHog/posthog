@@ -16,7 +16,7 @@ import { MetricVariablesModal } from './MetricVariablesModal'
 
 const NO_VARIABLES: MetricsDashboardVariable[] = []
 
-export function DashboardMetricVariables(): JSX.Element | null {
+export function DashboardMetricVariables({ editable = true }: { editable?: boolean }): JSX.Element | null {
     const { dashboard, dashboardEditing, effectiveEditBarFilters } = useValues(dashboardLogic)
     const { setMetricVariables, setDashboardEditing } = useActions(dashboardLogic)
     const [editorOpen, setEditorOpen] = useState(false)
@@ -62,16 +62,18 @@ export function DashboardMetricVariables(): JSX.Element | null {
                     onChange={(current) => select(variable.name, current)}
                 />
             ))}
-            <LemonButton
-                size="small"
-                type="tertiary"
-                icon={<IconGear />}
-                tooltip={shown.length ? 'Edit variables' : undefined}
-                onClick={() => setEditorOpen(true)}
-                data-attr="dashboard-metric-variables-edit"
-            >
-                {shown.length ? null : 'Add variable'}
-            </LemonButton>
+            {editable && (
+                <LemonButton
+                    size="small"
+                    type="tertiary"
+                    icon={<IconGear />}
+                    tooltip={shown.length ? 'Edit variables' : undefined}
+                    onClick={() => setEditorOpen(true)}
+                    data-attr="dashboard-metric-variables-edit"
+                >
+                    {shown.length ? null : 'Add variable'}
+                </LemonButton>
+            )}
             {editorOpen && (
                 <MetricVariablesModal
                     dashboardId={dashboard.id}

@@ -26,7 +26,7 @@ class TestHelpScoutSource:
 
         assert config.name.value == "HelpScout"
         assert config.label == "Help Scout"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
+        assert config.releaseStatus == ReleaseStatus.BETA
         assert config.unreleasedSource is None
         assert config.iconPath == "/static/services/helpscout.png"
 

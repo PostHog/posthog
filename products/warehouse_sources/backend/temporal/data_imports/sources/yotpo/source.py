@@ -158,7 +158,7 @@ class YotpoSource(ResumableSource[YotpoSourceConfig, YotpoResumeConfig]):
             label="Yotpo",
             docsUrl="https://posthog.com/docs/cdp/sources/yotpo",
             iconPath="/static/services/yotpo.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

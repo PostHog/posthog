@@ -108,6 +108,8 @@ def _date_filter_value(value: Any) -> str | None:
 # any second factor — so anyone granted access to the warehouse table (a broader set than the
 # Yousign account) could open it and sign. Strip these before any row reaches the warehouse.
 SIGNER_CAPABILITY_FIELDS = ("signature_link",)
+# `approval_link` lets the holder approve or reject the request on the approver's behalf.
+APPROVER_CAPABILITY_FIELDS = ("approval_link",)
 
 
 def _scrub_signer_capabilities(signer: dict[str, Any]) -> dict[str, Any]:
@@ -116,19 +118,29 @@ def _scrub_signer_capabilities(signer: dict[str, Any]) -> dict[str, Any]:
     return signer
 
 
+def _scrub_approver_capabilities(approver: dict[str, Any]) -> dict[str, Any]:
+    for field_name in APPROVER_CAPABILITY_FIELDS:
+        approver.pop(field_name, None)
+    return approver
+
+
 def _scrub_signature_request_row(row: dict[str, Any]) -> dict[str, Any]:
-    # Signature request rows embed a `signers` array whose entries carry the same signing links.
-    signers = row.get("signers")
-    if isinstance(signers, list):
-        for signer in signers:
-            if isinstance(signer, dict):
-                _scrub_signer_capabilities(signer)
+    # Signature request rows embed `signers` and `approvers` arrays whose entries can carry the
+    # same links (activation payloads include approval links).
+    for key, scrub in (("signers", _scrub_signer_capabilities), ("approvers", _scrub_approver_capabilities)):
+        entries = row.get(key)
+        if isinstance(entries, list):
+            for entry in entries:
+                if isinstance(entry, dict):
+                    scrub(entry)
     return row
 
 
 def _row_transform_for(config: YousignEndpointConfig) -> Callable[[dict[str, Any]], dict[str, Any]] | None:
     if config.name == "signers":
         return _scrub_signer_capabilities
+    if config.name == "approvers":
+        return _scrub_approver_capabilities
     if config.name == "signature_requests":
         return _scrub_signature_request_row
     return None

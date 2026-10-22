@@ -166,7 +166,7 @@ class ElectricityMapsSource(ResumableSource[ElectricityMapsSourceConfig, Electri
             keywords=["carbon intensity", "grid", "electricity map"],
             docsUrl="https://posthog.com/docs/cdp/sources/electricity-maps",
             iconPath="/static/services/electricity_maps.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

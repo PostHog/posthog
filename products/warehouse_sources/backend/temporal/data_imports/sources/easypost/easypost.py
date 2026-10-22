@@ -4,11 +4,14 @@ from typing import Any
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from posthog.dataclasses import frozen
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    make_tracked_session,
+    retry_with_deadline,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.easypost.settings import EASYPOST_ENDPOINTS
@@ -57,7 +60,7 @@ def _format_datetime(value: datetime) -> str:
     return _ensure_utc(value).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-@retry(
+@retry_with_deadline(
     retry=retry_if_exception_type((EasypostRetryableError, requests.ReadTimeout, requests.ConnectionError)),
     stop=stop_after_attempt(5),
     wait=wait_exponential_jitter(initial=1, max=30),

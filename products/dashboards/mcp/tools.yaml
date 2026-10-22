@@ -50,27 +50,16 @@ tools:
             already declined a subscription earlier in this conversation, do not offer again.
         exclude_params:
             - creation_mode
-            - effective_restriction_level
-            - effective_privilege_level
             - is_shared
-            - access_control_version
             - last_refresh
             - last_accessed_at
             - deleted
             - persisted_filters
             - persisted_variables
             - _create_in_folder
-        param_overrides:
-            restriction_level:
-                description: >
-                    Set to 21 for everyone in the project to edit. Legacy value 37 is deprecated and rejected by the API.
         response:
             exclude:
-                - effective_restriction_level
-                - effective_privilege_level
                 - user_access_level
-                - access_control_version
-                - restriction_level
                 - creation_mode
                 - deleted
                 - breakdown_colors
@@ -91,8 +80,6 @@ tools:
                 - tiles.*.insight.filters_hash
                 - tiles.*.insight.dashboards
                 - tiles.*.insight.dashboard_tiles
-                - tiles.*.insight.effective_restriction_level
-                - tiles.*.insight.effective_privilege_level
                 - tiles.*.insight.user_access_level
                 - tiles.*.insight.filters
                 - tiles.*.insight.is_sample
@@ -231,11 +218,7 @@ tools:
                 cast: string-int
         response:
             exclude:
-                - effective_restriction_level
-                - effective_privilege_level
                 - user_access_level
-                - access_control_version
-                - restriction_level
                 - creation_mode
                 - deleted
                 - breakdown_colors
@@ -256,8 +239,6 @@ tools:
                 - tiles.*.insight.filters_hash
                 - tiles.*.insight.dashboards
                 - tiles.*.insight.dashboard_tiles
-                - tiles.*.insight.effective_restriction_level
-                - tiles.*.insight.effective_privilege_level
                 - tiles.*.insight.user_access_level
                 - tiles.*.insight.filters
                 - tiles.*.insight.is_sample
@@ -327,6 +308,7 @@ tools:
         param_overrides:
             id:
                 cast: string-int
+        reads_ingested_data: events
     dashboard-reorder-tiles:
         operation: dashboards_reorder_tiles_create
         enabled: true
@@ -406,8 +388,8 @@ tools:
         title: Copy dashboard tile
         description: >
             Copy an insight, text card, or widget tile from one dashboard to another. The path dashboard ID is the
-            destination. Provide fromDashboardId (source dashboard) and tileId (tile to copy). Widget tiles require the
-            dashboard-widgets feature flag and are deep-cloned with a new widget row.
+            destination. Provide fromDashboardId (source dashboard) and tileId (tile to copy). Widget tiles are
+            deep-cloned with a new widget row.
         param_overrides:
             id:
                 cast: string-int
@@ -425,8 +407,7 @@ tools:
         description: >
             Transfer a tile from the source dashboard to another dashboard. This does not resize or reposition the tile.
             To resize or reposition tiles on a dashboard, use dashboard-update. Provide to_dashboard (destination
-            dashboard ID) and tile.id (tile ID from dashboard-get). Works for insight, text, and widget tiles; widget
-            tiles require the dashboard-widgets feature flag on the project.
+            dashboard ID) and tile.id (tile ID from dashboard-get). Works for insight, text, and widget tiles.
         param_overrides:
             id:
                 cast: string-int
@@ -447,50 +428,43 @@ tools:
         title: Update dashboard
         description: >
             Resize, reposition, or update dashboard tiles. It can also update the dashboard name, description, pinned
-            status, tags, filters, and restriction level 21. Legacy value 37 is deprecated and rejected by the API.
-            After you create or add insight tiles, call dashboard-get to get their tile IDs, then pass `tiles` with each
-            tile's `id` and a `layouts` object holding x, y, w, and h per breakpoint. This works for every tile type,
-            including insight tiles. The desktop grid (`layouts.sm`) is 12 columns wide. Set each tile's width and
-            height for its content and importance. Width can be any whole number from 1 to 12, subject to the tile's
-            minimum size. Mixed rows such as 8-wide and 4-wide tiles can show hierarchy. A write replaces the tile's
-            whole layout, so send a complete box, not just the value you want to change. Boxes are stored as sent and
-            overlaps are not resolved, so plan the whole grid and send every tile you move in one request. Only set
-            `layouts.sm`: the dashboard derives the mobile layout from the sm order and heights. Use
-            dashboard-reorder-tiles only to repack the whole dashboard with preserved or uniform tile sizes. The same
-            `tiles` array also updates a widget tile's own settings: add a nested `widget.id` from dashboard-get plus
-            the fields to change (`config`, `name`, `description`). That is the same PATCH path the UI uses, but prefer
-            dashboard-widgets-batch-update, which takes just a tile_id per widget. To group tiles, give each tile in the
-            group the same `group_key`, and set the group's title in `group_titles` (a map from group key to title,
-            which replaces the stored map). To mark a tile, set its `badge`: `winner` shows a crown, for example on the
-            best tile in a group, and `cheeky-hog` shows a hedgehog on hover. Set `badge` or `group_key` to null to
-            remove it. To add new widget tiles to this dashboard, use dashboard-widgets-batch-add instead. The returned
-            tiles omit insight results to save context — use dashboard-insights-run to fetch the actual data for each
-            insight.
+            status, tags, and filters. After you create or add insight tiles, call dashboard-get to get their tile IDs,
+            then pass `tiles` with each tile's `id` and a `layouts` object holding x, y, w, and h per breakpoint. This
+            works for every tile type, including insight tiles. The desktop grid (`layouts.sm`) is 12 columns wide. Set
+            each tile's width and height for its content and importance. Width can be any whole number from 1 to 12,
+            subject to the tile's minimum size. Mixed rows such as 8-wide and 4-wide tiles can show hierarchy. A write
+            replaces the tile's whole layout, so send a complete box, not just the value you want to change. Boxes are
+            stored as sent and overlaps are not resolved, so plan the whole grid and send every tile you move in one
+            request. Only set `layouts.sm`: the dashboard derives the mobile layout from the sm order and heights. Use
+            dashboard-reorder-tiles only to repack the whole dashboard with preserved or uniform tile sizes. This tool
+            does not change a widget tile's own settings (`config`, `name`, `description`): use
+            dashboard-widgets-batch-update for that. To group tiles, give each tile in the group the same `group_key`,
+            and set the group's title in `group_titles` (a map from group key to title, which replaces the stored map).
+            To mark a tile, set its `badge`: `winner` shows a crown, for example on the best tile in a group, and
+            `cheeky-hog` shows a hedgehog on hover. Set `badge` or `group_key` to null to remove it. To add new widget
+            tiles to this dashboard, use dashboard-widgets-batch-add instead. The returned tiles omit insight results to
+            save context — use dashboard-insights-run to fetch the actual data for each insight.
         exclude_params:
             - creation_mode
-            - effective_restriction_level
-            - effective_privilege_level
             - is_shared
-            - access_control_version
             - last_refresh
             - last_accessed_at
             - deleted
             - persisted_filters
             - persisted_variables
             - _create_in_folder
+            - tiles.*.widget
         param_overrides:
             id:
                 cast: string-int
-            restriction_level:
+            tiles:
                 description: >
-                    Set to 21 for everyone in the project to edit. Legacy value 37 is deprecated and rejected by the API.
+                    Dashboard tiles to update, each identified by its tile id. Any tile type accepts `layouts` to set
+                    its grid position and size. To change a widget tile's config, name, or description, use
+                    dashboard-widgets-batch-update.
         response:
             exclude:
-                - effective_restriction_level
-                - effective_privilege_level
                 - user_access_level
-                - access_control_version
-                - restriction_level
                 - creation_mode
                 - deleted
                 - breakdown_colors
@@ -511,8 +485,6 @@ tools:
                 - tiles.*.insight.filters_hash
                 - tiles.*.insight.dashboards
                 - tiles.*.insight.dashboard_tiles
-                - tiles.*.insight.effective_restriction_level
-                - tiles.*.insight.effective_privilege_level
                 - tiles.*.insight.user_access_level
                 - tiles.*.insight.filters
                 - tiles.*.insight.is_sample
@@ -589,10 +561,11 @@ tools:
             idempotent: true
         title: List dashboard widget catalog
         description: >
-            List registered dashboard widget types with labels, descriptions, and per-type config_schema. Use before
-            dashboard-widgets-batch-add to pick a widget_type and shape config. Each type documents its own config keys
-            under config_schema (shared keys include limit, orderBy, orderDirection, dateRange, filterTestAccounts, and
-            optional widgetFilters).
+            List registered dashboard widget types with labels, descriptions, and per-type config_schema. Pass
+            `widget_type` (one type or a list) to get only the types you will write; the full catalog is large, so omit
+            it only when you still need to pick a type. The valid `widget_type` values are listed in this tool's schema.
+            Each type documents its own config keys under config_schema (shared keys include limit, orderBy,
+            orderDirection, dateRange, filterTestAccounts, and optional widgetFilters).
     dashboard-widgets-batch-add:
         operation: dashboards_widgets_batch_create
         enabled: true
@@ -605,17 +578,18 @@ tools:
         enrich_url: '{params.id}'
         title: Add dashboard widgets
         description: >
-            Add widget tiles to a dashboard atomically via POST .../widgets/batch/ (1–10 tiles). Call
-            dashboard-widget-catalog-list first for valid widget_type values and config_schema. Pass `widgets` as an
-            array of payloads (widget_type, config, optional name, description, layouts). Config shape is per
-            widget_type (see catalog hints); widgetFilters when supported is a map of filter id to property filter
-            entries. For a single tile, pass a one-element `widgets` array. Tiles stack at the bottom when layouts are
+            Add widget tiles to a dashboard atomically via POST .../widgets/batch/ (1–10 tiles). Before writing a
+            config, call dashboard-widget-catalog-list with `widget_type` set to the types you will add, to read their
+            config_schema. The valid widget_type values are in this tool's schema. Pass `widgets` as an array of
+            payloads (widget_type, config, optional name, description, layouts). This schema does not list config keys:
+            build each config from the config_schema of its widget_type in the catalog. widgetFilters, when supported,
+            is a map of filter id to property filter entries. An invalid config returns a 400 that names each invalid
+            field. For a single tile, pass a one-element `widgets` array. Tiles stack at the bottom when layouts are
             omitted. Returns all created tiles; use dashboard-widgets-run to fetch live data. This only adds new tiles —
             to edit existing widget tiles, use dashboard-widgets-batch-update (no delete-and-re-add needed).
         param_overrides:
             id:
                 cast: string-int
-        feature_flag: dashboard-widgets
     dashboard-widgets-batch-update:
         operation: dashboards_update_widgets_batch
         enabled: true
@@ -631,15 +605,15 @@ tools:
             Update the settings of existing widgets in place atomically (1–10), without delete-and-re-add. Edits widget
             settings only — `config`, `name`, and `description`. Pass `widgets` as an array of payloads, each identified
             by its DashboardTile `tile_id` (use dashboard-get to look up widget tile IDs) plus the settings to change.
-            Only the fields you provide per widget are updated; omitted fields are left unchanged. Optionally pass
-            `widget_type` to get the typed config shape; widget_type is immutable. Config shape is per widget_type — see
-            dashboard-widget-catalog-list. All updates succeed or fail together. Tile placement (layout,
-            show_description) is not changed here — use dashboard-update or dashboard-reorder-tiles for that. To add new
-            widgets, use dashboard-widgets-batch-add; to remove one, use dashboard-delete-tile.
+            Only the fields you provide per widget are updated; omitted fields are left unchanged. A config update
+            replaces only the top-level keys you send. This schema does not list config keys: read the config_schema of
+            the tile's widget_type from dashboard-widget-catalog-list, passing `widget_type` to fetch only that type.
+            All updates succeed or fail together. Tile placement (layout, show_description) is not changed here — use
+            dashboard-update or dashboard-reorder-tiles for that. To add new widgets, use dashboard-widgets-batch-add;
+            to remove one, use dashboard-delete-tile.
         param_overrides:
             id:
                 cast: string-int
-        feature_flag: dashboard-widgets
     dashboard-widgets-run:
         operation: dashboards_run_widgets_retrieve
         enabled: true
@@ -652,16 +626,15 @@ tools:
         enrich_url: '{params.id}'
         title: Run dashboard widgets
         description: >
-            Run live queries for dashboard widget tiles and return results. Requires the dashboard-widgets feature flag.
-            Call dashboard-get first to find widget tile IDs (tiles with a widget field). Pass tile_ids as a
-            comma-separated list. Each successful result is a widget-type-specific payload (see run_widgets OpenAPI
-            response and dashboard-widget-catalog-list config_schema). Returns per-tile errors when the caller lacks
-            product access for a widget type (see required_product_access on dashboard-widget-catalog-list). Not
-            available on public/shared dashboard views.
+            Run live queries for dashboard widget tiles and return results. Call dashboard-get first to find widget tile
+            IDs (tiles with a widget field). Pass tile_ids as a comma-separated list. Each successful result is a
+            widget-type-specific payload (see run_widgets OpenAPI response and dashboard-widget-catalog-list
+            config_schema). Returns per-tile errors when the caller lacks product access for a widget type (see
+            required_product_access on dashboard-widget-catalog-list). Not available on public/shared dashboard views.
         param_overrides:
             id:
                 cast: string-int
-        feature_flag: dashboard-widgets
+        reads_ingested_data: events
     dashboards-bulk-delete:
         operation: dashboards_bulk_delete_create
         enabled: true

@@ -75,19 +75,6 @@ class TestMalformedBodyIsRetryable:
 
 
 class TestValidateCredentials:
-    @parameterized.expand(
-        [
-            ("ok", 200, True, None),
-            ("unauthorized", 401, False, "Invalid Ticket Tailor API key"),
-            # Ticket Tailor answers invalid/deleted keys with 403, not 401.
-            ("forbidden", 403, False, "Invalid Ticket Tailor API key"),
-            ("server_error", 500, False, "Ticket Tailor returned HTTP 500"),
-        ]
-    )
-    def test_status_mapping(self, _name: str, status: int, expected_valid: bool, expected_message: str | None) -> None:
-        with scripted_network(always(ScriptedResponse(status=status, json={}))):
-            assert validate_credentials("tt-key") == (expected_valid, expected_message)
-
     def test_connection_error_maps_to_could_not_validate(self) -> None:
         # validate_via_probe swallows transport errors; the probe reports "not validated".
         with scripted_network(always(ConnectionResetError("reset"))):

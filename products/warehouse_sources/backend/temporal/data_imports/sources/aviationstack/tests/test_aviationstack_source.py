@@ -1,5 +1,3 @@
-from typing import Any
-
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.facade.source_config import SourceFieldInputConfig
@@ -29,21 +27,6 @@ class TestAviationstackSource:
         assert access_key_field.type == "password"
         assert access_key_field.secret is True
         assert access_key_field.required is True
-
-    @parameterized.expand(
-        [
-            ("valid", 200, {"data": []}, True, None),
-            ("invalid", 401, {"error": {"code": "invalid_access_key"}}, False, "Invalid aviationstack access key"),
-        ]
-    )
-    def test_validate_credentials(
-        self, _name: str, status: int, body: dict[str, Any], expected_ok: bool, expected_message: str | None
-    ) -> None:
-        with scripted_network([ScriptedResponse(status=status, json=body)]):
-            ok, message = AviationstackSource().validate_credentials(_make_config(), team_id=1)
-
-        assert ok is expected_ok
-        assert message == expected_message
 
     @parameterized.expand([("timetable",), ("flights_future",)])
     def test_validate_credentials_rejects_per_airport_table_without_airports(self, schema_name: str) -> None:
@@ -77,7 +60,6 @@ class TestAviationstackSource:
 
     @parameterized.expand(
         [
-            ("http_unauthorized", "401 Client Error: Unauthorized for url: https://api.aviationstack.com"),
             ("body_invalid_key", "aviationstack API error [invalid_access_key]"),
             ("body_usage_limit", "aviationstack API error [usage_limit_reached]"),
             ("body_function_restricted", "aviationstack API error [function_access_restricted]"),

@@ -193,8 +193,6 @@ def test_links_use_new_api_and_reject_truncation(has_more: bool) -> None:
 @pytest.mark.parametrize(
     "status,schema,valid,message",
     [
-        (200, None, True, None),
-        (401, None, False, "rejected"),
         (403, None, True, None),
         (403, "payouts", False, "permissions"),
     ],

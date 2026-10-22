@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react'
+import React, { useLayoutEffect, useMemo, useState } from 'react'
 
 import {
     AxisLabels,
@@ -46,6 +46,8 @@ import { computeYAxisGutters, type Gutter } from './y-axis-gutters'
 
 const DEFAULT_AXIS_COLOR = 'rgba(0, 0, 0, 0.5)'
 const DEFAULT_HOVER_ANIMATION_MS = 150
+// Horizontal charts let category labels use this share of the chart width when it beats the fixed cap.
+const HORIZONTAL_CATEGORY_LABEL_WIDTH_RATIO = 0.3
 
 function resolveHoverAnimationMs(animateHover: boolean | number | undefined): number {
     if (animateHover === true) {
@@ -157,9 +159,16 @@ export function Chart<Meta = unknown>({
         isPercent = false,
         animateHover,
         margins: marginsOverride,
-        maxCategoryLabelWidth,
+        maxCategoryLabelWidth: baseMaxCategoryLabelWidth,
         yAxes,
     } = config ?? {}
+
+    // Width from the last layout. Margins feed the canvas size, so the cap can only react to it one render later.
+    const [chartWidth, setChartWidth] = useState(0)
+    const maxCategoryLabelWidth =
+        baseMaxCategoryLabelWidth && axisOrientation === 'horizontal'
+            ? Math.max(baseMaxCategoryLabelWidth, Math.floor(chartWidth * HORIZONTAL_CATEGORY_LABEL_WIDTH_RATIO))
+            : baseMaxCategoryLabelWidth
 
     const {
         formatters: yAxisFormatters,
@@ -229,6 +238,8 @@ export function Chart<Meta = unknown>({
     })
 
     const { canvasRef, overlayCanvasRef, wrapperRef, dimensions, ctx, overlayCtx } = useChartCanvas({ margins })
+    const containerWidth = dimensions?.width ?? 0
+    useLayoutEffect(() => setChartWidth(containerWidth), [containerWidth])
 
     const coloredSeries = useColoredSeries<Meta>(series, theme)
 

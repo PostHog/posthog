@@ -8,7 +8,7 @@
 # The legacy `Dockerfile.proxy` in this directory is for the `mcp-remote` CLI
 # proxy distribution, not the server — different artifact, don't confuse them.
 
-# Pin the same Node version as the rest of the monorepo (.nvmrc).
+# Held below .nvmrc: Node 24.22.1's bundled undici crashes the server on assert(!this.paused).
 ARG NODE_VERSION=24.13.0
 ARG NODE_IMAGE=node:${NODE_VERSION}-bookworm-slim
 
@@ -70,6 +70,13 @@ WORKDIR /code
 ARG COMMIT_HASH
 RUN echo "${COMMIT_HASH:-unknown}" > /code/commit.txt
 
+# Node 24.13.0's bundled CA store still trusts the compromised eMudhra roots.
+# --use-openssl-ca in CMD makes Node read this Debian bundle instead, which
+# ca-certificates 20250419~deb12u2 and later keep current.
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
+
 # Bundle is fully self-contained — ioredis and everything else is inlined.
 COPY --from=build --chown=node:node /code/services/mcp/dist/hono-server.mjs ./hono-server.mjs
 COPY --from=build --chown=node:node /code/services/mcp/dist/hono-server.mjs.map ./hono-server.mjs.map
@@ -88,4 +95,6 @@ EXPOSE 3001
 
 USER node
 
-CMD ["node", "hono-server.mjs"]
+# The flag lives here, not in NODE_OPTIONS, because the deploy chart sets
+# NODE_OPTIONS and would replace it.
+CMD ["node", "--use-openssl-ca", "hono-server.mjs"]

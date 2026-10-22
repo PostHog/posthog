@@ -138,7 +138,7 @@ class MicrosoftClaritySource(SimpleSource[MicrosoftClaritySourceConfig]):
             name=ExternalDataSourceType.MICROSOFTCLARITY,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="Microsoft Clarity",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Generate an API token in your Clarity project under **Settings -> Data Export -> Generate new API token**, then paste it below.
 
 Microsoft Clarity's export API allows a maximum of 10 requests per project per day and only returns the last 1-3 days of data (no historical backfill), so PostHog syncs a rolling snapshot on each run rather than pulling full history.""",

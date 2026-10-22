@@ -101,14 +101,14 @@ def execute_trino_shadow_materialization(
 
 
 def _compile(team: Team, query: HogQLQuery, incremental: TrinoIncrementalWrite | None) -> Any:
-    select_transform = None
-    if incremental is not None:
+    def select_transform(node: ast.SelectQuery | ast.SelectSetQuery) -> ast.SelectQuery | ast.SelectSetQuery:
+        if incremental is None:
+            return node
         from products.data_modeling.backend.facade.api import (  # noqa: PLC0415 -- the facade loads lazily
             apply_incremental_filter,
         )
 
-        def select_transform(node: ast.SelectQuery | ast.SelectSetQuery) -> ast.SelectQuery | ast.SelectSetQuery:
-            return apply_incremental_filter(node, incremental_key=incremental.incremental_key, since=incremental.since)
+        return apply_incremental_filter(node, incremental_key=incremental.incremental_key, since=incremental.since)
 
     return compile_hogql_to_trino_sql(
         team.pk,
@@ -117,6 +117,7 @@ def _compile(team: Team, query: HogQLQuery, incremental: TrinoIncrementalWrite |
         bypass_warehouse_access_control=True,
         expansion_mode=TrinoExpansionMode.DJANGO,
         select_transform=select_transform,
+        preserve_clickhouse_output_names=True,
     )
 
 

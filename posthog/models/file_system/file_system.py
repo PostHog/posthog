@@ -1,9 +1,11 @@
 from datetime import datetime
 from typing import Optional
 
+from django.contrib.postgres.indexes import GinIndex, OpClass
 from django.db import models
-from django.db.models import Q
+from django.db.models import Func, Q, TextField, Value
 from django.db.models.expressions import F
+from django.db.models.functions import Concat, Lower
 from django.utils import timezone
 
 from posthog.models.file_system.constants import DEFAULT_SURFACE, surface_q
@@ -11,6 +13,11 @@ from posthog.models.file_system.file_system_shortcut import FileSystemShortcut
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.models.utils import uuid7
+
+SEARCH_TEXT = Lower(Concat(F("path"), Value(" "), F("type"), output_field=TextField()))
+SEARCH_NAME = Lower(
+    Func(F("path"), Value(r"^((?:[^\\/]|\\.)*/)*"), Value(""), function="regexp_replace", output_field=TextField())
+)
 
 
 class FileSystem(models.Model):
@@ -41,6 +48,8 @@ class FileSystem(models.Model):
             models.Index(F("team_id"), F("surface"), F("path"), name="posthog_fs_team_s_path"),
             models.Index(F("team_id"), F("surface"), F("depth"), name="posthog_fs_team_s_depth"),
             models.Index(F("team_id"), F("surface"), F("type"), F("ref"), name="posthog_fs_team_s_typeref"),
+            GinIndex(F("team_id"), OpClass(SEARCH_TEXT, name="gin_trgm_ops"), name="posthog_fs_team_text_trgm"),
+            GinIndex(F("team_id"), OpClass(SEARCH_NAME, name="gin_trgm_ops"), name="posthog_fs_team_name_trgm"),
         ]
 
     def __str__(self):

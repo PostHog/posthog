@@ -54,7 +54,7 @@ class CodefreshSource(ResumableSource[CodefreshSourceConfig, CodefreshResumeConf
             name=ExternalDataSourceType.CODEFRESH,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Codefresh",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Codefresh API key to automatically pull your Codefresh CI/CD data into the PostHog Data warehouse.
 
 You can create an API key in your [Codefresh user settings](https://g.codefresh.io/user/settings). Codefresh API keys are scoped per resource, so grant read access for the resources you want to sync:

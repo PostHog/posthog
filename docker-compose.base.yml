@@ -427,6 +427,10 @@ services:
             # `ai` mode produces to the AI lane as its main topic (no $ai_* divert needed),
             # matching the production capture-ai deployment.
             CAPTURE_MODE: ai
+            # Local Kafka keeps its default 1MB message limit, so cap AI events below it
+            # to return `ai_event_too_big` instead of failing at the producer.
+            AI_MAX_EVENT_BYTES: '900000'
+            KAFKA_PRODUCER_MESSAGE_MAX_BYTES: '1000000'
             RUST_LOG: 'info,rdkafka=warn'
 
     capture-logs:
@@ -583,7 +587,6 @@ services:
             ETCD_PREFIX: '/personhog/'
             POD_NAME: 'personhog-leader'
             KAFKA_HOSTS: 'kafka:9092'
-            KAFKA_PERSON_STATE_TOPIC: 'personhog_updates'
             FALLBACK_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog_persons'
             # Must name the same table the identity service and the writer
             # target (their defaults), or leader misses read the wrong table.
@@ -601,7 +604,8 @@ services:
         environment:
             DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog_persons'
             KAFKA_HOSTS: 'kafka:9092'
-            KAFKA_TOPIC: 'personhog_updates'
+            ETCD_ENDPOINTS: 'http://etcd:2379'
+            ETCD_PREFIX: '/personhog/'
             KAFKA_CONSUMER_GROUP: 'personhog-writer'
             FLUSH_INTERVAL_MS: '5000'
             FLUSH_BUFFER_SIZE: '1000'

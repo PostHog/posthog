@@ -183,7 +183,7 @@ def render_query(request: HttpRequest) -> HttpResponse:
 @never_cache
 def preflight_check(request: HttpRequest) -> JsonResponse:
     with tracer.start_as_current_span("preflight.slack_config_main"):
-        slack_client_id = SlackIntegration.slack_config().get("SLACK_APP_CLIENT_ID")
+        slack_client_id = SlackIntegration.slack_client_id()
     hubspot_client_id = settings.HUBSPOT_APP_CLIENT_ID
     salesforce_client_id = settings.SALESFORCE_CONSUMER_KEY
 

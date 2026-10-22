@@ -4,9 +4,12 @@ from typing import Any, Optional
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import RetryCallState, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    make_tracked_session,
+    retry_with_deadline,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.retry_limits import max_retry_after_seconds
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -67,7 +70,7 @@ def _retry_wait(retry_state: RetryCallState) -> float:
 
 # Luma holds a rate-limited key for one minute, so the waits must add up to more than that.
 # Eight attempts wait about 1+2+4+8+16+30+30 = 91 seconds in total.
-@retry(
+@retry_with_deadline(
     retry=retry_if_exception_type((LumaRetryableError, requests.ReadTimeout, requests.ConnectionError)),
     stop=stop_after_attempt(8),
     wait=_retry_wait,

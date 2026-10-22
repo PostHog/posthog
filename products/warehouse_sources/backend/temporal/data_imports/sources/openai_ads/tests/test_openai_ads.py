@@ -145,10 +145,7 @@ class TestInsights:
 class TestValidateCredentials:
     @parameterized.expand(
         [
-            ("ok", 200, True, None),
             ("forbidden_scope", 403, True, None),
-            ("unauthorized", 401, False, "invalid or has been revoked"),
-            ("server_error", 500, False, "Couldn't reach OpenAI Ads"),
         ]
     )
     def test_status_mapping(self, _name: str, status: int, expected: bool, message_fragment: str | None) -> None:

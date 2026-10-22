@@ -38,11 +38,13 @@ class MetaGraphIntegration:
             ):
                 return
 
+        client = oauth.OauthIntegration.client_credentials_for_kind(self.integration.kind)
+
         res = requests.post(
             oauth_config.token_url,
             data={
-                "client_id": oauth_config.client_id,
-                "client_secret": oauth_config.client_secret,
+                "client_id": client.client_id,
+                "client_secret": client.client_secret,
                 "fb_exchange_token": self.integration.sensitive_config["access_token"],
                 "grant_type": "fb_exchange_token",
                 "set_token_expires_in_60_days": True,

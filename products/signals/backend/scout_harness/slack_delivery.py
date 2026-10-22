@@ -19,6 +19,7 @@ from posthog.redis import get_client
 from posthog.slack.formatting import channel_id_from_target, escape_slack_mrkdwn
 from posthog.slack.markdown import SLACK_MARKDOWN_TEXT_MAX_LEN, slack_markdown_block
 
+from products.signals.backend.assignment_flags import assignment_side_effects_allowed
 from products.signals.backend.models import SignalReport, SignalReportSlackThread, SignalScoutEmission, SignalScoutRun
 from products.signals.backend.report_urls import ReportLinkSource, build_report_url
 from products.signals.backend.scout_harness.slack_charts import (
@@ -768,6 +769,9 @@ def post_scout_report_to_slack(
             report_id=str(report.id),
             delivery_id=delivery_id,
         )
+        return
+
+    if not assignment_side_effects_allowed(team_id=report.team_id, report_id=str(report.id)):
         return
 
     # The build can hold the worker for the whole render budget, long enough for the workspace to be

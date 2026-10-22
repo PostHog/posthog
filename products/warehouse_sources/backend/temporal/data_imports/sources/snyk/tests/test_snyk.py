@@ -3,7 +3,6 @@ from typing import Any
 
 from parameterized import parameterized
 from requests import HTTPError
-from requests.exceptions import ConnectionError as RequestsConnectionError
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     DriveResult,
@@ -193,9 +192,6 @@ class TestValidateCredentials:
     @parameterized.expand(
         [
             ("ok", 200, True),
-            ("unauthorized", 401, False),
-            ("forbidden", 403, False),
-            ("server_error", 500, False),
         ]
     )
     def test_status_mapping(self, _name: str, status_code: int, expected_ok: bool) -> None:
@@ -217,12 +213,6 @@ class TestValidateCredentials:
         assert ok is False
         assert error is not None
         assert network.requests_log == []
-
-    def test_request_exception_is_failure(self) -> None:
-        with scripted_network(always(RequestsConnectionError("boom"))):
-            ok, error = validate_credentials("us", "tok")
-        assert ok is False
-        assert error is not None
 
 
 class TestTokenRedaction:

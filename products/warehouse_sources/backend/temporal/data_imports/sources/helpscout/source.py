@@ -69,6 +69,8 @@ class HelpScoutSource(OAuthMixin, ResumableSource[HelpScoutSourceConfig, HelpSco
             # Permanent token-exchange failures (invalid_client, inactive user, …) carry the
             # framework's stable marker; transient 429/5xx token errors don't.
             "401 Client Error: Unauthorized for url: https://api.helpscout.net": "Help Scout authentication failed. Please reconnect your Help Scout account.",
+            # Reports are gated to the Plus and Pro plans, which a retry can't change.
+            "403 Client Error: Forbidden for url: https://api.helpscout.net/v2/reports": "Help Scout reports are only available on the Plus and Pro plans. Upgrade your Help Scout plan or deselect the happiness_ratings table.",
             # The linked OAuth integration was deleted while the source still references it.
             # Retrying can never resolve this, so ask the user to reconnect.
             "Integration not found": "The linked Help Scout integration no longer exists. Please reconnect your Help Scout account.",
@@ -87,7 +89,7 @@ class HelpScoutSource(OAuthMixin, ResumableSource[HelpScoutSourceConfig, HelpSco
             caption="Sync your Help Scout conversations, customers, and mailboxes into the PostHog Data warehouse.",
             iconPath="/static/services/helpscout.png",
             docsUrl="https://posthog.com/docs/cdp/sources/helpscout",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

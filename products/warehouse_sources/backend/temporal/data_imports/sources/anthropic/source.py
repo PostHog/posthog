@@ -121,7 +121,7 @@ class AnthropicSource(ResumableSource[AnthropicSourceConfig, AnthropicResumeConf
             name=ExternalDataSourceType.ANTHROPIC,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Anthropic",
-            releaseStatus=ReleaseStatus.BETA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Anthropic Admin API key to pull your organization's Claude usage, cost, and admin data into the PostHog Data warehouse.
 
 Create an Admin API key (prefixed `sk-ant-admin...`) in your [Anthropic Console](https://console.anthropic.com/settings/admin-keys). Only organization admins can create one, and the Admin API is not available for individual accounts.

@@ -249,11 +249,12 @@ def _pr_row(
     full_name: str = "PostHog/posthog",
     default_branch: str = "",
     labels: tuple[str, ...] = (),
+    title: str | None = None,
 ) -> dict[str, Any]:
     return {
         "id": 1000 + number,
         "number": number,
-        "title": f"PR {number}",
+        "title": title if title is not None else f"PR {number}",
         "state": state,
         "draft": draft,
         "created_at": created_at,

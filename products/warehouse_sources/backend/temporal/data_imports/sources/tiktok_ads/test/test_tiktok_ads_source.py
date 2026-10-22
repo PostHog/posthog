@@ -281,11 +281,13 @@ class TestTikTokAdsSource:
                 40000,
                 "The app_id is inconsistent with the token's app information. Please retry after correcting it.",
             ),
+            ("revoked_token", 40000, "Access token is incorrect or has been revoked."),
         ]
     )
     def test_get_oauth_accounts_maps_auth_errors_to_reconnect_message(self, name, api_code, message):
-        """Auth-rejection responses — including the app/token mismatch TikTok returns under the
-        generic 40000 code — must surface as an actionable reconnect message, not escape as a bug."""
+        """Auth-rejection responses — including the app/token mismatch and revoked-token wording
+        TikTok returns under the generic 40000 code — must surface as an actionable reconnect
+        message, not escape as a bug."""
         _MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.tiktok_ads.source"
         error = TikTokAdsAPIError(message, api_code=api_code)
         with (

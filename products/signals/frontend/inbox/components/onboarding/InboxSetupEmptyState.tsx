@@ -57,7 +57,7 @@ const INBOX_SETUP_EMPTY_STATE: ProductEmptyStateConfig = {
     PrimaryAction: SetUpSelfDrivingAction,
     docsUrl: 'https://posthog.com/docs/self-driving',
     previewLabel: 'Example report',
-    previewClassName: 'w-full max-w-120 justify-self-center',
+    previewClassName: 'items-center [&>*]:w-full [&>*]:max-w-120',
     Preview: InboxReportPreview,
     // An inbox that isn't set up is an empty list, so skipping would reveal nothing.
     skippable: false,

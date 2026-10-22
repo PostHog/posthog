@@ -53,11 +53,13 @@ export function EmailMetricsSummary({
     )
 
     const sentTotal = sumTimeSeries(getSingleTrendSeries('email_sent'))
-    // A frequency-capped send is skipped before the provider sees it, so it is not part of `sent`.
-    // Its rate reads against every attempted send, the same denominator as the Issues column.
+    // A frequency-capped send or a send with no recipient is skipped before the provider sees it, so
+    // it is not part of `sent`. Its rate reads against every attempted send, the same denominator as
+    // the Issues column.
     const attemptedTotal =
         sentTotal +
         sumTimeSeries(getSingleTrendSeries('email_bounce_prevented')) +
+        sumTimeSeries(getSingleTrendSeries('email_missing_recipient')) +
         sumTimeSeries(getSingleTrendSeries('message_frequency_capped'))
 
     return (
@@ -66,7 +68,7 @@ export function EmailMetricsSummary({
                 {EMAIL_METRIC_KEYS.map((key) => {
                     const metric = WORKFLOW_EMAIL_METRICS[key]
                     const canDrillDown = !!onMetricClick && !!EMAIL_METRIC_INVOCATION_FILTERS[key]
-                    const readsAgainstAttempts = key === 'message_frequency_capped'
+                    const readsAgainstAttempts = key === 'message_frequency_capped' || key === 'email_missing_recipient'
                     const shareTotal = readsAgainstAttempts ? attemptedTotal : sentTotal
                     const share =
                         key !== 'email_sent' && shareTotal > 0

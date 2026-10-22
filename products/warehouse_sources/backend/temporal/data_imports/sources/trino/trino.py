@@ -69,6 +69,10 @@ TRINO_ACCESS_DENIED_ERROR = (
     "Trino did not allow this user to read the requested data. "
     "Ask your Trino administrator for read access, then try again."
 )
+TRINO_CLUSTER_ACCESS_DENIED_ERROR = (
+    "Your Trino user's role isn't allowed to use this cluster. "
+    "Ask your Trino administrator to grant that role access to the cluster, then try again."
+)
 TRINO_ACCESS_CONTROL_UNAVAILABLE_ERROR = (
     "Trino's access control service did not answer, so Trino could not authorize the request. "
     "Try again, or ask your Trino administrator to check that service."
@@ -130,6 +134,9 @@ TRINO_WORKER_NODE_ERROR = "too many errors talking to a worker node"
 # `OperationalError`. A fresh query on the next sync attempt gets a new query ID, so this clears on
 # its own — not a PostHog or customer problem.
 TRINO_QUERY_NOT_FOUND_ERROR = "Query not found"
+# Trino's error name when no worker has free or healthy spill disk left. The customer's cluster ran out
+# of a resource it controls, so only the cluster owner can fix it, and a later query can succeed.
+TRINO_OUT_OF_SPILL_SPACE_ERROR = "name=OUT_OF_SPILL_SPACE"
 
 # Every message `trino_error_to_message` produces for a recognized failure. The source lists them as
 # its own error patterns, so the API shows the message instead of a generic one.
@@ -138,6 +145,7 @@ TRINO_KNOWN_ERROR_MESSAGES = (
     TRINO_AUTHENTICATION_ERROR,
     TRINO_CATALOG_NOT_FOUND_ERROR,
     TRINO_ACCESS_DENIED_ERROR,
+    TRINO_CLUSTER_ACCESS_DENIED_ERROR,
     TRINO_ACCESS_CONTROL_UNAVAILABLE_ERROR,
     TRINO_TLS_CERTIFICATE_ERROR,
     TRINO_CONNECTION_ERROR,
@@ -153,6 +161,7 @@ TRINO_PERMANENT_SYNC_ERROR_MESSAGES = frozenset(
         TRINO_AUTHENTICATION_ERROR,
         TRINO_CATALOG_NOT_FOUND_ERROR,
         TRINO_ACCESS_DENIED_ERROR,
+        TRINO_CLUSTER_ACCESS_DENIED_ERROR,
     }
 )
 POSTHOG_MANAGED_TRINO_HOST_PATTERN = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.dw\.(?:dev|eu|us)\.postwh\.com")
@@ -282,11 +291,19 @@ def trino_error_to_message(error: Exception) -> str:
     # text carries a query ID whose time part can hold "401" and would derail this classification.
     if "authentication" in lowered or "unauthorized" in lowered or "error 401" in lowered:
         return TRINO_AUTHENTICATION_ERROR
+    # Starburst Galaxy checks a role's privilege to use the cluster before any catalog access check.
+    if "privilege to use cluster" in lowered:
+        return TRINO_CLUSTER_ACCESS_DENIED_ERROR
     # Trino gives permission checks to an access control plugin. That plugin can fail on its own, for
     # example when it cannot reach its policy service, which nobody can fix from PostHog.
     if "opa backend" in lowered or "access control" in lowered:
         return TRINO_ACCESS_CONTROL_UNAVAILABLE_ERROR
-    if "access denied" in lowered or "permission denied" in lowered or "not authorized" in lowered:
+    if (
+        "access denied" in lowered
+        or "permission denied" in lowered
+        or "not authorized" in lowered
+        or "name=permission_denied" in lowered
+    ):
         return TRINO_ACCESS_DENIED_ERROR
     if "catalog" in lowered and ("not found" in lowered or "does not exist" in lowered):
         return TRINO_CATALOG_NOT_FOUND_ERROR
@@ -368,7 +385,12 @@ def discover_trino_schemas(
 
 
 def discover_trino_catalog(
-    cursor: Cursor, *, catalog: str, schema: str | None = None, names: list[str] | None = None
+    cursor: Cursor,
+    *,
+    catalog: str,
+    schema: str | None = None,
+    names: list[str] | None = None,
+    include_columns: bool = True,
 ) -> list[DiscoveredTrinoTable]:
     escaped_catalog = catalog.replace(chr(34), chr(34) * 2)
     table_query = (
@@ -395,6 +417,10 @@ def discover_trino_catalog(
 
     tables: dict[tuple[str, str], list[TrinoColumn]] = {}
     for schema_name, table_names in table_names_by_schema.items():
+        for table_name in table_names:
+            tables[(schema_name, table_name)] = []
+        if not include_columns:
+            continue
         for table_name_batch in batched(table_names, TRINO_COLUMN_DISCOVERY_TABLE_BATCH_SIZE, strict=False):
             placeholders = ", ".join("?" for _ in table_name_batch)
             column_query = (
@@ -811,4 +837,6 @@ class TrinoImplementation(SQLSourceImplementation[TrinoSourceConfig, Any, Any], 
             items=get_rows,
             primary_keys=primary_keys,
             rows_to_sync=rows_to_sync,
+            # One statement with `ORDER BY <incremental field>`, read as one stream.
+            sort_mode="asc" if incremental_field is not None else None,
         )

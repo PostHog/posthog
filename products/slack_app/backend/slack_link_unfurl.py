@@ -63,6 +63,7 @@ from products.slack_app.backend.logic.link_unfurl_charts import (
     slack_fetchable_image_url,
     with_chart_images,
 )
+from products.slack_app.backend.models import SlackThreadTaskMapping
 from products.slack_app.backend.services.followup_invite import build_followup_invite
 from products.slack_app.backend.services.slack_messages import UNFURL_OPT_OUT_PARAM
 from products.slack_app.backend.temporal.slack_app_unfurl_charts import (
@@ -125,8 +126,12 @@ _KIND_EMOJI: dict[str, str] = {
     "survey": "📝",
     "cohort": "👥",
     "error": "🐞",
-    "report": "📥",
     ADHOC_INSIGHT_KIND: "📈",
+}
+
+# A kind with a product logo shows it in the card summary instead of an emoji in the title.
+_KIND_ICON_PATH: dict[str, str] = {
+    "report": "/static/icons/self-driving.png",
 }
 
 _SkipReason = Literal["not_found", "no_access", "other_project", "not_found_or_no_access", "public_sharing_disabled"]
@@ -146,7 +151,6 @@ _INVITE_REDIS_TIMEOUT_SECONDS = 0.3
 _QUERY_KIND_TO_SHORT_NAME: dict[str, str] = {
     "TrendsQuery": "Trends",
     "FunnelsQuery": "Funnel",
-    "FunnelCorrelationQuery": "Funnel correlation",
     "RetentionQuery": "Retention",
     "PathsQuery": "Paths",
     "PathsV2Query": "Journeys",
@@ -439,10 +443,17 @@ def _card_summary(card: _UnfurlCard, *, compact: bool) -> str:
 
 def _card_blocks(card: _UnfurlCard, *, kind: str, url: str, compact: bool) -> list[dict]:
     link = _tracked_url(card.open_url or url, kind)
-    title = f"{_KIND_EMOJI[kind]}  *<{link}|{escape_slack_mrkdwn(_truncate(card.title, _MAX_TITLE_CHARS))}>*"
+    title = f"*<{link}|{escape_slack_mrkdwn(_truncate(card.title, _MAX_TITLE_CHARS))}>*"
+    summary: list[dict] = [{"type": "mrkdwn", "text": _card_summary(card, compact=compact)}]
+    icon_path = _KIND_ICON_PATH.get(kind)
+    if icon_path:
+        icon_url = slack_fetchable_image_url(f"{settings.SITE_URL}{icon_path}")
+        summary.insert(0, {"type": "image", "image_url": icon_url, "alt_text": card.label})
+    else:
+        title = f"{_KIND_EMOJI[kind]}  {title}"
     blocks: list[dict] = [
         {"type": "section", "text": {"type": "mrkdwn", "text": title}},
-        {"type": "context", "elements": [{"type": "mrkdwn", "text": _card_summary(card, compact=compact)}]},
+        {"type": "context", "elements": summary},
     ]
     if compact:
         return blocks
@@ -1078,7 +1089,6 @@ def _report_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _Skip
         title=report.title or "Untitled report",
         status=_humanize(report.status),
         details=(_count(report.signal_count, "signal"),),
-        body=report.summary,
         timestamp=report.updated_at,
     )
 
@@ -1306,6 +1316,29 @@ def add_artifact_image_to_unfurl(
     )
 
 
+def _bot_reply_actor(integration: Integration, event: dict) -> str | None:
+    """The Slack user steering the run in this thread, when that run was told to share chart links.
+
+    Slack reports every bot-posted message under one placeholder author, so a thread whose run
+    shares links is the signal that a placeholder-authored message is our reply, written for that
+    person with their PostHog access. The run state holds the decision, so no flag call here."""
+    if not event.get("thread_ts"):
+        return None
+    actors = (
+        SlackThreadTaskMapping.objects.filter(
+            integration=integration,
+            channel=event["channel"],
+            thread_ts=event["thread_ts"],
+            task_run__state__slack_chart_links=True,
+        )
+        .values_list(
+            "task_run__state__slack_actor_slack_user_id", "latest_actor_slack_user_id", "mentioning_slack_user_id"
+        )
+        .first()
+    )
+    return next((actor for actor in actors or () if actor), None)
+
+
 def handle_posthog_link_unfurl(event: dict, integration: Integration) -> None:
     """
     Unfurl supported PostHog resource links with metadata.
@@ -1326,7 +1359,13 @@ def handle_posthog_link_unfurl(event: dict, integration: Integration) -> None:
         return
 
     # Imported here to avoid circular import with api (api imports this module at load time).
-    from products.slack_app.backend.api import resolve_slack_user
+    from products.slack_app.backend.api import SLACK_PLACEHOLDER_USER_ID, resolve_slack_user
+
+    bot_reply_actor = _bot_reply_actor(integration, event) if slack_user_id == SLACK_PLACEHOLDER_USER_ID else None
+    if bot_reply_actor:
+        slack_user_id = bot_reply_actor
+        # Everything downstream, the chart workflow included, reads the sharer from the event.
+        event = {**event, "user": bot_reply_actor}
 
     user_context = resolve_slack_user(
         slack,
@@ -1475,4 +1514,5 @@ def handle_posthog_link_unfurl(event: dict, integration: Integration) -> None:
         followup_invite_shown=invite is not None,
         charts_queued=charts_queued,
         artifact_image_queued=artifact_image_queued,
+        bot_reply=bot_reply_actor is not None,
     )

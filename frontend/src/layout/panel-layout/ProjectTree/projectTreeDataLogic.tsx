@@ -1079,11 +1079,14 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                 },
                 addShortcutItem: async ({ item }) => {
                     const shortcutItem = shortcutFromEntry(item)
-                    const response = await api.fileSystemShortcuts.create(shortcutItem)
-                    posthog.capture('navbar starred item added', {
-                        item_type: shortcutItem.type ?? 'unknown',
-                        item_name: shortcutItem.path,
-                    })
+                    const { shortcut: response, created } = await api.fileSystemShortcuts.create(shortcutItem)
+                    // A star the user already has, for example from another tab, is not a new add.
+                    if (created) {
+                        posthog.capture('navbar starred item added', {
+                            item_type: shortcutItem.type ?? 'unknown',
+                            item_name: shortcutItem.path,
+                        })
+                    }
                     lemonToast.success('Added to starred')
                     // The API returns the existing shortcut when the item is already starred, so
                     // appending it unconditionally would show the same star twice until a reload.

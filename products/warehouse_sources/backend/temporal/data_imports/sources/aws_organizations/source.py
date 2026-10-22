@@ -157,7 +157,7 @@ Use a key from the management account or from a member account that is a delegat
 AWS Organizations is a global service, so there is nothing to pick a region for. This source syncs the accounts, organizational units, and policies in the standard AWS partition.""",
             iconPath="/static/services/aws_organizations.png",
             docsUrl="https://posthog.com/docs/cdp/sources/aws-organizations",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["aws", "organizations", "accounts", "organizational units"],
             fields=cast(
                 list[FieldType],

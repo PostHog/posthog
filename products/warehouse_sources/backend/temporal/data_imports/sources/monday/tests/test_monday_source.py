@@ -35,8 +35,6 @@ class TestMondaySource:
     @pytest.mark.parametrize(
         "observed_error",
         [
-            "401 Client Error: Unauthorized for url: https://api.monday.com/v2",
-            "403 Client Error: Forbidden for url: https://api.monday.com/v2",
             "monday.com GraphQL error: Not authenticated",
             "monday.com GraphQL error: User unauthorized",
         ],

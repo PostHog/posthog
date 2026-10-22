@@ -773,8 +773,8 @@ export class ApiClient {
                 return result
             },
 
-            get: async ({ orgId }: { orgId: string }): Promise<Result<Schemas.OrganizationBasic>> => {
-                return this.fetchJson<Schemas.OrganizationBasic>(`${this.baseUrl}/api/organizations/${orgId}/`)
+            get: async ({ orgId }: { orgId: string }): Promise<Result<Schemas.Organization>> => {
+                return this.fetchJson<Schemas.Organization>(`${this.baseUrl}/api/organizations/${orgId}/`)
             },
 
             projects: ({ orgId }: { orgId: string }) => {
@@ -1322,9 +1322,17 @@ export class ApiClient {
                     return retrieveById()
                 }
 
+                // A 404 keeps a wrong or stale short_id out of the internal error bucket and error tracking.
                 return {
                     success: false,
-                    error: new Error(`No insight found with short_id: ${insightId}`),
+                    error: new PostHogApiError({
+                        status: 404,
+                        statusText: 'Not Found',
+                        body: '',
+                        url: `${this.baseUrl}/api/projects/${projectId}/insights/?short_id=${insightId}`,
+                        method: 'GET',
+                        message: `No insight found with short_id: ${insightId} in project ${projectId}. Use insights-list to find the insight. If the insight is in a different project, use switch-project.`,
+                    }),
                 }
             },
 
@@ -1602,12 +1610,16 @@ export class ApiClient {
                 columns?: unknown[] | null
                 formatted_results?: string
                 warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null
+                has_next?: boolean
+                next_cursor?: string | null
             }> => {
                 return this.request<{
                     results: unknown
                     columns?: unknown[] | null
                     formatted_results?: string
                     warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null
+                    has_next?: boolean
+                    next_cursor?: string | null
                 }>({
                     method: 'POST',
                     path: `/api/environments/${projectId}/query/`,

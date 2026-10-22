@@ -56,7 +56,7 @@ class GrafanaSource(ResumableSource[GrafanaSourceConfig, GrafanaResumeConfig]):
             name=ExternalDataSourceType.GRAFANA,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Grafana",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Grafana instance URL and credentials to pull your Grafana metadata (dashboards, folders, alert rules, annotations, and more) into the PostHog Data warehouse.
 
 Create a service account token under **Administration > Users and access > Service accounts** in your Grafana instance. A Viewer role covers most tables; users, teams, team members, data sources, service accounts, alert rules, dashboard permissions, and folder permissions need extra read permissions (`users:read`, `teams:read`, `teams.permissions:read`, `datasources:read`, `serviceaccounts:read`, `alert.provisioning:read`, `dashboards.permissions:read`, `folders.permissions:read`). Grafana only shows dashboard versions to accounts that can edit the dashboard (`dashboards:write`), such as the Editor role. The roles table needs `roles:read` and is only available on Grafana Enterprise and Grafana Cloud.

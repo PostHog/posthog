@@ -70,7 +70,7 @@ jobs:
                   fi
                   REPORT="${RUNNER_TEMP}/react-doctor-report.json"
                   status=0
-                  # Pinned: products/desktop/.npmrc's minimum release age makes @latest
+                  # Pinned: products/desktop/pnpm-workspace.yaml's minimum release age makes @latest
                   # intermittently unresolvable in CI. Bump deliberately, not via latest.
                   npx --yes react-doctor@0.9.1 . --blocking error --changed-files-from "$CHANGED" --json --json-compact --no-telemetry > "$REPORT" || status=$?
                   echo "exit-code=$status" >> "$GITHUB_OUTPUT"

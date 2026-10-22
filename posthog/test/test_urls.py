@@ -83,16 +83,17 @@ class TestUrls(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
         self.assertEqual(response["Location"], "https://us.posthog.com/organization/billing")
 
-    def test_integration_connect_redirect_authenticated(self):
+    @parameterized.expand([("slack",), ("mcp",)])
+    def test_integration_connect_redirect_authenticated(self, connect_from: str):
         response = self.client.get(
-            f"/integrations/connect/github/?project_id={self.team.id}&connect_from=slack", follow=False
+            f"/integrations/connect/github/?project_id={self.team.id}&connect_from={connect_from}", follow=False
         )
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
         location = response["Location"]
         self.assertIn(f"/api/projects/{self.team.id}/integrations/authorize/", location)
         self.assertIn("kind=github", location)
         self.assertIn("account-connected", location)
-        self.assertIn("connect_from%3Dslack", location)
+        self.assertIn(f"connect_from%3D{connect_from}", location)
 
     def test_integration_connect_redirect_requires_login(self):
         self.client.logout()

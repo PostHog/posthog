@@ -29,7 +29,7 @@ export interface ScoutChatContext {
 export const SCOUT_AI_STARTER_QUESTIONS: { id: string; question: string }[] = [
     { id: 'found_lately', question: 'What have you found lately?' },
     { id: 'working', question: 'Are you working?' },
-    { id: 'no_reports', question: 'Why did you report nothing yesterday?' },
+    { id: 'recent_reports', question: 'Summarize your recent reports' },
 ]
 
 // Our own static string, which is what makes it safe as a trusted `instructions` item. The scout's

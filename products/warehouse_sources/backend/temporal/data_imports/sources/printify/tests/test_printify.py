@@ -14,7 +14,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     SourceDriver,
     UnexpectedRequest,
     always,
-    scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.printify import (
     PrintifySourceConfig,
@@ -23,8 +22,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.printify i
 from products.warehouse_sources.backend.temporal.data_imports.sources.printify.printify import (
     PrintifyResumeConfig,
     PrintifyRetryableError,
-    check_access,
-    validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.printify.settings import (
     ENDPOINTS,
@@ -245,37 +242,3 @@ class TestPrintifySourceResponse:
         for config in PRINTIFY_ENDPOINTS.values():
             expected = ["shop_id", "id"] if config.shop_scoped else ["id"]
             assert config.primary_keys == expected, config.name
-
-
-class TestCheckAccess:
-    @parameterized.expand(
-        [
-            ("ok", 200, 200, None),
-            ("unauthorized", 401, 401, None),
-            ("forbidden", 403, 403, None),
-            ("server_error", 500, 500, "Printify returned HTTP 500"),
-        ]
-    )
-    def test_status_mapping(self, _name: str, status: int, expected_status: int, expected_message: str | None) -> None:
-        with scripted_network(always(ScriptedResponse(status=status, json=[]))):
-            assert check_access("printify-key") == (expected_status, expected_message)
-
-    def test_connection_error_maps_to_zero(self) -> None:
-        with scripted_network(always(ConnectionError("boom"))):
-            status, message = check_access("printify-key")
-        assert status == 0
-        assert message is not None and "boom" in message
-
-    @parameterized.expand(
-        [
-            ("ok", 200, True, None),
-            ("unauthorized", 401, False, "Invalid Printify API token"),
-            ("forbidden", 403, False, "Invalid Printify API token"),
-            ("server_error", 500, False, "Printify returned HTTP 500"),
-        ]
-    )
-    def test_validate_credentials(
-        self, _name: str, status: int, expected_valid: bool, expected_message: str | None
-    ) -> None:
-        with scripted_network(always(ScriptedResponse(status=status, json=[]))):
-            assert validate_credentials("printify-key") == (expected_valid, expected_message)

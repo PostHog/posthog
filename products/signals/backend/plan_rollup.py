@@ -156,7 +156,7 @@ def _close_parent(
             SignalReportArtefact.append_dismissal(
                 team_id=parent.team_id,
                 report_id=str(parent.id),
-                content=Dismissal(),
+                content=Dismissal(state="suppressed"),
                 attribution=ArtefactAttribution.system(),
             )
     return True

@@ -21,6 +21,7 @@ logger = structlog.get_logger(__name__)
 
 REPORT_METRICS_FLAG = "signals-report-metrics"
 REPORT_MONITORING_FLAG = "signals-report-monitoring"
+FIRST_REPORT_EMAIL_FLAG = "signals-first-report-email"
 RESEARCH_REVIEWER_SELECTION_FLAG = "signals-research-reviewer-selection"
 
 
@@ -76,6 +77,10 @@ def organization_report_metrics_enabled(organization_id: UUID) -> bool:
 
 def team_report_metrics_enabled(team_id: int) -> bool:
     return _team_flag_enabled(REPORT_METRICS_FLAG, team_id)
+
+
+def team_first_report_email_enabled(team_id: int) -> bool:
+    return _team_flag_enabled(FIRST_REPORT_EMAIL_FLAG, team_id, enable_in_debug=False)
 
 
 def organization_report_monitoring_enabled(organization_id: UUID) -> bool:

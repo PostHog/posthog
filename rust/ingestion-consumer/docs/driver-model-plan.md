@@ -18,7 +18,7 @@ Master already contains two parts of the design:
 An assignment epoch also exists.
 A rebalance increments it, and every sub-batch carries it.
 
-These components stay as they are: the stream runners, the P2C (power-of-two-choices) router, the aperture, the worker registry, the commit sentinel, the commit monitor, and the key-order sentinel.
+These components stay as they are: the stream runners, the P2C (power-of-two-choices) router, the aperture, the worker registry, and the key-order sentinel.
 
 ## Initial PR stacks
 
@@ -56,7 +56,7 @@ Rules:
 - A cycle's cleanup lands only after its switchover is stable on all lanes.
 - Swap the smallest piece that removes the most complexity. Components that already match the target design are not rebuilt.
 - A change must not alter the meaning of an existing metric. Metrics of deleted machinery are deleted with it.
-- The commit sentinel and the key-order sentinel stay enabled through every cycle.
+- The key-order sentinel stays enabled through every cycle.
 
 Cycle 1 lands first: one fast change that removes complexity, preserves behavior, and depends on nothing else.
 After that, the cycles run in order, with two exceptions.
@@ -101,7 +101,7 @@ A change that adds metrics lists their names.
 | 22 | 8 decoupled commits | Cleanup | Delete the per-poll completion path |
 | 23 | 9 bounded replay | Implement | Add the budget accounting |
 | 24 | 9 bounded replay | Switchover | Enable the budget |
-| 25 | 9 bounded replay | Cleanup | Remove the in-flight admission cap |
+| 25 | 9 bounded replay | Structure | Poll continuously and remove the in-flight admission cap |
 | 26 | 10 clean handoff | Prepare | Add revoke and drained markers |
 | 27 | 10 clean handoff | Implement | Build the drain |
 | 28 | 10 clean handoff | Switchover | Enable the drain |
@@ -153,7 +153,7 @@ Exit criterion: `ingestion_consumer_ledger_mismatch_total` stays zero across dep
 - The frontier is in Kafka's committed-offset representation: the next offset to read, not the last offset processed. The current commit path already commits in this representation (the poll's max offset plus one), so the frontier is commit-ready as returned — no call site adds or subtracts one.
 - The read/consume split matters: the comparison read is idempotent and cannot consume state by accident. Consumption happens at commit points in every mode, so the ring holds only uncommitted offsets.
 - Completions can arrive in any order. The frontier moves only over completed slots.
-- Kafka can deliver offsets with gaps: transaction markers occupy offsets that consumers never receive, and compaction keeps offsets while removing records. Our ingestion topics have neither today, and the commit sentinel treats a gap as a real skip (see the caveat on `CommitSentinel`).
+- Kafka can deliver offsets with gaps: transaction markers occupy offsets that consumers never receive, and compaction keeps offsets while removing records. Our ingestion topics have neither today, so a gap the frontier walks over (`kafka_consumer_ledger_gap_offsets_total`) is a real skip.
 - The ledger still defines contiguity over delivered offsets, not offset arithmetic. A legitimate gap can then never block the frontier.
 - The sentinel's gap alert and the ledger's gap handling cannot both stand. Once the frontier owns commits (change 4), a commit that walks over a legitimate gap is correct, and the sentinel would report it as a skip. The ledger therefore counts each gap it walked over (`kafka_consumer_ledger_gaps_total`), and the sentinel's gap alert retires in change 5. Until then the alert stays, because the ingestion topics have no legitimate gaps today and a gap is still a real skip.
 - Add property tests: out-of-order completion, monotonic frontier, `frontier` idempotence, the ring drains after `take_frontier`, offset gaps, ring capacity.
@@ -568,8 +568,8 @@ This is a deliberate structural outcome, not routine cleanup: it is the largest 
 
 Outcome: commits advance per partition as groups complete. Needs cycles 2 and 3.
 
-**Verify:** the commit sentinel checks every commit, and `kafka_consumer_ledger_uncommitted_offsets` shows per-partition frontier lag.
-Exit criterion at the canary: zero sentinel violations, and a stalled partition no longer moves the commit rate of other partitions.
+**Verify:** `kafka_consumer_ledger_errors_total` and `kafka_consumer_ledger_gap_offsets_total` stay flat, and `kafka_consumer_ledger_uncommitted_offsets` shows per-partition frontier lag.
+Exit criterion at the canary: zero ledger errors and gap walks, and a stalled partition no longer moves the commit rate of other partitions.
 
 ### 21. Switch completion to group granularity (switchover)
 
@@ -584,13 +584,14 @@ Exit criterion at the canary: zero sentinel violations, and a stalled partition 
 - Keep `max_in_flight_batches` as the bound on outstanding work. A poll's slot frees when all its groups are accepted.
 - Behavior change: commit timing decouples across partitions and polls. Replay exposure stays inside the admission cap.
 - Rollback is the switch back to `poll`.
-- Commit pacing is the seam for this cycle. The consumer already hands every taken frontier to a commit pacer (`commit_pacer.rs`) and commits what the pacer hands back. Today's pacer is `ImmediateCommitPacer`: everything handed over is due on the next take, so commits stay per poll. Per-partition commits at `group` granularity would commit on every group completion, which is too many commits, so this cycle adds an `IntervalCommitPacer` that keeps the latest frontier per partition and hands them out at most once per `CONSUMER_COMMIT_INTERVAL_MS`. The loop then asks the pacer on a tick, not only after a poll settles, and the tick must not sit in a `select!` next to `collect_batch`, because a dropped collection loses messages before they reach the ledger; the interval bounds the commit delay only if the collection loop itself asks the pacer, otherwise the bound is the interval plus the batch timeout. The commit sentinel must record a partition's attempted offset when the pacer hands it out, not when the frontier is handed over, or `ingestion_consumer_commit_confirmation_lag` reports pending frontiers as commits that never landed. On revoke the pacer forgets the partition; the drain in change 27 commits what the pacer still holds at shutdown. Select between the two pacers with a `CommitPacer` trait or an enum once the second one exists, not before. The sentinel's contiguity check compares the span a poll delivered against the previous commit, which catches a skip in what Kafka delivered; at `group` granularity a take no longer maps to one poll's slice, so that check retires here, after an alert on `kafka_consumer_ledger_gaps_total` stands in for it. Checking the take's own window base against the previous take is not a replacement: the ledger sets the base to the frontier it hands out, so that comparison holds by construction.
+- Commit pacing is the seam for this cycle. The consumer already hands every taken frontier to a commit pacer (`commit_pacer.rs`) and commits what the pacer hands back. Today's pacer is `ImmediateCommitPacer`: everything handed over is due on the next take, so commits stay per poll. Per-partition commits at `group` granularity would commit on every group completion, which is too many commits, so this cycle gives the pacer an interval: it keeps the latest frontier per partition and hands them out at most once per `CONSUMER_COMMIT_INTERVAL_MS`, and a zero interval is today's immediate pacer. The loop then asks the pacer on a tick, not only after a poll settles, and the tick must not sit in a `select!` next to `collect_batch`, because a dropped collection loses messages before they reach the ledger; the interval bounds the commit delay only if the collection loop itself asks the pacer, otherwise the bound is the interval plus the batch timeout. `ingestion_consumer_committed_offset` is set when a commit is submitted to the client, so a frontier the pacer still holds is not reported as committed. On revoke the pacer forgets the partition; the drain in change 27 commits what the pacer still holds at shutdown. One `CommitPacer` with an interval covers both granularities; `poll` runs it at zero. The commit sentinel and the commit monitor retire here. The sentinel's contiguity check compared the span a poll delivered against the previous commit; at `group` granularity a take no longer maps to one poll's slice, and the ledger already rejects a redelivered offset at charge (`kafka_consumer_ledger_errors_total`) and counts the offsets a frontier walks over (`kafka_consumer_ledger_gap_offsets_total`). The monitor's broker comparison duplicated kminion's per-partition consumer group lag. Checking the take's own window base against the previous take is not a replacement: the ledger sets the base to the frontier it hands out, so that comparison holds by construction.
 
 **Interfaces:**
 
 - Modify `Config`: add the completion granularity and `CONSUMER_COMMIT_INTERVAL_MS`.
-- Modify `IngestionConsumer::process`: at `group` granularity, select over `GroupCompletion` events. The per-poll path stays for rollback.
-- Add `IntervalCommitPacer` next to `ImmediateCommitPacer`, and the seam that selects one.
+- Add `src/settlement/`: a `Settlement` trait (`settle_run`, `settle_poll`, `take_due`, `take_all`, `forget_partitions`) with one implementation per granularity, each owning its commit pacer; the consumer loop calls it unconditionally and has no granularity branches. The poll implementation stays for rollback.
+- `CommitPacer::every(interval)` paces the group implementation; the poll implementation runs it at zero. `ImmediateCommitPacer` goes.
+- Delete `commit_sentinel.rs` and `commit_monitor.rs`, with `ingestion_consumer_commit_violations_total{kind=gap|out_of_order|overlap}`, `ingestion_consumer_commits_checked_total`, `ingestion_consumer_broker_committed_offset`, `ingestion_consumer_commit_confirmation_lag`, `ingestion_consumer_last_successful_commit_timestamp_seconds` and `ingestion_consumer_commit_monitor_errors_total`. The rdkafka context moves to `rebalance.rs` as `RebalanceContext`, an event source with a revoke hook and an assign hook; the consumer's hooks forget a partition's ledger window and pending frontier together, on either path.
 
 ### 22. Delete the per-poll completion path (cleanup)
 
@@ -600,62 +601,77 @@ Exit criterion at the canary: zero sentinel violations, and a stalled partition 
 
 **Interfaces:**
 
-- Remove the ordered `InFlightBatch` queue, the per-poll aggregation from change 7, and the completion granularity from `Config`.
+- Remove `PollSettlement` and the completion granularity from `Config`.
+- Keep the in-flight poll queue and its per-poll aggregation from change 7. The loop waits on the oldest poll until change 25 replaces it.
 
-## Cycle 9: replay exposure is bounded by B
+## Cycle 9: replay exposure is bounded per partition
 
-Outcome: uncommitted work never exceeds the budget, in events and bytes. The in-flight admission cap is gone.
+Outcome: no partition's uncommitted work exceeds its budget, in events and bytes. The in-flight admission cap is gone. Needs cycles 2 and 8.
 
-**Verify:** change 23's gauges run on all lanes with the budget unset.
-Exit criterion: `ingestion_consumer_budget_outstanding_events` tracks the admission cap's occupancy, and the pause gauge stays flat at zero.
+**Verify:** the ledger's uncommitted gauges run on all lanes with no budget set.
+Exit criterion: `kafka_consumer_ledger_uncommitted_events` summed per pod tracks the admission cap's occupancy.
 
-### 23. Add the budget accounting (implement)
+The budget is per partition, and so is the pause. One budget for the whole assignment would let a stalled partition fill it and pause every other partition with it, which undoes cycle 8. Per-partition commits are a hard prerequisite for the same reason: at `poll` granularity a stalled partition holds the commits, and so the refunds, of every partition in its poll, so every budget fills together.
 
-**Task:** Track uncommitted work in events and bytes. Ship with no budget set: the admission cap still governs alone.
+### 23. Make the uncommitted accounting exact (implement)
 
-**Goal:** The budget exists and reports before it constrains.
+**Task:** Count each partition's uncommitted work in events and bytes exactly: everything polled and not yet covered by a submitted commit. No budget exists yet: the admission cap still governs alone.
 
-- Charge each message on poll. The ledger slots already carry the costs (change 2).
-- Refund the charge when the commit that covers the message is issued.
-- Gauge the outstanding charge per partition and in total.
-- New config: the budget in events and in bytes, and the low watermark as a fraction of the budget (default 0.8). Unset means no constraint.
+**Goal:** The number the budget will bound exists and reports before anything constrains it.
+
+- Charge each message to its partition on poll. The ledger slots already carry the costs (change 2).
+- Refund the charge when the commit that covers the message goes out. The charge is always in one place: the ledger's window until a take, then the pacer with the frontier it covers until the settlement hands the frontier out, which is when the consumer submits the commit. Before this change the pacer kept only the offset, so the take itself was the refund and under the interval pacer the gauges ran up to one interval ahead of the commits. A revoked partition drops everything it holds in both places.
+- The settlement gauges the result per partition, since it alone sees both places. The budget's config and its pause gauges arrive with change 24, where they are read.
 
 **Interfaces:**
 
-- Modify `Config`: add the budget, default unset.
-- Modify `IngestionConsumer`: track charge and refund through `OffsetLedger`. No polling change while the budget is unset.
+- Modify `CommitPacer`: keep each partition's pending frontier with the charge of every take since the last commit.
+- Modify `Settlement`: `charge` charges the ledger and returns what the partition holds uncommitted; `forget_partitions` forgets the ledger too. Both granularities move charge between the ledger and the pacer under one lock and publish the gauges.
+- Modify `TopicOffsetLedger`: stop publishing the uncommitted gauges.
 
 **Metrics:**
 
-- Add `ingestion_consumer_budget_outstanding_events` and `ingestion_consumer_budget_outstanding_bytes` (gauges).
-- Add `ingestion_consumer_budget_paused` (gauge, 0 or 1) and `ingestion_consumer_budget_pauses_total` (counter). Both stay flat until change 24.
+- `kafka_consumer_ledger_uncommitted_offsets{topic,partition}`, `kafka_consumer_ledger_uncommitted_events{topic,partition}` and `kafka_consumer_ledger_uncommitted_bytes{topic,partition}` now include takes whose commit has not gone out, and the settlement publishes them. No new series.
 
 ### 24. Enable the budget (switchover)
 
-**Task:** Set the budget per lane. Pause the poll at the limit and resume on refund.
+**Task:** Set the budget per lane. Pause a partition at its limit and resume it on refund.
 
-**Goal:** Replay exposure is bounded directly.
+**Goal:** Replay exposure is bounded directly, per partition. A stalled partition stops only its own fetch.
 
 - A charts values PR sets the budget lane by lane. The admission cap and the budget both bound work during the transition.
-- Derive the first values from the current config: events near the batch size times the cap, bytes from the byte bound. The effective bound then does not change at the switchover.
-- Pause the assignment when the outstanding charge reaches the budget on either axis. Resume only when it is back at or under the low watermark on both axes. A pause purges librdkafka's fetch queue and a resume refetches it, so a gate that reopens on the first refund refetches on every crossing.
-- Do not stop polling while paused. A paused consumer still serves rebalance callbacks and keeps `max.poll.interval.ms` alive; an unpolled one does neither. When a partition is assigned while the gate is closed, pause it too: an assignment resets librdkafka's pause flags.
-- Watch the pause gauge and `ingestion_lag_ms`. Rollback is unsetting the values.
+- Derive the first values from the current config: the cap times the batch size, divided by the partitions a pod holds, for events; the byte bound likewise for bytes. The per-pod bound then does not change at the switchover.
+- Pause a partition when its outstanding charge reaches the budget on either axis. Resume it only when its charge is back at or under the low watermark on both axes. A pause purges that partition's fetched messages from librdkafka's queue and a resume refetches them, so a gate that reopens on the first refund refetches on every crossing.
+- Keep polling while some partitions are paused. A paused partition still serves rebalance callbacks and keeps `max.poll.interval.ms` alive; an unpolled consumer does neither. While every partition is paused, the loop waits on completions without polling Kafka, as it already does when the cap is full; change 25 removes that wait. librdkafka keeps a partition's pause across a revoke and a reassignment, so the consumer resumes every partition it is assigned: a partition that arrives starts unpaused, with a fresh ledger generation and zero charge.
+- Watch the paused-partitions gauge and `ingestion_lag_ms`. Rollback is unsetting the values.
+
+- The budget is a fixed amount per partition, not a share of a pod-wide amount. A rebalance changes how many partitions a pod holds, not how much each one may expose, so the value does not move at rebalances.
 
 **Interfaces:**
 
-- None in this repository. Config values only.
+- Modify `Config`: add the budget per partition in events and in bytes, and the low watermark as a fraction of the budget (default 0.8). Unset means no constraint.
+- Modify `IngestionConsumer`: pause and resume one partition at a time through the Kafka client, from what the settlement reports uncommitted per partition.
 
-### 25. Remove the in-flight admission cap (cleanup)
+**Metrics:**
 
-**Task:** Remove `max_in_flight_batches` after the budget is stable on all lanes.
+- Add `ingestion_consumer_budget_paused_partitions` (gauge) and `ingestion_consumer_budget_pauses_total{topic,partition}` (counter).
 
-**Goal:** The budget is the only admission bound.
+### 25. Poll continuously and remove the in-flight admission cap (structure)
 
+**Task:** After the budget is stable on all lanes, replace the poll-and-wait loop with one loop that polls Kafka continuously and applies completions as they arrive. Remove `max_in_flight_batches`.
+
+**Goal:** The budget is the only admission bound. No wait on one poll holds back fetching, completions, or commits.
+
+- The loop and the cap change together. The loop applies completions only while it waits for the oldest poll, and under steady traffic a full cap is what makes it wait. Without the cap and with the old loop, completions stay unread until every partition pauses at its budget.
+- One `select!` serves the Kafka poll, the completions, the batcher's errors, the commit tick, and shutdown. Collection must be safe to cancel: the loop keeps the poll it is building in its own state and adds each message when `recv()` returns it, so a branch that wins the race drops no message.
+- The commit tick fires when the pacer is next due, so a refund and the resume it allows go out on time.
+- Kafka is polled while every partition is paused, so rebalance callbacks and `max.poll.interval.ms` no longer depend on completions.
 - Only admission control goes. The collection bounds — batch size and batch timeout — stay: they shape one poll, not the amount of admitted work.
+- Nothing tracks a poll after it is submitted. The budget bounds the admitted work, so the loop does not count polls or wait for one to finish.
 
 **Interfaces:**
 
+- Modify `IngestionConsumer::run`: one select loop over collection, completions, errors, the commit tick, and shutdown. Remove `complete_oldest_poll`, the in-flight poll queue, and the per-poll aggregation.
 - Remove `max_in_flight_batches` from `Config` and the admission bookkeeping from `IngestionConsumer`.
 - Remove `ingestion_consumer_in_flight_batches`. The budget gauges replace it.
 
@@ -692,7 +708,7 @@ Exit criterion: `ingestion_consumer_drain_duration_seconds` stays inside the dea
 - While a revoke waits for the hand-back, librdkafka pauses every assigned partition, not only the revoked ones. The drain window is a pod-wide fetch pause, bounded by the request timeout. Set the rebalance timeout (`max.poll.interval.ms`) above the request timeout, and keep polling through the wait so the callbacks and the liveness clock keep running.
 - A lost assignment skips the final commit. When `assignment_lost()` is true at the revoke (the session or `max.poll.interval.ms` expired) or the callback reports an error, the broker has fenced the generation and the commit would fail. Drop the partition's ledger, refund its charge, hand it back at once, and still send the marker so the batcher clears its queues. Completions for it die by epoch.
 - Closing the consumer revokes the whole assignment through the same callback, and rdkafka's `Drop` polls until the close completes. A deferred hand-back there never comes and the drop spins forever. A `closing` flag makes the callback answer inline; set it before any path that drops the consumer, the clean shutdown and the fatal-error exit alike.
-- Shutdown is a drain of every assigned partition: a revoke marker per partition through the same path, the final commit per drained marker, then one synchronous commit of every partition's last attempted offset, then close. A drain cut short by the graceful-shutdown deadline replays its un-acked tail, bounded by B.
+- Shutdown is a drain of every assigned partition: a revoke marker per partition through the same path, the final commit per drained marker, then one synchronous commit of every partition's last attempted offset, then close. A drain cut short by the graceful-shutdown deadline replays its un-acked tail, bounded by each partition's budget.
 - Empty assign events arrive after a hand-back and at the end of a rebalance round. They are no-ops.
 - Check completions against the assignment epoch. The epoch already exists on master and rides on `GroupCompletion` since change 7.
 - Add a stall deadline per partition, reset only when its frontier moves. Outside a rebalance, an expired deadline fails the process. A partition being drained stands down: its wait is bounded by the request timeout. Replay is at most B.
@@ -701,7 +717,7 @@ Exit criterion: `ingestion_consumer_drain_duration_seconds` stays inside the dea
 
 - Modify `KeyTableScheduler`: drop queued work per partition on the revoke marker.
 - Modify `IngestionConsumer` and `OffsetLedger`: the final commit, the refund of abandoned charge, and the stall deadline.
-- Modify `SentinelContext`: override `rebalance` so a revoke reports without unassigning, with the `closing` flag and the lost-assignment path above.
+- Modify `RebalanceContext`: override `rebalance` so a revoke reports without unassigning, with the `closing` flag and the lost-assignment path above.
 - Modify `Config`: add the drain switch, default off.
 
 **Metrics:**
@@ -738,7 +754,7 @@ The steady-state dashboard after the migration:
 - Delivery: `ingestion_lag_ms`, the `ingestion_consumer_messages_processed_total` rate, and the two sentinel violation counters, which must stay at zero.
 - Commits: `kafka_consumer_ledger_uncommitted_offsets` per partition (frontier lag, and the ring-leak detector) and the `ingestion_consumer_offset_commits_total` rate.
 - Scheduling: the key-table gauges and `ingestion_consumer_parked_retries_total`.
-- Admission: the budget gauges and `ingestion_consumer_budget_paused`.
+- Admission: `kafka_consumer_ledger_uncommitted_events` and `kafka_consumer_ledger_uncommitted_bytes` per partition, and `ingestion_consumer_budget_paused_partitions`.
 - Requests: the request-size histograms, `ingestion_consumer_transport_duration_seconds`, `ingestion_consumer_governor_permits`, `ingestion_consumer_request_rtt_seconds`, and `ingestion_consumer_request_budget_partials_total`.
 - Rebalance: `ingestion_consumer_drain_duration_seconds` and `ingestion_consumer_drain_dropped_messages_total`.
 
@@ -760,7 +776,7 @@ flowchart LR
     C6["6: adaptive concurrency"]
     C7["7: single-owner batcher"]
     C8["8: decoupled commits"]
-    C9["9: bounded replay"]
+    C9["9: bounded replay per partition"]
     C10["10: clean handoff"]
     PR(["#115388 worker side"])
 
@@ -778,7 +794,7 @@ flowchart LR
     C4 -.-> C6
     C5 -.-> C6
     C6 -.-> C7
-    C8 -.-> C9
+    C8 --> C9
     C9 -.-> C10
 ```
 
@@ -786,7 +802,7 @@ What the graph permits:
 
 - Cycles 1 and 2 start in parallel. Neither depends on the other.
 - After cycle 3, four tracks can run side by side: the request track (4, then 5, then 6), the collapse (7), decoupled commits (8, once cycle 2 is done), and the drain (10).
-- Cycle 9 hard-depends only on cycle 2. The dashed edge from cycle 8 exists because group-level completion makes the refunds fine-grained before the admission cap is removed.
+- Cycle 9 hard-depends on cycles 2 and 8. The budget and the pause are per partition, and only per-partition commits refund one partition without waiting for the others.
 - The dashed edges into cycle 6 are the tune-once argument: packing makes request sizes uniform, and the time budget caps RTT, so the governor tunes against the final distribution.
 - The dashed edge into cycle 7 saves a move: the loop takes the scheduler, packer, and governor in one transformation instead of re-homing components later.
 - The dashed edge into cycle 10 covers one detail: the drain refunds budget charge, which exists after cycle 9. Without cycle 9 the drain refunds nothing and still works.
@@ -795,3 +811,4 @@ What the graph permits:
 
 - The keyless lane: today an unkeyed message gets a synthetic per-message key and its own group. A separate keyless lane per partition can remove that overhead.
 - Partition affinity as a packing hint (open question 6). Measure frontier coupling first.
+- Recover from a ledger violation without a restart. For now a violation stops the consumer, and the restart replays from the last commit. A seek back to the partition's last commit would keep the pod running, but it needs the revoke path for one partition (purge its queued messages, strip its in-flight slices, drop its pending frontier) and the offset of its last submitted commit, which nothing tracks yet. Worth it only if violations show up in practice.

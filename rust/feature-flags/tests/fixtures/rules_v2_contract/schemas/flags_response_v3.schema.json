@@ -23,7 +23,7 @@
       "not": {
         "anyOf": [
           { "required": ["rule_type"] }, { "required": ["rule_id"] }, { "required": ["experiment_id"] },
-          { "required": ["variant_key"] }, { "required": ["holdout_id"] }
+          { "required": ["variant_key"] }
         ]
       }
     },
@@ -71,7 +71,6 @@
         "rule_id": { "type": "string", "format": "uuid" },
         "experiment_id": { "type": "integer" },
         "variant_key": { "type": "string" },
-        "holdout_id": { "type": "integer" },
         "forced_variant": { "const": true }
       }
     },
@@ -80,7 +79,10 @@
       "then": {
         "properties": {
           "reason": { "properties": { "code": { "$ref": "#/$defs/v2_reason_code" } } },
-          "metadata": { "properties": { "payload": { "type": "null" } }, "not": { "required": ["forced_variant"] } }
+          "metadata": {
+            "properties": { "payload": { "type": "null" } },
+            "not": { "anyOf": [{ "required": ["forced_variant"] }, { "required": ["experiment_id"] }] }
+          }
         },
         "allOf": [
           {
@@ -108,9 +110,8 @@
       "then": {
         "properties": {
           "metadata": {
-            "required": ["rule_type", "rule_id", "experiment_id", "variant_key"],
-            "properties": { "rule_type": { "const": "experiment" }, "config_version": { "const": 2 } },
-            "not": { "required": ["holdout_id"] }
+            "required": ["rule_type", "rule_id", "variant_key"],
+            "properties": { "rule_type": { "const": "experiment" }, "config_version": { "const": 2 } }
           }
         }
       }

@@ -66,7 +66,7 @@ class AppstackSource(ResumableSource[AppstackSourceConfig, AppstackResumeConfig]
 You can find the API key in your Appstack dashboard settings. API keys are scoped to a single app, so add one source per app.""",
             iconPath="/static/services/appstack.png",
             docsUrl="https://posthog.com/docs/cdp/sources/appstack",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

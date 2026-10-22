@@ -24,3 +24,9 @@ class CredentialsCaller(StrEnum):
     MESSAGING = "messaging"
     TASKS = "tasks"
     WEB_ANALYTICS = "web-analytics"
+    STAMPHOG = "stamphog"
+    CONVERSATIONS = "conversations"
+    SKILLS = "skills"
+    # Shared integration plumbing (OAuth connect, token refresh, account listing) that runs on
+    # behalf of many products. The call sites cannot tell which product asked, so they say so.
+    INTEGRATIONS = "integrations"

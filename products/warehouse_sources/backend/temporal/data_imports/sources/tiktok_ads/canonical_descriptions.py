@@ -25,6 +25,10 @@ _REPORT_METRIC_COLUMNS = {
     "reach": "Number of unique users who saw the ads.",
     "frequency": "Average number of times each user saw the ads.",
     "currency": "Currency the monetary metrics are reported in.",
+    "engaged_view_15s": "Number of 15-second focused video views, including qualifying engagements.",
+    "total_landing_page_view": "Number of landing page view events attributed to the ads.",
+    "cta_conversion": "Number of app install conversions attributed to clicks.",
+    "cta_purchase": "Number of in-app purchases attributed to clicks.",
 }
 
 
@@ -135,6 +139,16 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "operation_status": "Operational status of the ad (e.g. ENABLE, DISABLE).",
             "create_time": "Time at which the ad was created.",
             "modify_time": "Time at which the ad was last modified.",
+        },
+    },
+    "advertiser_report": {
+        "description": "Daily advertiser spend, including the amount charged to cash rather than vouchers.",
+        "docs_url": "https://business-api.tiktok.com/portal/docs/data-latency-for-reports/v1.3",
+        "columns": {
+            "advertiser_id": "ID of the advertiser account the metrics belong to.",
+            "stat_time_day": "Date the metrics are aggregated for.",
+            "spend": "Total amount spent in the reporting period.",
+            "cash_spend": "Amount spent that was charged to cash rather than vouchers. Available at advertiser and day granularity; reporting can be delayed.",
         },
     },
     "campaign_report": {

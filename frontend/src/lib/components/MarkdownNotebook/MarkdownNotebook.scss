@@ -1733,7 +1733,7 @@ h3.MarkdownNotebook__text-block--heading {
 }
 
 .MarkdownNotebook__component-shell--selected,
-.MarkdownNotebook__component-shell--selected * {
+.MarkdownNotebook__component-shell.MarkdownNotebook__component-shell--selected * {
     user-select: none;
 }
 

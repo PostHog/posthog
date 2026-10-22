@@ -1,6 +1,7 @@
 import logging
 import dataclasses
 from collections.abc import Callable, Iterable
+from datetime import UTC, datetime
 from functools import partial
 from typing import Any, Optional
 
@@ -14,8 +15,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     RESTAPIConfig,
     rest_api_resource,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    build_dependent_resource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     PageNumberPaginator,
+    SinglePagePaginator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
     ClientConfig,
@@ -28,14 +33,17 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.first_promoter.settings import (
     DEFAULT_PAGE_SIZE,
     FIRST_PROMOTER_ENDPOINTS,
+    REPORTS_GROUP_BY,
+    REPORTS_START_DATE,
     FirstPromoterEndpointConfig,
+    FirstPromoterReportConfig,
     base_url,
 )
 
 logger = logging.getLogger(__name__)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class FirstPromoterResumeConfig:
     page: int
 
@@ -132,6 +140,46 @@ def _drop_fields(row: dict[str, Any], fields: tuple[str, ...]) -> dict[str, Any]
     return row
 
 
+def _report_metrics(bucket: dict[str, Any]) -> dict[str, Any]:
+    return {"period": bucket.get("period"), **(bucket.get("data") or {})}
+
+
+def _report_dimension(row: dict[str, Any], dimension: str) -> dict[str, Any]:
+    value = row.get(dimension)
+    if isinstance(value, dict):
+        return {f"{dimension}_id": value.get("id"), f"{dimension}_name": value.get("name")}
+    return {dimension: value}
+
+
+def _report_row_mapper(
+    report: FirstPromoterReportConfig,
+) -> Callable[[dict[str, Any]], dict[str, Any] | list[dict[str, Any]]]:
+    """Shape report rows into one row per period, with the metrics as top-level columns.
+
+    The overview already returns one bucket per period. Grouped reports return one row per
+    dimension value, carrying whole-window totals in `data` and the per-period buckets in
+    `sub_data`; the totals are dropped since they're the sum of the buckets.
+    """
+    dimension = report.dimension
+    if dimension is None:
+        return _report_metrics
+
+    def _explode(row: dict[str, Any]) -> list[dict[str, Any]]:
+        identity = _report_dimension(row, dimension)
+        return [{**identity, **_report_metrics(bucket)} for bucket in row.get("sub_data") or []]
+
+    return _explode
+
+
+def _report_params(report: FirstPromoterReportConfig) -> dict[str, Any]:
+    return {
+        "columns[]": list(report.columns),
+        "group_by": REPORTS_GROUP_BY,
+        "start_date": REPORTS_START_DATE,
+        "end_date": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    }
+
+
 def rest_api_client_config(api_key: str, account_id: str, api_version: str) -> ClientConfig:
     return {
         "base_url": base_url(api_version),
@@ -157,6 +205,22 @@ def get_resource(
     incremental_field_name: str | None = None,
 ) -> EndpointResource:
     config = FIRST_PROMOTER_ENDPOINTS[endpoint]
+
+    if config.report is not None:
+        # Reports return the whole window in one response and document no `page` param.
+        return {
+            "name": config.name,
+            "table_name": config.name,
+            "write_disposition": "replace",
+            "endpoint": {
+                "path": config.path,
+                "params": _report_params(config.report),
+                "paginator": SinglePagePaginator(),
+                "data_selector_required": True,
+            },
+            "table_format": "delta",
+            "data_map": _report_row_mapper(config.report),
+        }
 
     endpoint_config: Endpoint = {
         "path": config.path,
@@ -193,6 +257,7 @@ def get_resource(
 def _make_source_response(
     endpoint_config: FirstPromoterEndpointConfig,
     items_fn: Callable[[], Iterable[Any]],
+    supports_resume: bool = True,
 ) -> SourceResponse:
     return SourceResponse(
         name=endpoint_config.name,
@@ -205,7 +270,42 @@ def _make_source_response(
         partition_mode="datetime" if endpoint_config.partition_key else None,
         partition_format="month" if endpoint_config.partition_key else None,
         partition_keys=[endpoint_config.partition_key] if endpoint_config.partition_key else None,
+        supports_resume=supports_resume,
     )
+
+
+def _dependent_source_response(
+    api_key: str,
+    account_id: str,
+    endpoint_config: FirstPromoterEndpointConfig,
+    team_id: int,
+    job_id: str,
+    api_version: str,
+) -> SourceResponse:
+    if endpoint_config.fanout is None:
+        raise ValueError(f"{endpoint_config.name} is not a fan-out endpoint")
+    parent_config = FIRST_PROMOTER_ENDPOINTS[endpoint_config.fanout.parent_name]
+    parent_endpoint_extra: Endpoint = {"paginator": FirstPromoterPaginator(parent_config.page_size)}
+    if parent_config.data_selector:
+        parent_endpoint_extra["data_selector"] = parent_config.data_selector
+
+    # Full refresh with no resume: the child has no server-side time filter, and the fan-out's
+    # resume state has a different shape from the page cursor the other endpoints save.
+    resource = build_dependent_resource(
+        endpoint_configs=FIRST_PROMOTER_ENDPOINTS,
+        child_endpoint=endpoint_config.name,
+        fanout=endpoint_config.fanout,
+        client_config=rest_api_client_config(api_key, account_id, api_version),
+        path_format_values={},
+        team_id=team_id,
+        job_id=job_id,
+        db_incremental_field_last_value=None,
+        # FirstPromoterPaginator sends `per_page` on the parent; the child takes no page params.
+        page_size_param=None,
+        parent_endpoint_extra=parent_endpoint_extra,
+        child_endpoint_extra={"paginator": SinglePagePaginator()},
+    )
+    return _make_source_response(endpoint_config, lambda: resource, supports_resume=False)
 
 
 def first_promoter_source(
@@ -221,6 +321,9 @@ def first_promoter_source(
     incremental_field: str | None = None,
 ) -> SourceResponse:
     endpoint_config = FIRST_PROMOTER_ENDPOINTS[endpoint]
+
+    if endpoint_config.fanout is not None:
+        return _dependent_source_response(api_key, account_id, endpoint_config, team_id, job_id, api_version)
 
     config: RESTAPIConfig = {
         "client": rest_api_client_config(api_key, account_id, api_version),

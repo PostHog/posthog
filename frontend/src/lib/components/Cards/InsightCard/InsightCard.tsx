@@ -3,7 +3,7 @@ import './InsightCard.scss'
 import { useMergeRefs } from '@floating-ui/react'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
-import React, { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { LayoutItem } from 'react-grid-layout'
 import { useInView } from 'react-intersection-observer'
 
@@ -32,7 +32,7 @@ import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { extractValidationError, extractValidationErrorCode } from '~/queries/nodes/InsightViz/utils'
 import { Query } from '~/queries/Query/Query'
 import { DashboardFilter, HogQLVariable } from '~/queries/schema/schema-general'
-import { queryVizDefinitelyRendersToCanvas, queryVizRendersToCanvas } from '~/queries/utils'
+import { queryVizDefinitelyRendersToCanvas } from '~/queries/utils'
 import {
     AccessControlLevel,
     AccessControlResourceType,
@@ -84,73 +84,6 @@ const LazyEditAlertModal = lazyWithRetry(() =>
     import('products/alerts/frontend/views/EditAlertModal').then(({ EditAlertModal }) => ({ default: EditAlertModal }))
 )
 
-const RESIZE_REDRAW_THROTTLE_MS = 33 // ~30x/sec
-
-/**
- * Throttles a canvas chart's redraws while its dashboard tile is resized, instead of repainting on every frame.
- * Pinning the inner wrapper to a fixed size means the chart's own ResizeObserver only fires when we push a new
- * size, which we do at most once per {@link RESIZE_REDRAW_THROTTLE_MS}. Unpinning on resize-stop redraws once
- * at the exact final size.
- */
-function ResizeThrottledViz({ throttled, children }: { throttled: boolean; children: React.ReactNode }): JSX.Element {
-    const outerRef = useRef<HTMLDivElement>(null)
-    const innerRef = useRef<HTMLDivElement>(null)
-
-    useLayoutEffect(() => {
-        const outer = outerRef.current
-        const inner = innerRef.current
-        if (!throttled || !outer || !inner) {
-            return
-        }
-
-        let lastPush = 0
-        let trailing: ReturnType<typeof setTimeout> | undefined
-
-        const pushSize = (): void => {
-            lastPush = performance.now()
-            const rect = outer.getBoundingClientRect()
-            inner.style.width = `${rect.width}px`
-            inner.style.height = `${rect.height}px`
-        }
-        pushSize()
-
-        const onOuterResize = (): void => {
-            const elapsed = performance.now() - lastPush
-            if (elapsed >= RESIZE_REDRAW_THROTTLE_MS) {
-                if (trailing) {
-                    clearTimeout(trailing)
-                    trailing = undefined
-                }
-                pushSize()
-            } else if (!trailing) {
-                trailing = setTimeout(() => {
-                    trailing = undefined
-                    pushSize()
-                }, RESIZE_REDRAW_THROTTLE_MS - elapsed)
-            }
-        }
-        const observer = new ResizeObserver(onOuterResize)
-        observer.observe(outer)
-
-        return () => {
-            observer.disconnect()
-            if (trailing) {
-                clearTimeout(trailing)
-            }
-            inner.style.width = ''
-            inner.style.height = ''
-        }
-    }, [throttled])
-
-    return (
-        <div ref={outerRef} className={clsx('InsightCard__viz', throttled && 'InsightCard__viz--resizing')}>
-            <div ref={innerRef} className="InsightCard__vizInner">
-                {children}
-            </div>
-        </div>
-    )
-}
-
 type AlertModalState = {
     alertId?: AlertType['id']
     defaultToAnomalyDetection?: boolean
@@ -179,8 +112,6 @@ export interface InsightCardProps extends Resizeable {
     /** Whether the editing controls should be enabled or not. */
     showEditingControls?: boolean
     refreshAfterDisplayOptionsChange?: (insight: InsightModel) => void
-    /** While this tile is being resized: throttle canvas chart redraws instead of repainting on every frame. */
-    isResizing?: boolean
     /** Whether the  controls for showing details should be enabled or not. */
     showDetailsControls?: boolean
     /** Layout of the card on a grid. */
@@ -203,6 +134,9 @@ export interface InsightCardProps extends Resizeable {
     /** Priority for loading the insight, lower is earlier. */
     loadPriority?: number
     doNotLoad?: boolean
+    keepMountedDuringInteraction?: boolean
+    renderVizWhenMounted?: boolean
+    onOverlayVisibilityChange?: (visible: boolean) => void
     /** Dashboard filters to override the ones in the insight */
     filtersOverride?: DashboardFilter
     /** Dashboard variables to override the ones in the insight */
@@ -249,7 +183,6 @@ function InsightCardInternal(
         highlighted,
         refreshAfterDisplayOptionsChange,
         showResizeHandles,
-        isResizing,
         showEditingControls,
         showDetailsControls,
         updateColor,
@@ -267,6 +200,9 @@ function InsightCardInternal(
         placement,
         loadPriority,
         doNotLoad,
+        keepMountedDuringInteraction,
+        renderVizWhenMounted,
+        onOverlayVisibilityChange,
         filtersOverride,
         variablesOverride,
         children,
@@ -284,10 +220,8 @@ function InsightCardInternal(
     }: InsightCardProps,
     ref: React.Ref<HTMLDivElement>
 ): JSX.Element | null {
-    const { ref: inViewRef, inView } = useInView({ rootMargin: '500px' })
+    const { ref: inViewRef, inView } = useInView({ rootMargin: '500px', skip: renderVizWhenMounted })
     const { isVisible: isPageVisible } = usePageVisibility()
-
-    const rendersToCanvas = queryVizRendersToCanvas(insight.query)
 
     /**
      * Hidden canvas visualizations are unmounted to release their backing stores and reduce the risk of context loss.
@@ -297,7 +231,7 @@ function InsightCardInternal(
     const shouldRenderViz = shouldRenderInsightCardViz({
         isStorybook: IS_STORYBOOK,
         placement,
-        inView,
+        inView: inView || !!keepMountedDuringInteraction || !!renderVizWhenMounted,
         isPageVisible,
         query: insight.query,
     })
@@ -369,7 +303,11 @@ function InsightCardInternal(
     }
 
     const [areDetailsShown, setAreDetailsShown] = useState(false)
+    const [compactInfoVisible, setCompactInfoVisible] = useState(false)
     const [alertModal, setAlertModal] = useState<AlertModalState | null>(null)
+    useEffect(() => {
+        onOverlayVisibilityChange?.(areDetailsShown || compactInfoVisible || alertModal !== null)
+    }, [areDetailsShown, compactInfoVisible, alertModal, onOverlayVisibilityChange])
     const openCreateAlertModal = useCallback(() => setAlertModal({}), [])
     const openEditAlertModal = useCallback((alertId: AlertType['id']) => setAlertModal({ alertId }), [])
     const openCreateAnomalyAlertModal = useCallback(() => setAlertModal({ defaultToAnomalyDetection: true }), [])
@@ -451,8 +389,7 @@ function InsightCardInternal(
         return null
     })()
 
-    // Excludes isResizing from the deps so the element stays referentially stable across resize toggles — that's
-    // what lets ResizeThrottledViz throttle the live chart instead of remounting (and reloading) it.
+    // Keep the Query element stable so grid updates do not remount the chart.
     const vizInner = useMemo(() => {
         if (BlockingEmptyState) {
             return BlockingEmptyState
@@ -473,9 +410,10 @@ function InsightCardInternal(
         )
     }, [BlockingEmptyState, insight, insightLogicProps, variablesOverride, placement])
 
-    // Only canvas viz (charts) redraw per resize frame; tables/numbers/maps are cheap DOM/SVG and stay fully live.
     const vizContent = shouldRenderViz ? (
-        <ResizeThrottledViz throttled={!!isResizing && rendersToCanvas}>{vizInner}</ResizeThrottledViz>
+        <div className="InsightCard__viz">
+            <div className="InsightCard__vizInner">{vizInner}</div>
+        </div>
     ) : (
         <InsightVisualizationSkeleton query={insight.query} />
     )
@@ -522,6 +460,7 @@ function InsightCardInternal(
                         copyToDashboard={copyToDashboard}
                         areDetailsShown={areDetailsShown}
                         setAreDetailsShown={setAreDetailsShown}
+                        onInfoVisibilityChange={setCompactInfoVisible}
                         showEditingControls={showEditingControls}
                         showDetailsControls={showDetailsControls}
                         moreButtons={moreButtons}

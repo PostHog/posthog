@@ -3,6 +3,8 @@ from uuid import UUID
 
 from posthog.test.base import APIBaseTest
 
+from parameterized import parameterized
+
 from posthog.schema import ChartDisplayType, EventsNode, IntervalType, TrendsFilter, TrendsQuery
 
 from posthog.models.scoping import team_scope
@@ -12,6 +14,7 @@ from products.alerts.backend.models.alert import AlertConfiguration, Threshold
 from products.alerts.backend.platform_alert_backfill import (
     backfill_platform_insight_alert_configurations,
     disable_platform_insight_alert_configurations,
+    follow_insight_alert,
 )
 from products.alerts_platform.backend.facade.api import list_configurations
 from products.alerts_platform.backend.facade.contracts import SourceKind
@@ -51,29 +54,35 @@ class TestPlatformInsightAlertBackfill(APIBaseTest):
             )
         return {view.legacy_configuration_id: view for view in page.configurations}
 
-    def test_only_15_minute_and_slower_threshold_alerts_are_copied_on_their_recurrence(self) -> None:
+    def test_every_alert_is_copied_on_its_recurrence(self) -> None:
+        real_time = self._alert(calculation_interval=AlertCalculationInterval.REAL_TIME.value)
         quarter_hourly = self._alert(calculation_interval=AlertCalculationInterval.EVERY_15_MINUTES.value)
         hourly = self._alert(calculation_interval=AlertCalculationInterval.HOURLY.value, schedule_start_time="09:30")
         daily = self._alert(schedule_start_time="09:30")
-        self._alert(calculation_interval=AlertCalculationInterval.REAL_TIME.value)
-        self._alert(detector_config={"type": "zscore"})
+        detector = self._alert(detector_config={"type": "zscore"})
+        ai_detector = self._alert(detector_config={"type": "llm"})
         unparseable = self._alert(schedule_start_time="25:99")
 
         counts = backfill_platform_insight_alert_configurations(team_id=self.team.id)
         again = backfill_platform_insight_alert_configurations(team_id=self.team.id)
 
-        assert (counts.created, counts.skipped, counts.failed, again.created, again.updated) == (3, 2, 1, 0, 3)
+        assert (counts.created, counts.skipped, counts.failed, again.created, again.updated) == (6, 0, 1, 0, 6)
         copies = self._copies()
         assert unparseable.id not in copies
         assert {key: (v.check_interval_minutes, v.recurrence_unit, v.anchor_time) for key, v in copies.items()} == {
+            real_time.id: (2, None, None),
             quarter_hourly.id: (15, None, None),
-            hourly.id: (60, None, None),
+            hourly.id: (60, None, "09:30"),
             daily.id: (60 * 24, "day", "09:30"),
+            detector.id: (60 * 24, "day", None),
+            ai_detector.id: (60 * 24, "day", None),
         }
         assert copies[daily.id].source_config["condition"] == {
             "threshold": THRESHOLD,
             "comparison": {"type": "absolute_value"},
+            "detector": None,
         }
+        assert copies[detector.id].source_config["condition"]["detector"] == {"type": "zscore"}
 
     def test_a_sample_copies_the_same_alerts_on_every_run_and_widening_it_only_adds(self) -> None:
         inside = self._alert(id=UUID(int=5))
@@ -103,3 +112,14 @@ class TestPlatformInsightAlertBackfill(APIBaseTest):
 
         backfill_platform_insight_alert_configurations(team_id=self.team.id)
         assert {view.enabled for view in self._copies().values()} == {True}
+
+    @parameterized.expand([("a_team_on_the_platform", True), ("a_team_off_the_platform", False)])
+    def test_a_created_or_reenabled_alert_follows_its_team_onto_the_platform(self, _name: str, running: bool) -> None:
+        if running:
+            self._alert()
+            backfill_platform_insight_alert_configurations(team_id=self.team.id)
+        created = self._alert()
+
+        follow_insight_alert(created)
+
+        assert (created.id in self._copies()) is running

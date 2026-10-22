@@ -7,6 +7,7 @@ checks that need a user or that the caller can waive (team ownership, permission
 event exists) stay with the callers.
 """
 
+from collections.abc import Collection
 from typing import Any
 
 import pydantic
@@ -27,6 +28,7 @@ from posthog.models.user import User
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.actions.backend.models.action import Action
+from products.event_definitions.backend.models import EventDefinition, effective_project_id_expr
 from products.experiments.backend.hogql_queries.base_query_utils import is_threshold_supported_math
 from products.experiments.backend.hogql_queries.funnel_validation import FunnelDWValidator
 from products.experiments.backend.hogql_queries.retention_validation import retention_metric_error
@@ -220,6 +222,30 @@ def extract_entity_nodes(metrics: list[dict] | None) -> tuple[set[str], set[int]
                     action_ids.add(int(action_id))
 
     return event_names, action_ids
+
+
+def defined_event_names(project_id: int, event_names: Collection[str], *, seen_only: bool = False) -> set[str]:
+    """The names in `event_names` that the project has an event definition for.
+
+    Ingestion writes a definition when it first sees an event, and Wizard writes one for each event it plans, so the
+    picker lists planned events before the code that sends them ships. `seen_only` leaves out a definition that
+    ingestion has not seen yet, which has no `last_seen_at`.
+
+    The scope is the project, as in the event picker: the EventDefinition list endpoint is project-scoped (see
+    posthog/api/event_definition.py), so a user in a multi-team project can pick an event ingested by a sibling team.
+    """
+    if not event_names:
+        return set()
+    # `COALESCE(project_id, team_id)` falls back to `team_id` (not the caller's team id) on purpose: legacy
+    # EventDefinitions (project_id IS NULL) belong to the *primary* team, and primary_team.id == project.id by
+    # convention. This mirrors the picker SQL in posthog/api/event_definition.py so sibling teams can validate
+    # against legacy primary-team events the picker shows.
+    definitions = EventDefinition.objects.alias(effective_project_id=effective_project_id_expr()).filter(
+        effective_project_id=project_id, name__in=event_names
+    )
+    if seen_only:
+        definitions = definitions.filter(last_seen_at__isnull=False)
+    return set(definitions.values_list("name", flat=True))
 
 
 def validate_metric_action_ids(

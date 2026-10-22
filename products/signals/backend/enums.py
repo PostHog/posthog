@@ -23,7 +23,21 @@ class ReportPriority(StrEnum):
 class ReportTaskActionKind(LabeledStrEnum):
     # A report action that starts an agent run from the API. See `report_task_actions.py`.
     GET_IT_MERGED = "get_it_merged", "Get it merged"
+    MAKE_IT_GREEN = "make_it_green", "Make it green"
     SUGGESTED_PROMPT = "suggested_prompt", "Suggested prompt"
+
+
+class ReviewerSelectionOutcome(LabeledStrEnum):
+    SELECTED = "selected", "Selected"
+    NO_SUITABLE_OWNER = "no_suitable_owner", "No suitable owner"
+    LOOKUP_FAILED = "lookup_failed", "Lookup failed"
+
+
+class ReviewerEditAction(LabeledStrEnum):
+    ADD = "add", "Add"
+    REMOVE = "remove", "Remove"
+    REPLACE = "replace", "Replace"
+    CONFIRM = "confirm", "Confirm"
 
 
 class ReportLinkKind(LabeledStrEnum):
@@ -98,6 +112,7 @@ class SignalSourceProduct(StrEnum):
     BUGSNAG = "bugsnag"
     HONEYBADGER = "honeybadger"
     RAYGUN = "raygun"
+    DATADOG = "datadog"
     # Tier-2 security scanners (record kind: scanner_finding)
     SNYK = "snyk"
     SONARQUBE = "sonarqube"
@@ -121,6 +136,80 @@ class SignalSourceProduct(StrEnum):
     ENGINEERING_ANALYTICS = "engineering_analytics"
     # Search analytics (record kind: search_opportunity)
     GOOGLE_SEARCH_CONSOLE = "google_search_console"
+    # Incident management / on-call (record kind: incident)
+    PAGERDUTY = "pagerduty"
+    OPSGENIE = "opsgenie"
+    INCIDENT_IO = "incident_io"
+    FIREHYDRANT = "firehydrant"
+    SQUADCAST = "squadcast"
+    SERVICENOW = "servicenow"
+    SOLARWINDS_SERVICE_DESK = "solarwinds_service_desk"
+    GRAFANA_IRM = "grafana_irm"
+    XMATTERS = "xmatters"
+    BETTERSTACK = "betterstack"
+    # Error tracking / monitoring
+    NEWRELIC = "newrelic"
+    TRIGGER_DEV = "trigger_dev"
+    CHECKLY = "checkly"
+    ROARK = "roark"
+    # Data quality / observability
+    MONTE_CARLO = "monte_carlo"
+    BIGEYE = "bigeye"
+    # Cloud security findings
+    AWS_SECURITY_HUB = "aws_security_hub"
+    AWS_GUARDDUTY = "aws_guardduty"
+    AWS_INSPECTOR = "aws_inspector"
+    MICROSOFT_DEFENDER_CLOUD_APPS = "microsoft_defender_cloud_apps"
+    # Issue trackers / project management
+    CLICKUP = "clickup"
+    WRIKE = "wrike"
+    TRELLO = "trello"
+    BUGHERD = "bugherd"
+    # Support / CRM cases
+    DYNAMICS365 = "dynamics365"
+    ZOHO_CRM = "zoho_crm"
+    PLANHAT = "planhat"
+    # Product feedback / reviews / community
+    TRUSTPILOT = "trustpilot"
+    OKENDO = "okendo"
+    SLEEKPLAN = "sleekplan"
+    BETTERMODE = "bettermode"
+    DISCOURSE = "discourse"
+    MINTLIFY = "mintlify"
+    LANGSMITH = "langsmith"
+    SPRIG = "sprig"
+    GAINSIGHT_PX = "gainsight_px"
+    # Tier-2 incidents
+    DYNATRACE = "dynatrace"
+    STATUSPAGE = "statuspage"
+    CRONITOR = "cronitor"
+    INSTATUS = "instatus"
+    # Tier-2 trackers
+    ASANA = "asana"
+    MONDAY = "monday"
+    PLANE = "plane"
+    AZURE_DEVOPS = "azure_devops"
+    # Tier-2 support
+    HELPSCOUT = "helpscout"
+    DECAGON = "decagon"
+    VITALLY = "vitally"
+    # Tier-2 feedback and surveys
+    USERSNAP = "usersnap"
+    TYPEFORM = "typeform"
+    QUALTRICS = "qualtrics"
+    SURVEYMONKEY = "surveymonkey"
+    FORMBRICKS = "formbricks"
+    SURVICATE = "survicate"
+    SURVEYSPARROW = "surveysparrow"
+    # Tier-2 security
+    LACEWORK = "lacework"
+    ORCA_SECURITY = "orca_security"
+    TENABLE_VULNERABILITY_MANAGEMENT = "tenable_vulnerability_management"
+    # Tier-2 errors and code review
+    GOOGLE_PLAY_CONSOLE = "google_play_console"
+    AZURE_APPLICATION_INSIGHTS = "azure_application_insights"
+    APPSIGNAL = "appsignal"
+    CURSOR = "cursor"
 
 
 class SignalSourceType(StrEnum):
@@ -149,6 +238,7 @@ class SignalSourceType(StrEnum):
     CI_DURATION_REGRESSION = "ci_duration_regression"
     SEARCH_OPPORTUNITY = "search_opportunity"
     CHECK_FAILED = "check_failed"
+    INCIDENT = "incident"
 
 
 # Plain value lists for ENUM_NAME_OVERRIDES in web.py — drf-spectacular hashes ChoiceField
@@ -190,6 +280,7 @@ SIGNAL_SOURCE_PRODUCT_LABELS: dict[SignalSourceProduct, str] = {
     SignalSourceProduct.BUGSNAG: "Bugsnag",
     SignalSourceProduct.HONEYBADGER: "Honeybadger",
     SignalSourceProduct.RAYGUN: "Raygun",
+    SignalSourceProduct.DATADOG: "Datadog",
     SignalSourceProduct.SNYK: "Snyk",
     SignalSourceProduct.SONARQUBE: "SonarQube",
     SignalSourceProduct.SEMGREP: "Semgrep",
@@ -209,6 +300,67 @@ SIGNAL_SOURCE_PRODUCT_LABELS: dict[SignalSourceProduct, str] = {
     SignalSourceProduct.HUBSPOT: "HubSpot",
     SignalSourceProduct.ENGINEERING_ANALYTICS: "Engineering analytics",
     SignalSourceProduct.GOOGLE_SEARCH_CONSOLE: "Google Search Console",
+    SignalSourceProduct.PAGERDUTY: "PagerDuty",
+    SignalSourceProduct.OPSGENIE: "Opsgenie",
+    SignalSourceProduct.INCIDENT_IO: "incident.io",
+    SignalSourceProduct.FIREHYDRANT: "FireHydrant",
+    SignalSourceProduct.SQUADCAST: "Squadcast",
+    SignalSourceProduct.SERVICENOW: "ServiceNow",
+    SignalSourceProduct.SOLARWINDS_SERVICE_DESK: "SolarWinds Service Desk",
+    SignalSourceProduct.GRAFANA_IRM: "Grafana IRM",
+    SignalSourceProduct.XMATTERS: "xMatters",
+    SignalSourceProduct.BETTERSTACK: "Better Stack",
+    SignalSourceProduct.NEWRELIC: "New Relic",
+    SignalSourceProduct.TRIGGER_DEV: "Trigger.dev",
+    SignalSourceProduct.CHECKLY: "Checkly",
+    SignalSourceProduct.ROARK: "Roark",
+    SignalSourceProduct.MONTE_CARLO: "Monte Carlo",
+    SignalSourceProduct.BIGEYE: "Bigeye",
+    SignalSourceProduct.AWS_SECURITY_HUB: "AWS Security Hub",
+    SignalSourceProduct.AWS_GUARDDUTY: "AWS GuardDuty",
+    SignalSourceProduct.AWS_INSPECTOR: "AWS Inspector",
+    SignalSourceProduct.MICROSOFT_DEFENDER_CLOUD_APPS: "Microsoft Defender for Cloud Apps",
+    SignalSourceProduct.CLICKUP: "ClickUp",
+    SignalSourceProduct.WRIKE: "Wrike",
+    SignalSourceProduct.TRELLO: "Trello",
+    SignalSourceProduct.BUGHERD: "BugHerd",
+    SignalSourceProduct.DYNAMICS365: "Dynamics 365",
+    SignalSourceProduct.ZOHO_CRM: "Zoho CRM",
+    SignalSourceProduct.PLANHAT: "Planhat",
+    SignalSourceProduct.TRUSTPILOT: "Trustpilot",
+    SignalSourceProduct.OKENDO: "Okendo",
+    SignalSourceProduct.SLEEKPLAN: "Sleekplan",
+    SignalSourceProduct.BETTERMODE: "Bettermode",
+    SignalSourceProduct.DISCOURSE: "Discourse",
+    SignalSourceProduct.MINTLIFY: "Mintlify",
+    SignalSourceProduct.LANGSMITH: "LangSmith",
+    SignalSourceProduct.SPRIG: "Sprig",
+    SignalSourceProduct.GAINSIGHT_PX: "Gainsight PX",
+    SignalSourceProduct.DYNATRACE: "Dynatrace",
+    SignalSourceProduct.STATUSPAGE: "Statuspage",
+    SignalSourceProduct.CRONITOR: "Cronitor",
+    SignalSourceProduct.INSTATUS: "Instatus",
+    SignalSourceProduct.ASANA: "Asana",
+    SignalSourceProduct.MONDAY: "monday.com",
+    SignalSourceProduct.PLANE: "Plane",
+    SignalSourceProduct.AZURE_DEVOPS: "Azure DevOps",
+    SignalSourceProduct.HELPSCOUT: "Help Scout",
+    SignalSourceProduct.DECAGON: "Decagon",
+    SignalSourceProduct.VITALLY: "Vitally",
+    SignalSourceProduct.USERSNAP: "Usersnap",
+    SignalSourceProduct.TYPEFORM: "Typeform",
+    SignalSourceProduct.QUALTRICS: "Qualtrics",
+    SignalSourceProduct.SURVEYMONKEY: "SurveyMonkey",
+    SignalSourceProduct.FORMBRICKS: "Formbricks",
+    SignalSourceProduct.SURVICATE: "Survicate",
+    SignalSourceProduct.SURVEYSPARROW: "SurveySparrow",
+    SignalSourceProduct.LACEWORK: "Lacework",
+    SignalSourceProduct.ORCA_SECURITY: "Orca Security",
+    SignalSourceProduct.TENABLE_VULNERABILITY_MANAGEMENT: "Tenable Vulnerability Management",
+    SignalSourceProduct.GOOGLE_PLAY_CONSOLE: "Google Play Console",
+    SignalSourceProduct.AZURE_APPLICATION_INSIGHTS: "Azure Application Insights",
+    SignalSourceProduct.APPSIGNAL: "AppSignal",
+    SignalSourceProduct.CURSOR: "Cursor",
 }
 
 

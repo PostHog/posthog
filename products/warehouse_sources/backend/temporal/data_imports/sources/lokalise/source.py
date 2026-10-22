@@ -70,7 +70,7 @@ class LokaliseSource(ResumableSource[LokaliseSourceConfig, LokaliseResumeConfig]
             iconPath="/static/services/lokalise.png",
             docsUrl="https://posthog.com/docs/cdp/sources/lokalise",
             caption="Create a read-only API token in your Lokalise personal profile. The source imports data from accessible projects.",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

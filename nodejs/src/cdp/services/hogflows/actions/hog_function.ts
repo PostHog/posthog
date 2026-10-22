@@ -14,6 +14,7 @@ import {
     CyclotronJobInvocationHogFunction,
     CyclotronJobInvocationResult,
     HogFlowInvocationContext,
+    MessageOptOutRecord,
     MinimalLogEntry,
 } from '../../../types'
 import { HogExecutorExecuteAsyncOptions } from '../../hog-executor-async.service'
@@ -25,6 +26,24 @@ import { HogFlowFunctionsService } from '../hogflow-functions.service'
 import { actionIdForLogging, findContinueAction } from '../hogflow-utils'
 import { observeMissingVariableReferences } from '../hogflow-variable-usage'
 import { ActionHandler, ActionHandlerOptions, ActionHandlerResult } from './action.interface'
+
+const OPT_OUT_OF_MESSAGES_TEMPLATE_ID = 'template-posthog-opt-out-of-messages'
+
+/** The run's recorded opt-outs after a step that succeeded, adding the one an "Opt out of messages" step made. */
+export function messageOptOutsAfterStep(
+    optOuts: MessageOptOutRecord[] | undefined,
+    templateId: string,
+    inputs: Record<string, unknown> | undefined
+): MessageOptOutRecord[] | undefined {
+    if (
+        templateId !== OPT_OUT_OF_MESSAGES_TEMPLATE_ID ||
+        typeof inputs?.identifier !== 'string' ||
+        typeof inputs.category_id !== 'string'
+    ) {
+        return optOuts
+    }
+    return [...(optOuts ?? []), { identifier: inputs.identifier.trim(), categoryId: inputs.category_id }]
+}
 
 type FunctionActionType = 'function' | 'function_email' | 'function_sms'
 type HogFlowActionBillingType = 'fetch' | 'email' | 'push' | 'sms'
@@ -214,6 +233,14 @@ export class HogFunctionHandler implements ActionHandler {
             }
         }
 
+        if (!functionResult.error) {
+            result.invocation.state.messageOptOuts = messageOptOutsAfterStep(
+                result.invocation.state.messageOptOuts,
+                action.config.template_id,
+                functionResult.invocation.state.globals?.inputs
+            )
+        }
+
         // Add billable_invocation metric only if the function actually executed (not skipped)
         if (!functionResult.skipped) {
             // A step that does not send leaves this undefined and bills as before.
@@ -393,7 +420,12 @@ export class HogFunctionHandler implements ActionHandler {
 
         const skipReason = await instrumentFn(
             { key: 'hogFlow.action.hogFunction.recipientPreferences', sendException: false },
-            () => this.recipientPreferencesService.shouldSkipAction(hogFunctionInvocation, action)
+            () =>
+                this.recipientPreferencesService.shouldSkipAction(
+                    hogFunctionInvocation,
+                    action,
+                    invocation.state.messageOptOuts
+                )
         )
         if (skipReason) {
             // Suppression and opt-out both short-circuit the send, but a customer reading the run

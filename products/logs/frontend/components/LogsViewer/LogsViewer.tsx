@@ -14,7 +14,7 @@ import { LogsPatterns } from 'products/logs/frontend/components/LogsPatterns/Log
 import { logsViewerConfigLogic } from 'products/logs/frontend/components/LogsViewer/config/logsViewerConfigLogic'
 import { LogsViewerFilters, LogsViewerScope } from 'products/logs/frontend/components/LogsViewer/config/types'
 import { logsViewerDataLogic } from 'products/logs/frontend/components/LogsViewer/data/logsViewerDataLogic'
-import { FacetRail } from 'products/logs/frontend/components/LogsViewer/FacetRail/FacetRail'
+import { LogsFacetRail } from 'products/logs/frontend/components/LogsViewer/FacetRail/LogsFacetRail'
 import { LogsQueryBar } from 'products/logs/frontend/components/LogsViewer/Filters/LogsFilterBar/LogsQueryBar'
 import { logsFilterHistoryLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsFilterHistoryLogic'
 import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
@@ -419,7 +419,7 @@ function LogsViewerContent({
     // Three-tier layout: query bar (ask a question) above the sparkline, the sparkline, then a
     // row of [facet rail | display bar (operate on the data) + the log lists].
     return (
-        <div className="flex flex-col gap-2 h-full" data-attr="logs-viewer">
+        <div className="@container/facet-rail-host flex flex-col gap-2 h-full" data-attr="logs-viewer">
             <LogsQueryBar
                 showSavedViewsButton={showSavedViewsButton}
                 showFullScreenButton={showFullScreenButton}
@@ -427,9 +427,9 @@ function LogsViewerContent({
                 scope={scope}
             />
             {sparklineSection}
-            <div className="flex flex-row gap-2 flex-1 min-h-0">
-                {!facetRailCollapsed && <FacetRail id={id} />}
-                <div className="flex flex-col gap-2 flex-1 min-w-0">
+            <div className="flex flex-row gap-2 flex-1 min-h-0 @max-[48rem]/facet-rail-host:flex-col">
+                {!facetRailCollapsed && <LogsFacetRail id={id} />}
+                <div className="flex flex-col gap-2 flex-1 min-w-0 min-h-0">
                     {resultsColumn(<LogsDisplayBar {...displayBarProps} showFacetRailToggle />)}
                 </div>
             </div>

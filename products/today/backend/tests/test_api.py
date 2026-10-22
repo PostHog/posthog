@@ -1,6 +1,6 @@
 import json
 from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
 import time_machine
@@ -27,13 +27,14 @@ from posthog.models.personal_api_key import hash_key_value
 from products.access_control.backend.models.access_control import AccessControl
 from products.signals.backend.facade import api as signals
 from products.signals.backend.models import SignalReport
-from products.today.backend.logic import highlights
+from products.today.backend.logic import highlights, pinned
 from products.today.backend.logic.highlight_types import Found, Source
 from products.today.backend.logic.jev import JevPick
 from products.today.backend.temporal.inputs import (
     ComputeHighlightsInputs,
     FinalizeHighlightsInputs,
     HighlightSourceInputs,
+    ResolvePinsInputs,
 )
 from products.today.backend.tests.conftest import TodayTeamScopedTestMixin
 from products.today.backend.tests.factories import AGREEING, FakeJev, SameAnswerJev, page_source
@@ -273,6 +274,9 @@ class TestTodayAPI(TodayTeamScopedTestMixin, APIBaseTest):
                 status.HTTP_403_FORBIDDEN,
             ),
             ("highlights with only today", "get", "highlights", ["today:read"], status.HTTP_403_FORBIDDEN),
+            ("pins with today read", "get", "pulse_pins", ["today:read"], status.HTTP_200_OK),
+            ("saving pins with today read", "put", "pulse_pins", ["today:read"], status.HTTP_403_FORBIDDEN),
+            ("saving pins with today write", "put", "pulse_pins", ["today:write"], status.HTTP_200_OK),
         ]
     )
     def test_a_scoped_key_reads_data_only_with_its_underlying_scope(
@@ -289,6 +293,8 @@ class TestTodayAPI(TodayTeamScopedTestMixin, APIBaseTest):
         ):
             response = getattr(self.client, method)(
                 f"/api/projects/{self.team.id}/today/{path}/",
+                {"pins": []} if method == "put" else None,
+                format="json",
                 HTTP_AUTHORIZATION=f"Bearer {raw_key}",
             )
 
@@ -348,14 +354,18 @@ def _temporal() -> MagicMock:
 
 
 class TestTodayHighlightsAPI(TodayTeamScopedTestMixin, APIBaseTest):
-    def _get(self, connect: MagicMock, flag: bool = True) -> "_MonkeyPatchedResponse":
+    def _get(self, connect: MagicMock, flag: bool = True, pulse: tuple[str, ...] = ("k1",)) -> "_MonkeyPatchedResponse":
         source = Source(
-            name="alerts", find=lambda _c: Found(items=(candidate("alert:1", "alerts", 0.8),), pulse=(metric("k1"),))
+            name="alerts",
+            find=lambda _c: Found(
+                items=(candidate("alert:1", "alerts", 0.8),), pulse=tuple(metric(key) for key in pulse)
+            ),
         )
         with (
             patch("products.today.backend.feature_flags.feature_enabled_or_false", return_value=flag),
             patch.object(highlights, "load_sources", return_value=(source,)),
             patch.object(highlights, "sync_connect", connect),
+            patch.object(pinned, "get_key_metrics", return_value=[]),
         ):
             response = self.client.get(f"/api/projects/{self.team.id}/today/highlights/")
             if response.status_code == status.HTTP_200_OK and connect.return_value.start_workflow.called:
@@ -372,9 +382,26 @@ class TestTodayHighlightsAPI(TodayTeamScopedTestMixin, APIBaseTest):
                     )
                     for name in inputs.source_names
                 ]
+                found_pins = (
+                    pinned.resolve_pins(
+                        ResolvePinsInputs(
+                            team_id=inputs.team_id,
+                            user_id=inputs.user_id,
+                            local_day=inputs.local_day,
+                            scopes=inputs.scopes,
+                            pins=inputs.pins,
+                        )
+                    ).found
+                    if inputs.pins
+                    else "[]"
+                )
                 highlights.finalize(
                     FinalizeHighlightsInputs(
-                        team_id=inputs.team_id, highlights_id=inputs.highlights_id, results=results
+                        team_id=inputs.team_id,
+                        highlights_id=inputs.highlights_id,
+                        results=results,
+                        pins=inputs.pins,
+                        pinned=found_pins,
                     )
                 )
         return response
@@ -413,3 +440,49 @@ class TestTodayHighlightsAPI(TodayTeamScopedTestMixin, APIBaseTest):
                 False,
             ),
         )
+
+    def test_pinned_numbers_lead_the_pulse_and_a_new_pin_starts_a_new_computation(self) -> None:
+        cache.clear()
+        with time_machine.travel(datetime(2026, 10, 13, 12, 0, tzinfo=UTC), tick=False) as clock:
+            self._get(_temporal(), pulse=("k1", "k2"))
+            pins = [{"key": key, "name": key} for key in ("k2", "k2", "a", "b", "c", "d")]
+            clock.shift(timedelta(seconds=1))
+            with patch("products.today.backend.feature_flags.feature_enabled_or_false", return_value=True):
+                saved = self.client.put(
+                    f"/api/projects/{self.team.id}/today/pulse_pins/", {"pins": pins}, format="json"
+                )
+                read = self.client.get(f"/api/projects/{self.team.id}/today/pulse_pins/")
+            connect = _temporal()
+            during = self._get(connect, pulse=("k1", "k2")).json()
+            after = self._get(_temporal(), pulse=("k1", "k2")).json()
+            with patch("products.today.backend.feature_flags.feature_enabled_or_false", return_value=True):
+                self.client.put(f"/api/projects/{self.team.id}/today/pulse_pins/", {"pins": []}, format="json")
+            back = _temporal()
+            self._get(back, pulse=("k1", "k2"))
+
+        self.assertEqual(
+            (
+                [pin["key"] for pin in saved.json()["pins"]],
+                read.json() == saved.json(),
+                (connect.return_value.start_workflow.called, back.return_value.start_workflow.called),
+                (during["status"], [m["key"] for m in during["pulse"]]),
+                [m["key"] for m in after["pulse"]],
+                [(pin["key"], pin["status"]) for pin in after["pins"]],
+            ),
+            (
+                ["k2", "a", "b", "c"],
+                True,
+                (True, True),
+                ("computing", ["k1", "k2"]),
+                ["k2", "k1"],
+                [("k2", "ready"), ("a", "unavailable"), ("b", "unavailable"), ("c", "unavailable")],
+            ),
+        )
+
+    def test_saving_too_many_pins_is_rejected(self) -> None:
+        pins = [{"key": f"k{index}", "name": f"k{index}"} for index in range(21)]
+
+        with patch("products.today.backend.feature_flags.feature_enabled_or_false", return_value=True):
+            response = self.client.put(f"/api/projects/{self.team.id}/today/pulse_pins/", {"pins": pins}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)

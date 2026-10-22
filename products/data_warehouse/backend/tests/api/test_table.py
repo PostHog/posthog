@@ -21,7 +21,11 @@ from products.data_warehouse.backend.presentation.views.table import (
     TableSerializer,
     resolve_created_via,
 )
-from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSource
+from products.warehouse_sources.backend.facade.models import (
+    DataWarehouseCredential,
+    DataWarehouseTable,
+    ExternalDataSource,
+)
 
 PUBLIC_IP = {ipaddress.ip_address("93.184.216.34")}
 
@@ -902,6 +906,30 @@ class TestTable(APIBaseTest):
         credential.refresh_from_db()
         assert credential.access_key == "original_key"
 
+    @parameterized.expand(
+        [
+            ("key_and_secret", {"access_key": "new_key", "access_secret": "new_secret"}),
+            ("key_only", {"access_key": "new_key"}),
+        ]
+    )
+    def test_update_credential_of_a_table_without_one_is_a_validation_error(self, _name, credential):
+        table = DataWarehouseTable.objects.create(
+            name="uploaded_table",
+            format="CSVWithNames",
+            team=self.team,
+            columns={},
+            url_pattern=f"https://warehouse.posthog.test/file_uploads/team_{self.team.pk}/abc/data.csv",
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/warehouse_tables/{table.id}", {"credential": credential}, format="json"
+        )
+
+        assert response.status_code == 400, response.json()
+        assert "no credential" in str(response.json())
+        table.refresh_from_db()
+        assert table.credential_id is None
+
     def test_update_table_credential_blank_access_secret(self):
         from products.warehouse_sources.backend.facade.models import DataWarehouseCredential
 
@@ -1113,9 +1141,13 @@ class TestTable(APIBaseTest):
         mock_s3 = MagicMock()
         mock_boto3_client.return_value = mock_s3
 
-        # Create an existing table
         existing_table = DataWarehouseTable.objects.create(
-            name="existing_table", format="CSVWithNames", team=self.team, team_id=self.team.pk, columns={}
+            name="existing_table",
+            format="CSVWithNames",
+            team=self.team,
+            team_id=self.team.pk,
+            columns={},
+            url_pattern=f"https://test-bucket.s3.amazonaws.com/managed/team_{self.team.id}/old_file.csv",
         )
 
         from django.core.files.uploadedfile import SimpleUploadedFile
@@ -1164,6 +1196,66 @@ class TestTable(APIBaseTest):
         mock_s3.upload_fileobj.assert_called_once_with(
             ANY, "test-warehouse-bucket", f"managed/team_{self.team.id}/updated_file.csv"
         )
+
+    @parameterized.expand(
+        [
+            ("no_url", "", False, False),
+            ("customer_bucket", "https://exports.example.com/orders.csv", True, False),
+            (
+                "file_upload_folder",
+                "https://test-bucket.s3.amazonaws.com/file_uploads/team_{team}/11111111-1111-1111-1111-111111111111/a.csv",
+                False,
+                False,
+            ),
+            ("another_teams_folder", "https://test-bucket.s3.amazonaws.com/managed/team_999999/a.csv", False, False),
+            ("sourced_table", "https://test-bucket.s3.amazonaws.com/managed/team_{team}/a.csv", False, True),
+            ("nested_key", "https://test-bucket.s3.amazonaws.com/managed/team_{team}/x/a.csv", False, False),
+        ]
+    )
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    @patch("boto3.client")
+    def test_file_upload_refuses_a_table_it_did_not_make(
+        self, _name, url_pattern, with_credential, with_source, mock_boto3_client, mock_feature_enabled
+    ):
+        mock_s3 = MagicMock()
+        mock_boto3_client.return_value = mock_s3
+        url_pattern = url_pattern.format(team=self.team.id)
+        existing_table = DataWarehouseTable.objects.create(
+            name="existing_table",
+            format="CSVWithNames",
+            team=self.team,
+            columns={},
+            url_pattern=url_pattern,
+            credential=(
+                DataWarehouseCredential.objects.create(team=self.team, access_key="key", access_secret="secret")
+                if with_credential
+                else None
+            ),
+            external_data_source=(
+                ExternalDataSource.objects.create(
+                    team=self.team, source_id="s", connection_id="c", status="Running", source_type="Stripe"
+                )
+                if with_source
+                else None
+            ),
+        )
+
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        with self.settings(
+            DATAWAREHOUSE_BUCKET_DOMAIN="test-bucket.s3.amazonaws.com", DATAWAREHOUSE_BUCKET="test-warehouse-bucket"
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/warehouse_tables/file/",
+                {"file": SimpleUploadedFile("new.csv", b"id\n1\n"), "name": "existing_table"},
+                format="multipart",
+            )
+
+        assert response.status_code == 400
+        assert "already exists" in response.json()["message"]
+        existing_table.refresh_from_db()
+        assert existing_table.url_pattern == url_pattern
+        mock_s3.upload_fileobj.assert_not_called()
 
     def _delete_all_from_s3(self, s3_client, bucket_name, prefix=""):
         """Helper to delete all objects in a bucket with a given prefix."""

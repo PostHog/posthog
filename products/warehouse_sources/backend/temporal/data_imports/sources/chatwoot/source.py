@@ -92,7 +92,7 @@ class ChatwootSource(
             name=ExternalDataSourceType.CHATWOOT,
             category=DataWarehouseSourceCategory.CUSTOMER_SUPPORT,
             label="Chatwoot",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Sync conversations, messages, contacts, agents, and more from Chatwoot into the PostHog Data warehouse.
 
 Copy your API access token from **Profile settings → Access token** in Chatwoot. Use an administrator's token: agent tokens only see their assigned inboxes, and only administrators can manage webhooks.

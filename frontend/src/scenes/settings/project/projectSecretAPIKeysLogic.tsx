@@ -9,6 +9,7 @@ import api from 'lib/api'
 import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import {
+    API_SCOPES,
     PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION,
     PROJECT_SECRET_API_KEY_SCOPE_PRESETS,
     ProjectSecretAPIKeyAllowedScope,
@@ -369,7 +370,10 @@ export const projectSecretAPIKeysLogic = kea<projectSecretAPIKeysLogicType>([
                 }
                 const scopes = Array.from(allowedByKey.entries()).map(([key, allowed]) => ({
                     key,
-                    label: PROJECT_SECRET_SCOPE_OBJECT_NAMES[key] ?? capitalizeFirstLetter(key.replace(/_/g, ' ')),
+                    label:
+                        PROJECT_SECRET_SCOPE_OBJECT_NAMES[key] ??
+                        API_SCOPES.find((scope) => scope.key === key)?.objectName ??
+                        capitalizeFirstLetter(key.replace(/_/g, ' ')),
                     disabledActions: allActions.filter((a) => !allowed.has(a)),
                 }))
                 return scopes.filter((scope) => scopeMatchesSearch(scope, searchTerm))

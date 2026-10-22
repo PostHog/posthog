@@ -198,12 +198,40 @@ A `function` node with `template_id: "template-posthog-replay-vision"` scans the
 - **Daily caps.** Each workflow can start 100 scans a day, and the project 500, unless the project settings change `replay_vision_scan_rate_limit_per_day` and `replay_vision_scan_team_rate_limit_per_day`. Past a cap the step returns `state: "skipped"` and the workflow continues.
 - **Access.** The token needs `session_recording:read` (or `:write`) and `replay_scanner:write`, and the user needs access to recordings and to the saved scanner. Without them, the save fails with a message that names what is missing.
 
+### Opt out of messages step
+
+A `function` node with `template_id: "template-posthog-opt-out-of-messages"` adds the run's recipient to the opt-out list for one message category, or for all marketing messages. Later email, SMS and push steps for that category skip the recipient. Use it whenever a workflow has to opt someone out. Don't build this with a `webhook` step that calls `messaging_preferences/add_opt_out/` with an API key: that call breaks when the key's owner leaves or the key rotates, and its failures only show as webhook errors.
+
+```json
+{
+  "id": "opt_out_1",
+  "name": "Opt out of product updates",
+  "type": "function",
+  "on_error": "abort",
+  "config": {
+    "template_id": "template-posthog-opt-out-of-messages",
+    "inputs": {
+      "category_id": { "value": "<message category id>" },
+      "identifier": { "value": "{person.properties.email}" }
+    }
+  }
+}
+```
+
+- **`category_id` is a literal, not a template.** Use a marketing message category's `id` (UUID), listed by `GET /api/projects/:project_id/messaging_categories/`, or `"$all"` for all marketing messages. If the user names a category you can't look up, ask them for it rather than guess. Never put `{...}` expressions in it. A save with a category the project doesn't have fails.
+- `identifier` is who to opt out. It defaults to `{person.properties.email}`. Use the same value as the recipient of the email step it should suppress, because opt-outs match the recipient exactly.
+- Only marketing categories work, because transactional messages ignore opt-outs. A save with a transactional category fails.
+- The step fails, and the workflow log says why, when `identifier` is empty or the category was deleted. It never passes silently.
+- Set `"on_error": "abort"` on the node. Without it, a failed opt-out continues to the next step, which may send the message the person asked to stop.
+- Running it again for someone who is already opted out succeeds and logs "Already opted out".
+- The step is behind the `workflow-opt-out-of-messages-action` feature flag. Without the flag, the save fails with "Template not found".
+
 ## Duration strings (`delay_duration`, `max_wait_duration`)
 
 Must match `^\d*\.?\d+[dhms]$` — a number plus unit `s` | `m` | `h` | `d`. Examples: `30s`, `30m`, `2h`, `1d`, `1.5d` (=36h).
 
 - **No ISO-8601.** Fractions are allowed in every unit.
-- Per-unit caps are **silently clamped**: `s`≤60, `m`≤60, `h`≤24, `d`≤30. Max total 30d. Use the larger unit (`90m` → use `1.5h`) to avoid surprise clamping.
+- Per-unit caps: `s`≤60, `m`≤60, `h`≤24, and `d`≤365 for `delay_duration` and `max_delay_duration` but `d`≤30 for a wait's `max_wait_duration`. A save over a cap is rejected, so use the larger unit (`90m` → `1.5h`). Workflows saved before the check may still store an over-cap value, which runs at the cap.
 
 ## Waiting until a date (`delay_until`)
 
@@ -223,7 +251,7 @@ A `delay` waits either a fixed span or until a date carried by the person or the
 - **Exactly one of `delay_duration` and `delay_until`.** Both together are rejected; so is neither.
 - `expression` is HogQL resolving to a datetime. An ISO string, a `HogDateTime`, and unix seconds all resolve to the same instant, so a stored date works whichever shape the customer set it in. A bare number is read as **seconds**: a millisecond timestamp (what `Date.now()` and most SDKs produce) is rejected rather than read as a date tens of thousands of years out. Divide it by 1000 in the expression, or store the date as an ISO string.
 - `offset` shifts that instant and is **signed**: `^-?\d*\.?\d+[dhms]$`. `-1d` is a day before the date, `2h` is two hours after. Omit it to wait for the date itself. Keep the arithmetic here rather than in the expression, so the builder can still read the step back as a property plus an offset.
-- Unlike `delay_duration`, an offset is **not** clamped per unit: `-45d` means 45 days, not 30. `max_delay_duration` bounds the wait instead.
+- Unlike `delay_duration`, an offset is **not** clamped per unit: `-48h` means 48 hours, not 24. `max_delay_duration` bounds the wait instead.
 - `timezone`, `use_person_timezone` and `fallback_timezone` work as they do on `wait_until_time_window`, and decide which zone a date **with no offset of its own** is read in (a bare `2026-03-01`, or `2026-03-01T09:00:00`). A date that states an offset, a `HogDateTime`, and unix seconds are absolute and ignore them. Default `UTC`, so a date-only value means midnight UTC unless you set a zone.
 - `max_delay_duration` caps how far past the step's start the wait may run (default `30d`, same duration rules as above). It exists so a far-future date cannot park a run indefinitely.
 - **Never send `bytecode`.** The server compiles the expression at save time and discards anything the client sent. A broken expression fails the save with the parse error.
@@ -252,7 +280,7 @@ A `delay` waits either a fixed span or until a date carried by the person or the
 - [ ] That trigger's `inputs.event` / `inputs.distinct_id` match its own type: `{request.body.*}` for `webhook`, `$workflow_triggered` + `{request.body.user_id}` for `manual`, `{request.query.ph_*}` for `tracking_pixel`. The wrong pair saves fine and then fails at trigger time.
 - [ ] Every non-exit node has an outgoing edge; `branch` edges have an `index` matching a condition.
 - [ ] Every `conditional_branch` / `wait_until_condition` condition is wrapped: `{filters: {properties: [...]}}`, not `{properties: [...]}`.
-- [ ] All durations match `^\d*\.?\d+[dhms]$` and dodge the silent per-unit clamp.
+- [ ] All durations match `^\d*\.?\d+[dhms]$` and stay within the per-unit caps.
 - [ ] Every `delay` sets exactly one of `delay_duration` and `delay_until`, and no `delay_until` carries hand-written `bytecode`.
 - [ ] Function inputs are `{key: {value: ...}}`; no hand-written `bytecode` anywhere; no top-level `trigger` field set.
 - [ ] A Replay Vision step's `analysis` value is a literal object of one of the five shapes, with no `templating`.

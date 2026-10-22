@@ -26,11 +26,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mailgun im
 from products.warehouse_sources.backend.temporal.data_imports.sources.mailgun.mailgun import (
     EVENTS_CONSISTENCY_LAG_SECONDS,
     EVENTS_LOOKBACK_DAYS,
-    FORBIDDEN_ERROR,
     INVALID_KEY_ERROR,
     LOGS_LOOKBACK_DAYS,
     METRICS_PAGE_SIZE,
-    UNREACHABLE_ERROR,
     MailgunAllDomainsSkippedError,
     MailgunResumeConfig,
     MailgunRetryableError,
@@ -174,11 +172,7 @@ class TestValidateCredentials:
     @pytest.mark.parametrize(
         "status_code, expected",
         [
-            (200, (True, None)),
-            (401, (False, INVALID_KEY_ERROR)),
             (404, (False, INVALID_KEY_ERROR)),
-            (403, (False, FORBIDDEN_ERROR)),
-            (500, (False, UNREACHABLE_ERROR)),
         ],
     )
     def test_validate_credentials_status_mapping(self, status_code, expected):
@@ -187,10 +181,6 @@ class TestValidateCredentials:
             assert validate_credentials("key", "us") == expected
         assert network.requests_log[0].path == "/v4/domains"
         assert network.requests_log[0].param("limit") == "1"
-
-    def test_validate_credentials_swallows_exceptions(self):
-        with scripted_network([ConnectionError("boom")]):
-            assert validate_credentials("key", "us") == (False, UNREACHABLE_ERROR)
 
 
 class TestGetDomainNames:

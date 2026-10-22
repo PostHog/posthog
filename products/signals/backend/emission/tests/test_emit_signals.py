@@ -128,7 +128,7 @@ class TestQueryNewRecords:
                 )
 
         query_arg = mock_parse.call_args[0][0]
-        assert "parseDateTimeBestEffort(updated_at) > {last_synced_at}" in query_arg
+        assert "parseDateTimeBestEffort(toString(updated_at)) > {last_synced_at}" in query_arg
 
     @pytest.mark.parametrize(
         "source_config,expected_ids",
@@ -231,7 +231,7 @@ class TestQueryNewRecords:
                 )
 
         query_arg = mock_parse.call_args[0][0]
-        assert "parseDateTimeBestEffort(time) > now() - interval 14 day" in query_arg
+        assert "parseDateTimeBestEffort(toString(time)) > now() - interval 14 day" in query_arg
 
     @pytest.mark.parametrize(
         "table_name,expected_chain",

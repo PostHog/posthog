@@ -40,6 +40,7 @@ from products.posthog_ai.evals.error_tracking.scorers import (
     IssueInputAlignment,
 )
 from products.posthog_ai.evals.error_tracking.seeders import seed_error_tracking_issues
+from products.posthog_ai.evals.offline_config import offline_suite
 
 
 def _drilldown_case(
@@ -121,6 +122,15 @@ async def eval_issue_drilldown(ctx: EvalContext) -> None:
 
     await SandboxedPublicEval(
         experiment_name="sandboxed-error-tracking-issue-drilldown-cli",
+        offline_suite=offline_suite(
+            "error_tracking/eval_issue_drilldown::eval_issue_drilldown",
+            metrics=[
+                "no_error_tracking_write",
+                "issue_drilldown_order",
+                "issue_id_matches_target",
+                "issue_input_alignment",
+            ],
+        ),
         cases=cases,
         scorers=[
             NoToolCall(forbidden=ERROR_TRACKING_WRITE_TOOLS, name="no_error_tracking_write"),

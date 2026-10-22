@@ -17,6 +17,7 @@ from products.signals.backend.ranking.serving_manifest import (
     SERVED_ROLE,
     ServingManifest,
     ServingManifestEntry,
+    serving_engagement_key,
     serving_project_vectors_key,
 )
 from products.signals.dags.inbox_ranking import common
@@ -24,6 +25,7 @@ from products.signals.dags.inbox_ranking.dataset import dag
 from products.signals.dags.inbox_ranking.dataset.dag import EMBEDDINGS_SCHEMA, LABELS_SCHEMA
 from products.signals.dags.inbox_ranking.dataset.project_vectors import (
     HISTORY_LIMIT,
+    LABEL_COLUMNS,
     MIN_HISTORY_REPORTS,
     PROJECT_VECTORS_SCHEMA,
     PROJECT_VECTORS_SCHEMA_VERSION,
@@ -202,3 +204,76 @@ def test_serving_reads_the_published_day_as_training_builds_it(monkeypatch: pyte
         np.testing.assert_array_equal(served.has_history[0], training.has_history[pair])
     assert training.has_history[training.index].tolist() == [[1, 1, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]]
     assert not training.vectors[training.index[2]].any()
+
+
+LOCAL_REPORT_ID = "00000000-0000-4000-8000-000000000001"
+REMOTE_REPORT_ID = "00000000-0000-4000-8000-000000000002"
+
+
+class _MirrorStorage:
+    def __init__(self, fail: bool = False) -> None:
+        self.fail = fail
+        self.writes: list[dict[str, Any]] = []
+
+    def write(self, bucket: str, key: str, content: bytes, extras: dict | None) -> None:
+        if self.fail:
+            raise RuntimeError("mirror unreachable")
+        self.writes.append({"bucket": bucket, "key": key, "content": content, "extras": extras})
+
+
+@pytest.mark.parametrize(
+    "mirror_bucket,mirror_fails",
+    [("mirror-bucket", False), ("mirror-bucket", True), ("", False)],
+    ids=["mirror_set", "mirror_down", "no_mirror"],
+)
+def test_the_engagement_export_sends_only_remote_reports_to_the_mirror(
+    monkeypatch: pytest.MonkeyPatch, mirror_bucket: str, mirror_fails: bool
+) -> None:
+    partition_key = BEFORE.date().isoformat()
+    labels = pa.Table.from_pylist(
+        [
+            {"snapshot_date": AS_OF.date(), "report_id": report_id, "first_opened_at": BEFORE, "open_count": 1}
+            for report_id in (LOCAL_REPORT_ID, REMOTE_REPORT_ID, "not-a-uuid")
+        ],
+        schema=LABELS_SCHEMA,
+    )
+    labels_key = common.partition_object_key("inbox_ranking", dag.LABELS_TABLE, partition_key)
+    mirror = _MirrorStorage(fail=mirror_fails)
+    looked_up: list[list[str]] = []
+
+    def fake_report_teams(report_ids: list[str], snapshot_end: datetime.datetime) -> dict[str, int]:
+        looked_up.append(report_ids)
+        return {LOCAL_REPORT_ID: 2}
+
+    def mirror_storage() -> _MirrorStorage:
+        assert mirror_bucket, "no mirror is set, so nothing may reach a second store"
+        return mirror
+
+    monkeypatch.setattr(dag, "skip_unconfigured", lambda context: False)
+    monkeypatch.setattr(dag, "dataset_bucket", lambda: "test-bucket")
+    monkeypatch.setattr(dag, "s3_client", lambda: None)
+    monkeypatch.setattr(
+        dag, "read_parquet", lambda client, bucket, key, columns=None: {labels_key: labels}[key].select(columns)
+    )
+    monkeypatch.setattr(dag, "_report_teams", fake_report_teams)
+    monkeypatch.setattr(dag, "serving_mirror_storage", mirror_storage)
+    monkeypatch.setattr(dag.settings, "INBOX_RANKING_DATASET_S3_PREFIX", "inbox_ranking")
+    monkeypatch.setattr(dag.settings, "INBOX_RANKING_SERVING_MIRROR_BUCKET", mirror_bucket)
+
+    dag.inbox_engagement_export(dagster.build_asset_context(partition_key=partition_key))
+
+    if not mirror_bucket or mirror_fails:
+        assert mirror.writes == []
+        return
+    assert looked_up == [[LOCAL_REPORT_ID, REMOTE_REPORT_ID]]
+    (write,) = mirror.writes
+    assert write["bucket"] == mirror_bucket
+    assert write["key"] == serving_engagement_key("inbox_ranking", partition_key)
+    # The mirror bucket is in another account, and its policy refuses a write without this ACL.
+    assert write["extras"]["ACL"] == "bucket-owner-full-control"
+    assert write["extras"]["Metadata"][common.SCHEMA_VERSION_METADATA_KEY] == str(dag.ENGAGEMENT_EXPORT_SCHEMA_VERSION)
+    exported = pq.read_table(io.BytesIO(write["content"]))
+    assert exported.column_names == list(LABEL_COLUMNS)
+    assert exported.to_pylist() == [
+        dict.fromkeys(LABEL_COLUMNS) | {"report_id": REMOTE_REPORT_ID, "first_opened_at": BEFORE}
+    ]

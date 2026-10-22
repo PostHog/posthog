@@ -1,4 +1,7 @@
-from typing import Optional, cast
+from typing import TYPE_CHECKING, Optional, cast
+
+if TYPE_CHECKING:
+    from products.cdp.backend.templates.hog_function_template import HogFunctionTemplateDC
 
 from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
@@ -15,8 +18,18 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.clerk.cler
     clerk_source,
     validate_credentials as validate_clerk_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.clerk.settings import ENDPOINTS, RETIRED_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.clerk.settings import (
+    ENDPOINTS,
+    RETIRED_ENDPOINTS,
+    WEBHOOK_SCHEMA_NAMES,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
+    FieldType,
+    ResumableSource,
+    WebhookCreationResult,
+    WebhookDeletionResult,
+    WebhookSource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
@@ -24,12 +37,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.reg
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.clerk import ClerkSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
-class ClerkSource(ResumableSource[ClerkSourceConfig, ClerkResumeConfig]):
+class ClerkSource(
+    ResumableSource[ClerkSourceConfig, ClerkResumeConfig],
+    WebhookSource[ClerkSourceConfig],
+):
     codebase_detection = detect(
         env=(
             "^CLERK_SECRET_KEY$",
@@ -151,6 +168,16 @@ class ClerkSource(ResumableSource[ClerkSourceConfig, ClerkResumeConfig]):
         return ExternalDataSourceType.CLERK
 
     @property
+    def webhook_template(self) -> Optional["HogFunctionTemplateDC"]:
+        from products.warehouse_sources.backend.temporal.data_imports.sources.clerk.webhook_template import template
+
+        return template
+
+    @property
+    def webhook_resource_map(self) -> dict[str, str]:
+        return {name: name for name in WEBHOOK_SCHEMA_NAMES}
+
+    @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=ExternalDataSourceType.CLERK,
@@ -177,6 +204,28 @@ The secret key starts with `sk_live_`.
                     ),
                 ],
             ),
+            webhookSetupCaption="""Webhook sync keeps the users, organizations, and organization memberships tables up to date. Set it up in Clerk:
+
+1. In the [Clerk Dashboard](https://dashboard.clerk.com/), go to **Configure** > **Webhooks** and select **Add Endpoint**.
+2. Paste the webhook URL shown below into **Endpoint URL**.
+3. Subscribe to the `user`, `organization`, and `organizationMembership` created and updated events.
+4. Open the endpoint, copy its **Signing Secret**, and paste it into the field below.
+
+Clerk delete events only carry the record ID, so webhook sync doesn't remove deleted records. Resync a table to remove them.
+""",
+            webhookFields=cast(
+                list[FieldType],
+                [
+                    SourceFieldInputConfig(
+                        name="signing_secret",
+                        label="Signing secret",
+                        type=SourceFieldInputConfigType.PASSWORD,
+                        required=True,
+                        placeholder="whsec_...",
+                        secret=True,
+                    )
+                ],
+            ),
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
@@ -195,12 +244,14 @@ The secret key starts with `sk_live_`.
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        # Clerk only supports full refresh - the API doesn't support filtering by updated_at
+        # The Clerk API can't filter by updated_at, so a polled sync is always a full refresh. The
+        # tables in WEBHOOK_SCHEMA_NAMES can switch to webhook sync after the initial backfill.
         schemas = [
             SourceSchema(
                 name=endpoint,
                 supports_incremental=False,
                 supports_append=False,
+                supports_webhooks=endpoint in WEBHOOK_SCHEMA_NAMES,
                 incremental_fields=[],
             )
             for endpoint in list(ENDPOINTS)
@@ -273,6 +324,23 @@ The secret key starts with `sk_live_`.
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[ClerkResumeConfig]:
         return ResumableSourceManager[ClerkResumeConfig](inputs, ClerkResumeConfig)
 
+    def get_webhook_source_manager(self, inputs: SourceInputs) -> WebhookSourceManager:
+        return WebhookSourceManager(inputs, inputs.logger)
+
+    def create_webhook(
+        self, config: ClerkSourceConfig, webhook_url: str, team_id: int, api_version: str | None = None
+    ) -> WebhookCreationResult:
+        return WebhookCreationResult(
+            success=False,
+            error="Clerk does not support automatic webhook creation. Please follow the manual setup instructions.",
+        )
+
+    def delete_webhook(
+        self, config: ClerkSourceConfig, webhook_url: str, team_id: int, api_version: str | None = None
+    ) -> WebhookDeletionResult:
+        # PostHog never creates the Clerk endpoint, so there is nothing to remove on Clerk's side.
+        return WebhookDeletionResult(success=True)
+
     def source_for_pipeline(
         self,
         config: ClerkSourceConfig,
@@ -286,4 +354,5 @@ The secret key starts with `sk_live_`.
             job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
             logger=inputs.logger,
+            webhook_source_manager=self.get_webhook_source_manager(inputs),
         )

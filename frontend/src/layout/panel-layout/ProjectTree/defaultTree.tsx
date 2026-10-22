@@ -66,6 +66,7 @@ import {
     IconSend,
     IconServer,
     IconShuffle,
+    IconSignal,
     IconSpotlight,
     IconStack,
     IconStar,
@@ -406,6 +407,9 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
     stamphog: {
         icon: <IconStamphog />,
+    },
+    uptime_monitoring: {
+        icon: <IconSignal />,
     },
     exports: {
         icon: <IconDownload />,

@@ -150,6 +150,7 @@ function ColumnHeaderTitle({
 
 export const Table = (props: TableProps): JSX.Element => {
     const { isDarkModeOn } = useValues(themeLogic)
+    const virtualized = !!props.embedded && !!props.context?.dataVisualizationTableVirtualized
 
     const {
         tabularData,
@@ -314,7 +315,8 @@ export const Table = (props: TableProps): JSX.Element => {
                             <LemonButton
                                 type="tertiary"
                                 size="xsmall"
-                                className="max-w-full !text-inherit"
+                                // The negative margin cancels the button padding, so the value lines up with the header text
+                                className="-mx-1.5 max-w-[calc(100%+0.75rem)] !text-inherit"
                                 tooltip="Explore this result"
                                 onClick={() =>
                                     props.onInspect?.(
@@ -418,6 +420,10 @@ export const Table = (props: TableProps): JSX.Element => {
                 rowClassName="DataVizRow"
                 embedded={props.embedded}
                 allowContentScroll={!!props.embedded}
+                virtualized={virtualized}
+                virtualizedColumnWidth={isTransposed && tabularColumns.length > 50 ? 192 : undefined}
+                tableLayout={virtualized ? 'fixed' : 'auto'}
+                tableStyle={virtualized ? { minWidth: `${tabularColumns.length * 12}rem` } : undefined}
             />
         </>
     )

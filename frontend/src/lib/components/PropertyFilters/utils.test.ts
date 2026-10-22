@@ -23,6 +23,7 @@ import {
     BehavioralEventType,
     BehavioralPropertyFilter,
     CohortPropertyFilter,
+    CohortType,
     ElementPropertyFilter,
     EmptyPropertyFilter,
     FilterLogicalOperator,
@@ -153,6 +154,31 @@ describe('formatPropertyLabel() for behavioral filters', () => {
         ],
     ])('%s', (_name, overrides, expected, actionsById) => {
         expect(formatPropertyLabel({ ...base, ...overrides }, {}, undefined, actionsById)).toEqual(expected)
+    })
+})
+
+describe('formatPropertyLabel() for cohort filters', () => {
+    const cohortsById = { 42: { id: 42, name: 'Known cohort' } as CohortType }
+
+    it.each<[string, Partial<CohortPropertyFilter>, string]>([
+        ['live cohort named by the flag API', { cohort_name: 'Beta testers' }, 'User in Beta testers'],
+        ['live cohort named by the cohorts model', {}, 'User in Known cohort'],
+        [
+            'deleted cohort with a name',
+            { cohort_name: 'Beta testers', cohort_deleted: true },
+            'User in Beta testers (deleted)',
+        ],
+        ['deleted cohort without a name', { value: 7, cohort_deleted: true }, 'User in Deleted cohort (ID 7)'],
+        ['missing cohort', { value: 7, cohort_deleted: true, cohort_missing: true }, 'User in Missing cohort (ID 7)'],
+    ])('formats a %s', (_, overrides, expected) => {
+        const filter: CohortPropertyFilter = {
+            key: 'id',
+            type: PropertyFilterType.Cohort,
+            operator: PropertyOperator.In,
+            value: 42,
+            ...overrides,
+        }
+        expect(formatPropertyLabel(filter, cohortsById)).toEqual(expected)
     })
 })
 

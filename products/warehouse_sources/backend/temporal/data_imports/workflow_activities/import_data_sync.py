@@ -37,6 +37,7 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     UnsupportedSyncTypeError,
     apply_incremental_lookback,
     get_schema_if_exists,
+    prefix_promotion_rows_synced,
     process_incremental_value,
     resolve_sync_type,
     staged_handoff_resume_point,
@@ -513,6 +514,7 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
         processed_incremental_earliest_value = None
         # The cursor as stored, before the lookback shift below moves it back.
         incremental_last_value_before_lookback = None
+        kept_rows_synced: int | None = None
 
         # A pending corrupt-delta revive rebuilds this table inside this run: handle_corrupted_delta_log
         # resets the Delta table before extraction, so the loader overwrites it from batch 0. The
@@ -524,6 +526,8 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
 
         use_stored_cursors = reset_pipeline is not True and not delta_rebuild_pending
         if use_stored_cursors:
+            # Read from the same config as the watermark, so the count matches the rows this attempt skips.
+            kept_rows_synced = prefix_promotion_rows_synced(schema.sync_type_config, str(model.id))
             processed_incremental_last_value = process_incremental_value(
                 schema.sync_type_config.get("incremental_field_last_value"),
                 schema.sync_type_config.get("incremental_field_type"),
@@ -773,6 +777,7 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
                 resumed_incremental_run_uuid=resumed_incremental_run_uuid,
                 resumed_incremental_value=resumed_incremental_value,
                 preemption=preemption,
+                kept_rows_synced=kept_rows_synced,
             )
         else:
             raise ValueError(f"Source type {model.pipeline.source_type} not supported")
@@ -1149,6 +1154,7 @@ async def _run(
     resumed_incremental_value: Any = None,
     preemption: PreemptionConfig | None = None,
     on_resumable_retry_budget: bool = False,
+    kept_rows_synced: int | None = None,
 ) -> PipelineResult:
     try:
         reset_pipeline = (
@@ -1169,6 +1175,7 @@ async def _run(
             resumed_incremental_run_uuid=resumed_incremental_run_uuid,
             resumed_incremental_value=resumed_incremental_value,
             preemption=preemption,
+            kept_rows_synced=kept_rows_synced,
         )
 
         result = await pipeline.run()

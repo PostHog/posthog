@@ -2081,6 +2081,57 @@ export const ScannerEditorGoalOverviewExperiment: StoryObj = {
     ],
 }
 
+// A filter with many values renders as one long snack, which must wrap inside the card rather than
+// push it past the edge of the page.
+export const ScannerEditorGoalOverviewLongFilters: StoryObj = {
+    parameters: {
+        pageUrl: urls.replayVisionScannerOverview('new'),
+    },
+    decorators: [
+        (StoryFn) => {
+            const logic = replayScannerLogic({ id: 'new' })
+            logic.mount()
+            const draft: DraftScannerResponseApi = {
+                ...goalDraft,
+                name: 'Sign-in friction monitor',
+                description: 'Flags sessions where a user struggles to sign in.',
+                query: {
+                    kind: 'RecordingsQuery',
+                    properties: [
+                        {
+                            type: 'event',
+                            key: '$screen_name',
+                            value: [
+                                '/sign-in',
+                                '/sign-in/verify-code',
+                                '/sign-in/magic-link',
+                                '/account/security',
+                                '/account/two-factor-setup',
+                                '/password/forgot',
+                                '/password/reset',
+                                '/sign-up/more-details',
+                            ],
+                            operator: 'exact',
+                        },
+                    ],
+                    events: [{ id: 'user_signed_in', name: 'user_signed_in', type: 'events', order: 0 }],
+                } as RecordingsQuery,
+            }
+            logic.actions.draftScannerFromGoalSuccess(draft)
+            logic.actions.setScannerValues({
+                name: draft.name,
+                description: draft.description,
+                scanner_type: draft.scanner_type as ScannerType,
+                scanner_config: draft.scanner_config as ScannerConfig,
+                query: draft.query as RecordingsQuery,
+                sampling_mode: draft.sampling_mode as SamplingMode,
+                sampling_rate: draft.sampling_rate ?? 1,
+            })
+            return <StoryFn />
+        },
+    ],
+}
+
 // The overview while the draft is still generating: the loading bar and skeleton the user sees
 // right after submitting the two questions.
 export const ScannerEditorGoalOverviewLoading: StoryObj = {

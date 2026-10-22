@@ -5,9 +5,19 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFindingSeverity,
 )
 from products.experiments.backend.health.context import HealthContext
+from products.experiments.backend.health.skips import RUNS_AFTER_LAUNCH, CheckSkip, not_applicable
 
 # A new experiment often has no exposure in its first hours, so the finding waits as long as the experiments scout does.
 ZERO_EXPOSURES_GRACE_HOURS = 24
+
+
+def zero_exposures_skip(ctx: HealthContext) -> CheckSkip | None:
+    exposures = ctx.exposures
+    if exposures is None or exposures.hours_since_launch is None or not ctx.is_launched:
+        return not_applicable(RUNS_AFTER_LAUNCH)
+    if exposures.hours_since_launch < ZERO_EXPOSURES_GRACE_HOURS:
+        return not_applicable(f"Runs {ZERO_EXPOSURES_GRACE_HOURS} hours after launch")
+    return None
 
 
 def zero_exposures(ctx: HealthContext) -> ExperimentHealthFinding | None:

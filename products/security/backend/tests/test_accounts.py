@@ -1,4 +1,8 @@
+from typing import get_args
+
 from posthog.test.base import BaseTest
+
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
@@ -6,12 +10,19 @@ from posthog.models import Organization, OrganizationMembership, User
 
 from products.security.backend.logic.accounts import (
     COUNT_CAP,
+    CountableType,
     count_active_accounts,
     count_active_org_members,
     email_for_user,
     has_posthog_account,
     resolve_subject,
 )
+from products.security.backend.presentation.serializers import CountableTargetType
+
+
+class TestCountableTargetTypes(SimpleTestCase):
+    def test_serializer_accepts_every_countable_type(self) -> None:
+        assert set(CountableTargetType.values) == set(get_args(CountableType))
 
 
 class TestAccounts(BaseTest):
@@ -47,6 +58,9 @@ class TestAccounts(BaseTest):
         assert count_active_accounts("email", "farmbot@example.com").count == 1
         assert count_active_accounts("email_domain", "throwaway.example").count == 1
         assert count_active_accounts("email_root", "dot@gmail.com").count == 1
+        assert count_active_accounts("email_pattern", "farm.bot+*@example.com").count == 1
+        assert count_active_accounts("email_pattern", "far.*@*").count == 0
+        assert count_active_accounts("email_pattern", "*@*").count == 0
 
     def test_counts_are_capped(self) -> None:
         User.objects.bulk_create(

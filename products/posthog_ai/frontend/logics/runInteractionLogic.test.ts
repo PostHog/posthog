@@ -1,4 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { ApiError } from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
@@ -17,6 +18,7 @@ import {
 import { TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
 import type { PermissionRequestRecord } from '../types/streamTypes'
+import type { StoredLogEntry } from '../types/wireTypes'
 import { uploadRunAttachments, uploadStagedTaskAttachments } from '../utils/artifactUpload'
 import { contextItemLine } from '../utils/posthogContextBlock'
 import { attachedContextLogic } from './attachedContextLogic'
@@ -64,7 +66,7 @@ jest.mock('./runStreamLogic', () => {
             clearPermissionRequest: true,
             reset: true,
             appendEntries: true,
-            ingestAcpFrame: true,
+            ingestAcpFrame: (entry: unknown, source: string = 'live') => ({ entry, source }),
             closeSse: true,
             bootstrapRun: true,
         }),
@@ -1074,6 +1076,42 @@ describe('runInteractionLogic', () => {
         )
         expect(logic.values.queuedMessages).toEqual([])
         expect(logic.values.queueHeld).toBe(false)
+    })
+
+    it.each([
+        ['steer', 'steer'],
+        ['stop', 'user_stop'],
+        ['failed stop then steer', 'steer'],
+        ['failed steer', 'unknown'],
+        ['nothing', 'unknown'],
+    ])('reports what came before a cancelled turn: %s', async (trigger, cause) => {
+        const capture = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)
+        setThinking(true)
+        if (trigger.includes('stop')) {
+            logic.actions.requestCancellation()
+        }
+        if (trigger.startsWith('failed stop')) {
+            runCancellationLogic({ streamKey: RUN_ID }).actions.cancellationFailed()
+        }
+        if (trigger === 'failed steer') {
+            ;(tasksRunsCommandCreate as jest.Mock).mockRejectedValueOnce(new Error('Connection lost'))
+        }
+        if (trigger.includes('steer')) {
+            logic.actions.enqueueMessage('change course')
+            await expectLogic(logic, () => logic.actions.steerQueue()).toFinishAllListeners()
+        }
+        const turnComplete = (stopReason: string): StoredLogEntry => ({
+            type: 'notification',
+            notification: { method: '_posthog/turn_complete', params: { stopReason } },
+        })
+
+        stream.actions.ingestAcpFrame(turnComplete('cancelled'))
+        stream.actions.ingestAcpFrame(turnComplete('cancelled'))
+
+        const causes = capture.mock.calls
+            .filter(([event]) => event === 'task_run_turn_cancelled')
+            .map(([, properties]) => properties?.cause)
+        expect(causes).toEqual([cause, 'unknown'])
     })
 
     it('holds an unconfirmed send as its own rows until the user asks for it again', async () => {

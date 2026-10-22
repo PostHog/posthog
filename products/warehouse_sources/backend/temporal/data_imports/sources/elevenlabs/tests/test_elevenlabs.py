@@ -380,11 +380,12 @@ class TestValidateCredentials:
             assert validate_credentials("k", schema_name) == (True, None)
         assert [request.url for request in network.requests_log] == [expected_url]
 
-    def test_network_error_is_not_valid(self) -> None:
-        with scripted_network(always(requests.ConnectionError("boom"))):
+    @parameterized.expand([("unauthorized", 401), ("bad_request", 400)])
+    def test_rejected_key_message_is_actionable(self, _name: str, status: int) -> None:
+        with scripted_network([ScriptedResponse(status=status)]):
             ok, msg = validate_credentials("k")
         assert ok is False
-        assert msg is not None
+        assert "Create a new key in your ElevenLabs account settings" in (msg or "")
 
     def test_session_does_not_follow_redirects(self) -> None:
         # requests keeps the custom xi-api-key header across a cross-origin 3xx; following one would

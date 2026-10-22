@@ -625,7 +625,7 @@ jobs:
               id: setup-uv
               uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
               with:
-                  version: '0.12.13'
+                  version: '0.13.4'
                   enable-cache: true
                   cache-dependency-glob: uv.lock
                   save-cache: ${{ github.ref == 'refs/heads/master' }}
@@ -633,8 +633,11 @@ jobs:
             - name: Determine if hogql-parser has changed compared to master
               shell: bash
               id: hogql-parser-diff
+              env:
+                  GH_TOKEN: ${{ github.token }}
               run: |
-                  git fetch --no-tags --prune --depth=1 origin master
+                  git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')" \
+                      fetch --no-tags --prune --depth=1 origin master
                   changed=$(git diff --quiet HEAD origin/master -- common/hogql_parser/ && echo "false" || echo "true")
                   echo "changed=$changed" >> $GITHUB_OUTPUT
 
@@ -997,7 +1000,7 @@ jobs:
             # workspace root here, so this is a separate entry. No restore-keys.
             - name: Restore VR CLI build
               id: restore-vr-cli
-              if: always() && (github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push')
+              if: always() && (github.repository != 'PostHog/posthog' || github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push')
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: |
@@ -1009,7 +1012,7 @@ jobs:
             # in ci-storybook.yml.
             - name: Build VR CLI
               id: build-vr-cli
-              if: always() && (github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push') && steps.restore-vr-cli.outputs.cache-hit != 'true'
+              if: always() && (github.repository != 'PostHog/posthog' || github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push') && steps.restore-vr-cli.outputs.cache-hit != 'true'
               timeout-minutes: 8
               shell: bash
               working-directory: products/visual_review/cli
@@ -1024,7 +1027,7 @@ jobs:
             - name: Save VR CLI build
               # Master only, because the key is immutable once written. vr-complete reads
               # this entry, so it runs on the same runner provider.
-              if: github.ref == 'refs/heads/master' && steps.restore-vr-cli.outputs.cache-hit != 'true'
+              if: github.repository == 'PostHog/posthog' && github.ref == 'refs/heads/master' && steps.restore-vr-cli.outputs.cache-hit != 'true'
               uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: |
@@ -1036,7 +1039,7 @@ jobs:
             # missing module. A skipped build (cache hit) is not a failure.
             - name: Create VR run
               id: vr-create
-              if: always() && steps.build-vr-cli.outcome != 'failure' && (github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push')
+              if: always() && steps.build-vr-cli.outcome != 'failure' && github.repository == 'PostHog/posthog' && (github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push')
               env:
                   VR_TOKEN: ${{ secrets.VR_API_TOKEN }}
                   VR_BRANCH: ${{ github.event.pull_request.head.ref || github.ref_name }}
@@ -1075,6 +1078,34 @@ jobs:
                     --dir playwright/__snapshots__/ \
                     --baseline playwright/snapshots.yml \
                     --token "$VR_TOKEN"
+
+            - name: Verify snapshots against the baseline offline
+              if: ${{ !cancelled() && github.repository != 'PostHog/posthog' }}
+              shell: bash
+              run: |
+                  set +e
+                  node products/visual_review/cli/dist/cli/src/index.js verify --partial \
+                    --dir playwright/__snapshots__/ \
+                    --baseline playwright/snapshots.yml > /tmp/vr-verify.log 2>&1
+                  status=$?
+                  set -e
+                  cat /tmp/vr-verify.log
+                  {
+                      echo "### Offline snapshot check"
+                      echo
+                      echo "This run has no Visual Review run, so it compares its screenshots with \`playwright/snapshots.yml\` offline."
+                      echo "This fallback accepts only an exact pixel match. It does not know the tolerated hashes or the quarantine of Visual Review, so a flaky snapshot can also fail it."
+                      echo
+                      echo '```'
+                      cat /tmp/vr-verify.log
+                      echo '```'
+                  } >> "$GITHUB_STEP_SUMMARY"
+                  if [ "$status" -ne 0 ] && grep -q 'Baseline mismatch' /tmp/vr-verify.log; then
+                      echo "::error title=Snapshots differ from the baseline::These screenshots do not match playwright/snapshots.yml. This run has no Visual Review run, so this offline fallback accepts only an exact pixel match. Update the baseline after reviewing the change. The job log lists the snapshots that differ."
+                  elif [ "$status" -ne 0 ]; then
+                      echo "::error title=Offline snapshot check failed::The offline snapshot check could not compare the screenshots. The job log shows the error."
+                  fi
+                  exit "$status"
 
             # ── Artifacts on failure / always ─────────────────────────────────────
             - name: Capture docker logs

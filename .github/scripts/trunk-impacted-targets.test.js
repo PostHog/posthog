@@ -530,6 +530,8 @@ test('the paths-filter action and its CI share the ci-tooling lane', () => {
     for (const file of [
         '.github/actions/paths-filter/src/filter.ts',
         '.github/actions/paths-filter/dist/index.js',
+        '.github/actions/shared-image-releases/src/inspect.ts',
+        '.github/actions/shared-image-releases/dist/index.js',
         '.github/workflows/ci-paths-filter.yml',
         '.depot/actions/paths-filter/src/filter.ts',
     ]) {

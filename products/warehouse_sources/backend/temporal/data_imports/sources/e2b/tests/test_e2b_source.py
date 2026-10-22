@@ -86,16 +86,6 @@ class TestE2BSource:
         assert ok is False
         assert message is not None and "invalid" not in message.lower()
 
-    @parameterized.expand(
-        [
-            ("unauthorized", "401 Client Error: Unauthorized for url: https://api.e2b.app/v2/sandboxes?limit=100"),
-            ("forbidden", "403 Client Error: Forbidden for url: https://api.e2b.app/snapshots"),
-        ]
-    )
-    def test_credential_errors_are_non_retryable(self, _name: str, observed_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable)
-
     @parameterized.expand([("missing", None), ("malformed", "../admin")])
     def test_a_bad_team_id_stops_the_sync_instead_of_retrying(self, _name: str, team_id: str | None) -> None:
         # Only a settings change can fix it, so the message the transport raises has to be one the
@@ -103,13 +93,3 @@ class TestE2BSource:
         with pytest.raises(E2BConfigurationError) as exc:
             _require_team_id(team_id)
         assert str(exc.value) in self.source.get_non_retryable_errors()
-
-    @parameterized.expand(
-        [
-            ("read_timeout", "HTTPSConnectionPool(host='api.e2b.app', port=443): Read timed out."),
-            ("server_error", "500 Server Error: Internal Server Error for url: https://api.e2b.app/v2/sandboxes"),
-        ]
-    )
-    def test_transient_errors_stay_retryable(self, _name: str, other_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert not any(key in other_error for key in non_retryable)

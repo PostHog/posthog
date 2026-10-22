@@ -44,7 +44,7 @@ from .models import SafetyVerdict
 
 logger = structlog.get_logger(__name__)
 
-GEMINI_MODEL = "models/gemini-3-flash-preview"
+GEMINI_MODEL = "models/gemini-3.5-flash-lite"
 LLM_CONCURRENCY_LIMIT = 10
 LLM_MAX_ATTEMPTS = 3
 LLM_CALL_TIMEOUT_SECONDS = 60
@@ -176,6 +176,8 @@ async def _classify_window(
                     config=types.GenerateContentConfig(
                         system_instruction=_SAFETY_SYSTEM_INSTRUCTION,
                         max_output_tokens=256,
+                        # thinking_budget=0 is a 400 on this model. MINIMAL is the floor it accepts.
+                        thinking_config=types.ThinkingConfig(thinking_level=types.ThinkingLevel.MINIMAL),
                     ),
                     posthog_distinct_id=team_distinct_id(doc.team_id),
                     posthog_trace_id=str(doc.document_id),

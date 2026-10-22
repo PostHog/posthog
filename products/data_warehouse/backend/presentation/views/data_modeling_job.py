@@ -6,11 +6,8 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.ph_client import feature_enabled_or_false
 
 from products.data_modeling.backend.facade.models import DataModelingJob, DataModelingJobEngine
-
-MANAGED_WAREHOUSE_SHADOW_FLAG = "managed-warehouse-data-modeling-shadow"
 
 
 class DataModelingJobSerializer(serializers.ModelSerializer):
@@ -74,30 +71,11 @@ class DataModelingJobViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewS
     ordering_fields = ["created_at"]
     ordering = "-created_at"
 
-    def _is_managed_warehouse_shadow_enabled(self) -> bool:
-        try:
-            return feature_enabled_or_false(
-                MANAGED_WAREHOUSE_SHADOW_FLAG,
-                str(self.team.pk),
-                groups={
-                    "organization": str(self.team.organization_id),
-                    "project": str(self.team.id),
-                },
-                group_properties={
-                    "organization": {"id": str(self.team.organization_id)},
-                    "project": {"id": str(self.team.id)},
-                },
-                only_evaluate_locally=True,
-                send_feature_flag_events=False,
-            )
-        except Exception:
-            return False
-
     def safely_get_queryset(self, queryset):
-        qs = queryset.filter(team_id=self.team_id)
-        if not self._is_managed_warehouse_shadow_enabled():
-            qs = qs.filter(engine=DataModelingJobEngine.CLICKHOUSE)
-        return qs.order_by("-created_at")
+        return queryset.filter(
+            team_id=self.team_id,
+            engine=DataModelingJobEngine.CLICKHOUSE,
+        ).order_by("-created_at")
 
     @action(methods=["GET"], detail=False)
     def running(self, request, *args, **kwargs):

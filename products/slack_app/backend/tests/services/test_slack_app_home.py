@@ -473,6 +473,7 @@ class TestRenderHomeView:
             ),
             stats_state=StatsState(tasks_started=4, tasks_with_pr=2, tasks_merged=1, active_people=2),
             untagged_followup_mode=UntaggedFollowupMode.AUTO,
+            untagged_question_mode=UntaggedFollowupMode.ASK,
             channel_welcome_mode=ChannelWelcomeMode.CHANNEL,
             auto_model_choice=auto_model_choice,
         )
@@ -1377,8 +1378,12 @@ class TestResetPersonal:
 class TestResetProjectPersonal:
     @pytest.mark.parametrize(
         "other_settings",
-        [{"untagged_followup_mode": UntaggedFollowupMode.AUTO}, {"auto_model_choice": True}],
-        ids=["followup_mode", "auto_model_choice"],
+        [
+            {"untagged_followup_mode": UntaggedFollowupMode.AUTO},
+            {"untagged_question_mode": UntaggedFollowupMode.NEVER},
+            {"auto_model_choice": True},
+        ],
+        ids=["followup_mode", "question_mode", "auto_model_choice"],
     )
     def test_clears_routing_only_when_other_settings_present(
         self, slack_integration, mock_slack_client, flag_on, admin_user, other_settings

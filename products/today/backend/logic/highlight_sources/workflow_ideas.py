@@ -10,7 +10,7 @@ IDEAS_DETAIL = "Pick one to build it as a draft workflow"
 
 
 def find(context: Context) -> Found:
-    count = count_waiting_data_suggestions(team=context.team, user=context.user)
+    count = count_waiting_data_suggestions(team=context.team)
     if not count:
         return Found()
     return Found(

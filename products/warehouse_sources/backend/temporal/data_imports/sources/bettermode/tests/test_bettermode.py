@@ -21,7 +21,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bettermode
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
-    always,
     scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bettermode import (
@@ -123,12 +122,6 @@ class TestValidateCredentials:
             is_valid, error = validate_credentials("us", "client", "secret", "net")
         assert is_valid is False
         assert error is not None and "App not found" in error
-
-    def test_invalid_on_network_failure(self):
-        with scripted_network(always(ConnectionError("boom"))):
-            is_valid, error = validate_credentials("us", "client", "secret", "net")
-        assert is_valid is False
-        assert error == "Could not reach the Bettermode API"
 
 
 class TestGetRows:

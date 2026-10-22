@@ -55,7 +55,7 @@ class WhoGhoSource(ResumableSource[WhoGhoSourceConfig, WhoGhoResumeConfig]):
             name=ExternalDataSourceType.WHOGHO,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="World Health Organization Global Health Observatory (GHO)",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             keywords=["who", "health", "gho", "indicators"],
             caption="""Pull public health statistics from the [WHO Global Health Observatory](https://www.who.int/data/gho) into the PostHog Data warehouse.
 

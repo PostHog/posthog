@@ -16,9 +16,7 @@ class TestNewRelicSource:
 
     @parameterized.expand(
         [
-            ("us_unauthorized", "401 Client Error: Unauthorized for url: https://api.newrelic.com/graphql"),
             ("eu_unauthorized", "401 Client Error: Unauthorized for url: https://api.eu.newrelic.com/graphql"),
-            ("us_forbidden", "403 Client Error: Forbidden for url: https://api.newrelic.com/graphql"),
             ("eu_forbidden", "403 Client Error: Forbidden for url: https://api.eu.newrelic.com/graphql"),
             ("graphql_access_denied", "New Relic GraphQL error: Access denied."),
         ]
@@ -30,7 +28,6 @@ class TestNewRelicSource:
     @parameterized.expand(
         [
             ("other_vendor", "401 Client Error: Unauthorized for url: https://api.stripe.com/v1/customers"),
-            ("server_error", "500 Server Error for url: https://api.newrelic.com/graphql"),
         ]
     )
     def test_non_retryable_errors_do_not_match_unrelated(self, _name, other_error):

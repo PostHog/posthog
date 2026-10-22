@@ -13,6 +13,7 @@ from products.data_modeling.backend.models.dag import DAG, DEFAULT_DAG_NAME
 from products.data_modeling.backend.models.data_modeling_job import (
     DataModelingJob,
     DataModelingJobEngine,
+    DataModelingJobRunMode,
     DataModelingJobStatus,
 )
 from products.data_modeling.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
@@ -37,6 +38,7 @@ __all__ = [
     "SAVED_QUERY_NODE_TYPES",
     "DataModelingJob",
     "DataModelingJobEngine",
+    "DataModelingJobRunMode",
     "DataModelingJobStatus",
     "DataWarehouseManagedViewSet",
     "DataWarehouseSavedQuery",

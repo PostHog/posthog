@@ -7,7 +7,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{bail, Context, Result};
 use health::HealthHandle;
-use personhog_common::cdc_parity::{DecodeError, DistinctIdRow, MergeEvent};
+use personhog_common::cdc_parity::{DecodeError, DistinctIdRow, MergeEvent, PersonRow};
 use rdkafka::consumer::{Consumer, StreamConsumer};
 use rdkafka::error::KafkaError;
 use rdkafka::message::BorrowedMessage;
@@ -38,6 +38,10 @@ impl TopicReader {
         let name = match kind {
             Kind::DistinctIds => feed.distinct_id_topic.clone(),
             Kind::MergeEvents => feed.merge_events_topic.clone(),
+            Kind::Persons => feed
+                .person_topic
+                .clone()
+                .context("a person reader without a person topic")?,
         };
         let topic = Topic {
             side: feed.side,
@@ -220,6 +224,7 @@ impl TopicReader {
         match self.topic.kind {
             Kind::DistinctIds => DistinctIdRow::decode(payload).map(Record::Mapping),
             Kind::MergeEvents => MergeEvent::decode(message.key(), payload).map(Record::Merge),
+            Kind::Persons => PersonRow::decode(payload).map(Record::Person),
         }
     }
 }

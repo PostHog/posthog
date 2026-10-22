@@ -22,14 +22,6 @@ const questionSchema = z.object({
     .optional(),
 });
 
-export function readOriginProduct(): string | undefined {
-  return (
-    process.env.POSTHOG_CODE_INTERACTION_ORIGIN ??
-    process.env.CODE_INTERACTION_ORIGIN ??
-    process.env.TWIG_INTERACTION_ORIGIN
-  );
-}
-
 export async function openProductSession(
   selectProduct: ProductSelector | undefined,
   launch: ProductLaunchConfiguration,

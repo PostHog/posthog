@@ -21,8 +21,10 @@ from products.wizard.backend.facade.contracts import (
     CreateWizardRunInput,
     ListWizardRunsInput,
     RecordWizardScanInput,
+    StartWizardInstallInput,
     UpdateWizardRunTaskInput,
     UpsertWizardSessionInput,
+    WizardInstallStatusDTO,
     WizardProgram,
     WizardRunArtifactDTO,
     WizardRunCreationResult,
@@ -43,6 +45,7 @@ from products.wizard.backend.logic import (
     sessions,
 )
 from products.wizard.backend.logic.artifacts import service as artifacts
+from products.wizard.backend.logic.installs import service as installs
 from products.wizard.backend.logic.runs import pubsub as run_pubsub
 from products.wizard.backend.logic.sessions import pubsub
 from products.wizard.backend.tool_catalog.catalog import tool_catalog_json
@@ -133,6 +136,17 @@ def get_run(team_id: int, run_id: UUID) -> WizardRunDTO:
     return run_service.get_run(team_id, run_id)
 
 
+def start_install(params: StartWizardInstallInput) -> WizardRunCreationResult:
+    """
+    Starts the PostHog setup program in the cloud on a GitHub repository of the project.
+    """
+    return installs.start_install(params)
+
+
+def get_install_status(team_id: int, run_id: UUID) -> WizardInstallStatusDTO:
+    return installs.get_install_status(team_id, run_id)
+
+
 @asynccontextmanager
 async def subscribe_to_run_updates(team_id: int, run_id: UUID) -> AsyncIterator[PubSub]:
     async with run_pubsub.subscribe(team_id, run_id) as subscription:
@@ -197,6 +211,10 @@ def get_git_diff_artifact_content(team_id: int, run_id: UUID, artifact_id: UUID)
 
 def validate_git_repository(repository: str) -> None:
     run_service.validate_git_repository_name(repository)
+
+
+def validate_git_branch(branch: str) -> None:
+    run_service.validate_git_branch_name(branch)
 
 
 def validate_wizard_version(wizard_version: object) -> str:

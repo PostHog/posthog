@@ -44,7 +44,7 @@ class PlainEndpointConfig:
     partition_mode: PartitionMode | None = "datetime"
     partition_format: PartitionFormat | None = "week"
     partition_keys: list[str] | None = field(default_factory=lambda: [CREATED_AT])
-    sort_mode: SortMode = "asc"
+    sort_mode: SortMode | None = None
 
 
 PLAIN_ENDPOINTS: dict[str, PlainEndpointConfig] = {

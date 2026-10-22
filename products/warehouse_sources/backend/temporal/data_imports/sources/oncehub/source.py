@@ -50,7 +50,7 @@ class OncehubSource(ResumableSource[OncehubSourceConfig, OncehubResumeConfig]):
             name=ExternalDataSourceType.ONCEHUB,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="OnceHub",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             keywords=["scheduleonce", "scheduling", "booking"],
             caption="""Enter your OnceHub API key to pull your scheduling and booking data into the PostHog Data warehouse.
 

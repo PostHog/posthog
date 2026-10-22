@@ -4,7 +4,7 @@ from django.utils import timezone
 
 from posthog.models.team.team import Team
 
-from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
+from products.data_modeling.backend.facade.models import DataModelingJob, DataModelingJobEngine, DataWarehouseSavedQuery
 
 
 class TestDataModelingJob(APIBaseTest):
@@ -117,6 +117,20 @@ class TestDataModelingJob(APIBaseTest):
         )
         self.assertEqual(response.status_code, 200)
         self.assertEqual([job["id"] for job in response.json()["results"]], [str(self.job3.id)])
+
+    def test_excludes_managed_warehouse_jobs(self):
+        warehouse_job = DataModelingJob.objects.create(
+            team=self.team,
+            saved_query=self.saved_query,
+            status=DataModelingJob.Status.COMPLETED,
+            engine=DataModelingJobEngine.MANAGED_WAREHOUSE,
+            last_run_at=timezone.now(),
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.pk}/data_modeling_jobs/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn(str(warehouse_job.id), [job["id"] for job in response.json()["results"]])
 
     def test_pagination_honors_offset_and_returns_count(self):
         paged_query = DataWarehouseSavedQuery.objects.create(team=self.team, name="Paged saved query")

@@ -211,7 +211,7 @@ class TestInstagramSource:
         assert result.response is not None and result.response.name == "media"
         assert result.paths == [f"/{pinned_version}/{ACCOUNT_ID}/media"]
         assert result.requests[0].headers["authorization"] == "Bearer refreshed-token"
-        assert result.params("since") == ["1717200000"]
+        assert result.params("since") == ["1704067200"]
 
     def test_a_full_refresh_run_never_forwards_a_watermark(self) -> None:
         with mock.patch.object(InstagramSource, "_access_token", return_value="tok"):

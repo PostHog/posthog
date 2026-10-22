@@ -25,19 +25,10 @@ import { ScrollableShadows } from '../ScrollableShadows/ScrollableShadows'
 import { RenderKeybind } from '../Shortcuts/ShortcutMenu'
 import { keyBinds } from '../Shortcuts/shortcuts'
 import { openCHQueriesDebugModal } from '../Shortcuts/utils/DebugCHQueries'
+import { healthSummaryLabel } from './healthSummaryLabel'
 import { healthSummaryLogic } from './healthSummaryLogic'
 import { helpMenuLogic } from './helpMenuLogic'
 import { posthogStatusLogic } from './posthogStatusLogic'
-
-function healthTooltip(unsnoozedCount: number, snoozedCount: number): string {
-    if (unsnoozedCount > 0) {
-        return `${unsnoozedCount} health issue${unsnoozedCount === 1 ? '' : 's'}`
-    }
-    if (snoozedCount > 0) {
-        return `${snoozedCount} snoozed health issue${snoozedCount === 1 ? '' : 's'}`
-    }
-    return 'All systems healthy'
-}
 
 export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Element {
     const { openSidePanel } = useActions(sidePanelStateLogic)
@@ -184,7 +175,9 @@ export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Elem
                                             to={urls.health()}
                                             buttonProps={{ menuItem: true }}
                                             tooltip={
-                                                healthSummary ? healthTooltip(unsnoozedCount, snoozedCount) : undefined
+                                                healthSummary
+                                                    ? healthSummaryLabel(unsnoozedCount, snoozedCount)
+                                                    : undefined
                                             }
                                             tooltipPlacement="right"
                                             tooltipCloseDelayMs={0}

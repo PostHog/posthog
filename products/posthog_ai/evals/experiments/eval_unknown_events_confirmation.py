@@ -40,6 +40,9 @@ from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.scorers import NoToolCall, RequiredToolCall
 from products.posthog_ai.evals.experiments.scorers import AskedForConfirmation
 from products.posthog_ai.evals.experiments.seeders import ROLLOUT_EXPERIMENT_NAME, seed_running_experiment
+from products.posthog_ai.evals.offline_config import offline_suite
+
+NO_SEND_LOGS = True
 
 # Event name chosen to be obviously fictional so the agent can't plausibly
 # justify it as a typo of a real PostHog event in the seeded team.
@@ -65,7 +68,13 @@ async def eval_unknown_events_confirmation(ctx: EvalContext) -> None:
     ]
 
     await SandboxedPrivateEval(
+        no_send_logs=NO_SEND_LOGS,
         experiment_name="sandboxed-experiments-unknown-events-cli",
+        send_to_posthog=True,
+        offline_suite=offline_suite(
+            "experiments/eval_unknown_events_confirmation::eval_unknown_events_confirmation",
+            metrics=["resolved_experiment_by_name", "no_silent_update_with_unknown_event", "asked_for_confirmation"],
+        ),
         cases=cases,
         scorers=[
             # Agent must look up the named experiment first.

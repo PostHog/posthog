@@ -77,7 +77,14 @@ SINGLE_SHARD_DATA_NODE_ROLES: frozenset[NodeRole] = frozenset(
 )
 
 
-_default_workload = Workload.ONLINE
+def default_workload_from_settings() -> Workload:
+    workload = Workload(settings.CLICKHOUSE_DEFAULT_WORKLOAD)
+    if workload not in (Workload.ONLINE, Workload.OFFLINE):
+        raise ValueError(f"CLICKHOUSE_DEFAULT_WORKLOAD must be ONLINE or OFFLINE, got {workload}")
+    return workload
+
+
+_default_workload = default_workload_from_settings()
 
 
 class ClickHouseUser(StrEnum):

@@ -5,8 +5,9 @@ re-applied or a finished run is replayed, so a test that only counted calls woul
 This fake keeps rows and labels per table and applies the writer's load, copy, delete, merge and
 drop-column statements to them, which lets a test assert the table's contents.
 
-It also refuses a `MERGE` whose source matches one target row twice, the way BigQuery does, so
-a source batch carrying a key more than once fails here too rather than passing quietly.
+It also refuses a `MERGE` whose source matches one target row twice, or whose source holds a
+column as a different type than the target, the way BigQuery does, so those batches fail here
+too rather than passing quietly.
 """
 
 from __future__ import annotations
@@ -15,8 +16,9 @@ import re
 from collections import Counter
 from typing import Any
 
+import pyarrow as pa
 import pyarrow.parquet as pq
-from google.api_core.exceptions import NotFound
+from google.api_core.exceptions import BadRequest, NotFound
 from google.cloud import bigquery
 
 Row = dict[str, Any]
@@ -32,24 +34,32 @@ _DROP_COLUMN = re.compile(
 )
 
 
+# What schema autodetect gives a parquet column, in the legacy names `SchemaField` reports.
+_AUTODETECTED_TYPE = {pa.int64(): "INTEGER", pa.float64(): "FLOAT", pa.bool_(): "BOOLEAN"}
+
+
 class MergeMultiMatchError(RuntimeError):
     """BigQuery's "UPDATE/MERGE must match at most one source row for each target row"."""
 
 
 class FakeTable:
-    def __init__(self, columns: list[str]) -> None:
-        self.columns = list(columns)
+    def __init__(self, types: dict[str, str]) -> None:
+        self.types = dict(types)
         self.rows: list[Row] = []
         self.labels: dict[str, str] = {}
 
     @property
-    def schema(self) -> list[bigquery.SchemaField]:
-        return [bigquery.SchemaField(name, "STRING") for name in self.columns]
+    def columns(self) -> list[str]:
+        return list(self.types)
 
-    def add_columns(self, columns: list[str]) -> None:
-        for column in columns:
-            if column not in self.columns:
-                self.columns.append(column)
+    @property
+    def schema(self) -> list[bigquery.SchemaField]:
+        return [bigquery.SchemaField(name, field_type) for name, field_type in self.types.items()]
+
+    def add_columns(self, types: dict[str, str]) -> None:
+        for column, field_type in types.items():
+            if column not in self.types:
+                self.types[column] = field_type
                 for row in self.rows:
                     row.setdefault(column, None)
 
@@ -81,7 +91,7 @@ class FakeBigQueryClient:
         name = _ref_of(table)
         if name in self.tables and not exists_ok:
             raise ValueError(f"Already Exists: Table {name}")
-        created = FakeTable([field.name for field in table.schema])
+        created = FakeTable({field.name: field.field_type for field in table.schema})
         self.tables.setdefault(name, created)
         return self.tables[name]
 
@@ -97,13 +107,13 @@ class FakeBigQueryClient:
     def load_table_from_file(self, buffer, ref: str, job_config: bigquery.LoadJobConfig) -> _Job:
         data = pq.read_table(buffer)
         rows = data.to_pylist()
-        columns = list(data.schema.names)
+        types = {field.name: _AUTODETECTED_TYPE.get(field.type, "STRING") for field in data.schema}
         name = _ref_of(ref)
 
         if job_config.write_disposition == bigquery.WriteDisposition.WRITE_TRUNCATE or name not in self.tables:
-            self.tables[name] = FakeTable(columns)
+            self.tables[name] = FakeTable(types)
         else:
-            self.tables[name].add_columns(columns)
+            self.tables[name].add_columns(types)
 
         table = self.tables[name]
         for row in rows:
@@ -116,7 +126,7 @@ class FakeBigQueryClient:
         # WRITE_TRUNCATE replaces the destination's data and schema but leaves its own labels
         # alone, which is what lets the writer read its marker back after publishing.
         labels = self.tables[name].labels if name in self.tables else {}
-        copied = FakeTable(origin.columns)
+        copied = FakeTable(origin.types)
         copied.rows = [dict(row) for row in origin.rows]
         copied.labels = dict(labels)
         self.tables[name] = copied
@@ -146,7 +156,7 @@ class FakeBigQueryClient:
         table, column = match.group(1), match.group(2)
         target = self.get_table(table)
         if column in target.columns:
-            target.columns.remove(column)
+            del target.types[column]
             for row in target.rows:
                 row.pop(column, None)
         return True
@@ -159,7 +169,12 @@ class FakeBigQueryClient:
         target = self.get_table(tables.group(1))
         source = self.get_table(tables.group(2))
         keys = [target_key for target_key, _ in _MERGE_KEYS.findall(tables.group(3))]
-        target.add_columns(source.columns)
+        for column, field_type in source.types.items():
+            if column in target.types and target.types[column] != field_type:
+                raise BadRequest(
+                    f"Value of type {field_type} cannot be assigned to T.{column}, which has type {target.types[column]}"
+                )
+        target.add_columns(source.types)
 
         incoming_per_key = Counter(_key_of(row, keys) for row in source.rows)
         for row in target.rows:

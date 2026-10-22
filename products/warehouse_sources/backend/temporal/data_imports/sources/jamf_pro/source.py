@@ -72,7 +72,7 @@ class JamfProSource(ResumableSource[JamfProSourceConfig, JamfProResumeConfig]):
             name=ExternalDataSourceType.JAMFPRO,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Jamf Pro",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["jamf", "mdm", "apple", "device management"],
             caption="""Enter your Jamf Pro instance URL and credentials to pull your device inventory into the PostHog Data warehouse.
 

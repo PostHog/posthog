@@ -352,6 +352,85 @@
                         "anyOf": [
                             {
                                 "properties": {
+                                    "branching": {
+                                        "anyOf": [
+                                            {
+                                                "anyOf": [
+                                                    {
+                                                        "properties": {
+                                                            "type": {
+                                                                "description": "Continue to the next question in sequence.\n\n* `next_question` - next_question",
+                                                                "enum": ["next_question"],
+                                                                "type": "string"
+                                                            }
+                                                        },
+                                                        "required": ["type"],
+                                                        "type": "object"
+                                                    },
+                                                    {
+                                                        "properties": {
+                                                            "type": {
+                                                                "description": "End the survey.\n\n* `end` - end",
+                                                                "enum": ["end"],
+                                                                "type": "string"
+                                                            }
+                                                        },
+                                                        "required": ["type"],
+                                                        "type": "object"
+                                                    },
+                                                    {
+                                                        "properties": {
+                                                            "index": {
+                                                                "description": "0-based index of the next question.",
+                                                                "minimum": 0,
+                                                                "type": "number"
+                                                            },
+                                                            "type": {
+                                                                "description": "Jump to a specific question index.\n\n* `specific_question` - specific_question",
+                                                                "enum": ["specific_question"],
+                                                                "type": "string"
+                                                            }
+                                                        },
+                                                        "required": ["type", "index"],
+                                                        "type": "object"
+                                                    },
+                                                    {
+                                                        "properties": {
+                                                            "responseValues": {
+                                                                "additionalProperties": {
+                                                                    "anyOf": [
+                                                                        {
+                                                                            "minimum": 0,
+                                                                            "type": "number"
+                                                                        },
+                                                                        {
+                                                                            "enum": ["end"],
+                                                                            "type": "string"
+                                                                        }
+                                                                    ]
+                                                                },
+                                                                "description": "Response-based branching map. Values can be a question index or 'end'.",
+                                                                "propertyNames": {
+                                                                    "type": "string"
+                                                                },
+                                                                "type": "object"
+                                                            },
+                                                            "type": {
+                                                                "description": "Branch based on the selected or entered response.\n\n* `response_based` - response_based",
+                                                                "enum": ["response_based"],
+                                                                "type": "string"
+                                                            }
+                                                        },
+                                                        "required": ["type", "responseValues"],
+                                                        "type": "object"
+                                                    }
+                                                ]
+                                            },
+                                            {
+                                                "type": "null"
+                                            }
+                                        ]
+                                    },
                                     "buttonText": {
                                         "description": "Custom button label.",
                                         "type": "string"
@@ -377,10 +456,87 @@
                                         "description": "Question text shown to respondents.",
                                         "type": "string"
                                     },
+                                    "translations": {
+                                        "additionalProperties": {
+                                            "properties": {
+                                                "buttonText": {
+                                                    "description": "Translated button label.",
+                                                    "type": "string"
+                                                },
+                                                "choices": {
+                                                    "description": "Translated choices. Must have the same length as the question choices. Choice questions only.",
+                                                    "items": {
+                                                        "type": "string"
+                                                    },
+                                                    "type": "array"
+                                                },
+                                                "description": {
+                                                    "description": "Translated helper text.",
+                                                    "type": "string"
+                                                },
+                                                "link": {
+                                                    "description": "Translated URL. Link questions only.",
+                                                    "type": "string"
+                                                },
+                                                "lowerBoundLabel": {
+                                                    "description": "Translated lowest rating label. Rating questions only.",
+                                                    "type": "string"
+                                                },
+                                                "question": {
+                                                    "description": "Translated question text.",
+                                                    "type": "string"
+                                                },
+                                                "upperBoundLabel": {
+                                                    "description": "Translated highest rating label. Rating questions only.",
+                                                    "type": "string"
+                                                }
+                                            },
+                                            "type": "object"
+                                        },
+                                        "description": "Inline translations keyed by language code (for example 'es' or 'pt-BR'). Send back the current value when editing other question fields, or the translations are lost.",
+                                        "propertyNames": {
+                                            "type": "string"
+                                        },
+                                        "type": "object"
+                                    },
                                     "type": {
                                         "description": "* `open` - open",
                                         "enum": ["open"],
                                         "type": "string"
+                                    },
+                                    "validation": {
+                                        "anyOf": [
+                                            {
+                                                "items": {
+                                                    "properties": {
+                                                        "type": {
+                                                            "description": "Validation rule type for open-text questions.\n\n* `min_length` - min_length\n* `max_length` - max_length\n* `email` - email",
+                                                            "enum": ["min_length", "max_length", "email"],
+                                                            "type": "string"
+                                                        },
+                                                        "value": {
+                                                            "anyOf": [
+                                                                {
+                                                                    "minimum": 1,
+                                                                    "type": "number"
+                                                                },
+                                                                {
+                                                                    "type": "null"
+                                                                }
+                                                            ],
+                                                            "description": "Rule value for min_length or max_length validations."
+                                                        }
+                                                    },
+                                                    "required": ["type"],
+                                                    "type": "object"
+                                                },
+                                                "type": "array"
+                                            },
+                                            {
+                                                "type": "null"
+                                            }
+                                        ],
+                                        "description": "Validation rules for the response text, for example a minimum length."
                                     }
                                 },
                                 "required": ["type", "question"],
@@ -388,6 +544,85 @@
                             },
                             {
                                 "properties": {
+                                    "branching": {
+                                        "anyOf": [
+                                            {
+                                                "anyOf": [
+                                                    {
+                                                        "properties": {
+                                                            "type": {
+                                                                "description": "Continue to the next question in sequence.\n\n* `next_question` - next_question",
+                                                                "enum": ["next_question"],
+                                                                "type": "string"
+                                                            }
+                                                        },
+                                                        "required": ["type"],
+                                                        "type": "object"
+                                                    },
+                                                    {
+                                                        "properties": {
+                                                            "type": {
+                                                                "description": "End the survey.\n\n* `end` - end",
+                                                                "enum": ["end"],
+                                                                "type": "string"
+                                                            }
+                                                        },
+                                                        "required": ["type"],
+                                                        "type": "object"
+                                                    },
+                                                    {
+                                                        "properties": {
+                                                            "index": {
+                                                                "description": "0-based index of the next question.",
+                                                                "minimum": 0,
+                                                                "type": "number"
+                                                            },
+                                                            "type": {
+                                                                "description": "Jump to a specific question index.\n\n* `specific_question` - specific_question",
+                                                                "enum": ["specific_question"],
+                                                                "type": "string"
+                                                            }
+                                                        },
+                                                        "required": ["type", "index"],
+                                                        "type": "object"
+                                                    },
+                                                    {
+                                                        "properties": {
+                                                            "responseValues": {
+                                                                "additionalProperties": {
+                                                                    "anyOf": [
+                                                                        {
+                                                                            "minimum": 0,
+                                                                            "type": "number"
+                                                                        },
+                                                                        {
+                                                                            "enum": ["end"],
+                                                                            "type": "string"
+                                                                        }
+                                                                    ]
+                                                                },
+                                                                "description": "Response-based branching map. Values can be a question index or 'end'.",
+                                                                "propertyNames": {
+                                                                    "type": "string"
+                                                                },
+                                                                "type": "object"
+                                                            },
+                                                            "type": {
+                                                                "description": "Branch based on the selected or entered response.\n\n* `response_based` - response_based",
+                                                                "enum": ["response_based"],
+                                                                "type": "string"
+                                                            }
+                                                        },
+                                                        "required": ["type", "responseValues"],
+                                                        "type": "object"
+                                                    }
+                                                ]
+                                            },
+                                            {
+                                                "type": "null"
+                                            }
+                                        ]
+                                    },
                                     "buttonText": {
                                         "description": "Custom button label.",
                                         "type": "string"
@@ -416,6 +651,49 @@
                                     "question": {
                                         "description": "Question text shown to respondents.",
                                         "type": "string"
+                                    },
+                                    "translations": {
+                                        "additionalProperties": {
+                                            "properties": {
+                                                "buttonText": {
+                                                    "description": "Translated button label.",
+                                                    "type": "string"
+                                                },
+                                                "choices": {
+                                                    "description": "Translated choices. Must have the same length as the question choices. Choice questions only.",
+                                                    "items": {
+                                                        "type": "string"
+                                                    },
+                                                    "type": "array"
+                                                },
+                                                "description": {
+                                                    "description": "Translated helper text.",
+                                                    "type": "string"
+                                                },
+                                                "link": {
+                                                    "description": "Translated URL. Link questions only.",
+                                                    "type": "string"
+                                                },
+                                                "lowerBoundLabel": {
+                                                    "description": "Translated lowest rating label. Rating questions only.",
+                                                    "type": "string"
+                                                },
+                                                "question": {
+                                                    "description": "Translated question text.",
+                                                    "type": "string"
+                                                },
+                                                "upperBoundLabel": {
+                                                    "description": "Translated highest rating label. Rating questions only.",
+                                                    "type": "string"
+                                                }
+                                            },
+                                            "type": "object"
+                                        },
+                                        "description": "Inline translations keyed by language code (for example 'es' or 'pt-BR'). Send back the current value when editing other question fields, or the translations are lost.",
+                                        "propertyNames": {
+                                            "type": "string"
+                                        },
+                                        "type": "object"
                                     },
                                     "type": {
                                         "description": "* `link` - link",
@@ -529,6 +807,10 @@
                                         "description": "Stable question identifier (UUID). When editing an existing question, send back its current id so its responses (keyed by $survey_response_<id>) stay attached; omit it for new questions and the server generates one.",
                                         "type": "string"
                                     },
+                                    "isNpsQuestion": {
+                                        "description": "Whether a rating question with a scale of 10 shows NPS scoring. A missing value counts as true.",
+                                        "type": "boolean"
+                                    },
                                     "lowerBoundLabel": {
                                         "description": "Label for the lowest rating (e.g., 'Very Poor')",
                                         "type": "string"
@@ -545,6 +827,49 @@
                                         "description": "Rating scale can be one of 3, 5, or 7",
                                         "minimum": 1,
                                         "type": "number"
+                                    },
+                                    "translations": {
+                                        "additionalProperties": {
+                                            "properties": {
+                                                "buttonText": {
+                                                    "description": "Translated button label.",
+                                                    "type": "string"
+                                                },
+                                                "choices": {
+                                                    "description": "Translated choices. Must have the same length as the question choices. Choice questions only.",
+                                                    "items": {
+                                                        "type": "string"
+                                                    },
+                                                    "type": "array"
+                                                },
+                                                "description": {
+                                                    "description": "Translated helper text.",
+                                                    "type": "string"
+                                                },
+                                                "link": {
+                                                    "description": "Translated URL. Link questions only.",
+                                                    "type": "string"
+                                                },
+                                                "lowerBoundLabel": {
+                                                    "description": "Translated lowest rating label. Rating questions only.",
+                                                    "type": "string"
+                                                },
+                                                "question": {
+                                                    "description": "Translated question text.",
+                                                    "type": "string"
+                                                },
+                                                "upperBoundLabel": {
+                                                    "description": "Translated highest rating label. Rating questions only.",
+                                                    "type": "string"
+                                                }
+                                            },
+                                            "type": "object"
+                                        },
+                                        "description": "Inline translations keyed by language code (for example 'es' or 'pt-BR'). Send back the current value when editing other question fields, or the translations are lost.",
+                                        "propertyNames": {
+                                            "type": "string"
+                                        },
+                                        "type": "object"
                                     },
                                     "type": {
                                         "description": "* `rating` - rating",
@@ -682,6 +1007,49 @@
                                         "description": "Whether to randomize the order of choices for each respondent.",
                                         "type": "boolean"
                                     },
+                                    "translations": {
+                                        "additionalProperties": {
+                                            "properties": {
+                                                "buttonText": {
+                                                    "description": "Translated button label.",
+                                                    "type": "string"
+                                                },
+                                                "choices": {
+                                                    "description": "Translated choices. Must have the same length as the question choices. Choice questions only.",
+                                                    "items": {
+                                                        "type": "string"
+                                                    },
+                                                    "type": "array"
+                                                },
+                                                "description": {
+                                                    "description": "Translated helper text.",
+                                                    "type": "string"
+                                                },
+                                                "link": {
+                                                    "description": "Translated URL. Link questions only.",
+                                                    "type": "string"
+                                                },
+                                                "lowerBoundLabel": {
+                                                    "description": "Translated lowest rating label. Rating questions only.",
+                                                    "type": "string"
+                                                },
+                                                "question": {
+                                                    "description": "Translated question text.",
+                                                    "type": "string"
+                                                },
+                                                "upperBoundLabel": {
+                                                    "description": "Translated highest rating label. Rating questions only.",
+                                                    "type": "string"
+                                                }
+                                            },
+                                            "type": "object"
+                                        },
+                                        "description": "Inline translations keyed by language code (for example 'es' or 'pt-BR'). Send back the current value when editing other question fields, or the translations are lost.",
+                                        "propertyNames": {
+                                            "type": "string"
+                                        },
+                                        "type": "object"
+                                    },
                                     "type": {
                                         "description": "* `single_choice` - single_choice",
                                         "enum": ["single_choice"],
@@ -734,6 +1102,49 @@
                                     "shuffleOptions": {
                                         "description": "Whether to randomize the order of choices for each respondent.",
                                         "type": "boolean"
+                                    },
+                                    "translations": {
+                                        "additionalProperties": {
+                                            "properties": {
+                                                "buttonText": {
+                                                    "description": "Translated button label.",
+                                                    "type": "string"
+                                                },
+                                                "choices": {
+                                                    "description": "Translated choices. Must have the same length as the question choices. Choice questions only.",
+                                                    "items": {
+                                                        "type": "string"
+                                                    },
+                                                    "type": "array"
+                                                },
+                                                "description": {
+                                                    "description": "Translated helper text.",
+                                                    "type": "string"
+                                                },
+                                                "link": {
+                                                    "description": "Translated URL. Link questions only.",
+                                                    "type": "string"
+                                                },
+                                                "lowerBoundLabel": {
+                                                    "description": "Translated lowest rating label. Rating questions only.",
+                                                    "type": "string"
+                                                },
+                                                "question": {
+                                                    "description": "Translated question text.",
+                                                    "type": "string"
+                                                },
+                                                "upperBoundLabel": {
+                                                    "description": "Translated highest rating label. Rating questions only.",
+                                                    "type": "string"
+                                                }
+                                            },
+                                            "type": "object"
+                                        },
+                                        "description": "Inline translations keyed by language code (for example 'es' or 'pt-BR'). Send back the current value when editing other question fields, or the translations are lost.",
+                                        "propertyNames": {
+                                            "type": "string"
+                                        },
+                                        "type": "object"
                                     },
                                     "type": {
                                         "description": "* `multiple_choice` - multiple_choice",
@@ -1114,6 +1525,14 @@
                                                 },
                                                 {
                                                     "properties": {
+                                                        "cohort_deleted": {
+                                                            "description": "Set to true in responses when the cohort is deleted or does not exist. The flag cannot evaluate this condition. Ignored on write.",
+                                                            "type": "boolean"
+                                                        },
+                                                        "cohort_missing": {
+                                                            "description": "Set to true in responses when no cohort with this id exists in the project, so it cannot be restored. `cohort_deleted` is also true. Absent for a soft-deleted cohort. Ignored on write.",
+                                                            "type": "boolean"
+                                                        },
                                                         "cohort_name": {
                                                             "anyOf": [
                                                                 {

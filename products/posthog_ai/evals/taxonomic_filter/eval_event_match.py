@@ -36,6 +36,7 @@ from products.posthog_ai.eval_harness.config import BaseEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.harness.requirements import SuiteKind
 from products.posthog_ai.eval_harness.one_shot import OneShotPublicEval
+from products.posthog_ai.evals.offline_config import offline_suite
 from products.posthog_ai.evals.taxonomic_filter.scorers import EVENT_MATCH_KEY, EventMatchFound, NoWrongEventMatch
 
 SUITE_KIND = SuiteKind.ONE_SHOT
@@ -103,6 +104,11 @@ async def eval_event_match(ctx: EvalContext) -> None:
 
     await OneShotPublicEval(
         experiment_name="taxonomic-filter-event-match",
+        offline_suite=offline_suite(
+            "taxonomic_filter/eval_event_match::eval_event_match",
+            metrics=["event_match_found", "no_wrong_event_match"],
+            suite_kind=SUITE_KIND,
+        ),
         cases=[*DESCRIBED_CASES, *NO_MATCH_CASES],
         scorers=[EventMatchFound(), NoWrongEventMatch()],
         task=task,

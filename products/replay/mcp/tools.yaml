@@ -73,6 +73,7 @@ tools:
             session, or sample recent events for project-wide issues).
         ui_app: session-recording
         hooks: replay/sessionRecordingGetHooks
+        reads_ingested_data: events
         response:
             exclude:
                 - person.properties
@@ -168,3 +169,4 @@ wrappers:
             - response
             - modifiers
         url_prefix: /replay
+        reads_ingested_data: events

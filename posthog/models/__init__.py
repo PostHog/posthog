@@ -61,6 +61,8 @@ from .quick_filter import QuickFilter
 from .remote_config import RemoteConfig
 from .resource_transfer.resource_transfer import ResourceTransfer
 from products.event_definitions.backend.models import EventSchema, SchemaPropertyGroup, SchemaPropertyGroupProperty
+from .scim_provisioned_user import SCIMProvisionedUser
+from .scim_request_log import SCIMRequestLog
 from .share_password import SharePassword
 from .sharing_configuration import SharingConfiguration
 from .tag import Tag
@@ -160,6 +162,8 @@ __all__ = [
     "EventSchema",
     "SchemaPropertyGroup",
     "SchemaPropertyGroupProperty",
+    "SCIMProvisionedUser",
+    "SCIMRequestLog",
     "SessionRecording",
     "SessionRecordingPlaylist",
     "SessionRecordingExternalReference",

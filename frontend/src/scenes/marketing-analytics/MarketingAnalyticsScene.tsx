@@ -39,6 +39,8 @@ import { SearchConsoleSource } from 'products/marketing_analytics/frontend/dashb
 import { SourceSetupPanel } from 'products/marketing_analytics/frontend/dashboard/SourceSetupPanel'
 import { marketingAnalyticsEmptyState } from 'products/marketing_analytics/frontend/emptyState/marketingAnalyticsEmptyState'
 import { SearchPerformanceTab } from 'products/marketing_analytics/frontend/search/SearchPerformanceTab'
+import { DashboardConversionRecommendations } from 'products/marketing_analytics/frontend/setup/DashboardConversionRecommendations'
+import { DashboardSetupPrompt } from 'products/marketing_analytics/frontend/setup/DashboardSetupPrompt'
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
 import { LegacyOAuthReconnectBanner } from '../web-analytics/tabs/marketing-analytics/frontend/components/LegacyOAuthReconnectBanner'
@@ -188,6 +190,7 @@ const SourceMarketingAnalyticsDashboard = (): JSX.Element => {
                     </div>
                 )}
                 <SearchConsoleSource />
+                <DashboardConversionRecommendations />
             </>
         )
     }
@@ -196,6 +199,7 @@ const SourceMarketingAnalyticsDashboard = (): JSX.Element => {
         return (
             <>
                 <Onboarding completeOnboarding={completeOnboarding} />
+                <DashboardConversionRecommendations />
             </>
         )
     }
@@ -222,10 +226,16 @@ const SourceMarketingAnalyticsDashboard = (): JSX.Element => {
             >
                 Ad performance
             </h2>
-            <DetectedSources compact={hasSearchConsole && !hasSyncedMarketingSources} />
-            {!dataWarehouseSources?.results.some((source) =>
-                ['GoogleAds', 'BingAds', 'GoogleSearchConsole'].includes(source.source_type)
-            ) && <SearchConsoleSource />}
+            <DetectedSources compact={hasSearchConsole && !hasSyncedMarketingSources} dismissible />
+            {!!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS] &&
+                !dataWarehouseSources?.results.some((source) =>
+                    ['GoogleAds', 'BingAds', 'GoogleSearchConsole'].includes(source.source_type)
+                ) && (
+                    <DashboardSetupPrompt kind="sources">
+                        {(dismissButton) => <SearchConsoleSource headerAction={dismissButton} />}
+                    </DashboardSetupPrompt>
+                )}
+            <DashboardConversionRecommendations />
             {hasSources && hasSyncedMarketingSources && (
                 <div className="mt-4 grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-x-4 gap-y-12">
                     {marketingTiles?.map((tile, i) => (
@@ -382,7 +392,8 @@ const LegacyMarketingAnalyticsDashboard = (): JSX.Element => {
 
 const MarketingAnalyticsContent = (): JSX.Element => {
     const { featureFlags } = useValues(featureFlagLogic)
-    const { activeTab, hasSyncedMarketingSources, dataWarehouseSources } = useValues(marketingAnalyticsLogic)
+    const { activeTab, hasSyncedMarketingSources, dataWarehouseSources, setupEnabled } =
+        useValues(marketingAnalyticsLogic)
     const { setActiveTab, setSetupSection } = useActions(marketingAnalyticsLogic)
     const { integrationSettingsModal } = useValues(marketingAnalyticsSettingsLogic)
     const { closeIntegrationSettingsModal } = useActions(marketingAnalyticsSettingsLogic)
@@ -439,15 +450,9 @@ const MarketingAnalyticsContent = (): JSX.Element => {
     // Setup absorbs Integration health: while its flag is on, the audit lives inside
     // Setup as a section rather than as a second top-level tab, so there's one door to
     // "something is wrong with my setup" instead of two.
-    const setupEnabled =
-        !!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_SETUP] ||
-        !!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD]
-
     // Setup absorbs the tabs it replaces, so a link or bookmark carrying one still lands
-    // somewhere sensible. Here rather than in the logic because only the scene knows
-    // whether Setup is rendering: with its flag off those tabs are still real and
-    // resolve on their own. Above the early return below, since hooks have to run on
-    // every render.
+    // somewhere sensible. With Setup disabled, those tabs still render and resolve
+    // on their own. Keep the effect above the early return so hooks run on every render.
     const absorbed = setupEnabled ? SETUP_ABSORBED_TABS[activeTab] : undefined
     useEffect(() => {
         if (absorbed) {

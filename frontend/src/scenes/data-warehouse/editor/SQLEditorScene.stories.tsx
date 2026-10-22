@@ -180,6 +180,27 @@ const BI_EVENTS_FIELDS = Object.fromEntries(
         ] as const
     ).map(([name, type]) => [name, { name, hogql_value: name, type, schema_valid: true }])
 )
+const BI_WORKSHEET_RESULTS = {
+    columns: ['bi_row_timestamp', 'bi_column_event', 'sum_revenue'],
+    types: [
+        ['bi_row_timestamp', 'DateTime'],
+        ['bi_column_event', 'String'],
+        ['sum_revenue', 'Float64'],
+    ],
+    results: [
+        ['2026-06-01', 'purchase', 120],
+        ['2026-06-02', 'purchase', 180],
+        ['2026-06-03', 'purchase', 150],
+    ],
+    hasMore: false,
+}
+const pinQueryTimer = (): (() => void) => {
+    const originalNow = performance.now
+    performance.now = () => 0
+    return () => {
+        performance.now = originalNow
+    }
+}
 
 const meta: Meta = {
     component: App,
@@ -594,6 +615,7 @@ export const SidebarMaterializationStatus: Story = {
 }
 
 export const BIModeWorksheet: Story = {
+    beforeEach: pinQueryTimer,
     parameters: {
         featureFlags: [FEATURE_FLAGS.SQL_EDITOR_BI_MODE],
         // The editor restores BI state only alongside the query it generated
@@ -619,6 +641,7 @@ export const BIModeWorksheet: Story = {
                             events: { id: 'events', name: 'events', type: 'posthog', fields: BI_EVENTS_FIELDS },
                         },
                     },
+                    '/api/environments/:team_id/query/HogQLQuery/': BI_WORKSHEET_RESULTS,
                 },
             },
         },
@@ -672,23 +695,6 @@ export const BISavedInsight: Story = {
                     '/api/:scope/:team_id/insights/': [200, { results: [BI_SAVED_INSIGHT] }],
                     '/api/environments/:team_id/insights/:id/': [200, BI_SAVED_INSIGHT],
                     '/api/projects/:team_id/events_retention/': [200, { retention_months: null, retained_from: null }],
-                },
-                post: {
-                    ...BIModeWorksheet.parameters?.msw.mocks.post,
-                    '/api/environments/:team_id/query/HogQLQuery/': {
-                        columns: ['bi_row_timestamp', 'bi_column_event', 'sum_revenue'],
-                        types: [
-                            ['bi_row_timestamp', 'DateTime'],
-                            ['bi_column_event', 'String'],
-                            ['sum_revenue', 'Float64'],
-                        ],
-                        results: [
-                            ['2026-06-01', 'purchase', 120],
-                            ['2026-06-02', 'purchase', 180],
-                            ['2026-06-03', 'purchase', 150],
-                        ],
-                        hasMore: false,
-                    },
                 },
             },
         },
@@ -1753,7 +1759,167 @@ export const BICatalogSnapshot: Story = {
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
         await canvas.findByRole('link', { name: 'View catalog definition' }, { timeout: 15000 })
-        await userEvent.click(await canvas.findByRole('button', { name: /^Run$/ }))
+        await userEvent.click(await canvas.findByRole('button', { name: 'Run worksheet' }))
         await expect(canvas.findByText('450', { exact: true })).resolves.toBeVisible()
+    },
+}
+
+export const BISourcePreviewLargeSample: Story = {
+    ...BIModeWorksheet,
+    parameters: {
+        ...BIModeWorksheet.parameters,
+        msw: {
+            mocks: {
+                ...BIModeWorksheet.parameters!.msw.mocks,
+                get: {
+                    ...BIModeWorksheet.parameters!.msw.mocks.get,
+                    '/api/projects/:team_id/data_catalog/relationship_proposals/': {
+                        count: 0,
+                        next: null,
+                        results: [],
+                    },
+                },
+                post: {
+                    ...BIModeWorksheet.parameters!.msw.mocks.post,
+                    '/api/projects/:team_id/file_system/home_folder/': { id: 'example-home', path: 'Users/Example' },
+                    '/api/environments/:team_id/query/HogQLQuery/': async ({ request }: MockResolverInfo) => {
+                        const { query } = (await request.json()) as { query: { query: string } }
+                        if (query.query.startsWith('SELECT *')) {
+                            const limit = Number(query.query.match(/LIMIT (\d+)/)?.[1] ?? 1000)
+                            return {
+                                columns: [
+                                    'row_number',
+                                    'description',
+                                    ...Array.from({ length: 8 }, (_, index) => `quantity_${index + 1}`),
+                                ],
+                                types: [
+                                    ['row_number', 'Int64'],
+                                    ['description', 'String'],
+                                    ...Array.from({ length: 8 }, (_, index) => [`quantity_${index + 1}`, 'Int64']),
+                                ],
+                                results: Array.from({ length: limit }, (_, index) => [
+                                    index + 1,
+                                    `Example source row ${index + 1}`,
+                                    ...Array.from({ length: 8 }, (_, column) => (index + column) % 17),
+                                ]),
+                                hasMore: false,
+                            }
+                        }
+                        return {
+                            columns: [
+                                ...getBIResultDimensions(BI_WORKSHEET_CONFIG).map(({ column }) => column),
+                                ...getBIResultMeasureColumns(BI_WORKSHEET_CONFIG).map(({ column }) => column),
+                            ],
+                            types: ['DateTime', 'String', 'Float64'],
+                            results: [['2026-06-01', 'purchase', 120]],
+                            hasMore: false,
+                        }
+                    },
+                },
+            },
+        },
+    },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        const openPreview = await canvas.findByText('View source data', {}, { timeout: 15000 })
+        await waitFor(() => expect(openPreview.closest('button')).toHaveAttribute('aria-disabled', 'false'), {
+            timeout: 15000,
+        })
+        await userEvent.click(openPreview)
+        const body = within(canvasElement.ownerDocument.body)
+        await body.findByText('Example source row 1', {}, { timeout: 15000 })
+        const table = canvasElement.ownerDocument.querySelector<HTMLElement>('[data-attr="bi-source-preview-table"]')!
+        expect(table.querySelectorAll('tbody tr[data-row-key]').length).toBeLessThan(50)
+        const scroll = table.querySelector<HTMLElement>('.ScrollableShadows__inner')!
+        scroll.scrollTop = scroll.scrollHeight
+        await body.findByText('Example source row 500')
+        await userEvent.click(within(table).getByLabelText('Next page'))
+        await body.findByText('Example source row 501')
+        expect(scroll.scrollTop).toBe(0)
+        expect(table.querySelectorAll('tbody tr[data-row-key]').length).toBeLessThan(50)
+        scroll.scrollTop = scroll.scrollHeight
+        await body.findByText('Example source row 1000')
+        await userEvent.click(within(table).getByLabelText('Previous page'))
+        await body.findByText('Example source row 1')
+    },
+}
+
+const BI_WIDE_TABLE_CONFIG: BIConfig = {
+    ...BI_WORKSHEET_CONFIG,
+    chartType: ChartDisplayType.ActionsTable,
+    rows: [],
+    columns: [{ ...biEventsField('timestamp', 'datetime'), dateBucket: 'day' }],
+    values: [{ field: biEventsField('revenue', 'float'), aggregation: 'sum', shelf: 'rows' }],
+    filters: [],
+    limit: 10000,
+}
+
+export const BIWideTransposedResults: Story = {
+    ...BIModeWorksheet,
+    parameters: {
+        ...BIModeWorksheet.parameters,
+        pageUrl: `${urls.businessIntelligenceNew()}#${new URLSearchParams({
+            q: JSON.stringify({
+                ...buildBIQuery(BI_WIDE_TABLE_CONFIG)!.node,
+                kind: NodeKind.BIVisualizationNode,
+                config: BI_WIDE_TABLE_CONFIG,
+            }),
+        })}`,
+        testOptions: {
+            waitForSelector: '.DataVisualizationTable [aria-colcount="1801"]',
+            viewport: { width: 1280, height: 900 },
+        },
+        msw: {
+            mocks: {
+                ...BIModeWorksheet.parameters!.msw.mocks,
+                get: {
+                    ...BIModeWorksheet.parameters!.msw.mocks.get,
+                    '/api/projects/:team_id/data_catalog/relationship_proposals/': {
+                        count: 0,
+                        next: null,
+                        results: [],
+                    },
+                },
+                post: {
+                    ...BIModeWorksheet.parameters!.msw.mocks.post,
+                    '/api/projects/:team_id/file_system/home_folder/': { id: 'example-home', path: 'Users/Example' },
+                    '/api/environments/:team_id/query/HogQLQuery/': {
+                        columns: [
+                            ...getBIResultDimensions(BI_WIDE_TABLE_CONFIG).map(({ column }) => column),
+                            ...getBIResultMeasureColumns(BI_WIDE_TABLE_CONFIG).map(({ column }) => column),
+                        ],
+                        types: ['DateTime', 'Float64'],
+                        results: Array.from({ length: 1800 }, (_, index) => [
+                            new Date(Date.UTC(2020, 0, index + 1)).toISOString(),
+                            10000 + index,
+                        ]),
+                        hasMore: false,
+                    },
+                },
+            },
+        },
+    },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await userEvent.click(await canvas.findByRole('button', { name: /^Run$/ }))
+        await canvas.findByText('10000', { exact: true }, { timeout: 15000 })
+        await userEvent.click(await canvas.findByRole('button', { name: 'Visualization settings' }))
+        const transpose = await canvas.findByLabelText('Transpose results')
+        await userEvent.click(transpose)
+        const table = canvasElement.querySelector<HTMLElement>('.DataVisualizationTable')!
+        await waitFor(() => expect(table.querySelector('table')).toHaveAttribute('aria-colcount', '1801'))
+        expect(table.querySelectorAll('tbody td:not([aria-hidden])').length).toBeLessThan(40)
+        const scroll = table.querySelector<HTMLElement>('.ScrollableShadows__inner')!
+        scroll.scrollLeft = scroll.scrollWidth
+        await within(table).findByText('11799', { exact: true })
+        expect(table.querySelectorAll('tbody td:not([aria-hidden])').length).toBeLessThan(40)
+        await userEvent.click(transpose)
+        await waitFor(() => expect(table.querySelector('table')).not.toHaveAttribute('aria-colcount'))
+        await within(table).findByText('10000', { exact: true })
+        await userEvent.click(transpose)
+        scroll.scrollLeft = 0
+        await within(table).findByText('10000', { exact: true })
+        await userEvent.click(canvas.getByRole('button', { name: 'Visualization settings' }))
+        await stabilizeQueryElapsedTime()
     },
 }

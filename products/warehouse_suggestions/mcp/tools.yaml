@@ -24,7 +24,13 @@ tools:
             Accept a proposed warehouse suggestion. Certify and deprecate suggestions mark the view or table as
             certified or deprecated in the data catalog. Materialize suggestions turn on materialization for the view on
             the proposed schedule, which adds a recurring compute cost; pass refresh_interval_seconds to use another
-            schedule. Requires human typed confirmation.
+            schedule. They also apply the payload's refresh_mode: incremental refreshes read only new rows by
+            incremental_key and update rows by unique_key, full refreshes rebuild the whole table. The payload is a
+            starting point. To change it, pass any of refresh_interval_seconds, refresh_mode, incremental_key,
+            unique_key and lookback_seconds; an omitted field keeps the suggested value. Check keys the person chose
+            with view-check-incremental first. A 400 names the field the server refused and why. A 409 means the view
+            changed since the suggestion was made and its suggested keys no longer apply. Requires human typed
+            confirmation.
         confirmed_action:
             message: >
                 About to accept warehouse suggestion '{id}'. This applies the change it proposes to the view or table.

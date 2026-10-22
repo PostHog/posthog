@@ -109,7 +109,7 @@ class TyntecSMSSource(SimpleSource[TyntecSMSSourceConfig]):
             keywords=["sms", "cpaas"],
             docsUrl="https://posthog.com/docs/cdp/sources/tyntec-sms",
             iconPath="/static/services/tyntec_sms.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

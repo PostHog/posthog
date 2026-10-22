@@ -130,7 +130,7 @@ class CourierSource(ResumableSource[CourierSourceConfig, CourierResumeConfig]):
             docsUrl="https://posthog.com/docs/cdp/sources/courier",
             iconPath="/static/services/courier.png",
             keywords=["notifications", "messaging"],
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

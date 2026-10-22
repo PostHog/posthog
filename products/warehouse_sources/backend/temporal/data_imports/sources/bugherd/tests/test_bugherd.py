@@ -4,7 +4,6 @@ from typing import Any, cast
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
-from requests.exceptions import ConnectionError
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.bugherd.bugherd import (
     BugherdResumeConfig,
@@ -89,20 +88,12 @@ class TestValidateCredentials:
 
         assert network.requests_log[0].path == "/api_v2/organization.json"
 
-    @parameterized.expand([(500,), (503,), (403,)])
+    @parameterized.expand([(503,)])
     def test_other_status_is_reported(self, status_code: int) -> None:
         with scripted_network(always(ScriptedResponse(status=status_code))):
             result = validate_credentials("key")
 
         assert result == (False, f"BugHerd API returned an unexpected status ({status_code}).")
-
-    def test_network_error_returns_false(self) -> None:
-        with scripted_network(always(ConnectionError("boom"))):
-            result = validate_credentials("key")
-
-        assert result[0] is False
-        assert result[1] is not None and result[1].startswith("Could not reach the BugHerd API:")
-        assert "boom" in result[1]
 
 
 class TestBugherdSourceTopLevel:

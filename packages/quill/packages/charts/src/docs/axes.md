@@ -19,6 +19,7 @@ The nested `tooltip` merges key by key, so setting one field keeps `placement: '
 - `showGrid` draws grid lines on every chart, including the time-series wrappers. Grid lines always align to the primary (left) y-axis ticks. A `showGrid` on the primary `yAxis` config wins; on secondary axes it is ignored, because two grids with unaligned ticks would be noise.
 - `showAxisLines` draws the L-axis alongside the grid, which then skips its own frame and category lines. A right-positioned y-axis gets its own right axis line. `{ x, y }` toggles each edge independently. With axis lines on, line strokes are trimmed at the y-axis and floored onto the x-axis so they rest against the axis instead of straddling it.
 - `showTickMarks` draws short canvas tick marks snapped to the same pixel grid as the axis.
+- A chart type built on the `Chart` core draws the same lines by calling `drawGrid` before its marks and `drawAxes` after them. Both are exported from the package. See [CONTRIBUTING.md](./CONTRIBUTING.md#adding-a-new-chart-type).
 - `curve: 'monotone'` smooths line and area series through every point without overshoot.
 
 Theme-side restyle knobs, all optional: `theme.axisLineColor` strokes the baselines and tick marks without changing tick-label color (falls back `axisColor`, then `gridColor`); `theme.gridDashPattern` and `theme.crosshairDashPattern` (`[3, 3]`) dash the interior grid lines and the hover crosshair, while plot-edge frame strokes stay solid.
@@ -27,7 +28,7 @@ Theme-side restyle knobs, all optional: `theme.axisLineColor` strokes the baseli
 
 - Labels must be unique. The x-scale keys positions off the strings, so a duplicate collapses onto the first occurrence and draws the series backwards. On time-series charts pass ISO date strings, never formatted display labels that repeat across years. Set `xAxis.timezone` to format ticks and tooltip headers. The library infers the interval from `allDays` or chart labels; set `interval` only to override it. `tickFormatter` overrides automatic formatting.
 - `xAxis.tickLabelRotation` (`-45` tilts left) fixes the rotation, clamped to `-90..90`. Omit it to keep horizontal labels and the collision behavior.
-- `maxCategoryLabelWidth` truncates category labels with an ellipsis and reveals the full value on hover. It also clamps the axis margin, so a long label cannot push the plot off screen. `MAX_CATEGORY_LABEL_WIDTH` is the exported default.
+- `maxCategoryLabelWidth` truncates category labels with an ellipsis and reveals the full value on hover. It also clamps the axis margin, so a long label cannot push the plot off screen. On horizontal charts the cap grows to 30% of the chart width when that is wider, so a wider chart shows more of each label. `MAX_CATEGORY_LABEL_WIDTH` is the exported default.
 
 ## Y-axis format
 

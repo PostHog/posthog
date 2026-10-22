@@ -57,7 +57,7 @@ class AcastSource(SimpleSource[AcastSourceConfig]):
                 "API access requires the Pro plan or Creator Network membership. "
                 "The key can read shows assigned to its user."
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

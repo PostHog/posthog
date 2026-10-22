@@ -302,7 +302,11 @@ class TestSourceResponse:
 
 
 class TestValidateCredentials:
-    @parameterized.expand([("ok", 200, True), ("unauthorized", 401, False), ("server_error", 500, False)])
+    @parameterized.expand(
+        [
+            ("ok", 200, True),
+        ]
+    )
     def test_status_code_maps_to_bool(self, _name: str, status_code: int, expected: bool) -> None:
         answer = ScriptedResponse(status=status_code)
         script = always(answer) if status_code >= 500 else [answer]

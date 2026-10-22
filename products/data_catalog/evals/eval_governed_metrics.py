@@ -69,6 +69,7 @@ from products.data_catalog.evals.constants import (
     WEBSITE_404_HITS_DAILY_METRIC_NAME,
     YOY_MRR_GROWTH_METRIC_NAME,
 )
+from products.data_catalog.evals.offline_config import offline_suite
 from products.data_catalog.evals.scorers import (
     CanonicalMetricRun,
     GovernedBehaviorCorrectness,
@@ -691,6 +692,20 @@ async def eval_governed_metrics(ctx: EvalContext) -> None:
 
     await SandboxedPublicEval(
         experiment_name="sandboxed-governed-metrics-cli",
+        offline_suite=offline_suite(
+            "data_catalog/eval_governed_metrics::eval_governed_metrics",
+            metrics=[
+                "metrics_catalog_queried",
+                "metrics_catalog_before_answer",
+                "metrics_catalog_before_data_discovery",
+                "canonical_metric_run",
+                "metrics_catalog_not_queried",
+                "governed_behavior_correctness",
+                "trust_badge",
+                "proposed_badge",
+                "no_metric_write",
+            ],
+        ),
         cases=cases,
         scorers=[
             MetricsCatalogQueried(),

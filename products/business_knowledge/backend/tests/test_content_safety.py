@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, patch
 from django.test import override_settings
 from django.utils import timezone
 
+from google.genai import types
 from parameterized import parameterized
 
 from posthog.models.scoping import team_scope
@@ -252,6 +253,11 @@ class TestSafetyClassifier(BaseTest):
             UUID("00000000-0000-0000-0000-000000000001"): SafetyVerdict.SAFE,
             UUID("00000000-0000-0000-0000-000000000002"): SafetyVerdict.UNSAFE,
         }
+        # thinking_budget=0 is a 400 on this model, so every window would fail closed.
+        call = mk.return_value.models.generate_content.call_args
+        assert call.kwargs["model"] == "models/gemini-3.5-flash-lite"
+        assert call.kwargs["config"].thinking_config.thinking_level == types.ThinkingLevel.MINIMAL
+        assert call.kwargs["config"].thinking_config.thinking_budget is None
 
     @override_settings(GEMINI_API_KEY="test-key")
     def test_classify_documents_fails_closed_on_error(self) -> None:

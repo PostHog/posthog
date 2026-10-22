@@ -111,7 +111,7 @@ class BraintrustSource(ResumableSource[BraintrustSourceConfig, BraintrustResumeC
             keywords=["llm", "evals", "ai"],
             label="Braintrust",
             iconPath="/static/services/braintrust.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="Create an API key in Braintrust organization settings. Give it read access to the selected resources.",
             fields=cast(
                 list[FieldType],

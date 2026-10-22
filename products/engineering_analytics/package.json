@@ -20,6 +20,7 @@
         "@posthog/brand": "catalog:",
         "@posthog/icons": "catalog:",
         "@storybook/react": "catalog:",
+        "@tanstack/react-virtual": "*",
         "@types/react": "*",
         "@xyflow/react": "*",
         "elkjs": "*",

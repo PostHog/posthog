@@ -193,7 +193,7 @@ class BigCommerceSource(ResumableSource[BigCommerceSourceConfig, BigCommerceResu
             ),
             iconPath="/static/services/bigcommerce.png",
             docsUrl="https://posthog.com/docs/cdp/sources/bigcommerce",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

@@ -694,6 +694,9 @@ def test_normalize_site_url(raw, expected):
         # An uppercase bare hostname is lowercased to match Google's canonical property names.
         ("PlotLens.AI", ["https://plotlens.ai/"], "https://plotlens.ai/"),
         ("EXAMPLE.COM", ["sc-domain:example.com"], "sc-domain:example.com"),
+        # A bare www hostname matches the domain property of the bare domain.
+        ("www.example.com", ["sc-domain:example.com"], "sc-domain:example.com"),
+        ("www.example.com/blog", ["sc-domain:example.com"], None),
         # No registered property matches — nothing to suggest.
         ("plotlens.ai", ["https://other.com/"], None),
         # A root URL whose site is registered only as a domain property.

@@ -1,8 +1,11 @@
 from django.test import TestCase
 
+from parameterized import parameterized
+
 from posthog.models import Organization, Team, User
 from posthog.models.file_system.file_system import (
     DEFAULT_SURFACE,
+    SEARCH_NAME,
     FileSystem,
     create_or_update_file,
     delete_file,
@@ -164,6 +167,23 @@ class TestFileSystemModel(TestCase):
         self.assertEqual(join_path(["a/b", "c\\d"]), "a\\/b/c\\\\d")
         # Edge case: empty list
         self.assertEqual(join_path([]), "")
+
+    @parameterized.expand(
+        [
+            (["Unfiled", "Insights", "Revenue"],),
+            (["Folder", "Retention / Weekly"],),
+            (["Team\\", "Revenue"],),
+            (["a\\", "b\\", "c"],),
+            (["a\\/", "b"],),
+            (["x", "y\\"],),
+        ]
+    )
+    def test_search_name_matches_the_last_path_segment(self, segments: list[str]) -> None:
+        entry = FileSystem.objects.create(team=self.team, path=join_path(segments), type="insight")
+
+        name = FileSystem.objects.annotate(name=SEARCH_NAME).values_list("name", flat=True).get(id=entry.id)
+
+        self.assertEqual(name, escape_path(segments[-1]).lower())
 
     # Example test for save_unfiled_files with a specific file_type
     def test_save_unfiled_files_specific_type(self):

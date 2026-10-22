@@ -8,6 +8,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.oauth.cimd import is_cimd_client_id
 from posthog.auth import SessionAuthentication
 from posthog.models.oauth import (
     OAuthApplication,
@@ -32,6 +33,12 @@ class ConnectedAppSerializer(serializers.Serializer):
         help_text=(
             "Whether the user must choose to keep or disconnect this application, because it set up one of "
             "the user's organizations and PostHog has not verified it"
+        )
+    )
+    is_self_registered = serializers.BooleanField(
+        help_text=(
+            "Whether the application registered itself, through dynamic client registration or a client ID "
+            "metadata document. MCP clients connect this way; applications PostHog registers do not."
         )
     )
 
@@ -99,6 +106,7 @@ class ConnectedAppsViewSet(viewsets.ViewSet):
                     "requires_access_confirmation": (
                         app.id in provisioner_ids and not app.is_verified and not app.is_first_party
                     ),
+                    "is_self_registered": app.is_dcr_client or is_cimd_client_id(app.client_id),
                 }
             )
 

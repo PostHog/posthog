@@ -147,6 +147,7 @@ describe('ReportExpectedImpact', () => {
             ])
             expect(screen.getByText('Measurement window: since Monitoring starts.')).toBeInTheDocument()
             expect(screen.getByText('Target reference period: 7 days.')).toBeInTheDocument()
+            expect(screen.getByText('Check observation window after implementation: 14 days.')).toBeInTheDocument()
             expect(screen.getByText('· Measured over 14 days')).toBeInTheDocument()
             expect(
                 screen.getByText(

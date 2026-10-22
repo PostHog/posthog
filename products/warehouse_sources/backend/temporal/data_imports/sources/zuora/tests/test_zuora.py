@@ -15,9 +15,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.zuora import ZuoraSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.zuora.settings import ENDPOINTS, ZUORA_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.zuora.settings import (
+    ENDPOINTS,
+    ZUORA_COMMERCE_ENDPOINTS,
+    ZUORA_ENDPOINTS,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.zuora.source import ZuoraSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.zuora.zuora import (
+    ZUORA_INCOMPLETE_LIST_ERROR,
     ZuoraResumeConfig,
     _base_url,
     _format_timestamp,
@@ -44,7 +49,7 @@ def _driver() -> SourceDriver:
 
 
 def _data_requests(result: DriveResult) -> list[RecordedRequest]:
-    return [request for request in result.requests if request.path.startswith("/object-query/")]
+    return [request for request in result.requests if request.path.startswith(("/object-query/", "/commerce/"))]
 
 
 class TestBaseUrl:
@@ -97,18 +102,82 @@ class TestGetRows:
         assert request.param("filter[]") == "updateddate.GT:2024-01-02T03:04:05Z"
         assert "filter%5B%5D=updateddate.GT%3A2024-01-02T03%3A04%3A05Z" in request.url
 
-    def test_resumes_from_saved_cursor(self):
+    @pytest.mark.parametrize(
+        "endpoint, path, expected_query",
+        [
+            ("accounts", "/object-query/accounts", {"cursor": ("cur-9",)}),
+            ("entitlement_grants", "/commerce/entitlements/grants", {"pageToken": ("cur-9",)}),
+        ],
+    )
+    def test_resumes_from_saved_cursor(self, endpoint, path, expected_query):
         result = _driver().run(
-            "accounts",
-            route({"/oauth/token": [_token_response()], "/object-query/accounts": [_page([{"id": "a9"}])]}),
+            endpoint,
+            route({"/oauth/token": [_token_response()], path: [_page([{"id": "a9"}])]}),
             resume_state=ZuoraResumeConfig(cursor="cur-9"),
         )
 
         # The resumed run targets the saved page with the cursor alone.
         request = _data_requests(result)[0]
-        assert dict(request.query) == {"cursor": ("cur-9",)}
-        assert "cursor=cur-9" in request.url
+        assert dict(request.query) == expected_query
         assert "pageSize" not in request.url
+
+    @pytest.mark.parametrize(
+        "endpoint, path, body, expected_query",
+        [
+            ("features", "/commerce/features", {"features": [{"id": "f1"}, {"id": "f2"}]}, {}),
+            ("features", "/commerce/features", {"items": [{"id": "f1"}, {"id": "f2"}]}, {}),
+            (
+                "billable_metrics",
+                "/commerce/billable-metrics",
+                {"data": [{"id": "f1"}, {"id": "f2"}]},
+                {"pagination.page_size": ("99",)},
+            ),
+            (
+                "billable_metrics",
+                "/commerce/billable-metrics",
+                {"response": {"data": [{"id": "f1"}, {"id": "f2"}]}},
+                {"pagination.page_size": ("99",)},
+            ),
+        ],
+    )
+    def test_commerce_lists_read_either_documented_array_key(self, endpoint, path, body, expected_query):
+        result = _driver().run(
+            endpoint, route({"/oauth/token": [_token_response()], path: [ScriptedResponse(json=body)]})
+        )
+
+        assert [row["id"] for row in result.rows] == ["f1", "f2"]
+        data_requests = _data_requests(result)
+        assert len(data_requests) == 1
+        assert dict(data_requests[0].query) == expected_query
+
+    def test_billable_metrics_full_page_fails_before_yielding_rows(self):
+        full_page = {"data": [{"id": f"bm-{index}"} for index in range(99)]}
+        result = _driver().run(
+            "billable_metrics",
+            route(
+                {"/oauth/token": [_token_response()], "/commerce/billable-metrics": [ScriptedResponse(json=full_page)]}
+            ),
+        )
+
+        assert result.rows == []
+        assert ZUORA_INCOMPLETE_LIST_ERROR in str(result.raised)
+
+    def test_entitlement_grants_follow_next_page_token(self):
+        result = _driver().run(
+            "entitlement_grants",
+            route(
+                {
+                    "/oauth/token": [_token_response()],
+                    "/commerce/entitlements/grants": [
+                        ScriptedResponse(json={"grants": [{"id": "g1"}], "nextPageToken": "tok-2"}),
+                        ScriptedResponse(json={"grants": [{"id": "g2"}], "nextPageToken": None}),
+                    ],
+                }
+            ),
+        )
+
+        assert [row["id"] for row in result.rows] == ["g1", "g2"]
+        assert [dict(request.query) for request in _data_requests(result)] == [{}, {"pageToken": ("tok-2",)}]
 
     def test_mints_token_once_and_sends_bearer(self):
         result = _driver().run(
@@ -130,4 +199,4 @@ class TestGetRows:
 
 class TestZuoraSourceResponse:
     def test_all_endpoints_have_paths(self):
-        assert set(ENDPOINTS) == set(ZUORA_ENDPOINTS.keys())
+        assert set(ENDPOINTS) == set(ZUORA_ENDPOINTS) | set(ZUORA_COMMERCE_ENDPOINTS)

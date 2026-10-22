@@ -16,6 +16,7 @@ import type {
     AiObservabilityOfflineExperimentsResultCellsRetrieveParams,
     AiObservabilityOfflineExperimentsScorerSummariesListParams,
     AiObservabilityOfflineScorersHistoryListParams,
+    AiObservabilityTracesNodesRetrieveParams,
     AiObservabilityTracesRetrieveParams,
     BatchCheckRequestApi,
     BatchCheckResponseApi,
@@ -133,7 +134,6 @@ import type {
     SummarizeRequestApi,
     SummarizeResponseApi,
     TaggerApi,
-    TaggerCreateApi,
     TaggerUpdateApi,
     TaggersListParams,
     TestHogRequestApi,
@@ -143,6 +143,7 @@ import type {
     TextReprRequestApi,
     TextReprResponseApi,
     TraceApi,
+    TraceNodeDetailApi,
     TraceReviewApi,
     TraceReviewCreateApi,
     TranslateRequestApi,
@@ -669,6 +670,43 @@ export const aiObservabilityTracesRetrieve = async (
     options?: RequestInit
 ): Promise<TraceApi> => {
     return apiMutator<TraceApi>(getAiObservabilityTracesRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAiObservabilityTracesNodesRetrieveUrl = (
+    projectId: string,
+    id: string,
+    nodeId: string,
+    params?: AiObservabilityTracesNodesRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/ai_observability/traces/${id}/nodes/${nodeId}/?${stringifiedParams}`
+        : `/api/projects/${projectId}/ai_observability/traces/${id}/nodes/${nodeId}/`
+}
+
+/**
+ * One node of a trace: its event properties as ingested, the keys that hold its input, output and tools, its error and its metadata.
+ */
+export const aiObservabilityTracesNodesRetrieve = async (
+    projectId: string,
+    id: string,
+    nodeId: string,
+    params?: AiObservabilityTracesNodesRetrieveParams,
+    options?: RequestInit
+): Promise<TraceNodeDetailApi> => {
+    return apiMutator<TraceNodeDetailApi>(getAiObservabilityTracesNodesRetrieveUrl(projectId, id, nodeId, params), {
         ...options,
         method: 'GET',
     })
@@ -2946,23 +2984,6 @@ export const taggersList = async (
     return apiMutator<PaginatedTaggerListApi>(getTaggersListUrl(projectId, params), {
         ...options,
         method: 'GET',
-    })
-}
-
-export const getTaggersCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/taggers/`
-}
-
-export const taggersCreate = async (
-    projectId: string,
-    taggerCreateApi: TaggerCreateApi,
-    options?: RequestInit
-): Promise<TaggerApi> => {
-    return apiMutator<TaggerApi>(getTaggersCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(taggerCreateApi),
     })
 }
 

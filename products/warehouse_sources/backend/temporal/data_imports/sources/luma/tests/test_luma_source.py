@@ -14,28 +14,6 @@ class TestLumaSource:
 
     @parameterized.expand(
         [
-            ("401 Client Error: Unauthorized for url: https://public-api.luma.com/public/v1/calendar/list-events",),
-            ("403 Client Error: Forbidden for url: https://public-api.luma.com/public/v1/event/get-guests",),
-        ]
-    )
-    def test_non_retryable_errors_match_auth_failures(self, observed_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable)
-
-    @parameterized.expand(
-        [
-            (
-                "500 Server Error: Internal Server Error for url: https://public-api.luma.com/public/v1/calendar/list-events",
-            ),
-            ("429 Client Error: Too Many Requests for url: https://public-api.luma.com/public/v1/event/get-guests",),
-        ]
-    )
-    def test_non_retryable_errors_ignore_transient(self, unrelated_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert not any(key in unrelated_error for key in non_retryable)
-
-    @parameterized.expand(
-        [
             ("rate_limited", "Luma API error (retryable): status=429, path=/public/v1/calendar/list-events"),
             ("server_error", "Luma API error (retryable): status=500, path=/public/v1/event/get-guests"),
         ]

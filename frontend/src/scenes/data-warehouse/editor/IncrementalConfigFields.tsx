@@ -4,6 +4,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect'
 import { LemonRadio, LemonRadioOption } from 'lib/lemon-ui/LemonRadio'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 
 import { DataWarehouseSavedQueryIncrementalCheck } from '~/types'
@@ -181,10 +182,17 @@ function LookbackInput({ value, onChange }: { value: number; onChange: (value: n
 }
 
 interface IncrementalConfigOptionsProps {
-    /** Result of the backend eligibility check for the view's query. Nothing renders until it arrives. */
+    /** Result of the backend eligibility check for the view's query. */
     check: DataWarehouseSavedQueryIncrementalCheck | null
     draft: IncrementalConfigDraft
     onChange: (draft: Partial<IncrementalConfigDraft>) => void
+}
+
+export const INCREMENTAL_CHECK_LOADING: DataWarehouseSavedQueryIncrementalCheck = {
+    eligible: false,
+    key_candidates: [],
+    blockers: [],
+    warnings: [],
 }
 
 /**
@@ -196,6 +204,14 @@ export function IncrementalConfigOptions({
     draft,
     onChange,
 }: IncrementalConfigOptionsProps): JSX.Element | null {
+    if (check === INCREMENTAL_CHECK_LOADING) {
+        return (
+            <div className="mt-4 deprecated-space-y-2" data-attr="materialization-refresh-mode-loading">
+                <LemonSkeleton className="h-8 w-full" repeat={2} />
+            </div>
+        )
+    }
+
     if (!check) {
         return null
     }

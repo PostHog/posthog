@@ -105,7 +105,7 @@ class LodgifySource(ResumableSource[LodgifySourceConfig, LodgifyResumeConfig]):
             label="Lodgify",
             caption="Copy your API key from Lodgify Settings > Public API.",
             iconPath="/static/services/lodgify.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

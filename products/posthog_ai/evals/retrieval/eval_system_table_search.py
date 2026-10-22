@@ -34,6 +34,7 @@ from products.posthog_ai.eval_harness.base import SandboxedPublicEval
 from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.seeders.insight import seed_insight_noise
+from products.posthog_ai.evals.offline_config import offline_suite
 from products.posthog_ai.evals.retrieval.scorers import InfoCalledBeforeTool, InformationSchemaBeforeSql
 
 
@@ -73,6 +74,10 @@ async def eval_system_table_search(ctx: EvalContext) -> None:
 
     await SandboxedPublicEval(
         experiment_name="sandboxed-system-table-search-cli",
+        offline_suite=offline_suite(
+            "retrieval/eval_system_table_search::eval_system_table_search",
+            metrics=["information_schema_before_sql", "info_before_execute_sql"],
+        ),
         cases=cases,
         scorers=[
             InformationSchemaBeforeSql(),

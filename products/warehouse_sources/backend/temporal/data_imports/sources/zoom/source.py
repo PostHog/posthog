@@ -13,6 +13,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
     CanonicalDescriptions,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import (
+    OAUTH2_PERMANENT_ERROR_MARKER,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
@@ -110,6 +113,7 @@ class ZoomSource(ResumableSource[ZoomSourceConfig, ZoomResumeConfig]):
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
+            OAUTH2_PERMANENT_ERROR_MARKER: "Zoom rejected the client ID or client secret. Check the account ID, client ID and client secret, then reconnect.",
             "401 Client Error": "Zoom authentication failed. Please check your account ID, client ID, and client secret.",
             "Invalid access token": "Zoom authentication failed. Please reconnect the source.",
             "403 Client Error": "Your Zoom app is missing the required scopes. Grant user/meeting/webinar read scopes and reconnect.",

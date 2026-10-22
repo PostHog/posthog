@@ -15,6 +15,8 @@ import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 import { TeamManager } from '~/common/utils/team-manager'
 import { UUIDT } from '~/common/utils/utils'
 import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
+import { EventFilterManager } from '~/ingestion/common/event-filters'
+import { cond } from '~/ingestion/common/event-filters/test-helpers'
 import { OverflowRedirectService } from '~/ingestion/common/overflow-redirect/overflow-redirect-service'
 import { TopHogRegistry } from '~/ingestion/framework/extensions/tophog'
 import { createOkContext } from '~/ingestion/framework/helpers'
@@ -68,6 +70,7 @@ describe('ErrorTrackingPipeline', () => {
     let mockCymbalClient: jest.Mocked<CymbalClient>
     let mockGroupTypeManager: jest.Mocked<ReadOnlyGroupTypeManager>
     let mockEventIngestionRestrictionManager: jest.Mocked<EventIngestionRestrictionManager>
+    let mockEventFilterManager: jest.Mocked<EventFilterManager>
     let mockCookielessManager: jest.Mocked<CookielessManager>
     let promiseScheduler: PromiseScheduler
     let pipelineConfig: ErrorTrackingPipelineConfig
@@ -191,26 +194,25 @@ describe('ErrorTrackingPipeline', () => {
         return getProducedMessagesForTopic('error_tracking_overflow')
     }
 
-    /**
-     * Helper to get ingestion warnings that were queued.
-     * Ingestion warnings are sent via queueMessages to the ingestion_warnings topic.
-     */
-    const getIngestionWarnings = (): any[] => {
+    const getQueuedMessages = (topicFragment: string): any[] => {
         return mockKafkaProducer.queueMessages.mock.calls
             .filter((call) => {
                 const arg = call[0]
-                // queueMessages can receive a single TopicMessage or an array
                 const topicMessages = Array.isArray(arg) ? arg : [arg]
-                return topicMessages.some((tm: any) => tm.topic?.includes('ingestion_warnings'))
+                return topicMessages.some((tm: any) => tm.topic?.includes(topicFragment))
             })
             .flatMap((call) => {
                 const arg = call[0]
                 const topicMessages = Array.isArray(arg) ? arg : [arg]
                 return topicMessages
-                    .filter((tm: any) => tm.topic?.includes('ingestion_warnings'))
+                    .filter((tm: any) => tm.topic?.includes(topicFragment))
                     .flatMap((tm: any) => tm.messages.map((m: { value: string }) => parseJSON(m.value)))
             })
     }
+
+    const getIngestionWarnings = (): any[] => getQueuedMessages('ingestion_warnings')
+
+    const getAppMetrics = (): any[] => getQueuedMessages('app_metrics')
 
     /**
      * Creates a Cymbal response that includes enriched properties.
@@ -288,6 +290,10 @@ describe('ErrorTrackingPipeline', () => {
             forceRefresh: jest.fn(),
         } as unknown as jest.Mocked<EventIngestionRestrictionManager>
 
+        mockEventFilterManager = {
+            getFilter: jest.fn().mockReturnValue(null),
+        } as unknown as jest.Mocked<EventFilterManager>
+
         // Passthrough: non-cookieless events round-trip unchanged. The apply step
         // extracts `.value.event` from each result and reuses the original input
         // wrapper, so returning `ok(input)` is enough to leave events untouched.
@@ -335,6 +341,7 @@ describe('ErrorTrackingPipeline', () => {
             groupTypeManager: mockGroupTypeManager,
             cookielessManager: mockCookielessManager,
             eventIngestionRestrictionManager: mockEventIngestionRestrictionManager,
+            eventFilterManager: mockEventFilterManager,
             overflowMode: 'disabled',
             preservePartitionLocality: false,
             topHog: mockTopHog,
@@ -595,6 +602,30 @@ describe('ErrorTrackingPipeline', () => {
             expect(getProducedEvents()).toHaveLength(0)
             expect(getDLQMessages()).toHaveLength(0)
             expect(getOverflowMessages()).toHaveLength(0)
+        })
+
+        it('drops events matching a live event filter before Cymbal and records the drop', async () => {
+            mockEventFilterManager.getFilter.mockReturnValue({
+                id: 'filter-1',
+                team_id: team.id,
+                mode: 'live',
+                filter_tree: cond('distinct_id', 'exact', 'user-123'),
+            })
+
+            const pipeline = createErrorTrackingPipeline(pipelineConfig)
+            await runErrorTrackingPipeline(pipeline, [createKafkaMessage({})])
+
+            expect(mockCymbalClient.processExceptions).not.toHaveBeenCalled()
+            expect(getProducedEvents()).toHaveLength(0)
+            expect(getAppMetrics()).toEqual([
+                expect.objectContaining({
+                    team_id: team.id,
+                    app_source: 'event_filter',
+                    app_source_id: 'filter-1',
+                    metric_name: 'dropped',
+                    count: 1,
+                }),
+            ])
         })
 
         it('redirects events to overflow when FORCE_OVERFLOW restriction is set', async () => {

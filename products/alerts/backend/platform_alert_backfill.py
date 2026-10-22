@@ -13,25 +13,13 @@ from uuid import UUID
 import structlog
 
 from posthog.dataclasses import frozen
-from posthog.schema_enums import AlertCalculationInterval
 
 from products.alerts.backend.models.alert import AlertConfiguration
-from products.alerts.backend.platform_source_cycle import is_evaluated_on_the_platform
-from products.alerts_platform.backend.facade.api import disable_configurations, upsert_configuration
-from products.alerts_platform.backend.facade.contracts import SOURCE_CONDITION_KEY, PlatformAlertUpsert, SourceKind
-from products.alerts_platform.backend.facade.enums import PlatformAlertConfigurationRecurrenceUnit as RecurrenceUnit
+from products.alerts.backend.platform_source_cycle import platform_upsert_of
+from products.alerts_platform.backend.facade.api import disable_configurations, upsert_configuration, upsert_if_running
+from products.alerts_platform.backend.facade.contracts import SourceKind
 
 logger = structlog.get_logger(__name__)
-
-# Minutes for the 15-minute and hourly cadences, a calendar unit for the rest. A calendar unit reads its cadence
-# from the unit, so its minutes only feed the shard offset, which an anchored unit ignores.
-_RECURRENCE: dict[str, tuple[int, str | None]] = {
-    AlertCalculationInterval.EVERY_15_MINUTES: (15, None),
-    AlertCalculationInterval.HOURLY: (60, None),
-    AlertCalculationInterval.DAILY: (60 * 24, RecurrenceUnit.DAY),
-    AlertCalculationInterval.WEEKLY: (60 * 24 * 7, RecurrenceUnit.WEEK),
-    AlertCalculationInterval.MONTHLY: (60 * 24 * 30, RecurrenceUnit.MONTH),
-}
 
 
 @frozen
@@ -40,39 +28,6 @@ class BackfillCounts:
     updated: int
     skipped: int
     failed: int
-
-
-def _upsert(alert: AlertConfiguration) -> PlatformAlertUpsert | None:
-    """The copy of one alert, or None when the platform does not evaluate it in parallel."""
-    recurrence = _RECURRENCE.get(alert.calculation_interval or "")
-    if recurrence is None or not is_evaluated_on_the_platform(alert):
-        return None
-    check_interval_minutes, recurrence_unit = recurrence
-    return PlatformAlertUpsert(
-        legacy_configuration_id=alert.id,
-        team_id=alert.team_id,
-        name=alert.name,
-        enabled=alert.enabled,
-        source_kind=SourceKind.INSIGHT,
-        source_config={
-            "insight_id": alert.insight_id,
-            SOURCE_CONDITION_KEY: {
-                "threshold": alert.threshold.configuration if alert.threshold else None,
-                "comparison": alert.condition,
-            },
-        },
-        check_interval_minutes=check_interval_minutes,
-        recurrence_unit=recurrence_unit,
-        # The hourly cadence has no anchor here: production fires it at the alert's creation
-        # minute, while sixty minutes on the platform lands on a UTC grid.
-        anchor_time=alert.schedule_start_time if recurrence_unit is not None else None,
-        evaluation_periods=1,
-        datapoints_to_alarm=1,
-        cooldown_minutes=0,
-        schedule_restriction=alert.schedule_restriction,
-        next_check_at=alert.next_check_at,
-        snooze_until=alert.snoozed_until,
-    )
 
 
 def is_sampled(alert_id: UUID, sample_percent: int) -> bool:
@@ -103,7 +58,7 @@ def backfill_platform_insight_alert_configurations(
     skipped = 0
     failed = 0
     for alert in source.iterator():
-        upsert = _upsert(alert) if is_sampled(alert.id, sample_percent) else None
+        upsert = platform_upsert_of(alert) if is_sampled(alert.id, sample_percent) else None
         if upsert is None:
             skipped += 1
             continue
@@ -140,3 +95,14 @@ def disable_platform_insight_alert_configurations(
     disabled = disable_configurations(SourceKind.INSIGHT, team_id=team_id, legacy_configuration_ids=alert_ids)
     logger.info("platform_insight_alert_backfill.disabled", disabled=disabled, team_id=team_id)
     return disabled
+
+
+def follow_insight_alert(alert: AlertConfiguration) -> None:
+    """Copies an insight alert that was just created or turned back on, if its team runs insight on the platform.
+
+    Checks only read enabled copies, so no check would ever see this alert otherwise, and it would
+    stay off the platform until the next backfill.
+    """
+    upsert = platform_upsert_of(alert)
+    if upsert is not None:
+        upsert_if_running(upsert, revive=True)

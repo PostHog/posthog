@@ -154,7 +154,7 @@ class PowerBiAdminSource(ResumableSource[PowerBiAdminSourceConfig, PowerBiAdminR
             ),
             docsUrl="https://posthog.com/docs/cdp/sources/power-bi-admin",
             iconPath="/static/services/power_bi_admin.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

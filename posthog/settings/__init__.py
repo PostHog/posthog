@@ -77,6 +77,20 @@ INSTANCE_PREFERENCES = {
 }
 
 SITE_URL: str = os.getenv("SITE_URL", "http://localhost:8010").rstrip("/")
+# django-scim2 requires these service-provider settings.
+SCIM_SERVICE_PROVIDER = {
+    "NETLOC": SITE_URL.replace("http://", "").replace("https://", ""),
+    "AUTHENTICATION_SCHEMES": [
+        {
+            "type": "oauthbearertoken",
+            "name": "OAuth Bearer Token",
+            "description": "Authentication scheme using the OAuth Bearer Token Standard",
+            "specUri": "https://www.rfc-editor.org/rfc/rfc6750.txt",
+            "documentationUri": "https://posthog.com/docs/settings/scim",
+        }
+    ],
+    "GROUP_MODEL": "products.access_control.backend.models.role.Role",
+}
 NGROK_URL: str | None = os.getenv("NGROK_URL", None)
 INSTANCE_TAG: str = os.getenv("INSTANCE_TAG", "none")
 

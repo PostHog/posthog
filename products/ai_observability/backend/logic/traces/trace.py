@@ -66,6 +66,25 @@ class Trace:
         generation = pick_user_visible_generation(self.events)
         return [generation.id] if generation else []
 
+    @cached_property
+    def default_node_id(self) -> str:
+        if any(event.is_trace_event for event in self.events):
+            return self.id
+        first_generation = next((node for node in self.tree if node.event.kind == "generation"), None)
+        chosen = first_generation or next(iter(self.tree), None)
+        return chosen.event.id if chosen else self.id
+
+    @cached_property
+    def node_ids_by_alias(self) -> dict[str, str]:
+        aliases: dict[str, str] = {}
+        for event in self.events:
+            if event.is_annotation or event.is_trace_event:
+                continue
+            for alias in (event.row.generation_id, event.row.span_id):
+                if alias and alias != event.id:
+                    aliases.setdefault(alias, event.id)
+        return aliases
+
     @property
     def person_label(self) -> str | None:
         if self.person is None or not self.person.distinct_id:

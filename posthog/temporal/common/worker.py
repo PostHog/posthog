@@ -43,6 +43,8 @@ from posthog.temporal.common.posthog_client import PostHogClientInterceptor
 from posthog.temporal.common.slo_interceptor import SloInterceptor
 from posthog.temporal.common.utils import configure_asyncify_executor, shutdown_asyncify_executor
 from posthog.temporal.data_modeling.metrics import (
+    DATA_MODELING_DURATION_HISTOGRAM_BUCKETS,
+    DATA_MODELING_DURATION_HISTOGRAM_METRICS,
     DATA_MODELING_LATENCY_HISTOGRAM_BUCKETS,
     DATA_MODELING_LATENCY_HISTOGRAM_METRICS,
 )
@@ -91,12 +93,16 @@ from products.logs.backend.facade.temporal import (
     LogsAlertingMetricsInterceptor,
 )
 from products.tasks.backend.facade.temporal import (
+    TASKS_CPU_PRESSURE_RATIO_HISTOGRAM_BUCKETS,
+    TASKS_CPU_PRESSURE_RATIO_HISTOGRAM_METRICS,
     TASKS_LATENCY_HISTOGRAM_BUCKETS,
     TASKS_LATENCY_HISTOGRAM_METRICS,
     TASKS_LAUNCH_PREPARATION_HISTOGRAM_BUCKETS,
     TASKS_LAUNCH_PREPARATION_HISTOGRAM_METRICS,
     TASKS_MEMORY_PEAK_RATIO_HISTOGRAM_BUCKETS,
     TASKS_MEMORY_PEAK_RATIO_HISTOGRAM_METRICS,
+    TASKS_NETWORK_BYTES_HISTOGRAM_BUCKETS,
+    TASKS_NETWORK_BYTES_HISTOGRAM_METRICS,
     TASKS_RUN_TOKENS_HISTOGRAM_BUCKETS,
     TASKS_RUN_TOKENS_HISTOGRAM_METRICS,
     TASKS_RUN_TURNS_HISTOGRAM_BUCKETS,
@@ -375,6 +381,12 @@ async def create_worker(
         )
         | dict(
             zip(
+                TASKS_CPU_PRESSURE_RATIO_HISTOGRAM_METRICS, itertools.repeat(TASKS_CPU_PRESSURE_RATIO_HISTOGRAM_BUCKETS)
+            )
+        )
+        | dict(zip(TASKS_NETWORK_BYTES_HISTOGRAM_METRICS, itertools.repeat(TASKS_NETWORK_BYTES_HISTOGRAM_BUCKETS)))
+        | dict(
+            zip(
                 EVAL_REPORTS_LATENCY_HISTOGRAM_METRICS,
                 itertools.repeat(EVAL_REPORTS_LATENCY_HISTOGRAM_BUCKETS),
             )
@@ -430,6 +442,12 @@ async def create_worker(
             zip(
                 DATA_MODELING_LATENCY_HISTOGRAM_METRICS,
                 itertools.repeat(DATA_MODELING_LATENCY_HISTOGRAM_BUCKETS),
+            )
+        )
+        histogram_bucket_overrides |= dict(
+            zip(
+                DATA_MODELING_DURATION_HISTOGRAM_METRICS,
+                itertools.repeat(DATA_MODELING_DURATION_HISTOGRAM_BUCKETS),
             )
         )
     if task_queue == settings.DATA_WAREHOUSE_TASK_QUEUE:

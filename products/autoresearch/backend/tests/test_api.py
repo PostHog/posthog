@@ -1111,16 +1111,72 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
         pipeline = self._make_trained_pipeline()
         resp = self.client.patch(
             f"{self.base_url}/{pipeline.id}/",
-            {"name": "Renamed", "cadence_days": 3, "iterations_per_run": 8, "research_interval_days": None},
+            {
+                "name": "Renamed",
+                "cadence_days": 3,
+                "iterations_per_run": 8,
+                "research_interval_days": None,
+                "agent_model": "gpt-6.1-sol",
+                "agent_reasoning_effort": "high",
+            },
             format="json",
         )
         assert resp.status_code == status.HTTP_200_OK, resp.json()
         assert resp.json()["next_research_at"] is None
+        assert (resp.json()["effective_agent_model"], resp.json()["effective_agent_reasoning_effort"]) == (
+            "gpt-6.1-sol",
+            "high",
+        )
         pipeline.refresh_from_db()
         assert pipeline.name == "Renamed"
         assert pipeline.cadence_days == 3
         assert pipeline.iterations_per_run == 8
         assert pipeline.research_interval_days is None
+        assert (pipeline.agent_model, pipeline.agent_reasoning_effort) == ("gpt-6.1-sol", "high")
+
+    @parameterized.expand(
+        [
+            ("unknown_model", {}, {"agent_model": "not-a-model"}, "agent_model"),
+            (
+                "effort_the_model_lacks",
+                {},
+                {"agent_model": "gpt-5", "agent_reasoning_effort": "max"},
+                "agent_reasoning_effort",
+            ),
+            ("unknown_effort_on_the_default_model", {}, {"agent_reasoning_effort": "turbo"}, "agent_reasoning_effort"),
+            (
+                "effort_against_the_stored_model",
+                {"agent_model": "gpt-5"},
+                {"agent_reasoning_effort": "max"},
+                "agent_reasoning_effort",
+            ),
+            (
+                "clearing_the_model",
+                {"agent_model": "gpt-5", "agent_reasoning_effort": "high"},
+                {"agent_model": None},
+                None,
+            ),
+        ]
+    )
+    def test_agent_model_settings_are_validated(
+        self, _name: str, stored: dict, payload: dict, rejected_field: str | None
+    ):
+        pipeline = self._make_pipeline(**stored)
+        resp = self.client.patch(f"{self.base_url}/{pipeline.id}/", payload, format="json")
+        if rejected_field is None:
+            assert resp.status_code == status.HTTP_200_OK, resp.json()
+            assert (resp.json()["effective_agent_model"], resp.json()["effective_agent_reasoning_effort"]) == (
+                "claude-opus-5-5",
+                "high",
+            )
+            return
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+        assert resp.json()["attr"] == rejected_field
+        pipeline.refresh_from_db()
+        assert (pipeline.agent_model, pipeline.agent_reasoning_effort) == (
+            stored.get("agent_model"),
+            stored.get("agent_reasoning_effort"),
+        )
 
     def test_resubmitting_unchanged_target_after_training_is_allowed(self):
         pipeline = self._make_trained_pipeline()

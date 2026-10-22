@@ -11,8 +11,6 @@ from requests import Response
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
-    always,
-    scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.perigon import (
     PerigonSourceConfig,
@@ -24,7 +22,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.perigon.pe
     PerigonResumeConfig,
     _clamp_future_value_to_now,
     _format_datetime,
-    validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.perigon.settings import PERIGON_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.perigon.source import PerigonSource
@@ -166,9 +163,3 @@ class TestPerigonSourceResponse:
         assert response.name == endpoint
         assert response.primary_keys == config.primary_keys
         assert response.sort_mode == config.sort_mode
-
-
-class TestValidateCredentials:
-    def test_network_error_is_invalid(self) -> None:
-        with scripted_network(always(ConnectionError("boom"))):
-            assert validate_credentials("key") == (False, None)

@@ -143,6 +143,9 @@ jobs:
                         - 'packages/quill/**'
                         - 'ee/frontend/**'
                         - 'services/mcp/src/ui-apps/**'
+                        # Served to the replay stories through staticDirs, so it never
+                        # enters the module graph. WF013 checks each staticDirs source.
+                        - 'posthog/templates/replay_player_frame/**'
                         - '.storybook/**'
                         - 'package.json'
                         - '.github/workflows/ci-storybook.yml'
@@ -456,6 +459,7 @@ jobs:
             && needs.changes.outputs.frontend == 'true'
             && needs.build-storybook.result == 'success'
             && needs.select-stories.outputs.should_run != 'false'
+            && github.repository == 'PostHog/posthog'
             && (github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push')
         outputs:
             run_id: ${{ steps.create.outputs.run_id }}
@@ -754,7 +758,7 @@ jobs:
             # from the base branch (see vr-setup for the rationale), which also keeps fork
             # code out of the CLI.
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-              if: always() && (needs.vr-setup.outputs.run_id != '' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository))
+              if: always() && (needs.vr-setup.outputs.run_id != '' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) || github.repository != 'PostHog/posthog')
               with:
                   ref: ${{ github.event.pull_request.base.ref || github.sha }}
                   path: vr-cli
@@ -768,7 +772,7 @@ jobs:
             # the cache version. The save below writes the container version.
             - name: Restore VR CLI build
               id: restore-vr-cli
-              if: always() && (needs.vr-setup.outputs.run_id != '' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository))
+              if: always() && (needs.vr-setup.outputs.run_id != '' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) || github.repository != 'PostHog/posthog')
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: |
@@ -779,7 +783,7 @@ jobs:
             # Runs only on a miss, and retries the install for the reason given at vr-setup.
             - name: Build VR CLI
               id: build-vr-cli
-              if: always() && (needs.vr-setup.outputs.run_id != '' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository)) && steps.restore-vr-cli.outputs.cache-hit != 'true'
+              if: always() && (needs.vr-setup.outputs.run_id != '' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) || github.repository != 'PostHog/posthog') && steps.restore-vr-cli.outputs.cache-hit != 'true'
               timeout-minutes: 8
               shell: bash
               working-directory: vr-cli/products/visual_review/cli
@@ -826,7 +830,7 @@ jobs:
             # !cancelled() keeps the check after a test-runner failure. A failed CLI build
             # fails this step too, so a fork PR never passes unverified.
             - name: Verify snapshots against the baseline offline
-              if: ${{ !cancelled() && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) }}
+              if: ${{ !cancelled() && ((github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) || github.repository != 'PostHog/posthog') }}
               shell: bash
               run: |
                   set +e
@@ -839,7 +843,7 @@ jobs:
                   {
                       echo "### Offline snapshot check (${{ matrix.browser }} ${{ matrix.shard }}/${{ matrix.shard_count }})"
                       echo
-                      echo "Fork PRs get no Visual Review run, so this shard compares its screenshots with \`frontend/snapshots.yml\` offline."
+                      echo "This run has no Visual Review run, so this shard compares its screenshots with \`frontend/snapshots.yml\` offline."
                       echo "This fallback accepts only an exact pixel match. It does not know the tolerated hashes or the quarantine of Visual Review, so a flaky story can also fail it."
                       echo
                       echo '```'
@@ -847,7 +851,7 @@ jobs:
                       echo '```'
                   } >> "$GITHUB_STEP_SUMMARY"
                   if [ "$status" -ne 0 ] && grep -q 'Baseline mismatch' /tmp/vr-verify.log; then
-                      echo "::error title=Snapshots differ from the baseline::This shard's screenshots do not match frontend/snapshots.yml. Fork PRs get no Visual Review run, so this offline fallback accepts only an exact pixel match, without the tolerated hashes or the quarantine of Visual Review. A maintainer must review the change and update the baseline before this PR can merge. The job log lists the snapshots that differ."
+                      echo "::error title=Snapshots differ from the baseline::This shard's screenshots do not match frontend/snapshots.yml. This run has no Visual Review run, so this offline fallback accepts only an exact pixel match, without the tolerated hashes or the quarantine of Visual Review. A maintainer must review the change and update the baseline before this PR can merge. The job log lists the snapshots that differ."
                   elif [ "$status" -ne 0 ]; then
                       echo "::error title=Offline snapshot check failed::The offline snapshot check could not compare this shard's screenshots. The job log shows the error."
                   fi

@@ -64,6 +64,8 @@ from posthog.taxonomy.definition_search import (
 from posthog.taxonomy.taxonomy import CORE_EVENTS, STALE_EVENT_DAYS
 from posthog.utils import get_safe_cache, relative_date_parse
 
+from products.event_definitions.backend.models.property_definition import effective_project_id_expr
+
 # If EE is enabled, we use ee.api.ee_event_definition.EnterpriseEventDefinitionSerializer
 
 EVENT_DEFINITIONS_TIMED_OUT_COUNTER = Counter(
@@ -781,11 +783,17 @@ class EventDefinitionViewSet(
         if EE_AVAILABLE:
             from ee.models.event_definition import EnterpriseEventDefinition
 
-            enterprise_event = EnterpriseEventDefinition.objects.filter(**filters).first()
+            enterprise_event = (
+                EnterpriseEventDefinition.objects.alias(effective_project_id=effective_project_id_expr())
+                .filter(**filters)
+                .first()
+            )
             if enterprise_event:
                 return enterprise_event
 
-            non_enterprise_event = EventDefinition.objects.get(**filters)
+            non_enterprise_event = EventDefinition.objects.alias(effective_project_id=effective_project_id_expr()).get(
+                **filters
+            )
             new_enterprise_event = EnterpriseEventDefinition(
                 eventdefinition_ptr_id=non_enterprise_event.id, description=""
             )
@@ -802,7 +810,7 @@ class EventDefinitionViewSet(
                 return existing
             return new_enterprise_event
 
-        return EventDefinition.objects.get(**filters)
+        return EventDefinition.objects.alias(effective_project_id=effective_project_id_expr()).get(**filters)
 
     def get_serializer_class(self) -> type[serializers.ModelSerializer]:
         serializer_class = self.serializer_class
@@ -1122,7 +1130,7 @@ class EventDefinitionViewSet(
             )
 
         try:
-            event_def = self._get_event_definition(name=event_name, team__project_id=self.project_id)
+            event_def = self._get_event_definition(name=event_name, effective_project_id=self.project_id)
         except EventDefinition.DoesNotExist:
             event_def = None
 
@@ -1160,10 +1168,11 @@ class EventDefinitionViewSet(
         EventDefinition. Callers should fall back to the core taxonomy defaults client-side
         for names not present in the response.
         """
-        queryset = EventDefinition.objects.filter(
-            team__project_id=self.project_id,
-            primary_property__isnull=False,
-        ).exclude(primary_property="")
+        queryset = (
+            EventDefinition.objects.alias(effective_project_id=effective_project_id_expr())
+            .filter(effective_project_id=self.project_id, primary_property__isnull=False)
+            .exclude(primary_property="")
+        )
 
         names = [name for name in request.query_params.getlist("names") if name]
         if names:

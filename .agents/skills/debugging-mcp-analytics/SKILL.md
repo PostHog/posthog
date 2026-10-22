@@ -278,8 +278,10 @@ reports), `MCPIntentEmbeddingCache`.
 
 **Seeding local data:** `./manage.py seed_mcp_sessions --team-id N`
 (`backend/management/commands/`), with `--sessions`, `--min-calls`/`--max-calls`, `--days`,
-`--missing-capabilities`, `--seed`, and `--clear`. Seeded events are tagged `$mcp_seeded` so
+`--missing-capabilities`, `--feedback`, `--surge-tool`, `--seed`, and `--clear`. Seeded events are tagged `$mcp_seeded` so
 `--clear` removes only seeded data.
+The defaults spread 2,000 sessions over 30 days with smooth growth toward now, cover every harness label and every AI lab, and make one tool regress near the end of the window.
+Dashboard queries are cached, so a card loaded before seeding can stay empty: pick a different date range to see the new data.
 
 ## Which repo to change
 

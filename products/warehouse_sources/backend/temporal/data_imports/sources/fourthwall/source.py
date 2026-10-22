@@ -231,7 +231,7 @@ class FourthwallSource(
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             webhookSetupCaption=(
                 "PostHog tries to register a webhook on your shop using the API user above, "
                 "subscribed to the order, donation and membership events.\n\n"

@@ -49,6 +49,18 @@ const acceptedQueries = [
         shape: 'bare WebStatsTableQuery',
         query: { kind: 'WebStatsTableQuery', breakdownBy: 'Page', properties: [], dateRange: { date_from: '-7d' } },
     },
+    {
+        shape: 'bare MetricsQuery',
+        query: {
+            kind: 'MetricsQuery',
+            clauses: [{ name: 'a', metricName: 'process.cpu.utilization', aggregation: 'avg' }],
+            dateRange: { date_from: '-24h' },
+        },
+    },
+    {
+        shape: 'bare MetricsHistogramQuery',
+        query: { kind: 'MetricsHistogramQuery', metricName: 'http.server.duration' },
+    },
 ]
 
 const tools = [

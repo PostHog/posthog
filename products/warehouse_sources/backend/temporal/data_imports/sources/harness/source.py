@@ -110,11 +110,13 @@ class HarnessSource(ResumableSource[HarnessSourceConfig, HarnessResumeConfig]):
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Harness",
             iconPath="/static/services/harness.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption=(
                 "In Harness, open **My Profile > My API Keys** to create an API key and token. "
-                "Paste the token below. Give it view permission for pipelines, executions, services, and environments in your project. "
-                "Each connection imports one project. All tables use full refresh."
+                "Paste the token below. Give it view permission for pipelines, executions, services, and environments in your project, "
+                "and for organizations and projects in your account. "
+                "The organizations and projects tables list your whole account. The other tables import the selected project. "
+                "All tables use full refresh."
             ),
             fields=cast(
                 list[FieldType],

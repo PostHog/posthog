@@ -66,7 +66,7 @@ Motion rate limits API keys, and individual accounts get a much smaller allowanc
             iconPath="/static/services/motion.png",
             docsUrl="https://posthog.com/docs/cdp/sources/motion",
             keywords=["usemotion", "calendar", "tasks"],
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

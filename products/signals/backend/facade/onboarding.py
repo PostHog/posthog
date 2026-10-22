@@ -13,6 +13,7 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from products.replay_vision.backend.facade.api import signal_emitting_scanner_ids
+from products.signals.backend.first_report_notification import register_first_report_notification
 from products.signals.backend.models import (
     AutonomyPriority,
     SignalScoutConfig,
@@ -203,6 +204,7 @@ class InboxOnboarding:
                 config.save(
                     update_fields=["onboarding", "autostart_enabled", "default_autostart_priority", "updated_at"]
                 )
+                register_first_report_notification(team=self.team, user=user)
                 if resume_operational_scouts:
                     InboxOnboardingScouts.resume(scout_team_id, withheld, lambda: self.authorize_scouts(True))
                 transaction.on_commit(lambda: self._report_completion(user, config), robust=True)

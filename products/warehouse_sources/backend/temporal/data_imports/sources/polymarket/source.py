@@ -56,7 +56,7 @@ class PolymarketSource(ResumableSource[PolymarketSourceConfig, PolymarketResumeC
             name=ExternalDataSourceType.POLYMARKET,
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="Polymarket",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Polymarket's Gamma API is public, so this source needs no API key.
 
 It syncs events, markets, series, tags, and the all-time biggest wins board. Order books, price history, and wallet positions are not supported yet.""",

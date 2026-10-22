@@ -1,0 +1,38 @@
+.RetentionPeopleTable {
+    width: 100%;
+    font-weight: 500;
+    border-spacing: 0;
+    border-collapse: separate;
+
+    th {
+        padding: 0.625rem 0.5rem;
+        font-weight: 500;
+        text-align: left;
+        white-space: nowrap;
+    }
+
+    td {
+        padding: 0 0.15rem;
+    }
+
+    .RetentionPeopleTable__Tab {
+        min-height: 2rem;
+        padding: 0.5rem;
+        margin: 2px;
+        text-align: right;
+        background-color: var(--retention-table-color); // NOTE: This is usually overridden in JS
+        border-radius: var(--radius);
+    }
+
+    .RetentionPeopleTable__SelectedColumn {
+        &--header {
+            font-weight: 600;
+            background-color: var(--color-bg-fill-highlight-100);
+            border-radius: var(--radius) var(--radius) 0 0;
+        }
+
+        &--cell {
+            background-color: var(--color-bg-fill-highlight-100);
+        }
+    }
+}

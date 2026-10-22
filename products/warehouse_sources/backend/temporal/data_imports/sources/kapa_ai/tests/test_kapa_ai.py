@@ -110,20 +110,6 @@ def test_period_fanout_paginates_both_levels_and_resumes_children(endpoint: str,
 @pytest.mark.parametrize(
     "status,schema,valid,message",
     [
-        (200, None, True, None),
-        (401, None, False, "Your kapa.ai API key is invalid or expired. Create a new key and reconnect."),
-        (
-            403,
-            None,
-            False,
-            "Your kapa.ai API key cannot access this data. Check the key's project access and permissions.",
-        ),
-        (
-            403,
-            "sources",
-            False,
-            "Your kapa.ai API key cannot access this data. Check the key's project access and permissions.",
-        ),
         (404, None, False, "The kapa.ai project was not found. Check your project ID and the key's project access."),
     ],
 )

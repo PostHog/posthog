@@ -7,9 +7,12 @@ from urllib.parse import quote, urlencode
 import requests
 from dateutil import parser as dateutil_parser
 from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    make_tracked_session,
+    retry_with_deadline,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.nuget.settings import (
@@ -99,7 +102,7 @@ def _resolve_resource(service_index: dict[str, Any], preferred_types: tuple[str,
     raise ValueError(f"NuGet service index has no resource of type {preferred_types[0]}")
 
 
-@retry(
+@retry_with_deadline(
     retry=retry_if_exception_type(
         (NugetRetryableError, requests.ReadTimeout, requests.ConnectionError, requests.exceptions.ChunkedEncodingError)
     ),

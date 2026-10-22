@@ -886,12 +886,12 @@ def _draft_opportunity(
         _fail_unfinished_proposal(opportunity.proposal, TIMED_OUT_PROPOSAL_MESSAGE)
         raise
     except ContentAutopilotLLMError as error:
-        errors.append({"error_code": "generation_failed", "message": f"{title}: {error}"})
+        errors.append({"error_code": "draft_failed", "message": f"{title}: {error}"})
         _fail_proposal(opportunity.proposal, str(error))
     except Exception as error:
         capture_exception(error)
         logger.exception("content_autopilot_generation_failed", team_id=run.team_id, run_id=str(run.id))
-        errors.append({"error_code": "generation_failed", "message": f"{title}: something went wrong while drafting."})
+        errors.append({"error_code": "draft_failed", "message": f"{title}: something went wrong while drafting."})
         opportunity.refresh_from_db(fields=["proposal"])
         _fail_proposal(opportunity.proposal, "Something went wrong while drafting. Regenerate to try again.")
     finally:

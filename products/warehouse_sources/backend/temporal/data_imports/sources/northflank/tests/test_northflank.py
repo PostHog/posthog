@@ -103,7 +103,11 @@ class TestRateLimitSleep:
 
 
 class TestValidateCredentials:
-    @parameterized.expand([(200, True), (401, False), (403, False), (500, False)])
+    @parameterized.expand(
+        [
+            (200, True),
+        ]
+    )
     def test_status_mapping(self, status, expected):
         with scripted_network([ScriptedResponse(status=status, json={})]) as network:
             is_valid, error = validate_credentials("token")

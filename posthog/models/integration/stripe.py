@@ -121,7 +121,7 @@ class StripeIntegration:
         from stripe import StripeClient  # noqa: PLC0415
 
         try:
-            oauth_config = oauth.OauthIntegration.oauth_config_for_kind("stripe")
+            client = oauth.OauthIntegration.client_credentials_for_kind("stripe")
         except NotImplementedError as e:
             capture_exception(
                 e,
@@ -130,7 +130,7 @@ class StripeIntegration:
                 },
             )
             return None
-        return StripeClient(oauth_config.client_secret)
+        return StripeClient(client.client_secret)
 
     def write_posthog_secrets(self, team_id: int, created_by: "User") -> StripeSecretPublication:
         """Write PostHog OAuth tokens to Stripe's Secret Store so the Stripe App can call PostHog APIs."""
@@ -219,30 +219,31 @@ class StripeIntegration:
         if not stripe_user_id:
             raise ValueError("Missing stripe_user_id on integration")
 
-        client = self._stripe_client()
-        if client is None:
+        try:
+            client = self._stripe_client()
+            if client is None:
+                return
+
+            for name in STRIPE_POSTHOG_SECRET_NAMES:
+                try:
+                    client.apps.secrets.delete_where(
+                        params={
+                            "scope": {"type": "account"},
+                            "name": name,
+                        },
+                        options={"stripe_account": stripe_user_id},
+                    )
+                except Exception as e:
+                    capture_exception(
+                        e,
+                        {
+                            "secret_name": name,
+                            "stripe_user_id": stripe_user_id,
+                        },
+                    )
+        finally:
+            # Revoke locally even when the credentials service lookup raises.
             self._destroy_posthog_oauth_tokens()
-            return
-
-        for name in STRIPE_POSTHOG_SECRET_NAMES:
-            try:
-                client.apps.secrets.delete_where(
-                    params={
-                        "scope": {"type": "account"},
-                        "name": name,
-                    },
-                    options={"stripe_account": stripe_user_id},
-                )
-            except Exception as e:
-                capture_exception(
-                    e,
-                    {
-                        "secret_name": name,
-                        "stripe_user_id": stripe_user_id,
-                    },
-                )
-
-        self._destroy_posthog_oauth_tokens()
 
     def _destroy_posthog_oauth_tokens(self) -> None:
         """Delete the local OAuth access and refresh tokens created for this Stripe integration."""

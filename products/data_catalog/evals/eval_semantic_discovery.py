@@ -21,6 +21,7 @@ from products.data_catalog.evals.constants import (
     RELATIONSHIP_SOURCE_NAME,
     RELATIONSHIP_TARGET_KEY,
 )
+from products.data_catalog.evals.offline_config import offline_suite
 from products.data_catalog.evals.scorers import (
     DeprecationProposed,
     SemanticMetadataQueried,
@@ -118,6 +119,10 @@ async def eval_semantic_discovery(ctx: EvalContext) -> None:
 
     await SandboxedPublicEval(
         experiment_name="sandboxed-semantic-discovery-cli",
+        offline_suite=offline_suite(
+            "data_catalog/eval_semantic_discovery::eval_semantic_discovery",
+            metrics=["semantic_metadata_queried", "semantic_trust_decision_correctness", "deprecation_proposed"],
+        ),
         cases=cases,
         scorers=[SemanticMetadataQueried(), SemanticTrustDecisionCorrectness(), DeprecationProposed()],
         ctx=ctx,

@@ -1,5 +1,6 @@
 import json
 import uuid
+from datetime import datetime
 from typing import Annotated, Any, cast
 from zoneinfo import ZoneInfo
 
@@ -90,7 +91,12 @@ from products.alerts.backend.facade.api import (
     is_llm_detector_config,
     llm_detector_access_error,
 )
-from products.alerts.backend.facade.contracts import INSIGHT_ALERT_DESTINATION_TYPES, INSIGHT_ALERT_EVENT_IDS
+from products.alerts.backend.facade.contracts import (
+    INSIGHT_ALERT_DESTINATION_TYPES,
+    INSIGHT_ALERT_EVENT_IDS,
+    MovedAlertCheck,
+    PlatformCannotOwn,
+)
 from products.alerts.backend.facade.destinations import (
     MAX_DESTINATION_IDS_PER_DELETE_REQUEST,
     MAX_DESTINATIONS_PER_ALERT,
@@ -101,9 +107,19 @@ from products.alerts.backend.facade.destinations import (
     validate_destination_data,
 )
 from products.alerts.backend.facade.evaluation import DelayedEvaluationUnavailable, validate_evaluation_delay
+from products.alerts.backend.facade.platform import (
+    close_moved_alert_firings,
+    delete_moved_alert_copy,
+    follow_insight_alert,
+    hand_over_new_alert,
+    moved_alert_check_page,
+    moved_alert_statuses,
+    write_moved_alert_edit,
+)
 from products.alerts.backend.insight_alert_state_machine import (
     apply_disable,
     apply_enable,
+    apply_platform_state,
     apply_snooze,
     apply_threshold_change,
     apply_unsnooze,
@@ -119,6 +135,7 @@ from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationData,
     AlertDestinationValidationError,
     DestinationType,
+    InvalidPlatformAlertEdit,
 )
 from products.alerts_platform.backend.facade.scheduling import validate_and_normalize_schedule_start_time
 from products.alerts_platform.backend.presentation.views.schedule_restriction import ScheduleRestrictionField
@@ -889,6 +906,8 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             if instance.schedule_start_time is not None:
                 instance.next_check_at = next_check_at_after_schedule_restriction_change(instance)
                 instance.save(update_fields=["next_check_at"])
+            if hand_over_new_alert(team_id=instance.team_id, alert_id=instance.id, at=timezone.now()):
+                instance.refresh_from_db(fields=["owner", "owner_changed_at"])
 
         for user in subscribed_users:
             AlertSubscription.objects.create(
@@ -899,6 +918,11 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             self.context["request"].user,
             analytics_props=get_request_analytics_properties(self.context["request"]),
         )
+        # A handed-over copy is the platform's now, and a revived copy would lose its state.
+        if instance.enabled and not instance.platform_owned:
+            transaction.on_commit(
+                lambda: follow_insight_alert(team_id=instance.team_id, alert_id=instance.id), robust=True
+            )
         return instance
 
     @transaction.atomic
@@ -1018,11 +1042,26 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
         if schedule_restriction_changed or schedule_start_time_changed:
             instance.next_check_at = next_check_at_after_schedule_restriction_change(instance)
             instance.save(update_fields=["next_check_at"])
+        if instance.platform_owned:
+            try:
+                write_moved_alert_edit(
+                    team_id=instance.team_id,
+                    alert_id=instance.id,
+                    snooze_changed=snoozed_until_param is not serializers.empty,
+                )
+            except PlatformCannotOwn as error:
+                raise ValidationError(str(error)) from error
+            except InvalidPlatformAlertEdit as error:
+                raise ValidationError({error.field_name: str(error)}) from error
 
         instance.report_updated(
             self.context["request"].user,
             analytics_props=get_request_analytics_properties(self.context["request"]),
         )
+        if enable_now and not instance.platform_owned:
+            transaction.on_commit(
+                lambda: follow_insight_alert(team_id=instance.team_id, alert_id=instance.id), robust=True
+            )
         return instance
 
     def validate_schedule_start_time(self, value: str | None) -> str | None:
@@ -1415,6 +1454,39 @@ class AlertListFiltersSerializer(serializers.Serializer):
     has_detector = OptionalBooleanField(required=False)
 
 
+def _show_platform_status(alerts: list[AlertConfiguration], *, now: datetime) -> None:
+    """Shows each alert the platform owns as the platform has it, in place. Its own row stops
+    moving once the insight stack stops checking it."""
+    moved = {alert.id: alert for alert in alerts if alert.platform_owned}
+    if not moved:
+        return
+    statuses = moved_alert_statuses(team_id=next(iter(moved.values())).team_id, alert_ids=list(moved), now=now)
+    for alert_id, moved_status in statuses.items():
+        alert = moved[alert_id]
+        if moved_status.runtime is not None:
+            apply_platform_state(alert, moved_status.runtime.state)
+            alert.next_check_at = moved_status.runtime.next_check_at
+            alert.last_notified_at = moved_status.runtime.last_notified_at
+        if moved_status.last_check is not None:
+            alert.last_checked_at = moved_status.last_check.checked_at
+            # Annotated from the alert's own checks, which stop once the shadow ends.
+            alert.last_value = moved_status.last_check.value  # type: ignore[attr-defined]
+
+
+def _as_alert_check(alert: AlertConfiguration, check: MovedAlertCheck) -> AlertCheck:
+    # Never saved. It carries what the check serializer shows.
+    return AlertCheck(
+        id=check.id,
+        alert_configuration=alert,
+        created_at=check.checked_at,
+        calculated_value=check.value,
+        condition=alert.condition,
+        state=check.state,
+        error={"message": check.error_message} if check.error_message else None,
+        targets_notified={},
+    )
+
+
 @extend_schema_view(
     list=extend_schema(
         parameters=[
@@ -1592,14 +1664,14 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         checks_qs = instance.alertcheck_set.select_related("investigation_notebook").order_by("-created_at")
 
         checks_date_from = request.query_params.get("checks_date_from")
-        if checks_date_from:
-            parsed_date = relative_date_parse(checks_date_from, ZoneInfo("UTC"))
-            checks_qs = checks_qs.filter(created_at__gte=parsed_date)
+        checks_since = relative_date_parse(checks_date_from, ZoneInfo("UTC")) if checks_date_from else None
+        if checks_since is not None:
+            checks_qs = checks_qs.filter(created_at__gte=checks_since)
 
         checks_date_to = request.query_params.get("checks_date_to")
-        if checks_date_to:
-            parsed_date = relative_date_parse(checks_date_to, ZoneInfo("UTC"))
-            checks_qs = checks_qs.filter(created_at__lte=parsed_date)
+        checks_until = relative_date_parse(checks_date_to, ZoneInfo("UTC")) if checks_date_to else None
+        if checks_until is not None:
+            checks_qs = checks_qs.filter(created_at__lte=checks_until)
 
         has_date_filter = checks_date_from or checks_date_to
         raw_limit = request.query_params.get("checks_limit")
@@ -1620,12 +1692,39 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         else:
             offset = 0
 
-        checks_total = checks_qs.count()
-        instance.checks_total = checks_total
-        offset = min(offset, checks_total)
-        instance.checks = checks_qs[offset : offset + limit]
+        _show_platform_status([instance], now=timezone.now())
+        platform_page = (
+            moved_alert_check_page(
+                team_id=instance.team_id,
+                alert_id=instance.id,
+                since=checks_since,
+                until=checks_until,
+                limit=limit,
+                offset=offset,
+            )
+            if instance.platform_owned
+            else None
+        )
+        if platform_page is not None:
+            instance.checks_total = platform_page.total
+            instance.checks = [_as_alert_check(instance, check) for check in platform_page.checks]
+        else:
+            checks_total = checks_qs.count()
+            instance.checks_total = checks_total
+            offset = min(offset, checks_total)
+            instance.checks = checks_qs[offset : offset + limit]
         serializer = self.get_serializer(instance)
         return Response(serializer.data)
+
+    def perform_destroy(self, instance: AlertConfiguration) -> None:
+        # Before the delete, while the destinations a firing's resolve goes to still exist.
+        if instance.platform_owned:
+            close_moved_alert_firings(team_id=instance.team_id, alert_id=instance.id)
+        # The copy and the alert go together, so a failed delete leaves no moved alert without its copy.
+        with transaction.atomic():
+            if instance.platform_owned:
+                delete_moved_alert_copy(team_id=instance.team_id, alert_id=instance.id)
+            super().perform_destroy(instance)
 
     def list(self, request, *args, **kwargs):
         queryset = self.filter_queryset(self.get_queryset())
@@ -1633,6 +1732,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # Paginate first, then prefetch checks only for the page
         page = self.paginate_queryset(queryset)
         alerts = list(page) if page is not None else list(queryset)
+        _show_platform_status(alerts, now=timezone.now())
 
         # Prefetch firing checks for anomaly point display on chart.
         if alerts:

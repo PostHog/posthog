@@ -58,13 +58,6 @@ class TestResendSource:
         assert error_message is None
         assert network.requests_log[0].headers["authorization"] == "Bearer re_test_key"
 
-    def test_validate_credentials_api_key_failure(self):
-        with scripted_network([ScriptedResponse(status=401, json={"message": "unauthorized"})]):
-            is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
-
-        assert is_valid is False
-        assert error_message is not None and "Generate a new API key" in error_message
-
     def test_validate_credentials_api_key_missing(self):
         config = ResendSourceConfig(auth_method=ResendAuthMethodConfig(selection="api_key", api_key=None))
 

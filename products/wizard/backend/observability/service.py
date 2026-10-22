@@ -5,14 +5,17 @@ from uuid import UUID
 
 from django.db import DatabaseError
 
+import structlog
+
 from products.wizard.backend.facade.contracts import WizardRunArtifactDTO, WizardRunDTO, WizardRunPullRequestArtifactDTO
 from products.wizard.backend.facade.enums import WizardRunStatus
 from products.wizard.backend.logic.workers.contracts import WizardWorkerTelemetry
+from products.wizard.backend.logic.workers.wizard_error_output import WizardErrorLine
 from products.wizard.backend.observability import events, metrics
 from products.wizard.backend.observability.contracts import WizardRunDispatchOutcome, WizardWorkerCleanupOutcome
 from products.wizard.backend.observability.worker_usage import worker_usage_observation
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 class WizardObservability:
@@ -31,16 +34,16 @@ class WizardObservability:
             try:
                 metric()
             except ValueError:
-                logger.exception(metric_error or f"{name}_metric_failed", extra=context)
+                logger.exception(metric_error or f"{name}_metric_failed", **context)
 
         if event is not None:
             try:
                 event()
             except (DatabaseError, ValueError):
-                logger.exception(event_error or f"{name}_event_failed", extra=context)
+                logger.exception(event_error or f"{name}_event_failed", **context)
 
         if level is not None:
-            logger.log(level, name, extra=context)
+            logger.log(level, name, **context)
 
     def run_created(self, run: WizardRunDTO) -> None:
         self._observe(
@@ -122,7 +125,7 @@ class WizardObservability:
         try:
             usage = worker_usage_observation(telemetry)
         except ValueError:
-            logger.exception("wizard_worker_usage_mapping_failed", extra=self._run_context(run))
+            logger.exception("wizard_worker_usage_mapping_failed", **self._run_context(run))
             return
 
         self._observe(
@@ -140,6 +143,18 @@ class WizardObservability:
             event=partial(events.enqueue_worker_usage, run, usage),
             metric_error="wizard_worker_usage_metric_failed",
             event_error="wizard_worker_usage_event_failed",
+        )
+
+    def wizard_execution_failed(self, run: WizardRunDTO, exit_code: int, wizard_error: WizardErrorLine | None) -> None:
+        self._observe(
+            name="wizard_execution_failed",
+            context={
+                **self._run_context(run),
+                "exit_code": exit_code,
+                "wizard_error_code": wizard_error.code if wizard_error is not None else None,
+                "wizard_error_message": wizard_error.message if wizard_error is not None else None,
+            },
+            level=logging.WARNING,
         )
 
     def git_diff_omitted(self, run: WizardRunDTO, size_bytes: int) -> None:

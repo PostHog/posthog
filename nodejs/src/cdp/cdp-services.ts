@@ -1,6 +1,7 @@
 import { AppMetricsOutput, HogInvocationResultsOutput, LogEntriesOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
+import { PersonReadRepository } from '~/common/persons/repositories/person-repository'
 import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { UsageIngestionConfig, createUsageIngestionClient, usageReportTeamMatcher } from '~/common/usage-ingestion'
 import { PostgresRouter } from '~/common/utils/db/postgres'
@@ -30,6 +31,7 @@ import { InvocationResultsService } from './services/invocation-results.service'
 import { HogFunctionManagerService } from './services/managers/hog-function-manager.service'
 import { HogFunctionTemplateManagerService } from './services/managers/hog-function-template-manager.service'
 import { IntegrationManagerService } from './services/managers/integration-manager.service'
+import { PersonsManagerService } from './services/managers/persons-manager.service'
 import { RecipientsManagerService } from './services/managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from './services/managers/team-workflows-config.service'
 import { EmailSuppressionService } from './services/messaging/email-suppression.service'
@@ -92,6 +94,7 @@ export interface CdpCoreServices {
     hogInputsService: HogInputsService
     hogFunctionTemplateManager: HogFunctionTemplateManagerService
     hogFlowFunctionsService: HogFlowFunctionsService
+    personsManager: PersonsManagerService
     recipientsManager: RecipientsManagerService
     recipientPreferencesService: RecipientPreferencesService
     emailSuppressionService: EmailSuppressionService
@@ -197,6 +200,7 @@ export interface CdpCoreServicesDeps {
     pubSub: PubSub
     encryptedFields: EncryptedFields
     teamManager: TeamManager
+    personRepository: PersonReadRepository
     integrationManager: IntegrationManagerService
     /** Registry of producers backing the CDP outputs (DEFAULT / MSK / Warpstream-ingestion / Warehouse). */
     cdpProducerRegistry: KafkaProducerRegistry<CdpProducerName>
@@ -437,6 +441,7 @@ export function createCdpCoreServices(
         transientBounceThreshold: config.EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD,
     })
     const recipientsManager = new RecipientsManagerService(deps.postgres)
+    const personsManager = new PersonsManagerService(deps.teamManager, deps.personRepository, config.SITE_URL)
     // Per-workflow send pacing rides the SES Valkey pool, which is only populated on pods that
     // execute email actions — exactly where the limit is enforced. Null elsewhere disables it.
     const workflowEmailRateLimiter = deps.emailValidationValkey
@@ -484,6 +489,7 @@ export function createCdpCoreServices(
         },
         // Valkey-only: push is pre-release, so it moved over whole rather than dual-writing.
         valkeyShadow.writer,
+        personsManager,
         messageAssetsService
     )
 
@@ -525,7 +531,11 @@ export function createCdpCoreServices(
         recipientsManager,
         emailSuppressionService,
         deps.frequencyCapValkey
-            ? { teamWorkflowsConfig: teamWorkflowsConfigService, valkey: deps.frequencyCapValkey }
+            ? {
+                  teamWorkflowsConfig: teamWorkflowsConfigService,
+                  valkey: deps.frequencyCapValkey,
+                  persons: personsManager,
+              }
             : undefined
     )
     // MX verdicts live on the dedicated SES Valkey (same instance as the SES rate
@@ -582,6 +592,7 @@ export function createCdpCoreServices(
         hogInputsService,
         hogFunctionTemplateManager,
         hogFlowFunctionsService,
+        personsManager,
         recipientsManager,
         recipientPreferencesService,
         emailSuppressionService,

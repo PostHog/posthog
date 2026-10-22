@@ -9,14 +9,20 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 
 from products.data_catalog.backend.facade.enums import CertificationStatus
-from products.warehouse_suggestions.backend.facade.contracts import CertifyPayload
-from products.warehouse_suggestions.backend.facade.enums import WarehouseSuggestionAssetOutcome
+from products.data_modeling.backend.facade.models import DAG, DataWarehouseSavedQuery, Node, NodeType
+from products.warehouse_suggestions.backend.facade.contracts import CertifyPayload, MaterializePayload
+from products.warehouse_suggestions.backend.facade.enums import (
+    WarehouseSuggestionAssetOutcome,
+    WarehouseSuggestionRefreshIntervalBasis,
+    WarehouseSuggestionRefreshMode,
+)
 from products.warehouse_suggestions.backend.logic.candidates.certify import CertifyCandidate
 from products.warehouse_suggestions.backend.logic.candidates.deprecate import DeprecateCandidate
 from products.warehouse_suggestions.backend.logic.candidates.materialize import (
     MaterializeCandidate,
     allowed_intervals,
     estimate_savings,
+    interval_basis,
 )
 from products.warehouse_suggestions.backend.logic.rules import RULES, Surface
 from products.warehouse_suggestions.backend.tests.factories import (
@@ -32,6 +38,11 @@ VIEW_ID = uuid4()
 AT_CERTIFY_FLOORS = {"human_users": 5, "human_days": 20}
 HOUR = timedelta(hours=1)
 DAY = timedelta(hours=24)
+DAILY_COUNTS = "SELECT toStartOfDay(timestamp) AS day, count() AS c FROM events GROUP BY day"
+DAILY_COUNT_COLUMNS = {
+    "day": {"hogql": "DateTimeDatabaseField", "clickhouse": "DateTime64(6, 'UTC')"},
+    "c": {"hogql": "IntegerDatabaseField", "clickhouse": "UInt64"},
+}
 
 
 class TestCertifyCandidate(SimpleTestCase):
@@ -128,12 +139,15 @@ class TestCertifyCandidate(SimpleTestCase):
 class TestMaterializeRules(SimpleTestCase):
     @parameterized.expand(
         [
-            ("read_most_days", 25, [HOUR, timedelta(hours=6), DAY]),
-            ("read_on_few_days", 10, [DAY]),
+            ("read_every_hour_on_most_days", 25, 25 * 24, [HOUR, timedelta(hours=6), DAY]),
+            ("read_a_few_times_a_day", 25, 25 * 3, [DAY]),
+            ("read_on_few_days", 10, 10 * 24, [DAY]),
         ]
     )
-    def test_read_cadence_sets_the_shortest_interval(self, _name: str, human_days: int, expected: list) -> None:
-        reads = busy_reads(human_days=human_days)
+    def test_read_cadence_sets_the_shortest_interval(
+        self, _name: str, human_days: int, human_requests: int, expected: list
+    ) -> None:
+        reads = busy_reads(human_days=human_days, human_requests=human_requests)
 
         intervals = allowed_intervals(
             context(team_reads({})), [HOUR, timedelta(hours=6), DAY, timedelta(days=7)], reads
@@ -157,18 +171,103 @@ class TestMaterializeRules(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("limited", "SELECT timestamp, event FROM events ORDER BY timestamp DESC LIMIT 10"),
-            ("no_key_column", "SELECT count() FROM events"),
+            (
+                "sources_allow_nothing_finer",
+                HOUR,
+                [HOUR, DAY],
+                True,
+                WarehouseSuggestionRefreshIntervalBasis.SOURCE_SYNC,
+            ),
+            (
+                "nothing_refreshes_faster",
+                HOUR,
+                [HOUR, DAY],
+                False,
+                WarehouseSuggestionRefreshIntervalBasis.FASTEST_SCHEDULE,
+            ),
+            ("reads_allow_nothing_finer", DAY, [DAY], False, WarehouseSuggestionRefreshIntervalBasis.READ_RATE),
+            (
+                "finer_ones_save_too_little",
+                DAY,
+                [timedelta(hours=6), DAY],
+                False,
+                WarehouseSuggestionRefreshIntervalBasis.SAVINGS,
+            ),
         ]
     )
-    def test_a_view_that_cannot_refresh_incrementally_is_not_proposed(self, _name: str, hogql: str) -> None:
-        reads = team_reads({view_subject(VIEW_ID): busy_reads()})
-        not_incremental = view(VIEW_ID, hogql=hogql)
+    def test_interval_basis_names_what_kept_the_interval_from_being_shorter(
+        self,
+        _name: str,
+        interval: timedelta,
+        read_allowed: list[timedelta],
+        limited_by_sources: bool,
+        expected: WarehouseSuggestionRefreshIntervalBasis,
+    ) -> None:
+        basis = interval_basis(
+            interval, [HOUR, timedelta(hours=6), DAY], read_allowed, limited_by_sources=limited_by_sources
+        )
 
-        result = MaterializeCandidate().evaluate(context(reads, views=[not_incremental]))
+        assert basis == expected
 
-        assert result.drafts == ()
-        assert [rejection.reason for rejection in result.rejections] == ["its query cannot refresh incrementally"]
+
+class TestMaterializeRefreshMode(BaseTest):
+    @parameterized.expand(
+        [
+            ("grouped_by_day", DAILY_COUNTS, WarehouseSuggestionRefreshMode.INCREMENTAL, "day", ("day",)),
+            (
+                "limited_query",
+                "SELECT timestamp, event FROM events ORDER BY timestamp DESC LIMIT 10",
+                WarehouseSuggestionRefreshMode.FULL,
+                None,
+                (),
+            ),
+            (
+                "grouped_over_a_nondeterministic_view",
+                DAILY_COUNTS.replace("FROM events", "FROM sampled_events"),
+                WarehouseSuggestionRefreshMode.FULL,
+                None,
+                (),
+            ),
+        ]
+    )
+    def test_a_suggestion_proposes_incremental_only_when_the_keys_are_certain(
+        self,
+        _name: str,
+        hogql: str,
+        refresh_mode: WarehouseSuggestionRefreshMode,
+        incremental_key: str | None,
+        unique_key: tuple[str, ...],
+    ) -> None:
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="sampled_events",
+            query={"kind": "HogQLQuery", "query": "SELECT timestamp FROM events WHERE rand() % 10 = 0"},
+            columns={"timestamp": {"hogql": "DateTimeDatabaseField", "clickhouse": "DateTime64(6, 'UTC')"}},
+        )
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="daily_counts",
+            query={"kind": "HogQLQuery", "query": hogql},
+            columns=DAILY_COUNT_COLUMNS,
+        )
+        dag = DAG.objects.create(team=self.team, name="Default")
+        Node.objects.create(team=self.team, dag=dag, name="daily_counts", saved_query=saved_query, type=NodeType.VIEW)
+        candidate_context = context(
+            team_reads({view_subject(saved_query.id): busy_reads(human_duration_ms=200 * 10_000)}),
+            views=[view(saved_query.id, name="daily_counts", hogql=hogql)],
+            team_id=self.team.pk,
+        )
+
+        [draft] = MaterializeCandidate().evaluate(candidate_context).drafts
+
+        assert isinstance(draft.payload, MaterializePayload)
+        expected_lookback = RULES.materialize.incremental_lookback_seconds if incremental_key else 0
+        assert (
+            draft.payload.refresh_mode,
+            draft.payload.incremental_key,
+            draft.payload.unique_key,
+            draft.payload.lookback_seconds,
+        ) == (refresh_mode, incremental_key, unique_key, expected_lookback)
 
 
 class TestDeprecateCandidate(SimpleTestCase):

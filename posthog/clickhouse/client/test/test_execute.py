@@ -16,7 +16,7 @@ from posthog.clickhouse.client.connection import (
 )
 from posthog.clickhouse.client.execute import query_with_columns, sync_execute
 from posthog.clickhouse.client.limit import ConcurrencySlot, RateLimit, get_llm_analytics_rate_limiter
-from posthog.clickhouse.query_tagging import AccessMethod, Product, tags_context
+from posthog.clickhouse.query_tagging import AccessMethod, Feature, Product, tags_context
 
 
 @pytest.fixture
@@ -62,6 +62,20 @@ def test_process_query_task_workload_routing(
     called_workload, _, _, called_ch_user = client_from_pool.call_args[0]
     assert called_workload == expected_workload
     assert called_ch_user == expected_ch_user
+
+
+@pytest.mark.parametrize(
+    "access_method,expected_workload",
+    [
+        (None, Workload.ONLINE),
+        (AccessMethod.PERSONAL_API_KEY, Workload.OFFLINE),
+    ],
+)
+def test_celery_cache_warming_workload_routing(client_from_pool, access_method, expected_workload):
+    with tags_context(kind="celery", feature=Feature.CACHE_WARMUP, access_method=access_method):
+        sync_execute("SELECT 1", flush=False)
+
+    assert client_from_pool.call_args[0][0] == expected_workload
 
 
 @pytest.mark.parametrize(

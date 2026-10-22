@@ -58,7 +58,7 @@ class LinkrunnerSource(ResumableSource[LinkrunnerSourceConfig, LinkrunnerResumeC
             name=ExternalDataSourceType.LINKRUNNER,
             category=DataWarehouseSourceCategory.ADVERTISING,
             label="Linkrunner",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Linkrunner API key to pull your mobile attribution data into the PostHog Data warehouse.
 
 You can find your API key in your [Linkrunner dashboard](https://www.linkrunner.io/) under settings.

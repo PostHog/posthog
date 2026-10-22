@@ -70,10 +70,12 @@ fn rebuild_all_marks_every_workspace_crate() {
 #[test]
 fn file_outside_workspace_produces_no_crates() {
     let (graph, images) = load_test_fixtures();
-    let result = compute_affected(&["README.md".into()], None, &graph, &images).unwrap();
-    assert!(!result.rebuild_all);
-    assert!(result.crates.is_empty());
-    assert!(result.images.is_empty());
+    for file in ["README.md", "rust/AGENTS.md"] {
+        let result = compute_affected(&[file.into()], None, &graph, &images).unwrap();
+        assert!(!result.rebuild_all, "{file} must not mark every crate");
+        assert!(result.crates.is_empty());
+        assert!(result.images.is_empty());
+    }
 }
 
 #[test]

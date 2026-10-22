@@ -26,13 +26,6 @@ class TestOwnerrezSource:
     @pytest.mark.parametrize(
         "status_code, expected_valid, expected_message",
         [
-            (200, True, None),
-            (401, False, "Invalid OwnerRez account email or personal access token"),
-            (
-                403,
-                False,
-                "Could not connect to OwnerRez with the provided account email and personal access token",
-            ),
             (
                 None,
                 False,

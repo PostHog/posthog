@@ -3,7 +3,10 @@ import { expectLogic } from 'kea-test-utils'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { newInternalTab } from 'lib/utils/newInternalTab'
-import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
+import {
+    MANAGED_TRINO_SCHEMA_SCOPE,
+    databaseTableListLogic,
+} from 'scenes/data-management/database/databaseTableListLogic'
 
 import { propertyDefinitionsList } from '~/generated/core/api'
 import { performQuery } from '~/queries/query'
@@ -981,7 +984,8 @@ describe('queryDatabaseLogic', () => {
             )
         })
 
-        it('hides drafts, unsaved queries and metrics when showing a direct connection schema', () => {
+        it.each(['source-id', MANAGED_TRINO_SCHEMA_SCOPE])('hides unrelated folders for schema scope %s', (scope) => {
+            databaseTableListLogic.findMounted()?.actions.setConnection(scope)
             featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.EDITOR_DRAFTS], {
                 [FEATURE_FLAGS.EDITOR_DRAFTS]: true,
             })
@@ -1013,6 +1017,13 @@ describe('queryDatabaseLogic', () => {
             } as any)
 
             expect(logic.values.displayedTreeData.map((item) => item.name)).toEqual(['public'])
+        })
+
+        it('shows an empty native catalog without a source configuration link', () => {
+            const databaseLogic = databaseTableListLogic.findMounted()!
+            databaseLogic.actions.setConnection(MANAGED_TRINO_SCHEMA_SCOPE)
+            databaseLogic.actions.loadDatabaseSuccess({ tables: {}, joins: [] })
+            expect(logic.values.displayedTreeData.map((item) => item.name)).toEqual(['No queryable tables'])
         })
 
         it('hydrates a table restored as expanded in the displayed direct-connection tree', async () => {

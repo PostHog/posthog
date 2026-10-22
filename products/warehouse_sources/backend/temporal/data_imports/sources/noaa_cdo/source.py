@@ -119,7 +119,7 @@ class NoaaCdoSource(ResumableSource[NoaaCdoSourceConfig, NoaaCdoResumeConfig]):
                 "Use a full refresh to collect older corrections. "
                 "NOAA limits each token to five requests per second and 10,000 requests per day."
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

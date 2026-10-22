@@ -62,6 +62,12 @@ class GorgiasSource(ResumableSource[GorgiasSourceConfig, GorgiasResumeConfig]):
             "409 Client Error: Conflict": "PostHog's sync position for this table no longer matches your Gorgias data. This can happen when records are merged or deleted during a sync. Trigger a full resync of this source to continue syncing.",
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # A 429 (rate limit) or 5xx is retried internally with exponential backoff; if those
+        # retries still exhaust, the failure is transient and self-recovering, so let Temporal
+        # retry the activity without surfacing it as tracked exception noise.
+        return {"Gorgias API error (retryable)"}
+
     def get_schemas(
         self,
         config: GorgiasSourceConfig,

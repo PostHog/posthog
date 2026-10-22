@@ -52,7 +52,7 @@ class AppfollowSource(ResumableSource[AppfollowSourceConfig, AppfollowResumeConf
             name=ExternalDataSourceType.APPFOLLOW,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="AppFollow",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your AppFollow API token to pull your app reviews and ratings into the PostHog Data warehouse.
 
 An Account Owner or Admin can generate an API token on the [API management page](https://watch.appfollow.io/settings/api) in your AppFollow account. The token authenticates every request via the `X-AppFollow-API-Token` header.

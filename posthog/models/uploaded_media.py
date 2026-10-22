@@ -30,7 +30,8 @@ class ObjectStorageUnavailable(Exception):
 # second library that nothing lists, and give the caller no sign that it had.
 MEDIA_PURPOSE_EMAIL = "email"
 MEDIA_PURPOSE_CANVAS = "canvas"
-MEDIA_PURPOSES = [MEDIA_PURPOSE_EMAIL, MEDIA_PURPOSE_CANVAS]
+MEDIA_PURPOSE_EXPERIMENT = "experiment"
+MEDIA_PURPOSES = [MEDIA_PURPOSE_EMAIL, MEDIA_PURPOSE_CANVAS, MEDIA_PURPOSE_EXPERIMENT]
 
 # These uploads must never be served through the unauthenticated /uploaded_media route.
 # Their owning product provides an authenticated download endpoint instead.

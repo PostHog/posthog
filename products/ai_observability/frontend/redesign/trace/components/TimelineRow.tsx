@@ -19,15 +19,18 @@ export interface TimelineRowProps {
     ticks: TimelineTick[]
     isSelected: boolean
     onSelect: () => void
+    onPrefetch: () => void
 }
 
-export function TimelineRow({ row, totalMs, ticks, isSelected, onSelect }: TimelineRowProps): JSX.Element {
+export function TimelineRow({ row, totalMs, ticks, isSelected, onSelect, onPrefetch }: TimelineRowProps): JSX.Element {
     const { leftPercent, widthPercent } = timelineBarGeometry(row.startMs, row.durationMs ?? 0, totalMs)
     const barColors = row.hasError ? ERROR_BAR_COLORS : NODE_KIND_COLORS[row.kind]
     return (
         <button
             type="button"
             onClick={onSelect}
+            onMouseEnter={onPrefetch}
+            onFocus={onPrefetch}
             data-attr="trace-view-timeline-row"
             className={cn(
                 'grid w-full items-center border-b border-primary text-left hover:bg-fill-button-tertiary-hover',

@@ -178,7 +178,7 @@ class NewRelicSource(ResumableSource[NewRelicSourceConfig, NewRelicResumeConfig]
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             keywords=["new relic", "apm", "observability"],
             label="New Relic",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your New Relic User API key and account ID to pull your New Relic data into the PostHog Data warehouse.
 
 You can create a User API key on the [API keys page](https://one.newrelic.com/admin-portal/api-keys/home) of your New Relic account. Your account ID is shown in the URL when viewing your account, or under **Administration** → **Access management** → **Accounts**.

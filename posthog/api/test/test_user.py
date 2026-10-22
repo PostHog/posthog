@@ -3,7 +3,7 @@ import time
 import uuid
 import datetime
 from datetime import timedelta
-from typing import Any, cast
+from typing import Any, Literal, cast
 from urllib.parse import quote, unquote, urlparse
 
 import pytest
@@ -38,7 +38,10 @@ from posthog.models.instance_setting import set_instance_setting
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthGrant, OAuthRefreshToken
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
+from posthog.models.organization_integration import OrganizationIntegration
+from posthog.models.organization_provisioning import OrganizationProvisioning
 from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.temporal.tests.delete_teams.inline import execute_deletion_workflows_inline
@@ -62,6 +65,9 @@ def issue_verification_code(user: User, target_email: str | None = None) -> str:
     with patch("posthog.api.email_verification.send_email_verification_code") as mock_send:
         email_verification_code_verifier.send_code(user, target_email=target_email)
     return mock_send.call_args[0][1]
+
+
+ProvisionedBy = Literal["organization", "team", "vercel_installation", "vercel_connectable"]
 
 
 class TestUserAPI(APIBaseTest):
@@ -307,26 +313,47 @@ class TestUserAPI(APIBaseTest):
         assert "active_realtime_notification_types" in body
         assert "comment_mention" in body["active_realtime_notification_types"]
 
+    def _provision_organization(self, provisioned_by: ProvisionedBy | None = "organization") -> None:
+        if provisioned_by == "organization":
+            OrganizationProvisioning.objects.create(
+                organization=self.organization, partner=OrganizationProvisioning.Partner.VERCEL
+            )
+        elif provisioned_by == "team":
+            TeamProvisioningConfig.objects.create(team=self.team)
+        elif provisioned_by in ("vercel_installation", "vercel_connectable"):
+            OrganizationIntegration.objects.create(
+                organization=self.organization,
+                kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
+                integration_id="icfg_test",
+                config={"type": "connectable"} if provisioned_by == "vercel_connectable" else {},
+            )
+
     @parameterized.expand(
         [
-            ("unreviewed_nothing", False, False, False, False),
-            ("unreviewed_pat_only", False, True, False, True),
-            ("unreviewed_passkey_only", False, False, True, True),
-            ("unreviewed_pat_and_passkey", False, True, True, True),
-            ("reviewed_pat_only", True, True, False, False),
-            ("reviewed_passkey_only", True, False, True, False),
-            ("reviewed_pat_and_passkey", True, True, True, False),
-            ("reviewed_nothing", True, False, False, False),
+            ("unreviewed_nothing", "organization", False, False, False, False),
+            ("unreviewed_pat_only", "organization", False, True, False, True),
+            ("unreviewed_passkey_only", "organization", False, False, True, True),
+            ("unreviewed_pat_and_passkey", "organization", False, True, True, True),
+            ("unreviewed_pat_only_legacy_team_provisioning", "team", False, True, False, True),
+            ("unreviewed_pat_only_legacy_vercel_installation", "vercel_installation", False, True, False, True),
+            ("unreviewed_pat_only_vercel_connected_own_organization", "vercel_connectable", False, True, False, False),
+            ("unreviewed_pat_and_passkey_not_provisioned", None, False, True, True, False),
+            ("reviewed_pat_only", "organization", True, True, False, False),
+            ("reviewed_passkey_only", "organization", True, False, True, False),
+            ("reviewed_pat_and_passkey", "organization", True, True, True, False),
+            ("reviewed_nothing", "organization", True, False, False, False),
         ]
     )
     def test_requires_credential_review(
         self,
         _name: str,
+        provisioned_by: ProvisionedBy | None,
         reviewed: bool,
         with_key: bool,
         with_passkey: bool,
         expected: bool,
     ):
+        self._provision_organization(provisioned_by)
         self.user.credentials_reviewed_at = timezone.now() if reviewed else None
         self.user.save(update_fields=["credentials_reviewed_at"])
         if with_key:
@@ -351,6 +378,7 @@ class TestUserAPI(APIBaseTest):
         assert response.json()["requires_credential_review"] is expected
 
     def test_requires_credential_review_skipped_when_impersonating_via_session(self):
+        self._provision_organization()
         User.objects.filter(pk=self.user.pk).update(credentials_reviewed_at=None)
         PersonalAPIKey.objects.create(
             user=self.user,
@@ -364,6 +392,7 @@ class TestUserAPI(APIBaseTest):
         assert response.json()["requires_credential_review"] is False
 
     def test_requires_credential_review_skipped_when_impersonating_via_oauth_token(self):
+        self._provision_organization()
         User.objects.filter(pk=self.user.pk).update(credentials_reviewed_at=None)
         PersonalAPIKey.objects.create(
             user=self.user,
@@ -399,6 +428,7 @@ class TestUserAPI(APIBaseTest):
     def test_requires_credential_review_unverified_passkey(self):
         # Unverified passkeys are the realistic pre-claim attack artifact - a partner
         # session can register a credential without ever completing verification.
+        self._provision_organization()
         self.user.credentials_reviewed_at = None
         self.user.save(update_fields=["credentials_reviewed_at"])
         WebauthnCredential.objects.create(
@@ -416,21 +446,26 @@ class TestUserAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("live_access_token", 1, False, False, True),
-            ("live_refresh_token_only", -1, True, False, True),
-            ("expired_access_token_only", -1, False, False, False),
-            ("live_access_token_first_party", 1, False, True, False),
-            ("live_refresh_token_only_first_party", -1, True, True, False),
+            ("live_access_token", True, 1, False, False, True),
+            ("live_refresh_token_only", True, -1, True, False, True),
+            ("expired_access_token_only", True, -1, False, False, False),
+            ("live_access_token_first_party", True, 1, False, True, False),
+            ("live_refresh_token_only_first_party", True, -1, True, True, False),
+            ("live_access_token_not_provisioned", False, 1, False, False, False),
+            ("live_refresh_token_only_not_provisioned", False, -1, True, False, False),
         ]
     )
     def test_requires_credential_review_for_oauth_access(
         self,
         _name: str,
+        provisioned: bool,
         expires_hours: int,
         with_refresh_token: bool,
         is_first_party: bool,
         expected: bool,
     ):
+        if provisioned:
+            self._provision_organization()
         User.objects.filter(pk=self.user.pk).update(credentials_reviewed_at=None)
         app = OAuthApplication.objects.create(
             name="Provisioning partner",
@@ -463,6 +498,7 @@ class TestUserAPI(APIBaseTest):
         assert response.json()["requires_credential_review"] is expected
 
     def test_credentials_review_complete_endpoint(self):
+        self._provision_organization()
         User.objects.filter(pk=self.user.pk).update(credentials_reviewed_at=None)
         PersonalAPIKey.objects.create(
             user=self.user,

@@ -114,7 +114,7 @@ class TwentySource(ResumableSource[TwentySourceConfig, TwentyResumeConfig]):
             name=ExternalDataSourceType.TWENTY,
             category=DataWarehouseSourceCategory.CRM,
             label="Twenty",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             keywords=["crm", "sales", "open source", "salesforce"],
             caption="""Enter your Twenty API key to pull your CRM data into the PostHog Data warehouse.
 

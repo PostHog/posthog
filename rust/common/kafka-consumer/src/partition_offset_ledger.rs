@@ -1,5 +1,6 @@
 use std::collections::VecDeque;
 use std::fmt;
+use std::ops::{Add, AddAssign};
 
 use crate::charge::Charge;
 use crate::types::Offset;
@@ -79,12 +80,27 @@ pub struct TakenFrontier {
     pub gap_offset_count: usize,
 }
 
-/// What a window holds: the offsets charged and not yet drained by
-/// `take_frontier`, and the charge they carry.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Held {
     pub offsets: usize,
     pub charge: Charge,
+}
+
+impl Add for Held {
+    type Output = Held;
+
+    fn add(self, rhs: Held) -> Held {
+        Held {
+            offsets: self.offsets + rhs.offsets,
+            charge: self.charge + rhs.charge,
+        }
+    }
+}
+
+impl AddAssign for Held {
+    fn add_assign(&mut self, rhs: Held) {
+        *self = *self + rhs;
+    }
 }
 
 /// Per-partition offset accounting: record offsets as they are delivered,

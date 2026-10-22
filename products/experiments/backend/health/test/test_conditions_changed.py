@@ -54,6 +54,7 @@ def _context(
     now: list[dict[str, Any]] | None = None,
     exposed_during_overrides: dict[ChangeWindow, bool | None] | None = None,
     variants: list[dict[str, Any]] = EVEN,
+    exposed_units: int | None = None,
 ) -> HealthContext:
     variant_keys = [variant["key"] for variant in variants]
     changes = [
@@ -74,6 +75,7 @@ def _context(
             not_checked=not_checked,
             release_conditions=None if now is None else parse_release_conditions(now, variant_keys=variant_keys),
             exposed_during_overrides=exposed_during_overrides,
+            exposed_units_before_last={ExperimentHealthFlagChangeKind.RELEASE_CONDITIONS: exposed_units},
         ),
         condition_set_traffic=None if people_by_set is None else _traffic(people_by_set),
     )
@@ -128,6 +130,31 @@ class TestReleaseConditionsChangedMidRun(TestCase):
                 f'The variant override "test" of Set 1 was removed on {FIRST_CHANGE}. {OVERRIDE_MOVED} Since '
                 f'{TRAFFIC_SINCE}, Set 1 matched about 18.2% of the users who would get "test" with the override in '
                 f"place (300 of about 1,650). Reset the experiment, or move its start date to {FIRST_CHANGE}.",
+            ),
+            (
+                "override_removed_from_a_large_share_before_4_people",
+                _context([PRO_PINNED, EVERYONE], [PRO, EVERYONE], people_by_set={1: 300, 2: 2700}, exposed_units=4),
+                ("variant_override_changed", INFO, OVERRIDE_TITLE, "A7"),
+                f'The variant override "test" of Set 1 was removed on {FIRST_CHANGE}. The change came 3 hours after '
+                f"launch, when 4 people had been exposed. Move the start date to {FIRST_CHANGE} so the results count only exposures after it. "
+                f'Since {TRAFFIC_SINCE}, Set 1 matched about 18.2% of the users who would get "test" with the '
+                "override in place (300 of about 1,650).",
+            ),
+            (
+                "override_removed_from_a_large_share_before_5_people",
+                _context([PRO_PINNED, EVERYONE], [PRO, EVERYONE], people_by_set={1: 300, 2: 2700}, exposed_units=5),
+                ("variant_override_changed", WARNING, OVERRIDE_TITLE, "A7"),
+                f'The variant override "test" of Set 1 was removed on {FIRST_CHANGE}. {OVERRIDE_MOVED} Since '
+                f'{TRAFFIC_SINCE}, Set 1 matched about 18.2% of the users who would get "test" with the override in '
+                f"place (300 of about 1,650). Reset the experiment, or move its start date to {FIRST_CHANGE}.",
+            ),
+            (
+                "override_removed_without_a_measurement_before_4_people",
+                _context([PRO_PINNED, EVERYONE], [PRO, EVERYONE], exposed_units=4),
+                ("variant_override_changed", INFO, OVERRIDE_TITLE, "A7"),
+                f'The variant override "test" of Set 1 was removed on {FIRST_CHANGE}. {OVERRIDE_MOVED} PostHog '
+                "can't measure how many users Set 1 matches. Reset the experiment, or move its start date to "
+                f"{FIRST_CHANGE}.",
             ),
             (
                 "override_removed_from_a_few_percent",

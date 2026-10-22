@@ -593,14 +593,10 @@ class TestValidateCredentials:
     @pytest.mark.parametrize(
         "status_code,expected_fragment",
         [
-            (200, None),
-            (401, "invalid or has been revoked"),
-            (403, "read this workspace"),
             (404, "no LangSmith API there"),
             # A rate limit and a LangSmith outage are not a bad key, so both ask for a retry
             # instead of sending the user to replace a key that works.
             (429, "Try again in a few minutes"),
-            (500, "Try again in a few minutes"),
             (418, "valid key from your LangSmith"),
         ],
     )

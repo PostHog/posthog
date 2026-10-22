@@ -1,10 +1,11 @@
+import { isObject } from 'lib/utils/guards'
 // Pure (no-React) artefact helpers shared by the detail logic and the activity-log renderers.
 // Mirrors the PostHog Desktop inbox's artefact-log domain helpers. Content shapes stay loose
 // (`Record<string, any>` on the artefact) and are read through these typed accessors so legacy
 // rows with extra/missing keys never crash a render.
-
-import { isObject } from 'lib/utils/guards'
 import { identifierToHuman } from 'lib/utils/strings'
+
+import type { ReportMetricApi } from 'products/signals/frontend/generated/api.schemas'
 
 import { SignalReportArtefact } from '../../types'
 
@@ -55,6 +56,7 @@ export interface SignalFindingContent {
 }
 
 export interface DismissalContent {
+    state?: 'resolved' | 'suppressed' | 'potential' | null
     reason?: string
     note?: string
 }
@@ -121,6 +123,19 @@ export interface CheckResultContent {
     baseline_value?: number | null
     threshold?: string | null
     run_id?: string | null
+}
+
+export interface CheckObservationContent extends Pick<CheckResultContent, 'title' | 'explanation' | 'observed_value'> {
+    measured_at?: string
+    monitoring_ends_at?: string | null
+    matches?: boolean | null
+    value_format?: ReportMetricApi['value_format']
+    unit?: string | null
+    comparison?: {
+        operator: 'lte' | 'gte' | 'between'
+        value?: number | null
+        bounds?: { lower: number; upper: number } | null
+    } | null
 }
 
 /** What every entry in a check's life carries. Mirrors `CheckLifecycleEntry` in `artefact_schemas.py`. */
@@ -337,7 +352,7 @@ export const ARTEFACT_TYPE_LABELS: Record<string, string> = {
     signal_finding: 'Signal investigated',
     suggested_reviewers: 'Reviewers suggested',
     repo_selection: 'Repo selected',
-    dismissal: 'Report dismissed',
+    dismissal: 'Report feedback added',
     video_segment: 'Video segment',
     title_change: 'Title edited',
     summary_change: 'Summary edited',
@@ -346,6 +361,7 @@ export const ARTEFACT_TYPE_LABELS: Record<string, string> = {
     autostart_skip: 'Work not started',
     code_review: 'Code review',
     check_result: 'Follow-up check',
+    check_observation: 'Monitoring measurement',
     check_scheduled: 'Follow-up check scheduled',
     check_expired: 'Follow-up check expired',
     check_cancelled: 'Follow-up check cancelled',
@@ -398,9 +414,6 @@ export function artefactAttributionLabel(artefact: SignalReportArtefact): string
 
 /** A task↔report association's derived purpose. `other` covers custom-agent runs. */
 export type ReportTaskPurpose = 'research' | 'implementation' | 'other'
-
-/** Sort order for linked-task rows: implementation first, then research, then everything else. */
-export const PURPOSE_ORDER: ReportTaskPurpose[] = ['implementation', 'research', 'other']
 
 export interface DerivedPurpose {
     purpose: ReportTaskPurpose

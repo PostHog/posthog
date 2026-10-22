@@ -62,7 +62,7 @@ class CiscoDuoSource(ResumableSource[CiscoDuoSourceConfig, CiscoDuoResumeConfig]
             name=ExternalDataSourceType.CISCODUO,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Cisco Duo",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["duo", "duo security", "mfa", "2fa"],
             caption="""Enter your Duo Admin API credentials to pull your Cisco Duo authentication, administrator, telephony, and activity logs into the PostHog Data warehouse, along with users, groups, group memberships, phones, endpoints, admins, integrations, and policies.
 

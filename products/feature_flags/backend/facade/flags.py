@@ -1,5 +1,5 @@
-"""Feature-flag gates for this product, and the read of an organization's flag_evaluations mode.
-The module stays light so core code can import it without pulling the facade's heavier logic
+"""Feature-flag gates for this product, the read of an organization's flag_evaluations mode, and whether a team
+has an active flag. The module stays light so core code can import it without pulling the facade's heavier logic
 surface onto its import path.
 """
 
@@ -12,12 +12,22 @@ from posthog.models.instance_setting import get_instance_setting
 from posthog.ph_client import feature_enabled_or_false
 
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
 
 FLAG_EVALUATIONS_HOGQL_TABLE_FEATURE_FLAG = "flag-evaluations-hogql-table"
+
+
+def has_active_flags(team: "Team") -> bool:
+    """Whether the team has an active flag. Remote config sends this as `hasFeatureFlags`, and posthog-js requests
+    flags on page load only when it is true. Without an active flag, a browser records no flag call until something
+    else loads flags, for example `identify`."""
+    # `team=`, not `team_id=`: the flag manager rewrites `team_id=` to the project's root team, which changes the
+    # answer for an environment team and costs a join.
+    return FeatureFlag.objects.filter(team=team, active=True).exists()
 
 
 def get_organization_flag_evaluations_mode(organization_id: UUID) -> int:

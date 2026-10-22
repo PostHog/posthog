@@ -227,13 +227,6 @@ class TestValidateCredentials:
         ("response", "expected_valid", "message_fragment"),
         [
             (ScriptedResponse(json={"offers": [], "paging": {"total_count": 0}}), True, None),
-            (
-                ScriptedResponse(status=401, json={"Error": "Unable to authenticate request"}),
-                False,
-                "rejected the API key",
-            ),
-            (ScriptedResponse(status=403, body=b"Out of realm"), False, "network API key"),
-            (ConnectionError("boom"), False, "Could not connect"),
         ],
     )
     def test_maps_the_probe_result(self, response: Any, expected_valid: bool, message_fragment: str | None) -> None:

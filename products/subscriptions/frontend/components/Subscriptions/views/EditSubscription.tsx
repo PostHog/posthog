@@ -239,6 +239,7 @@ export function EditSubscription({
         insightShortId,
         dashboardId,
         dashboardName: dashboard?.name,
+        dashboardTiles: dashboard?.tiles,
     }
     const logic = subscriptionLogic(logicProps)
     const subscriptionslogic = subscriptionsLogic({
@@ -254,6 +255,7 @@ export function EditSubscription({
         subscriptionErrors,
         isSubscriptionSubmitting,
         subscriptionChanged,
+        hasUnavailableInsights,
         lastDelivery,
         lastDeliveryLoadFailed,
         lastDeliveryLoading,
@@ -317,7 +319,7 @@ export function EditSubscription({
     let saveDisabledReason: string | undefined = undefined
     if (aiGate.submitBlocked) {
         saveDisabledReason = AI_NOT_ALLOWED_REASON
-    } else if (!subscriptionChanged) {
+    } else if (!subscriptionChanged && !hasUnavailableInsights) {
         saveDisabledReason = 'No changes to save'
     }
 

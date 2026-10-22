@@ -20,6 +20,7 @@ from posthog.clickhouse.query_tagging import get_query_tags
 from posthog.direct_query_cancellation import build_direct_query_cancellation_token
 from posthog.hogql_queries.paginators import HogQLHasMorePaginator
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.managed_warehouse.backend.facade.contracts import TrinoExpansionMode
 from products.managed_warehouse.backend.facade.feature_flags import MANAGED_TRINO_QUERY_FLAG
 from products.managed_warehouse.backend.trino_compiler import TrinoTargetUnavailable, compile_hogql_to_trino_sql
@@ -31,7 +32,17 @@ if TYPE_CHECKING:
 
     from posthog.models import Team, User
 
-    from products.access_control.backend.facade.user_access_control import UserAccessControl
+
+def validate_managed_trino_raw_access(team: Team, user: User | None) -> None:
+    if user is None or not user.is_authenticated:
+        raise ExposedHogQLError("Sign in to run a raw query against hosted Trino.")
+    # Token credentials can restrict projects while the warehouse grant spans the organization.
+    if get_query_tags().access_method is not None:
+        raise ExposedHogQLError(
+            "Raw Trino queries require a browser session. Turn off Send raw query to use HogQL with a token."
+        )
+    if not UserAccessControl(user=user, team=team).has_project_access:
+        raise ExposedHogQLError("You do not have access to this project.")
 
 
 def validate_managed_trino_query(query: HogQLQuery, team: Team, user: User | None) -> None:
@@ -53,8 +64,10 @@ def validate_managed_trino_query(query: HogQLQuery, team: Team, user: User | Non
         raise ExposedHogQLError(
             "Hosted Trino queries are not enabled for this organization. Select PostHog to run this query."
         )
-    if query.connectionId or query.sendRawQuery:
-        raise ExposedHogQLError("Hosted Trino runs HogQL queries. Clear the external connection and raw SQL mode.")
+    if query.connectionId:
+        raise ExposedHogQLError("Hosted Trino uses the managed warehouse. Clear the external connection.")
+    if query.sendRawQuery:
+        validate_managed_trino_raw_access(team, user)
 
 
 def execute_managed_trino_query(
@@ -79,22 +92,28 @@ def execute_managed_trino_query(
             paginator = HogQLHasMorePaginator.from_limit_context(limit_context=limit_context or LimitContext.QUERY)
         return paginator.paginate(parsed) if paginator is not None else parsed
 
-    try:
-        with timings.measure("trino_compile"):
-            compiled = compile_hogql_to_trino_sql(
-                team.pk,
-                query,
-                team=team,
-                user=user,
-                user_access_control=user_access_control,
-                expansion_mode=TrinoExpansionMode.DJANGO,
-                include_hogql=True,
-                limit_top_select=True,
-                limit_context=limit_context,
-                select_transform=paginate,
-            )
-    except TrinoTargetUnavailable as error:
-        raise ExposedHogQLError("Hosted Trino is not ready for this project. Try again later.") from error
+    if query.sendRawQuery:
+        sql = query.query
+        values = None
+        hogql = None
+    else:
+        try:
+            with timings.measure("trino_compile"):
+                compiled = compile_hogql_to_trino_sql(
+                    team.pk,
+                    query,
+                    team=team,
+                    user=user,
+                    user_access_control=user_access_control,
+                    expansion_mode=TrinoExpansionMode.DJANGO,
+                    include_hogql=True,
+                    limit_top_select=True,
+                    limit_context=limit_context,
+                    select_transform=paginate,
+                )
+        except TrinoTargetUnavailable as error:
+            raise ExposedHogQLError("Hosted Trino is not ready for this project. Try again later.") from error
+        sql, values, hogql = compiled.sql, compiled.values, compiled.hogql
     tags = get_query_tags()
     cancellation_token = (
         build_direct_query_cancellation_token(tags.client_query_id, str(tags.celery_task_id))
@@ -103,8 +122,8 @@ def execute_managed_trino_query(
     )
     result = execute_trino_query(
         TrinoQueryRequest(
-            sql=ensure_read_only_raw_trino_statement(compiled.sql),
-            values=compiled.values,
+            sql=ensure_read_only_raw_trino_statement(sql),
+            values=values,
             timeout_seconds=settings.max_execution_time or DIRECT_TRINO_DEFAULT_STATEMENT_TIMEOUT_SECONDS,
             timings=timings,
             team_id=team.pk,
@@ -116,8 +135,8 @@ def execute_managed_trino_query(
     )
     response = HogQLQueryResponse(
         query=query.query,
-        hogql=compiled.hogql,
-        clickhouse=compiled.sql,
+        hogql=hogql,
+        clickhouse=sql,
         results=result.results,
         columns=result.print_columns,
         types=result.types,

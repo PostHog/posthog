@@ -151,7 +151,7 @@ class AblySource(ResumableSource[AblySourceConfig, AblyResumeConfig]):
             "persistence turned on for the channel, otherwise Ably keeps messages for two minutes.",
             docsUrl="https://posthog.com/docs/cdp/sources/ably",
             iconPath="/static/services/ably.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

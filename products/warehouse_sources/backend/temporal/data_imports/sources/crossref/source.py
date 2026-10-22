@@ -57,7 +57,7 @@ class CrossrefSource(ResumableSource[CrossrefSourceConfig, CrossrefResumeConfig]
             name=ExternalDataSourceType.CROSSREF,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="Crossref",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Crossref's API is free and public — no API key needed. Add a contact email to get routed to Crossref's faster "polite pool".
 
 The Works table covers Crossref's full DOI registry (160 million+ records), so set a member ID, funder ID, or journal ISSN below to scope which works sync. The Members, Funders, Types, Licenses, and Journals tables always sync in full.

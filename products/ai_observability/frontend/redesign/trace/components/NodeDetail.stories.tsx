@@ -62,7 +62,20 @@ export const LoadingContent: Story = {
     parameters: { testOptions: { waitForLoadersToDisappear: false } },
 }
 export const ContentLoadError: Story = {
-    args: { ...base, content: { kind: 'error', message: 'This step could not be loaded. Try again later.' } },
+    args: { ...base, content: { kind: 'error', message: 'This step could not be loaded. Select it again to retry.' } },
+}
+export const ContentNotFound: Story = {
+    args: {
+        ...base,
+        content: {
+            kind: 'error',
+            message: 'This step could not be found. It may have been deleted, or it is outside the retention period.',
+        },
+    },
+}
+export const RawTabWhileLoading: Story = {
+    args: { ...base, content: { kind: 'loading' }, initialTab: 'raw' },
+    parameters: { testOptions: { waitForLoadersToDisappear: false } },
 }
 export const WithError: Story = {
     args: {

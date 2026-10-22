@@ -259,9 +259,15 @@ class TestBingAdsSource:
             return SourceDriver(BingAdsSource(), config).run(schema_name, [], **inputs)
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.bing_ads.BingAdsClient")
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.bing_ads.integrations")
-    def test_bing_ads_source_campaigns(self, mock_integrations, mock_client_class):
-        mock_integrations.BING_ADS_DEVELOPER_TOKEN = "test_dev_token"
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.bing_ads.credentials_service.get_secrets"
+    )
+    def test_bing_ads_source_campaigns(self, mock_secrets, mock_client_class):
+        mock_secrets.return_value = {
+            "BING_ADS_DEVELOPER_TOKEN": "test_dev_token",
+            "BING_ADS_CLIENT_ID": "test_client_id",
+            "BING_ADS_CLIENT_SECRET": "test_client_secret",
+        }
 
         mock_client = Mock()
         mock_client.get_data_by_resource.return_value = iter([[{"Id": "123", "Name": "Test Campaign"}]])
@@ -290,9 +296,15 @@ class TestBingAdsSource:
         "products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.bing_ads.fetch_data_in_yearly_chunks"
     )
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.bing_ads.BingAdsClient")
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.bing_ads.integrations")
-    def test_bing_ads_source_report_full_refresh(self, mock_integrations, mock_client_class, mock_fetch_chunks):
-        mock_integrations.BING_ADS_DEVELOPER_TOKEN = "test_dev_token"
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.bing_ads.credentials_service.get_secrets"
+    )
+    def test_bing_ads_source_report_full_refresh(self, mock_secrets, mock_client_class, mock_fetch_chunks):
+        mock_secrets.return_value = {
+            "BING_ADS_DEVELOPER_TOKEN": "test_dev_token",
+            "BING_ADS_CLIENT_ID": "test_client_id",
+            "BING_ADS_CLIENT_SECRET": "test_client_secret",
+        }
 
         mock_client = Mock()
         mock_client_class.return_value = mock_client
@@ -332,11 +344,17 @@ class TestBingAdsSource:
         "products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.bing_ads.fetch_data_in_yearly_chunks"
     )
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.bing_ads.BingAdsClient")
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.bing_ads.integrations")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.bing_ads.credentials_service.get_secrets"
+    )
     def test_bing_ads_source_report_incremental(
-        self, _name, last_value, mock_integrations, mock_client_class, mock_fetch_chunks
+        self, _name, last_value, mock_secrets, mock_client_class, mock_fetch_chunks
     ):
-        mock_integrations.BING_ADS_DEVELOPER_TOKEN = "test_dev_token"
+        mock_secrets.return_value = {
+            "BING_ADS_DEVELOPER_TOKEN": "test_dev_token",
+            "BING_ADS_CLIENT_ID": "test_client_id",
+            "BING_ADS_CLIENT_SECRET": "test_client_secret",
+        }
 
         mock_client = Mock()
         mock_client_class.return_value = mock_client
@@ -371,13 +389,19 @@ class TestBingAdsSource:
         "products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.bing_ads.fetch_data_in_yearly_chunks"
     )
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.bing_ads.BingAdsClient")
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.bing_ads.integrations")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.bing_ads.credentials_service.get_secrets"
+    )
     def test_bing_ads_source_first_sync_caps_lookback_to_retention(
-        self, mock_integrations, mock_client_class, mock_fetch_chunks
+        self, mock_secrets, mock_client_class, mock_fetch_chunks
     ):
         # On the first sync (no prior incremental value) the lookback is capped to Bing's 36-month
         # retention window rather than reaching years back for data Bing no longer retains.
-        mock_integrations.BING_ADS_DEVELOPER_TOKEN = "test_dev_token"
+        mock_secrets.return_value = {
+            "BING_ADS_DEVELOPER_TOKEN": "test_dev_token",
+            "BING_ADS_CLIENT_ID": "test_client_id",
+            "BING_ADS_CLIENT_SECRET": "test_client_secret",
+        }
         mock_client_class.return_value = Mock()
         mock_fetch_chunks.return_value = iter([[{"CampaignId": "123"}]])
 
@@ -398,9 +422,15 @@ class TestBingAdsSource:
 
         assert mock_fetch_chunks.call_args.kwargs["start_date"] == dt.date.today() - BING_ADS_REPORT_RETENTION
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.bing_ads.integrations")
-    def test_bing_ads_source_missing_developer_token(self, mock_integrations):
-        mock_integrations.BING_ADS_DEVELOPER_TOKEN = None
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.bing_ads.credentials_service.get_secrets"
+    )
+    def test_bing_ads_source_missing_developer_token(self, mock_secrets):
+        mock_secrets.return_value = {
+            "BING_ADS_DEVELOPER_TOKEN": "",
+            "BING_ADS_CLIENT_ID": "test_client_id",
+            "BING_ADS_CLIENT_SECRET": "test_client_secret",
+        }
 
         result = self._drive("campaigns")
 
@@ -416,16 +446,20 @@ class TestBingAdsSource:
             ("both_missing", "", ""),
         ]
     )
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.bing_ads.integrations")
-    def test_bing_ads_source_missing_oauth_app_credentials(self, _name, client_id, client_secret, mock_integrations):
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.bing_ads.credentials_service.get_secrets"
+    )
+    def test_bing_ads_source_missing_oauth_app_credentials(self, _name, client_id, client_secret, mock_secrets):
         """An empty OAuth app client id/secret raises a deterministic error instead of a doomed token request.
 
         Without the guard the SDK posts a token request omitting client_id and Microsoft returns the opaque
         AADSTS900144, which was being mis-surfaced as a customer "reconnect your integration" error.
         """
-        mock_integrations.BING_ADS_DEVELOPER_TOKEN = "test_dev_token"
-        mock_integrations.BING_ADS_CLIENT_ID = client_id
-        mock_integrations.BING_ADS_CLIENT_SECRET = client_secret
+        mock_secrets.return_value = {
+            "BING_ADS_DEVELOPER_TOKEN": "test_dev_token",
+            "BING_ADS_CLIENT_ID": client_id,
+            "BING_ADS_CLIENT_SECRET": client_secret,
+        }
 
         result = self._drive("campaigns")
 
@@ -441,12 +475,16 @@ class TestBingAdsSource:
             ("empty", ""),
         ]
     )
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.bing_ads.integrations")
-    def test_bing_ads_source_non_numeric_account_id(self, _name, account_id, mock_integrations):
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.bing_ads.credentials_service.get_secrets"
+    )
+    def test_bing_ads_source_non_numeric_account_id(self, _name, account_id, mock_secrets):
         """A non-numeric account ID raises a deterministic, non-retryable error instead of a bare int() crash."""
-        mock_integrations.BING_ADS_DEVELOPER_TOKEN = "test_dev_token"
-        mock_integrations.BING_ADS_CLIENT_ID = "test_client_id"
-        mock_integrations.BING_ADS_CLIENT_SECRET = "test_client_secret"
+        mock_secrets.return_value = {
+            "BING_ADS_DEVELOPER_TOKEN": "test_dev_token",
+            "BING_ADS_CLIENT_ID": "test_client_id",
+            "BING_ADS_CLIENT_SECRET": "test_client_secret",
+        }
 
         result = self._drive("campaigns", account_id=account_id)
 
@@ -455,11 +493,15 @@ class TestBingAdsSource:
         assert "Bing Ads Account ID must be numeric" in str(result.raised)
         assert result.requests == []
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.bing_ads.integrations")
-    def test_bing_ads_source_incremental_missing_field(self, mock_integrations):
-        mock_integrations.BING_ADS_DEVELOPER_TOKEN = "test_dev_token"
-        mock_integrations.BING_ADS_CLIENT_ID = "test_client_id"
-        mock_integrations.BING_ADS_CLIENT_SECRET = "test_client_secret"
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.bing_ads.bing_ads.credentials_service.get_secrets"
+    )
+    def test_bing_ads_source_incremental_missing_field(self, mock_secrets):
+        mock_secrets.return_value = {
+            "BING_ADS_DEVELOPER_TOKEN": "test_dev_token",
+            "BING_ADS_CLIENT_ID": "test_client_id",
+            "BING_ADS_CLIENT_SECRET": "test_client_secret",
+        }
 
         result = self._drive(
             "campaign_performance_report",

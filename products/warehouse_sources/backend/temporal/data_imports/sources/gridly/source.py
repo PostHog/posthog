@@ -43,7 +43,7 @@ class GridlySource(ResumableSource[GridlySourceConfig, GridlyResumeConfig]):
             name=ExternalDataSourceType.GRIDLY,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Gridly",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Gridly API key and a View ID to pull that view's records into the PostHog Data warehouse.
 
 Create an API key in your Gridly company settings under **Settings → API keys** (Owner or Admin access is required). Use a **Full Access** or **Read-only** key.

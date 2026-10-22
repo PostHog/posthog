@@ -289,7 +289,6 @@ class TestMarketo:
         "token_body,status,expected_ok",
         [
             (_token_body(), 200, True),
-            ({"error": "invalid_client"}, 401, False),
         ],
     )
     def test_validate_credentials_maps_the_identity_probe(

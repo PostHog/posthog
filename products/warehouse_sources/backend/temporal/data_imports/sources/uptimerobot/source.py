@@ -50,7 +50,7 @@ class UptimerobotSource(ResumableSource[UptimerobotSourceConfig, UptimeRobotResu
             name=ExternalDataSourceType.UPTIMEROBOT,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="UptimeRobot",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your UptimeRobot API key to pull your uptime monitoring data into the PostHog Data warehouse.
 
 Use your account's **read-only API key**, created under [Integrations & API](https://dashboard.uptimerobot.com/integrations) in your UptimeRobot dashboard. Monitor-specific API keys only grant access to a single monitor, so the alert contacts, maintenance windows, and status pages tables won't sync with one.""",

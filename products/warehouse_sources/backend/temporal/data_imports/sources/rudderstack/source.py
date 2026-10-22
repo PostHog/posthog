@@ -249,7 +249,7 @@ class RudderStackSource(ResumableSource[RudderStackSourceConfig, RudderStackResu
             docsUrl="https://posthog.com/docs/cdp/sources/rudderstack",
             iconPath="/static/services/rudderstack.png",
             keywords=["cdp", "customer data platform", "event streaming"],
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

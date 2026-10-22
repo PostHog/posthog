@@ -1,4 +1,5 @@
 import uuid
+import random
 import typing
 import asyncio
 import datetime as dt
@@ -39,6 +40,7 @@ from posthog.settings.base_variables import TEST
 from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.clickhouse import (
     ClickHouseError,
+    ClickHouseTooManySimultaneousQueriesError,
     get_client as get_clickhouse_client,
 )
 from posthog.temporal.common.db_errors import is_transient_db_error
@@ -199,6 +201,10 @@ DELTA_TABLE_RETENTION_HOURS = 24
 # before the rewrite lands.
 DELTA_KERNEL_ERROR_MARKER = "DELTA_KERNEL_ERROR"
 DELTA_KERNEL_ERROR_RETRY_DELAY = dt.timedelta(minutes=2)
+
+# A saturated cluster refuses every model a spike reaches at once. The default backoff sends them
+# all back within seconds, so wait longer, and jitter the wait so they do not return together.
+TOO_MANY_SIMULTANEOUS_QUERIES_RETRY_DELAY_SECONDS = (60, 120)
 
 # Above this many files, the per-run compaction is worth its full-table rewrite. Below it, skipping
 # keeps an incremental run's cost proportional to the rows it changed rather than the table's size.
@@ -1361,6 +1367,11 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
         if DELTA_KERNEL_ERROR_MARKER in str(error):
             raise ApplicationError(
                 str(error), type=type(error).__name__, next_retry_delay=DELTA_KERNEL_ERROR_RETRY_DELAY
+            ) from error
+        if isinstance(error, ClickHouseTooManySimultaneousQueriesError):
+            delay = random.uniform(*TOO_MANY_SIMULTANEOUS_QUERIES_RETRY_DELAY_SECONDS)
+            raise ApplicationError(
+                str(error), type=type(error).__name__, next_retry_delay=dt.timedelta(seconds=delay)
             ) from error
         raise
     except (Exception, asyncio.CancelledError):

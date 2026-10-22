@@ -1,4 +1,5 @@
-use std::num::{NonZeroU32, NonZeroUsize};
+use std::num::{NonZeroU32, NonZeroU64, NonZeroUsize};
+use std::str::FromStr;
 use std::time::{Duration, Instant};
 
 use common_continuous_profiling::ContinuousProfilingConfig;
@@ -6,14 +7,37 @@ use envconfig::Envconfig;
 use rdkafka::ClientConfig;
 use tracing::info;
 
+use crate::batcher::governor::{Adaptation, GovernorSettings};
 use crate::batcher::key_queues::RunCap;
 use crate::batcher::packer::{PackTargets, Packer};
 use crate::batcher::retry_policy::RetryPolicy;
 use crate::batcher::state_machine::{BatcherStateMachine, RequestBudget};
 use crate::batcher::worker_assigner::WorkerAssigner;
 use crate::discovery::DiscoveryMode;
+use crate::partition_budget::BudgetLimits;
 use crate::routing::{Router, RoutingStrategy};
 use common_kafka_consumer::config::ConsumerConfigBuilder;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum CompletionGranularity {
+    #[default]
+    Poll,
+    Group,
+}
+
+impl FromStr for CompletionGranularity {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value.trim().to_lowercase().as_str() {
+            "poll" => Ok(Self::Poll),
+            "group" => Ok(Self::Group),
+            other => Err(format!(
+                "unknown consumer completion granularity '{other}' (expected 'poll' or 'group')"
+            )),
+        }
+    }
+}
 
 /// Configuration for the ingestion consumer.
 ///
@@ -219,10 +243,57 @@ pub struct Config {
     #[envconfig(from = "INGESTION_REQUEST_BUDGET_ATTEMPTS", default = "3")]
     pub request_budget_attempts: u32,
 
+    /// `off` (default) keeps the governor observing: it measures request
+    /// round-trip time and reports the permit pool it would run, while free
+    /// worker slots size each pass. `on` sizes the pass by free permits too.
+    #[envconfig(from = "INGESTION_GOVERNOR_ADAPTATION", default = "off")]
+    pub governor_adaptation: Adaptation,
+
+    /// A round-trip average above this shrinks the permit pool by one per
+    /// step (milliseconds). `0` (default) never shrinks. Required when
+    /// adaptation is on. See `governor_settings` for the bounds against the
+    /// soft budget and the ack timeout.
+    #[envconfig(from = "INGESTION_GOVERNOR_LATENCY_BUDGET_MS", default = "0")]
+    pub governor_latency_budget_ms: u64,
+
+    /// The permit pool never shrinks below this many permits per routable
+    /// worker. At least 1, at most `INGESTION_WORKER_CONCURRENT_BATCHES`.
+    #[envconfig(from = "INGESTION_GOVERNOR_MIN_PERMITS_PER_WORKER", default = "1")]
+    pub governor_min_permits_per_worker: usize,
+
+    /// The least time between two permit steps (milliseconds). At least 100.
+    #[envconfig(from = "INGESTION_GOVERNOR_STEP_INTERVAL_MS", default = "1000")]
+    pub governor_step_interval_ms: u64,
+
     /// Maximum Kafka batches to process concurrently. Matches the Node.js
     /// CONSUMER_MAX_BACKGROUND_TASKS setting used by the Kafka consumer wrapper.
     #[envconfig(from = "CONSUMER_MAX_BACKGROUND_TASKS", default = "1")]
     pub consumer_max_background_tasks: usize,
+
+    /// `poll` or `group`; see [`CompletionGranularity`].
+    #[envconfig(from = "CONSUMER_COMPLETION_GRANULARITY", default = "poll")]
+    pub consumer_completion_granularity: CompletionGranularity,
+
+    /// Minimum spacing between offset commits at `group` granularity
+    /// (milliseconds). Not read at `poll` granularity.
+    #[envconfig(from = "CONSUMER_COMMIT_INTERVAL_MS", default = "500")]
+    pub consumer_commit_interval_ms: u64,
+
+    /// Uncommitted events at which a partition's fetch pauses. `0` (default)
+    /// sets no event limit. Not read at `poll` granularity.
+    #[envconfig(from = "CONSUMER_PARTITION_BUDGET_EVENTS", default = "0")]
+    pub consumer_partition_budget_events: u64,
+
+    /// Uncommitted key-plus-value-plus-header bytes at which a partition's
+    /// fetch pauses. `0` (default) sets no byte limit. Not read at `poll`
+    /// granularity.
+    #[envconfig(from = "CONSUMER_PARTITION_BUDGET_BYTES", default = "0")]
+    pub consumer_partition_budget_bytes: u64,
+
+    /// Fraction of the budget a paused partition must be back under, on
+    /// every set axis, before its fetch resumes. Above 0 and at most 1.
+    #[envconfig(from = "CONSUMER_PARTITION_BUDGET_LOW_WATERMARK", default = "0.8")]
+    pub consumer_partition_budget_low_watermark: f64,
 
     // ---- Debug API ----
     /// Serve the real-time debug API (`/debug/load`, `/debug/state`,
@@ -242,12 +313,8 @@ pub struct Config {
     pub debug_api_secret: String,
 
     // ---- Ordering sentinels ----
-    /// Kill switch for the ordering sentinels (per-partition commit
-    /// contiguity/monotonicity checks and per-key send-order checks). They are
-    /// pure observers with per-batch lock/state overhead bounded by in-flight
-    /// work; disable only if that overhead is ever implicated. The commit-result
-    /// and rebalance metrics from the consumer context stay on regardless. The
-    /// worker-side feed-order sentinel has its own flag
+    /// Kill switch for the per-key send-order sentinel. The worker-side
+    /// feed-order sentinel has its own flag
     /// (INGESTION_API_FEED_ORDER_SENTINEL_ENABLED on the Node.js side).
     #[envconfig(from = "CONSUMER_ORDER_SENTINEL_ENABLED", default = "true")]
     pub consumer_order_sentinel_enabled: bool,
@@ -466,14 +533,81 @@ impl Config {
             self.ingestion_worker_concurrent_batches,
         )?;
         let retry = RetryPolicy::uniform(Duration::from_millis(self.parked_retry_interval_ms))?;
-        Ok(BatcherStateMachine::new(
+        BatcherStateMachine::new(
             packer,
             assigner,
             retry,
             Duration::from_millis(self.consumer_deferred_flush_timeout_ms),
             Instant::now(),
         )?
-        .with_request_budget(self.request_budget()?))
+        .with_request_budget(self.request_budget()?)
+        .with_governor(self.governor_settings()?)
+    }
+
+    const MIN_GOVERNOR_STEP_INTERVAL_MS: u64 = 100;
+
+    pub fn governor_settings(&self) -> Result<GovernorSettings, String> {
+        let budget_ms = self.governor_latency_budget_ms;
+        if self.governor_adaptation == Adaptation::On && budget_ms == 0 {
+            return Err(
+                "INGESTION_GOVERNOR_ADAPTATION=on needs INGESTION_GOVERNOR_LATENCY_BUDGET_MS"
+                    .to_string(),
+            );
+        }
+        // A saturated worker answers partial at about the soft budget, so a
+        // latency budget at or above it never shrinks on saturation.
+        if budget_ms > 0
+            && self.request_soft_budget_ms > 0
+            && budget_ms >= self.request_soft_budget_ms
+        {
+            return Err("INGESTION_GOVERNOR_LATENCY_BUDGET_MS must be below \
+                 INGESTION_REQUEST_SOFT_BUDGET_MS"
+                .to_string());
+        }
+        // The ack watchdog fails a request at the timeout, and a failure is
+        // no sample.
+        if budget_ms >= self.ingestion_worker_stream_ack_timeout_ms {
+            return Err("INGESTION_GOVERNOR_LATENCY_BUDGET_MS must be below \
+                 INGESTION_WORKER_STREAM_ACK_TIMEOUT_MS"
+                .to_string());
+        }
+        let min_permits = self.governor_min_permits_per_worker;
+        if min_permits == 0 || min_permits > self.ingestion_worker_concurrent_batches {
+            return Err(
+                "INGESTION_GOVERNOR_MIN_PERMITS_PER_WORKER must be at least 1 and at most \
+                 INGESTION_WORKER_CONCURRENT_BATCHES"
+                    .to_string(),
+            );
+        }
+        if self.governor_adaptation == Adaptation::On
+            && min_permits == self.ingestion_worker_concurrent_batches
+        {
+            return Err(
+                "INGESTION_GOVERNOR_ADAPTATION=on needs INGESTION_GOVERNOR_MIN_PERMITS_PER_WORKER \
+                 below INGESTION_WORKER_CONCURRENT_BATCHES, or the pool cannot move"
+                    .to_string(),
+            );
+        }
+        if self.governor_step_interval_ms < Self::MIN_GOVERNOR_STEP_INTERVAL_MS {
+            return Err(format!(
+                "INGESTION_GOVERNOR_STEP_INTERVAL_MS must be at least {}",
+                Self::MIN_GOVERNOR_STEP_INTERVAL_MS
+            ));
+        }
+        Ok(GovernorSettings {
+            adaptation: self.governor_adaptation,
+            latency_budget: (budget_ms > 0).then(|| Duration::from_millis(budget_ms)),
+            min_permits_per_worker: min_permits,
+            step_interval: Duration::from_millis(self.governor_step_interval_ms),
+        })
+    }
+
+    pub fn partition_budget(&self) -> Result<BudgetLimits, String> {
+        BudgetLimits::new(
+            NonZeroU64::new(self.consumer_partition_budget_events),
+            NonZeroU64::new(self.consumer_partition_budget_bytes),
+            self.consumer_partition_budget_low_watermark,
+        )
     }
 
     const MIN_REQUEST_SOFT_BUDGET_MS: u64 = 100;
@@ -669,5 +803,95 @@ mod tests {
     ])]
     fn an_invalid_request_budget_is_rejected(#[case] vars: &[(&str, &str)]) {
         assert!(config(vars).request_budget().is_err());
+    }
+
+    #[rstest]
+    #[case::unset(&[], false)]
+    #[case::events_only(&[("CONSUMER_PARTITION_BUDGET_EVENTS", "5000")], true)]
+    #[case::bytes_only(&[("CONSUMER_PARTITION_BUDGET_BYTES", "1048576")], true)]
+    fn a_valid_partition_budget_is_read(#[case] vars: &[(&str, &str)], #[case] is_set: bool) {
+        assert_eq!(config(vars).partition_budget().unwrap().is_set(), is_set);
+    }
+
+    #[test]
+    fn a_partition_budget_with_an_invalid_watermark_is_rejected() {
+        let vars = &[
+            ("CONSUMER_PARTITION_BUDGET_EVENTS", "5000"),
+            ("CONSUMER_PARTITION_BUDGET_LOW_WATERMARK", "1.2"),
+        ];
+        assert!(config(vars).partition_budget().is_err());
+    }
+
+    #[rstest]
+    #[case::unset(&[], GovernorSettings::observing())]
+    #[case::a_budget_with_adaptation_off(
+        &[("INGESTION_GOVERNOR_LATENCY_BUDGET_MS", "3000")],
+        GovernorSettings {
+            latency_budget: Some(Duration::from_millis(3000)),
+            ..GovernorSettings::observing()
+        }
+    )]
+    #[case::adaptation_on(
+        &[
+            ("INGESTION_GOVERNOR_ADAPTATION", "on"),
+            ("INGESTION_GOVERNOR_LATENCY_BUDGET_MS", "3000"),
+            ("INGESTION_GOVERNOR_MIN_PERMITS_PER_WORKER", "2"),
+            ("INGESTION_GOVERNOR_STEP_INTERVAL_MS", "100"),
+            ("INGESTION_WORKER_CONCURRENT_BATCHES", "4"),
+            ("INGESTION_REQUEST_SOFT_BUDGET_MS", "3001"),
+        ],
+        GovernorSettings {
+            adaptation: Adaptation::On,
+            latency_budget: Some(Duration::from_millis(3000)),
+            min_permits_per_worker: 2,
+            step_interval: Duration::from_millis(100),
+        }
+    )]
+    fn valid_governor_settings_are_read(
+        #[case] vars: &[(&str, &str)],
+        #[case] expected: GovernorSettings,
+    ) {
+        assert_eq!(config(vars).governor_settings(), Ok(expected));
+    }
+
+    #[rstest]
+    #[case::adaptation_on_without_a_budget(&[("INGESTION_GOVERNOR_ADAPTATION", "on")])]
+    #[case::a_budget_at_the_soft_budget(&[
+        ("INGESTION_GOVERNOR_LATENCY_BUDGET_MS", "3000"),
+        ("INGESTION_REQUEST_SOFT_BUDGET_MS", "3000"),
+    ])]
+    #[case::a_budget_at_the_ack_timeout(&[("INGESTION_GOVERNOR_LATENCY_BUDGET_MS", "60000")])]
+    #[case::no_floor(&[("INGESTION_GOVERNOR_MIN_PERMITS_PER_WORKER", "0")])]
+    #[case::a_floor_above_the_per_worker_cap(&[
+        ("INGESTION_GOVERNOR_MIN_PERMITS_PER_WORKER", "2"),
+        ("INGESTION_WORKER_CONCURRENT_BATCHES", "1"),
+    ])]
+    #[case::a_step_interval_below_the_floor(&[("INGESTION_GOVERNOR_STEP_INTERVAL_MS", "99")])]
+    #[case::adaptation_on_with_the_floor_at_the_cap(&[
+        ("INGESTION_GOVERNOR_ADAPTATION", "on"),
+        ("INGESTION_GOVERNOR_LATENCY_BUDGET_MS", "3000"),
+    ])]
+    fn invalid_governor_settings_are_rejected(#[case] vars: &[(&str, &str)]) {
+        assert!(config(vars).governor_settings().is_err());
+    }
+
+    #[test]
+    fn governor_adaptation_parses_on_and_off() {
+        assert_eq!(Adaptation::from_str(" ON "), Ok(Adaptation::On));
+        assert_eq!(Adaptation::from_str("off"), Ok(Adaptation::Off));
+        assert!(Adaptation::from_str("true").is_err());
+    }
+
+    #[test]
+    fn completion_granularity_parses_known_values() {
+        assert_eq!(
+            CompletionGranularity::from_str(" POLL "),
+            Ok(CompletionGranularity::Poll)
+        );
+        assert_eq!(
+            CompletionGranularity::from_str("group"),
+            Ok(CompletionGranularity::Group)
+        );
+        assert!(CompletionGranularity::from_str("batch").is_err());
     }
 }

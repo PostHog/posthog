@@ -157,7 +157,7 @@ class ChargifySource(ResumableSource[ChargifySourceConfig, ChargifyResumeConfig]
             category=DataWarehouseSourceCategory.PAYMENTS___BILLING,
             label="Chargify",
             keywords=["maxio", "advanced billing"],
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Chargify (Maxio Advanced Billing) API key and site subdomain to pull your billing data into the PostHog Data warehouse.
 
 You can create an API key under **Settings → Integrations → API Access** in your Chargify site. Your subdomain is the first part of your site URL — for `acme.chargify.com` the subdomain is `acme`.""",

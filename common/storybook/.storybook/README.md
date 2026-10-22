@@ -53,4 +53,4 @@ MyStoryViewports.parameters = {
 Each width generates a separate snapshot file suffixed with the width name,
 e.g. `my-story-viewports--medium--light.png`.
 
-See `frontend/src/scenes/insights/stories/TrendsLine.stories.tsx` for a working example.
+See `frontend/src/scenes/data-management/definition/DefinitionView.stories.tsx` for a working example.

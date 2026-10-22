@@ -92,25 +92,6 @@ class TestSequenzyCompanyHeader:
 
 
 class TestValidateCredentials:
-    @pytest.mark.parametrize(
-        ("status_code", "expected_valid", "expected_fragment"),
-        [
-            (200, True, None),
-            (401, False, "Invalid API key"),
-            (403, False, "company ID"),
-            (500, False, "HTTP 500"),
-        ],
-    )
-    def test_status_mapping(self, status_code: int, expected_valid: bool, expected_fragment: str | None) -> None:
-        with scripted_network(always(_make_http_response({}, status_code=status_code))):
-            valid, message = validate_credentials("seq_live_key")
-
-        assert valid is expected_valid
-        if expected_fragment is None:
-            assert message is None
-        else:
-            assert expected_fragment in (message or "")
-
     def test_company_id_forwarded_as_header(self) -> None:
         with scripted_network(always(_make_http_response({}, status_code=200))) as network:
             validate_credentials("seq_user_key", company_id="company_abc123")

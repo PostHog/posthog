@@ -250,7 +250,14 @@ def _decision(choice: str) -> DecisionResult:
             True,
             False,
             _decision("critical"),
-            IssueSeverityInferenceResult(resolved=True, stored_severity="critical"),
+            IssueSeverityInferenceResult(skipped_reason=SeverityInferenceSkipReason.AI_DATA_PROCESSING_NOT_APPROVED),
+            None,
+        ),
+        (
+            True,
+            None,
+            _decision("critical"),
+            IssueSeverityInferenceResult(skipped_reason=SeverityInferenceSkipReason.AI_DATA_PROCESSING_NOT_APPROVED),
             None,
         ),
         (
@@ -306,7 +313,7 @@ def test_severity_inference_outcomes(
     inference_outcomes: MagicMock,
     capture_exception: MagicMock,
     enabled: bool,
-    ai_approved: bool,
+    ai_approved: bool | None,
     decide_outcome: DecisionResult | Exception,
     expected_result: IssueSeverityInferenceResult | None,
     expected_error_type: str | None,
@@ -343,7 +350,10 @@ def test_severity_inference_outcomes(
     inference_outcomes.labels.assert_called_once_with(outcome=expected_outcome, severity=expected_severity)
     inference_outcomes.labels.return_value.inc.assert_called_once_with()
     capture_exception.assert_not_called()
-    if enabled and isinstance(decide_outcome, DecisionResult):
+    if enabled and not ai_approved:
+        fetch_event_properties.assert_not_called()
+        decide.assert_not_called()
+    elif enabled and isinstance(decide_outcome, DecisionResult):
         assert decide.call_args.args[0].model == SEVERITY_INFERENCE_MODEL
         assert decide.call_args.args[0].privacy_mode is True
 

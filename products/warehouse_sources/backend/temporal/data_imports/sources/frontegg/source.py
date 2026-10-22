@@ -37,6 +37,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.frontegg.f
 from products.warehouse_sources.backend.temporal.data_imports.sources.frontegg.settings import (
     AUTH_ERROR,
     ENDPOINTS,
+    INCREMENTAL_FIELDS,
     PERMISSION_ERROR,
     REGION_ERROR,
     REGIONS,
@@ -68,7 +69,7 @@ class FronteggSource(ResumableSource[FronteggSourceConfig, FronteggResumeConfig]
     )
 
     lists_tables_without_credentials = True
-    # The pin selects the users API; roles and permissions have independent endpoint versions.
+    # The pin selects the users API; the other tables have independent endpoint versions.
     supported_versions = ("v3",)
     default_version = "v3"
     api_docs_url = "https://developers.frontegg.com/ciam/api/identity"
@@ -101,7 +102,7 @@ class FronteggSource(ResumableSource[FronteggSourceConfig, FronteggResumeConfig]
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, {}, names)
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
         self,
@@ -144,7 +145,7 @@ class FronteggSource(ResumableSource[FronteggSourceConfig, FronteggResumeConfig]
             label="Frontegg",
             caption="Find your client ID and API key in your Frontegg environment under Keys & domains.",
             iconPath="/static/services/frontegg.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

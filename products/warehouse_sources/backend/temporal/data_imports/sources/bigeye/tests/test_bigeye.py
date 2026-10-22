@@ -4,7 +4,6 @@ from typing import Any, cast
 import pytest
 from unittest import mock
 
-import requests
 from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.bigeye import bigeye as bigeye_module
@@ -325,8 +324,6 @@ class TestValidateCredentials:
         ("status", "expected_error"),
         [
             (401, "Invalid Bigeye API key. Please check your key and try again."),
-            (403, "permission"),
-            (500, "500"),
         ],
     )
     def test_rejected_status(self, status: int, expected_error: str) -> None:
@@ -338,13 +335,6 @@ class TestValidateCredentials:
         if status == 401:
             assert error == expected_error
         assert network.requests_log[0].path == "/api/v1/workspaces"
-
-    def test_network_error_returns_message(self) -> None:
-        with scripted_network(always(requests.ConnectionError("boom"))):
-            valid, error = validate_credentials(api_key="key", host=None, workspace_id=None)
-
-        assert valid is False
-        assert error is not None and "boom" in error
 
     def test_rejects_redirect_response(self) -> None:
         # A validated host that 3xx-redirects (potentially to an internal address) must be

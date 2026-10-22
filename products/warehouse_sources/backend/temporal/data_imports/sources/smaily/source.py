@@ -43,7 +43,7 @@ class SmailySource(ResumableSource[SmailySourceConfig, SmailyResumeConfig]):
             name=ExternalDataSourceType.SMAILY,
             category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             label="Smaily",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["sendsmaily", "email marketing"],
             caption="""Enter your Smaily API credentials to pull your email marketing data into the PostHog Data warehouse.
 

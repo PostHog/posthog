@@ -90,7 +90,7 @@ class ModalSource(ResumableSource[ModalSourceConfig, ModalResumeConfig]):
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
         )
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:

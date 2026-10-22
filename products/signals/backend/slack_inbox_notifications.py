@@ -17,9 +17,12 @@ from __future__ import annotations
 
 import json
 import logging
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Collection, Iterable
 
 from django.conf import settings
+
+from rest_framework import serializers
+from slack_sdk.errors import SlackApiError
 
 from posthog.dataclasses import frozen
 from posthog.event_usage import groups
@@ -33,6 +36,7 @@ from posthog.slack.formatting import (
 )
 from posthog.slack.markdown import slack_markdown_block as _markdown_block
 
+from products.signals.backend.assignment_flags import assignment_side_effects_allowed
 from products.signals.backend.enums import SIGNAL_SOURCE_PRODUCT_LABELS
 from products.signals.backend.models import (
     AutonomyPriority,
@@ -51,6 +55,7 @@ from products.signals.backend.report_generation.resolve_reviewers import (
     resolve_org_users_by_uuid,
 )
 from products.signals.backend.report_urls import ReportLinkSource, build_report_url
+from products.signals.backend.scout_authorship import report_is_hidden_from_inbox
 from products.signals.backend.slack_formatting import (
     is_safe_slack_http_url as _is_safe_http_url,
     prepare_slack_markdown as _prepare_markdown,
@@ -168,45 +173,40 @@ def _latest_actionability(report: SignalReport) -> str | None:
     return value if isinstance(value, str) else None
 
 
-def _resolve_suggested_reviewer_user_ids(report: SignalReport) -> set[int]:
-    """Resolve the report's suggested reviewers to PostHog user IDs.
+def resolve_org_suggested_reviewer_user_ids(*, team_id: int, report_ids: Collection[str]) -> dict[str, set[int]]:
+    """Resolve each report's latest reviewers within the team's organization.
 
-    Uses the same enrichment path the API uses, so a reviewer stored by user uuid resolves whether
-    or not they have GitHub linked, and one stored by login is still picked up after they connect
-    their GitHub account.
+    Callers must intersect these candidate IDs with project access before delivering content.
     """
     artefacts = list(
-        report.artefacts.filter(
+        SignalReportArtefact.objects.filter(
+            team_id=team_id,
+            report__team_id=team_id,
+            report_id__in=report_ids,
             type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
-        ).order_by("-created_at")[:1]
+        )
+        .order_by("report_id", "-created_at")
+        .distinct("report_id")
     )
     if not artefacts:
-        return set()
+        return {}
 
     logins = normalized_github_logins_from_suggested_reviewer_artefacts(artefacts)
     user_uuids = normalized_user_uuids_from_suggested_reviewer_artefacts(artefacts)
-    if not logins and not user_uuids:
-        return set()
-    login_map = resolve_org_github_login_to_users(report.team_id, logins) if logins else {}
-    uuid_map = resolve_org_users_by_uuid(report.team_id, user_uuids) if user_uuids else {}
-    unmapped_count = len(logins - login_map.keys())
-    if unmapped_count:
-        # These reviewers can't get a personal-channel notification; when the whole list is
-        # unmapped the report falls back to the team channel despite being "assigned".
-        # Counts only: GitHub logins are member PII and must not reach logs.
-        logger.info(
-            "slack routing for report %s (team %d): %d of %d suggested reviewer login(s) map to no PostHog user",
-            report.id,
-            report.team_id,
-            unmapped_count,
-            len(logins),
-        )
-    if not login_map and not uuid_map:
-        return set()
-
-    # Enrich each artefact's payload to drop reviewers that didn't resolve to a user.
-    resolved_user_ids: set[int] = set()
+    login_map = resolve_org_github_login_to_users(team_id, logins) if logins else {}
+    uuid_map = resolve_org_users_by_uuid(team_id, user_uuids) if user_uuids else {}
+    result: dict[str, set[int]] = {}
     for art in artefacts:
+        report_logins = normalized_github_logins_from_suggested_reviewer_artefacts([art])
+        unmapped_count = len(report_logins - login_map.keys())
+        if unmapped_count:
+            logger.info(
+                "slack routing for report %s (team %d): %d of %d suggested reviewer login(s) map to no PostHog user",
+                art.report_id,
+                team_id,
+                unmapped_count,
+                len(report_logins),
+            )
         try:
             parsed = json.loads(art.content)
         except (json.JSONDecodeError, TypeError, ValueError):
@@ -214,13 +214,30 @@ def _resolve_suggested_reviewer_user_ids(report: SignalReport) -> set[int]:
         if not isinstance(parsed, list):
             continue
         enriched = enrich_reviewer_dicts_with_org_members(
-            report.team_id, parsed, login_to_user=login_map, uuid_to_user=uuid_map
+            team_id, parsed, login_to_user=login_map, uuid_to_user=uuid_map, scout_display_names={}
         )
+        user_ids: set[int] = set()
         for entry in enriched:
             user = entry.get("user") if isinstance(entry, dict) else None
             if isinstance(user, dict) and user.get("id"):
-                resolved_user_ids.add(int(user["id"]))
-    return set(report.team.all_users_with_access().filter(id__in=resolved_user_ids).values_list("id", flat=True))
+                user_ids.add(int(user["id"]))
+        result[str(art.report_id)] = user_ids
+    return result
+
+
+def resolve_suggested_reviewer_user_ids(report: SignalReport) -> set[int]:
+    """Resolve the report's suggested reviewers to users with project access.
+
+    Uses the same enrichment path the API uses, so a reviewer stored by user uuid resolves whether
+    or not they have GitHub linked, and one stored by login is still picked up after they connect
+    their GitHub account.
+    """
+    user_ids = resolve_org_suggested_reviewer_user_ids(team_id=report.team_id, report_ids=[str(report.id)]).get(
+        str(report.id), set()
+    )
+    if not user_ids:
+        return set()
+    return set(report.team.all_users_with_access().filter(id__in=user_ids).values_list("id", flat=True))
 
 
 def _own_target_configs_by_user(team_id: int, user_ids: set[int]) -> dict[int, SignalUserAutonomyConfig]:
@@ -272,9 +289,17 @@ def _posthog_user_display_name(user: User) -> str:
 
 def _resolve_reviewer_mentions(slack: SlackIntegration, reviewer_users: list[User]) -> list[str]:
     # `<@U…>` mention when the reviewer's email resolves in this workspace, else escaped name.
+    # A failed lookup (a missing users:read.email scope, a spent lookup budget) costs only the
+    # mention. The next lookup fails the same way, so the remaining reviewers get names too.
     mentions: list[str] = []
+    lookups_available = True
     for user in reviewer_users[:_MAX_REVIEWER_MENTIONS]:
-        slack_user_id = lookup_slack_user_id_by_email(slack, user.email) if user.email else None
+        slack_user_id = None
+        if user.email and lookups_available:
+            try:
+                slack_user_id = lookup_slack_user_id_by_email(slack, user.email)
+            except (SlackApiError, serializers.ValidationError):
+                lookups_available = False
         mentions.append(f"<@{slack_user_id}>" if slack_user_id else _escape_mrkdwn(_posthog_user_display_name(user)))
     return mentions
 
@@ -614,7 +639,7 @@ def _build_reviewer_routes(
     team-default channel (if configured) with no mentions, so a team is notified even when none of
     its members are linked to a resolvable GitHub identity.
     """
-    reviewer_user_ids = _resolve_suggested_reviewer_user_ids(report)
+    reviewer_user_ids = resolve_suggested_reviewer_user_ids(report)
     reviewer_users = {user.id: user for user in User.objects.filter(id__in=reviewer_user_ids)}
     own_configs = _own_target_configs_by_user(report.team_id, reviewer_user_ids)
 
@@ -689,6 +714,8 @@ def _deliver_route_notification(
         ai_enabled = bool(report.team.organization.is_ai_data_processing_approved)
         if invite := slack_followup_invite(route.integration, utm_tags=_INBOX_INVITE_UTM_TAGS, ai_enabled=ai_enabled):
             blocks.append(invite)
+        if not assignment_side_effects_allowed(team_id=report.team_id, report_id=str(report.id)):
+            return False
         response = slack.client.chat_postMessage(channel=channel_id, blocks=blocks, text=text)
         delivered = True
         thread_ts = response.get("ts") if hasattr(response, "get") else None
@@ -789,11 +816,21 @@ def dispatch_inbox_item_notifications(
 
     Best-effort: per-destination Slack errors are logged, not raised.
     """
+    if not assignment_side_effects_allowed(team_id=team_id, report_id=report_id):
+        return 0
+
     try:
         report = SignalReport.objects.get(id=report_id, team_id=team_id)
     except SignalReport.DoesNotExist:
         logger.warning(
             "dispatch_inbox_item_notifications: report not found",
+            extra={"report_id": report_id, "team_id": team_id},
+        )
+        return 0
+
+    if report_is_hidden_from_inbox(team_id, report_id):
+        logger.info(
+            "dispatch_inbox_item_notifications: authoring scout keeps reports out of the inbox, skipping",
             extra={"report_id": report_id, "team_id": team_id},
         )
         return 0
@@ -920,6 +957,9 @@ def dispatch_reviewer_added_notifications(
     fires for reports that would themselves have notified. `exclude_user_id` drops the actor
     so someone adding themselves isn't pinged. Best-effort; returns messages sent.
     """
+    if not assignment_side_effects_allowed(team_id=team_id, report_id=report_id):
+        return 0
+
     added_logins = {login.lower() for login in _stripped_nonempty(added_github_logins)}
     added_uuids = _stripped_nonempty(added_user_uuids)
     if not added_logins and not added_uuids:

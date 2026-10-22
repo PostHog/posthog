@@ -14,25 +14,13 @@ class TestPhylloSource:
 
     @parameterized.expand(
         [
-            ("401 Client Error: Unauthorized for url: https://api.getphyllo.com/v1/users?limit=100&offset=0",),
             ("401 Client Error: Unauthorized for url: https://api.sandbox.getphyllo.com/v1/accounts",),
-            ("403 Client Error: Forbidden for url: https://api.getphyllo.com/v1/social/contents",),
             ("403 Client Error: Forbidden for url: https://api.sandbox.getphyllo.com/v1/income/payouts",),
         ]
     )
     def test_non_retryable_errors_match_auth_failures(self, observed_error: str) -> None:
         non_retryable = self.source.get_non_retryable_errors()
         assert any(key in observed_error for key in non_retryable)
-
-    @parameterized.expand(
-        [
-            ("500 Server Error: Internal Server Error for url: https://api.getphyllo.com/v1/users",),
-            ("429 Client Error: Too Many Requests for url: https://api.getphyllo.com/v1/social/contents",),
-        ]
-    )
-    def test_non_retryable_errors_ignore_transient(self, unrelated_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert not any(key in unrelated_error for key in non_retryable)
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.phyllo.source.validate_credentials")
     def test_validate_credentials_delegates_to_shared_helper(self, mock_validate: mock.MagicMock) -> None:

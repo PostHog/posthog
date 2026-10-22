@@ -54,13 +54,18 @@ def transactional_email_actions(content: TransactionalEmailContent, from_integra
                 "message_category_id": str(content.message_category_id) if content.message_category_id else None,
                 # Puts the send on the email queue's fast lane and skips marketing opt-outs.
                 "message_category_type": "transactional",
+                "sensitive": content.sensitive,
                 "inputs": {
                     "email": {
                         "templating": "liquid",
                         "value": {
                             "to": {"email": RECIPIENT_EXPRESSION, "name": ""},
-                            "from": {"integrationId": from_integration_id},
-                            "replyTo": "",
+                            "from": {
+                                "integrationId": from_integration_id,
+                                **({"email": content.from_email} if content.from_email else {}),
+                                **({"name": content.from_name} if content.from_name else {}),
+                            },
+                            "replyTo": content.reply_to,
                             "cc": "",
                             "bcc": "",
                             "subject": content.subject,
@@ -99,7 +104,8 @@ def _content_fields(content: TransactionalEmailContent, from_integration_id: int
     }
 
 
-def _verified_sender(team_id: int, requested_id: int | None) -> int:
+def resolve_transactional_email_sender(team_id: int, requested_id: int | None) -> int:
+    """The requested sender, or the project's default when none is requested. Raise when it isn't verified."""
     sender_id = requested_id or (
         TeamWorkflowsConfig.objects.filter(team_id=team_id)
         .values_list("default_email_integration_id", flat=True)
@@ -124,7 +130,7 @@ def _current_sender(flow: HogFlow) -> int | None:
 def create_transactional_email_workflow(
     *, team_id: int, user_id: Optional[int], content: TransactionalEmailContent
 ) -> UUID:
-    from_integration_id = _verified_sender(team_id, content.from_integration_id)
+    from_integration_id = resolve_transactional_email_sender(team_id, content.from_integration_id)
     result = create_workflow(
         team_id=team_id,
         user_id=user_id,
@@ -153,9 +159,9 @@ def update_transactional_email_workflow(
         if flow is None:
             raise WorkflowNotFound()
         if content.from_integration_id:
-            from_integration_id = _verified_sender(team_id, content.from_integration_id)
+            from_integration_id = resolve_transactional_email_sender(team_id, content.from_integration_id)
         else:
-            from_integration_id = _current_sender(flow) or _verified_sender(team_id, None)
+            from_integration_id = _current_sender(flow) or resolve_transactional_email_sender(team_id, None)
         update_workflow(
             team_id=team_id,
             user_id=user_id,
@@ -166,4 +172,5 @@ def update_transactional_email_workflow(
             base_live_updated_at=None,
             includes_staged_draft=False,
             validated_status=flow.status,
+            keeps_live_sensitivity=False,
         )

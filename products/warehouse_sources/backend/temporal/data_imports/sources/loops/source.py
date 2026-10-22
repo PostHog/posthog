@@ -52,7 +52,7 @@ class LoopsSource(ResumableSource[LoopsSourceConfig, LoopsResumeConfig]):
             name=ExternalDataSourceType.LOOPS,
             category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             label="Loops",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             keywords=["loops.so", "email"],
             caption="""Enter your Loops API key to sync your campaigns, transactional emails, mailing lists and other account data into the PostHog Data warehouse.
 

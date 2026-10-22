@@ -18,6 +18,7 @@ from products.alerts_platform.backend.facade.contracts import (
     LegacyEventEmitter,
     LegacyWebhookBody,
     SourceDescriber,
+    SourceImageResolver,
     SourceKind,
 )
 
@@ -31,6 +32,10 @@ def register_destination_resolver(resolver: DestinationResolver) -> None:
 
 def register_source_describer(source: SourceKind, describer: SourceDescriber) -> None:
     describers.register(source, describer)
+
+
+def register_image_resolver(source: SourceKind, resolver: SourceImageResolver) -> None:
+    describers.register_image_resolver(source, resolver)
 
 
 def refused_destination(data: AlertDestinationData) -> str | None:
@@ -55,6 +60,12 @@ def register_delivery_path_chooser(chooser: DeliveryPathChooser) -> None:
 def register_legacy_event_emitter(source: SourceKind, emitter: LegacyEventEmitter) -> None:
     """A source's alerts on the HogFunction path send through the internal events this emits."""
     delivery_paths.register_emitter(source, emitter)
+
+
+def has_legacy_event_emitter(source: SourceKind) -> bool:
+    """Whether the source emits its own events for the HogFunction path. Without an emitter, an alert
+    on that path would deliver natively, so its customized destinations would lose what they add."""
+    return delivery_paths.emitter_for(source) is not None
 
 
 def native_sends_legacy_webhook_body(source: SourceKind, team: Team) -> bool | None:

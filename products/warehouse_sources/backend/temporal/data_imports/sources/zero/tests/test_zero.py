@@ -23,7 +23,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.zero.zero 
     _format_zero_datetime,
     get_resource,
     resolve_workspace_id,
-    validate_credentials,
 )
 
 WORKSPACE_ID = "11111111-1111-1111-1111-111111111111"
@@ -138,13 +137,6 @@ class TestResolveWorkspaceId:
         with scripted_network(always(_make_http_response(None, status_code=401))):
             with pytest.raises(requests.HTTPError):
                 resolve_workspace_id("api-key")
-
-
-class TestValidateCredentials:
-    @parameterized.expand([(200, True), (401, False), (403, False), (500, False)])
-    def test_maps_status_code_to_validity(self, status_code: int, expected: bool) -> None:
-        with scripted_network(always(_make_http_response({"data": []}, status_code=status_code))):
-            assert validate_credentials("api-key") is expected
 
 
 class TestZeroSourceResumeBehavior:

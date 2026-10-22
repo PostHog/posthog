@@ -116,6 +116,19 @@ jest.mock('lib/components/Cards/InsightCard', () => ({
     },
 }))
 
+jest.mock('products/dashboards/frontend/components/DashboardInsightTile', () => ({
+    DashboardInsightTile: (props: Record<string, unknown>) => {
+        const { InsightCard } = jest.requireMock('lib/components/Cards/InsightCard')
+        return <InsightCard {...props} />
+    },
+}))
+
+jest.mock('products/dashboards/frontend/components/DashboardGridBackground', () => ({
+    DashboardGridBackground: ({ rowHeight, margin }: { rowHeight: number; margin: [number, number] }) => (
+        <div data-attr="grid-background" data-row-height={String(rowHeight)} data-margin={margin.join(',')} />
+    ),
+}))
+
 jest.mock('products/dashboards/frontend/components/DashboardTextItem/DashboardTextItem', () => ({
     DashboardTextItem: ({ tile, showResizeHandles }: { tile: { id: number }; showResizeHandles: boolean }) => (
         <div
@@ -309,6 +322,40 @@ describe('DashboardItems', () => {
     })
 
     it.each([
+        [false, true],
+        [true, false],
+    ])('with readOnly %s on a built-in dashboard, offers editing controls: %s', (readOnly, editable) => {
+        const defaultValues = mockedUseValues.getMockImplementation()!
+        mockedUseValues.mockImplementation((logic) =>
+            logic === dashboardLogic
+                ? {
+                      ...defaultValues(logic),
+                      placement: DashboardPlacement.Builtin,
+                      readOnly,
+                      layoutEditMode: false,
+                      dashboardEditing: null,
+                  }
+                : defaultValues(logic)
+        )
+
+        const setDashboardEditing = jest.fn()
+        const defaultActions = mockedUseActions.getMockImplementation()!
+        mockedUseActions.mockImplementation((logic) =>
+            logic === dashboardLogic ? { ...defaultActions(logic), setDashboardEditing } : defaultActions(logic)
+        )
+
+        render(<DashboardItems />)
+
+        const cardProps = mockInsightCard.mock.calls[mockInsightCard.mock.calls.length - 1][0]
+        expect(cardProps.showEditingControls).toBe(editable)
+        cardProps.onEnterEditModeFromEdge(
+            { target: document.body, clientX: 0, clientY: 0, nativeEvent: new MouseEvent('mousemove') },
+            'e'
+        )
+        expect(setDashboardEditing).toHaveBeenCalledTimes(editable ? 1 : 0)
+    })
+
+    it.each([
         ['tight', '8,8'],
         ['condensed', '12,12'],
         ['relaxed', '32,32'],
@@ -408,7 +455,6 @@ describe('DashboardItems', () => {
                     dataColorThemeId: null,
                     canEditDashboard: false,
                     layoutZoom: 1,
-                    dashboardWidgetsEnabled: true,
                     widgetResultsByTileId: {},
                     widgetRefreshStatus: {},
                 }
@@ -446,7 +492,6 @@ describe('DashboardItems', () => {
                     dataColorThemeId: null,
                     canEditDashboard: true,
                     layoutZoom: 1,
-                    dashboardWidgetsEnabled: true,
                     widgetResultsByTileId: {},
                     widgetRefreshStatus: {},
                 }
@@ -499,7 +544,6 @@ describe('DashboardItems', () => {
                     dataColorThemeId: null,
                     canEditDashboard: true,
                     layoutZoom: 1,
-                    dashboardWidgetsEnabled: true,
                     widgetResultsByTileId: {},
                     widgetRefreshStatus: {},
                 }
@@ -556,7 +600,6 @@ describe('DashboardItems', () => {
                     dataColorThemeId: null,
                     canEditDashboard: true,
                     layoutZoom: 1,
-                    dashboardWidgetsEnabled: true,
                     widgetResultsByTileId: {},
                     widgetRefreshStatus: {},
                 }
@@ -575,12 +618,7 @@ describe('DashboardItems', () => {
         expect(insightCard).toHaveAttribute('data-api-errored', 'true')
         expect(insightCard).toHaveAttribute('data-api-error-status', '400')
         expect(insightCard).toHaveAttribute('data-api-error-code', 'query_memory_limit')
-        expect(mockInsightCard).toHaveBeenCalledWith(
-            expect.objectContaining({
-                refresh: expect.any(Function),
-                queryId: 'failed-query-id',
-            })
-        )
+        expect(mockInsightCard).toHaveBeenCalledWith(expect.objectContaining({ queryId: 'failed-query-id' }))
         expect(insightCard).toHaveAttribute(
             'data-api-error-detail',
             'This query ran out of memory before it could finish'

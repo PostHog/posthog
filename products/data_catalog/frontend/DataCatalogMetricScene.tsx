@@ -90,7 +90,6 @@ export function DataCatalogMetricScene({ name }: DataCatalogMetricSceneLogicProp
         draftMarkdown,
         activeTab,
         mountedTabs,
-        metricChecksEnabled,
     } = useValues(dataCatalogMetricSceneLogic)
     const {
         approveMetric,
@@ -374,7 +373,7 @@ export function DataCatalogMetricScene({ name }: DataCatalogMetricSceneLogicProp
                     tabs={[
                         { key: 'definition', label: 'Definition' },
                         { key: 'lineage', label: 'Lineage' },
-                        metricChecksEnabled && {
+                        {
                             key: 'data-quality',
                             label: <MetricTestsTabLabel metricId={metric.id} />,
                         },
@@ -413,7 +412,7 @@ export function DataCatalogMetricScene({ name }: DataCatalogMetricSceneLogicProp
                     </div>
                 )}
 
-                {metricChecksEnabled && mountedTabs.includes('data-quality') && (
+                {mountedTabs.includes('data-quality') && (
                     <div className={tabPanelClassName('data-quality', activeTab)}>
                         <MetricTestsTab />
                     </div>

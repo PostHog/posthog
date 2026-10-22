@@ -299,6 +299,7 @@ def create_pull_request(
     title: str,
     body: str,
     source: str,
+    base_branch: str | None = None,
 ) -> RepositoryPullRequest:
     repository_name = _repository_parts(repository)
     integration = Integration.objects.filter(team_id=team_id, id=integration_id, kind="github").first()
@@ -309,7 +310,7 @@ def create_pull_request(
     if github.organization().casefold() != repository_name.owner.casefold():
         raise RepositoryPublishingError("GitHub integration does not own the repository.")
 
-    base_branch = github.get_default_branch(repository_name.name)
+    base_branch = base_branch or github.get_default_branch(repository_name.name)
     existing = _matching_pull_request(
         github.list_pull_requests(repository_name.name),
         repository,

@@ -143,6 +143,37 @@ describe('EventFilterManager', () => {
         await stop()
     })
 
+    it('keeps the loaded filters when a background reload fails', async () => {
+        mockPostgres.query.mockResolvedValueOnce({
+            rows: [
+                {
+                    id: 'f1',
+                    team_id: 1,
+                    mode: 'live',
+                    filter_tree: { type: 'condition', field: 'event_name', operator: 'exact', value: 'a' },
+                },
+            ],
+        })
+        const { manager, stop } = await buildManager()
+        mockPostgres.query.mockRejectedValue(new Error('connection refused'))
+        const unhandledRejection = jest.fn()
+        process.on('unhandledRejection', unhandledRejection)
+        jest.spyOn(Date, 'now').mockReturnValue(Date.now() + 61_000)
+
+        try {
+            manager.getFilter(1)
+            await new Promise((resolve) => setImmediate(resolve))
+
+            expect(mockPostgres.query).toHaveBeenCalledTimes(2)
+            expect(unhandledRejection).not.toHaveBeenCalled()
+            expect(manager.getFilter(1)!.id).toBe('f1')
+        } finally {
+            process.off('unhandledRejection', unhandledRejection)
+            jest.restoreAllMocks()
+            await stop()
+        }
+    })
+
     it('handles multiple teams', async () => {
         mockPostgres.query.mockResolvedValue({
             rows: [

@@ -114,5 +114,5 @@ class StratoSource(SimpleSource[StratoSourceConfig]):
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
         )

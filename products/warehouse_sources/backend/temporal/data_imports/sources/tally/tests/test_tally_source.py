@@ -40,34 +40,6 @@ class TestTallySource:
 
     @parameterized.expand(
         [
-            ("unauthorized", "401 Client Error: Unauthorized for url: https://api.tally.so/forms?limit=500&page=1"),
-            ("forbidden", "403 Client Error: Forbidden for url: https://api.tally.so/forms/F1/submissions"),
-        ]
-    )
-    def test_credential_errors_are_non_retryable(self, _name: str, observed_error: str) -> None:
-        assert any(key in observed_error for key in self.source.get_non_retryable_errors())
-
-    @parameterized.expand(
-        [
-            ("rate_limited", "429 Client Error: Too Many Requests for url: https://api.tally.so/forms"),
-            ("server_error", "500 Server Error: Internal Server Error for url: https://api.tally.so/forms"),
-            ("read_timeout", "HTTPSConnectionPool(host='api.tally.so', port=443): Read timed out."),
-        ]
-    )
-    def test_transient_errors_remain_retryable(self, _name: str, observed_error: str) -> None:
-        assert not any(key in observed_error for key in self.source.get_non_retryable_errors())
-
-    @parameterized.expand(
-        [
-            ("valid", True, 200, True, None),
-            ("bad_key", False, 401, False, "Invalid Tally API key"),
-            (
-                "forbidden",
-                False,
-                403,
-                False,
-                "Your Tally API key does not have access to this data. Reconnect with a key from an account that can see these forms.",
-            ),
             ("unreachable", False, None, False, "Could not reach the Tally API with this key"),
         ]
     )

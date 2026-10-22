@@ -38,6 +38,12 @@ const EXPERIMENT_HEALTH = {
             diagnostic_ref: 'E3',
         },
     ],
+    checks: [
+        { key: 'split_changed_mid_run', name: 'Variant split changes since launch', status: 'finding', reason: null },
+        { key: 'flag_state', name: 'Feature flag rollout', status: 'passed', reason: null },
+        { key: 'flag_history', name: 'Feature flag history', status: 'passed', reason: null },
+        { key: 'no_metric', name: 'Metrics', status: 'passed', reason: null },
+    ],
 }
 
 // Typed as the generated response, so a new required field on the serializer breaks the typecheck here.

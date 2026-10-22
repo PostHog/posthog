@@ -3,7 +3,7 @@ from datetime import UTC, datetime
 from typing import Any, cast
 
 from posthog.test.base import _create_event, _create_person
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from django.forms.models import model_to_dict
 from django.test import override_settings
@@ -24,9 +24,11 @@ from posthog.schema import (
 from posthog.hogql.constants import MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY, get_default_hogql_global_settings
 
 from posthog.clickhouse.client import sync_execute
+from posthog.exceptions import ClickHouseAtCapacity
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
+    LazyComputationResult,
     LazyComputationTable,
     _get_insert_settings,
     ensure_precomputed,
@@ -916,7 +918,9 @@ class TestExperimentExposurePreaggregation(ExperimentQueryRunnerBaseTest):
             patch.object(ExperimentQueryRunner, failing_method, side_effect=Exception("boom")),
             # The non-failing path returns "not ready" so it neither errors nor hits ClickHouse,
             # keeping the assertion scoped to the single failure under test.
-            patch.object(ExperimentQueryRunner, other_method, return_value=MagicMock(ready=False)),
+            patch.object(
+                ExperimentQueryRunner, other_method, return_value=LazyComputationResult(ready=False, job_ids=[])
+            ),
             patch(
                 "products.experiments.backend.hogql_queries.experiment_query_runner.capture_exception"
             ) as mock_capture,
@@ -932,3 +936,40 @@ class TestExperimentExposurePreaggregation(ExperimentQueryRunnerBaseTest):
         # be surfaced to error tracking rather than silently masked.
         mock_capture.assert_called_once()
         assert mock_capture.call_args.kwargs["additional_properties"]["precomputation_path"] == expected_path
+
+    @parameterized.expand(
+        [
+            ("_ensure_exposures_precomputed", "_ensure_metric_events_precomputed"),
+            ("_ensure_metric_events_precomputed", "_ensure_exposures_precomputed"),
+        ]
+    )
+    def test_raises_at_capacity_instead_of_falling_back_when_build_is_rejected(self, rejected_method, other_method):
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(
+            feature_flag=feature_flag,
+            start_date=datetime(2024, 1, 1),
+            end_date=datetime(2024, 1, 5),
+        )
+        self._enable_precomputation()
+        metric = ExperimentFunnelMetric(series=[EventsNode(event="purchase")])
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        with (
+            patch.object(
+                ExperimentQueryRunner,
+                rejected_method,
+                return_value=LazyComputationResult(ready=False, job_ids=[], capacity_rejected=True),
+            ),
+            patch.object(
+                ExperimentQueryRunner, other_method, return_value=LazyComputationResult(ready=False, job_ids=[])
+            ),
+            patch(
+                "products.experiments.backend.hogql_queries.experiment_query_runner.capture_exception"
+            ) as mock_capture,
+            self.assertRaises(ClickHouseAtCapacity),
+        ):
+            self._run_experiment(experiment, metric)
+
+        # A full pool is a retry signal, not a broken precompute path.
+        mock_capture.assert_not_called()

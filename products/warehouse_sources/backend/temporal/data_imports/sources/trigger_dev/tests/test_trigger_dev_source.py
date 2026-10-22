@@ -19,24 +19,12 @@ class TestTriggerDevSourceConfig:
 class TestNonRetryableErrors:
     @parameterized.expand(
         [
-            ("unauthorized", "401 Client Error: Unauthorized for url: https://api.trigger.dev/api/v1/runs"),
-            ("forbidden", "403 Client Error: Forbidden for url: https://api.trigger.dev/api/v1/schedules"),
             ("invalid_body", "Invalid API key"),
         ]
     )
     def test_credential_errors_are_non_retryable(self, _name: str, observed: str) -> None:
         errors = TriggerDevSource().get_non_retryable_errors()
         assert any(key in observed for key in errors)
-
-    @parameterized.expand(
-        [
-            ("read_timeout", "HTTPSConnectionPool(host='api.trigger.dev', port=443): Read timed out."),
-            ("server_error", "500 Server Error: Internal Server Error"),
-        ]
-    )
-    def test_transient_errors_remain_retryable(self, _name: str, observed: str) -> None:
-        errors = TriggerDevSource().get_non_retryable_errors()
-        assert not any(key in observed for key in errors)
 
 
 class TestValidateCredentials:

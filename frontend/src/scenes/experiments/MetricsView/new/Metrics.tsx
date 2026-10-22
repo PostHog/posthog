@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
 
 import { IconInfo } from '@posthog/icons'
-import { Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, Tooltip } from '@posthog/lemon-ui'
 
 import { IconAreaChart } from 'lib/lemon-ui/icons'
 
@@ -38,6 +38,7 @@ function MetricsContent({ experiment, isSecondary }: { experiment: Experiment; i
         primaryMetricsResultsErrors,
         secondaryMetricsResults,
         secondaryMetricsResultsErrors,
+        recalculationRejectionMessage,
     } = useValues(experimentMetricsLogic({ experiment }))
 
     const type = isSecondary ? 'secondary' : 'primary'
@@ -88,6 +89,11 @@ function MetricsContent({ experiment, isSecondary }: { experiment: Experiment; i
                     </div>
                 </div>
             </div>
+            {!isSecondary && recalculationRejectionMessage && (
+                <LemonBanner type="warning" className="mb-2">
+                    {recalculationRejectionMessage}
+                </LemonBanner>
+            )}
             {metrics.length > 0 ? (
                 detailResult ? (
                     <div className="rounded-md border bg-surface-primary overflow-hidden divide-y divide-border">

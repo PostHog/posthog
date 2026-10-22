@@ -89,3 +89,47 @@ def test_thread_node_ids_hold_the_user_visible_generation() -> None:
 )
 def test_person_label(_name: str, person: PersonRow | None, expected: str | None) -> None:
     assert trace({}, person=person).person_label == expected
+
+
+@parameterized.expand(
+    [
+        (
+            "a trace event makes the root the default",
+            [{"event": "$ai_trace"}, {"event": "$ai_generation"}],
+            "trace-1",
+        ),
+        (
+            "otherwise the first top-level generation",
+            [
+                {"event": "$ai_span", "timestamp": T0},
+                {"event": "$ai_generation", "timestamp": T0 + timedelta(seconds=1)},
+                {"event": "$ai_generation", "timestamp": T0 + timedelta(seconds=2)},
+            ],
+            "e1",
+        ),
+        (
+            "otherwise the first top-level node",
+            [
+                {"event": "$ai_span", "span_id": "s", "timestamp": T0},
+                {"event": "$ai_generation", "parent_id": "s", "timestamp": T0 + timedelta(seconds=1)},
+            ],
+            "e0",
+        ),
+        ("a trace without nodes falls back to the root", [{"event": "$ai_feedback"}], "trace-1"),
+    ]
+)
+def test_default_node_id(_name: str, rows: list[dict[str, Any]], expected: str) -> None:
+    assert trace(*rows).default_node_id == expected
+
+
+def test_node_ids_by_alias_map_sdk_ids_of_tree_nodes_to_their_uuids() -> None:
+    aliases = trace(
+        {"event": "$ai_span", "span_id": "span-a"},
+        {"event": "$ai_generation", "generation_id": "gen-a", "parent_id": "span-a"},
+        {"event": "$ai_generation", "generation_id": "gen-a"},
+        {"event": "$ai_span", "span_id": "e3"},
+        {"event": "$ai_feedback", "span_id": "feedback-a"},
+        {"event": "$ai_trace", "span_id": "trace-a"},
+    ).node_ids_by_alias
+
+    assert aliases == {"span-a": "e0", "gen-a": "e1"}

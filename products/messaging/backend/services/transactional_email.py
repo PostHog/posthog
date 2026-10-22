@@ -1,6 +1,7 @@
 """Transactional emails: a template made sendable over the API. Each one is backed by a workflow that runs once
 per send, so sends get the workflow's metrics, run history and versions."""
 
+import re
 from typing import Any
 from uuid import UUID
 
@@ -8,6 +9,7 @@ from django.db import transaction
 
 import structlog
 
+from posthog.models.integration import Integration
 from posthog.models.team import Team
 from posthog.plugins.plugin_server_api import (
     reload_hog_flows_on_workers,
@@ -16,6 +18,9 @@ from posthog.plugins.plugin_server_api import (
 
 from products.messaging.backend.facade.contracts import (
     DeliveryUnavailable,
+    IdempotencyKeyInFlight,
+    IdempotencyKeyReused,
+    InvalidIdempotencyKey,
     InvalidRecipient,
     MarketingTemplate,
     QueuedEmail,
@@ -33,10 +38,13 @@ from products.workflows.backend.facade.transactional_emails import (
     TransactionalEmailContentInvalid,
     TransactionalEmailSenderUnavailable,
     create_transactional_email_workflow,
+    resolve_transactional_email_sender,
     update_transactional_email_workflow,
 )
 
 logger = structlog.get_logger(__name__)
+
+IDEMPOTENCY_KEY_PATTERN = re.compile(r"[!-~]{1,255}")
 
 
 def check_sendable(team_id: int, *, template_type: str, content: dict, message_category_id: UUID | None) -> None:
@@ -56,8 +64,46 @@ def check_sendable(team_id: int, *, template_type: str, content: dict, message_c
             )
 
 
-def _content(template: MessageTemplate, from_integration_id: int | None) -> TransactionalEmailContent:
+# An address longer than this can't be delivered, and the bound keeps the pattern below fast.
+SENDER_ADDRESS_MAX_LENGTH = 254
+# Matches the send path, which ignores a custom address that fails these checks and sends from the sender's own.
+SENDER_ADDRESS_PATTERN = re.compile(r'^[^\s@"<>,;]+@[^\s@"<>,;]+\.[^\s@"<>,;]+$')
+
+
+def sender_address_error(team_id: int, sender: dict[str, Any]) -> str | None:
+    """Why a custom sender address can't send, or None. A templated address is only known at send time."""
+    address = (sender.get("email") or "").strip()
+    if not address or "{{" in address or "{%" in address:
+        return None
+    if len(address) > SENDER_ADDRESS_MAX_LENGTH:
+        return f"Use an address of at most {SENDER_ADDRESS_MAX_LENGTH} characters."
+    if not SENDER_ADDRESS_PATTERN.match(address):
+        return "Enter one email address, like hello@example.com."
+    integration_id = sender.get("integrationId")
+    # Without a sender there is no domain to check against. The sender field rejects that case on its own.
+    if integration_id is None:
+        return None
+    config = (
+        Integration.objects.filter(team_id=team_id, kind="email", id=integration_id)
+        .values_list("config", flat=True)
+        .first()
+        or {}
+    )
+    domain = (config.get("domain") or (config.get("email") or "").partition("@")[2]).lower()
+    if domain and address.partition("@")[2].lower() != domain:
+        return f"Use an address on {domain}, the domain this sender is verified for."
+    return None
+
+
+def _template_sender(email: dict[str, Any]) -> dict[str, Any]:
+    # Templates saved before senders existed hold an empty string here.
+    sender = email.get("from")
+    return sender if isinstance(sender, dict) else {}
+
+
+def _content(template: MessageTemplate) -> TransactionalEmailContent:
     email = template.content["email"]
+    sender = _template_sender(email)
     return TransactionalEmailContent(
         message_template_id=template.id,
         name=template.name,
@@ -65,8 +111,13 @@ def _content(template: MessageTemplate, from_integration_id: int | None) -> Tran
         preheader=email.get("preheader") or "",
         html=email.get("html") or "",
         text=email.get("text") or "",
-        from_integration_id=from_integration_id,
+        # Templates made transactional before they stored a sender keep their workflow's sender.
+        from_integration_id=sender.get("integrationId"),
         message_category_id=template.message_category_id,
+        sensitive=template.sensitive,
+        from_email=sender.get("email") or "",
+        from_name=sender.get("name") or "",
+        reply_to=email.get("replyTo") or "",
     )
 
 
@@ -86,16 +137,26 @@ def make_transactional(
             content=template.content,
             message_category_id=template.message_category_id,
         )
+        email = template.content["email"]
+        sender = _template_sender(email)
         try:
+            # The template keeps the sender it is made transactional with, so the editor shows it and later
+            # saves send from it.
+            sender_id = resolve_transactional_email_sender(team_id, from_integration_id or sender.get("integrationId"))
+            sender = {**sender, "integrationId": sender_id}
+            # A custom address set for one sender can't send from a sender on another domain.
+            if address_error := sender_address_error(team_id, sender):
+                raise TemplateNotSendable(address_error)
+            template.content = {**template.content, "email": {**email, "from": sender}}
             hog_flow_id = create_transactional_email_workflow(
-                team_id=team_id, user_id=user_id, content=_content(template, from_integration_id)
+                team_id=team_id, user_id=user_id, content=_content(template)
             )
         except TransactionalEmailSenderUnavailable as e:
             raise SenderUnavailable(
                 "No verified email sender. Verify a sending domain or pass from_integration_id."
             ) from e
         template.transactional_hog_flow_id = hog_flow_id
-        template.save(update_fields=["transactional_hog_flow_id", "updated_at"])
+        template.save(update_fields=["content", "transactional_hog_flow_id", "updated_at"])
     return hog_flow_id
 
 
@@ -159,7 +220,7 @@ def sync_transactional_workflow(team_id: int, template_id: UUID, *, user_id: int
             team_id=team_id,
             user_id=user_id,
             hog_flow_id=hog_flow_id,
-            content=_content(template, from_integration_id=None),
+            content=_content(template),
         )
         # The save already told the workers to reload, but before the caller's transaction committed, so a
         # worker can cache the old version. This reload runs once the new version is visible.
@@ -194,8 +255,18 @@ def _transactional_workflow_id(team_id: int, template_id: UUID) -> UUID:
 
 
 def send_transactional_email(
-    team: Team, template_id: UUID, *, to: str, distinct_id: str | None, message_data: dict[str, Any]
+    team: Team,
+    template_id: UUID,
+    *,
+    to: str,
+    distinct_id: str | None,
+    message_data: dict[str, Any],
+    idempotency_key: str | None = None,
 ) -> QueuedEmail:
+    if idempotency_key is not None and not IDEMPOTENCY_KEY_PATTERN.fullmatch(idempotency_key):
+        raise InvalidIdempotencyKey(
+            "The Idempotency-Key header must be 1 to 255 visible ASCII characters, with no spaces."
+        )
     # Defense in depth: the workflow reads the recipient from an event property, which Liquid outputs as typed.
     if "{" in to or "}" in to:
         raise InvalidRecipient("The recipient address can't contain { or }.")
@@ -207,6 +278,9 @@ def send_transactional_email(
         "distinct_id": distinct_id or to,
         "variables": message_data,
     }
+    if idempotency_key is not None:
+        # The CDP service holds the key, because only it knows whether the email was queued.
+        payload["idempotency_key"] = idempotency_key
     try:
         response = run_transactional_workflow(team.id, str(hog_flow_id), payload)
     except Exception as e:
@@ -216,6 +290,14 @@ def send_transactional_email(
     if response.status_code != 202:
         if response.status_code == 429:
             raise QuotaLimited("The project is over its email quota.")
+        if response.status_code == 409:
+            raise IdempotencyKeyInFlight(
+                "A request with this Idempotency-Key is still being processed. Retry in a few seconds."
+            )
+        if response.status_code == 422:
+            raise IdempotencyKeyReused(
+                "This Idempotency-Key was already used for a different request. Use a new key for a new email."
+            )
         logger.error(
             "transactional_email_queue_rejected",
             team_id=team.id,
@@ -224,4 +306,5 @@ def send_transactional_email(
         )
         raise DeliveryUnavailable()
 
-    return QueuedEmail(message_id=str(response.json()["invocation_id"]))
+    body = response.json()
+    return QueuedEmail(message_id=str(body["invocation_id"]), replayed=bool(body.get("replayed", False)))

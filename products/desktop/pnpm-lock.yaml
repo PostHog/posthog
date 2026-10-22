@@ -292,8 +292,8 @@ importers:
         specifier: 1.1.0
         version: 1.1.0(patch_hash=4dfdf785f5ac51a03f5d6032371cebe89036381acd403621f250a896245647c5)
       posthog-node:
-        specifier: ^5.56.1
-        version: 5.56.1(@opentelemetry/api@1.9.1)(rxjs@7.8.2)
+        specifier: ^5.56.2
+        version: 5.56.2(@opentelemetry/api@1.9.1)(rxjs@7.8.2)
       react:
         specifier: 19.2.6
         version: 19.2.6
@@ -326,8 +326,8 @@ importers:
         specifier: ^1.60.0
         version: 1.60.0
       '@posthog/rollup-plugin':
-        specifier: ^1.6.1
-        version: 1.6.1(rollup@4.62.2)
+        specifier: ^1.6.2
+        version: 1.6.2(rollup@4.62.2)
       '@storybook/addon-a11y':
         specifier: 10.4.1
         version: 10.4.1(storybook@10.4.1(@testing-library/dom@10.4.1)(@types/react@19.2.17)(prettier@3.8.1)(react-dom@19.2.6(react@19.2.6))(react@19.2.6))
@@ -371,8 +371,8 @@ importers:
         specifier: ^0.5.17
         version: 0.5.17
       electron:
-        specifier: ^42.3.0
-        version: 42.4.0
+        specifier: ^42.11.16
+        version: 42.11.16
       electron-builder:
         specifier: ^26.15.3
         version: 26.15.3(electron-builder-squirrel-windows@26.15.3)
@@ -554,8 +554,8 @@ importers:
         specifier: ^3.0.2
         version: 3.0.3(react-native-svg@15.15.5(react-native@0.86.0(@babel/core@7.29.0)(@react-native/metro-config@0.86.0(@babel/core@7.29.0))(@types/react@19.2.17)(react@19.2.6))(react@19.2.6))(react-native@0.86.0(@babel/core@7.29.0)(@react-native/metro-config@0.86.0(@babel/core@7.29.0))(@types/react@19.2.17)(react@19.2.6))(react@19.2.6)
       posthog-react-native:
-        specifier: ^4.80.0
-        version: 4.80.0(625b1b8055cea1303667b88d03a900f9)
+        specifier: ^4.81.4
+        version: 4.81.4(625b1b8055cea1303667b88d03a900f9)
       react:
         specifier: 19.2.6
         version: 19.2.6
@@ -1022,8 +1022,8 @@ importers:
         specifier: ^4.1.8
         version: 4.1.9(vitest@4.1.8)
       electron:
-        specifier: ^42.3.0
-        version: 42.4.0
+        specifier: ^42.11.16
+        version: 42.11.16
       superjson:
         specifier: ^2.2.2
         version: 2.2.6
@@ -5081,12 +5081,14 @@ packages:
   '@opentelemetry/sdk-trace-base@2.10.0':
     resolution: {integrity: sha512-GuYQQT7QD2EeO8lcZLRQzcbOyhqAzL+6WWTKTU9mSUBYBazkEDl+VrQcXQhbB08OWM9anD1aHleVadzulpOaUQ==}
     engines: {node: ^18.19.0 || >=20.6.0}
+    deprecated: Use @opentelemetry/sdk-trace package
     peerDependencies:
       '@opentelemetry/api': '>=1.3.0 <1.10.0'
 
   '@opentelemetry/sdk-trace-base@2.2.0':
     resolution: {integrity: sha512-xWQgL0Bmctsalg6PaXExmzdedSp3gyKV8mQBwK/j9VGdCDu2fmXIb2gAehBKbkXCpJ4HPkgv3QfoJWRT4dHWbw==}
     engines: {node: ^18.19.0 || >=20.6.0}
+    deprecated: Use @opentelemetry/sdk-trace package
     peerDependencies:
       '@opentelemetry/api': '>=1.3.0 <1.10.0'
 
@@ -6227,16 +6229,10 @@ packages:
   '@posthog/browser-common@0.9.5':
     resolution: {integrity: sha512-oXnBgZvM8UQ84IcBLfGP0WSGd9rA0PCGR37H8Pw0NszJRwxwbJnFXIUih0pvI/ze2eGmzkIEC9i3SwC+bMAgjQ==}
 
-  '@posthog/cli@0.16.2':
-    resolution: {integrity: sha512-h8bpf9ffBUH/Z9IoyGV+wiI+vS8rIPorKT3eKQXuzuwawO0G7Qvy+hDd7HQ9YJjHByYZ77yPPQvrSs4WsqTUCg==}
+  '@posthog/cli@0.18.12':
+    resolution: {integrity: sha512-/eT9riWOkBb9uwsdOxQgW3fan/T3hwT8rvwZCzPl3DAgSBEhzpP59usD0fyFS++X2967E5AQe74nrBw1rywf6A==}
     engines: {node: '>=14.14', npm: '>=6'}
     hasBin: true
-
-  '@posthog/core@1.57.3':
-    resolution: {integrity: sha512-lag+QZE61kcYSjYN9lKwri6P4/DACOtyRsA41MSI6tdKHbSIyrPfQPkDQiPbq413AMbTXFjcN/N6bqxPhei93Q==}
-
-  '@posthog/core@1.59.0':
-    resolution: {integrity: sha512-KRq26v5fXYnwV5wqTAXzPyQLCrBzzhK78QRl7UyEaPFZ4RPmVo1pBObRDbK350ah+8hTfQPanu5mM8c4CaSn5g==}
 
   '@posthog/core@1.59.1':
     resolution: {integrity: sha512-P39YgzQVDh6oz6wAzQXEnoHgTYpM7gifonmVKq1scAJco79h31XmmNVurRq9tTmmyIrr1uX8FHT0riCsyfV9AQ==}
@@ -6248,8 +6244,8 @@ packages:
       react: 19.2.6
       react-dom: 19.2.6
 
-  '@posthog/plugin-utils@2.0.0':
-    resolution: {integrity: sha512-PC94+3zeEQ2IkhiU+pskOIOEkAFKZvwVixvrwpRfy+cl4b6gkTuHN44vp5OeG5ndfQOLJQF5onx8/K7yZC3i1g==}
+  '@posthog/plugin-utils@2.0.1':
+    resolution: {integrity: sha512-ZiQfUcgY65EjF2vkqL4Aau6sx0aqvSWoXaGSGu9Solnmv6e6VRjQbAU0SCKbxpJxcEsCJof9vmvnrFTQIEOUAQ==}
 
   '@posthog/quill-charts@0.3.0-beta.29':
     resolution: {integrity: sha512-zuIP2dgt8hPOFmINAsueBMMnTEOlB5CXqWwqJBAWFM9cYlxIhd3IUZqRfwUC1Ockr/Yw0EqKwZwBAa7rLzdxvw==}
@@ -6272,13 +6268,10 @@ packages:
       react: 19.2.6
       react-native: '*'
 
-  '@posthog/rollup-plugin@1.6.1':
-    resolution: {integrity: sha512-oVViFAZnIT3YVPahXzvvZtsPHISWikoYpqF+Hb4YMvufeVmTeljhFeg/hH5Y7b9UYhYbbv0JE7UQRfeSZZ6R+A==}
+  '@posthog/rollup-plugin@1.6.2':
+    resolution: {integrity: sha512-6aOAx34tP6M8H4+3y9ydVeM/bK06ak+UUJgEA7pQCygkdHOsPcVFI6Tnd+rV4ZWQEMQDj6ZHZy9K5X7IIWj6Tg==}
     peerDependencies:
       rollup: 4.59.0
-
-  '@posthog/types@1.415.2':
-    resolution: {integrity: sha512-BIIHPyXcPZuNTImrR1qLqLKFw7j9o8co6LG/9OpLtpWJ3RT0y89Lx6VCtd37N9/dkr/qW7y0uPjJxAxjsALHtw==}
 
   '@posthog/types@1.416.0':
     resolution: {integrity: sha512-0/9+02s/0uDyrH4G/qUg1yyl6gXUg8Uuxw/PlDad3KLzo9FFS9zS/kAQaEshx/saVGupj1aAy/4EUBxWisBogw==}
@@ -10758,8 +10751,8 @@ packages:
     resolution: {integrity: sha512-bO3y10YikuUwUuDUQRM4KfwNkKhnpVO7IPdbsrejwN9/AABJzzTQ4GeHwyzNSrVO+tEH3/Np255a3sVZpZDjvg==}
     engines: {node: '>=8.0.0'}
 
-  electron@42.4.0:
-    resolution: {integrity: sha512-OXXqh9LD9KxXPv2Fe25EfU9N9AvWTuV6V81sfhQaNvTAXCd9ONA+Q4OWvMe+CmYD6xIwjFxGGtG/ZphDYYC5OQ==}
+  electron@42.11.16:
+    resolution: {integrity: sha512-CHCEsZbWm9zspEnYsro+g8FFllh0e82A1Jtofi/XqPs/XqlrpDPdLP0OhzfhG/IkxNXQ8iHEoYms+wVepZNzZA==}
     engines: {node: '>= 22.12.0'}
     hasBin: true
 
@@ -14261,8 +14254,8 @@ packages:
       react:
         optional: true
 
-  posthog-node@5.56.1:
-    resolution: {integrity: sha512-TlEeE5OHNbsIje/htLwvmxN45/X0FcMSsln15cHdQqybUGj9Ebd0yyziWec0Fi5YQwMHYCfJPcNdgol/s1lIFA==}
+  posthog-node@5.56.2:
+    resolution: {integrity: sha512-1/qYFNuHkDJJuDHjAvozN/fH/+XdqzlIZ0WCsCYrhUgGNxDBw5M3kZaJaRX0YSPi9tn7PnZFD5eTXg2Z7m5LeQ==}
     engines: {node: ^20.20.0 || >=22.22.0}
     peerDependencies:
       '@opentelemetry/api': ^1.2.0
@@ -14273,8 +14266,8 @@ packages:
       rxjs:
         optional: true
 
-  posthog-react-native@4.80.0:
-    resolution: {integrity: sha512-aSCTguolb/6R01czT8MVW/lHSSdGoHHVomUE2MjQUub/+pIdw64ScwzNLUSZ9x5TU2sLAD7C1RqpGwnB6RidRw==}
+  posthog-react-native@4.81.4:
+    resolution: {integrity: sha512-Z9UQ3khPlvh3x8+2MHEcLv6Owg2z8SetRgGMf8ZxzgN575+W7EmEH2SSUWGLdTLIVjuoKc2D+9zTzF4jE+CFrA==}
     hasBin: true
     peerDependencies:
       '@posthog/react-native-plugin': '>= 2.9.3'
@@ -18332,7 +18325,7 @@ snapshots:
       env-paths: 3.0.0
       graceful-fs: 4.2.11
       progress: 2.0.3
-      semver: 7.8.4
+      semver: 7.8.5
       sumchecker: 3.0.1
     optionalDependencies:
       undici: 7.28.0
@@ -19903,7 +19896,7 @@ snapshots:
   '@jest/console@30.4.1':
     dependencies:
       '@jest/types': 30.4.1
-      '@types/node': 24.12.0
+      '@types/node': 24.13.3
       chalk: 4.1.2
       jest-message-util: 30.4.1
       jest-util: 30.4.1
@@ -19917,7 +19910,7 @@ snapshots:
       '@jest/test-result': 30.4.1
       '@jest/transform': 30.4.1
       '@jest/types': 30.4.1
-      '@types/node': 24.12.0
+      '@types/node': 24.13.3
       ansi-escapes: 4.3.2
       chalk: 4.1.2
       ci-info: 4.4.0
@@ -19925,7 +19918,7 @@ snapshots:
       fast-json-stable-stringify: 2.1.0
       graceful-fs: 4.2.11
       jest-changed-files: 30.4.1
-      jest-config: 30.4.2(@types/node@24.12.0)(esbuild-register@3.6.0(esbuild@0.27.7))
+      jest-config: 30.4.2(@types/node@24.13.3)(esbuild-register@3.6.0(esbuild@0.27.7))
       jest-haste-map: 30.4.1
       jest-message-util: 30.4.1
       jest-regex-util: 30.4.0
@@ -19953,7 +19946,7 @@ snapshots:
       '@jest/test-result': 30.4.1
       '@jest/transform': 30.4.1
       '@jest/types': 30.4.1
-      '@types/node': 24.12.0
+      '@types/node': 24.13.3
       ansi-escapes: 4.3.2
       chalk: 4.1.2
       ci-info: 4.4.0
@@ -19961,7 +19954,7 @@ snapshots:
       fast-json-stable-stringify: 2.1.0
       graceful-fs: 4.2.11
       jest-changed-files: 30.4.1
-      jest-config: 30.4.2(@types/node@24.12.0)(esbuild-register@3.6.0(esbuild@0.28.2))
+      jest-config: 30.4.2(@types/node@24.13.3)(esbuild-register@3.6.0(esbuild@0.28.2))
       jest-haste-map: 30.4.1
       jest-message-util: 30.4.1
       jest-regex-util: 30.4.0
@@ -19992,7 +19985,7 @@ snapshots:
     dependencies:
       '@jest/fake-timers': 30.4.1
       '@jest/types': 30.4.1
-      '@types/node': 24.12.0
+      '@types/node': 24.13.3
       jest-mock: 30.4.1
 
   '@jest/expect-utils@30.4.1':
@@ -20010,7 +20003,7 @@ snapshots:
     dependencies:
       '@jest/types': 30.4.1
       '@sinonjs/fake-timers': 15.4.0
-      '@types/node': 24.12.0
+      '@types/node': 24.13.3
       jest-message-util: 30.4.1
       jest-mock: 30.4.1
       jest-util: 30.4.1
@@ -20028,7 +20021,7 @@ snapshots:
 
   '@jest/pattern@30.4.0':
     dependencies:
-      '@types/node': 24.12.0
+      '@types/node': 24.13.3
       jest-regex-util: 30.4.0
 
   '@jest/reporters@30.4.1':
@@ -21557,17 +21550,9 @@ snapshots:
       '@posthog/core': 1.59.1
       '@posthog/types': 1.416.0
 
-  '@posthog/cli@0.16.2':
+  '@posthog/cli@0.18.12':
     dependencies:
       detect-libc: 2.1.2
-
-  '@posthog/core@1.57.3':
-    dependencies:
-      '@posthog/types': 1.415.2
-
-  '@posthog/core@1.59.0':
-    dependencies:
-      '@posthog/types': 1.416.0
 
   '@posthog/core@1.59.1':
     dependencies:
@@ -21586,7 +21571,7 @@ snapshots:
     transitivePeerDependencies:
       - prop-types
 
-  '@posthog/plugin-utils@2.0.0':
+  '@posthog/plugin-utils@2.0.1':
     dependencies:
       cross-spawn: 7.0.6
 
@@ -21631,14 +21616,12 @@ snapshots:
       react: 19.2.6
       react-native: 0.86.0(@babel/core@7.29.0)(@react-native/metro-config@0.86.0(@babel/core@7.29.0))(@types/react@19.2.17)(react@19.2.6)
 
-  '@posthog/rollup-plugin@1.6.1(rollup@4.62.2)':
+  '@posthog/rollup-plugin@1.6.2(rollup@4.62.2)':
     dependencies:
-      '@posthog/cli': 0.16.2
-      '@posthog/plugin-utils': 2.0.0
+      '@posthog/cli': 0.18.12
+      '@posthog/plugin-utils': 2.0.1
       magic-string: 0.30.21
       rollup: 4.62.2
-
-  '@posthog/types@1.415.2': {}
 
   '@posthog/types@1.416.0': {}
 
@@ -24240,7 +24223,7 @@ snapshots:
 
   '@types/fs-extra@9.0.13':
     dependencies:
-      '@types/node': 24.12.0
+      '@types/node': 24.13.3
 
   '@types/geojson@7946.0.16': {}
 
@@ -24360,7 +24343,7 @@ snapshots:
 
   '@types/wait-on@5.3.4':
     dependencies:
-      '@types/node': 24.12.0
+      '@types/node': 24.13.3
 
   '@types/yargs-parser@21.0.3': {}
 
@@ -26428,11 +26411,11 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  electron@42.4.0:
+  electron@42.11.16:
     dependencies:
       '@electron-internal/extract-zip': 1.0.3
       '@electron/get': 5.0.0
-      '@types/node': 24.12.0
+      '@types/node': 24.13.3
     transitivePeerDependencies:
       - supports-color
 
@@ -28799,7 +28782,7 @@ snapshots:
       - babel-plugin-macros
       - supports-color
 
-  jest-config@30.4.2(@types/node@24.12.0)(esbuild-register@3.6.0(esbuild@0.28.2)):
+  jest-config@30.4.2(@types/node@24.13.3)(esbuild-register@3.6.0(esbuild@0.27.7)):
     dependencies:
       '@babel/core': 7.29.0
       '@jest/get-type': 30.1.0
@@ -28825,7 +28808,39 @@ snapshots:
       slash: 3.0.0
       strip-json-comments: 3.1.1
     optionalDependencies:
-      '@types/node': 24.12.0
+      '@types/node': 24.13.3
+      esbuild-register: 3.6.0(esbuild@0.27.7)
+    transitivePeerDependencies:
+      - babel-plugin-macros
+      - supports-color
+
+  jest-config@30.4.2(@types/node@24.13.3)(esbuild-register@3.6.0(esbuild@0.28.2)):
+    dependencies:
+      '@babel/core': 7.29.0
+      '@jest/get-type': 30.1.0
+      '@jest/pattern': 30.4.0
+      '@jest/test-sequencer': 30.4.1
+      '@jest/types': 30.4.1
+      babel-jest: 30.4.1(@babel/core@7.29.0)
+      chalk: 4.1.2
+      ci-info: 4.4.0
+      deepmerge: 4.3.1
+      glob: 10.5.0
+      graceful-fs: 4.2.11
+      jest-circus: 30.4.2
+      jest-docblock: 30.4.0
+      jest-environment-node: 30.4.1
+      jest-regex-util: 30.4.0
+      jest-resolve: 30.4.1
+      jest-runner: 30.4.2
+      jest-util: 30.4.1
+      jest-validate: 30.4.1
+      parse-json: 5.2.0
+      pretty-format: 30.4.1
+      slash: 3.0.0
+      strip-json-comments: 3.1.1
+    optionalDependencies:
+      '@types/node': 24.13.3
       esbuild-register: 3.6.0(esbuild@0.28.2)
     transitivePeerDependencies:
       - babel-plugin-macros
@@ -28932,7 +28947,7 @@ snapshots:
   jest-haste-map@30.4.1:
     dependencies:
       '@jest/types': 30.4.1
-      '@types/node': 24.12.0
+      '@types/node': 24.13.3
       anymatch: 3.1.3
       fb-watchman: 2.0.2
       graceful-fs: 4.2.11
@@ -28991,7 +29006,7 @@ snapshots:
   jest-mock@30.4.1:
     dependencies:
       '@jest/types': 30.4.1
-      '@types/node': 24.12.0
+      '@types/node': 24.13.3
       jest-util: 30.4.1
 
   jest-pnp-resolver@1.2.3(jest-resolve@30.4.1):
@@ -29070,7 +29085,7 @@ snapshots:
       '@jest/test-result': 30.4.1
       '@jest/transform': 30.4.1
       '@jest/types': 30.4.1
-      '@types/node': 24.12.0
+      '@types/node': 24.13.3
       chalk: 4.1.2
       cjs-module-lexer: 2.2.0
       collect-v8-coverage: 1.0.3
@@ -29130,7 +29145,7 @@ snapshots:
   jest-util@30.4.1:
     dependencies:
       '@jest/types': 30.4.1
-      '@types/node': 24.12.0
+      '@types/node': 24.13.3
       chalk: 4.1.2
       ci-info: 4.4.0
       graceful-fs: 4.2.11
@@ -29169,7 +29184,7 @@ snapshots:
     dependencies:
       '@jest/test-result': 30.4.1
       '@jest/types': 30.4.1
-      '@types/node': 24.12.0
+      '@types/node': 24.13.3
       ansi-escapes: 4.3.2
       chalk: 4.1.2
       emittery: 0.13.1
@@ -29192,7 +29207,7 @@ snapshots:
 
   jest-worker@30.4.1:
     dependencies:
-      '@types/node': 24.12.0
+      '@types/node': 24.13.3
       '@ungap/structured-clone': 1.3.0
       jest-util: 30.4.1
       merge-stream: 2.0.0
@@ -31458,17 +31473,17 @@ snapshots:
     transitivePeerDependencies:
       - preact-render-to-string
 
-  posthog-node@5.56.1(@opentelemetry/api@1.9.1)(rxjs@7.8.2):
+  posthog-node@5.56.2(@opentelemetry/api@1.9.1)(rxjs@7.8.2):
     dependencies:
-      '@posthog/core': 1.59.0
+      '@posthog/core': 1.59.1
     optionalDependencies:
       '@opentelemetry/api': 1.9.1
       rxjs: 7.8.2
 
-  posthog-react-native@4.80.0(625b1b8055cea1303667b88d03a900f9):
+  posthog-react-native@4.81.4(625b1b8055cea1303667b88d03a900f9):
     dependencies:
-      '@posthog/core': 1.57.3
-      '@posthog/types': 1.415.2
+      '@posthog/core': 1.59.1
+      '@posthog/types': 1.416.0
     optionalDependencies:
       '@posthog/react-native-plugin': 2.12.6(react-native@0.86.0(@babel/core@7.29.0)(@react-native/metro-config@0.86.0(@babel/core@7.29.0))(@types/react@19.2.17)(react@19.2.6))(react@19.2.6)
       '@react-native-async-storage/async-storage': 2.2.0(react-native@0.86.0(@babel/core@7.29.0)(@react-native/metro-config@0.86.0(@babel/core@7.29.0))(@types/react@19.2.17)(react@19.2.6))

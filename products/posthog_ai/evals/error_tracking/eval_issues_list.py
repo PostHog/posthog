@@ -39,6 +39,7 @@ from products.posthog_ai.evals.error_tracking.scorers import (
     IssuesListToolUsed,
 )
 from products.posthog_ai.evals.error_tracking.seeders import seed_error_tracking_issues
+from products.posthog_ai.evals.offline_config import offline_suite
 
 
 def _list_case(
@@ -86,6 +87,10 @@ async def eval_issues_list(ctx: EvalContext) -> None:
 
     await SandboxedPublicEval(
         experiment_name="sandboxed-error-tracking-issues-list-cli",
+        offline_suite=offline_suite(
+            "error_tracking/eval_issues_list::eval_issues_list",
+            metrics=["no_error_tracking_write", "issues_list_tool_used", "issues_list_input_alignment"],
+        ),
         cases=cases,
         scorers=[
             NoToolCall(forbidden=ERROR_TRACKING_WRITE_TOOLS, name="no_error_tracking_write"),

@@ -7,7 +7,9 @@ import pytest
 from django.test import override_settings
 
 import requests
+import tenacity
 from parameterized import parameterized
+from tenacity import RetryCallState, retry_if_exception_type, stop_after_attempt, wait_fixed
 from urllib3.util.timeout import Timeout
 
 from posthog.dataclasses import frozen
@@ -16,6 +18,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.htt
     NO_REQUEST_TIMEOUT,
     make_tracked_session,
     request_deadline,
+    request_deadline_allows_wait,
+    retry_with_deadline,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import _deadline_timeout
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
@@ -91,12 +95,12 @@ class _Run:
     error: BaseException | None
 
 
-def _run(send: Send, script: Sequence[Answer]) -> _Run:
+def _run(send: Send, script: Sequence[Answer], budget: float = BUDGET) -> _Run:
     vendor = _StallingVendor(script)
     error: BaseException | None = None
     with (
         override_settings(
-            DATA_WAREHOUSE_SOURCE_RETRY_BUDGET_SECONDS=BUDGET,
+            DATA_WAREHOUSE_SOURCE_RETRY_BUDGET_SECONDS=budget,
             DATA_WAREHOUSE_SOURCE_READ_TIMEOUT_SECONDS=READ_TIMEOUT,
         ),
         fake_environment(vendor) as network,
@@ -162,6 +166,14 @@ class TestRequestDeadline:
 
         assert run.vendor.tries[3].read_timeout == pytest.approx(READ_TIMEOUT, abs=SLACK)
 
+    def test_a_retry_after_past_the_deadline_gets_no_capped_wait(self) -> None:
+        # The budget leaves room for the 120 s cap on a wait, but not for the day that the server asks for.
+        run = _run(_through_tracked_session, [_status(429, 86400)] * 3, budget=300)
+
+        assert isinstance(run.error, requests.HTTPError)
+        assert len(run.vendor.tries) == 1
+        assert run.elapsed == pytest.approx(0, abs=SLACK)
+
     def test_a_caller_deadline_bounds_the_adapter_retries(self) -> None:
         def send() -> None:
             with request_deadline(time.monotonic() + 50):
@@ -218,3 +230,127 @@ class TestRequestDeadline:
         assert run.vendor.tries[0].read_timeout == (
             None if read_timeout is None else pytest.approx(read_timeout, abs=SLACK)
         )
+
+
+SourceRetry = Callable[..., Callable[[Callable[[], None]], Callable[[], None]]]
+
+
+def _server_delay(state: RetryCallState) -> float | None:
+    error = state.outcome.exception() if state.outcome is not None else None
+    response = getattr(error, "response", None)
+    return None if response is None else float(response.headers.get("Retry-After", 0))
+
+
+def _source_loop(decorator: SourceRetry, wait: float, **options: Any) -> tuple[Send, list[float]]:
+    tries: list[float] = []
+
+    @decorator(
+        retry=retry_if_exception_type(requests.RequestException),
+        stop=stop_after_attempt(5),
+        wait=wait_fixed(wait),
+        reraise=True,
+        **options,
+    )
+    def fetch() -> None:
+        tries.append(time.monotonic())
+        _through_tracked_session()
+
+    return fetch, tries
+
+
+def _hand_written_loop(wait: float) -> tuple[Send, list[float]]:
+    tries: list[float] = []
+
+    def fetch() -> None:
+        with request_deadline():
+            for attempt in range(5):
+                tries.append(time.monotonic())
+                try:
+                    _through_tracked_session()
+                    return
+                except requests.RequestException:
+                    if attempt == 4 or not request_deadline_allows_wait(wait):
+                        raise
+                    time.sleep(wait)
+
+    return fetch, tries
+
+
+TOO_MANY_REQUESTS = [_status(429, 86400)] * 5
+# Each source try below sends one GET. The adapter retries a stall 4 times, so a try of a plain loop
+# takes the whole adapter budget of 100 s.
+SOURCE_LOOP_CASES: list[tuple[str, tuple[Send, list[float]], Sequence[Answer], int, float]] = [
+    ("plain_tenacity_loop_restarts_the_deadline_on_each_try", _source_loop(tenacity.retry, 0), [], 5, 500),
+    ("deadline_loop_shares_one_deadline_across_tries", _source_loop(retry_with_deadline, 0), [], 1, 100),
+    ("hand_written_loop_shares_one_deadline_across_tries", _hand_written_loop(0), [], 1, 100),
+    # A 429 with a day of Retry-After comes back from the adapter at once. The source caps its wait to 30 s.
+    ("plain_tenacity_loop_waits_out_its_capped_waits", _source_loop(tenacity.retry, 30), TOO_MANY_REQUESTS, 5, 120),
+    (
+        "deadline_loop_stops_before_a_wait_past_the_deadline",
+        _source_loop(retry_with_deadline, 30),
+        TOO_MANY_REQUESTS,
+        4,
+        90,
+    ),
+    ("hand_written_loop_stops_before_a_wait_past_the_deadline", _hand_written_loop(30), TOO_MANY_REQUESTS, 4, 90),
+    (
+        "deadline_loop_stops_at_once_when_the_server_delay_passes_the_deadline",
+        _source_loop(retry_with_deadline, 30, requested_wait=_server_delay),
+        TOO_MANY_REQUESTS,
+        1,
+        0,
+    ),
+]
+
+
+class TestSourceRetryLoop:
+    @parameterized.expand(SOURCE_LOOP_CASES)
+    def test_source_tries_share_one_deadline_only_when_the_source_opts_in(
+        self, _name: str, loop: tuple[Send, list[float]], script: Sequence[Answer], source_tries: int, elapsed: float
+    ) -> None:
+        send, tries = loop
+        tries.clear()
+
+        run = _run(send, script)
+
+        assert isinstance(run.error, requests.RequestException)
+        assert len(tries) == source_tries
+        assert run.elapsed == pytest.approx(elapsed, abs=SLACK * source_tries)
+
+    def test_the_deadline_starts_again_on_each_call(self) -> None:
+        send, _ = _source_loop(retry_with_deadline, 0)
+
+        def two_calls() -> None:
+            with pytest.raises(requests.RequestException):
+                send()
+            send()
+
+        # The first call uses its whole budget. The second call still gets a full read timeout on its first try.
+        run = _run(two_calls, [STALL, STALL, STALL, OK])
+
+        assert run.error is None
+        assert run.vendor.tries[3].read_timeout == pytest.approx(READ_TIMEOUT, abs=SLACK)
+
+    def test_tests_still_reach_the_undecorated_function_and_the_controller(self) -> None:
+        calls: list[int] = []
+
+        @retry_with_deadline(stop=stop_after_attempt(3), reraise=True)
+        def fetch() -> None:
+            calls.append(1)
+            raise ValueError("try failed")
+
+        with pytest.raises(ValueError):
+            cast(Any, fetch).__wrapped__()
+
+        assert len(calls) == 1
+        assert isinstance(cast(Any, fetch).retry, tenacity.Retrying)
+
+    def test_a_stop_given_to_retry_with_keeps_the_deadline(self) -> None:
+        send, tries = _source_loop(retry_with_deadline, 30)
+        tries.clear()
+
+        run = _run(cast(Any, send).retry_with(stop=stop_after_attempt(10)), TOO_MANY_REQUESTS * 2)
+
+        assert isinstance(run.error, requests.RequestException)
+        assert len(tries) == 4
+        assert run.elapsed == pytest.approx(90, abs=SLACK * 4)

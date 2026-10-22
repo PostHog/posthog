@@ -9,7 +9,7 @@ Use this skill when creating or editing email templates for PostHog workflows �
 
 ## How authoring works
 
-You author the **design JSON** (`content.email.design`) and save it with `workflows-create-email-template`. The server renders the sent email from your design with the same renderer PostHog's visual editor uses, so the template opens as editable blocks for humans and sends exactly what the design describes. Schema and a working example in [references/unlayer-design-json.md](references/unlayer-design-json.md).
+You author the **design JSON** (`content.email.design`) and save it with `workflows-create-email-template`. The server renders the sent email from your design with the same renderer PostHog's visual editor uses, so the template opens as editable blocks for humans and sends exactly what the design describes. Schema, the native blocks and spacing rules every email follows, and a working example in [references/unlayer-design-json.md](references/unlayer-design-json.md).
 
 When talking to the user, call it the template's **design** — the design document format is an internal implementation detail. Always share the template's `_posthogUrl` edit link in your reply after creating or updating, so the user can open it in PostHog directly.
 
@@ -30,6 +30,12 @@ Marketing emails must include an unsubscribe link — render it with the built-i
 ```
 
 (`{{ unsubscribe_url_one_click }}` is also available for one-click list-unsubscribe flows.)
+
+Output is HTML-escaped by default, so a value renders as text even when it contains markup:
+
+- Don't add `| escape`. It escapes a second time, and `&` reaches the inbox as `&amp;amp;`.
+- For HTML your own backend builds, such as a summary list, add `| raw`: `{{ variables.summary_html | raw }}`. Never use `raw` on text a person typed.
+- Format money with `currency`: `{{ variables.amount | currency: "USD" }}` renders `$1,234.50`. A value that isn't a number renders unchanged.
 
 ## Click tracking and opt-out
 
@@ -68,7 +74,11 @@ Call `workflows-create-email-template` with:
     "templating": "liquid",
     "email": {
       "subject": "Welcome to {{ person.properties.company | default: 'our product' }}",
-      "design": { "counters": { "u_row": 1 }, "schemaVersion": 16, "body": { "rows": ["…"] } },
+      "design": {
+        "counters": { "u_row": 1 },
+        "schemaVersion": 16,
+        "body": { "rows": ["…"], "values": { "preheaderText": "Three short steps to get you set up" } }
+      },
       "text": "Plain-text fallback of the same message"
     }
   }
@@ -76,6 +86,7 @@ Call `workflows-create-email-template` with:
 ```
 
 - `subject` is required for email templates.
+- Put the preview text that most inboxes show after the subject in the design's `body.values.preheaderText`. The rendered html carries it, so it reaches the inbox on every send path. Leave `content.email.preheader` unset, so the email carries one preview text.
 - Always author the `design` and omit `html` - the server renders html from the design. Sending hand-written html without a design produces an email the visual editor can only show as one raw block.
 - Always provide `text` as a real plain-text rendering of the message - clients that block rich content show only `text`, so filler like "placeholder" reaches real inboxes, and a text part that doesn't match the html hurts deliverability.
 - The tool result returns an edit link into the PostHog library.
@@ -84,6 +95,17 @@ Call `workflows-create-email-template` with:
 ### Payload mechanics
 
 Pass the design directly in the tool call — no scratch files, no pre-validation subprocesses, no payload preview rounds. Liquid tags (`{{ }}`, `{% %}`), apostrophes, single quotes, and emoji are ordinary characters inside JSON strings; only standard JSON escaping applies. Never rewrite content to avoid them — converting Liquid's single quotes to double quotes inside markup attributes breaks the markup. If the tool call is rejected as malformed, fix the JSON escaping and resend the same content unchanged.
+
+## Converting an existing HTML email
+
+To move an email from another platform, rebuild it from native blocks instead of pasting its HTML into one `html` block, so people can still edit it:
+
+- Each part of the source becomes the native block it shows: a `heading`, a `text` block per paragraph, a `button` per call to action, an `image` per picture. Keep the source's colors, font sizes, and padding on each block.
+- Re-host every image through the media library (see Images). Put the file's real dimensions in `src.width` and `src.height`, and set the displayed width with `src.maxWidth` as a percentage of the content width. Source HTML often declares a height that doesn't match the file.
+- A section the source wraps in `{% if %}` becomes a block with a display condition (see [references/unlayer-design-json.md](references/unlayer-design-json.md)).
+- Rename the source platform's Liquid variables to the ones this send provides. A transactional API send provides everything the caller passes in `message_data` as `{{ variables.* }}`.
+- Buttons have no `box-shadow`. A 3px bottom border in a darker shade (`border.borderBottomWidth`, `borderBottomStyle`, `borderBottomColor`) gives the same raised look.
+- The `social` block draws only its own icon sets. To keep custom icons, put the icon row in an `html` block with the re-hosted images.
 
 ## Editing a template (read–modify–write)
 
@@ -102,7 +124,7 @@ A `function_email` step carries its own email snapshot (`config.inputs.email.val
 Edit it with `workflows-patch-action-email`: the same design operations as `workflows-patch-email-template`, plus an `email_patch` merge for subject, preheader, text, and recipients.
 
 1. `workflows-get` — the step's current design (and its block ids) is in `config.inputs.email.value.design`.
-2. `workflows-patch-action-email` with the workflow id, the step's `action_id`, and your operations and/or `email_patch`.
+2. `workflows-patch-action-email` with the workflow id, the step's `action_id`, and your operations and/or `email_patch`. When the operations change the copy, the same call's `email_patch` sets a matching `text`.
 3. The HTML is re-rendered server-side from the patched design, so it never goes stale.
 4. On an active workflow the edit stages a draft — test with `workflows-test-run` (`use_draft=true`) and apply it with `workflows-publish`.
 

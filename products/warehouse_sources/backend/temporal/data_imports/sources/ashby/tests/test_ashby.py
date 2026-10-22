@@ -148,29 +148,38 @@ class TestCheckAccess:
 
 
 class TestFanOut:
-    def test_calls_the_child_once_per_parent_and_injects_the_parent_id(self) -> None:
+    @pytest.mark.parametrize(
+        "endpoint, parent_path, child_path, parent_id_field",
+        [
+            ("application_history", "application.list", "application.listHistory", "applicationId"),
+            ("candidate_notes", "candidate.list", "candidate.listNotes", "candidateId"),
+        ],
+    )
+    def test_calls_the_child_once_per_parent_and_injects_the_parent_id(
+        self, endpoint: str, parent_path: str, child_path: str, parent_id_field: str
+    ) -> None:
         result = _driver().run(
-            "application_history",
+            endpoint,
             [
-                _page([{"id": "app-1"}, {"id": "app-2"}]),
-                _page([{"id": "h-1", "stageNumber": 0}]),
-                _page([{"id": "h-2", "stageNumber": 0}]),
+                _page([{"id": "parent-1"}, {"id": "parent-2"}]),
+                _page([{"id": "child-1"}]),
+                _page([{"id": "child-2"}]),
             ],
         )
         assert result.raised is None
-        # application.listHistory rows carry no applicationId, so the fan-out has to add it —
-        # without it the table can't be joined back to applications and its key isn't unique.
+        # The child rows carry no parent id, so the fan-out has to add it — without it the table
+        # can't be joined back to its parent and its key isn't unique.
         assert result.rows == [
-            {"id": "h-1", "stageNumber": 0, "applicationId": "app-1"},
-            {"id": "h-2", "stageNumber": 0, "applicationId": "app-2"},
+            {"id": "child-1", parent_id_field: "parent-1"},
+            {"id": "child-2", parent_id_field: "parent-2"},
         ]
         assert result.urls == [
-            f"{ASHBY_BASE_URL}/application.list",
-            f"{ASHBY_BASE_URL}/application.listHistory",
-            f"{ASHBY_BASE_URL}/application.listHistory",
+            f"{ASHBY_BASE_URL}/{parent_path}",
+            f"{ASHBY_BASE_URL}/{child_path}",
+            f"{ASHBY_BASE_URL}/{child_path}",
         ]
-        assert result.requests[1].json() == {"applicationId": "app-1", "limit": 100}
-        assert result.requests[2].json() == {"applicationId": "app-2", "limit": 100}
+        assert result.requests[1].json() == {parent_id_field: "parent-1", "limit": 100}
+        assert result.requests[2].json() == {parent_id_field: "parent-2", "limit": 100}
 
     def test_unpaginated_child_sends_only_the_resolve_param(self) -> None:
         # interviewStage.list takes interviewPlanId and nothing else — Ashby rejects a `limit`.
@@ -212,6 +221,78 @@ class TestFanOut:
             AshbyResumeConfig(parent_cursor=None, parent_index=1),
             AshbyResumeConfig(parent_cursor="p2", parent_index=1),
         ]
+
+
+class TestUnpaginatedListing:
+    @pytest.mark.parametrize(
+        "endpoint, path",
+        [
+            ("interview_stage_groups", "interviewStageGroup.list"),
+            ("application_hiring_team_roles", "applicationHiringTeamRole.list"),
+        ],
+    )
+    def test_sends_an_empty_body(self, endpoint: str, path: str) -> None:
+        # These methods accept no request-body keys, and Ashby rejects a `limit`.
+        result = _driver().run(endpoint, [_page([{"id": "1", "title": "Screen"}])])
+        assert result.raised is None
+        assert result.rows == [{"id": "1", "title": "Screen"}]
+        assert result.urls == [f"{ASHBY_BASE_URL}/{path}"]
+        assert result.requests[0].json() == {}
+
+
+class TestVariantListing:
+    def test_lists_each_survey_type_in_turn(self) -> None:
+        result = _driver().run(
+            "survey_submissions",
+            [
+                _page([{"id": "s-1", "surveyType": "CandidateExperience"}], more=True, next_cursor="c1"),
+                _page([{"id": "s-2", "surveyType": "CandidateExperience"}]),
+                _page([]),
+                _page([{"id": "s-3", "surveyType": "HiringManagerExperience"}]),
+            ],
+        )
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == ["s-1", "s-2", "s-3"]
+        assert all(url == f"{ASHBY_BASE_URL}/surveySubmission.list" for url in result.urls)
+        assert [request.json() for request in result.requests] == [
+            {"limit": 100, "surveyType": "CandidateExperience"},
+            {"limit": 100, "surveyType": "CandidateExperience", "cursor": "c1"},
+            {"limit": 100, "surveyType": "Questionnaire"},
+            {"limit": 100, "surveyType": "HiringManagerExperience"},
+        ]
+        # The cursor of one survey type must never be sent with the next one.
+        assert result.saved_states == [
+            AshbyResumeConfig(cursor="c1", variant_index=0),
+            AshbyResumeConfig(variant_index=1),
+            AshbyResumeConfig(variant_index=2),
+        ]
+
+    @pytest.mark.parametrize(
+        "resume_state, expected_bodies",
+        [
+            (
+                AshbyResumeConfig(cursor="half-way", variant_index=1),
+                [
+                    {"limit": 100, "surveyType": "Questionnaire", "cursor": "half-way"},
+                    {"limit": 100, "surveyType": "HiringManagerExperience"},
+                ],
+            ),
+            (
+                AshbyResumeConfig(variant_index=2),
+                [{"limit": 100, "surveyType": "HiringManagerExperience"}],
+            ),
+        ],
+    )
+    def test_resumes_at_the_survey_type_in_progress(
+        self, resume_state: AshbyResumeConfig, expected_bodies: list[dict[str, Any]]
+    ) -> None:
+        result = _driver().run(
+            "survey_submissions",
+            [_page([{"id": f"s-{index}"}]) for index in range(len(expected_bodies))],
+            resume_state=resume_state,
+        )
+        assert result.raised is None
+        assert [request.json() for request in result.requests] == expected_bodies
 
 
 class TestNestedRows:

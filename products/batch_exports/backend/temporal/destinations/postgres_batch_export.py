@@ -7,6 +7,7 @@ import typing
 import asyncio
 import datetime as dt
 import tempfile
+import ipaddress
 import contextlib
 import dataclasses
 import collections.abc
@@ -28,6 +29,14 @@ from posthog.models.integration import (
     Credentials,
     Integration,
     PostgreSQLIntegration,
+)
+from posthog.psycopg_helpers import is_resolvable_hostname, resolve_psycopg_hostaddr_with_timeout
+from posthog.security.url_validation import (
+    INVALID_HOST_MESSAGE,
+    UNREACHABLE_HOST_MESSAGE,
+    ResolvedIPs,
+    ShapeError,
+    validate_external_host,
 )
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
@@ -346,9 +355,14 @@ class PostgreSQLClient:
         error as its `__cause__`. Without it, every `OperationalError` is retried.
         """
         max_attempts = 5
+
+        async def connect_to_checked_host(**kwargs: typing.Any) -> psycopg.AsyncConnection:
+            host_kwargs = await asyncio.to_thread(self._checked_host_kwargs)
+            return await psycopg.AsyncConnection.connect(**{**kwargs, **host_kwargs})
+
         connect: typing.Callable[..., typing.Awaitable[psycopg.AsyncConnection]] = (
             make_retryable_with_exponential_backoff(
-                psycopg.AsyncConnection.connect,
+                connect_to_checked_host,
                 max_attempts=max_attempts,
                 retryable_exceptions=(psycopg.OperationalError, psycopg.errors.ConnectionTimeout),
                 is_exception_retryable=is_error_retryable or (lambda _: True),
@@ -361,7 +375,6 @@ class PostgreSQLClient:
                     user=self.user,
                     password=self.password,
                     dbname=self.database,
-                    host=self.host,
                     port=self.port,
                     sslmode=self.ssl_mode,
                     sslrootcert=ssl_root_cert,
@@ -383,6 +396,45 @@ class PostgreSQLClient:
         async with connection as connection:
             self._connection = connection
             yield self
+
+    def _checked_host_kwargs(self) -> dict[str, str]:
+        """Return the libpq `host`/`hostaddr` that dial only addresses that pass the SSRF check.
+
+        The API checks the host when a destination is saved, but the hostname is what gets stored,
+        and libpq resolves it again on every connect. A record with a short TTL can answer public
+        for the save and private for the connect, and no egress proxy sees a raw Postgres socket,
+        so the check has to run on the addresses this connect dials. `host` repeats the hostname
+        once per address because libpq pairs the two lists by position, and TLS checks the server
+        certificate against `host`.
+        """
+        resolved_ips: ResolvedIPs | None = None
+        host_kwargs = {"host": self.host}
+        if is_resolvable_hostname(self.host):
+            addresses = resolve_psycopg_hostaddr_with_timeout(
+                self.host,
+                self.port,
+                self.connection_timeout,
+                fail_on_resolution_error=True,
+                raise_on_temporary_failure=True,
+            )
+            if not addresses:
+                raise psycopg.OperationalError("Could not resolve database host name")
+            resolved_ips = {ipaddress.ip_address(address) for address in addresses}
+            host_kwargs = {"host": ",".join([self.host] * len(addresses)), "hostaddr": ",".join(addresses)}
+
+        try:
+            validate_external_host(self.host, resolved_ips=resolved_ips)
+        except ShapeError as err:
+            raise PostgreSQLConnectionError(INVALID_HOST_MESSAGE) from err
+        except ValueError as err:
+            self.logger.warning(
+                "Refused to connect to a host that failed the SSRF check",
+                reason=str(err),
+                hostaddr=host_kwargs.get("hostaddr"),
+            )
+            raise PostgreSQLConnectionError(UNREACHABLE_HOST_MESSAGE) from err
+
+        return host_kwargs
 
     @contextlib.asynccontextmanager
     async def _ensure_ssl_root_cert_file(self):

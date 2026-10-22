@@ -543,19 +543,26 @@ describe('ToolExecutor analytics capture', () => {
         captureSpy.mockRestore()
     })
 
-    it('leaves a client that already has a session untouched', async () => {
+    it.each([
+        { requestContext: { mcpSessionId: 'sess-1' }, expectedHandle: undefined },
+        {
+            requestContext: { sessionId: 'wrapper-1' },
+            expectedHandle: expect.stringMatching(/^[0-9a-f]{8}-[0-9a-f]{4}-7/),
+        },
+    ])('returns handle $expectedHandle for $requestContext', async ({ requestContext, expectedHandle }) => {
         const captureSpy = vi.spyOn(getPostHogClient(), 'captureToolCall').mockImplementation(() => {})
-        // `makeToolExecutorState` carries `sessionId: 'sess-1'`, the wrapper-app id.
-        const state = makeToolExecutorState([], { useSingleExec: true })
+        const state = makeToolExecutorState([], {
+            useSingleExec: true,
+            requestContext: { authMethod: 'personal_api_key', ...requestContext },
+        })
         await executor.handleToolsList(state)
 
         const result = await executor.handleToolCall({ name: 'exec', arguments: { command: 'tools' } }, state)
 
-        // Minting here would split the session these clients already group by, and append a
-        // block to every first result, for the majority of today's traffic.
-        expect(readConversationHandle(result)).toBeUndefined()
+        const handle = readConversationHandle(result)
+        expect(handle).toEqual(expectedHandle)
         await vi.waitFor(() => expect(captureSpy).toHaveBeenCalledTimes(1))
-        expect(captureSpy.mock.calls[0]![0].conversationId).toBeUndefined()
+        expect(captureSpy.mock.calls[0]![0].conversationId).toBe(handle)
 
         captureSpy.mockRestore()
     })

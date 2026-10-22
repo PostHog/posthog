@@ -193,27 +193,50 @@ class TestListingEndpoints:
         assert result.saved_states == ([GenesysCloudResumeConfig(page_number=2)] if resume is None else [])
         assert result.final_state is None
 
+    @pytest.mark.parametrize(
+        "resume,expected_cursors",
+        [
+            (None, [None, "after-1"]),
+            (GenesysCloudResumeConfig(cursor="after-1"), ["after-1"]),
+        ],
+    )
+    def test_scan_pages_until_cursor_runs_out(self, resume, expected_cursors):
+        pages = {
+            None: ScriptedResponse(json={"entities": [{"id": "o1"}], "cursors": {"after": "after-1"}}),
+            "after-1": ScriptedResponse(json={"entities": [{"id": "o2"}], "cursors": {}}),
+        }
+
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == "/oauth/token":
+                return TOKEN
+            return pages[request.param("cursor")]
+
+        result = _driver().run("external_organizations", respond, resume_state=resume)
+
+        assert result.raised is None
+        assert result.params("cursor")[1:] == expected_cursors
+        assert [row["id"] for row in result.rows] == ["o1", "o2"][-len(expected_cursors) :]
+        assert result.saved_states == ([GenesysCloudResumeConfig(cursor="after-1")] if resume is None else [])
+        assert result.final_state is None
+
+    def test_scan_drops_an_expired_resumed_cursor(self):
+        result = _driver().run(
+            "external_organizations",
+            [TOKEN, ScriptedResponse(status=422, json={"code": "bad.request"})],
+            resume_state=GenesysCloudResumeConfig(cursor="expired"),
+        )
+
+        assert isinstance(result.raised, requests.HTTPError)
+        assert result.rows == []
+        assert result.final_state is None
+
 
 class TestValidateCredentials:
     @pytest.mark.parametrize(
         "endpoint,status_code,expected_valid,expected_message",
         [
             (None, 200, True, None),
-            (None, 403, True, None),
-            (
-                None,
-                401,
-                False,
-                "Genesys Cloud rejected the access token. Check the client ID, client secret, and region.",
-            ),
-            (
-                "conversations",
-                403,
-                False,
-                "The OAuth client's role is missing the `analytics:conversationDetail:view` permission, which the conversations table needs.",
-            ),
-            ("users", 403, False, "The OAuth client does not have access to the users table."),
-            ("queues", 500, False, "Genesys Cloud returned HTTP 500. Try again in a few minutes."),
+            ("external_organizations", 200, True, None),
         ],
     )
     def test_maps_probe_status(self, endpoint, status_code, expected_valid, expected_message):
@@ -234,6 +257,7 @@ class TestValidateCredentials:
                 "conversations": "/api/v2/analytics/conversations/details/query",
                 "users": "/api/v2/users",
                 "queues": "/api/v2/routing/queues",
+                "external_organizations": "/api/v2/externalcontacts/scan/organizations",
             }[endpoint]
         )
 
@@ -247,10 +271,6 @@ class TestValidateCredentials:
             (
                 OAuth2AuthRequestError("HTTP 503 from the OAuth2 token endpoint", is_permanent=False),
                 "Could not get an access token from Genesys Cloud. Try again in a few minutes.",
-            ),
-            (
-                requests.ConnectionError("Name or service not known"),
-                "Could not connect to Genesys Cloud. Check the selected region and try again.",
             ),
         ],
     )

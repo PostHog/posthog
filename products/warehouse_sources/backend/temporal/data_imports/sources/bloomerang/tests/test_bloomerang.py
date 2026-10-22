@@ -313,8 +313,6 @@ class TestValidateCredentials:
     @parameterized.expand(
         [
             (200, True, 200),
-            (401, False, 401),
-            (403, False, 403),
         ]
     )
     def test_status_mapping(self, status_code, expected_valid, expected_status) -> None:

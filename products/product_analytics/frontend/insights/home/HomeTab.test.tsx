@@ -2,13 +2,15 @@ import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen } from '@testing-library/react'
+import { act, cleanup, render, screen } from '@testing-library/react'
 
+import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { initKeaTests } from '~/test/init'
 
 import { HomeTab } from './HomeTab'
+import { homeTabDashboardProps } from './homeTabDashboardLogic'
 
 jest.mock('./HomeTabDefault', () => ({
     HomeTabDefault: () => <div>PostHog Home</div>,
@@ -33,6 +35,23 @@ describe('HomeTab', () => {
 
         render(<HomeTab />)
         expect(screen.getByText(expectedContent)).toBeInTheDocument()
+    })
+
+    it('falls back to PostHog Home and reloads the team when the selected dashboard is gone', () => {
+        initKeaTests()
+        teamLogic.mount()
+        teamLogic.actions.loadCurrentTeamSuccess({
+            ...MOCK_DEFAULT_TEAM,
+            home_tab_dashboard: 42,
+        })
+        render(<HomeTab />)
+
+        act(() => {
+            dashboardLogic(homeTabDashboardProps(42)).actions.dashboardNotFound()
+        })
+
+        expect(screen.getByText('PostHog Home')).toBeInTheDocument()
+        expect(teamLogic.values.currentTeamLoading).toBe(true)
     })
 
     it('keeps the selected dashboard visible while team data refreshes', () => {

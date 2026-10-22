@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -14,6 +15,9 @@ use personhog_common::async_gzip::{AsyncGzipConfig, AsyncGzipLayer};
 use personhog_common::grpc::{tracked_tcp_incoming, GrpcLoadShedLayer, GrpcMetricsLayer};
 use personhog_common::metrics::{WARM_LATENCY_BUCKETS_MS, WRITE_PATH_LATENCY_BUCKETS_MS};
 use personhog_coordination::authority::AuthorityClock;
+use personhog_coordination::changelog::{
+    keep_changelog_live, load_changelog_config, LiveChangelog, CHANGELOG_BOOT_POLL_INTERVAL,
+};
 use personhog_coordination::pod::{PodConfig, PodHandle};
 use personhog_coordination::store::PersonhogStore;
 use personhog_proto::personhog::leader::v1::person_hog_leader_server::PersonHogLeaderServer;
@@ -31,16 +35,19 @@ use tracing_subscriber::EnvFilter;
 use metrics::{counter, gauge};
 use personhog_leader::cache::{DirtyIndex, PartitionedCache, PersonCacheKey};
 use personhog_leader::config::Config;
-use personhog_leader::coordination::LeaderHandoffHandler;
+use personhog_leader::coordination::{ChangelogCaptures, LeaderHandoffHandler};
 use personhog_leader::fencing::{
     preregister_fencing_metrics, FencedChangelogProducers, FencedProducerConfig,
 };
 use personhog_leader::inflight::InflightTracker;
+use personhog_leader::migration::SealDuty;
 use personhog_leader::pg::{validate_table_name, LifecycleTables, PgFallback};
 use personhog_leader::recovery::{ChangelogRecovery, RecoveryConfig};
 use personhog_leader::service::{sweep_idle_locks, PersonHogLeaderService, PropertySizeLimits};
-use personhog_leader::settle::prune_and_settle_tick;
-use personhog_leader::warming::{WarmClientPools, WarmingConfig, WarmingRetryPolicy};
+use personhog_leader::settle::{prune_and_settle_tick, retired_topic};
+use personhog_leader::warming::{
+    changelog_partition_count, WarmClientPools, WarmingConfig, WarmingRetryPolicy,
+};
 use personhog_leader::warnings::WarningsProducer;
 
 common_alloc::used!();
@@ -96,7 +103,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("etcd endpoints: {}", config.etcd_endpoints);
     tracing::info!("etcd prefix: {}", config.etcd_prefix);
     tracing::info!("Pod name: {}", config.pod_name);
-    tracing::info!("Kafka changelog topic: {}", config.kafka_person_state_topic);
 
     // Shutdown order matters: the coordination drain (phase 0) hands this
     // pod's partitions off, which requires the gRPC server to keep serving
@@ -141,6 +147,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "authority-metrics",
         ComponentOptions::new().is_observability(true),
     );
+    let changelog_handle = manager.register("changelog-config", ComponentOptions::new());
+    let migration_handle = manager.register("migration-duty", ComponentOptions::new());
 
     let readiness = manager.readiness_handler();
     let liveness = manager.liveness_handler();
@@ -349,16 +357,48 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .expect("Failed to connect to etcd");
     let store = Arc::new(PersonhogStore::new(etcd_store));
 
-    // Read total_partitions from etcd (set by kafka-assigner) — the same
-    // source the router hashes against, so partition validation can never
-    // drift between the two.
-    let num_partitions = store
-        .get_total_partitions()
+    // The same source the router hashes against.
+    let loaded = load_changelog_config(&store, CHANGELOG_BOOT_POLL_INTERVAL)
         .await
-        .expect("Failed to read total_partitions from etcd");
-    tracing::info!(num_partitions, "loaded partition count from etcd");
+        .expect("Failed to load the changelog config from etcd");
+    let changelog_topic = loaded.topic.clone();
+    let num_partitions = loaded.partitions;
+    let topic_partitions =
+        changelog_partition_count(&config.kafka, &changelog_topic, Duration::from_secs(10))
+            .await
+            .expect("Failed to read the changelog topic's metadata");
+    assert_eq!(
+        topic_partitions, num_partitions,
+        "changelog topic {changelog_topic} has {topic_partitions} partitions but the config says {num_partitions}"
+    );
+    // Retirement settles marks on the writer group the config names, so it must be ours.
+    assert_eq!(
+        loaded.writer_group, config.writer_consumer_group,
+        "config/changelog names writer group {} but WRITER_CONSUMER_GROUP is {}",
+        loaded.writer_group, config.writer_consumer_group
+    );
+    tracing::info!(
+        num_partitions,
+        topic = %changelog_topic,
+        epoch = loaded.epoch,
+        "loaded changelog config"
+    );
+    let changelog = LiveChangelog::new(loaded);
+    {
+        let store = Arc::clone(&store);
+        let changelog = changelog.clone();
+        tokio::spawn(async move {
+            let _guard = changelog_handle.process_scope();
+            let cancel = CancellationToken::new();
+            tokio::select! {
+                _ = changelog_handle.shutdown_signal() => cancel.cancel(),
+                _ = keep_changelog_live(store, changelog, cancel.clone()) => {}
+            }
+        });
+    }
 
     let locks = Arc::new(DashMap::new());
+    let captures: ChangelogCaptures = Arc::new(DashMap::new());
     let fences: personhog_leader::fence::FenceMap = Arc::new(DashMap::new());
     let inflight = Arc::new(InflightTracker::new());
     let dirty_index = Arc::new(DirtyIndex::new(config.dirty_index_max_entries));
@@ -372,7 +412,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let recovery = Arc::new(
         ChangelogRecovery::new(RecoveryConfig {
             kafka: config.kafka.clone(),
-            topic: config.kafka_person_state_topic.clone(),
             pod_name: config.pod_name.clone(),
             recv_timeout: Duration::from_secs(config.recovery_recv_timeout_secs),
             pool_size: config.recovery_pool_size,
@@ -394,7 +433,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         lease_runway_ms = config.lease_fence_runway().as_millis(),
         "producing the changelog through per-partition transactional producers"
     );
-    preregister_fencing_metrics(num_partitions);
+    preregister_fencing_metrics();
     // A condemned producer's repair otherwise waits for the next
     // reconcile tick; this nudge lets the condemnation itself
     // trigger the repair pass that heals it.
@@ -403,17 +442,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // shared one: its writes must resolve inside the lease runway.
     let fencing_kafka = common_kafka::config::KafkaConfig {
         kafka_message_timeout_ms: config.fencing_message_timeout().as_millis() as u32,
-        // One producer per lane per owned partition, so the shared
-        // producer's queue limits are an aggregate to divide rather
-        // than a per-producer figure to copy.
-        kafka_producer_queue_mib: config.fencing_queue_mib(num_partitions),
-        kafka_producer_queue_messages: config.fencing_queue_messages(num_partitions),
         ..config.kafka.clone()
     };
     let fenced = Arc::new(
         FencedChangelogProducers::new(FencedProducerConfig {
             kafka: fencing_kafka,
-            topic: config.kafka_person_state_topic.clone(),
             init_timeout: config.fencing_init_timeout(),
             commit_timeout: config.fencing_txn_timeout(),
             broker_txn_timeout: config.fencing_broker_txn_timeout(),
@@ -424,6 +457,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         })
         .with_repair_nudge(Arc::clone(&fence_repair_nudge)),
     );
+
+    {
+        let duty = SealDuty {
+            store: Arc::clone(&store),
+            pod_name: config.pod_name.clone(),
+            fenced: Arc::clone(&fenced),
+        };
+        tokio::spawn(async move {
+            let _guard = migration_handle.process_scope();
+            let cancel = CancellationToken::new();
+            tokio::select! {
+                _ = migration_handle.shutdown_signal() => cancel.cancel(),
+                _ = duty.run(cancel.clone()) => {}
+            }
+        });
+    }
 
     // One clock for the process: the coordination session claims and
     // surrenders it, the data plane reads it per request.
@@ -477,7 +526,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         fallback,
         Arc::clone(&locks),
         Arc::clone(&inflight),
-        num_partitions,
+        Arc::clone(&captures),
         Arc::clone(&dirty_index),
         Arc::clone(&recovery),
         PropertySizeLimits::new(
@@ -503,10 +552,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Arc::clone(&dirty_index),
         WarmingConfig {
             kafka: config.kafka.clone(),
-            topic: config.kafka_person_state_topic.clone(),
             pod_name: config.pod_name.clone(),
             writer_consumer_group: config.writer_consumer_group.clone(),
-            lookback_offsets: config.warm_lookback_offsets,
             committed_offsets_timeout: Duration::from_secs(
                 config.warm_committed_offsets_timeout_secs,
             ),
@@ -522,7 +569,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         },
         Arc::clone(&fences),
         fence_scan,
-        num_partitions,
+        changelog.clone(),
+        Arc::clone(&captures),
         Arc::clone(&warm_pools),
         Arc::clone(&fenced),
         Arc::clone(&authority),
@@ -650,7 +698,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Arc::clone(&cache),
         Arc::clone(&locks),
         Arc::clone(&warm_pools),
-        config.kafka_person_state_topic.clone(),
+        changelog.clone(),
+        config.writer_consumer_group.clone(),
         Duration::from_secs(config.warm_committed_offsets_timeout_secs),
         Duration::from_secs(config.dirty_index_prune_interval_secs.max(1)),
     ));
@@ -743,53 +792,45 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// export the dirty-count and writer-lag gauges as a side effect. One
 /// batched OffsetFetch covers every partition with marks, on a pooled
 /// client — each tick reuses the connection instead of rebuilding one.
+#[allow(clippy::too_many_arguments)]
 async fn run_dirty_index_prune_loop(
     dirty_index: Arc<DirtyIndex>,
     cache: Arc<PartitionedCache>,
     locks: Arc<DashMap<PersonCacheKey, Arc<tokio::sync::Mutex<()>>>>,
     pools: Arc<WarmClientPools>,
-    topic: String,
+    changelog: LiveChangelog,
+    writer_group: String,
     offsets_timeout: Duration,
     prune_interval: Duration,
 ) {
     let mut interval = tokio::time::interval(prune_interval);
     loop {
         interval.tick().await;
-        // One batched OffsetFetch, then queue pops proportional to the
-        // marks actually reclaimed — a tick never scans the index, which
-        // is what makes the 1s interval affordable even when a lagging
-        // writer has made the index large.
         gauge!("personhog_leader_dirty_index_size").set(dirty_index.len() as f64);
         gauge!("personhog_leader_dirty_index_max_entries").set(dirty_index.max_entries() as f64);
         gauge!("personhog_leader_cache_weight_bytes").set(cache.usage_bytes() as f64);
-        let Some((partitions, committed_offsets)) = prune_and_settle_tick(
+        // Read when judged, not when the tick starts: a capture adopts before its marks
+        // exist, so a stream seen with marks is never judged on an older config.
+        let lags = prune_and_settle_tick(
             &dirty_index,
             &cache,
             &locks,
             &pools.offsets,
-            &topic,
             offsets_timeout,
+            |topic| retired_topic(&changelog.current(), &writer_group, topic),
         )
-        .await
-        else {
-            continue;
-        };
-        if partitions.is_empty() {
-            continue;
-        }
-        // A partition absent from the committed offsets has no writer
-        // commit yet: nothing is applied, every mark stays, and its lag
-        // is the entire marked backlog. A partition the prune fully
-        // reclaimed has no live marks left — the writer caught up, so its
-        // lag reads zero.
-        for partition in &partitions {
-            let lag = match dirty_index.max_offset(*partition) {
-                Some(max_offset) => {
-                    let committed = committed_offsets.get(partition).copied().unwrap_or(0);
-                    (max_offset + 1 - committed).max(0)
-                }
+        .await;
+        // A partition's lag sums the streams feeding it; a stream the writer never
+        // committed on lags by its whole marked backlog, and a reclaimed one by zero.
+        let mut per_partition: HashMap<u32, i64> = HashMap::new();
+        for lag in &lags {
+            let outstanding = match dirty_index.max_offset(lag.partition, &lag.stream) {
+                Some(max_offset) => (max_offset + 1 - lag.committed.unwrap_or(0)).max(0),
                 None => 0,
             };
+            *per_partition.entry(lag.partition).or_default() += outstanding;
+        }
+        for (partition, lag) in per_partition {
             gauge!(
                 "personhog_leader_writer_uncommitted_offsets",
                 "partition" => partition.to_string()

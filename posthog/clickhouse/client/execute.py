@@ -147,20 +147,6 @@ def get_team_kill_switch_level(team_id: int) -> KillSwitchLevel:
     return KillSwitchLevel.OFF
 
 
-def get_hedged_app_queries_enabled() -> bool:
-    return _get_hedged_app_queries_enabled(round(time.time() / 60))
-
-
-@lru_cache(maxsize=1)
-def _get_hedged_app_queries_enabled(_ttl: int) -> bool:
-    from posthog.models.instance_setting import get_instance_setting
-
-    try:
-        return get_instance_setting("CLICKHOUSE_HEDGED_APP_QUERIES")
-    except Exception:
-        return False
-
-
 @lru_cache(maxsize=1)
 def _get_kill_switch_level(_ttl: int) -> KillSwitchLevel:
     from posthog.models.instance_setting import get_instance_setting
@@ -446,10 +432,16 @@ def sync_execute(
     # traffic stays on the online cluster. See is_api_key_access_method for the exact set.
     is_api_key_auth = is_api_key_access_method(tags.access_method)
 
-    # When someone uses an API key, always put their query to the offline cluster
-    # Execute all celery tasks not directly set to be online on the offline cluster
-    if workload == Workload.DEFAULT and (is_api_key_auth or tags.kind == "celery"):
-        workload = Workload.OFFLINE
+    if workload == Workload.DEFAULT:
+        # When someone uses an API key, always put their query to the offline cluster
+        if is_api_key_auth:
+            workload = Workload.OFFLINE
+        # Cache warming runs on the online cluster
+        elif tags.kind == "celery" and tags.feature == Feature.CACHE_WARMUP:
+            workload = Workload.ONLINE
+        # Execute all other celery tasks not directly set to be online on the offline cluster
+        elif tags.kind == "celery":
+            workload = Workload.OFFLINE
 
     # Make sure we always have app traffic through process_query_task on the online cluster.
     # API-key traffic stays offline here too, so an async query lands on the same cluster its
@@ -569,17 +561,6 @@ def sync_execute(
         **core_settings,
         "log_comment": query_log_tags.to_json(),
     }
-    if workload == Workload.OFFLINE:
-        # disabling hedged requests for offline queries reduces the likelihood of these queries bleeding over into the
-        # online resource pool when the offline resource pool is under heavy load. this comes at the cost of higher and
-        # more variable latency and a higher likelihood of query failures - but offline workloads should be tolerant to
-        # these disruptions
-        settings["use_hedged_requests"] = "0"
-    elif workload == Workload.ONLINE and ch_user == ClickHouseUser.APP:
-        if kill_switch_level != KillSwitchLevel.OFF:
-            settings["use_hedged_requests"] = "0"
-        else:
-            settings["use_hedged_requests"] = "1" if get_hedged_app_queries_enabled() else "0"
     start_time = perf_counter()
     budgeted_query_info: Optional[Any] = None
 

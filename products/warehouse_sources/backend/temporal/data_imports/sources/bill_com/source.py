@@ -70,7 +70,7 @@ class BillComSource(ResumableSource[BillComSourceConfig, BillComResumeConfig]):
             name=ExternalDataSourceType.BILLCOM,
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="BILL (formerly Bill.com)",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["bill.com", "accounts payable", "accounts receivable", "ap", "ar"],
             caption="""Connect BILL to pull your accounts payable and receivable data into the PostHog Data warehouse.
 

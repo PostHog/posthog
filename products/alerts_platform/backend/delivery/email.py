@@ -53,6 +53,8 @@ class EmailTransport:
                 template_context={
                     "headline": message.headline,
                     "details": [{"label": detail.label, "value": detail.value} for detail in message.details],
+                    "context": list(message.context),
+                    "links": [{"label": link.label, "url": link.url} for link in message.links],
                 },
             )
         except ImproperlyConfigured as error:

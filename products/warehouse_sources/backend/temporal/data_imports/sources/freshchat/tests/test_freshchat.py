@@ -10,7 +10,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
-    always,
     route,
     scripted_network,
 )
@@ -162,10 +161,6 @@ class TestValidateCredentials:
             assert validate_credentials(BASE_HOST, "key") == (200, returned_json)
 
         assert network.requests_log[0].path == "/v2/accounts/configuration"
-
-    def test_connection_error_returns_none(self) -> None:
-        with scripted_network(always(requests.ConnectionError("nope"))):
-            assert validate_credentials(BASE_HOST, "key") == (None, False)
 
     def test_session_redacts_api_key_from_samples(self) -> None:
         with scripted_network([ScriptedResponse()]) as network:

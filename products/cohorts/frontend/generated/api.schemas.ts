@@ -679,13 +679,17 @@ export interface CohortUsedInFlagApi {
      * @nullable
      */
     name: string | null
+    /** True when the flag is archived. Every flag that is not archived prevents the cohort from being deleted, enabled or not */
+    archived: boolean
 }
 
 export interface CohortUsedInFlagsBlockApi {
     /** Feature flags referencing this cohort, capped at 100 results */
     results: CohortUsedInFlagApi[]
-    /** Total number of feature flags referencing this cohort, before truncation */
+    /** Total number of feature flags referencing this cohort that the caller can view, before truncation */
     total: number
+    /** Number of flags that are not archived and that the caller cannot view. They prevent the cohort from being deleted but never appear in results or total */
+    hidden: number
     /** True when more feature flags exist beyond the truncation cap */
     has_more: boolean
 }
@@ -702,8 +706,10 @@ export interface CohortUsedInInsightApi {
 export interface CohortUsedInInsightsBlockApi {
     /** Insights referencing this cohort, capped at 100 results */
     results: CohortUsedInInsightApi[]
-    /** Total number of insights referencing this cohort, before truncation */
+    /** Total number of insights referencing this cohort that the caller can view, before truncation */
     total: number
+    /** Number of insights referencing this cohort that the caller cannot view. They prevent the cohort from being deleted but never appear in results or total */
+    hidden: number
     /** True when more insights exist beyond the truncation cap */
     has_more: boolean
 }
@@ -718,9 +724,27 @@ export interface CohortUsedInCohortApi {
 export interface CohortUsedInCohortsBlockApi {
     /** Cohorts that include this cohort as a criterion, capped at 100 results */
     results: CohortUsedInCohortApi[]
-    /** Total number of cohorts referencing this cohort, before truncation */
+    /** Total number of cohorts referencing this cohort that the caller can view, before truncation */
     total: number
+    /** Number of cohorts referencing this cohort that the caller cannot view. They prevent the cohort from being deleted but never appear in results or total */
+    hidden: number
     /** True when more cohorts exist beyond the truncation cap */
+    has_more: boolean
+}
+
+export interface CohortUsedInEnvironmentApi {
+    /** Environment (team) database ID */
+    id: number
+    /** Environment display name */
+    name: string
+}
+
+export interface CohortUsedInEnvironmentsBlockApi {
+    /** Environments that use this cohort in 'Filter out internal and test users', capped at 100 results */
+    results: CohortUsedInEnvironmentApi[]
+    /** Total number of environments using this cohort in their test account filters, before truncation */
+    total: number
+    /** True when more environments exist beyond the truncation cap */
     has_more: boolean
 }
 
@@ -731,6 +755,8 @@ export interface CohortUsedInResponseApi {
     insights: CohortUsedInInsightsBlockApi
     /** Other cohorts that include this cohort as a criterion, with truncation metadata */
     cohorts: CohortUsedInCohortsBlockApi
+    /** Environments across the project that use this cohort in 'Filter out internal and test users', with truncation metadata */
+    test_account_filters: CohortUsedInEnvironmentsBlockApi
     /** Active workflows that trigger on this cohort or branch on its membership. While any exist, the cohort cannot be deleted or edited in a way that stops it updating in real time. */
     workflows: CohortUsedInWorkflowsBlockApi
 }

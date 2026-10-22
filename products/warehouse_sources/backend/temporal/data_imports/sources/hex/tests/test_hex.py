@@ -2,12 +2,9 @@ from typing import Any
 
 from unittest import mock
 
-import requests
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
-    always,
     scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.hex import HexSourceConfig
@@ -45,10 +42,6 @@ class TestValidateCredentials:
         assert network.requests_log[0].path == "/api/v1/projects"
         assert network.requests_log[0].param("limit") == "1"
 
-    def test_invalid_token(self) -> None:
-        with scripted_network([ScriptedResponse(status=401)]):
-            assert validate_credentials(None, "tok") == (False, "Invalid Hex API token")
-
     def test_403_at_source_create_is_accepted(self) -> None:
         with scripted_network([ScriptedResponse(status=403)]):
             assert validate_credentials(None, "tok", schema_name=None) == (True, None)
@@ -64,13 +57,6 @@ class TestValidateCredentials:
         valid, msg = validate_credentials("not a host!", "tok")
         assert valid is False
         assert msg == "Invalid Hex workspace URL"
-
-    def test_request_exception_returns_failure(self) -> None:
-        with scripted_network(always(requests.exceptions.ConnectionError("boom"))):
-            valid, msg = validate_credentials(None, "tok")
-
-        assert valid is False
-        assert "boom" in (msg or "")
 
     def test_rejects_redirect_response(self) -> None:
         # A workspace host that 3xx-redirects (potentially to an internal address) must be

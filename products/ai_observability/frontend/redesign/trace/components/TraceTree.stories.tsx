@@ -14,7 +14,7 @@ function Stateful({
     initialSelectedId?: string
 }): JSX.Element {
     const [selected, setSelected] = useState<string | null>(initialSelectedId)
-    return <TraceTree nodes={nodes} selectedNodeId={selected} onSelectNode={setSelected} />
+    return <TraceTree nodes={nodes} selectedNodeId={selected} onSelectNode={setSelected} onPrefetchNode={() => {}} />
 }
 
 const meta: Meta<typeof Stateful> = {

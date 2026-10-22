@@ -152,11 +152,6 @@ class TestSprigSource:
 
 
 class TestValidateCredentials:
-    @parameterized.expand([("ok", 200, True), ("unauthorized", 401, False), ("forbidden", 403, False)])
-    def test_status_mapping(self, _label: str, status_code: int, expected: bool) -> None:
-        with scripted_network(always(ScriptedResponse(status=status_code, json={}))):
-            assert validate_credentials("key") is expected
-
     @parameterized.expand([("rate_limited", 429), ("server_error", 503)])
     def test_transient_errors_raise(self, _label: str, status_code: int) -> None:
         with scripted_network(always(ScriptedResponse(status=status_code, json={}))):

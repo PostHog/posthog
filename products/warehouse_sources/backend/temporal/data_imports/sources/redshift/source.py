@@ -33,6 +33,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     RedshiftSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.redshift.redshift import (
+    _TRANSIENT_CONNECTION_DROP_SUBSTRINGS,
     REDSHIFT_READ_TIMEOUT_ERROR,
     RedshiftImplementation,
     get_connection_metadata as get_connection_metadata_redshift,
@@ -64,6 +65,24 @@ _DNS_RESOLUTION_VALIDATION_ERROR = (
 _HOST_UNREACHABLE_VALIDATION_ERROR = (
     "Could not connect to the database on the host and port given. Check the host and port are "
     "correct, and that PostHog's IP addresses are allowed through your firewall."
+)
+
+# psycopg raises `ConnectionTimeout` with this text when `connect_timeout` runs out before the
+# cluster answers. A paused, resizing or briefly overloaded cluster gives the same result as a
+# blocked network path, so a later attempt can succeed.
+_CONNECT_TIMEOUT_ERROR = "connection timeout expired"
+
+# `_TRANSIENT_CONNECTION_DROP_SUBSTRINGS` (redshift.py) already retries a connection drop in-process
+# during sync setup, but once `_stream_arrow_batches` has yielded a batch it can no longer safely
+# replay the query, so the same drop mid-stream propagates all the way up to this activity. Temporal
+# then retries the whole activity and the failure is transient and self-recovering, so classify it
+# here too — otherwise `_handle_import_error` logs it at `exception` on every occurrence, flooding
+# error tracking with a self-recovering network blip. Mirrors the equivalent Postgres source.
+_CONNECTION_DROPPED_EXHAUSTED_MESSAGE = (
+    "PostHog's connection to your Redshift cluster kept closing before the sync could finish, and "
+    "reconnecting didn't help. Check that the cluster is not paused, resizing, or dropping idle "
+    "connections (a firewall or load balancer in front of it can do this too). This sync is still "
+    "enabled and will run again on its next schedule."
 )
 
 RedshiftErrors = {
@@ -186,7 +205,13 @@ class RedshiftSource(SQLSource[RedshiftSourceConfig], SSHTunnelMixin, ValidateDa
         #
         # `REDSHIFT_READ_TIMEOUT_ERROR` is the client-side limit on the wait for one batch of rows.
         # The cluster was reachable and then sent nothing, so a later attempt can succeed.
-        return {HOST_RESOLUTION_TIMEOUT_ERROR, TEMPORARY_HOST_RESOLUTION_ERROR, REDSHIFT_READ_TIMEOUT_ERROR}
+        return {
+            HOST_RESOLUTION_TIMEOUT_ERROR,
+            TEMPORARY_HOST_RESOLUTION_ERROR,
+            REDSHIFT_READ_TIMEOUT_ERROR,
+            _CONNECT_TIMEOUT_ERROR,
+            *_TRANSIENT_CONNECTION_DROP_SUBSTRINGS,
+        }
 
     def get_retry_exhausted_errors(self) -> dict[str, str]:
         return {
@@ -197,6 +222,14 @@ class RedshiftSource(SQLSource[RedshiftSourceConfig], SSHTunnelMixin, ValidateDa
                 "on every retry. Check that the cluster is not paused or resizing and that it has capacity "
                 "for the read. This sync is still enabled and will run again on its next schedule."
             ),
+            _CONNECT_TIMEOUT_ERROR: (
+                "PostHog couldn't connect to your Redshift cluster before the connection timed out, and it "
+                "did so again on every retry. Check that the cluster is running and not paused, and that "
+                "PostHog's IP addresses are allowed through its security group. If you connect through an "
+                "SSH tunnel, check that the bastion host can reach the cluster. This sync is still enabled "
+                "and will run again on its next schedule."
+            ),
+            **dict.fromkeys(_TRANSIENT_CONNECTION_DROP_SUBSTRINGS, _CONNECTION_DROPPED_EXHAUSTED_MESSAGE),
         }
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
@@ -244,7 +277,6 @@ class RedshiftSource(SQLSource[RedshiftSourceConfig], SSHTunnelMixin, ValidateDa
             ),
             "No route to host": None,
             "password authentication failed connection": None,
-            "connection timeout expired": None,
             "Connection refused": None,
         }
 

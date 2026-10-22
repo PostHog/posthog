@@ -6,12 +6,16 @@ from urllib.parse import parse_qsl, quote, urlencode, urlparse, urlunparse
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    make_tracked_session,
+    retry_with_deadline,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import schema_for_resource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.datadog.error_tracking import search_issue_rows
 from products.warehouse_sources.backend.temporal.data_imports.sources.datadog.settings import (
     DATADOG_ENDPOINTS,
     DatadogEndpointConfig,
@@ -256,14 +260,19 @@ def _make_fetcher(
     session: requests.Session,
     logger: FilteringBoundLogger,
 ) -> Callable[..., Any]:
-    @retry(
+    @retry_with_deadline(
         retry=retry_if_exception_type((DatadogRetryableError, requests.ReadTimeout, requests.ConnectionError)),
         stop=stop_after_attempt(5),
         wait=wait_exponential_jitter(initial=1, max=30),
         reraise=True,
     )
-    def fetch_page(page_url: str, allow_missing: bool = False) -> Any:
-        response = session.get(page_url, timeout=REQUEST_TIMEOUT_SECONDS)
+    def fetch_page(page_url: str, allow_missing: bool = False, json_body: Optional[dict[str, Any]] = None) -> Any:
+        # The transport only retries GET on its own, so a POST search relies on the retry above.
+        # That is safe because the search reads data and changes nothing.
+        if json_body is not None:
+            response = session.post(page_url, json=json_body, timeout=REQUEST_TIMEOUT_SECONDS)
+        else:
+            response = session.get(page_url, timeout=REQUEST_TIMEOUT_SECONDS)
 
         # 408 is a transient request timeout on Datadog's side; retry it like 429/5xx rather than
         # letting it raise_for_status() into a fatal, non-retried HTTPError.
@@ -287,21 +296,31 @@ def _walk(
     start_url: str,
     fetch_page: Callable[..., Any],
     host: str,
+    logger: FilteringBoundLogger,
     save_state: Callable[[str], None] | None = None,
     allow_missing: bool = False,
+    max_pages: int | None = None,
 ) -> Iterator[list[dict[str, Any]]]:
     """Page through one endpoint URL, yielding a normalized batch per response."""
     url = start_url
+    pages = 0
     while True:
         data = fetch_page(url, allow_missing)
         if data is None:
             return
+        pages += 1
 
         items = _extract_items(data, config)
         if items:
             if config.flatten_attributes:
                 items = [_flatten_item(item) for item in items]
+            if config.row_transform is not None:
+                items = [config.row_transform(item) for item in items]
             yield items
+
+        if max_pages is not None and pages >= max_pages:
+            logger.warning("datadog.page_cap_reached", endpoint=config.name, pages=pages)
+            return
 
         # An empty page is not the end of the walk: the usage endpoints carry their cursor in
         # `meta` independently of `data`, so only the paginator decides when to stop.
@@ -321,6 +340,7 @@ def _fan_out_rows(
     config: DatadogEndpointConfig,
     fetch_page: Callable[..., Any],
     host: str,
+    logger: FilteringBoundLogger,
 ) -> Iterator[list[dict[str, Any]]]:
     """Walk a parent endpoint and query the child endpoint once per parent id."""
     fan_out = config.parent
@@ -333,7 +353,7 @@ def _fan_out_rows(
     )
 
     parents_seen = 0
-    for parent_batch in _walk(parent_config, parent_url, fetch_page, host):
+    for parent_batch in _walk(parent_config, parent_url, fetch_page, host, logger):
         for parent in parent_batch:
             if parents_seen >= fan_out.max_parents:
                 # Returning here would write a truncated table that looks like a complete sync.
@@ -356,7 +376,7 @@ def _fan_out_rows(
             )
             # A parent deleted between the list call and its child call answers 404; skip it
             # rather than failing the whole sync.
-            for child_batch in _walk(config, child_url, fetch_page, host, allow_missing=True):
+            for child_batch in _walk(config, child_url, fetch_page, host, logger, allow_missing=True):
                 for row in child_batch:
                     row[fan_out.child_id_field] = parent_id
                 yield child_batch
@@ -386,10 +406,16 @@ def get_rows(
     session = make_tracked_session(headers=headers, redact_values=(api_key, app_key))
     fetch_page = _make_fetcher(session, logger)
 
+    if config.search is not None:
+        # A search is a set of time windows, not a URL chain, so there is no position to resume from.
+        url = _build_initial_url(host, config.path, config.static_params)
+        yield from search_issue_rows(config, fetch_page, url, logger)
+        return
+
     if config.parent is not None:
         # A fan-out position is a parent cursor plus a child page, which the single-URL resume
         # state cannot express, so these endpoints restart from the first parent instead.
-        yield from _fan_out_rows(config, fetch_page, host)
+        yield from _fan_out_rows(config, fetch_page, host, logger)
         return
 
     resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
@@ -404,12 +430,18 @@ def get_rows(
         params = _build_initial_params(config, should_use_incremental_field, db_incremental_field_last_value)
         url = _build_initial_url(host, config.path, params)
 
+    # The cap is safe only where the rows it drops come back or are the oldest: an incremental sync
+    # resumes from the checkpointed cursor, and a newest-first walk drops the oldest rows.
+    newest_first = (config.sort_param or "").startswith("-")
+    max_pages = config.max_pages_per_sync if should_use_incremental_field or newest_first else None
     yield from _walk(
         config,
         url,
         fetch_page,
         host,
+        logger,
         save_state=lambda next_url: resumable_source_manager.save_state(DatadogResumeConfig(next_url=next_url)),
+        max_pages=max_pages,
     )
 
 
@@ -438,7 +470,7 @@ def datadog_source(
             db_incremental_field_last_value=db_incremental_field_last_value,
         ),
         primary_keys=list(config.primary_keys),
-        sort_mode="asc",
+        sort_mode="desc" if (config.sort_param or "").startswith("-") else "asc",
         partition_count=1,
         partition_size=1,
         partition_mode="datetime" if config.partition_key else None,

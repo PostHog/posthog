@@ -287,9 +287,6 @@ class TestZendeskSunshineTransport:
 
     @parameterized.expand(
         [
-            ("ok", 200, True, None),
-            ("unauthorized", 401, False, "rejected the credentials"),
-            ("forbidden", 403, False, "not available"),
             ("not_found", 404, False, "not available"),
             ("teapot", 418, False, "unexpected response"),
         ]

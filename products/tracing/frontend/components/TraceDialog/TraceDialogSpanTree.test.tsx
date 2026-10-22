@@ -1,7 +1,7 @@
 import '@testing-library/jest-dom'
 
 import { cleanup, render, waitFor } from '@testing-library/react'
-import { Provider } from 'kea'
+import { BindLogic, Provider } from 'kea'
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
@@ -10,7 +10,8 @@ import { initKeaTests } from '~/test/init'
 
 import type { Span } from 'products/tracing/frontend/types'
 
-import { traceDialogLogic } from './traceDialogLogic'
+import { traceViewLogic } from '../TraceView/traceViewLogic'
+import { TRACE_DIALOG_VIEW_ID, traceDialogLogic } from './traceDialogLogic'
 import { TraceDialogSpanTree } from './TraceDialogSpanTree'
 
 function span(spanId: string, parentSpanId: string): Span {
@@ -60,7 +61,9 @@ describe('TraceDialogSpanTree', () => {
 
         const { container } = render(
             <Provider>
-                <TraceDialogSpanTree />
+                <BindLogic logic={traceViewLogic} props={{ id: TRACE_DIALOG_VIEW_ID }}>
+                    <TraceDialogSpanTree openedFrom={null} openedAtUs={null} />
+                </BindLogic>
             </Provider>
         )
         logic.actions.selectNextSpan()

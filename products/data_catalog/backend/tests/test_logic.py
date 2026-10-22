@@ -12,7 +12,7 @@ from products.access_control.backend.models.access_control import AccessControl
 from products.data_catalog.backend.facade.enums import CreatedSource, MetricStatus
 from products.data_catalog.backend.logic import metrics
 from products.data_catalog.backend.logic.drift import compute_drift
-from products.data_catalog.backend.logic.exceptions import MetricDrifted, SourceInsightUnavailable
+from products.data_catalog.backend.logic.exceptions import MetricDrifted, MetricNameTaken, SourceInsightUnavailable
 from products.data_catalog.backend.logic.metrics import (
     approve_metric,
     approved_metric_names_for_team,
@@ -41,25 +41,34 @@ class TestMetricUpsert(BaseTest):
 
     def test_same_name_refines_not_duplicates(self) -> None:
         first = self._upsert("mrr", description="v1")
-        second = self._upsert("mrr", description="v2")
+        second = self._upsert("mrr", description="v2", overwrite=True)
         assert first.id == second.id
         assert Metric.objects.for_team(self.team.id).count() == 1
         assert Metric.objects.for_team(self.team.id).get().description == "v2"
 
-    def test_refine_leaves_unspecified_fields_untouched(self) -> None:
+    @parameterized.expand(
+        [
+            ("source_omitted", {}, (CreatedSource.AI_GENERATED, "claude", 0.8, "counts events")),
+            ("user_takes_over", {"created_source": CreatedSource.USER}, (CreatedSource.USER, "", None, "")),
+        ]
+    )
+    def test_refine_keeps_omitted_fields_except_ai_provenance_when_a_user_takes_over(
+        self, _name: str, overrides: dict, expected_provenance: tuple
+    ) -> None:
         self._upsert(
             "mrr",
             created_source=CreatedSource.AI_GENERATED,
             ai_model="claude",
+            confidence=0.8,
+            reasoning="counts events",
             definition={"kind": "HogQLQuery", "query": "select count() from events"},
         )
-        refined = self._upsert("mrr", description="v2")
+        refined = self._upsert("mrr", description="v2", overwrite=True, **overrides)
         assert refined.description == "v2"
         assert refined.definition is not None
         assert refined.definition["kind"] == "HogQLQuery"
         assert refined.referenced_table_names == ["events"]
-        assert refined.created_source == CreatedSource.AI_GENERATED
-        assert refined.ai_model == "claude"
+        assert (refined.created_source, refined.ai_model, refined.confidence, refined.reasoning) == expected_provenance
 
     def test_upsert_after_delete_creates_fresh_metric(self) -> None:
         metric = self._upsert("mrr", definition=_HOGQL_A)
@@ -83,9 +92,10 @@ class TestMetricUpsert(BaseTest):
             self._upsert("arr", description="x" * (MAX_DESCRIPTION_LENGTH + 1))
         assert "description" in ctx.exception.detail
 
-    def test_concurrent_create_retries_to_single_row(self) -> None:
+    @parameterized.expand([("overwrite", True), ("no_overwrite", False)])
+    def test_concurrent_create_retries_to_single_row(self, _name: str, overwrite: bool) -> None:
         # Simulate the race: the pre-check misses, create hits the unique constraint (IntegrityError),
-        # and the retry finds and refines the row the other writer created. Guards the except branch.
+        # and the retry finds the row the other writer created. Guards the except branch.
         winner = self._upsert("mrr", description="winner")
 
         mock_qs = MagicMock()
@@ -93,9 +103,13 @@ class TestMetricUpsert(BaseTest):
         mock_qs.create.side_effect = IntegrityError("duplicate key")
 
         with patch.object(metrics.Metric.objects, "for_team", return_value=mock_qs):
-            result = self._upsert("mrr", description="racer")
+            if overwrite:
+                result = self._upsert("mrr", description="racer", overwrite=True)
+                assert result.id == winner.id
+            else:
+                with self.assertRaises(MetricNameTaken):
+                    self._upsert("mrr", description="racer", overwrite=False)
 
-        assert result.id == winner.id
         assert Metric.objects.for_team(self.team.id).count() == 1
 
 
@@ -428,14 +442,18 @@ class TestUpdateResetsApproval(BaseTest):
     def test_refine_definition_resets_approval(self) -> None:
         metric = upsert_metric(team=self.team, user=self.user, name="mrr", description="d", definition=_HOGQL_A)
         approve_metric(metric, self.user)
-        refined = upsert_metric(team=self.team, user=self.user, name="mrr", description="d", definition=_HOGQL_B)
+        refined = upsert_metric(
+            team=self.team, user=self.user, name="mrr", description="d", definition=_HOGQL_B, overwrite=True
+        )
         assert refined.status == MetricStatus.PROPOSED
         assert refined.approved_by_id is None
 
     def test_refine_cosmetic_change_keeps_approval(self) -> None:
         metric = upsert_metric(team=self.team, user=self.user, name="mrr", description="d", definition=_HOGQL_A)
         approve_metric(metric, self.user)
-        refined = upsert_metric(team=self.team, user=self.user, name="mrr", description="d", display_name="MRR")
+        refined = upsert_metric(
+            team=self.team, user=self.user, name="mrr", description="d", display_name="MRR", overwrite=True
+        )
         assert refined.status == MetricStatus.APPROVED
 
     def test_refine_description_change_resets_approval(self) -> None:
@@ -443,7 +461,9 @@ class TestUpdateResetsApproval(BaseTest):
         # definition-less metric means, so its approval must not carry over.
         metric = upsert_metric(team=self.team, user=self.user, name="mrr", description="d")
         approve_metric(metric, self.user)
-        refined = upsert_metric(team=self.team, user=self.user, name="mrr", description="a different meaning")
+        refined = upsert_metric(
+            team=self.team, user=self.user, name="mrr", description="a different meaning", overwrite=True
+        )
         assert refined.status == MetricStatus.PROPOSED
         assert refined.approved_by_id is None
 
@@ -518,7 +538,9 @@ class TestUpdateInsightLink(BaseTest):
         if path == "update":
             edited = update_metric(metric, team=self.team, user=self.user, definition=_HOGQL_B)
         else:
-            edited = upsert_metric(team=self.team, user=self.user, name="mrr", description="d", definition=_HOGQL_B)
+            edited = upsert_metric(
+                team=self.team, user=self.user, name="mrr", description="d", definition=_HOGQL_B, overwrite=True
+            )
 
         assert edited.source_insight_short_id is None
         assert edited.source_insight_query_hash is None

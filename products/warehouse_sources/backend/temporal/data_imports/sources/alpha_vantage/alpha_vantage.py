@@ -7,14 +7,17 @@ from typing import Any
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.alpha_vantage.settings import (
     ALPHA_VANTAGE_ENDPOINTS,
     AlphaVantageEndpointConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import parse_datetime_value
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    make_tracked_session,
+    retry_with_deadline,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 ALPHA_VANTAGE_BASE_URL = "https://www.alphavantage.co/query"
@@ -106,7 +109,7 @@ def _raise_for_envelope(body: dict[str, Any]) -> None:
         raise AlphaVantageAPIError(f"Alpha Vantage API error [rate_limit_or_premium]: {body['Information']}")
 
 
-@retry(
+@retry_with_deadline(
     retry=retry_if_exception_type((AlphaVantageRetryableError, requests.ReadTimeout, requests.ConnectionError)),
     stop=stop_after_attempt(5),
     # Alpha Vantage's free per-minute throttle resets on a ~60s window, so back off long enough to
@@ -149,7 +152,7 @@ def _raise_for_csv_envelope(csv_text: str) -> None:
         raise AlphaVantageAPIError(f"Alpha Vantage API error [rate_limit_or_premium]: {joined}")
 
 
-@retry(
+@retry_with_deadline(
     retry=retry_if_exception_type((AlphaVantageRetryableError, requests.ReadTimeout, requests.ConnectionError)),
     stop=stop_after_attempt(5),
     wait=wait_exponential_jitter(initial=2, max=60),
