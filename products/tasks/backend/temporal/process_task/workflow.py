@@ -155,7 +155,7 @@ DEAD_SANDBOX_ERROR_TYPES = ("SandboxNotRunningError", "SandboxNotFoundError")
 MAX_ACCEPTED_MESSAGE_IDS = 500
 _PATCH_ID_FAIL_RUN_ON_PRIMARY_CLONE_FAILURE = "tasks-fail-run-on-primary-clone-failure"
 _PATCH_ID_SHARED_STARTUP_TIMING = "tasks-shared-startup-timing"
-_PATCH_ID_NONBLOCKING_PRE_PROVISION = "tasks-nonblocking-pre-provision"
+_PATCH_ID_BACKGROUND_SLACK_AND_TRACK = "tasks-background-slack-and-track"
 
 
 class _TaskCompletedDuringSandboxCreation(Exception):
@@ -1685,7 +1685,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
     async def _provision_and_start_agent(self, input: ProcessTaskInput, run_id: str) -> tuple[str, str, str | None]:
         """Initial-run setup: resolve agent-design, provision the sandbox, start the agent
         server. Returns (sandbox_id, sandbox_url, connect_token). Skipped on continue_as_new."""
-        if workflow.patched(_PATCH_ID_NONBLOCKING_PRE_PROVISION):
+        if workflow.patched(_PATCH_ID_BACKGROUND_SLACK_AND_TRACK):
             sandbox_output = await self._get_sandbox_alongside_pre_provision_steps(run_id)
         else:
             await self._run_pre_provision_steps(run_id)
@@ -1784,10 +1784,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
 
     async def _get_sandbox_alongside_pre_provision_steps(self, run_id: str) -> GetSandboxForRepositoryOutput:
         if self._slack_thread_context:
-            resolved = self.context.slack_agent_design_enabled
-            self._is_agent_design_enabled = (
-                resolved if resolved is not None else await self._resolve_agent_design_flag()
-            )
+            self._is_agent_design_enabled = await self._resolve_agent_design_flag()
         await self._update_task_run_status("in_progress")
         sandbox_label = self._sandbox_setup_label()
         await self._emit_progress("sandbox", "in_progress", sandbox_label, "setup", wait=False)
@@ -1990,7 +1987,6 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 resumed_sandbox_id=input.resumed_sandbox.sandbox_id if input.resumed_sandbox else None,
                 resumed_sandbox_backend=input.resumed_sandbox.sandbox_backend if input.resumed_sandbox else None,
                 stream_generation=self._stream_generation,
-                slack_integration_id=self._slack_integration_id() if input.resumed_sandbox is None else None,
             ),
             start_to_close_timeout=timedelta(minutes=2),
             retry_policy=RetryPolicy(maximum_attempts=3),
@@ -3434,23 +3430,17 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             retry_policy=RetryPolicy(maximum_attempts=2),
         )
 
-    def _slack_integration_id(self) -> int | None:
-        integration_id = (self._slack_thread_context or {}).get("integration_id")
-        try:
-            return int(integration_id) if integration_id else None
-        except (TypeError, ValueError):
-            workflow.logger.warning("slack_app_agent_design_flag_eval_failed", extra={"integration_id": integration_id})
-            return None
-
     async def _resolve_agent_design_flag(self) -> bool:
-        integration_id = self._slack_integration_id()
-        if integration_id is None:
+        if not self._slack_thread_context:
+            return False
+        integration_id = self._slack_thread_context.get("integration_id")
+        if not integration_id:
             return False
         try:
             return await workflow.execute_activity(
                 is_slack_app_agent_design_enabled_for_task_activity,
                 IsSlackAppAgentDesignEnabledForTaskActivityInput(
-                    integration_id=integration_id,
+                    integration_id=int(integration_id),
                     run_id=self.context.run_id,
                 ),
                 start_to_close_timeout=timedelta(seconds=10),

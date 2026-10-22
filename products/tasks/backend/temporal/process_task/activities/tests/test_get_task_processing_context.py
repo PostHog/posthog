@@ -34,7 +34,6 @@ from products.tasks.backend.exceptions import ProcessTaskFatalError, TaskInvalid
 from products.tasks.backend.logic.services.agent_instructions import AgentInstructionsStore
 from products.tasks.backend.models import TASK_OWNERSHIP_VERSION_STATE_KEY, SandboxEnvironment, Task, TaskRun
 from products.tasks.backend.temporal.process_task.activities import provision_sandbox
-from products.tasks.backend.temporal.process_task.activities.feature_flags import AGENT_DESIGN_STATE_KEY
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import (
     GetTaskProcessingContextInput,
     TaskProcessingContext,
@@ -421,32 +420,6 @@ class TestGetTaskProcessingContextActivity:
 
         assert isinstance(result, TaskProcessingContext)
         assert result.create_pr is False
-
-    @pytest.mark.parametrize(
-        ("slack_integration_id", "flag_outcome", "expected"),
-        [
-            (None, True, None),
-            (7, True, True),
-            (7, RuntimeError("flag service down"), False),
-        ],
-    )
-    @pytest.mark.django_db(transaction=True)
-    def test_get_task_processing_context_resolves_slack_agent_design_flag(
-        self, activity_environment, test_task, slack_integration_id, flag_outcome, expected
-    ):
-        task_run = test_task.create_run()
-        with patch(
-            "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.resolve_slack_app_agent_design_enabled",
-            side_effect=[flag_outcome],
-        ):
-            result = async_to_sync(activity_environment.run)(
-                get_task_processing_context,
-                GetTaskProcessingContextInput(run_id=str(task_run.id), slack_integration_id=slack_integration_id),
-            )
-
-        assert result.slack_agent_design_enabled is expected
-        persisted = TaskRun.objects.get(id=task_run.id).state.get(AGENT_DESIGN_STATE_KEY)
-        assert persisted == (None if slack_integration_id is None else expected)
 
     @pytest.mark.django_db(transaction=True)
     def test_get_task_processing_context_resolves_user_github_integration_without_repository(

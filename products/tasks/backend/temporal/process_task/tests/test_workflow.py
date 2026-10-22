@@ -1664,7 +1664,7 @@ async def test_sandbox_started_carries_run_attribution(origin_product, team_id, 
         (False, True, "status write failed", ["status:in_progress"]),
     ],
 )
-async def test_nonblocking_pre_provision_gates_provisioning_on_the_status_write(
+async def test_background_slack_and_track_gates_provisioning_on_the_status_write(
     sandbox_fails, status_fails, expected_error, expected_events, monkeypatch
 ):
     workflow_instance = ProcessTaskWorkflow()
@@ -1699,7 +1699,7 @@ async def test_nonblocking_pre_provision_gates_provisioning_on_the_status_write(
     assert events == expected_events
 
 
-async def test_nonblocking_pre_provision_cancellation_does_not_wait_on_stalled_startup_steps(monkeypatch):
+async def test_background_slack_and_track_cancellation_does_not_wait_on_stalled_startup_steps(monkeypatch):
     workflow_instance = ProcessTaskWorkflow()
     workflow_instance._context = _build_context(github_integration_id=123)
     stalled = asyncio.Event()
@@ -1720,11 +1720,9 @@ async def test_nonblocking_pre_provision_cancellation_does_not_wait_on_stalled_s
         await asyncio.wait_for(workflow_instance._get_sandbox_alongside_pre_provision_steps("run-id"), timeout=1)
 
 
-async def test_nonblocking_pre_provision_holds_slack_setup_steps_until_the_relay_starts(monkeypatch):
+async def test_background_slack_and_track_holds_slack_setup_steps_until_the_relay_starts(monkeypatch):
     workflow_instance = ProcessTaskWorkflow()
-    workflow_instance._context = dataclasses.replace(
-        _build_context(github_integration_id=123), slack_agent_design_enabled=True
-    )
+    workflow_instance._context = _build_context(github_integration_id=123)
     workflow_instance._slack_thread_context = {"channel": "C1"}
     events: list[str] = []
 
@@ -1744,6 +1742,7 @@ async def test_nonblocking_pre_provision_holds_slack_setup_steps_until_the_relay
     handle = Mock(signal=AsyncMock(side_effect=lambda *args: events.append("signal")))
     monkeypatch.setattr(workflow_instance, "_update_task_run_status", update_status)
     monkeypatch.setattr(workflow_instance, "_start_slack_agent_design_relay", start_relay)
+    monkeypatch.setattr(workflow_instance, "_resolve_agent_design_flag", AsyncMock(return_value=True))
     monkeypatch.setattr(workflow_instance, "_get_sandbox_for_repository", get_sandbox)
     monkeypatch.setattr(workflow_instance, "_emit_progress", AsyncMock())
     monkeypatch.setattr(workflow_instance, "_track_workflow_event", AsyncMock())
@@ -2591,18 +2590,12 @@ class TestProcessTaskWorkflowUnit:
         assert result.success is True
         relay_sandbox_events_mock.assert_not_awaited()
 
-    @pytest.mark.parametrize(
-        ("nonblocking_pre_provision", "context_flag"),
-        [(True, True), (True, None), (False, None)],
-    )
+    @pytest.mark.parametrize("background_slack_and_track", [True, False])
     async def test_run_relays_agent_design_signals_when_ingest_and_agent_design_enabled(
-        self, nonblocking_pre_provision, context_flag, monkeypatch
+        self, background_slack_and_track, monkeypatch
     ):
         workflow = ProcessTaskWorkflow()
-        context = dataclasses.replace(
-            _build_context(github_integration_id=123, sandbox_event_ingest_enabled=True),
-            slack_agent_design_enabled=context_flag,
-        )
+        context = _build_context(github_integration_id=123, sandbox_event_ingest_enabled=True)
         relay_sandbox_events_mock = AsyncMock()
         relay_agent_design_signals_mock = AsyncMock()
 
@@ -2651,8 +2644,8 @@ class TestProcessTaskWorkflowUnit:
             "patched",
             Mock(
                 side_effect=lambda patch_id: (
-                    nonblocking_pre_provision
-                    or patch_id != process_task_workflow_module._PATCH_ID_NONBLOCKING_PRE_PROVISION
+                    background_slack_and_track
+                    or patch_id != process_task_workflow_module._PATCH_ID_BACKGROUND_SLACK_AND_TRACK
                 )
             ),
         )
