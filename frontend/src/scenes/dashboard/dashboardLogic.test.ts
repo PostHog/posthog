@@ -5065,6 +5065,12 @@ describe('dashboardLogic', () => {
         })
 
         it('duplicateTile refreshes newly duplicated widget tiles', async () => {
+            const savedSm = { x: 0, y: 0, w: 4, h: 5 }
+            const shiftedSm = { ...savedSm, y: 15 }
+            dashboards[5].tiles[0] = {
+                ...dashboards[5].tiles[0],
+                layouts: { sm: savedSm } as DashboardTile['layouts'],
+            }
             const duplicatedSm = { i: '99', x: 0, y: 10, w: 6, h: 5 }
             const duplicatedTile = {
                 id: 99,
@@ -5074,7 +5080,12 @@ describe('dashboardLogic', () => {
             } as unknown as DashboardTile
 
             jest.spyOn(api, 'update').mockResolvedValueOnce(
-                dashboardResult(5, [...dashboards[5].tiles, WIDGET_TILE, duplicatedTile])
+                dashboardResult(5, [
+                    { ...dashboards[5].tiles[0], layouts: { sm: shiftedSm } as DashboardTile['layouts'] },
+                    ...dashboards[5].tiles.slice(1),
+                    WIDGET_TILE,
+                    duplicatedTile,
+                ])
             )
 
             logic = dashboardLogic({ id: 5 })
@@ -5116,10 +5127,20 @@ describe('dashboardLogic', () => {
                 results: [{ id: 'issue-1' }],
                 hasMore: false,
             })
-            expect(logic.values.layouts.sm?.find((layout) => layout.i === String(firstTile.id))?.x).toBe(changedX)
+            expect(logic.values.layouts.sm?.find((layout) => layout.i === String(firstTile.id))).toMatchObject(
+                shiftedSm
+            )
             expect(logic.values.layouts.sm?.find((layout) => layout.i === String(duplicatedTile.id))).toMatchObject(
                 duplicatedSm
             )
+
+            logic.actions.stageLayouts({
+                ...logic.values.layouts,
+                sm: logic.values.layouts.sm?.map((layout) =>
+                    layout.i === String(firstTile.id) ? { ...layout, x: changedX } : layout
+                ),
+            })
+            expect(logic.values.layouts.sm?.find((layout) => layout.i === String(firstTile.id))?.x).toBe(changedX)
 
             await expectLogic(logic, () => {
                 logic.actions.saveLayoutChanges()
@@ -5128,6 +5149,10 @@ describe('dashboardLogic', () => {
                 `api/projects/${MOCK_TEAM_ID}/dashboards/5`,
                 expect.objectContaining({
                     tiles: expect.arrayContaining([
+                        expect.objectContaining({
+                            id: firstTile.id,
+                            layouts: { sm: expect.objectContaining({ ...shiftedSm, x: changedX }) },
+                        }),
                         expect.objectContaining({
                             id: duplicatedTile.id,
                             layouts: { sm: expect.objectContaining(duplicatedSm) },

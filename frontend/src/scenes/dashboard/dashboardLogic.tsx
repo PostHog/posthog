@@ -301,7 +301,7 @@ const tileLayoutsFromDashboard = (
 function calculateDraftLayouts(
     tiles: DashboardTile[],
     draftLayouts: ResponsiveLayouts | null,
-    dashboardLayouts: Record<DashboardTile['id'], DashboardTile['layouts']>
+    dashboardLayouts?: Record<DashboardTile['id'], DashboardTile['layouts']>
 ): ResponsiveLayouts {
     if (!draftLayouts) {
         return calculateLayouts(tiles)
@@ -309,7 +309,7 @@ function calculateDraftLayouts(
 
     const draftSmByTile = new Map(draftLayouts.sm?.map((layout) => [layout.i, layout]))
     const tilesWithDraft = tiles.map((tile) => {
-        const savedSm = dashboardLayouts[tile.id]?.sm
+        const savedSm = dashboardLayouts?.[tile.id]?.sm
         const serverSm = tile.layouts?.sm
         const serverChangedSm = savedSm && serverSm && !equal(savedSm, serverSm)
         const sm = serverChangedSm ? serverSm : (draftSmByTile.get(String(tile.id)) ?? serverSm)
@@ -1380,14 +1380,7 @@ export interface dashboardLogicMeta {
             currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType
         ) => boolean
         sizeKey: (columns: number | null) => DashboardLayoutSize | undefined
-        layouts: (
-            tiles: DashboardTile[],
-            draftLayouts: Partial<Record<string, Layout>> | null,
-            dashboardLayouts: Record<
-                number,
-                Record<string, never> | Record<DashboardLayoutSize, TileLayout> | undefined
-            >
-        ) => ResponsiveLayouts
+        layouts: (tiles: DashboardTile[], draftLayouts: Partial<Record<string, Layout>> | null) => ResponsiveLayouts
         layout: (
             layouts: Partial<Record<string, Layout>>,
             sizeKey: DashboardLayoutSize | undefined
@@ -3449,12 +3442,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
             },
         ],
         layouts: [
-            (s) => [s.tiles, s.draftLayouts, s.dashboardLayouts],
-            (
-                tiles: DashboardTile[],
-                draftLayouts: ResponsiveLayouts | null,
-                dashboardLayouts: Record<DashboardTile['id'], DashboardTile['layouts']>
-            ): ResponsiveLayouts => calculateDraftLayouts(tiles, draftLayouts, dashboardLayouts),
+            (s) => [s.tiles, s.draftLayouts],
+            (tiles: DashboardTile[], draftLayouts: ResponsiveLayouts | null): ResponsiveLayouts =>
+                calculateDraftLayouts(tiles, draftLayouts),
             // Tile refreshes replace `tiles` once per insight response without touching geometry;
             // keeping the result reference stable stops react-grid-layout re-laying-out every tile
             // N times per dashboard refresh cycle.
@@ -4054,6 +4044,16 @@ export const dashboardLogic = kea<dashboardLogicType>([
         duplicateTileSuccess: ({ dashboard }) => {
             if (!dashboard) {
                 return
+            }
+
+            if (values.draftLayouts) {
+                actions.stageLayouts(
+                    calculateDraftLayouts(
+                        dashboard.tiles.filter((tile) => !tile.deleted),
+                        values.draftLayouts,
+                        values.dashboardLayouts
+                    )
+                )
             }
 
             const previousTileIds = cache.widgetTileIdsBeforeDuplicate as Set<number> | undefined
