@@ -48,7 +48,8 @@ class EmailDomainConnectTestCase(EmailDomainApiTestCase):
 
     def check(self, domain: str = DOMAIN) -> dict[str, Any]:
         response = self.client.get(
-            f"/api/projects/{self.team.id}/integrations/domain-connect/check", {"domain": domain}
+            f"/api/projects/{self.team.id}/integrations/domain-connect/check",
+            {"domain": domain, "include_email_setup": True},
         )
         assert response.status_code == status.HTTP_200_OK, response.json()
         return response.json()
@@ -281,12 +282,21 @@ class TestDomainConnectCheckDetectsTheDnsHost(APIBaseTest):
         cache.clear()
         self.world = self.enterContext(EmailDomainWorld().installed())
 
-    def check(self, domain: str) -> dict[str, Any]:
+    def check(self, domain: str, *, include_email_setup: bool = True) -> dict[str, Any]:
         response = self.client.get(
-            f"/api/projects/{self.team.id}/integrations/domain-connect/check", {"domain": domain}
+            f"/api/projects/{self.team.id}/integrations/domain-connect/check",
+            {"domain": domain, "include_email_setup": include_email_setup},
         )
         assert response.status_code == status.HTTP_200_OK, response.json()
         return response.json()
+
+    def test_skips_the_email_lookups_unless_asked(self) -> None:
+        self.world.dns.add_zone(ROOT_DOMAIN, nameservers=CLOUDFLARE_NAMESERVERS)
+        self.world.dns.publish_txt(ROOT_DOMAIN, "v=spf1 include:sendgrid.net ~all")
+
+        body = self.check(DOMAIN, include_email_setup=False)
+
+        assert (body["dns_host"], body["existing_email_tools"]) == (None, [])
 
     @parameterized.expand(
         [
