@@ -301,6 +301,21 @@ class TestNewEventsClusterPilot(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("events", {"kind": "EventsQuery", "select": ["count()"]}),
+            ("property_values", {"kind": "PropertyValuesQuery", "property_type": "event", "property_key": "browser"}),
+        ]
+    )
+    def test_every_allowed_typed_query_reads_only_the_native_cluster(self, _name: str, query: dict[str, Any]) -> None:
+        with patch("posthog.hogql.query.sync_execute", return_value=([], [])) as execute:
+            response = self._run_query({**query, "modifiers": {"useNewEventsCluster": True}})
+        self.assertEqual(response.status_code, 200, response.json())
+        self.assertTrue(execute.called)
+        for call in execute.call_args_list:
+            self.assertEqual(call.kwargs["workload"], Workload.NEW_EVENTS_CLUSTER, call.args[0])
+            self.assertNotRegex(call.args[0], r"\b(FROM|JOIN)\s+events\b")
+
+    @parameterized.expand(
+        [
             (modifiers, eligible, native_table, native_cluster)
             for modifiers, eligible, native_table, native_cluster in (
                 ({"useNewEventsCluster": True}, True, True, True),
@@ -364,15 +379,7 @@ class TestNewEventsClusterPilot(APIBaseTest):
                 return_value=QueryStatus(id="native-test", team_id=self.team.pk, complete=False),
             ) as enqueue,
         ):
-            response = self.client.post(
-                f"/api/projects/{self.team.id}/query/",
-                {
-                    "query": {**query, "modifiers": modifiers},
-                    "refresh": refresh,
-                    "async": async_,
-                },
-                format="json",
-            )
+            response = self._run_query({**query, "modifiers": modifiers}, refresh=refresh, async_=async_)
         rejected = native_cluster and (not eligible or unsupported)
         self.assertEqual(response.status_code, 400 if rejected else 202 if asynchronous else 200, response.json())
         if asynchronous and not rejected:
@@ -384,6 +391,8 @@ class TestNewEventsClusterPilot(APIBaseTest):
             execute.assert_not_called()
             if unsupported:
                 self.assertIn("Native cluster comparisons", response.json()["detail"])
+            if query["kind"] != "HogQLQuery":
+                self.assertIn(query["kind"], response.json()["detail"])
             return
         self.assertEqual("events_json" in execute.call_args.args[0], native_table)
         self.assertEqual(execute.call_args.kwargs["workload"] == Workload.NEW_EVENTS_CLUSTER, native_cluster)

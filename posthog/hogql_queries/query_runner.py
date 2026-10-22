@@ -198,7 +198,6 @@ from posthog.models.event.new_events_schema import (
     events_route_is_explicit,
     events_route_scope,
     get_new_events_cluster_host,
-    get_new_events_cluster_host_or_none,
     native_events_async_enabled,
     new_events_cluster_host_scope,
     strip_events_route_modifiers,
@@ -404,6 +403,34 @@ NEVER_ENQUEUED_EXECUTION_MODES: frozenset[ExecutionMode] = frozenset(
 def native_route_can_run(execution_mode: ExecutionMode) -> bool:
     return execution_mode in NEVER_ENQUEUED_EXECUTION_MODES or native_events_async_enabled()
 
+
+NATIVE_EVENTS_CLUSTER_QUERY_TYPES = (
+    HogQLQuery,
+    TrendsQuery,
+    FunnelsQuery,
+    RetentionQuery,
+    PathsQuery,
+    PathsV2Query,
+    StickinessQuery,
+    LifecycleQuery,
+    EventsQuery,
+    ActorsQuery,
+    InsightActorsQuery,
+    InsightActorsQueryOptions,
+    PropertyValuesQuery,
+    ExperimentQuery,
+    ExperimentExposureQuery,
+    WebOverviewQuery,
+    WebPageURLSearchQuery,
+    WebStatsTableQuery,
+    WebGoalsQuery,
+    WebVitalsQuery,
+)
+
+NATIVE_EVENTS_CLUSTER_SYNC_ONLY_ERROR = (
+    "Native cluster comparisons require synchronous execution until async support is enabled. "
+    "Use refresh=blocking or force_blocking with async=false."
+)
 
 _REFRESH_TO_EXECUTION_MODE: dict[str | bool, ExecutionMode] = {  # ty: ignore[invalid-assignment]
     **ExecutionMode._value2member_map_,  # type: ignore
@@ -1901,30 +1928,6 @@ def team_configs_for_cache_key(team: Team) -> dict[str, dict | str]:
     }
 
 
-NATIVE_EVENTS_CLUSTER_QUERY_TYPES = (
-    HogQLQuery,
-    TrendsQuery,
-    FunnelsQuery,
-    RetentionQuery,
-    PathsQuery,
-    PathsV2Query,
-    StickinessQuery,
-    LifecycleQuery,
-    EventsQuery,
-    ActorsQuery,
-    InsightActorsQuery,
-    InsightActorsQueryOptions,
-    PropertyValuesQuery,
-    ExperimentQuery,
-    ExperimentExposureQuery,
-    WebOverviewQuery,
-    WebPageURLSearchQuery,
-    WebStatsTableQuery,
-    WebGoalsQuery,
-    WebVitalsQuery,
-)
-
-
 def _pin_events_route(run: _RunMethod) -> _RunMethod:
     @wraps(run)
     def pinned(self: "QueryRunner", *args: Any, **kwargs: Any) -> Any:
@@ -2187,10 +2190,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         analytics_props: Optional[AnalyticsProps] = None,
     ) -> QueryStatus:
         if self.modifiers.useNewEventsCluster and not native_route_can_run(ExecutionMode.CALCULATE_ASYNC_ALWAYS):
-            raise ExposedHogQLError(
-                "Native events cluster queries require synchronous execution until async support is enabled. "
-                "Use refresh=force_blocking."
-            )
+            raise ExposedHogQLError(NATIVE_EVENTS_CLUSTER_SYNC_ONLY_ERROR)
 
         posthoganalytics.capture(
             distinct_id=user.distinct_id if user else str(self.team.uuid),
@@ -2501,6 +2501,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         if self.modifiers.useNewEventsCluster:
             if not isinstance(self.query, NATIVE_EVENTS_CLUSTER_QUERY_TYPES):
                 raise ExposedHogQLError(f"Native cluster comparisons do not support {self.query.__class__.__name__}.")
+            if not native_route_can_run(execution_mode):
+                raise ExposedHogQLError(NATIVE_EVENTS_CLUSTER_SYNC_ONLY_ERROR)
 
         # Set user for access control during query execution. Some subclasses
         # (e.g. QueryRunnerWithHogQLContext) construct user-dependent state in
