@@ -70,7 +70,6 @@ class WebSessionsPreaggregatedTable(Table):
         default_factory=lambda: HogQLQuerySettings(load_balancing="in_order")
     )
 
-    events_retention_field: str | None = "period_bucket"
     fields: dict[str, FieldOrTable] = _build_fields()
 
     def to_printed_clickhouse(self, context: "HogQLContext") -> str:

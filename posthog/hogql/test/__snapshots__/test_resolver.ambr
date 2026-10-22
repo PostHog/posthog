@@ -23,7 +23,6 @@
                     table_type: {
                       table: {
                         description: "Every analytics event captured for the project. The central fact table for product analytics.",
-                        events_retention_field: None,
                         fields: {
                           $group_0: {
                             description: None,
@@ -389,7 +388,6 @@
                           hidden: False,
                           join_table: {
                             description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
-                            events_retention_field: None,
                             fields: {
                               assigned_role_id: {
                                 description: "Role the issue is assigned to, if any.",
@@ -467,7 +465,6 @@
                           hidden: False,
                           join_table: {
                             description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
-                            events_retention_field: None,
                             fields: {
                               assigned_role_id: {
                                 description: "Role the issue is assigned to, if any.",
@@ -545,7 +542,6 @@
                           hidden: False,
                           join_table: {
                             description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
-                            events_retention_field: None,
                             fields: {
                               assigned_role_id: {
                                 description: "Role the issue is assigned to, if any.",
@@ -623,7 +619,6 @@
                           hidden: False,
                           join_table: {
                             description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
-                            events_retention_field: None,
                             fields: {
                               assigned_role_id: {
                                 description: "Role the issue is assigned to, if any.",
@@ -701,7 +696,6 @@
                           hidden: False,
                           join_table: {
                             description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
-                            events_retention_field: None,
                             fields: {
                               assigned_role_id: {
                                 description: "Role the issue is assigned to, if any.",
@@ -779,7 +773,6 @@
                           hidden: False,
                           join_table: {
                             description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
-                            events_retention_field: None,
                             fields: {
                               assigned_role_id: {
                                 description: "Role the issue is assigned to, if any.",
@@ -857,7 +850,6 @@
                           hidden: False,
                           join_table: {
                             description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
-                            events_retention_field: None,
                             fields: {
                               assigned_role_id: {
                                 description: "Role the issue is assigned to, if any.",
@@ -935,7 +927,6 @@
                           hidden: False,
                           join_table: {
                             description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
-                            events_retention_field: None,
                             fields: {
                               assigned_role_id: {
                                 description: "Role the issue is assigned to, if any.",
@@ -1759,7 +1750,6 @@
                                   hidden: False,
                                   join_table: {
                                     description: "Records distinct IDs whose person mapping was corrected after ingestion (e.g. identify or person merges). One row per overridden distinct_id; used to remap events to the right person at query time.",
-                                    events_retention_field: None,
                                     fields: {
                                       distinct_id: {
                                         description: "Distinct_id whose person mapping was overridden (e.g. after an identify or merge).",
@@ -1847,7 +1837,6 @@
                           hidden: False,
                           join_table: {
                             description: "Records distinct IDs whose person mapping was corrected after ingestion (e.g. identify or person merges). One row per overridden distinct_id; used to remap events to the right person at query time.",
-                            events_retention_field: None,
                             fields: {
                               distinct_id: {
                                 description: "Distinct_id whose person mapping was overridden (e.g. after an identify or merge).",
@@ -2308,7 +2297,6 @@
             table_type: {
               table: {
                 description: "Every analytics event captured for the project. The central fact table for product analytics.",
-                events_retention_field: None,
                 fields: {
                   $group_0: {
                     description: None,
@@ -2754,7 +2742,6 @@
                               hidden: False,
                               join_table: {
                                 description: "Records distinct IDs whose person mapping was corrected after ingestion (e.g. identify or person merges). One row per overridden distinct_id; used to remap events to the right person at query time.",
-                                events_retention_field: None,
                                 fields: {
                                   distinct_id: {
                                     description: "Distinct_id whose person mapping was overridden (e.g. after an identify or merge).",
@@ -2845,7 +2832,6 @@
                       hidden: False,
                       join_table: {
                         description: "Records distinct IDs whose person mapping was corrected after ingestion (e.g. identify or person merges). One row per overridden distinct_id; used to remap events to the right person at query time.",
-                        events_retention_field: None,
                         fields: {
                           distinct_id: {
                             description: "Distinct_id whose person mapping was overridden (e.g. after an identify or merge).",
@@ -3183,7 +3169,6 @@
                   hidden: False,
                   join_table: {
                     description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
-                    events_retention_field: None,
                     fields: {
                       assigned_role_id: {
                         description: "Role the issue is assigned to, if any.",
@@ -3280,7 +3265,6 @@
                   hidden: False,
                   join_table: {
                     description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
-                    events_retention_field: None,
                     fields: {
                       assigned_role_id: {
                         description: "Role the issue is assigned to, if any.",
@@ -3377,7 +3361,6 @@
                   hidden: False,
                   join_table: {
                     description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
-                    events_retention_field: None,
                     fields: {
                       assigned_role_id: {
                         description: "Role the issue is assigned to, if any.",
@@ -3474,7 +3457,6 @@
                   hidden: False,
                   join_table: {
                     description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
-                    events_retention_field: None,
                     fields: {
                       assigned_role_id: {
                         description: "Role the issue is assigned to, if any.",
@@ -3571,7 +3553,6 @@
                   hidden: False,
                   join_table: {
                     description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
-                    events_retention_field: None,
                     fields: {
                       assigned_role_id: {
                         description: "Role the issue is assigned to, if any.",
@@ -3668,7 +3649,6 @@
                   hidden: False,
                   join_table: {
                     description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
-                    events_retention_field: None,
                     fields: {
                       assigned_role_id: {
                         description: "Role the issue is assigned to, if any.",
@@ -3765,7 +3745,6 @@
                   hidden: False,
                   join_table: {
                     description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
-                    events_retention_field: None,
                     fields: {
                       assigned_role_id: {
                         description: "Role the issue is assigned to, if any.",
@@ -3862,7 +3841,6 @@
                   hidden: False,
                   join_table: {
                     description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
-                    events_retention_field: None,
                     fields: {
                       assigned_role_id: {
                         description: "Role the issue is assigned to, if any.",
@@ -4010,7 +3988,6 @@
               table_type: {
                 table: {
                   description: "Aggregated metadata for session recordings (counts, URLs, console/activity stats); one row per session. Holds metadata only, not the recording snapshots. Join to events/persons via `session_id`/`distinct_id`.",
-                  events_retention_field: None,
                   fields: {
                     active_milliseconds: {
                       description: "Time the user was actively interacting, in milliseconds (subset of total duration).",
@@ -4641,7 +4618,6 @@
                     table_type: {
                       table: {
                         description: "Aggregated user sessions (one row per session), with entry/exit URLs, attribution, and duration. Join from events via `events.$session_id = sessions.session_id`.",
-                        events_retention_field: None,
                         fields: {
                           $autocapture_count: {
                             description: None,
@@ -5325,7 +5301,6 @@
                         table_type: {
                           table: {
                             description: "Every analytics event captured for the project. The central fact table for product analytics.",
-                            events_retention_field: None,
                             fields: {
                               $group_0: {
                                 description: None,
@@ -5691,7 +5666,6 @@
                               hidden: False,
                               join_table: {
                                 description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
-                                events_retention_field: None,
                                 fields: {
                                   assigned_role_id: {
                                     description: "Role the issue is assigned to, if any.",
@@ -5769,7 +5743,6 @@
                               hidden: False,
                               join_table: {
                                 description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
-                                events_retention_field: None,
                                 fields: {
                                   assigned_role_id: {
                                     description: "Role the issue is assigned to, if any.",
@@ -5847,7 +5820,6 @@
                               hidden: False,
                               join_table: {
                                 description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
-                                events_retention_field: None,
                                 fields: {
                                   assigned_role_id: {
                                     description: "Role the issue is assigned to, if any.",
@@ -5925,7 +5897,6 @@
                               hidden: False,
                               join_table: {
                                 description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
-                                events_retention_field: None,
                                 fields: {
                                   assigned_role_id: {
                                     description: "Role the issue is assigned to, if any.",
@@ -6003,7 +5974,6 @@
                               hidden: False,
                               join_table: {
                                 description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
-                                events_retention_field: None,
                                 fields: {
                                   assigned_role_id: {
                                     description: "Role the issue is assigned to, if any.",
@@ -6081,7 +6051,6 @@
                               hidden: False,
                               join_table: {
                                 description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
-                                events_retention_field: None,
                                 fields: {
                                   assigned_role_id: {
                                     description: "Role the issue is assigned to, if any.",
@@ -6159,7 +6128,6 @@
                               hidden: False,
                               join_table: {
                                 description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
-                                events_retention_field: None,
                                 fields: {
                                   assigned_role_id: {
                                     description: "Role the issue is assigned to, if any.",
@@ -6237,7 +6205,6 @@
                               hidden: False,
                               join_table: {
                                 description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
-                                events_retention_field: None,
                                 fields: {
                                   assigned_role_id: {
                                     description: "Role the issue is assigned to, if any.",
@@ -6369,7 +6336,6 @@
                         table_type: {
                           table: {
                             description: "Every analytics event captured for the project. The central fact table for product analytics.",
-                            events_retention_field: None,
                             fields: {
                               $group_0: {
                                 description: None,
@@ -6735,7 +6701,6 @@
                               hidden: False,
                               join_table: {
                                 description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
-                                events_retention_field: None,
                                 fields: {
                                   assigned_role_id: {
                                     description: "Role the issue is assigned to, if any.",
@@ -6813,7 +6778,6 @@
                               hidden: False,
                               join_table: {
                                 description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
-                                events_retention_field: None,
                                 fields: {
                                   assigned_role_id: {
                                     description: "Role the issue is assigned to, if any.",
@@ -6891,7 +6855,6 @@
                               hidden: False,
                               join_table: {
                                 description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
-                                events_retention_field: None,
                                 fields: {
                                   assigned_role_id: {
                                     description: "Role the issue is assigned to, if any.",
@@ -6969,7 +6932,6 @@
                               hidden: False,
                               join_table: {
                                 description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
-                                events_retention_field: None,
                                 fields: {
                                   assigned_role_id: {
                                     description: "Role the issue is assigned to, if any.",
@@ -7047,7 +7009,6 @@
                               hidden: False,
                               join_table: {
                                 description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
-                                events_retention_field: None,
                                 fields: {
                                   assigned_role_id: {
                                     description: "Role the issue is assigned to, if any.",
@@ -7125,7 +7086,6 @@
                               hidden: False,
                               join_table: {
                                 description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
-                                events_retention_field: None,
                                 fields: {
                                   assigned_role_id: {
                                     description: "Role the issue is assigned to, if any.",
@@ -7203,7 +7163,6 @@
                               hidden: False,
                               join_table: {
                                 description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
-                                events_retention_field: None,
                                 fields: {
                                   assigned_role_id: {
                                     description: "Role the issue is assigned to, if any.",
@@ -7281,7 +7240,6 @@
                               hidden: False,
                               join_table: {
                                 description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
-                                events_retention_field: None,
                                 fields: {
                                   assigned_role_id: {
                                     description: "Role the issue is assigned to, if any.",
@@ -8108,7 +8066,6 @@
                                     hidden: False,
                                     join_table: {
                                       description: "Records distinct IDs whose person mapping was corrected after ingestion (e.g. identify or person merges). One row per overridden distinct_id; used to remap events to the right person at query time.",
-                                      events_retention_field: None,
                                       fields: {
                                         distinct_id: {
                                           description: "Distinct_id whose person mapping was overridden (e.g. after an identify or merge).",
@@ -8196,7 +8153,6 @@
                             hidden: False,
                             join_table: {
                               description: "Records distinct IDs whose person mapping was corrected after ingestion (e.g. identify or person merges). One row per overridden distinct_id; used to remap events to the right person at query time.",
-                              events_retention_field: None,
                               fields: {
                                 distinct_id: {
                                   description: "Distinct_id whose person mapping was overridden (e.g. after an identify or merge).",
@@ -8758,7 +8714,6 @@
                                         hidden: False,
                                         join_table: {
                                           description: "Records distinct IDs whose person mapping was corrected after ingestion (e.g. identify or person merges). One row per overridden distinct_id; used to remap events to the right person at query time.",
-                                          events_retention_field: None,
                                           fields: {
                                             distinct_id: {
                                               description: "Distinct_id whose person mapping was overridden (e.g. after an identify or merge).",
@@ -8846,7 +8801,6 @@
                                 hidden: False,
                                 join_table: {
                                   description: "Records distinct IDs whose person mapping was corrected after ingestion (e.g. identify or person merges). One row per overridden distinct_id; used to remap events to the right person at query time.",
-                                  events_retention_field: None,
                                   fields: {
                                     distinct_id: {
                                       description: "Distinct_id whose person mapping was overridden (e.g. after an identify or merge).",
@@ -9542,7 +9496,6 @@
             table_type: {
               table: {
                 description: "Every analytics event captured for the project. The central fact table for product analytics.",
-                events_retention_field: None,
                 fields: {
                   $group_0: {
                     description: None,
@@ -9984,7 +9937,6 @@
                               hidden: False,
                               join_table: {
                                 description: "Records distinct IDs whose person mapping was corrected after ingestion (e.g. identify or person merges). One row per overridden distinct_id; used to remap events to the right person at query time.",
-                                events_retention_field: None,
                                 fields: {
                                   distinct_id: {
                                     description: "Distinct_id whose person mapping was overridden (e.g. after an identify or merge).",
@@ -10075,7 +10027,6 @@
                       hidden: False,
                       join_table: {
                         description: "Records distinct IDs whose person mapping was corrected after ingestion (e.g. identify or person merges). One row per overridden distinct_id; used to remap events to the right person at query time.",
-                        events_retention_field: None,
                         fields: {
                           distinct_id: {
                             description: "Distinct_id whose person mapping was overridden (e.g. after an identify or merge).",
@@ -10413,7 +10364,6 @@
                   hidden: False,
                   join_table: {
                     description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
-                    events_retention_field: None,
                     fields: {
                       assigned_role_id: {
                         description: "Role the issue is assigned to, if any.",
@@ -10510,7 +10460,6 @@
                   hidden: False,
                   join_table: {
                     description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
-                    events_retention_field: None,
                     fields: {
                       assigned_role_id: {
                         description: "Role the issue is assigned to, if any.",
@@ -10607,7 +10556,6 @@
                   hidden: False,
                   join_table: {
                     description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
-                    events_retention_field: None,
                     fields: {
                       assigned_role_id: {
                         description: "Role the issue is assigned to, if any.",
@@ -10704,7 +10652,6 @@
                   hidden: False,
                   join_table: {
                     description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
-                    events_retention_field: None,
                     fields: {
                       assigned_role_id: {
                         description: "Role the issue is assigned to, if any.",
@@ -10801,7 +10748,6 @@
                   hidden: False,
                   join_table: {
                     description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
-                    events_retention_field: None,
                     fields: {
                       assigned_role_id: {
                         description: "Role the issue is assigned to, if any.",
@@ -10898,7 +10844,6 @@
                   hidden: False,
                   join_table: {
                     description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
-                    events_retention_field: None,
                     fields: {
                       assigned_role_id: {
                         description: "Role the issue is assigned to, if any.",
@@ -10995,7 +10940,6 @@
                   hidden: False,
                   join_table: {
                     description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
-                    events_retention_field: None,
                     fields: {
                       assigned_role_id: {
                         description: "Role the issue is assigned to, if any.",
@@ -11092,7 +11036,6 @@
                   hidden: False,
                   join_table: {
                     description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
-                    events_retention_field: None,
                     fields: {
                       assigned_role_id: {
                         description: "Role the issue is assigned to, if any.",
@@ -11239,7 +11182,6 @@
               table_type: {
                 table: {
                   description: "Every analytics event captured for the project. The central fact table for product analytics.",
-                  events_retention_field: None,
                   fields: {
                     $group_0: {
                       description: None,
@@ -11682,7 +11624,6 @@
                               hidden: False,
                               join_table: {
                                 description: "Records distinct IDs whose person mapping was corrected after ingestion (e.g. identify or person merges). One row per overridden distinct_id; used to remap events to the right person at query time.",
-                                events_retention_field: None,
                                 fields: {
                                   distinct_id: {
                                     description: "Distinct_id whose person mapping was overridden (e.g. after an identify or merge).",
@@ -11773,7 +11714,6 @@
                       hidden: False,
                       join_table: {
                         description: "Records distinct IDs whose person mapping was corrected after ingestion (e.g. identify or person merges). One row per overridden distinct_id; used to remap events to the right person at query time.",
-                        events_retention_field: None,
                         fields: {
                           distinct_id: {
                             description: "Distinct_id whose person mapping was overridden (e.g. after an identify or merge).",
@@ -12111,7 +12051,6 @@
                   hidden: False,
                   join_table: {
                     description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
-                    events_retention_field: None,
                     fields: {
                       assigned_role_id: {
                         description: "Role the issue is assigned to, if any.",
@@ -12208,7 +12147,6 @@
                   hidden: False,
                   join_table: {
                     description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
-                    events_retention_field: None,
                     fields: {
                       assigned_role_id: {
                         description: "Role the issue is assigned to, if any.",
@@ -12305,7 +12243,6 @@
                   hidden: False,
                   join_table: {
                     description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
-                    events_retention_field: None,
                     fields: {
                       assigned_role_id: {
                         description: "Role the issue is assigned to, if any.",
@@ -12402,7 +12339,6 @@
                   hidden: False,
                   join_table: {
                     description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
-                    events_retention_field: None,
                     fields: {
                       assigned_role_id: {
                         description: "Role the issue is assigned to, if any.",
@@ -12499,7 +12435,6 @@
                   hidden: False,
                   join_table: {
                     description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
-                    events_retention_field: None,
                     fields: {
                       assigned_role_id: {
                         description: "Role the issue is assigned to, if any.",
@@ -12596,7 +12531,6 @@
                   hidden: False,
                   join_table: {
                     description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
-                    events_retention_field: None,
                     fields: {
                       assigned_role_id: {
                         description: "Role the issue is assigned to, if any.",
@@ -12693,7 +12627,6 @@
                   hidden: False,
                   join_table: {
                     description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
-                    events_retention_field: None,
                     fields: {
                       assigned_role_id: {
                         description: "Role the issue is assigned to, if any.",
@@ -12790,7 +12723,6 @@
                   hidden: False,
                   join_table: {
                     description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
-                    events_retention_field: None,
                     fields: {
                       assigned_role_id: {
                         description: "Role the issue is assigned to, if any.",
@@ -12938,7 +12870,6 @@
                 table_type: {
                   table: {
                     description: "Every analytics event captured for the project. The central fact table for product analytics.",
-                    events_retention_field: None,
                     fields: {
                       $group_0: {
                         description: None,
@@ -13244,7 +13175,6 @@
                 table_type: {
                   table: {
                     description: "Every analytics event captured for the project. The central fact table for product analytics.",
-                    events_retention_field: None,
                     fields: {
                       $group_0: {
                         description: None,
@@ -13515,7 +13445,6 @@
                 table_type: {
                   table: {
                     description: "Deduplicated people in the project, with their latest properties. One row per person.",
-                    events_retention_field: None,
                     fields: {
                       $virt_initial_channel_type: {
                         description: None,
@@ -13899,7 +13828,6 @@
             table_type: {
               table: {
                 description: "Every analytics event captured for the project. The central fact table for product analytics.",
-                events_retention_field: None,
                 fields: {
                   $group_0: {
                     description: None,
@@ -14241,7 +14169,6 @@
               table_type: {
                 table: {
                   description: "Every analytics event captured for the project. The central fact table for product analytics.",
-                  events_retention_field: None,
                   fields: {
                     $group_0: {
                       description: None,
@@ -14587,7 +14514,6 @@
                 table_type: {
                   table: {
                     description: "Every analytics event captured for the project. The central fact table for product analytics.",
-                    events_retention_field: None,
                     fields: {
                       $group_0: {
                         description: None,
@@ -14973,7 +14899,6 @@
                         table_type: {
                           table: {
                             description: "Every analytics event captured for the project. The central fact table for product analytics.",
-                            events_retention_field: None,
                             fields: {
                               $group_0: {
                                 description: None,
@@ -15365,7 +15290,6 @@
             table_type: {
               table: {
                 description: "Every analytics event captured for the project. The central fact table for product analytics.",
-                events_retention_field: None,
                 fields: {
                   $group_0: {
                     description: None,
@@ -15642,7 +15566,6 @@
                   hidden: False,
                   join_table: {
                     description: "Maps client-side distinct IDs to resolved person IDs. One row per distinct_id; join to `persons` via the `person` field or `person_id`.",
-                    events_retention_field: None,
                     fields: {
                       distinct_id: {
                         description: "Client-side distinct_id sent with events; multiple distinct_ids can map to one person.",
@@ -15728,7 +15651,6 @@
               table_type: {
                 table: {
                   description: "Every analytics event captured for the project. The central fact table for product analytics.",
-                  events_retention_field: None,
                   fields: {
                     $group_0: {
                       description: None,
@@ -16007,7 +15929,6 @@
                   hidden: False,
                   join_table: {
                     description: "Maps client-side distinct IDs to resolved person IDs. One row per distinct_id; join to `persons` via the `person` field or `person_id`.",
-                    events_retention_field: None,
                     fields: {
                       distinct_id: {
                         description: "Client-side distinct_id sent with events; multiple distinct_ids can map to one person.",
@@ -16092,7 +16013,6 @@
             table_type: {
               table: {
                 description: "Every analytics event captured for the project. The central fact table for product analytics.",
-                events_retention_field: None,
                 fields: {
                   $group_0: {
                     description: None,
@@ -16355,7 +16275,6 @@
                 hidden: False,
                 join_table: {
                   description: "Maps client-side distinct IDs to resolved person IDs. One row per distinct_id; join to `persons` via the `person` field or `person_id`.",
-                  events_retention_field: None,
                   fields: {
                     distinct_id: {
                       description: "Client-side distinct_id sent with events; multiple distinct_ids can map to one person.",
@@ -16440,7 +16359,6 @@
               table_type: {
                 table: {
                   description: "Every analytics event captured for the project. The central fact table for product analytics.",
-                  events_retention_field: None,
                   fields: {
                     $group_0: {
                       description: None,
@@ -16705,7 +16623,6 @@
                 hidden: False,
                 join_table: {
                   description: "Maps client-side distinct IDs to resolved person IDs. One row per distinct_id; join to `persons` via the `person` field or `person_id`.",
-                  events_retention_field: None,
                   fields: {
                     distinct_id: {
                       description: "Client-side distinct_id sent with events; multiple distinct_ids can map to one person.",
@@ -16789,7 +16706,6 @@
             table_type: {
               table: {
                 description: "Maps client-side distinct IDs to resolved person IDs. One row per distinct_id; join to `persons` via the `person` field or `person_id`.",
-                events_retention_field: None,
                 fields: {
                   distinct_id: {
                     description: "Client-side distinct_id sent with events; multiple distinct_ids can map to one person.",
@@ -16902,7 +16818,6 @@
               table_type: {
                 table: {
                   description: "Every analytics event captured for the project. The central fact table for product analytics.",
-                  events_retention_field: None,
                   fields: {
                     $group_0: {
                       description: None,
@@ -17205,7 +17120,6 @@
                   table_type: {
                     table: {
                       description: "Every analytics event captured for the project. The central fact table for product analytics.",
-                      events_retention_field: None,
                       fields: {
                         $group_0: {
                           description: None,
@@ -17530,7 +17444,6 @@
             table_type: {
               table: {
                 description: "Every analytics event captured for the project. The central fact table for product analytics.",
-                events_retention_field: None,
                 fields: {
                   $group_0: {
                     description: None,
@@ -17801,7 +17714,6 @@
                               hidden: False,
                               join_table: {
                                 description: "Records distinct IDs whose person mapping was corrected after ingestion (e.g. identify or person merges). One row per overridden distinct_id; used to remap events to the right person at query time.",
-                                events_retention_field: None,
                                 fields: {
                                   distinct_id: {
                                     description: "Distinct_id whose person mapping was overridden (e.g. after an identify or merge).",
@@ -17892,7 +17804,6 @@
                       hidden: False,
                       join_table: {
                         description: "Records distinct IDs whose person mapping was corrected after ingestion (e.g. identify or person merges). One row per overridden distinct_id; used to remap events to the right person at query time.",
-                        events_retention_field: None,
                         fields: {
                           distinct_id: {
                             description: "Distinct_id whose person mapping was overridden (e.g. after an identify or merge).",

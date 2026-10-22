@@ -76,10 +76,8 @@ def team_id_guard_for_table(table_type: ast.TableOrSelectType, context: HogQLCon
     )
 
 
-def retention_floor_for_table(
-    table_type: ast.TableOrSelectType, retention_months: int, field_name: str = "timestamp"
-) -> ast.Expr:
-    """Floor an events-derived scan to ``<field_name> > now() - toIntervalMonth(retention_months)``.
+def retention_floor_for_table(table_type: ast.TableOrSelectType, retention_months: int) -> ast.Expr:
+    """Floor an events-table scan to ``timestamp > now() - toIntervalMonth(retention_months)``.
 
     Sibling to ``team_id_guard_for_table``: a mandatory, context-derived guard added at the lowest level on the
     events table, so the events-data-retention cap can't be bypassed by query-supplied date filters or modifiers.
@@ -88,7 +86,7 @@ def retention_floor_for_table(
     field_table_type = _table_filter_type(table_type)
     return ast.CompareOperation(
         op=ast.CompareOperationOp.Gt,
-        left=ast.Field(chain=[field_name], type=ast.FieldType(name=field_name, table_type=field_table_type)),
+        left=ast.Field(chain=["timestamp"], type=ast.FieldType(name="timestamp", table_type=field_table_type)),
         right=ast.ArithmeticOperation(
             op=ast.ArithmeticOperationOp.Sub,
             left=ast.Call(name="now", args=[]),
@@ -1100,13 +1098,9 @@ class ClickHousePrinter(BasePrinter):
         months = self.context.events_retention_months
         if months is None or node_type is None or not isinstance(table_type, ast.TableType):
             return None
-        if isinstance(table_type.table, EventsTable):
-            return retention_floor_for_table(node_type, months)
-        # The field holds the start of each aggregated bucket, so the floor drops the whole bucket that
-        # contains the retention boundary.
-        if table_type.table.events_retention_field:
-            return retention_floor_for_table(node_type, months, field_name=table_type.table.events_retention_field)
-        return None
+        if not isinstance(table_type.table, EventsTable):
+            return None
+        return retention_floor_for_table(node_type, months)
 
     def _print_table_ref(self, table_type: ast.TableType | ast.LazyTableType, node: ast.JoinExpr) -> str:
         table = table_type.table

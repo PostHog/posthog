@@ -144,8 +144,6 @@ Both runners skip the dimensional tables when the rows cannot match the live res
 - Either period starts at or before the events retention floor.
 - The team has custom channel rules and the query breaks down or filters by channel type.
 
-The printer floors every read of a web analytics precompute table at the events retention floor, as it does for `events`. Each table names its bucket column in `events_retention_field`: `period_bucket` for the dimensional and legacy tables, `time_window_start` for the lazy precompute tables. A new precompute table that stores aggregates of events must set it too.
-
 ### Traffic metrics alongside conversion goals
 
 `WebStatsTableQuery.includeTrafficMetrics` adds sessions and retains pageviews alongside conversion columns. Traffic visitors and sessions require a pageview or screenview; goal-only sessions contribute to conversions without increasing the traffic denominator. The option defaults to off, preserving existing callers.
