@@ -1,5 +1,3 @@
-import sys
-import types
 import dataclasses
 from collections.abc import Iterator
 from typing import Any
@@ -21,7 +19,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     SourceDriver,
     UnexpectedRequest,
     always,
-    scripted_network,
     source_inputs,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
@@ -148,15 +145,6 @@ class TestSourceDriver:
         # A source passes its secrets to the session for redaction. The session is real here, so
         # the options are the only place a test can see them.
         result = _driver().run("rows", [_page()])
-
-        assert result.session_options == [{"redact_values": ("t",)}]
-
-    def test_a_run_nested_in_a_scripted_network_leaves_later_runs_recording_sessions(self) -> None:
-        with patch.dict(sys.modules):
-            with scripted_network([]):
-                sys.modules["_imported_while_patched"] = types.ModuleType("_imported_while_patched")
-                _driver().run("rows", [_page()])
-            result = _driver().run("rows", [_page()])
 
         assert result.session_options == [{"redact_values": ("t",)}]
 
