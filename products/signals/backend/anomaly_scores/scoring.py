@@ -6,7 +6,6 @@ from typing import Any, cast
 from zoneinfo import ZoneInfo
 
 import numpy as np
-from dateutil.relativedelta import relativedelta
 
 from posthog.schema import BreakdownFilter, ChartDisplayType, DateRange, IntervalType, TrendsQuery
 
@@ -15,16 +14,15 @@ from posthog.caching.calculate_results import calculate_for_query_based_insight
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.dataclasses import frozen
 from posthog.event_usage import EventSource
+from posthog.hogql_queries.utils.breakdowns import has_breakdown_filter
+from posthog.interval_specs import interval_spec
 from posthog.models import Team
 from posthog.schema_migrations.upgrade_manager import upgrade_insight
 from posthog.tasks.alerts.detectors.registry import get_detector
-from posthog.tasks.alerts.trends import _has_breakdown
 from posthog.tasks.alerts.utils import WRAPPER_NODE_KINDS, is_non_time_series_trend
 
 from products.product_analytics.backend.facade.models import Insight
 from products.signals.backend.anomaly_scores.config import DEFAULT_CONFIG, AnomalyScoringConfig
-
-SCORED_INTERVALS = (IntervalType.HOUR, IntervalType.DAY, IntervalType.WEEK, IntervalType.MONTH)
 
 # Naming fields do not change what a series counts, so a rename keeps its key.
 _SERIES_NAMING_FIELDS = {"custom_name", "name"}
@@ -67,14 +65,14 @@ def _short_hash(payload: Any) -> str:
 
 def detector_version(detector_config: dict[str, Any]) -> str:
     """Identifies the scoring behavior, so scores from different configs are never mixed in one series."""
-    return _short_hash(detector_config)[:12]
+    return _short_hash(detector_config)
 
 
 def series_key(insight_id: int, series_definition: dict[str, Any], breakdown_value: str | None) -> str:
     return _short_hash({"insight": insight_id, "series": series_definition, "breakdown": breakdown_value})
 
 
-def trends_query_for(insight: Insight) -> TrendsQuery:
+def trends_query_for(insight: Insight, config: AnomalyScoringConfig = DEFAULT_CONFIG) -> TrendsQuery:
     if insight.query is None:
         raise UnsupportedInsightError("Insight has no query")
     with upgrade_insight(insight):
@@ -88,9 +86,8 @@ def trends_query_for(insight: Insight) -> TrendsQuery:
         raise UnsupportedInsightError("Insight shows a single value, not a time series")
     if trends.trendsFilter and trends.trendsFilter.display == ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE:
         raise UnsupportedInsightError("Cumulative insights are not scored")
-    interval = trends.interval or IntervalType.DAY
-    if interval not in SCORED_INTERVALS:
-        raise UnsupportedInsightError(f"Interval {interval.value} is not scored")
+    if config.lookback_for(_interval(trends)) is None:
+        raise UnsupportedInsightError(f"Interval {_interval(trends).value} is not scored")
     return trends
 
 
@@ -99,17 +96,16 @@ def build_scoring_query(query: TrendsQuery, config: AnomalyScoringConfig = DEFAU
 
     Series, filters and formulas stay as they are, so the scores describe the series the chart shows.
     """
-    interval = query.interval or IntervalType.DAY
-    lookback = config.lookback_for(interval)
+    lookback = config.lookback_for(_interval(query))
     if lookback is None:
-        raise UnsupportedInsightError(f"Interval {interval.value} is not scored")
+        raise UnsupportedInsightError(f"Interval {_interval(query).value} is not scored")
 
     days_of_week = query.dateRange.daysOfWeek if query.dateRange else None
     update: dict[str, Any] = {
         "dateRange": DateRange(date_from=lookback, daysOfWeek=days_of_week),
         "compareFilter": None,
     }
-    if _has_breakdown(query):
+    if has_breakdown_filter(query.breakdownFilter):
         lines_per_value = len(_formulas(query)) or len(query.series)
         breakdown_filter = query.breakdownFilter or BreakdownFilter()
         # "Other" mixes whichever values fall outside the top N on each run, so it is not one series.
@@ -145,27 +141,26 @@ def score_series(
     data = np.array(values[: completed[-1] + 1], dtype=float)
     result = get_detector(detector_config).detect_batch(data)
     triggered = set(result.triggered_indices)
-    sub_results = result.metadata.get("sub_results", []) if detector_config.get("type") == "ensemble" else []
+    sub_results = result.metadata.get("sub_results", [])
+    # An AND ensemble needs every sub-detector, so a missing sub-score means the bucket is not scored yet.
+    needs_every_sub_score = detector_config.get("operator") == "and"
     warm_up = config.warm_up_for(interval)
 
     returned = [i for i in completed if after is None or buckets[i] > after][-config.max_backfill_buckets :]
     points: list[ScoredPoint] = []
     for i in returned:
-        score = result.all_scores[i] if i < len(result.all_scores) else None
+        score = _score_at(result.all_scores, i)
         sub_scores = {str(sub.get("type")): _score_at(sub.get("all_scores") or [], i) for sub in sub_results}
-        # An AND ensemble needs every sub-detector, so a missing sub-score means the bucket is not scored yet.
-        if i + 1 < warm_up or score is None or None in sub_scores.values():
-            points.append(
-                ScoredPoint(bucket_start=buckets[i], value=float(values[i]), score=None, flag=None, details={})
-            )
-            continue
+        scored = i + 1 >= warm_up and score is not None
+        if needs_every_sub_score and None in sub_scores.values():
+            scored = False
         points.append(
             ScoredPoint(
                 bucket_start=buckets[i],
                 value=float(values[i]),
-                score=float(score),
-                flag=i in triggered,
-                details={"sub_scores": sub_scores} if sub_scores else {},
+                score=score if scored else None,
+                flag=(i in triggered) if scored else None,
+                details={"sub_scores": sub_scores} if scored and sub_scores else {},
             )
         )
     return points
@@ -179,9 +174,9 @@ def score_insight(
     after: datetime | None = None,
     config: AnomalyScoringConfig = DEFAULT_CONFIG,
 ) -> InsightScores:
-    query = trends_query_for(insight)
+    query = trends_query_for(insight, config)
     scoring_query = build_scoring_query(query, config)
-    interval = scoring_query.interval or IntervalType.DAY
+    interval = _interval(scoring_query)
     detector_config = config.detector_config()
 
     tag_queries(product=Product.SIGNALS, feature=Feature.ALERTING)
@@ -257,15 +252,16 @@ def _series_definition(query: TrendsQuery, result: dict[str, Any]) -> dict[str, 
     return _series_node_definition(query.series[order])
 
 
+def _interval(query: TrendsQuery) -> IntervalType:
+    return query.interval or IntervalType.DAY
+
+
 def _bucket_end(start: datetime, interval: IntervalType) -> datetime:
+    if interval == IntervalType.HOUR:
+        # An hour is elapsed time, so step in UTC to stay one hour long across DST changes.
+        return (start.astimezone(UTC) + timedelta(hours=1)).astimezone(start.tzinfo)
     # Wall-clock arithmetic on an aware datetime, so a day stays one calendar day across DST changes.
-    if interval == IntervalType.MONTH:
-        return start + relativedelta(months=1)
-    if interval == IntervalType.WEEK:
-        return start + timedelta(weeks=1)
-    if interval == IntervalType.DAY:
-        return start + timedelta(days=1)
-    return (start.astimezone(UTC) + timedelta(hours=1)).astimezone(start.tzinfo)
+    return start + interval_spec(interval).period
 
 
 def _score_at(scores: list[float | None], index: int) -> float | None:
@@ -274,7 +270,7 @@ def _score_at(scores: list[float | None], index: int) -> float | None:
 
 
 def _parse_bucket(day: str, timezone: ZoneInfo) -> datetime:
-    # Trends returns bucket starts as naive strings in the project's timezone.
+    # Trends returns bucket starts in the project's timezone, usually as naive strings.
     parsed = datetime.fromisoformat(day)
     return parsed.astimezone(timezone) if parsed.tzinfo else parsed.replace(tzinfo=timezone)
 

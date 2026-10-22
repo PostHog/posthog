@@ -7,7 +7,6 @@ from unittest.mock import MagicMock, patch
 from django.test import SimpleTestCase
 
 import numpy as np
-from dateutil.relativedelta import relativedelta
 from parameterized import parameterized
 
 from posthog.schema import (
@@ -21,6 +20,7 @@ from posthog.schema import (
     TrendsQuery,
 )
 
+from posthog.interval_specs import interval_spec
 from posthog.models import Team
 
 from products.product_analytics.backend.facade.models import Insight
@@ -37,13 +37,7 @@ DETECTOR = DEFAULT_CONFIG.detector_config()
 
 
 def _buckets(start: datetime, interval: IntervalType, count: int) -> list[datetime]:
-    step = {
-        IntervalType.HOUR: relativedelta(hours=1),
-        IntervalType.DAY: relativedelta(days=1),
-        IntervalType.WEEK: relativedelta(weeks=1),
-        IntervalType.MONTH: relativedelta(months=1),
-    }[interval]
-    return [start + step * i for i in range(count)]
+    return [start + interval_spec(interval).period * i for i in range(count)]
 
 
 class TestScoreSeries(SimpleTestCase):
