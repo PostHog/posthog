@@ -6,7 +6,11 @@ from unittest import TestCase
 
 from parameterized import parameterized
 
-from products.experiments.backend.facade.contracts import ExperimentHealthFindingCode, ExperimentHealthFindingSeverity
+from products.experiments.backend.facade.contracts import (
+    ExperimentHealthFinding,
+    ExperimentHealthFindingCode,
+    ExperimentHealthFindingSeverity,
+)
 from products.experiments.backend.health.checks.flag_state import flag_state
 from products.experiments.backend.health.context import (
     ConditionSetTraffic,
@@ -200,7 +204,7 @@ class TestFlagState(TestCase):
         if expected is None:
             self.assertIsNone(finding)
             return
-        assert finding is not None
+        assert isinstance(finding, ExperimentHealthFinding)
         code, subcode, variant_key = expected
         self.assertEqual((finding.code, finding.subcode), (code, subcode))
         self.assertEqual(finding.evidence.get("variant_key"), variant_key)
@@ -262,7 +266,7 @@ class TestFlagState(TestCase):
     ) -> None:
         finding = flag_state(ctx)
 
-        assert finding is not None
+        assert isinstance(finding, ExperimentHealthFinding)
         self.assertEqual((finding.subcode, finding.severity, finding.title), expected)
 
     def test_a_pause_from_the_experiment_names_its_date(self) -> None:
@@ -275,7 +279,7 @@ class TestFlagState(TestCase):
             )
         )
 
-        assert finding is not None
+        assert isinstance(finding, ExperimentHealthFinding)
         self.assertEqual(
             (finding.detail, dict(finding.evidence)),
             (
@@ -290,7 +294,7 @@ class TestFlagState(TestCase):
     def test_variants_assigned_outside_the_flag_service_are_info(self) -> None:
         finding = flag_state(_context(RUNNING, active=True, filters=ZERO_ROLLOUT, traffic=_traffic(1234)))
 
-        assert finding is not None
+        assert isinstance(finding, ExperimentHealthFinding)
         self.assertEqual(
             (finding.severity, finding.title, finding.detail, dict(finding.evidence)),
             (

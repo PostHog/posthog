@@ -7,7 +7,7 @@ from products.experiments.backend.facade.contracts import (
 from products.experiments.backend.health.checks.exposure_criteria import exposure_criteria_cannot_match
 from products.experiments.backend.health.context import HealthContext
 from products.experiments.backend.health.delays import LAST_CALLED_AT_LAG, ZERO_EXPOSURES_GRACE_HOURS
-from products.experiments.backend.health.skips import RUNS_AFTER_LAUNCH, CheckSkip, not_applicable
+from products.experiments.backend.health.skips import RUNS_AFTER_LAUNCH, CheckOutcome, not_applicable
 
 # pinned: the subcodes are sent as `finding_variant` on the health finding events, so insights group on them.
 EXPERIMENT_PAUSED = "experiment_paused"
@@ -16,26 +16,17 @@ CALLS_NOT_COUNTED = "calls_not_counted"
 CUSTOM_EXPOSURE_NOT_MATCHED = "custom_exposure_not_matched"
 
 
-def zero_exposures_skip(ctx: HealthContext) -> CheckSkip | None:
+def zero_exposures(ctx: HealthContext) -> CheckOutcome:
     exposures = ctx.exposures
     if exposures is None or exposures.hours_since_launch is None or not ctx.is_launched:
         return not_applicable(RUNS_AFTER_LAUNCH)
     if exposures.hours_since_launch < ZERO_EXPOSURES_GRACE_HOURS:
         return not_applicable(f"Runs {ZERO_EXPOSURES_GRACE_HOURS} hours after launch")
-    if exposure_criteria_cannot_match(ctx) is not None:
-        return not_applicable("The exposure criteria check reports why no users are exposed")
-    return None
-
-
-def zero_exposures(ctx: HealthContext) -> ExperimentHealthFinding | None:
-    exposures = ctx.exposures
-    if exposures is None or exposures.hours_since_launch is None or not ctx.is_launched:
-        return None
-    if exposures.hours_since_launch < ZERO_EXPOSURES_GRACE_HOURS or sum(exposures.total_exposures.values()) > 0:
-        return None
     # Criteria that no event can match leave nobody exposed, and the exposure criteria check names that cause. This
     # check calls it rather than repeating its rules, so exactly one of the two reports the experiment.
-    if exposure_criteria_cannot_match(ctx) is not None:
+    if isinstance(exposure_criteria_cannot_match(ctx), ExperimentHealthFinding):
+        return not_applicable("The exposure criteria check reports why no users are exposed")
+    if sum(exposures.total_exposures.values()) > 0:
         return None
     evidence = {"hours_since_launch": int(exposures.hours_since_launch)}
     # A group experiment counts groups, by the rule the exposure query uses.

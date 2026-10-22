@@ -11,7 +11,7 @@ from parameterized import parameterized
 
 from posthog.schema import MultipleVariantHandling
 
-from products.experiments.backend.facade.contracts import ExperimentHealthFindingActionKind
+from products.experiments.backend.facade.contracts import ExperimentHealthFinding, ExperimentHealthFindingActionKind
 from products.experiments.backend.health.checks.zero_exposures import (
     CALLS_NOT_COUNTED,
     CUSTOM_EXPOSURE_NOT_MATCHED,
@@ -110,7 +110,7 @@ class TestZeroExposures(TestCase):
 
         finding = zero_exposures(ctx)
 
-        assert finding is not None
+        assert isinstance(finding, ExperimentHealthFinding)
         self.assertEqual((finding.subcode, finding.actions), (subcode, actions))
 
     @parameterized.expand(
@@ -139,7 +139,7 @@ class TestZeroExposures(TestCase):
 
         finding = zero_exposures(ctx)
 
-        assert finding is not None
+        assert isinstance(finding, ExperimentHealthFinding)
         self.assertEqual(
             (
                 finding.title,
