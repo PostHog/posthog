@@ -6130,6 +6130,12 @@ export namespace Schemas {
      * * `2` - Stateful
      */
     export type CookielessServerHashModeEnum = 0 | 1 | 2;
+    export type CustomChartSettings = {
+        /**
+         * The canvas whose published build draws the chart.
+         */
+        canvasId: string;
+    };
     /**
      * * `default` - Default
      * * `template` - Template
@@ -8702,6 +8708,7 @@ export namespace Schemas {
     };
     export type DataVisualizationNode = {
         chartSettings?: (ChartSettings | null) | undefined;
+        customChart?: (CustomChartSettings | null) | undefined;
         display?: (ChartDisplayType | null) | undefined;
         kind?: string | undefined;
         source: HogQLQuery;
@@ -15986,6 +15993,7 @@ export namespace Schemas {
         RETENTION: RETENTION | null;
     }>;
     export type InsightVizNode = {
+        customChart?: (CustomChartSettings | null) | undefined;
         embedded?: (boolean | null) | undefined;
         full?: (boolean | null) | undefined;
         hidePersonsModal?: (boolean | null) | undefined;
