@@ -127,7 +127,7 @@ class TestRouteThreadMessage(TestCase):
             "channel_type": "channel",
             "ts": "2000.0000",
             "thread_ts": None,
-            "text": "How many people signed up last week?",
+            "text": "How many people signed up last week in PostHog?",
         }
         return self._make_event(**{**defaults, **overrides})
 
@@ -162,7 +162,22 @@ class TestRouteThreadMessage(TestCase):
         [
             ("an untagged question", {}, True, None, False, True),
             ("a private channel", {"channel_type": "group"}, True, None, False, True),
-            ("a statement", {"text": "Shipped the new export filter today"}, True, None, False, False),
+            (
+                "a request without a question word",
+                {"text": "need signups by country from PostHog for last month"},
+                True,
+                None,
+                False,
+                True,
+            ),
+            (
+                "a question that does not name PostHog",
+                {"text": "How many people signed up last week?"},
+                True,
+                None,
+                False,
+                False,
+            ),
             ("a question to a person", {"text": "<@U_ALICE> how many signups last week?"}, True, None, False, False),
             ("a group DM", {"channel_type": "mpim"}, True, None, False, False),
             ("the flag is off", {}, False, None, False, False),

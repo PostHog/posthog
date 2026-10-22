@@ -66,8 +66,32 @@
                                     "required": ["schemaVersion", "body"],
                                     "type": "object"
                                 },
+                                "from": {
+                                    "description": "The sender a transactional template sends from. A template made transactional without one gets the sender it was made transactional with.",
+                                    "properties": {
+                                        "email": {
+                                            "description": "Address to send from instead of the sender's own. Must be on the sender's verified domain. Supports Liquid templating. Leave out or empty to use the sender's address.",
+                                            "maxLength": 254,
+                                            "type": "string"
+                                        },
+                                        "integrationId": {
+                                            "description": "ID of the project's email sender integration that sends this email. Transactional sends need a verified sender.",
+                                            "type": "number"
+                                        },
+                                        "name": {
+                                            "description": "Sender name shown in the inbox instead of the sender's own. Supports Liquid templating. Leave out or empty to use the sender's name.",
+                                            "type": "string"
+                                        }
+                                    },
+                                    "required": ["integrationId"],
+                                    "type": "object"
+                                },
                                 "preheader": {
                                     "description": "Preview text that most inboxes show after the subject. Supports Liquid templating.",
+                                    "type": "string"
+                                },
+                                "replyTo": {
+                                    "description": "Reply-to address for a transactional template. Separate several addresses with commas. Supports Liquid templating. Leave empty to use the sender's default reply-to.",
                                     "type": "string"
                                 },
                                 "subject": {
@@ -119,6 +143,19 @@
             "description": "Human-readable template name shown in the library.",
             "maxLength": 400,
             "type": "string"
+        },
+        "sensitive": {
+            "description": "For emails that carry login codes, reset links or other secrets. PostHog keeps no copy of each sent email's body or filled-in subject, and clicked links keep only the site address. Can change at any time.",
+            "type": "boolean"
+        },
+        "tags": {
+            "description": "Tags for organizing templates, for example by team or use case. Tags are shared with the rest of the project. Omit to keep the current tags, send an empty list to remove them all.",
+            "items": {
+                "maxLength": 255,
+                "type": "string"
+            },
+            "maxItems": 10,
+            "type": "array"
         },
         "type": {
             "description": "Message channel of the template. Currently 'email'.",

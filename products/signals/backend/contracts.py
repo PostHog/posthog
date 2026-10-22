@@ -798,6 +798,38 @@ class RaygunErrorGroupSignalInput(SignalInputBase):
     extra: RaygunErrorGroupSignalExtra
 
 
+class DatadogSignalExtra(SignalExtraBase):
+    # One schema serves every Datadog table, because a variant is keyed by (source_product, source_type).
+    # `kind` says which record kind the signal came from.
+    # Each emitter fills only the fields its kind has, so every field except `kind` is optional.
+    kind: Literal["incident", "error_tracking_issue", "error_span", "error_log", "monitor_alert"]
+    severity: str | None = None
+    state: str | None = None
+    created: str | None = None
+    service: str | None = None
+    platform: str | None = None
+    file_path: str | None = None
+    function_name: str | None = None
+    error_type: str | None = None
+    resource_name: str | None = None
+    first_seen: str | None = None
+    last_seen: str | None = None
+    is_crash: str | None = None
+    window_total_count: str | None = None
+    window_impacted_users: str | None = None
+    occurrences: str | None = None
+    monitor_id: str | None = None
+    monitor_type: str | None = None
+    priority: str | None = None
+    alert_url: str | None = None
+
+
+class DatadogSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.ISSUE]
+    source_product: Literal[SignalSourceProduct.DATADOG]
+    extra: DatadogSignalExtra
+
+
 # ── Tier-2 security scanners + Tier-3 feedback/reviews ────────────────────────────
 
 
@@ -1033,6 +1065,37 @@ class HubspotTicketSignalInput(SignalInputBase):
     extra: HubspotTicketSignalExtra
 
 
+class Dynamics365TicketSignalExtra(SignalExtraBase):
+    ticketnumber: str | None
+    prioritycode: str | None
+    severitycode: str | None
+    casetypecode: str | None
+    statuscode: str | None
+    createdon: str | None
+
+
+class Dynamics365TicketSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.TICKET]
+    source_product: Literal[SignalSourceProduct.DYNAMICS365]
+    extra: Dynamics365TicketSignalExtra
+
+
+class ZohoCrmTicketSignalExtra(SignalExtraBase):
+    case_number: str | None
+    status: str | None
+    priority: str | None
+    type: str | None
+    case_origin: str | None
+    case_reason: str | None
+    created_time: str | None
+
+
+class ZohoCrmTicketSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.TICKET]
+    source_product: Literal[SignalSourceProduct.ZOHO_CRM]
+    extra: ZohoCrmTicketSignalExtra
+
+
 # ── Search analytics ──────────────────────────────────────────────────────────────
 
 
@@ -1050,6 +1113,170 @@ class GoogleSearchConsoleSearchOpportunitySignalInput(SignalInputBase):
     source_type: Literal[SignalSourceType.SEARCH_OPPORTUNITY]
     source_product: Literal[SignalSourceProduct.GOOGLE_SEARCH_CONSOLE]
     extra: GoogleSearchConsoleSearchOpportunitySignalExtra
+
+
+# ── Incident management / on-call ─────────────────────────────────────────────────
+
+
+class PagerdutyIncidentSignalExtra(SignalExtraBase):
+    status: str | None
+    urgency: str | None
+    html_url: str | None
+    created_at: str | None
+
+
+class PagerdutyIncidentSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.INCIDENT]
+    source_product: Literal[SignalSourceProduct.PAGERDUTY]
+    extra: PagerdutyIncidentSignalExtra
+
+
+class OpsgenieAlertSignalExtra(SignalExtraBase):
+    status: str | None
+    priority: str | None
+    tags: list
+    source: str | None
+    created_at: str | None
+
+
+class OpsgenieAlertSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.INCIDENT]
+    source_product: Literal[SignalSourceProduct.OPSGENIE]
+    extra: OpsgenieAlertSignalExtra
+
+
+class IncidentIoIncidentSignalExtra(SignalExtraBase):
+    severity_name: str | None
+    status_name: str | None
+    mode: str | None
+    permalink: str | None
+    created_at: str | None
+
+
+class IncidentIoIncidentSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.INCIDENT]
+    source_product: Literal[SignalSourceProduct.INCIDENT_IO]
+    extra: IncidentIoIncidentSignalExtra
+
+
+class FirehydrantIncidentSignalExtra(SignalExtraBase):
+    severity: str | None
+    priority: str | None
+    current_milestone: str | None
+    incident_url: str | None
+    created_at: str | None
+
+
+class FirehydrantIncidentSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.INCIDENT]
+    source_product: Literal[SignalSourceProduct.FIREHYDRANT]
+    extra: FirehydrantIncidentSignalExtra
+
+
+class SquadcastIncidentSignalExtra(SignalExtraBase):
+    status: str | None
+    priority: str | None
+    url: str | None
+    created_at: str | None
+
+
+class SquadcastIncidentSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.INCIDENT]
+    source_product: Literal[SignalSourceProduct.SQUADCAST]
+    extra: SquadcastIncidentSignalExtra
+
+
+class ServicenowIncidentSignalExtra(SignalExtraBase):
+    number: str | None
+    state: str | None
+    priority: str | None
+    urgency: str | None
+    impact: str | None
+    category: str | None
+    sys_created_on: str | None
+
+
+class ServicenowIncidentSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.INCIDENT]
+    source_product: Literal[SignalSourceProduct.SERVICENOW]
+    extra: ServicenowIncidentSignalExtra
+
+
+class SolarwindsServiceDeskIncidentSignalExtra(SignalExtraBase):
+    number: str | None
+    state: str | None
+    priority: str | None
+    category_name: str | None
+    created_at: str | None
+
+
+class SolarwindsServiceDeskIncidentSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.INCIDENT]
+    source_product: Literal[SignalSourceProduct.SOLARWINDS_SERVICE_DESK]
+    extra: SolarwindsServiceDeskIncidentSignalExtra
+
+
+class GrafanaIrmIncidentSignalExtra(SignalExtraBase):
+    status: str | None
+    severity_label: str | None
+    created_time: str | None
+
+
+class GrafanaIrmIncidentSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.INCIDENT]
+    source_product: Literal[SignalSourceProduct.GRAFANA_IRM]
+    extra: GrafanaIrmIncidentSignalExtra
+
+
+class XmattersIncidentSignalExtra(SignalExtraBase):
+    incident_identifier: str | None
+    severity: str | None
+    status: str | None
+    created_at: str | None
+
+
+class XmattersIncidentSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.INCIDENT]
+    source_product: Literal[SignalSourceProduct.XMATTERS]
+    extra: XmattersIncidentSignalExtra
+
+
+class BetterstackIncidentSignalExtra(SignalExtraBase):
+    url: str | None
+    started_at: str | None
+
+
+class BetterstackIncidentSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.INCIDENT]
+    source_product: Literal[SignalSourceProduct.BETTERSTACK]
+    extra: BetterstackIncidentSignalExtra
+
+
+class MonteCarloAlertSignalExtra(SignalExtraBase):
+    type: str | None
+    status: str | None
+    severity: str | None
+    priority: str | None
+    url: str | None
+    created_time: str | None
+
+
+class MonteCarloAlertSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.INCIDENT]
+    source_product: Literal[SignalSourceProduct.MONTE_CARLO]
+    extra: MonteCarloAlertSignalExtra
+
+
+class BigeyeIssueSignalExtra(SignalExtraBase):
+    current_status: str | None
+    priority: str | None
+    opened_time_seconds: str | None
+
+
+class BigeyeIssueSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.INCIDENT]
+    source_product: Literal[SignalSourceProduct.BIGEYE]
+    extra: BigeyeIssueSignalExtra
 
 
 # ── Union over all signal variants ──────────────────────────────────────────────
@@ -1091,6 +1318,7 @@ SignalInput = Annotated[
     | BugsnagErrorSignalInput
     | HoneybadgerFaultSignalInput
     | RaygunErrorGroupSignalInput
+    | DatadogSignalInput
     | SnykScannerFindingSignalInput
     | SonarqubeScannerFindingSignalInput
     | SemgrepScannerFindingSignalInput
@@ -1108,10 +1336,24 @@ SignalInput = Annotated[
     | JudgemeReviewsReviewSignalInput
     | IntercomTicketSignalInput
     | HubspotTicketSignalInput
+    | Dynamics365TicketSignalInput
+    | ZohoCrmTicketSignalInput
     | EngineeringAnalyticsCIFlakyCheckSignalInput
     | EngineeringAnalyticsCIBrokenDefaultBranchSignalInput
     | EngineeringAnalyticsCIDurationRegressionSignalInput
-    | GoogleSearchConsoleSearchOpportunitySignalInput,
+    | GoogleSearchConsoleSearchOpportunitySignalInput
+    | PagerdutyIncidentSignalInput
+    | OpsgenieAlertSignalInput
+    | IncidentIoIncidentSignalInput
+    | FirehydrantIncidentSignalInput
+    | SquadcastIncidentSignalInput
+    | ServicenowIncidentSignalInput
+    | SolarwindsServiceDeskIncidentSignalInput
+    | GrafanaIrmIncidentSignalInput
+    | XmattersIncidentSignalInput
+    | BetterstackIncidentSignalInput
+    | MonteCarloAlertSignalInput
+    | BigeyeIssueSignalInput,
     Field(union_mode="left_to_right"),
 ]
 
@@ -1147,6 +1389,7 @@ SIGNAL_INPUT_VARIANTS: tuple[type[SignalInputBase], ...] = (
     BugsnagErrorSignalInput,
     HoneybadgerFaultSignalInput,
     RaygunErrorGroupSignalInput,
+    DatadogSignalInput,
     SnykScannerFindingSignalInput,
     SonarqubeScannerFindingSignalInput,
     SemgrepScannerFindingSignalInput,
@@ -1164,10 +1407,24 @@ SIGNAL_INPUT_VARIANTS: tuple[type[SignalInputBase], ...] = (
     JudgemeReviewsReviewSignalInput,
     IntercomTicketSignalInput,
     HubspotTicketSignalInput,
+    Dynamics365TicketSignalInput,
+    ZohoCrmTicketSignalInput,
     EngineeringAnalyticsCIFlakyCheckSignalInput,
     EngineeringAnalyticsCIBrokenDefaultBranchSignalInput,
     EngineeringAnalyticsCIDurationRegressionSignalInput,
     GoogleSearchConsoleSearchOpportunitySignalInput,
+    PagerdutyIncidentSignalInput,
+    OpsgenieAlertSignalInput,
+    IncidentIoIncidentSignalInput,
+    FirehydrantIncidentSignalInput,
+    SquadcastIncidentSignalInput,
+    ServicenowIncidentSignalInput,
+    SolarwindsServiceDeskIncidentSignalInput,
+    GrafanaIrmIncidentSignalInput,
+    XmattersIncidentSignalInput,
+    BetterstackIncidentSignalInput,
+    MonteCarloAlertSignalInput,
+    BigeyeIssueSignalInput,
     CheckFailedSignalInput,
 )
 

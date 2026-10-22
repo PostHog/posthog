@@ -29,7 +29,8 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, RootModel, ValidationError, field_validator, model_validator
 
 from products.signals.backend.enums import ReportLinkKind, ReportPriority, SuggestedSourceProduct
-from products.signals.backend.report_checks import CheckInconclusiveReason, CheckOutcome
+from products.signals.backend.report_checks import CheckComparison, CheckInconclusiveReason, CheckOutcome
+from products.signals.backend.report_metrics import MAX_METRIC_UNIT_LENGTH, ReportMetricValueFormat
 from products.tasks.backend.facade.repo_selection_types import RepoSelectionResult
 
 # Product / type identifier parts must be routing-safe — mirrors the custom-agent identifier
@@ -298,6 +299,44 @@ class SuggestedReviewers(RootModel[list[SuggestedReviewerEntry]]):
     """Content schema for a `suggested_reviewers` artefact — the content root is a JSON list."""
 
 
+class ReviewerState(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    reviewers_id: UUID | None = None
+    corrections_id: UUID | None = None
+
+
+class ReviewerCorrections(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    pinned: tuple[SuggestedReviewerEntry, ...] = ()
+    excluded: tuple[SuggestedReviewerEntry, ...] = ()
+    confirmed: bool = False
+    needs_review: bool = False
+
+
+class ReviewerProposal(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    expected_state: ReviewerState
+    source: str = "automatic"
+    outcome: Literal["selected", "no_suitable_owner", "lookup_failed"] = "selected"
+    retry_reason: str | None = Field(default=None, max_length=500)
+
+    @model_validator(mode="after")
+    def validate_outcome(self) -> ReviewerProposal:
+        if self.outcome == "lookup_failed" and not self.retry_reason:
+            raise ValueError("A failed lookup needs a retry reason.")
+        return self
+
+
+class ReviewerEdit(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    action: Literal["add", "remove", "replace", "confirm"]
+    expected_state: ReviewerState | None = None
+
+
 class ChannelAssignment(BaseModel):
     """The space that currently owns a report. The latest assignment wins."""
 
@@ -489,12 +528,16 @@ DISMISSAL_IDENTITY_MAX_LENGTH = 128
 
 
 class Dismissal(BaseModel):
-    """Content schema for a `dismissal` artefact: feedback captured when a report is dismissed/snoozed.
+    """Feedback records retain their verdict because the report can change state later.
 
     The user fields predate row-level attribution and are kept for compatibility with existing
     rows and readers; new rows also carry attribution on the artefact row itself.
     """
 
+    state: Literal["resolved", "suppressed", "potential"] | None = Field(
+        default=None,
+        description="Report verdict when this feedback was recorded. Null on legacy feedback with no recorded verdict.",
+    )
     reason: str | None = Field(
         default=None, max_length=DISMISSAL_REASON_MAX_LENGTH, description="Caller-owned dismissal reason code."
     )
@@ -1034,6 +1077,34 @@ class CheckResult(BaseModel):
         return self
 
 
+class CheckObservation(BaseModel):
+    explanation: str
+    check_id: str
+    title: str
+    monitoring_started_at: datetime
+    measured_at: datetime
+    monitoring_ends_at: datetime | None = None
+    value_format: ReportMetricValueFormat | None = None
+    unit: str | None = Field(default=None, max_length=MAX_METRIC_UNIT_LENGTH)
+    comparison: CheckComparison | None = None
+    observed_value: float | None = Field(default=None, allow_inf_nan=False)
+    matches: bool | None = None
+    error: str | None = None
+
+    @model_validator(mode="after")
+    def measurement_is_complete(self) -> CheckObservation:
+        if self.measured_at <= self.monitoring_started_at:
+            raise ValueError("An observation must end after Monitoring starts.")
+        if self.monitoring_ends_at is not None and self.measured_at >= self.monitoring_ends_at:
+            raise ValueError("An interim observation must precede the Monitoring deadline.")
+        if self.error is None:
+            if self.observed_value is None or self.matches is None or self.comparison is None:
+                raise ValueError("A measured observation needs its value, comparison, and match result.")
+        elif not self.error.strip() or self.observed_value is not None or self.matches is not None:
+            raise ValueError("An errored observation needs an error and no measured result.")
+        return self
+
+
 class CheckLifecycleEntry(BaseModel):
     """What every entry in a check's life carries, so the three cannot drift apart.
 
@@ -1153,6 +1224,7 @@ StatusArtefactContent = (
     | PriorityAssessment
     | RepoSelectionResult
     | SuggestedReviewers
+    | ReviewerCorrections
     | ChannelAssignment
     | ImplementationDecision
     | ImplementationDispatch
@@ -1174,6 +1246,7 @@ LogArtefactContent = (
     | WorkRelease
     | PullRequestLink
     | CheckResult
+    | CheckObservation
     | CheckScheduled
     | CheckExpired
     | CheckCancelled
@@ -1193,6 +1266,7 @@ ARTEFACT_CONTENT_SCHEMAS: Mapping[str, type[BaseModel]] = {
     "signal_finding": SignalFinding,
     "repo_selection": RepoSelectionResult,
     "suggested_reviewers": SuggestedReviewers,
+    "reviewer_corrections": ReviewerCorrections,
     "channel_assignment": ChannelAssignment,
     "ranking_score": RankingScore,
     "dismissal": Dismissal,
@@ -1210,6 +1284,7 @@ ARTEFACT_CONTENT_SCHEMAS: Mapping[str, type[BaseModel]] = {
     "work_release": WorkRelease,
     "pull_request": PullRequestLink,
     "check_result": CheckResult,
+    "check_observation": CheckObservation,
     "check_scheduled": CheckScheduled,
     "check_expired": CheckExpired,
     "check_cancelled": CheckCancelled,
@@ -1246,6 +1321,7 @@ _ARTEFACT_TYPE_BY_MODEL: Mapping[type[BaseModel], str] = {model: t for t, model 
 # the API would let a caller fabricate a probability the model never produced.
 NON_WRITABLE_ARTEFACT_TYPES: frozenset[str] = frozenset(
     {
+        "reviewer_corrections",
         "task_run",
         "video_segment",
         "title_change",
@@ -1255,6 +1331,7 @@ NON_WRITABLE_ARTEFACT_TYPES: frozenset[str] = frozenset(
         "work_release",
         "pull_request",
         "check_result",
+        "check_observation",
         "check_scheduled",
         "check_expired",
         "check_cancelled",
