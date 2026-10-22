@@ -284,6 +284,8 @@ const rawInternalEvent = (overrides: { team_id?: number; event?: Record<string, 
     ),
 })
 
+const invalidTeamIds = [undefined, null, 'abc', 1.5, 3_000_000_000]
+
 describe('CdpHogflowSubscriptionMatcherConsumer', () => {
     let matcher: MatcherUnderTest
 
@@ -1282,18 +1284,17 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
     describe('message and lookup failures', () => {
         beforeEach(() => {
             matcher.setHogFlows({ 'flow-1': makeHogFlow({ id: 'flow-1', team_id: 1 }) })
-            // posthog_hogflow.team_id is an int4, so Postgres rejects any other team id on every read.
+            // Postgres rejects a team id outside int4 on every read. The valid messages here all use team 1.
+            // The mock rejects every other team id.
             const getHogFlowsForTeam = (matcher as any).hogFlowManager.getHogFlowsForTeam
             const flowsForTeam = getHogFlowsForTeam.getMockImplementation()
             getHogFlowsForTeam.mockImplementation((teamId: unknown) =>
-                Number.isInteger(teamId) && Math.abs(teamId as number) <= 2_147_483_647
-                    ? flowsForTeam(teamId)
-                    : Promise.reject(new Error('invalid input syntax for type integer'))
+                teamId === 1 ? flowsForTeam(teamId) : Promise.reject(new Error('invalid input syntax for type integer'))
             )
         })
 
         it.each([
-            ...[undefined, null, 'abc', 1.5, 3_000_000_000].flatMap((teamId) => [
+            ...invalidTeamIds.flatMap((teamId) => [
                 {
                     name: `an event with team_id ${teamId}`,
                     parse: '_parseKafkaBatch',
@@ -1385,7 +1386,7 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
                 const error = fail(matcher)
 
                 // The consumer stores a batch's offsets only after its handler resolves. A rejection
-                // leaves them uncommitted, so the pod reads the batch again after it restarts.
+                // leaves them uncommitted. The pod then reads the batch again after it restarts.
                 await expect(handleBatch([message])).rejects.toBe(error)
                 expect(processBatch).not.toHaveBeenCalled()
 
@@ -1429,7 +1430,7 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
                 rawMove({ person_id: '' }), // no person to point at
                 rawMove({ version: null }), // no version to order against
                 // The move lookups send team_id to int4 columns, which reject these on every read.
-                ...[undefined, null, 'abc', 1.5, 3_000_000_000].map((teamId) => rawMove({ team_id: teamId })),
+                ...invalidTeamIds.map((teamId) => rawMove({ team_id: teamId })),
                 { value: Buffer.from('not json') }, // malformed
                 rawMove(),
             ])

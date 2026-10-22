@@ -21,6 +21,7 @@ import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
 import { captureException } from '~/common/utils/posthog'
+import { isValidTeamId } from '~/common/utils/team-manager'
 import { UUIDT } from '~/common/utils/utils'
 
 import {
@@ -832,7 +833,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                 if (!parsed) {
                     return null
                 }
-                if (!isTeamId(parsed.teamId)) {
+                if (!isValidTeamId(parsed.teamId)) {
                     counterHogflowMatcherEventSkipped.labels({ reason: 'invalid_team_id' }).inc()
                     return null
                 }
@@ -926,7 +927,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                     counterHogflowMatcherEventSkipped.labels({ reason: 'no_identifiers' }).inc()
                     return null
                 }
-                if (!isTeamId(data.team_id)) {
+                if (!isValidTeamId(data.team_id)) {
                     counterHogflowMatcherEventSkipped.labels({ reason: 'invalid_team_id' }).inc()
                     return null
                 }
@@ -1275,14 +1276,8 @@ function convertClickhousePersonToWakeGlobals(
     }
 }
 
-// The hog flow and move lookups send the team id to int4 columns. Postgres rejects any other value on
-// every read, so a message that carries one would fail its batch every time the pod reads it again.
-function isTeamId(value: unknown): value is number {
-    return Number.isInteger(value) && (value as number) > 0 && (value as number) <= 2_147_483_647
-}
-
-// Runs a step that reads only the message. A throw counts as a parse error and returns null, so the
-// caller skips the message.
+// Runs a step that reads only the message. A throw counts as a parse error and makes this return null.
+// The caller then skips the message.
 function readMessage<T>(errorLog: string, read: () => T): T | null {
     try {
         return read()
