@@ -188,4 +188,53 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "created_at": "Date the bookmark was created.",
         },
     },
+    "request_ignored_events": {
+        "description": "A delivery Hookdeck skipped for an inbound request: one row per request and connection whose rules kept the request from becoming an event.",
+        "docs_url": f"{_API_DOCS}/inspect#getrequestignoredevents",
+        "columns": {
+            "id": "ID of the ignored event, built from the request ID and the connection ID.",
+            "team_id": "ID of the Hookdeck project.",
+            "webhook_id": "ID of the associated connection (webhook).",
+            "cause": "Why no event was created: DISABLED, FILTERED, TRANSFORMATION_FAILED or CLI_DISCONNECTED.",
+            "request_id": "ID of the request that was ignored.",
+            "meta": "Detail for the cause: the request parts a filter rejected, or the transformation that failed.",
+            "created_at": "Date the ignored event was created.",
+        },
+    },
+    "transformation_executions": {
+        "description": "One run of a transformation against an event, with its log level and console output.",
+        "docs_url": f"{_API_DOCS}/configure#gettransformationexecutions",
+        "columns": {
+            "id": "ID of the execution.",
+            "transformation_id": "ID of the transformation that ran.",
+            "team_id": "ID of the Hookdeck project.",
+            "webhook_id": "ID of the connection the execution was run for.",
+            "original_event_data_id": "ID of the event data before the transformation.",
+            "transformed_event_data_id": "ID of the event data the transformation produced.",
+            "log_level": "Highest log level the execution emitted.",
+            "logs": "Console lines the transformation wrote, each with a type and a message.",
+            "issue_id": "ID of the issue raised for a failed execution.",
+            "updated_at": "Date the execution was last updated.",
+            "created_at": "Date the transformation ran.",
+        },
+    },
+    "queue_depth_metrics": {
+        "description": "Hourly delivery backlog per destination, from the queue depth metrics endpoint.",
+        "docs_url": f"{_API_DOCS}/inspect#queryqueuedepthmetrics",
+        "columns": {
+            "time_bucket": "Start of the hourly bucket.",
+            "destination_id": "ID of the destination.",
+            "max_depth": "Largest number of pending events sampled in the bucket.",
+            "max_age": "Longest time an event sat pending in the bucket, in minutes.",
+        },
+    },
+    "events_pending_timeseries": {
+        "description": "Hourly count of events pending delivery per destination.",
+        "docs_url": f"{_API_DOCS}/inspect#queryeventspendingtimeseriesmetrics",
+        "columns": {
+            "time_bucket": "Start of the hourly bucket.",
+            "destination_id": "ID of the destination.",
+            "count": "Number of events pending delivery in the bucket.",
+        },
+    },
 }

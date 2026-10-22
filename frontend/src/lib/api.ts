@@ -483,6 +483,22 @@ export class ApiConfig {
 /** A workflow's type: the surface that owns it, else what it does. */
 export type HogFlowListType = 'messaging' | 'automation' | 'loop' | 'broadcast'
 
+function parseLogEntries(text: string): Record<string, any>[] {
+    const entries: Record<string, any>[] = []
+    for (const line of text.split('\n')) {
+        const trimmed = line.trim()
+        if (!trimmed) {
+            continue
+        }
+        try {
+            entries.push(JSON.parse(trimmed))
+        } catch {
+            // Skip unparseable lines — the stream is best-effort historical replay.
+        }
+    }
+    return entries
+}
+
 export class ApiRequest {
     private pathComponents: string[]
     private queryString: string | undefined
@@ -5044,20 +5060,56 @@ const api = {
                     .taskRun(taskId, runId, options.projectId)
                     .withAction('logs')
                     .getResponse({ signal: options.signal })
-                const text = await response.text()
-                const entries: Record<string, any>[] = []
-                for (const line of text.split('\n')) {
-                    const trimmed = line.trim()
-                    if (!trimmed) {
-                        continue
-                    }
-                    try {
-                        entries.push(JSON.parse(trimmed))
-                    } catch {
-                        // Skip unparseable lines — the stream is best-effort historical replay.
-                    }
+                return parseLogEntries(await response.text())
+            },
+            /**
+             * Fetch part of a run's resume-chain log. With `tailBytes`, the latest turns (at least `tailBytes`, from a
+             * cut where a user turn starts) that end before entry index `before`, or with `start`, every entry from
+             * that index on. The page starts with `preamble` earlier entries that still set run state; `offset` is
+             * the full-log index of the first entry after them, `count` is the full-log size, and `turnsBefore`
+             * counts the user turns before `offset`. Without `tailBytes`, or for a log the server does not page, the
+             * response is the full log and `indexed` is false.
+             */
+            async getLogPage(
+                taskId: Task['id'],
+                runId: TaskRun['id'],
+                options: {
+                    signal?: AbortSignal
+                    projectId?: TeamType['id']
+                    tailBytes?: number
+                    before?: number
+                    start?: number
                 }
-                return entries
+            ): Promise<{
+                entries: Record<string, any>[]
+                offset: number
+                count: number
+                preamble: number
+                turnsBefore: number
+                origin: string
+                indexed: boolean
+            }> {
+                const response = await new ApiRequest()
+                    .taskRun(taskId, runId, options.projectId)
+                    .withAction('logs')
+                    .withQueryString({
+                        ...(options.tailBytes !== undefined ? { tail_bytes: options.tailBytes } : {}),
+                        ...(options.before !== undefined ? { before: options.before } : {}),
+                        ...(options.start !== undefined ? { start: options.start } : {}),
+                    })
+                    .getResponse({ signal: options.signal })
+                const entries = parseLogEntries(await response.text())
+                const indexed = response.headers.get('X-Log-Offset') !== null
+                const header = (name: string): number => Number(response.headers.get(name) ?? 0) || 0
+                return {
+                    entries,
+                    offset: header('X-Log-Offset'),
+                    count: indexed ? header('X-Log-Count') : entries.length,
+                    preamble: header('X-Log-Preamble'),
+                    turnsBefore: header('X-Log-Turns-Before'),
+                    origin: response.headers.get('X-Log-Origin') ?? '',
+                    indexed,
+                }
             },
             /**
              * Open the live SSE stream for a run as a `fetch` response (the caller reads it with
