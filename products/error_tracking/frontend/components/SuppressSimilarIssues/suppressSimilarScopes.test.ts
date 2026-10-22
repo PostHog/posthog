@@ -3,6 +3,7 @@ import {
     buildScopeOptions,
     generalizeExceptionMessage,
     recommendedScope,
+    snapshotFromLatestEvent,
 } from './suppressSimilarScopes'
 
 function snapshot(overrides: Partial<SuppressedIssueSnapshot>): SuppressedIssueSnapshot {
@@ -25,6 +26,11 @@ describe('suppressSimilarScopes', () => {
             message: 'Chunk a1b2c3d4e5f60718 failed to load from /static/[id].js?v=1',
             similar: 'Chunk ffee00112233aabb failed to load from /static/[id].js?v=42',
             different: 'Chunk a1b2c3d4e5f60718 failed to load from /static/xid.js?v=1',
+        },
+        {
+            message: 'Address 0XDEADBEEF failed',
+            similar: 'Address 0x1f3a failed',
+            different: 'Address main failed',
         },
     ])('generalized pattern for "$message" matches similar messages only', ({ message, similar, different }) => {
         const generalized = generalizeExceptionMessage(message)
@@ -86,11 +92,40 @@ describe('suppressSimilarScopes', () => {
             const similar = buildScopeOptions(
                 messages.map((exceptionMessage, index) => snapshot({ id: `issue-${index}`, exceptionMessage }))
             ).find((option) => option.key === 'similar')!
-            const messageFilter = similar.filters.values.find((filter) => filter.key === '$exception_values')!
+            expect(similar.rules).toHaveLength(1)
+            const messageFilter = similar.rules[0].values.find((filter) => filter.key === '$exception_values')!
             const regex = new RegExp(messageFilter.value as string)
             expect(messages.every((message) => regex.test(message))).toBe(true)
             expect(regex.test(unmatched)).toBe(false)
             expect(similar.messages).toHaveLength(expectedPatternCount)
         }
     )
+
+    it('keeps each exception type with its own messages when several types are suppressed together', () => {
+        const similar = buildScopeOptions([
+            snapshot({ id: 'type-error', exceptionType: 'TypeError', exceptionMessage: 'alpha 1' }),
+            snapshot({ id: 'range-error', exceptionType: 'RangeError', exceptionMessage: 'beta 1' }),
+        ]).find((option) => option.key === 'similar')!
+        const rules = similar.rules.map((rule) => ({
+            type: rule.values.find((filter) => filter.key === '$exception_types')!.value,
+            message: new RegExp(rule.values.find((filter) => filter.key === '$exception_values')!.value as string),
+        }))
+        expect(rules.map((rule) => rule.type)).toEqual([['TypeError'], ['RangeError']])
+        expect(rules.map((rule) => [rule.message.test('alpha 2'), rule.message.test('beta 2')])).toEqual([
+            [true, false],
+            [false, true],
+        ])
+    })
+
+    test.each([
+        { name: 'a JSON array, as HogQL returns it', raw: '["Error","TypeError"]', expected: 'Error' },
+        { name: 'a plain string', raw: 'Error', expected: 'Error' },
+        { name: 'no value', raw: null, expected: null },
+    ])('reads the outermost exception from $name', ({ raw, expected }) => {
+        expect(snapshotFromLatestEvent(['issue-1', raw, raw])).toEqual({
+            id: 'issue-1',
+            exceptionType: expected,
+            exceptionMessage: expected,
+        })
+    })
 })

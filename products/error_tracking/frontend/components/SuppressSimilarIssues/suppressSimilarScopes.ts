@@ -1,8 +1,10 @@
-import { ErrorEventProperties } from 'lib/components/Errors/types'
-import { getExceptionTypeAndValue } from 'lib/components/Errors/utils'
-
-import { ErrorTrackingIssue, ErrorTrackingRelationalIssue } from '~/queries/schema/schema-general'
-import { EventPropertyFilter, FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
+import {
+    EventPropertyFilter,
+    FilterLogicalOperator,
+    PropertyFilterType,
+    PropertyGroupFilterValue,
+    PropertyOperator,
+} from '~/types'
 
 export interface SuppressedIssueSnapshot {
     id: string
@@ -35,7 +37,8 @@ export type SuppressScopeKey = 'exact' | 'similar'
 
 export interface SuppressScopeOption {
     key: SuppressScopeKey
-    filters: SuppressionFilterGroup
+    // One rule per exception type. A single rule would also match one issue's type with another issue's message.
+    rules: SuppressionFilterGroup[]
     messages: MessageSegment[][]
     unavailableReason?: string
 }
@@ -49,8 +52,9 @@ export interface ScopeImpact {
 // so it only uses syntax all three engines read the same way.
 const VARIABLE_PART_REGEX: Record<Exclude<MessageSegmentKind, 'literal'>, string> = {
     id: '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}',
-    hex: '(?:0x)?[0-9a-fA-F]+',
-    number: '\\d+(?:\\.\\d+)?',
+    hex: '(?:0[xX])?[0-9a-fA-F]+',
+    // Not `\d`, because the Rust regex crate in cymbal reads it as any Unicode digit.
+    number: '[0-9]+(?:\\.[0-9]+)?',
 }
 
 // A number may run into a unit ("3000ms"), so it has no trailing word boundary. The leading one keeps "utf8" intact.
@@ -113,50 +117,79 @@ export function generalizeExceptionMessage(message: string): GeneralizedMessage 
     return { regex, segments }
 }
 
-export function buildScopeOptions(snapshots: SuppressedIssueSnapshot[]): SuppressScopeOption[] {
-    const types = distinctNonEmpty(snapshots.map((snapshot) => snapshot.exceptionType))
-    const messages = distinctNonEmpty(snapshots.map((snapshot) => snapshot.exceptionMessage))
-    const typeFilters = types.length > 0 ? [eventFilter('$exception_types', PropertyOperator.Exact, types)] : []
-    const noMessageReason = snapshots.length === 1 ? 'This issue has no message' : 'These issues have no message'
-
-    const generalized = messages.map(generalizeExceptionMessage)
+function messagePatterns(messages: string[]): GeneralizedMessage[] {
     // A message with no variable parts still joins the pattern as an escaped literal.
-    const patterns = Array.from(
+    return Array.from(
         new Map(
-            generalized.map((pattern, index): [string, GeneralizedMessage] => {
-                const resolved = pattern ?? {
-                    regex: escapeRegexLiteral(messages[index]),
-                    segments: literal(messages[index]),
+            messages.map((message): [string, GeneralizedMessage] => {
+                const resolved = generalizeExceptionMessage(message) ?? {
+                    regex: escapeRegexLiteral(message),
+                    segments: literal(message),
                 }
                 return [resolved.regex, resolved]
             })
         ).values()
     )
-    const patternRegex =
-        patterns.length === 1 ? `^${patterns[0].regex}$` : `^(?:${patterns.map((pattern) => pattern.regex).join('|')})$`
+}
+
+function anchoredAlternation(patterns: GeneralizedMessage[]): string {
+    return patterns.length === 1
+        ? `^${patterns[0].regex}$`
+        : `^(?:${patterns.map((pattern) => pattern.regex).join('|')})$`
+}
+
+export function buildScopeOptions(snapshots: SuppressedIssueSnapshot[]): SuppressScopeOption[] {
+    const messagesByType = new Map<string | null, string[]>()
+    for (const snapshot of snapshots) {
+        const message = snapshot.exceptionMessage?.trim() ? snapshot.exceptionMessage : null
+        if (message) {
+            const type = snapshot.exceptionType?.trim() ? snapshot.exceptionType : null
+            messagesByType.set(type, distinctNonEmpty([...(messagesByType.get(type) ?? []), message]))
+        }
+    }
+    const groups = Array.from(messagesByType.entries())
+    const typeFilters = (type: string | null): SuppressionEventFilter[] =>
+        type ? [eventFilter('$exception_types', PropertyOperator.Exact, [type])] : []
+    const messages = distinctNonEmpty(groups.flatMap(([, groupMessages]) => groupMessages))
+    const noMessageReason = snapshots.length === 1 ? 'This issue has no message' : 'These issues have no message'
 
     return [
         {
             key: 'exact',
-            filters: filterGroup([...typeFilters, eventFilter('$exception_values', PropertyOperator.Exact, messages)]),
+            rules: groups.map(([type, groupMessages]) =>
+                filterGroup([
+                    ...typeFilters(type),
+                    eventFilter('$exception_values', PropertyOperator.Exact, groupMessages),
+                ])
+            ),
             messages: messages.map(literal),
             unavailableReason: messages.length === 0 ? noMessageReason : undefined,
         },
         {
             key: 'similar',
-            filters: filterGroup([
-                ...typeFilters,
-                eventFilter('$exception_values', PropertyOperator.Regex, patternRegex),
-            ]),
-            messages: patterns.map((pattern) => pattern.segments),
+            rules: groups.map(([type, groupMessages]) =>
+                filterGroup([
+                    ...typeFilters(type),
+                    eventFilter(
+                        '$exception_values',
+                        PropertyOperator.Regex,
+                        anchoredAlternation(messagePatterns(groupMessages))
+                    ),
+                ])
+            ),
+            messages: messagePatterns(messages).map((pattern) => pattern.segments),
             unavailableReason:
                 messages.length === 0
                     ? noMessageReason
-                    : generalized.every((pattern) => pattern === null)
+                    : messages.every((message) => generalizeExceptionMessage(message) === null)
                       ? 'Nothing in the message changes between occurrences, such as a number or an ID'
                       : undefined,
         },
     ]
+}
+
+export function combinedFilter(option: SuppressScopeOption): PropertyGroupFilterValue {
+    return option.rules.length === 1 ? option.rules[0] : { type: FilterLogicalOperator.Or, values: option.rules }
 }
 
 export function recommendedScope(options: SuppressScopeOption[]): SuppressScopeKey | null {
@@ -165,23 +198,20 @@ export function recommendedScope(options: SuppressScopeOption[]): SuppressScopeK
     return (['similar', 'exact'] as const).find(available) ?? null
 }
 
-export function snapshotFromListIssue(issue: ErrorTrackingIssue): SuppressedIssueSnapshot {
-    return {
-        id: issue.id,
-        exceptionType: issue.name,
-        exceptionMessage: issue.description,
+/** One exception property as HogQL returns it: a JSON array in a string. Takes the outermost exception. */
+function firstValue(raw: unknown): string | null {
+    if (typeof raw !== 'string' || !raw) {
+        return null
+    }
+    try {
+        const parsed: unknown = JSON.parse(raw)
+        const first = Array.isArray(parsed) ? parsed[0] : parsed
+        return typeof first === 'string' ? first : null
+    } catch {
+        return raw
     }
 }
 
-/** Prefers the event's exception data, because a person can rename an issue and its name then stops matching events. */
-export function snapshotFromIssueEvent(
-    issue: ErrorTrackingRelationalIssue,
-    properties: ErrorEventProperties | null | undefined
-): SuppressedIssueSnapshot {
-    const { type, value } = properties ? getExceptionTypeAndValue(properties) : { type: undefined, value: undefined }
-    return {
-        id: issue.id,
-        exceptionType: type ?? issue.name,
-        exceptionMessage: value ?? issue.description,
-    }
+export function snapshotFromLatestEvent([id, types, values]: [string, unknown, unknown]): SuppressedIssueSnapshot {
+    return { id: String(id), exceptionType: firstValue(types), exceptionMessage: firstValue(values) }
 }

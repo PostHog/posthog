@@ -29,9 +29,9 @@ export function SuppressSimilarIssuesDialog(): JSX.Element {
         selectedOption,
         scopeImpacts,
         scopeImpactsLoading,
-        createdRuleLoading,
+        createdRulesLoading,
     } = useValues(suppressSimilarIssuesLogic)
-    const { selectScope, createRule, dismissSuggestion } = useActions(suppressSimilarIssuesLogic)
+    const { selectScope, createRules, dismissSuggestion } = useActions(suppressSimilarIssuesLogic)
 
     const multiple = snapshots.length > 1
     const titles: Record<SuppressScopeKey, string> = {
@@ -78,8 +78,8 @@ export function SuppressSimilarIssuesDialog(): JSX.Element {
                     </DialogClose>
                     <Button
                         variant="primary"
-                        onClick={createRule}
-                        loading={createdRuleLoading}
+                        onClick={createRules}
+                        loading={createdRulesLoading}
                         disabledReason={
                             errorTrackingEditAccessDisabledReason() ??
                             (selectedOption ? undefined : 'Choose which exceptions to drop')
