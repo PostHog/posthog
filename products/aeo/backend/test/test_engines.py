@@ -3,6 +3,8 @@ from types import SimpleNamespace
 import pytest
 from unittest.mock import patch
 
+from django.test import override_settings
+
 import httpx
 from google.genai import (
     errors as genai_errors,
@@ -17,6 +19,7 @@ from products.aeo.backend.engines import (
     GeminiGroundedEngine,
     OpenAIWebSearchEngine,
     anthropic_truncated_error,
+    available_engines,
     build_check_fields,
     is_target_url,
     openai_response_error,
@@ -27,6 +30,7 @@ from products.aeo.backend.engines import (
     target_position,
     top_domains,
 )
+from products.aeo.backend.facade.contracts import AEO_GEMINI_ENGINE_FLAG
 
 ANTHROPIC_BODY = {
     "id": "msg_01",
@@ -385,6 +389,29 @@ def test_gemini_engine_requires_gateway() -> None:
     with patch("products.aeo.backend.engines.resolve_ai_gateway_config", return_value=None):
         with pytest.raises(ValueError):
             GeminiGroundedEngine()
+
+
+@parameterized.expand(
+    [
+        ("flag_off", False, ["claude-web-search", "openai-web-search"]),
+        ("flag_on", True, ["claude-web-search", "openai-web-search", "gemini-google-search"]),
+    ]
+)
+def test_available_engines_gates_gemini_behind_flag(_name: str, flag_on: bool, expected_engines: list[str]) -> None:
+    team = SimpleNamespace(id=1, uuid="11111111-1111-1111-1111-111111111111", organization_id="org-1")
+    with (
+        override_settings(EXA_API_KEY=""),
+        patch(
+            "products.aeo.backend.engines.resolve_ai_gateway_config",
+            return_value=SimpleNamespace(url="https://gw.test/v1", api_key="k"),
+        ),
+        patch("products.aeo.backend.engines.feature_enabled_or_false", return_value=flag_on) as flag,
+    ):
+        engines = available_engines(team)  # type: ignore[arg-type]
+
+    assert [engine.name for engine in engines] == expected_engines
+    assert flag.call_args.args == (AEO_GEMINI_ENGINE_FLAG, team.uuid)
+    assert flag.call_args.kwargs == {"groups": {"organization": "org-1"}}
 
 
 def test_parse_exa_citations() -> None:

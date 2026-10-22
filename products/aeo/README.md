@@ -39,8 +39,8 @@ python manage.py run_aeo_citation_checks --team-id <id> --limit 3 --dry-run
 python manage.py run_aeo_citation_checks --team-id <id>
 ```
 
-Gemini with Google Search grounding (`gemini-google-search`, model `AEO_GEMINI_MODEL`) runs only with `--engines gemini`.
-It stays out of scheduled runs until a review of Google's grounding terms clears it.
+Gemini with Google Search grounding (`gemini-google-search`, model `AEO_GEMINI_MODEL`) runs with `--engines gemini`, or in scheduled runs for teams with the `aeo-engine-gemini` flag on.
+The flag stays off until a review of Google's grounding terms clears it.
 
 ### Import over the API
 
@@ -68,7 +68,7 @@ A run takes at most 50 prompts. It takes one prompt per topic in turn, so every 
 | ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------- |
 | `run_id`, `prompt_id`, `prompt_hash`, `prompt_text`, `prompt_source`     | Which prompt, and whether it was `imported` from a CSV or written by hand (`manual`).                               |
 | `prompt_topic`                                                           | The prompt's topic when it ran; empty when it had none. Group by it to compare citation rates per topic.            |
-| `engine`, `model`                                                        | `claude-web-search`, `openai-web-search`, `exa-answer`, or `gemini-google-search` (manual runs only).               |
+| `engine`, `model`                                                        | `claude-web-search`, `openai-web-search`, `exa-answer`, or `gemini-google-search` (flag `aeo-engine-gemini`).       |
 | `cited`                                                                  | Whether a target-domain URL appears in the answer's citations.                                                      |
 | `cited_urls`, `target_urls`, `target_best_position`, `top_cited_domains` | The citation record.                                                                                                |
 | `retrieved_urls`, `search_queries`                                       | What the engine saw / searched (Anthropic and Gemini expose retrieved results; others don't).                       |

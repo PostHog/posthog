@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import field
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 from urllib.parse import urlparse
 
 from django.conf import settings
@@ -29,11 +29,17 @@ from google.genai import (
 
 from posthog.dataclasses import frozen
 from posthog.llm.gateway_client import ai_gateway_headers, build_gemini_client, resolve_ai_gateway_config
+from posthog.ph_client import feature_enabled_or_false
 from posthog.security.llm_prompt_sanitization import (
     GENERIC_VALUE_MAX_LEN,
     sanitize_user_text,
     strip_llm_framing_markers,
 )
+
+from products.aeo.backend.facade.contracts import AEO_GEMINI_ENGINE_FLAG
+
+if TYPE_CHECKING:
+    from posthog.models.team import Team
 
 GATEWAY_TIMEOUT_SECONDS = 420  # web-search turns routinely take 10-60s, and multi-search answers several minutes
 EXA_TIMEOUT_SECONDS = 60
@@ -579,12 +585,25 @@ class ExaAnswerEngine:
         )
 
 
-def available_engines() -> list[CitationEngine]:
-    """Engines the current configuration supports."""
+def _gemini_engine_enabled(team: Team) -> bool:
+    """Fail-closed: the flag defaults off and an evaluation error reads as off.
+    Evaluated the same way the citation-tracking task gate is, so the flag can
+    target teams through the organization group."""
+    return feature_enabled_or_false(
+        AEO_GEMINI_ENGINE_FLAG,
+        str(team.uuid),
+        groups={"organization": str(team.organization_id)},
+    )
+
+
+def available_engines(team: Team) -> list[CitationEngine]:
+    """Engines the current configuration supports for a scheduled run of this team."""
     engines: list[CitationEngine] = []
     if resolve_ai_gateway_config() is not None:
         engines.append(ClaudeWebSearchEngine())
         engines.append(OpenAIWebSearchEngine())
+        if _gemini_engine_enabled(team):
+            engines.append(GeminiGroundedEngine())
     if settings.EXA_API_KEY:
         engines.append(ExaAnswerEngine())
     return engines

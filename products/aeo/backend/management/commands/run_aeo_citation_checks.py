@@ -18,8 +18,8 @@ ENGINES_BY_NAME = {
     "claude": ClaudeWebSearchEngine,
     "openai": OpenAIWebSearchEngine,
     "exa": ExaAnswerEngine,
-    # Manual-only: Google's grounding terms need a review before scheduled use,
-    # so available_engines() leaves it out.
+    # Scheduled runs include it only behind the aeo-engine-gemini flag; a manual
+    # run can pick it explicitly.
     "gemini": GeminiGroundedEngine,
 }
 
@@ -37,7 +37,7 @@ class Command(BaseCommand):
         parser.add_argument(
             "--engines",
             type=str,
-            help="Comma-separated subset of: claude,openai,exa,gemini. Default: all configured except gemini.",
+            help="Comma-separated subset of: claude,openai,exa,gemini. Default: all configured (gemini only with its flag).",
         )
         parser.add_argument("--dry-run", action="store_true", help="Run engines but record no checks.")
 

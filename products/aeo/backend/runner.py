@@ -49,7 +49,7 @@ def run_citation_checks(
     interrupted run keeps the checks it already paid for. With record=False the
     engines still run (and cost money) but nothing is written — smoke-test mode.
     """
-    engines = engines if engines is not None else available_engines()
+    engines = engines if engines is not None else available_engines(team)
     if not engines:
         logger.warning("aeo_citation_run_no_engines", team_id=team.id)
         return _empty_summary(team, "no engines configured (AI_GATEWAY_URL/AI_GATEWAY_API_KEY, EXA_API_KEY)"), []
