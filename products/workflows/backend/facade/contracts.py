@@ -196,11 +196,9 @@ SuggestionsScoutRunReason = Literal[
     "first_run",
     "backstop",
     "opted_in",
-    "reactivated",
     "published",
     "suggestion_resolved",
     "sends_matured",
-    "first_opens",
 ]
 
 
