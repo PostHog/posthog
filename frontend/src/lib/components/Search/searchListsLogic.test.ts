@@ -35,6 +35,13 @@ describe('searchListsLogic', () => {
         expect(logic.values.productsItems.some((item) => item.id === 'product-Data warehouse')).toBe(visible)
     })
 
+    it('lists each product destination once', () => {
+        const hrefs = logic.values.productsItems.filter((item) => item.category === 'tools').map((item) => item.href)
+
+        expect(hrefs.filter((href) => href === urls.endpoints())).toHaveLength(1)
+        expect(new Set(hrefs).size).toBe(hrefs.length)
+    })
+
     it.each(['support', 'tickets', 'contact support', 'help'])('finds Your tickets when searching "%s"', (query) => {
         const matches = filterSearchItems(logic.values.miscItems, query)
 
