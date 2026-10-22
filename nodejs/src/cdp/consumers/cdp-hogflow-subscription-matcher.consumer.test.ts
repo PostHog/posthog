@@ -136,6 +136,8 @@ class MatcherUnderTest extends CdpHogflowSubscriptionMatcherConsumer {
     public memberCohortIds: number[] | Error = []
     // Lookups that fail before the next one returns memberCohortIds.
     public lookupFailuresBeforeSuccess = 0
+    // Stored rows by cohort id, for every looked-up person. Defaults to memberCohortIds without version stamps.
+    public storedCohortRows: Record<number, { inCohort: boolean; version: number | null }> | null = null
 
     constructor() {
         // Non-empty URL satisfies the constructor's fail-fast guard; the real Pool (mocked
@@ -185,15 +187,36 @@ class MatcherUnderTest extends CdpHogflowSubscriptionMatcherConsumer {
                 })
             ),
         }
+        const failedLookup = (): Error | null => {
+            if (this.lookupFailuresBeforeSuccess > 0) {
+                this.lookupFailuresBeforeSuccess--
+                return new Error('connection timed out')
+            }
+            return this.memberCohortIds instanceof Error ? this.memberCohortIds : null
+        }
         ;(this as any).cohortMembershipRepository = {
             getMemberCohortIdsForPersons: jest.fn((_teamId: number, personUuids: string[]) => {
-                if (this.lookupFailuresBeforeSuccess > 0) {
-                    this.lookupFailuresBeforeSuccess--
-                    return Promise.reject(new Error('connection timed out'))
-                }
-                return this.memberCohortIds instanceof Error
-                    ? Promise.reject(this.memberCohortIds)
+                const error = failedLookup()
+                return error
+                    ? Promise.reject(error)
                     : Promise.resolve(new Map(personUuids.map((id) => [id, this.memberCohortIds as number[]])))
+            }),
+            getCohortMembershipsForPersons: jest.fn((_teamId: number, personUuids: string[], cohortIds: number[]) => {
+                const error = failedLookup()
+                if (error) {
+                    return Promise.reject(error)
+                }
+                const rows =
+                    this.storedCohortRows ??
+                    Object.fromEntries(
+                        (this.memberCohortIds as number[]).map((id) => [id, { inCohort: true, version: null }])
+                    )
+                const person = new Map(
+                    Object.entries(rows)
+                        .map(([id, row]) => [Number(id), row] as const)
+                        .filter(([id]) => cohortIds.includes(id))
+                )
+                return Promise.resolve(new Map(personUuids.map((id) => [id, person])))
             }),
         }
         // Stub hogFlowManager
@@ -1648,8 +1671,25 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
             const cohortGoalWatcher = (goal: Record<string, any> = {}): any =>
                 watcher({
                     person_id: COHORT_PERSON_UUID,
+                    created_at: new Date('2026-10-22T09:30:00Z'),
                     goal: { properties: inCohortBytecode(), cohort_ids: [COHORT_ID], ...goal },
                 })
+            const OTHER_COHORT_ID = COHORT_ID + 1
+            // in cohort COHORT_ID and in cohort OTHER_COHORT_ID
+            const bothCohortsWatcher = (): any =>
+                cohortGoalWatcher({
+                    properties: [
+                        ...inCohortBytecode(),
+                        ...[33, OTHER_COHORT_ID, 32, 'cohort_ids', 1, 1, 2, 'inCohort', 2],
+                        3,
+                        2,
+                    ],
+                    cohort_ids: [COHORT_ID, OTHER_COHORT_ID],
+                })
+            const storedRow = (inCohort: boolean, lastUpdated: string): { inCohort: boolean; version: number } => ({
+                inCohort,
+                version: Date.parse(`${lastUpdated.replace(' ', 'T').slice(0, 23)}Z`),
+            })
 
             const runChanges = async (messages: any[]): Promise<void> => {
                 ;(matcher as any).teamsWithLiveWatchers = new Set([1])
@@ -1670,13 +1710,21 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
                 [
                     'a join from before the run enrolled',
                     [membershipChange({ last_updated: '2026-10-22 09:00:00.000000' })],
-                    { ...cohortGoalWatcher(), created_at: new Date('2026-10-22T10:00:00Z') },
+                    cohortGoalWatcher(),
+                    [],
+                    0,
+                ],
+                // Without a version stamp, the change cannot be placed after the enrollment.
+                [
+                    'a join without a version stamp',
+                    [membershipChange({ last_updated: undefined })],
+                    cohortGoalWatcher(),
                     [],
                     0,
                 ],
                 [
                     'a join of a cohort the goal does not reference',
-                    [membershipChange({ cohort_id: COHORT_ID + 1 })],
+                    [membershipChange({ cohort_id: OTHER_COHORT_ID })],
                     cohortGoalWatcher(),
                     [],
                     0,
@@ -1690,10 +1738,39 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
                     0,
                 ],
                 ['a seed change', [membershipChange({ origin: 'seed' })], cohortGoalWatcher(), [], 0],
+                // A goal on one cohort reads only the change.
                 [
-                    'a failed membership lookup',
+                    'a join while the membership table is unavailable',
                     [membershipChange()],
                     cohortGoalWatcher(),
+                    new Error('behavioral cohorts DB unavailable'),
+                    1,
+                ],
+                [
+                    'a join of one cohort of a goal on two, with the other stored',
+                    [membershipChange()],
+                    bothCohortsWatcher(),
+                    [OTHER_COHORT_ID],
+                    1,
+                ],
+                [
+                    'a join of one cohort of a goal on two, without the other',
+                    [membershipChange()],
+                    bothCohortsWatcher(),
+                    [],
+                    0,
+                ],
+                [
+                    'a join of both cohorts of a goal on two',
+                    [membershipChange(), membershipChange({ cohort_id: OTHER_COHORT_ID })],
+                    bothCohortsWatcher(),
+                    [],
+                    1,
+                ],
+                [
+                    'a join of one cohort of a goal on two, while the membership table is unavailable',
+                    [membershipChange()],
+                    bothCohortsWatcher(),
                     new Error('behavioral cohorts DB unavailable'),
                     0,
                 ],
@@ -1709,10 +1786,47 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
 
             it('retries a membership lookup that fails once', async () => {
                 matcher.lookupFailuresBeforeSuccess = 1
-                matcher.watcherRows = [cohortGoalWatcher()]
+                matcher.memberCohortIds = [OTHER_COHORT_ID]
+                matcher.watcherRows = [bothCohortsWatcher()]
 
                 await runChanges([membershipChange()])
 
+                expect(matcher.queueAppMetricMock).toHaveBeenCalledTimes(1)
+            })
+
+            it('checks a membership change again with the next batch after both lookups fail', async () => {
+                matcher.lookupFailuresBeforeSuccess = 2
+                matcher.memberCohortIds = [OTHER_COHORT_ID]
+                matcher.watcherRows = [bothCohortsWatcher()]
+
+                await runChanges([membershipChange()])
+                expect(matcher.queueAppMetricMock).not.toHaveBeenCalled()
+
+                await runChanges([])
+                expect(matcher.queueAppMetricMock).toHaveBeenCalledTimes(1)
+            })
+
+            // The table stored a leave of the other cohort that is newer than this batch's join of it.
+            it('does not let an older change override a newer stored row', async () => {
+                matcher.storedCohortRows = { [OTHER_COHORT_ID]: storedRow(false, '2026-10-22 10:05:00.000000') }
+                matcher.watcherRows = [bothCohortsWatcher()]
+
+                await runChanges([
+                    membershipChange({ cohort_id: OTHER_COHORT_ID, last_updated: '2026-10-22 10:01:00.000000' }),
+                    membershipChange({ last_updated: '2026-10-22 10:10:00.000000' }),
+                ])
+
+                expect(matcher.queueAppMetricMock).not.toHaveBeenCalled()
+            })
+
+            // The membership writer can lag behind the matcher by more than one batch.
+            it('counts a goal on two cohorts joined in separate batches before the table stores either', async () => {
+                matcher.watcherRows = [bothCohortsWatcher()]
+
+                await runChanges([membershipChange({ cohort_id: OTHER_COHORT_ID })])
+                expect(matcher.queueAppMetricMock).not.toHaveBeenCalled()
+
+                await runChanges([membershipChange({ last_updated: '2026-10-22 10:01:00.000000' })])
                 expect(matcher.queueAppMetricMock).toHaveBeenCalledTimes(1)
             })
         })

@@ -33,8 +33,12 @@ export function cohortOnlyGoalIds(filters: unknown[] | undefined): number[] | un
     const cohortIds: number[] = []
     for (const filter of filters ?? []) {
         const { type, value } = (filter ?? {}) as { type?: unknown; value?: unknown }
-        const cohortId = Number(value)
-        if (type !== 'cohort' || !Number.isInteger(cohortId)) {
+        if (type !== 'cohort') {
+            return undefined
+        }
+        // Number() on an object calls its valueOf or toString, which stored JSON can make throw.
+        const cohortId = typeof value === 'number' || typeof value === 'string' ? Number(value) : NaN
+        if (!Number.isInteger(cohortId)) {
             return undefined
         }
         cohortIds.push(cohortId)

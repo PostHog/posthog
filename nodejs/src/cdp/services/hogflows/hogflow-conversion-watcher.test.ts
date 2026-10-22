@@ -73,6 +73,23 @@ describe('buildConversionWatcher', () => {
             undefined,
         ],
         ['a person property only', propertyGoal.filters, undefined],
+        // Number() on this object throws, which would stop the matcher's batch.
+        [
+            'a cohort value that is an object',
+            [
+                {
+                    key: 'id',
+                    type: 'cohort',
+                    value: {
+                        valueOf: () => {
+                            throw new Error('boom')
+                        },
+                    },
+                    operator: 'in',
+                },
+            ],
+            undefined,
+        ],
     ])('pins cohort_ids for %s', (_name, filters, cohortIds) => {
         const watcher = buildConversionWatcher(invocationFor({ filters, bytecode: propertyBytecode }))
 

@@ -448,11 +448,20 @@ export class HogFlowExecutorService {
             return { ...invocation.filterGlobals, cohort_ids: [] }
         }
         try {
-            const cohortIds = await this.cohortMembershipRepository.getMemberCohortIds(
-                invocation.hogFlow.team_id,
-                personUuid
-            )
-            return { ...invocation.filterGlobals, cohort_ids: cohortIds }
+            const [cohortIds, enrollingChange] = await Promise.all([
+                this.cohortMembershipRepository.getMemberCohortIds(invocation.hogFlow.team_id, personUuid),
+                this.pendingEnrollingChange(invocation, personUuid),
+            ])
+            if (!enrollingChange) {
+                return { ...invocation.filterGlobals, cohort_ids: cohortIds }
+            }
+            const withChange = new Set(cohortIds)
+            if (enrollingChange.inCohort) {
+                withChange.add(enrollingChange.cohortId)
+            } else {
+                withChange.delete(enrollingChange.cohortId)
+            }
+            return { ...invocation.filterGlobals, cohort_ids: [...withChange] }
         } catch (error) {
             counterHogflowCohortLookupFailure.labels({ outcome: 'conversion_check_skipped' }).inc()
             logger.warn('HogFlowExecutorService: cohort membership lookup failed during a conversion check', {
@@ -461,6 +470,37 @@ export class HogFlowExecutorService {
             })
             return null
         }
+    }
+
+    /**
+     * The membership change that started an enrolling cohort-triggered run, while the table has not
+     * stored it yet. The membership writer reads the change in its own consumer group, so the table can
+     * still hold the state from before it. Null once the stored row is as new as the change.
+     */
+    private async pendingEnrollingChange(
+        invocation: CyclotronJobInvocationHogFlow,
+        personUuid: string
+    ): Promise<{ cohortId: number; inCohort: boolean } | null> {
+        const enrolledBy = invocation.state.event
+        const version = enrolledBy?.properties?.[COHORT_MEMBERSHIP_VERSION_PROPERTY]
+        const cohortId = enrolledBy?.properties?.cohort_id
+        const status = enrolledBy?.properties?.status
+        if (
+            invocation.state.currentAction ||
+            enrolledBy?.event !== COHORT_MEMBERSHIP_CHANGED_EVENT ||
+            typeof version !== 'string' ||
+            typeof cohortId !== 'number' ||
+            (status !== 'entered' && status !== 'left')
+        ) {
+            return null
+        }
+        const stored = await this.cohortMembershipRepository.getCohortMembership(
+            invocation.hogFlow.team_id,
+            personUuid,
+            cohortId,
+            version
+        )
+        return stored?.caughtUp ? null : { cohortId, inCohort: status === 'entered' }
     }
 
     private recordEnrollment(

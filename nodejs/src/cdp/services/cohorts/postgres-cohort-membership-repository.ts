@@ -2,7 +2,7 @@ import { Counter } from 'prom-client'
 
 import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
 
-import { CohortMembershipRepository, StoredCohortMembership } from './cohort-membership-repository'
+import { CohortMembershipRepository, StoredCohortMembership, StoredCohortRow } from './cohort-membership-repository'
 
 const cohortMembershipLookupsCounter = new Counter({
     name: 'cdp_cohort_membership_lookups_total',
@@ -66,6 +66,46 @@ export class PostgresCohortMembershipRepository implements CohortMembershipRepos
             memberCohortIds.get(row.person_id)?.push(Number(row.cohort_id))
         }
         return memberCohortIds
+    }
+
+    async getCohortMembershipsForPersons(
+        teamId: number,
+        personUuids: string[],
+        cohortIds: number[]
+    ): Promise<Map<string, Map<number, StoredCohortRow>>> {
+        const memberships = new Map<string, Map<number, StoredCohortRow>>()
+        if (personUuids.length === 0 || cohortIds.length === 0) {
+            return memberships
+        }
+        const result = await this.withTimeout(
+            this.postgres.query<{
+                person_id: string
+                cohort_id: string
+                in_cohort: boolean
+                version_ms: string | null
+            }>(
+                PostgresUse.BEHAVIORAL_COHORTS_RW,
+                // The version is converted in SQL because pg parses the '-infinity' sentinel to a non-date value.
+                `SELECT person_id, cohort_id, in_cohort,
+                        CASE WHEN version = '-infinity' THEN NULL
+                             ELSE floor(extract(epoch FROM version) * 1000) END AS version_ms
+                 FROM cohort_membership
+                 WHERE team_id = $1
+                   AND person_id = ANY($2::uuid[])
+                   AND cohort_id = ANY($3::bigint[])`,
+                [teamId, personUuids.map((personUuid) => personUuid.toLowerCase()), cohortIds],
+                'fetchCohortMembershipRowsForPersons'
+            )
+        )
+        for (const row of result.rows) {
+            const person = memberships.get(row.person_id) ?? new Map<number, StoredCohortRow>()
+            person.set(Number(row.cohort_id), {
+                inCohort: row.in_cohort,
+                version: row.version_ms === null ? null : Number(row.version_ms),
+            })
+            memberships.set(row.person_id, person)
+        }
+        return memberships
     }
 
     async getCohortMembership(

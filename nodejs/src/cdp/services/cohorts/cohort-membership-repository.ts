@@ -20,6 +20,17 @@ export interface CohortMembershipRepository {
     getMemberCohortIdsForPersons(teamId: number, personUuids: string[]): Promise<Map<string, number[]>>
 
     /**
+     * The stored rows of many people for the given cohorts, keyed by the lowercase person UUID and then
+     * the cohort id. A person or cohort without a row has no entry. Fails as a whole, as
+     * getMemberCohortIdsForPersons does.
+     */
+    getCohortMembershipsForPersons(
+        teamId: number,
+        personUuids: string[],
+        cohortIds: number[]
+    ): Promise<Map<string, Map<number, StoredCohortRow>>>
+
+    /**
      * The person's stored row for one cohort, or null when the pipeline never wrote one.
      * `caughtUp` says whether the row's version stamp is at least `sinceVersion`. It is null when
      * there is nothing to compare: no `sinceVersion`, or a row the writer stored without a stamp.
@@ -30,6 +41,12 @@ export interface CohortMembershipRepository {
         cohortId: number,
         sinceVersion?: string
     ): Promise<StoredCohortMembership | null>
+}
+
+export interface StoredCohortRow {
+    inCohort: boolean
+    // The row's version stamp in milliseconds since the epoch, or null when the writer stored it without one.
+    version: number | null
 }
 
 export interface StoredCohortMembership {

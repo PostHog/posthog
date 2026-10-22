@@ -20,7 +20,11 @@ import { createTestTeamFixture, uniqueTestId } from '~/tests/helpers/sql'
 import { Hub, Team } from '../../../types'
 import { HOG_FILTERS_EXAMPLES } from '../../_tests/examples'
 import { createExampleHogFlowInvocation } from '../../_tests/fixtures-hogflows'
-import { CohortMembershipRepository } from '../cohorts/cohort-membership-repository'
+import {
+    COHORT_MEMBERSHIP_CHANGED_EVENT,
+    COHORT_MEMBERSHIP_VERSION_PROPERTY,
+    CohortMembershipRepository,
+} from '../cohorts/cohort-membership-repository'
 import { HogExecutorAsyncService } from '../hog-executor-async.service'
 import { HogExecutorService } from '../hog-executor.service'
 import { HogInputsService } from '../hog-inputs.service'
@@ -178,6 +182,7 @@ describe('Hogflow Executor', () => {
             getMemberCohortIds: () => Promise.resolve([]),
             getMemberCohortIdsForPersons: () => Promise.resolve(new Map()),
             getCohortMembership: () => Promise.resolve(null),
+            getCohortMembershipsForPersons: () => Promise.resolve(new Map()),
         }
         executor = new HogFlowExecutorService(
             hogFlowFunctionsService,
@@ -1788,6 +1793,23 @@ describe('Hogflow Executor', () => {
                     watchers: 1,
                     conversions: 0,
                 },
+                // The membership writer has not stored the join that started the run yet.
+                {
+                    name: 'cohort goal, enrolled by a join the table has not stored',
+                    goal: cohortGoal,
+                    memberOf: [],
+                    enrolledBy: { inCohort: false, caughtUp: false },
+                    watchers: 0,
+                    conversions: 1,
+                },
+                {
+                    name: 'cohort goal, enrolled by a join the table stored a newer leave after',
+                    goal: cohortGoal,
+                    memberOf: [],
+                    enrolledBy: { inCohort: false, caughtUp: true },
+                    watchers: 1,
+                    conversions: 0,
+                },
             ])('$name: writes $watchers watcher and counts $conversions conversion', async (params) => {
                 hogFlow.exit_condition = 'exit_only_at_end'
                 hogFlow.conversion = params.goal as any
@@ -1796,10 +1818,25 @@ describe('Hogflow Executor', () => {
                 } else if (params.memberOf) {
                     jest.spyOn(cohortMembershipRepository, 'getMemberCohortIds').mockResolvedValue(params.memberOf)
                 }
+                if (params.enrolledBy) {
+                    jest.spyOn(cohortMembershipRepository, 'getCohortMembership').mockResolvedValue(params.enrolledBy)
+                }
 
                 const invocation = createExampleHogFlowInvocation(
                     hogFlow,
-                    {},
+                    params.enrolledBy
+                        ? {
+                              event: {
+                                  ...createExampleHogFlowInvocation(hogFlow).state.event,
+                                  event: COHORT_MEMBERSHIP_CHANGED_EVENT,
+                                  properties: {
+                                      cohort_id: 42,
+                                      status: 'entered',
+                                      [COHORT_MEMBERSHIP_VERSION_PROPERTY]: '2026-10-22 10:00:00.000000',
+                                  },
+                              },
+                          }
+                        : {},
                     { properties: { $browser: params.browser } }
                 )
                 const result = await executor.execute(invocation)

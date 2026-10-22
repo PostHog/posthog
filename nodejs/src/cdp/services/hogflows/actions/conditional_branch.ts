@@ -41,7 +41,8 @@ export const counterHogflowRekeyWake = new Counter({
     labelNames: ['outcome'],
 })
 
-// Outcome of a failed cohort membership lookup. 'retried' re-runs the step after a backoff;
+// Outcome of a failed cohort membership lookup. 'retried' re-runs the step after a backoff, or the
+// matcher's check of a membership change with its next batch;
 // 'aborted' means every attempt failed and the run stopped. Sustained 'aborted' readings mean the
 // behavioral cohorts DB is unreachable from the workers, and every cohort branch is stopping runs.
 // 'exit_check_skipped' is a cohort trigger's exit check that could not run, so the run carried on.
