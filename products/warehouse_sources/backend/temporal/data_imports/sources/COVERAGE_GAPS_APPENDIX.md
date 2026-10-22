@@ -6208,10 +6208,10 @@ Today (8): `Actions`, `ActionUpdates`, `Campaigns`, `Contracts`, `InvoiceDetaile
 
 Diffed against: <https://integrations.impact.com/llms-full.txt/4>
 
-- [ ] `Ads (GET /Advertisers/{AccountSID}/Ads)` — resolve AdId on actions to creative names, types, and landing pages (high)
-- [ ] `Click Export (GET /Advertisers/{AccountSID}/Programs/{ProgramId}/ClickExport)` — measure partner traffic and conversion rates, including clicks that produce no action (high)
-- [ ] `Action items (GET /Advertisers/{AccountSID}/Actions/{ActionId}/Items)` — analyze conversion revenue and commissions by product SKU and quantity (high)
-- [ ] `Promo Codes (GET /Advertisers/{AccountSID}/PromoCodes)` — resolve action promo codes to assigned partners, active dates, and credit policies (high)
+- [x] `Ads (GET /Advertisers/{AccountSID}/Ads)` — resolve AdId on actions to creative names, types, and landing pages (high). Added as `Ads`, incremental on `DateLastUpdated`.
+- [ ] `Click Export (GET /Advertisers/{AccountSID}/Programs/{ProgramId}/ClickExport)` — measure partner traffic and conversion rates, including clicks that produce no action (high); skipped, it is an asynchronous export job that covers one program and one day per request, and impact.com allows 10 ClickExport requests per day per account, so neither a backfill nor a daily sync across programs fits
+- [ ] `Action items (GET /Advertisers/{AccountSID}/Actions/{ActionId}/Items)` — analyze conversion revenue and commissions by product SKU and quantity (high); skipped, it takes one request per action, and the default limit of 1,000 requests per hour per account would stretch a sync of a busy program over days and starve the other impact.com tables
+- [x] `Promo Codes (GET /Advertisers/{AccountSID}/PromoCodes)` — resolve action promo codes to assigned partners, active dates, and credit policies (high). Added as `PromoCodes`, full refresh only.
 - [ ] `Report Export (GET /Advertisers/{AccountSID}/ReportExport/{ReportId})` — import vendor performance reports with dimensions and metrics beyond raw conversion records (medium)
 - [ ] `Partner Groups (GET /Advertisers/{AccountSID}/Campaigns/{CampaignId}/MediaPartnerGroups)` — segment existing partners into vendor groups and retain group membership (medium)
 - [ ] `Action Inquiries (GET /Advertisers/{AccountSID}/ActionInquiries)` — analyze missing conversion claims, resolution status, and commission disputes (medium)
