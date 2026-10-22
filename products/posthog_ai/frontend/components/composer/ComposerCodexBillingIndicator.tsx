@@ -5,7 +5,14 @@ import { ModelAccessEnumApi } from 'products/tasks/frontend/generated/api.schema
 import { codexBillingLogic } from '../../logics/codexBillingLogic'
 import { ComposerBillingIndicator } from './ComposerBillingIndicator'
 
-export function ComposerCodexBillingIndicator(): JSX.Element {
+export interface ComposerCodexBillingIndicatorProps {
+    lockedCodexModelAccess?: string | null
+}
+
+export function ComposerCodexBillingIndicator({
+    lockedCodexModelAccess,
+}: ComposerCodexBillingIndicatorProps): JSX.Element {
     const { effectiveCodexModelAccess } = useValues(codexBillingLogic)
-    return <ComposerBillingIndicator ownPlan={effectiveCodexModelAccess === ModelAccessEnumApi.OwnSubscription} />
+    const access = lockedCodexModelAccess ?? effectiveCodexModelAccess
+    return <ComposerBillingIndicator ownPlan={access === ModelAccessEnumApi.OwnSubscription} />
 }
