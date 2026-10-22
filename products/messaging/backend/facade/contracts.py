@@ -64,6 +64,12 @@ class SenderNotVerified(TransactionalEmailError):
     code = "sender_not_verified"
 
 
+class SenderNotAllowed(TransactionalEmailError):
+    """The caller named a `from` address that no verified sender of the project can send from."""
+
+    code = "sender_not_allowed"
+
+
 @frozen
 class RenderedContent:
     """Content the caller's code rendered for one recipient. It is sent as is and never stored as a template."""
@@ -136,6 +142,9 @@ class Rejected:
 
     code: str
     detail: str
+    # Set for the send checks, which say why PostHog refused the send and what to change.
+    why: str | None = None
+    fix: str | None = None
 
 
 @frozen

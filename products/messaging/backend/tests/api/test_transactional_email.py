@@ -338,6 +338,8 @@ class TestTransactionalEmail(APIBaseTest):
 
         assert by_url_id.status_code == status.HTTP_202_ACCEPTED, by_url_id.json()
         assert by_key.status_code == status.HTTP_429_TOO_MANY_REQUESTS, by_key.json()
+        # Clients retry `throttled`, and never `quota_limited`.
+        assert by_key.json()["code"] == "throttled"
 
     @parameterized.expand(
         [
@@ -417,31 +419,65 @@ class TestTransactionalEmail(APIBaseTest):
     @parameterized.expand(
         [
             *[
-                (f"quota_limited_{addressed_by}", addressed_by, 429, "quota_limited")
+                (
+                    f"quota_limited_{addressed_by}",
+                    addressed_by,
+                    429,
+                    "quota_limited",
+                    {"error": "quota_limited"},
+                    "The project is over its email quota.",
+                )
                 for addressed_by in ("url_id", "key")
             ],
-            ("idempotency_key_in_flight", "url_id", 409, "idempotency_key_in_flight"),
-            ("idempotency_key_reused", "url_id", 422, "idempotency_key_reused"),
+            (
+                "idempotency_key_in_flight",
+                "url_id",
+                409,
+                "idempotency_key_in_flight",
+                {"error": "idempotency_key_in_flight"},
+                "A request with this Idempotency-Key is still being processed. Retry in a few seconds.",
+            ),
+            (
+                "idempotency_key_reused",
+                "url_id",
+                422,
+                "idempotency_key_reused",
+                {"error": "idempotency_key_reused"},
+                "This Idempotency-Key was already used for a different request. Use a new key for a new email.",
+            ),
+            *(
+                (
+                    code,
+                    "url_id",
+                    400,
+                    code,
+                    {"error": code, "code": code, "detail": "Skipping send.", "why": f"Why {code}.", "fix": "Fix it."},
+                    "Skipping send.",
+                )
+                for code in (
+                    "invalid_recipient",
+                    "sender_not_verified",
+                    "sending_suspended",
+                    "template_paused",
+                    "recipient_suppressed",
+                )
+            ),
         ]
     )
     def test_reports_a_send_the_pipeline_refuses(
-        self, mock_post, _flag, _capture, _name, addressed_by, status_code, code
+        self, mock_post, _flag, _capture, _name, addressed_by, status_code, code, cdp_body, detail
     ):
-        mock_post.return_value = MagicMock(status_code=status_code, json=lambda: {"error": code})
+        mock_post.return_value = MagicMock(status_code=status_code, json=lambda: cdp_body)
         url, body = self._send_request(addressed_by, self.body)
 
         response = self.client.post(url, body, format="json", headers={"Idempotency-Key": "key-1"})
 
-        assert response.status_code == status_code
-        assert response.json()["code"] == code
-        assert (
-            response.json()["detail"]
-            == {
-                "quota_limited": "The project is over its email quota.",
-                "idempotency_key_in_flight": "A request with this Idempotency-Key is still being processed. Retry in a few seconds.",
-                "idempotency_key_reused": "This Idempotency-Key was already used for a different request. Use a new key for a new email.",
-            }[code]
-        )
+        assert response.status_code == status_code, response.json()
+        error = response.json()
+        assert (error["code"], error["detail"]) == (code, detail)
+        assert error["docs_url"] == f"https://posthog.com/docs/workflows/transactional-email-api#{code}"
+        if "why" in cdp_body:
+            assert (error["why"], error["fix"]) == (cdp_body["why"], cdp_body["fix"])
 
     def _rendered(self, **fields: Any) -> dict[str, Any]:
         return {
@@ -557,7 +593,7 @@ class TestTransactionalEmail(APIBaseTest):
             ("no_body", {"html": None}, "invalid_request", "html"),
             ("data_for_rendered_content", {"message_data": {"name": "Jane"}}, "invalid_request", "message_data"),
             ("not_an_address", {"from": "Example"}, "invalid_request", "from"),
-            ("unverified_domain", {"from": "Example <security@example.org>"}, "sender_not_verified", "from"),
+            ("unverified_domain", {"from": "Example <security@example.org>"}, "sender_not_allowed", "from"),
             ("invalid_key", {"template_key": "welcome email"}, "invalid_template_key", "template_key"),
             ("field_this_server_lacks", {"scheduled_at": "2026-11-01T09:00:00Z"}, "invalid_request", "scheduled_at"),
         ]
