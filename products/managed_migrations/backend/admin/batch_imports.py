@@ -23,17 +23,31 @@ class BatchImportAdminForm(forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        # A worker can change the row between page load and save. Compare each submitted value
-        # with the value the page showed, not with the row at save time, so that only the
-        # operator's own edits count as changes.
+        # Compare submitted values with what the page showed, not the row at save time, so a
+        # worker write after page load is not counted as an operator edit.
         for field in self.fields.values():
             field.show_hidden_initial = True
         if self.instance and self.instance.import_config:
             sink = self.instance.import_config.get("sink", {})
-            if sink.get("type"):
-                self.fields["sink_type"].initial = sink["type"]
+            sink_type = sink.get("type")
+            if sink_type:
+                self.fields["sink_type"].initial = sink_type
+                # Without its own choice, a trial or noop sink would submit "capture" and be
+                # rewritten on every save.
+                if sink_type not in dict(self.fields["sink_type"].choices):
+                    self.fields["sink_type"].choices = [
+                        *self.fields["sink_type"].choices,
+                        (sink_type, f"{sink_type} (current)"),
+                    ]
             if sink.get("send_rate"):
                 self.fields["send_rate"].initial = sink["send_rate"]
+
+    def clean(self):
+        cleaned_data = super().clean()
+        # A page rendered without hidden initial values would make every field read as changed.
+        if self.instance.pk and any(self.add_initial_prefix(name) not in self.data for name in self.fields):
+            raise forms.ValidationError("This page is out of date. Reload it and make your change again.")
+        return cleaned_data
 
     def save(self, commit=True):
         instance = super().save(commit=False)
@@ -41,17 +55,24 @@ class BatchImportAdminForm(forms.ModelForm):
         sink_type = self.cleaned_data.get("sink_type")
         send_rate = self.cleaned_data.get("send_rate")
 
-        if sink_type:
+        if sink_type and any(name in self.changed_data for name in ("sink_type", "send_rate")):
             if not instance.import_config:
                 instance.import_config = {}
             existing_sink = instance.import_config.get("sink", {})
-            sink = {
-                "type": sink_type,
-                "send_rate": send_rate if send_rate is not None else existing_sink.get("send_rate", DEFAULT_SEND_RATE),
-            }
-            if sink_type == "kafka":
-                sink["topic"] = existing_sink.get("topic", "historical")
-                sink["transaction_timeout_seconds"] = existing_sink.get("transaction_timeout_seconds", 60)
+            if sink_type == existing_sink.get("type"):
+                sink = {**existing_sink}
+                if send_rate is not None:
+                    sink["send_rate"] = send_rate
+            else:
+                sink = {
+                    "type": sink_type,
+                    "send_rate": send_rate
+                    if send_rate is not None
+                    else existing_sink.get("send_rate", DEFAULT_SEND_RATE),
+                }
+                if sink_type == "kafka":
+                    sink["topic"] = existing_sink.get("topic", "historical")
+                    sink["transaction_timeout_seconds"] = existing_sink.get("transaction_timeout_seconds", 60)
 
             instance.import_config["sink"] = sink
 
@@ -148,8 +169,8 @@ class BatchImportAdmin(admin.ModelAdmin):
             super().save_model(request, obj, form, change)
             return
 
-        # A full-row save would also write the state, lease and backoff values loaded with the
-        # form, which overwrites the progress a running worker saved since then.
+        # A full-row save would overwrite the progress, lease and backoff that a running worker
+        # saved after the page loaded.
         update_fields = [name for name in form.changed_data if name in EDITABLE_MODEL_FIELDS]
         if any(name in form.changed_data for name in SINK_FORM_FIELDS):
             update_fields.append("import_config")
