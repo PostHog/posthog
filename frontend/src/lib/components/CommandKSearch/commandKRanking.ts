@@ -101,7 +101,7 @@ function exactness(query: string, name: string, nameWords: string[]): number {
     return 5
 }
 
-function rankName(query: string, tokens: string[], name: string): RankKey | null {
+function rankName(query: string, tokens: string[], name: string, viaKeyword = false): RankKey | null {
     const lowerName = name.toLowerCase()
     const nameWords = searchWords(lowerName)
     let matched = 0
@@ -137,9 +137,9 @@ function rankName(query: string, tokens: string[], name: string): RankKey | null
         proximity,
         matched === tokens.length ? 0 : 1,
         -exactWords,
-        0,
+        Math.min(...positions),
         Math.min(exactness(query, lowerName, nameWords), STARTS_WITH),
-        0,
+        viaKeyword ? 1 : 0,
         -Number.MAX_SAFE_INTEGER,
     ]
 }
@@ -170,7 +170,7 @@ export function rankLocalItem(query: string, name: string, aliases: string[] = [
         best = { rank: byName, matchedAlias: null }
     }
     for (const alias of normalized.length >= MIN_ALIAS_QUERY_LENGTH ? aliases : []) {
-        const byAlias = rankName(normalized, tokens, alias)
+        const byAlias = rankName(normalized, tokens, alias, true)
         if (byAlias && (!best || compareRanks(byAlias, best.rank) < 0)) {
             best = { rank: byAlias, matchedAlias: alias }
         }
