@@ -114,6 +114,7 @@ from products.signals.backend.scout_harness.tools.structured_output import (
 from products.signals.backend.serializers import (
     ReportChartSerializer,
     ReportMetricWriteSerializer,
+    ReviewerProposalSerializer,
     SignalReportCheckWriteSerializer,
 )
 from products.skills.backend.api.skill_serializers import (
@@ -1755,7 +1756,7 @@ class EmitReportResponseSerializer(serializers.Serializer):
     )
 
 
-class EditReportRequestSerializer(serializers.Serializer):
+class EditReportRequestSerializer(ReviewerProposalSerializer):
     """Request body for `edit-report`. Can target ANY of the team's inbox reports, not just scout-authored ones."""
 
     report_id = serializers.CharField(help_text="Id of the report to edit (must belong to this project).")
@@ -1812,7 +1813,8 @@ class EditReportRequestSerializer(serializers.Serializer):
             "Optional reviewers to set on the report (each a `github_login` and/or `user_uuid`), replacing "
             "any existing list. Use this to route a report that surfaced with no reviewer — it re-runs "
             "autostart, so a report that was missing a qualifying reviewer can now open a draft PR. An "
-            "empty list is a no-op (existing reviewers are left untouched, never cleared)."
+            "empty list clears automatic reviewers when correction rules are enabled. Pins, exclusions, and confirmed lists are preserved. "
+            "Pass expected_reviewers from the report reviewer_assignment.state read before selection."
         ),
     )
     repository = serializers.CharField(
@@ -3364,6 +3366,9 @@ _WRITE_SCOPES_HELP = (
     "omitted. Empty means the scout reads the project and writes only its findings and its own "
     "memory. Each scope is project-wide and object-level, so a scout holding "
     "`dashboard:write` can update or delete any dashboard in the project, not only ones it made. "
+    "`ticket:write` lets the scout update tickets, manage saved views, and add private notes. "
+    "Scouts cannot send public replies, compose emails, change existing notes, or change customer "
+    "identity fields. Ticket changes can start workflows that message customers. "
     "Grant only what this scout maintains. Only the person the scout's runs act as (whoever "
     "authored it) or a project admin can set it, and a scoped API key must itself carry each scope "
     "it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project "

@@ -183,6 +183,9 @@ SLACK_PLACEHOLDER_USER_ID = "U00"
 # person forgot how it works.
 ONBOARDING_DEDUPE_TTL_SECONDS = 60 * 10
 
+# Shown when the alerts platform owns an insight alert and refuses a snooze from Slack.
+NOT_SNOOZABLE_FROM_SLACK = "This alert couldn't be snoozed from Slack. Snooze it in PostHog instead."
+
 EDITED_MENTION_WINDOW_SECONDS = 60 * 60
 # Outlives the window, because an expired marker would let an edit start a second run.
 MESSAGE_HANDLED_MARKER_TTL_SECONDS = 2 * EDITED_MENTION_WINDOW_SECONDS
@@ -2565,6 +2568,15 @@ def _route_untagged_question(
     if _us_should_handle_instead(slack_team_id, [SLACK_INTEGRATION_KIND], can_defer, incoming_host):
         return _proxy_event_and_return_route(request, other_domain, {ALREADY_EMITTED_HEADER: "1"})
 
+    # Most top-level posts are chatter, so the flag drops them before the author's mode read and
+    # user resolution. The flag is rolled out per organization, and a workspace can connect
+    # projects from several organizations, so each project keeps its own answer.
+    enabled_integration_ids = {
+        candidate.id for candidate in workspace_result.candidates if is_slack_app_unprompted_answers_enabled(candidate)
+    }
+    if not enabled_integration_ids:
+        return ROUTE_HANDLED_LOCALLY
+
     # One indexed read, ahead of user resolution, which can call Slack's users.info for every author.
     if resolve_untagged_question_mode(slack_team_id, slack_user_id) == UntaggedFollowupMode.NEVER:
         return ROUTE_HANDLED_LOCALLY
@@ -2583,9 +2595,7 @@ def _route_untagged_question(
     target = resolution.integration or (candidates[0] if len(candidates) == 1 else None)
     if target is None or SlackIntegration(target).missing_scopes(REQUIRED_SLACK_SCOPES):
         return ROUTE_HANDLED_LOCALLY
-    # Checked on the project that will answer: a workspace can connect projects from several
-    # organizations, and the flag is rolled out per organization.
-    if not is_slack_app_unprompted_answers_enabled(target):
+    if target.id not in enabled_integration_ids:
         return ROUTE_HANDLED_LOCALLY
 
     logger.info(
@@ -5782,6 +5792,15 @@ def _handle_insight_alert_snooze(payload: dict) -> HttpResponse:
         logger.info("insight_alert_snooze_alert_disabled", alert_id=str(alert_uuid))
         _replace_message_stripping_actions(payload, "This alert is disabled, so there is nothing to snooze.")
         return HttpResponse(status=200)
+    if outcome == "not_snoozable":
+        logger.warning("insight_alert_snooze_refused_by_platform", alert_id=str(alert_uuid))
+        response_url = payload.get("response_url")
+        if response_url:
+            inbox_interactivity.post_response_url(
+                response_url,
+                {"response_type": "ephemeral", "replace_original": False, "text": NOT_SNOOZABLE_FROM_SLACK},
+            )
+        return HttpResponse(status=200)
     if outcome == "invalid_until":
         logger.info("insight_alert_snooze_invalid_until", alert_id=str(alert_uuid))
         response_url = payload.get("response_url")
@@ -5907,6 +5926,8 @@ def _handle_insight_alert_snooze_modal_submit(payload: dict) -> HttpResponse:
     outcome = snooze_alert_from_slack(alert_uuid, until=until, user=org_member)
     if outcome == "invalid_until":
         return _snooze_modal_error(f"Pick a time in the next {SLACK_SNOOZE_MAX_DAYS} days.")
+    if outcome == "not_snoozable":
+        return _snooze_modal_error(NOT_SNOOZABLE_FROM_SLACK)
     if outcome in ("no_access", "not_found", "disabled"):
         logger.info("insight_alert_snooze_modal_submit_rejected", alert_id=str(alert_uuid), outcome=outcome)
         return HttpResponse(status=200)

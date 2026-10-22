@@ -236,7 +236,7 @@ export function getPerformanceEvents(snapshotsByWindowId: Record<string, eventWi
         snapshots.forEach((snapshot: eventWithTime) => {
             if (
                 snapshot.type === 6 && // RRWeb plugin event type
-                snapshot.data.plugin === NETWORK_PLUGIN_NAME
+                snapshot.data?.plugin === NETWORK_PLUGIN_NAME
             ) {
                 const properties = snapshot.data.payload as any
                 if (!properties || typeof properties !== 'object') {
@@ -260,7 +260,7 @@ export function getPerformanceEvents(snapshotsByWindowId: Record<string, eventWi
 
             if (
                 snapshot.type === 6 && // RRWeb plugin event type
-                snapshot.data.plugin === RRWEB_NETWORK_PLUGIN_NAME
+                snapshot.data?.plugin === RRWEB_NETWORK_PLUGIN_NAME
             ) {
                 const payload = snapshot.data.payload as any
 

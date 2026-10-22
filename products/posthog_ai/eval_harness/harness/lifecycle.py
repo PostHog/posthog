@@ -165,7 +165,14 @@ class SandboxedEvalHarness:
             flags = ", ".join(self.options.sandbox_flags_set)
             raise PreflightError(f"{flags}: no selected suite is sandboxed, so sandbox flags have no effect")
 
-        reporter = ProgressReporter(total_suites=len(suites), verbose=self.options.verbose, dashboard=self._dashboard)
+        reporter = ProgressReporter(
+            total_suites=len(suites),
+            verbose=self.options.verbose,
+            dashboard=self._dashboard,
+            revision=self._git_sha,
+            worktree_dirty=self._git_dirty,
+        )
+        reporter.write_run_report(self.options, suites, exit_code=1, duration_seconds=0)
         reporter.print_run_header(
             provider=self.options.provider,
             agent_runtime=self.options.agent_runtime,
@@ -182,7 +189,11 @@ class SandboxedEvalHarness:
         with asyncio.Runner() as runner:
             try:
                 reporter.setup_started("check configuration")
-                validate_eval_env(self.options.agent_runtime, kinds=kinds, engine_env=self._engine.required_env())
+                validate_eval_env(
+                    self.options.agent_runtime,
+                    kinds=kinds,
+                    engine_env=self._engine.required_env(no_send_logs=all(suite.no_send_logs for suite in suites)),
+                )
                 if Infra.SANDBOX in required:
                     self.provider = build_provider(
                         self.options.provider,
@@ -191,6 +202,11 @@ class SandboxedEvalHarness:
                     )
                     self._validate_agent_options()
                     self.provider.preflight()
+                if self.options.check_only:
+                    reporter.write_run_report(
+                        self.options, suites, exit_code=0, duration_seconds=time.monotonic() - started
+                    )
+                    return 0
                 if Infra.PERSONHOG in required:
                     reporter.setup_started("build personhog")
                     ensure_personhog_binaries()
@@ -228,15 +244,25 @@ class SandboxedEvalHarness:
                     except KeyboardInterrupt:
                         interrupted = True
                         runner.run(self._offline_delivery.cancel())
+                    finally:
+                        if not self.options.check_only:
+                            reporter.write_run_report(
+                                self.options,
+                                suites,
+                                exit_code=130 if interrupted else 1,
+                                duration_seconds=time.monotonic() - started,
+                            )
 
         duration_seconds = time.monotonic() - started
         if interrupted:
             reporter.print_incomplete_summary(status="INTERRUPTED", duration_seconds=duration_seconds)
+            reporter.write_run_report(self.options, suites, exit_code=130, duration_seconds=duration_seconds)
             return 130
         if results is None:
             raise RuntimeError("Sandboxed eval run finished without suite results")
 
         exit_code = self._exit_code(results, reporter)
+        reporter.write_run_report(self.options, suites, exit_code=exit_code, duration_seconds=duration_seconds)
         reporter.print_final_summary(
             results,
             exit_code=exit_code,
@@ -302,6 +328,23 @@ class SandboxedEvalHarness:
             reporter.setup_started("start AI gateway")
             self._stack.callback(start_ai_gateway())
             self._stack.enter_context(override_settings(AI_GATEWAY_REDIS_URL=AI_GATEWAY_REDIS_URL))
+        # Seed before building skills: HogQL examples in skill templates render against a Team,
+        # and on a fresh test database the master team is the first one that exists.
+        if Infra.DEMO_DATA in required:
+            reporter.setup_started("prepare demo data")
+            assert self._database is not None
+            self._demo_data = ensure_demo_ready(
+                blocker=self._database.blocker,
+                agent_model=self.options.agent_model,
+                agent_runtime=self.options.agent_runtime,
+                reasoning_effort=self.options.reasoning_effort,
+                sandbox_timeout_seconds=(
+                    self.provider.sandbox_timeout_seconds(self.options.per_case_timeout_seconds)
+                    if self.provider is not None
+                    else None
+                ),
+            )
+
         if Infra.MCP_SERVER in required:
             reporter.setup_started("build skills and start MCP server")
             assert self._live_server is not None
@@ -334,21 +377,6 @@ class SandboxedEvalHarness:
         self._posthog_client = get_client("US")
         if self._posthog_client is not None:
             self._stack.callback(self._posthog_client.shutdown)
-
-        if Infra.DEMO_DATA in required:
-            reporter.setup_started("prepare demo data")
-            assert self._database is not None
-            self._demo_data = ensure_demo_ready(
-                blocker=self._database.blocker,
-                agent_model=self.options.agent_model,
-                agent_runtime=self.options.agent_runtime,
-                reasoning_effort=self.options.reasoning_effort,
-                sandbox_timeout_seconds=(
-                    self.provider.sandbox_timeout_seconds(self.options.per_case_timeout_seconds)
-                    if self.provider is not None
-                    else None
-                ),
-            )
 
         if Infra.AI_GATEWAY in required:
             assert self._demo_data is not None and self._database is not None
