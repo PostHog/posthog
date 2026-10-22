@@ -12,6 +12,7 @@ AwsAthena not-checkable:schemas
 AwsCostExplorer fail:safe-point
 AzureBlob not-checkable:schemas
 AzureCostManagement not-checkable:no-request
+AzureLogAnalytics not-checkable:schemas
 Baserow not-checkable:schemas
 BigMailer fail:safe-point
 BigQuery not-checkable:driver:google.cloud
