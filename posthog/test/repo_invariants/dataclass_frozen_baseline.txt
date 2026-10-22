@@ -874,7 +874,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/pendo/pendo.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/pendo/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/perigon/perigon.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/perigon/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/persistiq/persistiq.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/persistiq/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/persona/persona.py

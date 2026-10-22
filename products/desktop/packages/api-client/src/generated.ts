@@ -368,6 +368,52 @@ export namespace Schemas {
         table_name: string;
         type?: string | undefined;
     };
+    export type ActorsQueryResponse = {
+        columns: Array<unknown>;
+        error?: (string | null) | undefined;
+        hasMore?: (boolean | null) | undefined;
+        /**
+         * Generated HogQL query.
+         */
+        hogql: string;
+        limit: number;
+        missing_actors_count?: (number | null) | undefined;
+        modifiers?: (HogQLQueryModifiers | null) | undefined;
+        offset: number;
+        query_status?: (QueryStatus | null) | undefined;
+        resolved_compare_date_range?:
+            | (ResolvedDateRangeResponse | null)
+            | undefined;
+        resolved_date_range?: (ResolvedDateRangeResponse | null) | undefined;
+        results: Array<Array<unknown>>;
+        timings?: (Array<QueryTiming> | null) | undefined;
+        types?: (Array<string> | null) | undefined;
+        used_data_warehouse_sources?:
+            | (Array<DataWarehouseSourceUsage> | null)
+            | undefined;
+        warnings?:
+            | (Array<
+                  DataWarehouseSyncWarning | AccessControlFilterWarning
+              > | null)
+            | undefined;
+    };
+    export type QueryLogTags = Partial<{
+        name: string | null;
+        presetId: string | null;
+        productKey: string | null;
+        scene: string | null;
+    }>;
+    export type AccountUsersQuery = {
+        /**
+         * ID of the account whose users to list.
+         */
+        accountId: string;
+        kind?: string | undefined;
+        modifiers?: (HogQLQueryModifiers | null) | undefined;
+        response?: (ActorsQueryResponse | null) | undefined;
+        tags?: (QueryLogTags | null) | undefined;
+        version?: (number | null) | undefined;
+    };
     export type AccountsQueryResponse = {
         columns: Array<unknown>;
         error?: (string | null) | undefined;
@@ -398,12 +444,6 @@ export namespace Schemas {
               > | null)
             | undefined;
     };
-    export type QueryLogTags = Partial<{
-        name: string | null;
-        presetId: string | null;
-        productKey: string | null;
-        scene: string | null;
-    }>;
     export type AccountsQuery = Partial<{
         allRolesUnassigned: boolean | null;
         assignedOnly: boolean | null;
@@ -1730,35 +1770,6 @@ export namespace Schemas {
             | WorkflowVariablePropertyFilter
             | BehavioralPropertyFilter
         >;
-    };
-    export type ActorsQueryResponse = {
-        columns: Array<unknown>;
-        error?: (string | null) | undefined;
-        hasMore?: (boolean | null) | undefined;
-        /**
-         * Generated HogQL query.
-         */
-        hogql: string;
-        limit: number;
-        missing_actors_count?: (number | null) | undefined;
-        modifiers?: (HogQLQueryModifiers | null) | undefined;
-        offset: number;
-        query_status?: (QueryStatus | null) | undefined;
-        resolved_compare_date_range?:
-            | (ResolvedDateRangeResponse | null)
-            | undefined;
-        resolved_date_range?: (ResolvedDateRangeResponse | null) | undefined;
-        results: Array<Array<unknown>>;
-        timings?: (Array<QueryTiming> | null) | undefined;
-        types?: (Array<string> | null) | undefined;
-        used_data_warehouse_sources?:
-            | (Array<DataWarehouseSourceUsage> | null)
-            | undefined;
-        warnings?:
-            | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
-              > | null)
-            | undefined;
     };
     export type Compare = "current" | "previous";
     export type BreakdownType =
@@ -4345,6 +4356,7 @@ export namespace Schemas {
             | ExperimentActorsQuery
             | StickinessActorsQuery
             | PathsV2ActorsQuery
+            | AccountUsersQuery
             | HogQLQuery
             | null;
         tags: QueryLogTags | null;
@@ -10292,6 +10304,7 @@ export namespace Schemas {
         status: ExperimentExposureHealthCheckStatus;
     };
     export type ExperimentExposureHealthFindingActionKind =
+        | "open_feature_flag"
         | "edit_exposure_criteria"
         | "adjust_distribution"
         | "use_first_seen_variant";
@@ -11047,6 +11060,7 @@ export namespace Schemas {
      * * `IncidentIo` - IncidentIo
      * * `Pingdom` - Pingdom
      * * `Cloudflare` - Cloudflare
+     * * `CloudflareD1` - CloudflareD1
      * * `CosmosDB` - CosmosDB
      * * `PlanetScaleMySQL` - PlanetScaleMySQL
      * * `PlanetScalePostgres` - PlanetScalePostgres
@@ -12253,6 +12267,7 @@ export namespace Schemas {
      * * `ConectoCRM` - ConectoCRM
      * * `CloudflareR2` - CloudflareR2
      * * `Particle` - Particle
+     * * `FileUpload` - FileUpload
      */
     export type ExternalDataSourceTypeEnum =
         | "Ashby"
@@ -12453,6 +12468,7 @@ export namespace Schemas {
         | "IncidentIo"
         | "Pingdom"
         | "Cloudflare"
+        | "CloudflareD1"
         | "CosmosDB"
         | "PlanetScaleMySQL"
         | "PlanetScalePostgres"
@@ -13658,7 +13674,8 @@ export namespace Schemas {
         | "Klar"
         | "ConectoCRM"
         | "CloudflareR2"
-        | "Particle";
+        | "Particle"
+        | "FileUpload";
     /**
      * * `web` - web
      * * `api` - api
@@ -13867,6 +13884,7 @@ export namespace Schemas {
          * * `IncidentIo` - IncidentIo
          * * `Pingdom` - Pingdom
          * * `Cloudflare` - Cloudflare
+         * * `CloudflareD1` - CloudflareD1
          * * `CosmosDB` - CosmosDB
          * * `PlanetScaleMySQL` - PlanetScaleMySQL
          * * `PlanetScalePostgres` - PlanetScalePostgres
@@ -15073,6 +15091,7 @@ export namespace Schemas {
          * * `ConectoCRM` - ConectoCRM
          * * `CloudflareR2` - CloudflareR2
          * * `Particle` - Particle
+         * * `FileUpload` - FileUpload
          */
         source_type: ExternalDataSourceTypeEnum;
         /**

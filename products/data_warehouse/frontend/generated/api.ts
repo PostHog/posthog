@@ -87,6 +87,7 @@ import type {
     SavedQueryResumeSchedulesRequestApi,
     SavedQueryRunApi,
     TableApi,
+    UploadedFileApi,
     ViewLinkApi,
     ViewLinkValidationApi,
     ViewLinkValidationResponseApi,
@@ -2326,6 +2327,28 @@ export const warehouseTablesRefreshSchemaCreate = async (
     })
 }
 
+export const getWarehouseTablesReplaceFileCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_tables/${id}/replace_file/`
+}
+
+/**
+ * Point a table made from an uploaded file at a new upload, then import it with one full refresh. Upload the new file with upload_file first. The table keeps its id and its name, and its rows are replaced when the sync finishes. The old file is deleted only after that sync succeeds. The sync bills its rows like any other import.
+ * @summary Replace the file of a table made from an uploaded file
+ */
+export const warehouseTablesReplaceFileCreate = async (
+    projectId: string,
+    id: string,
+    uploadedFileApi: UploadedFileApi,
+    options?: RequestInit
+): Promise<TableApi> => {
+    return apiMutator<TableApi>(getWarehouseTablesReplaceFileCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(uploadedFileApi),
+    })
+}
+
 export const getWarehouseTablesUpdateSchemaCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/warehouse_tables/${id}/update_schema/`
 }
@@ -2359,6 +2382,9 @@ export const getWarehouseTablesCreateFromUploadCreateUrl = (projectId: string) =
  * S3/GCS bucket. The read location is always derived from the caller's own team, so a client-supplied
  * `upload_id` can only resolve inside that team's folder, and the table carries no credential (reads
  * fall back to the node role, never a user-supplied key).
+ *
+ * For a team with object storage sources, the table also gets a file upload source. Its first
+ * sync imports the file and turns the same table row into a managed table.
  * @summary Create a self-managed warehouse table from an uploaded file
  */
 export const warehouseTablesCreateFromUploadCreate = async (

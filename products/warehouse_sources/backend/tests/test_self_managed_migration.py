@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 
 from django.core.management import call_command
 from django.core.management.base import CommandError
+from django.test import override_settings
 
 from parameterized import parameterized
 from temporalio.service import RPCError, RPCStatusCode
@@ -664,3 +665,147 @@ class TestDeletingAMigrationSchema(APIBaseTest):
         expected = TableMigrationState.AWAITING_SYNC if path == "schema_data" else TableMigrationState.ABANDONED
         assert status.state == expected
         assert Database.create_for(team=self.team).has_table("orders")
+
+
+UPLOAD_DOMAIN = "warehouse.example.com"
+UPLOAD_BUCKET = "ph-warehouse"
+UPLOAD_ID = "11111111-2222-4333-8444-555555555555"
+
+
+@override_settings(DATAWAREHOUSE_BUCKET=UPLOAD_BUCKET, DATAWAREHOUSE_BUCKET_DOMAIN=UPLOAD_DOMAIN)
+class TestUploadedTableMigration(_MigrationTest):
+    def _url(self, key: str) -> str:
+        return f"https://{UPLOAD_DOMAIN}/{key.format(team=self.team.pk, upload=UPLOAD_ID)}"
+
+    def _uploaded(
+        self, name: str, key: str, table_format: str = DataWarehouseTableFormat.CSVWithNames
+    ) -> DataWarehouseTable:
+        table = self._table(name, url=self._url(key), table_format=table_format)
+        DataWarehouseTable.raw_objects.filter(pk=table.pk).update(
+            credential=None, options={"csv_allow_double_quotes": False}
+        )
+        table.refresh_from_db()
+        return table
+
+    @parameterized.expand(
+        [
+            ("file_upload_folder", "file_uploads/team_{team}/{upload}/orders.csv"),
+            ("legacy_managed_folder", "managed/team_{team}/orders.csv"),
+        ]
+    )
+    def test_an_uploaded_table_gets_a_file_upload_source_that_waits_for_the_next_upload(
+        self, _name: str, key: str
+    ) -> None:
+        table = self._uploaded("orders", key)
+        other = self._uploaded("refunds", key.replace("orders.csv", "refunds.csv"))
+        before = DataWarehouseTable.raw_objects.values().get(pk=table.pk)
+
+        outcomes = self._migrate()
+        [again] = self._migrate(table_ids=(str(table.id),))
+
+        assert [(outcome.action, outcome.status.reason) for outcome in outcomes] == [
+            ("linked", "waiting for the next upload of the file")
+        ] * 2
+        assert (again.action, again.status.state) == ("none", TableMigrationState.AWAITING_SYNC)
+        schema = _schema_for(table)
+        source = schema.source
+        assert source.source_type == "FileUpload"
+        assert source.pk != _schema_for(other).source.pk
+        assert ExternalDataSource.objects.filter(team=self.team).count() == 2
+        assert source.connection_metadata == {MIGRATION_MARKER_KEY: {"group_key": f"upload/{table.pk}"}}
+        # The source reads no file, so nothing can sync it before the next upload.
+        assert source.job_inputs == {"upload_id": "", "filename": "", "file_format": "csv", "schema_name": "orders"}
+        assert (schema.name, schema.should_sync, schema.sync_type, schema.table_id) == (
+            "orders",
+            False,
+            "full_refresh",
+            None,
+        )
+        assert schema.schema_metadata is not None
+        assert schema.schema_metadata["preserve_column_names"] is True
+        assert schema.schema_metadata["csv"] == {
+            "has_header": True,
+            "allow_double_quotes": False,
+            "column_types": {"Order ID": "integer"},
+        }
+        assert schema.schema_metadata[SCHEMA_PINNED_METADATA_KEY] is True
+        assert schema.schema_metadata[SCHEMA_SELF_MANAGED_TABLE_METADATA_KEY] == {
+            "table_id": str(table.id),
+            "url_pattern": self._url(key),
+            "format": "CSVWithNames",
+        }
+        assert not ExternalDataJob.objects.filter(team=self.team).exists()
+        assert DataWarehouseTable.raw_objects.values().get(pk=table.pk) == before
+
+    @parameterized.expand(
+        [
+            ("csv_without_a_header", DataWarehouseTableFormat.CSV, None, "has no import equivalent"),
+            ("delta", DataWarehouseTableFormat.Delta, None, "has no import equivalent"),
+            (
+                "nested_columns",
+                DataWarehouseTableFormat.Parquet,
+                {"tags": {"clickhouse": "Array(Nullable(String))", "hogql": "StringArrayDatabaseField"}},
+                "'tags' is a Array",
+            ),
+            (
+                "json_dates",
+                DataWarehouseTableFormat.JSON,
+                {"day": {"clickhouse": "Nullable(Date)", "hogql": "DateDatabaseField"}},
+                "'day' is a Date",
+            ),
+            (
+                "padded_csv_header",
+                DataWarehouseTableFormat.CSVWithNames,
+                {" id ": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"}},
+                "spaces around its name",
+            ),
+            (
+                "file_metadata_column",
+                DataWarehouseTableFormat.Parquet,
+                {"_file_name": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"}},
+                "a column the import adds",
+            ),
+        ]
+    )
+    def test_an_uploaded_table_the_source_cant_read_is_skipped(
+        self, _name: str, table_format: str, columns: dict[str, Any] | None, reason: str
+    ) -> None:
+        table = self._uploaded("orders", "managed/team_{team}/orders.csv", table_format=table_format)
+        if columns is not None:
+            DataWarehouseTable.raw_objects.filter(pk=table.pk).update(columns=columns)
+
+        [outcome] = self._migrate()
+
+        assert outcome.status.state == TableMigrationState.SKIPPED
+        assert reason in (outcome.status.reason or "")
+        assert not ExternalDataSource.objects.filter(team=self.team).exists()
+
+    def test_teams_without_the_flag_keep_their_uploaded_tables(self) -> None:
+        self.flag_missing.return_value = True
+        self._uploaded("orders", "file_uploads/team_{team}/{upload}/orders.csv")
+
+        [outcome] = self._migrate()
+
+        assert outcome.status.state == TableMigrationState.SKIPPED
+        assert "dwh-object-storage-sources" in (outcome.status.reason or "")
+        assert not ExternalDataSource.objects.filter(team=self.team).exists()
+
+    def test_selection_takes_only_the_teams_own_uploaded_tables(self) -> None:
+        self._uploaded("uploaded", "file_uploads/team_{team}/{upload}/orders.csv")
+        self._uploaded("legacy", "managed/team_{team}/orders.csv")
+        self._uploaded("materialized_view", "dlt/team_{team}_model_abc/modeling/orders")
+        self._uploaded("another_teams_file", "managed/team_999999/orders.csv")
+        self._uploaded("nested_key", "managed/team_{team}/sub/orders.csv")
+        # A table made with the flag on links to its own file upload source and waits for its first sync.
+        waiting = self._uploaded("waiting", "file_uploads/team_{team}/{upload}/waiting.csv")
+        upload_source = ExternalDataSource.objects.create(team=self.team, source_type="FileUpload", job_inputs={})
+        ExternalDataSchema.objects.create(name="waiting", team=self.team, source=upload_source, table=waiting)
+
+        statuses = evaluate_tables(team_id=self.team.pk, resolve_region=_no_region)
+
+        assert {status.name: status.state for status in statuses} == {
+            "uploaded": TableMigrationState.PENDING,
+            "legacy": TableMigrationState.PENDING,
+            # Inside the team folder but not one upload, so it is listed and never planned.
+            "nested_key": TableMigrationState.SKIPPED,
+        }

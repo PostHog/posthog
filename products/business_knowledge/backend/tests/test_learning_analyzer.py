@@ -8,9 +8,8 @@ from unittest.mock import MagicMock, patch
 
 import httpx
 import anthropic
+from anthropic.types import ToolUseBlock
 from asgiref.sync import sync_to_async
-from posthoganalytics.ai.langchain.callbacks import CallbackHandler
-from pydantic import ValidationError
 from structlog.testing import capture_logs
 from temporalio.common import MetricMeter
 from temporalio.testing import ActivityEnvironment
@@ -27,6 +26,7 @@ from products.business_knowledge.backend.models import (
     LearningRunResult,
 )
 from products.business_knowledge.backend.temporal.learning.activities.analyze import (
+    _MODEL_TIMEOUT_SECONDS,
     LearningAnalysisError,
     _render_search_context,
     analyze_learning_evidence,
@@ -180,18 +180,28 @@ def _provider_connection_error() -> Exception:
     return error
 
 
-def _extraction_validation_error() -> Exception:
-    payload = {
-        **_extraction().model_dump(),
-        "canonical_answer": "",
-        "rejection_code": "sensitive model output",
-        "sensitive model output": True,
-    }
-    try:
-        ExtractedKnowledge.model_validate(payload)
-    except ValidationError as error:
-        return error
-    raise AssertionError("payload must fail validation")
+def _tool_response(name: str, payload: dict[str, object]) -> MagicMock:
+    response = MagicMock()
+    response.content = [ToolUseBlock(id="toolu_test", name=name, input=payload, type="tool_use")]
+    return response
+
+
+def _invalid_extraction_response() -> MagicMock:
+    return _tool_response(
+        "ExtractedKnowledge",
+        {
+            **_extraction().model_dump(),
+            "canonical_answer": "",
+            "rejection_code": "sensitive model output",
+            "sensitive model output": True,
+        },
+    )
+
+
+def _gateway_client() -> tuple[MagicMock, MagicMock]:
+    client = MagicMock()
+    entered = client.with_options.return_value.__enter__.return_value
+    return client, entered
 
 
 def _embedding() -> EmbeddingResponse:
@@ -337,43 +347,23 @@ class TestLearningAnalyzer:
         search.assert_not_called()
         publish.assert_not_called()
 
-    @pytest.mark.parametrize("analytics_client", ["ready", "uninitialized"])
     @pytest.mark.parametrize(
         "pii_result",
         [PiiVerdict(verdict="unsafe"), PiiVerdict(verdict="uncertain")],
     )
-    def test_model_pii_rejection_is_fail_closed(
-        self,
-        team: Team,
-        pii_result: PiiVerdict,
-        analytics_client: str,
-    ) -> None:
+    def test_model_pii_rejection_is_fail_closed(self, team: Team, pii_result: PiiVerdict) -> None:
         run, input = _setup_sync(team)
         provider = _Provider(EvidenceBundle(replies=("Use the standard contact process.",)))
-        model = MagicMock()
-        structured_model = model.with_structured_output.return_value
-        structured_model.invoke.side_effect = [
-            _extraction(
-                canonical_topic="Contact policy",
-                canonical_answer="Contact Taylor for help.",
-            ),
-            pii_result,
+        client, entered = _gateway_client()
+        extraction = _extraction(canonical_topic="Contact policy", canonical_answer="Contact Taylor for help.")
+        entered.messages.create.side_effect = [
+            _tool_response("ExtractedKnowledge", extraction.model_dump()),
+            _tool_response("PiiVerdict", pii_result.model_dump()),
         ]
-        client = MagicMock()
-        analytics = MagicMock()
-        analytics.disabled = False
-        analytics.default_client = client if analytics_client == "ready" else None
-
-        def _install_client() -> MagicMock:
-            analytics.default_client = client
-            return client
-
-        analytics.setup.side_effect = _install_client
 
         with (
             patch(f"{_MODULE}.get_learning_provider", return_value=provider),
-            patch(f"{_MODULE}._build_model", return_value=model),
-            patch("products.business_knowledge.backend.llm_telemetry.posthoganalytics", analytics),
+            patch(f"{_MODULE}.build_ai_gateway_anthropic_client", return_value=client) as builder,
             patch(f"{_MODULE}.generate_embedding") as embed,
             patch(f"{_MODULE}.logic.search_knowledge") as search,
             patch(f"{_MODULE}.logic.create_generated_knowledge_document") as publish,
@@ -383,30 +373,23 @@ class TestLearningAnalyzer:
         run.refresh_from_db()
         assert result.rejection_code == "pii"
         assert run.result == LearningRunResult.NO_KNOWLEDGE
-        assert [call.args[0] for call in model.with_structured_output.call_args_list] == [
-            ExtractedKnowledge,
-            PiiVerdict,
+        assert [call.kwargs["properties"]["ai_feature"] for call in builder.call_args_list] == [
+            "support_learning_extraction",
+            "support_learning_pii",
         ]
-        assert model.with_structured_output.call_args_list[1].kwargs == {
-            "method": "json_schema",
-            "include_raw": False,
-        }
-        for call in structured_model.invoke.call_args_list:
-            callback = call.kwargs["config"]["callbacks"][0]
-            assert callback._trace_id == str(run.id)
-            assert callback._privacy_mode is True
-            assert callback._distinct_id == f"team-{team.id}"
-            assert callback._properties["ai_product"] == "business_knowledge"
-            assert callback._properties["learning_run_id"] == str(run.id)
-            assert callback._properties["team_id"] == team.id
-        assert [
-            call.kwargs["config"]["callbacks"][0]._properties["ai_feature"]
-            for call in structured_model.invoke.call_args_list
-        ] == ["support_learning_extraction", "support_learning_pii"]
-        if analytics_client == "ready":
-            analytics.setup.assert_not_called()
-        else:
-            analytics.setup.assert_called_once_with()
+        for call in builder.call_args_list:
+            assert call.kwargs["ai_product"] == "business_knowledge"
+            assert call.kwargs["distinct_id"] == f"team-{team.id}"
+            assert call.kwargs["trace_id"] == str(run.id)
+            assert call.kwargs["team_id"] == team.id
+            assert call.kwargs["properties"]["learning_run_id"] == str(run.id)
+        client.with_options.assert_called_with(timeout=_MODEL_TIMEOUT_SECONDS, max_retries=0)
+        assert entered.messages.create.call_args_list[0].kwargs["tools"][0]["input_schema"] == (
+            ExtractedKnowledge.model_json_schema()
+        )
+        for call in entered.messages.create.call_args_list:
+            assert call.kwargs["extra_headers"] == {"X-PostHog-Privacy-Mode": "true"}
+            assert call.kwargs["tool_choice"]["type"] == "tool"
         embed.assert_not_called()
         search.assert_not_called()
         publish.assert_not_called()
@@ -515,7 +498,7 @@ class TestLearningAnalyzer:
         publish.assert_not_called()
 
     @pytest.mark.parametrize(
-        "error_factory,expected_fields",
+        "model_outcome,expected_fields",
         [
             pytest.param(
                 _provider_status_error,
@@ -533,7 +516,7 @@ class TestLearningAnalyzer:
                 id="provider_connection",
             ),
             pytest.param(
-                _extraction_validation_error,
+                _invalid_extraction_response,
                 {
                     "error_type": "ValidationError",
                     "validation_failures": [
@@ -549,29 +532,21 @@ class TestLearningAnalyzer:
     def test_model_error_marks_run_failed_without_capturing_sensitive_error(
         self,
         team: Team,
-        error_factory: Callable[[], Exception],
+        model_outcome: Callable[[], object],
         expected_fields: dict[str, object],
     ) -> None:
         run, input = _setup_sync(team)
         provider = _Provider(EvidenceBundle(replies=("Refunds are available within 30 days.",)))
-        model = MagicMock()
-        structured_model = model.with_structured_output.return_value
-        client = MagicMock()
-        analytics = MagicMock(default_client=client, disabled=False)
-
-        def _raise_sensitive_error(messages: object, config: dict[str, list[CallbackHandler]]) -> None:
-            callback = config["callbacks"][0]
-            error = error_factory()
-            callback.on_llm_error(error, run_id=UUID(int=1))
-            callback.on_chain_error(error, run_id=UUID(int=2))
-            raise error
-
-        structured_model.invoke.side_effect = _raise_sensitive_error
+        client, entered = _gateway_client()
+        outcome = model_outcome()
+        if isinstance(outcome, Exception):
+            entered.messages.create.side_effect = outcome
+        else:
+            entered.messages.create.return_value = outcome
 
         with (
             patch(f"{_MODULE}.get_learning_provider", return_value=provider),
-            patch(f"{_MODULE}._build_model", return_value=model),
-            patch("products.business_knowledge.backend.llm_telemetry.posthoganalytics", analytics),
+            patch(f"{_MODULE}.build_ai_gateway_anthropic_client", return_value=client) as builder,
             capture_logs() as logs,
             pytest.raises(LearningAnalysisError, match="extraction_model_failed") as raised,
         ):
@@ -592,13 +567,33 @@ class TestLearningAnalyzer:
                 **expected_fields,
             }
         ]
-        model.with_structured_output.assert_called_once_with(
-            ExtractedKnowledge,
-            method="json_schema",
-            include_raw=False,
+        builder.assert_called_once_with(
+            ai_product="business_knowledge",
+            trace_id=str(run.id),
+            distinct_id=f"team-{team.id}",
+            team_id=team.id,
+            properties={"ai_feature": "support_learning_extraction", "learning_run_id": str(run.id)},
         )
-        client.capture.assert_not_called()
-        client.capture_exception.assert_not_called()
+        client.with_options.assert_called_once_with(timeout=_MODEL_TIMEOUT_SECONDS, max_retries=0)
+        assert entered.messages.create.call_args.kwargs["extra_headers"] == {"X-PostHog-Privacy-Mode": "true"}
+
+    def test_missing_gateway_config_fails_before_the_model(self, team: Team) -> None:
+        run, input = _setup_sync(team)
+        provider = _Provider(EvidenceBundle(replies=("Refunds are available within 30 days.",)))
+
+        with (
+            patch(f"{_MODULE}.get_learning_provider", return_value=provider),
+            patch(
+                f"{_MODULE}.build_ai_gateway_anthropic_client",
+                side_effect=ValueError("AI_GATEWAY_URL and AI_GATEWAY_API_KEY must be configured"),
+            ),
+            pytest.raises(LearningAnalysisError, match="ai_gateway_not_configured") as raised,
+        ):
+            analyze_learning_evidence(input)
+
+        assert raised.value.__cause__ is None
+        run.refresh_from_db()
+        assert run.error == "ai_gateway_not_configured"
 
     def test_missing_evidence_completes_as_ineligible(self, team: Team) -> None:
         run, input = _setup_sync(team)

@@ -65,6 +65,7 @@ import { DataVisualizationNode, InsightVizNode } from '~/queries/schema/schema-g
 import { isDataVisualizationNode, isHogQLQuery } from '~/queries/utils'
 import { PendingApproval, RecordingUniversalFilters, Region } from '~/types'
 
+import { RecordingsWidget } from 'products/posthog_ai/frontend/api/dataWidgets'
 import {
     AGENT_TOOL_APPLY_BACK_CONTEXT_ITEM,
     getThinkingMessageFromResponse,
@@ -79,7 +80,6 @@ import {
     MarkdownMessage,
     MessageTemplate,
     ReasoningAnswer,
-    RecordingsWidget,
     ThreadView,
     TurnTrailerActions,
     type TurnTrailer,
