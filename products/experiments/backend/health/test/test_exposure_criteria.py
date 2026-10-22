@@ -24,13 +24,19 @@ def _flag_filter(*values: str | float | bool, operator: PropertyOperator = EXACT
     events = ExposureEvents(
         custom_event=None,
         required_flag_key="checkout-test",
+        variant_property="$feature_flag_response",
         flag_key_filters=(FlagKeyFilter(operator=operator, values=values),),
     )
     return replace(RUNNING_CONTEXT, exposure_events=events, **changes)
 
 
 def _custom_event(received: dict[str, bool], **changes: Any) -> HealthContext:
-    events = ExposureEvents(custom_event="checkout_viewed", required_flag_key=None, flag_key_filters=())
+    events = ExposureEvents(
+        custom_event="checkout_viewed",
+        required_flag_key=None,
+        variant_property="$feature/checkout-test",
+        flag_key_filters=(),
+    )
     return replace(RUNNING_CONTEXT, exposure_events=events, events_received=received, **changes)
 
 
