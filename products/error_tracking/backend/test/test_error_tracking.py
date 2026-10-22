@@ -492,6 +492,14 @@ class TestErrorTrackingSymbolSetCreateConcurrency(NonAtomicBaseTest):
         assert results.count(None) == 1
         assert ErrorTrackingSymbolSet.objects.filter(team=self.team, ref=chunk_id).count() == 1
 
+        original_storage_ptr = symbol_set.storage_ptr
+        with pytest.raises(SymbolSetUploadInProgress):
+            bulk_create_symbol_sets(
+                [SymbolSetUpload(chunk_id=chunk_id, release_id=None, content_hash="retry-hash")], self.team
+            )
+        symbol_set.refresh_from_db()
+        assert symbol_set.storage_ptr == original_storage_ptr
+
     def test_bulk_start_does_not_block_stack_frame_insert(self) -> None:
         symbol_set = ErrorTrackingSymbolSet.objects.create(
             team=self.team, ref=str(uuid7()), storage_ptr="symbol-sets/old", content_hash="old-hash"

@@ -304,6 +304,14 @@ def _needs_upload(
     )
 
 
+def _has_active_pending_upload(existing: ErrorTrackingSymbolSet, *, lost_insert: bool) -> bool:
+    if existing.content_hash is not None or existing.storage_ptr is None:
+        return False
+    # Older CLIs retry 409s; allow for the gap between row creation and URL signing.
+    active_until = existing.created_at + datetime.timedelta(seconds=PRESIGNED_MULTIPLE_UPLOAD_TIMEOUT + 60)
+    return lost_insert or timezone.now() < active_until
+
+
 # The DRF ValidationErrors on this path are the CLI upload contract, not server faults, so
 # error tracking must not see them. Real faults are still captured, by DRF's global reporting
 # hook (posthog.exceptions.exception_reporting), which reports every non-APIException.
@@ -406,9 +414,10 @@ def bulk_create_symbol_sets(
                 existing.release_id = upload.release_id
                 dirty = True
 
-            if created is not None and existing.content_hash is None and existing.storage_ptr is not None:
+            if _has_active_pending_upload(existing, lost_insert=created is not None):
                 raise SymbolSetUploadInProgress
-            elif _needs_upload(existing, upload, team.id, force, skip_on_conflict):
+
+            if _needs_upload(existing, upload, team.id, force, skip_on_conflict):
                 reissue_upload(existing)
                 dirty = True
 
