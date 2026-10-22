@@ -774,6 +774,8 @@ class SandboxBase(ABC):
                 build_housekeeping_script(request_cores), timeout_seconds=HOUSEKEEPING_TIMEOUT_SECONDS
             )
         except Exception as e:
+            if request_cores is not None:
+                raise
             _logger.warning("sandbox_housekeeping_failed", sandbox_id=self.id, error=str(e))
             return parse_housekeeping_output("", request_cores, timezone.now())
         return parse_housekeeping_output(result.stdout, request_cores, timezone.now())

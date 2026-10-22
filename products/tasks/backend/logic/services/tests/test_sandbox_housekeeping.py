@@ -68,3 +68,15 @@ def test_docker_housekeeping_reads_only_the_agent_version(
         billed_cpu_usage_usec=None,
         cpu_usage_measured_at=None,
     )
+
+
+def test_billing_housekeeping_failure_propagates_so_provisioning_retries() -> None:
+    sandbox = DockerSandbox.__new__(DockerSandbox)
+    sandbox.id = "billing-sandbox"
+
+    with (
+        patch.object(sandbox, "_cpu_billing_request_cores", return_value=0.5),
+        patch.object(sandbox, "execute", side_effect=TimeoutError("housekeeping timed out")),
+        pytest.raises(TimeoutError),
+    ):
+        sandbox.run_post_create_housekeeping()
