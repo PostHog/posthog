@@ -189,8 +189,12 @@ export function drawBarChartStatic(
             if (start == null) {
                 return []
             }
+            const ceilings = coloredSeries
+                .map((s) => s.trackData?.[dataIndex])
+                .filter((ceiling): ceiling is number => ceiling != null && isFinite(d3Scales.value(ceiling)))
+            const farEnd = ceilings.length > 0 ? d3Scales.value(Math.max(...ceilings)) : axisEnd
             const band = { x: start, y: start, width: bandwidth, height: bandwidth, corners: ALL_CORNERS, dataIndex }
-            return [computeBarTrackRect(band, axisStart, axisEnd, isHorizontal)]
+            return [computeBarTrackRect(band, axisStart, farEnd, isHorizontal)]
         })
         drawSolidBarTracks(ctx, tracks, theme.gridColor ?? SOLID_TRACK_FALLBACK_COLOR, barCornerRadius)
     }
