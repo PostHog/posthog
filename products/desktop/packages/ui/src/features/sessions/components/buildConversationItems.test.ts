@@ -259,6 +259,32 @@ describe("buildConversationItems", () => {
     );
   });
 
+  it("keeps a turn open past a permission answer that shares the prompt's id", () => {
+    const permissionAnswer: AcpMessage = {
+      type: "acp_message",
+      ts: 2,
+      message: {
+        jsonrpc: "2.0",
+        id: 1,
+        result: { outcome: { outcome: "selected", optionId: "allow" } },
+      },
+    };
+    const result = buildConversationItems(
+      [
+        userPromptMsg(1, 1, "hi"),
+        permissionAnswer,
+        agentMessageMsg(3, "hello"),
+        promptResponseMsg(4, 1),
+      ],
+      null,
+    );
+
+    expect(result.lastTurnInfo).toMatchObject({
+      isComplete: true,
+      durationMs: 3,
+    });
+  });
+
   it("keeps the prompt response's trace id on the turn for its rating", () => {
     const result = buildConversationItems(
       [

@@ -51,6 +51,8 @@ export function buildAuthorizeUrl(
   region: CloudRegion,
   codeChallenge: string,
   redirectUri: string,
+  // Scopes one client needs beyond the shared set, so others keep signing in with exactly that set.
+  extraScopes: readonly string[] = [],
 ): URL {
   const cloudUrl = getCloudUrlFromRegion(region);
   const authUrl = new URL(`${cloudUrl}/oauth/authorize`);
@@ -59,7 +61,10 @@ export function buildAuthorizeUrl(
   authUrl.searchParams.set("response_type", "code");
   authUrl.searchParams.set("code_challenge", codeChallenge);
   authUrl.searchParams.set("code_challenge_method", "S256");
-  authUrl.searchParams.set("scope", OAUTH_SCOPES.join(" "));
+  authUrl.searchParams.set(
+    "scope",
+    [...new Set([...OAUTH_SCOPES, ...extraScopes])].join(" "),
+  );
   authUrl.searchParams.set("required_access_level", "project");
   return authUrl;
 }
@@ -237,6 +242,7 @@ async function selectRegion(
 export async function loginPosthog(
   callbacks: OAuthLoginCallbacks,
   explicitRegion?: CloudRegion,
+  extraScopes: readonly string[] = [],
 ): Promise<OAuthCredentials> {
   const region = explicitRegion ?? (await selectRegion(callbacks));
   const port = getCallbackPort();
@@ -245,7 +251,12 @@ export async function loginPosthog(
   const codeChallenge = generateCodeChallenge(codeVerifier);
   const state = randomBytes(16).toString("base64url");
 
-  const authUrl = buildAuthorizeUrl(region, codeChallenge, redirectUri);
+  const authUrl = buildAuthorizeUrl(
+    region,
+    codeChallenge,
+    redirectUri,
+    extraScopes,
+  );
   authUrl.searchParams.set("state", state);
   const authUrlString = authUrl.toString();
 

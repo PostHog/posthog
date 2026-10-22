@@ -127,7 +127,8 @@ import {
   requestErrorStatus,
 } from "./fetcher";
 import { type ResolvedPerson, targetedDistinctIds } from "./flag-audience";
-import { createApiClient, type Schemas } from "./generated";
+import type { Schemas } from "./generated";
+import { createApiClient } from "./generated.runtime";
 import type {
   McpAgentGrantScope,
   McpAuditCounts,
