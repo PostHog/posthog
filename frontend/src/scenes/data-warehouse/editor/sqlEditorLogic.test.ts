@@ -8,7 +8,10 @@ import { LemonDialog } from '@posthog/lemon-ui'
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
+import {
+    MANAGED_TRINO_SCHEMA_SCOPE,
+    databaseTableListLogic,
+} from 'scenes/data-management/database/databaseTableListLogic'
 import { draftsLogic } from 'scenes/data-warehouse/editor/draftsLogic'
 import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
 import { insightsApi } from 'scenes/insights/utils/api'
@@ -2705,6 +2708,7 @@ describe('sqlEditorLogic', () => {
             expect(String(router.values.hashParams.raw ?? '')).toEqual(rawMode ? '1' : '')
             expect(router.values.hashParams.engine).toEqual('managed_trino')
             expect(router.values.hashParams.c).toBeUndefined()
+            expect(databaseTableListLogic.findMounted()?.values.connectionId).toEqual(MANAGED_TRINO_SCHEMA_SCOPE)
             await runDebouncedAction(() => logic.actions.setQueryInput('SELECT count() FROM events'))
             expect(router.values.hashParams.engine).toEqual('managed_trino')
             expect(logic.values.sendRawQueryEnabled).toEqual(rawMode)
@@ -2716,15 +2720,17 @@ describe('sqlEditorLogic', () => {
             expect(logic.values.sourceQuery.source.query).toEqual('SELECT 1')
             expect(logic.values.sourceQuery.source.sendRawQuery).toBeUndefined()
             expect(router.values.hashParams.engine).toBeUndefined()
+            expect(databaseTableListLogic.findMounted()?.values.connectionId).toBeNull()
         })
 
-        it('restores the hosted target from the URL', async () => {
+        it.each([false, true])('restores the hosted target and raw mode %s from the URL', async (sendRawQuery) => {
             logic = sqlEditorLogic({ tabId: TAB_ID, monaco: createMockMonaco(), editor: createMockEditor() })
             logic.mount()
-            router.actions.push(urls.sqlEditor(), undefined, { q: 'SELECT 1', engine: 'managed_trino' })
+            router.actions.push(urls.sqlEditor({ query: 'SELECT 1', executionTarget: 'managed_trino', sendRawQuery }))
             await expectLogic(logic).toDispatchActions(['setSourceQuery', 'createTab', 'updateTab'])
             expect(logic.values.sourceQuery.source.executionTarget).toEqual('managed_trino')
-            expect(logic.values.sendRawQueryEnabled).toEqual(false)
+            expect(logic.values.sendRawQueryEnabled).toEqual(sendRawQuery)
+            expect(databaseTableListLogic.findMounted()?.values.connectionId).toEqual(MANAGED_TRINO_SCHEMA_SCOPE)
         })
 
         it.each([{ c: 'conn-123' }, { engine: 'managed_trino' }])(
