@@ -4,13 +4,14 @@ from enum import Enum
 from typing import Any, Literal
 from uuid import UUID
 
+from django.db import transaction
 from django.db.models import Q, QuerySet
 
 import structlog
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models import User
-from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
+from posthog.models.activity_logging.activity_log import Change, Detail, Trigger, log_activity
 from posthog.rbac.query_access import assert_user_can_read_query
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
@@ -73,6 +74,7 @@ def enable_saved_query_materialization(
     visible_blocker_names: VisibleBlockerNames,
     was_impersonated: bool,
     incremental_config: IncrementalConfigUpdate = KEEP_INCREMENTAL_CONFIG,
+    trigger: Trigger | None = None,
 ) -> None:
     """Materialize a saved query at the given cadence and start its first run."""
     saved_query = _live_saved_query(team_id, saved_query_id)
@@ -83,11 +85,12 @@ def enable_saved_query_materialization(
         visible_blocker_names=visible_blocker_names,
         was_impersonated=was_impersonated,
         incremental_config=incremental_config,
+        trigger=trigger,
     )
 
 
 def disable_saved_query_materialization(
-    team_id: int, saved_query_id: UUID | str, *, user: User, was_impersonated: bool
+    team_id: int, saved_query_id: UUID | str, *, user: User, was_impersonated: bool, trigger: Trigger | None = None
 ) -> None:
     """Turn a materialized saved query back into a plain view: drop its table and its refresh schedule."""
     saved_query = _live_saved_query(team_id, saved_query_id)
@@ -95,22 +98,23 @@ def disable_saved_query_materialization(
         raise MaterializationRefusedError(MANAGED_VIEWSET_REVERT_REFUSAL)
     _require_edit_access(saved_query, user)
 
-    saved_query.revert_materialization(delete_joins=False)
-    _mark_nodes_ephemeral(saved_query)
-    saved_query.refresh_from_db()
-    if _still_materializing(saved_query):
-        raise MaterializationFailedError(STILL_MATERIALIZING_MESSAGE)
+    with transaction.atomic():
+        saved_query.revert_materialization(delete_joins=False)
+        _mark_nodes_ephemeral(saved_query)
+        saved_query.refresh_from_db()
+        if _still_materializing(saved_query):
+            raise MaterializationFailedError(STILL_MATERIALIZING_MESSAGE)
 
-    log_activity(
-        organization_id=saved_query.team.organization_id,
-        team_id=saved_query.team_id,
-        user=user,
-        was_impersonated=was_impersonated,
-        item_id=saved_query.id,
-        scope=SAVED_QUERY_ACTIVITY_SCOPE,
-        activity=MATERIALIZATION_DISABLED_ACTIVITY,
-        detail=Detail(name=saved_query.name),
-    )
+        log_activity(
+            organization_id=saved_query.team.organization_id,
+            team_id=saved_query.team_id,
+            user=user,
+            was_impersonated=was_impersonated,
+            item_id=saved_query.id,
+            scope=SAVED_QUERY_ACTIVITY_SCOPE,
+            activity=MATERIALIZATION_DISABLED_ACTIVITY,
+            detail=Detail(name=saved_query.name, trigger=trigger),
+        )
 
 
 def _live_saved_query(team_id: int, saved_query_id: UUID | str) -> DataWarehouseSavedQuery:
@@ -129,6 +133,7 @@ def _mark_nodes_ephemeral(saved_query: DataWarehouseSavedQuery) -> None:
     except Exception as e:
         capture_exception(e)
         logger.exception("Failed to update node type to view", saved_query_name=saved_query.name)
+        raise MaterializationFailedError(STILL_MATERIALIZING_MESSAGE) from e
 
 
 def saved_query_still_materializes(team_id: int, saved_query_id: UUID | str) -> bool:
@@ -156,6 +161,7 @@ def _enable_materialization(
     visible_blocker_names: VisibleBlockerNames,
     was_impersonated: bool,
     incremental_config: IncrementalConfigUpdate,
+    trigger: Trigger | None,
 ) -> None:
     if saved_query.managed_viewset_id is not None:
         raise MaterializationRefusedError(MANAGED_VIEWSET_REFUSAL)
@@ -205,6 +211,7 @@ def _enable_materialization(
         was_impersonated=was_impersonated,
         previous_interval=previous_interval,
         sync_frequency_interval=sync_frequency_interval,
+        trigger=trigger,
     )
 
 
@@ -298,6 +305,7 @@ def _log_materialization_enabled(
     was_impersonated: bool,
     previous_interval: timedelta | None,
     sync_frequency_interval: timedelta | None,
+    trigger: Trigger | None,
 ) -> None:
     log_activity(
         organization_id=saved_query.team.organization_id,
@@ -318,5 +326,6 @@ def _log_materialization_enabled(
                     after=str(sync_frequency_interval),
                 ),
             ],
+            trigger=trigger,
         ),
     )

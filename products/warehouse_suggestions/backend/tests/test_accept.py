@@ -266,6 +266,18 @@ class TestAcceptSuggestion(APIBaseTest):
             assert bool(table.deleted) is expect_stopped
         view_join.refresh_from_db()
         assert not view_join.deleted
+        disabled_trigger = (
+            ActivityLog.objects.filter(
+                team_id=self.team.id, item_id=str(self.view.id), activity="materialization_disabled"
+            )
+            .values_list("detail__trigger", flat=True)
+            .first()
+        )
+        assert disabled_trigger == (
+            {"job_type": "warehouse_suggestion", "job_id": str(suggestion.id), "payload": {"kind": "deprecate"}}
+            if expect_stopped
+            else None
+        )
         properties = report.call_args.args[1]
         assert (
             properties["stopped_materialization"],
@@ -282,20 +294,24 @@ class TestAcceptSuggestion(APIBaseTest):
             ),
         ]
     )
-    def test_a_deprecate_whose_refreshes_did_not_stop_stays_open_and_a_retry_finishes_the_stop(
+    def test_a_deprecate_whose_stop_fails_leaves_the_view_materialized_and_a_retry_stops_it(
         self, _name: str, failing_step: str
     ) -> None:
-        materialize_in_place(self.view)
+        table = materialize_in_place(self.view)
         suggestion = self._suggest(WarehouseSuggestionKind.DEPRECATE)
 
         with patch(failing_step, side_effect=RuntimeError("database is down")):
             failed = self._accept(suggestion.id)
         suggestion.refresh_from_db()
+        self.view.refresh_from_db()
+        table.refresh_from_db()
+        untouched = (self.view.is_materialized, self.view.table_id, bool(table.deleted))
         retried = self._accept(suggestion.id)
 
         node = Node.objects.get(team=self.team, saved_query=self.view)
         assert failed["http_status"] == status.HTTP_500_INTERNAL_SERVER_ERROR, failed
         assert suggestion.status == WarehouseSuggestionStatus.PROPOSED
+        assert untouched == (True, table.id, False)
         assert retried["created_asset"]["stopped_materialization"] is True, retried
         assert (node.type, get_declared_target(node)) == (NodeType.VIEW, None)
 

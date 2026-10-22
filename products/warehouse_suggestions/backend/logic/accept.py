@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 from uuid import UUID
 
 from posthog.dataclasses import frozen
+from posthog.models.activity_logging.activity_log import Trigger
 
 from products.data_catalog.backend.facade.api import certifications_for_team, certify, deprecate, propose_certification
 from products.data_catalog.backend.facade.enums import CertificationStatus
@@ -84,6 +85,7 @@ class Acceptor(ABC):
 
 
 KEEP_MATERIALIZED_FIELD = "keep_materialized"
+WAREHOUSE_SUGGESTION_TRIGGER_JOB_TYPE = "warehouse_suggestion"
 OTHER_VIEWS_READ_IT = "Other views now read from this view."
 SYNCS_READ_IT = "This view now feeds person properties, account properties, a destination or a workflow."
 
@@ -153,10 +155,20 @@ def stop_blocker(team_id: int, definition: SavedQueryDefinition) -> str | None:
     return None
 
 
+def suggestion_trigger(suggestion: WarehouseSuggestion) -> Trigger:
+    return Trigger(
+        job_type=WAREHOUSE_SUGGESTION_TRIGGER_JOB_TYPE, job_id=str(suggestion.id), payload={"kind": suggestion.kind}
+    )
+
+
 def stop_materializing(suggestion: WarehouseSuggestion, request: AcceptRequest) -> None:
     try:
         disable_saved_query_materialization(
-            suggestion.team_id, suggestion.subject_id, user=request.user, was_impersonated=request.was_impersonated
+            suggestion.team_id,
+            suggestion.subject_id,
+            user=request.user,
+            was_impersonated=request.was_impersonated,
+            trigger=suggestion_trigger(suggestion),
         )
     except SavedQueryNotFoundError:
         raise SuggestionSubjectGoneError(WarehouseSuggestionSubjectKind.SAVED_QUERY)
@@ -213,6 +225,7 @@ class MaterializeAcceptor(Acceptor):
                 visible_blocker_names=_no_blocker_names,
                 was_impersonated=request.was_impersonated,
                 incremental_config=incremental_config,
+                trigger=suggestion_trigger(suggestion),
             )
         except SavedQueryNotFoundError:
             raise SuggestionSubjectGoneError(WarehouseSuggestionSubjectKind.SAVED_QUERY)
