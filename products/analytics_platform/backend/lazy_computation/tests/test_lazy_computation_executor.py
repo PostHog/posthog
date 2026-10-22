@@ -1,5 +1,6 @@
 import time as time_mod
 from datetime import UTC, datetime, timedelta
+from functools import partial
 
 import pytest
 import time_machine
@@ -7,7 +8,7 @@ from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event
 from unittest.mock import patch
 
 from django.db import IntegrityError
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 from django.utils import timezone as django_timezone
 
 from clickhouse_driver.errors import ServerException
@@ -1293,26 +1294,34 @@ class TestEnsurePrecomputed(ClickhouseTestMixin, BaseTest):
 
     @parameterized.expand(
         [
-            ("flag_off", False, "$pageview", False),
-            ("flag_on", True, "$pageview", True),
-            ("flag_on_flag_called", True, "$feature_flag_called", False),
+            ("unlisted", False, ["$pageview"], False),
+            ("listed", True, ["$pageview"], True),
+            ("listed_flag_called", True, ["$feature_flag_called", "$experiment_exposure"], False),
         ]
     )
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
     def test_native_events_precompute_teams_build_from_events_json_in_own_jobs(
-        self, _name: str, flag: bool, event: str, native: bool
+        self, _name: str, listed: bool, events: list[str], native: bool
     ) -> None:
-        query = self.MANUAL_INSERT_QUERY.replace("'$pageview'", f"'{event}'")
-        start, end = datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 1, 2, tzinfo=UTC)
-        legacy = ensure_precomputed(team=self.team, insert_query=query, time_range_start=start, time_range_end=end)
+        query = self.MANUAL_INSERT_QUERY.replace("event = '$pageview'", "event IN {events}")
+        build = partial(
+            ensure_precomputed,
+            team=self.team,
+            insert_query=query,
+            time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
+            time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
+            placeholders={"events": ast.Constant(value=events)},
+        )
+        legacy = build()
 
         with (
-            override_instance_config("CLICKHOUSE_NATIVE_EVENTS_PRECOMPUTE_TEAMS", [self.team.pk] if flag else []),
+            override_instance_config("CLICKHOUSE_NATIVE_EVENTS_PRECOMPUTE_TEAMS", [self.team.pk] if listed else []),
             patch(
                 "products.analytics_platform.backend.lazy_computation.lazy_computation_executor.sync_execute",
                 return_value=0,
             ) as insert,
         ):
-            result = ensure_precomputed(team=self.team, insert_query=query, time_range_start=start, time_range_end=end)
+            result = build()
 
         assert (result.job_ids != legacy.job_ids) is native
         assert insert.called is native

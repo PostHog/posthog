@@ -1658,7 +1658,8 @@ class _ConstantFinder(TraversingVisitor):
         self.found = False
 
     def visit_constant(self, node: ast.Constant) -> None:
-        if node.value == self.value:
+        values = node.value if isinstance(node.value, list | tuple) else [node.value]
+        if self.value in values:
             self.found = True
 
 
