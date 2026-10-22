@@ -1838,15 +1838,11 @@ export class PiSessionController {
     this.subscriptions.delete(taskId);
   }
 
-  /** Local Pi tasks have runs too; only a cloud run can be resumed in the cloud. */
+  /** Local Pi tasks also carry a run id, so a bound id alone does not mean a cloud run. */
   private async isCloudRun(
     taskId: string,
     taskRunId: string,
   ): Promise<boolean> {
-    const session = await this.sessions.get(taskId)?.catch(() => undefined);
-    if (session) {
-      return session.taskRunId !== undefined;
-    }
     const task = await this.taskService
       .getTask(taskId, taskRunId)
       .catch((error: unknown) => {

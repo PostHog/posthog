@@ -1072,25 +1072,21 @@ describe("PiSessionController", () => {
   );
 
   it.each([
-    ["a loaded local session", "local", "cloud", false],
-    ["a loaded cloud session", "cloud", "local", true],
-    ["a failed load of a local run", "fails", "local", false],
-    ["a failed load of a cloud run", "fails", "cloud", true],
-    ["a failed load whose run cannot be fetched", "fails", "rejects", false],
+    ["a loaded session with a local run", true, "local", false],
+    ["a loaded session with a cloud run", true, "cloud", true],
+    ["a failed load of a local run", false, "local", false],
+    ["a failed load of a cloud run", false, "cloud", true],
+    ["a run that cannot be fetched", false, "rejects", false],
   ] as const)(
     "restart with %s resumes in the cloud only for a cloud run",
-    async (_label, loadedSession, fetchedRun, resumesInCloud) => {
-      const session =
-        loadedSession === "cloud"
-          ? { ...createSession(), taskRunId: "run-1" }
-          : createSession();
+    async (_label, sessionLoads, fetchedRun, resumesInCloud) => {
+      const session = createSession();
       const provider: PiSessionProvider = {
-        get:
-          loadedSession === "fails"
-            ? vi.fn(async () => {
-                throw new Error("Pi failed to start");
-              })
-            : vi.fn(async () => session),
+        get: sessionLoads
+          ? vi.fn(async () => session)
+          : vi.fn(async () => {
+              throw new Error("Pi failed to start");
+            }),
       };
       const taskService = {
         openTask: vi.fn(async () => ({ success: true })),

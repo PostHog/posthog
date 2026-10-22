@@ -585,7 +585,7 @@ export class TaskCreationSaga extends Saga<
               .filter((part): part is string => !!part)
               .join("\n\n");
 
-            // The run only attributes spend, so a failure starts Pi untagged rather than rolling back the task.
+            // The run only attributes spend; a failure starts Pi untagged and keeps the task.
             const taskRun = await this.deps.posthogClient
               .createTaskRun(task.id)
               .catch((error: unknown) => {
@@ -596,7 +596,7 @@ export class TaskCreationSaga extends Saga<
                 return undefined;
               });
             const taskRunId = taskRun?.id || undefined;
-            if (taskRun && taskRunId) {
+            if (taskRun?.id) {
               // The Pi view keys its session on `latest_run`; a run that appears only after a refetch resets the live session.
               task = { ...task, latest_run: taskRun };
             }
