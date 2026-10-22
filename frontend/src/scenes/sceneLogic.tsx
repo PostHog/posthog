@@ -497,6 +497,7 @@ export const sceneLogic = kea<sceneLogicType>([
         cache.lastTrackedScene = null as { sceneId?: string; sceneKey?: string } | null
         cache.homepageSave = Promise.resolve()
         cache.homepageRequest = 0
+        cache.goldRingsSetup = null as (() => () => void) | null
         cache.disposables.add(() =>
             listenForGoldRingsOptOut(
                 () => featureFlagLogic.values.featureFlags[FEATURE_FLAGS.CHRISTMAS_GOLD_RINGS] === true
@@ -962,21 +963,24 @@ export const sceneLogic = kea<sceneLogicType>([
             if (cache.lastGoldRingsNavigation !== navigation) {
                 cache.lastGoldRingsNavigation = navigation
                 let played = false
-                cache.disposables.add(
-                    () =>
-                        checkGoldRingsAfterScenePaint(
-                            navigation,
-                            () =>
-                                featureFlagLogic.values.featureFlags[FEATURE_FLAGS.CHRISTMAS_GOLD_RINGS] === true &&
-                                !isGoldRingsMuted(),
-                            () => played,
-                            () => {
-                                played = true
-                                playGoldRings()
-                            }
-                        ),
-                    'gold-rings'
-                )
+                cache.goldRingsSetup = () =>
+                    checkGoldRingsAfterScenePaint(
+                        navigation,
+                        () =>
+                            featureFlagLogic.values.featureFlags[FEATURE_FLAGS.CHRISTMAS_GOLD_RINGS] === true &&
+                            !isGoldRingsMuted(),
+                        () => played,
+                        () => {
+                            played = true
+                            playGoldRings()
+                        }
+                    )
+                cache.disposables.add(cache.goldRingsSetup, 'gold-rings')
+            }
+        },
+        [featureFlagLogic.actionTypes.setFeatureFlags]: () => {
+            if (cache.goldRingsSetup) {
+                cache.disposables.add(cache.goldRingsSetup, 'gold-rings')
             }
         },
         openScene: ({ sceneId, sceneKey, params, method }) => {

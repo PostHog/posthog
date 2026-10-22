@@ -3,6 +3,9 @@ const optOutKey = 'christmas-gold-rings-muted'
 const optOutPhrase = 'ihatexmas'
 const sequenceTimeoutMs = 2_000
 
+const isPlainKey = (event: KeyboardEvent): boolean =>
+    event.key.length === 1 && !event.repeat && !event.altKey && !event.ctrlKey && !event.metaKey
+
 export function isGoldRingsMuted(): boolean {
     return sessionStorage.getItem(optOutKey) === 'true'
 }
@@ -12,15 +15,7 @@ export function listenForGoldRingsOptOut(isEnabled: () => boolean): () => void {
     let lastKeyAt = 0
 
     const onKeyDown = (event: KeyboardEvent): void => {
-        if (
-            !isEnabled() ||
-            isGoldRingsMuted() ||
-            event.repeat ||
-            event.altKey ||
-            event.ctrlKey ||
-            event.metaKey ||
-            event.key.length !== 1
-        ) {
+        if (!isEnabled() || isGoldRingsMuted() || !isPlainKey(event)) {
             return
         }
         if (event.target instanceof HTMLInputElement && event.target.type === 'password') {
@@ -131,7 +126,12 @@ export function watchForGoldRingsContent(
                     scanFrame = undefined
                     const changedText = [...changedNodes]
                         .filter((node) => content.contains(node))
-                        .map((node) => node.textContent ?? '')
+                        .map(
+                            (node) =>
+                                (node instanceof HTMLElement
+                                    ? (node.innerText ?? node.textContent)
+                                    : node.textContent) ?? ''
+                        )
                         .join(' ')
                     changedNodes.clear()
                     if (changedText) {

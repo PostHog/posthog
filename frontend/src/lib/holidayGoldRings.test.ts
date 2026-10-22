@@ -106,6 +106,36 @@ describe('shouldPlayGoldRings', () => {
         stopWatching()
     })
 
+    test('keeps table cell boundaries when rows arrive', async () => {
+        jest.useFakeTimers()
+        jest.setSystemTime(new Date(2026, 11, 25))
+
+        const content = document.createElement('table')
+        const onMatch = jest.fn()
+        const stopWatching = watchForGoldRingsContent(
+            () => content,
+            () => true,
+            () => true,
+            () => false,
+            onMatch
+        )
+        const row = document.createElement('tr')
+        for (const value of ['Example cohort', '5', 'Example user']) {
+            const cell = document.createElement('td')
+            cell.textContent = value
+            row.appendChild(cell)
+        }
+        Object.defineProperty(row, 'innerText', { value: 'Example cohort\t5\tExample user' })
+        expect(row.textContent).toBe('Example cohort5Example user')
+
+        content.appendChild(row)
+        await Promise.resolve()
+        jest.advanceTimersByTime(20)
+
+        expect(onMatch).toHaveBeenCalledTimes(1)
+        stopWatching()
+    })
+
     test('stops checking after navigation changes', async () => {
         jest.useFakeTimers()
         jest.setSystemTime(new Date(2026, 11, 25))
