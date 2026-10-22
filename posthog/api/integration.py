@@ -123,9 +123,11 @@ from posthog.permissions import (
     TeamMemberLightManagementPermission,
     TeamMemberStrictManagementPermission,
     TimeSensitiveActionPermission,
+    get_authenticator_scopes,
 )
 from posthog.ph_client import feature_enabled_or_false
 from posthog.rate_limit import GitHubRepositoryRefreshThrottle
+from posthog.scopes import scopes_not_covered
 from posthog.tasks.email import send_integration_access_request
 from posthog.utils import absolute_uri, is_relative_url
 
@@ -2684,7 +2686,7 @@ class IntegrationViewSet(
         summary="Get email sending domain status",
         description="Read the setup progress of an email sender's domain from SES and public DNS without "
         "changing either. Poll this until verified is true. Marks the domain's senders as verified once SES "
-        "verifies the domain.",
+        "verifies the domain, when the caller is a project admin with integration:write.",
     )
     @action(methods=["GET"], detail=True, url_path="email/status")
     def email_status(self, request: ValidatedRequest, **kwargs: Any) -> Response:
@@ -2708,11 +2710,20 @@ class IntegrationViewSet(
         try:
             report = EmailIntegration(instance).status(
                 refresh=request.validated_query_data["refresh"],
+                record_verification=self._can_verify_email_domain(request),
                 on_domain_verified=lambda: self._report_email_domain_verified(request, instance),
             )
         except EmailProviderUnavailableError as error:
             raise EmailProviderUnavailable() from error
         return Response(EmailDomainStatusSerializer(report).data)
+
+    # Matches what email/verify asks for: a project admin, and integration:write for a token.
+    def _can_verify_email_domain(self, request: Request) -> bool:
+        level = self.user_permissions.current_team.effective_membership_level
+        if level is None or level < OrganizationMembership.Level.ADMIN:
+            return False
+        scopes = get_authenticator_scopes(request.successful_authenticator)
+        return scopes is None or "*" in scopes or not scopes_not_covered(scopes, ["integration:write"])
 
     def _report_email_domain_verified(self, request: Request, instance: Integration) -> None:
         report_user_action(

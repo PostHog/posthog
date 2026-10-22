@@ -116,18 +116,28 @@ class TestEmailDomainVerification(EmailDomainApiTestCase):
         assert self.status_body(sender, refresh=False)["status"] == "pending"
         assert self.status_body(sender, refresh=True)["status"] == "verified"
 
-    def test_verification_through_a_personal_api_key_is_reported_as_agent_setup(self) -> None:
+    @parameterized.expand(
+        [
+            ("write_scope_records_it", ["integration:write"], True, ["agent"]),
+            ("read_scope_only_reads_it", ["integration:read"], False, []),
+        ]
+    )
+    def test_verification_through_a_personal_api_key(
+        self, _name: str, scopes: list[str], verified: bool, event_methods: list[str]
+    ) -> None:
         sender = self.create_sender(f"hello@{DOMAIN}")
         self.publish(self.records_to_publish(sender), *ALL_KINDS)
         PersonalAPIKey.objects.create(
-            label="Agent", user=self.user, secure_value=hash_key_value("agent_key"), scopes=["integration:read"]
+            label="Agent", user=self.user, secure_value=hash_key_value("agent_key"), scopes=scopes
         )
         self.client.logout()
         self.client.credentials(HTTP_AUTHORIZATION="Bearer agent_key")
 
-        assert self.status_body(sender)["verified"] is True
+        body = self.status_body(sender)
 
-        assert self.verified_event_methods() == ["agent"]
+        assert (body["status"], body["verified"]) == ("verified", verified)
+        assert Integration.objects.get(id=sender).config.get("verified", False) is verified
+        assert self.verified_event_methods() == event_methods
 
     def test_failed_worker_reload_keeps_the_verified_answer_and_is_not_retried(self) -> None:
         sender = self.create_sender(f"hello@{DOMAIN}")

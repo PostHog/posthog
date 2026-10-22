@@ -1,5 +1,6 @@
 """Native email-sending integration (SES / maildev) and its cleanup signal."""
 
+import json
 from collections.abc import Callable
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
@@ -172,20 +173,45 @@ class EmailIntegration:
 
         return verification_result
 
-    def status(self, *, refresh: bool, on_domain_verified: Callable[[], None] | None = None) -> EmailDomainStatusReport:
+    def status(
+        self,
+        *,
+        refresh: bool,
+        record_verification: bool = True,
+        on_domain_verified: Callable[[], None] | None = None,
+    ) -> EmailDomainStatusReport:
+        from products.workflows.backend.facade.contracts import (
+            EmailDomainCheck,  # noqa: PLC0415 — keeps the workflows facade off the model import path
+        )
+
         cache_key = f"email_domain_status:{self.integration.id}"
-        if not refresh and (cached := cache.get(cache_key)) is not None:
-            return cached
+        if not refresh and isinstance(cached := cache.get(cache_key), str):
+            entry = json.loads(cached)
+            return EmailDomainStatusReport(
+                check=EmailDomainCheck.from_json(entry["check"]),
+                verified=bool(entry["verified"]),
+                checked_at=datetime.fromisoformat(entry["checked_at"]),
+            )
 
         check = self._check_domain()
-        if check.is_verified and not self.integration.config.get("verified"):
+        # Saving the verification changes senders and the default sender, so only callers who could
+        # verify the domain themselves do it. Everyone else sees the provider's answer without the write.
+        unrecorded_verification = check.is_verified and not self.integration.config.get("verified")
+        if unrecorded_verification and record_verification:
             self._mark_domain_verified(on_domain_verified)
+            unrecorded_verification = False
 
         report = EmailDomainStatusReport(
             check=check, verified=bool(self.integration.config.get("verified")), checked_at=timezone.now()
         )
-        if check.every_dns_lookup_answered:
-            cache.set(cache_key, report, EMAIL_DOMAIN_STATUS_CACHE_SECONDS)
+        if check.every_dns_lookup_answered and not unrecorded_verification:
+            cache.set(
+                cache_key,
+                json.dumps(
+                    {"check": check.to_json(), "verified": report.verified, "checked_at": report.checked_at.isoformat()}
+                ),
+                EMAIL_DOMAIN_STATUS_CACHE_SECONDS,
+            )
         return report
 
     def _check_domain(self) -> "EmailDomainCheck":
