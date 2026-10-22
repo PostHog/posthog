@@ -22,9 +22,6 @@ from urllib.parse import urlsplit
 
 from posthog.dataclasses import frozen
 
-# Words of the stored summary. It lives here and not in `prompt`, because `prompt` imports from this module.
-SUMMARY_MAX_WORDS = 60
-
 # Bump on any code change to the filters, the default caps, the sampling or the rendered layout, so summaries
 # stay comparable. Limits from the flag payload go into `inputs_used` instead.
 RENDER_VERSION = 6
@@ -61,6 +58,8 @@ VIEW_LINE_CHARS = 160
 SECTIONS_MAX_CHARS = 8000
 # Hidden reasoning tokens count against the cap too, so a cap near the answer size truncates answers.
 MAX_COMPLETION_TOKENS = 4000
+# About 1,500 output tokens: one page of markdown. The prompt asks for it, and the normalization cuts a longer profile.
+PROFILE_MAX_CHARS = 6000
 
 # Masking and whitespace folding shorten a text, so the patterns read this many times its cap.
 RAW_TEXT_FACTOR = 4
@@ -159,7 +158,7 @@ class RenderLimits:
     task_goal_chars: int = _limit(TASK_GOAL_CHARS, max_value=800)
     activity_line_chars: int = _limit(ACTIVITY_LINE_CHARS, max_value=1000)
     activity_intent_chars: int = _limit(ACTIVITY_INTENT_CHARS, max_value=500)
-    summary_max_words: int = _limit(SUMMARY_MAX_WORDS, max_value=300)
+    profile_max_chars: int = _limit(PROFILE_MAX_CHARS, max_value=20000)
     max_completion_tokens: int = _limit(MAX_COMPLETION_TOKENS, max_value=16000)
 
 

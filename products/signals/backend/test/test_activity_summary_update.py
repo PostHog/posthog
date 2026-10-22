@@ -23,7 +23,8 @@ NOW = datetime.datetime(2026, 10, 19, 12, tzinfo=datetime.UTC)
 PATH_SECRET = "https://hooks.example.com/services/T000/B000/s3cr3tPathValue"
 ANSWER = json.dumps(
     {
-        "summary": "Builds the signup funnel.",
+        "profile": "## Funnels\n- Builds the signup funnel.",
+        "headline": "Builds the signup funnel.",
         "focus_areas": [{"topic": "signup funnel", "strength": "high", "last_seen": "2026-10-18"}],
         "products": ["product_analytics"],
         "recent_shift": None,
@@ -130,13 +131,13 @@ class TestUpdateActivitySummary(BaseTest):
         self._change("Old funnel", days_ago=10)
         llm = FakeLLM([ANSWER])
 
-        self._update(llm, limits=RenderLimits(window_days=7, summary_max_words=2, max_completion_tokens=1234))
+        self._update(llm, limits=RenderLimits(window_days=7, profile_max_chars=12, max_completion_tokens=1234))
 
         stored = self._stored()
         assert stored is not None and stored.summary is not None
         assert llm.requests[0]["max_completion_tokens"] == 1234
-        assert "at most 2 words" in llm.requests[0]["messages"][0]["content"]
-        assert stored.summary["summary"] == "Builds the"
+        assert "at most 12 characters" in llm.requests[0]["messages"][0]["content"]
+        assert stored.summary["profile"] == "## Funnels…"
         assert stored.inputs_used["activity_lines"] == 3
         assert stored.inputs_used["limits"]["max_completion_tokens"] == 1234
 
