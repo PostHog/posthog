@@ -126,7 +126,7 @@ class Command(BaseCommand):
             "--pair",
             action="append",
             default=[],
-            metavar="OLD>NEW",
+            metavar="OLD_UUID>NEW_UUID",
             help="fold or merge: repair an ambiguous old person into this survivor. Repeatable.",
         )
         repair.add_argument("--limit", type=_positive_int, default=None, help="At most this many rows, for a canary.")
