@@ -23,11 +23,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
-import {
-    FLAG_CALLS_NOT_LOADABLE,
-    flagCallsMatchingFilters,
-    storesFlagCallsOutsideEvents,
-} from 'scenes/hog-functions/filters/flagCallsMatching'
+import { FLAG_CALLS_NOT_LOADABLE, flagCallsOutsideEventsFilters } from 'scenes/hog-functions/filters/flagCallsMatching'
 import { performWideEventsQueryInTwoPhases } from 'scenes/hog-functions/sampleEventsQuery'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -480,7 +476,7 @@ export interface hogFlowEditorTestLogicMeta {
                       updated_at?: number | undefined
                   } & Record<string, unknown>)
                 | null,
-            currentTeam: any
+            currentTeam: TeamPublicType | TeamType | null
         ) => boolean
         shouldLoadSampleGlobals: (
             triggerAction:
@@ -1378,8 +1374,7 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
             (s) => [s.triggerAction, s.currentTeam],
             (triggerAction: TriggerAction | null, currentTeam: TeamPublicType | TeamType | null): boolean =>
                 triggerAction?.config.type === 'event' &&
-                storesFlagCallsOutsideEvents(currentTeam) &&
-                flagCallsMatchingFilters(triggerAction.config.filters ?? {}) !== null,
+                flagCallsOutsideEventsFilters(currentTeam, triggerAction.config.filters ?? {}) !== null,
         ],
         shouldLoadSampleGlobals: [
             (s) => [s.triggerAction],

@@ -3,15 +3,12 @@ import { loaders } from 'kea-loaders'
 
 import { objectsEqual } from 'lib/utils/objects'
 import {
-    flagCallsDailyCountQuery,
-    flagCallsMatchingFilters,
-    storesFlagCallsOutsideEvents,
-    withFlagCallCounts,
+    flagCallsOutsideEventsFilters,
+    performTrendsQueryWithFlagCalls,
 } from 'scenes/hog-functions/filters/flagCallsMatching'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { performQuery } from '~/queries/query'
-import { TeamPublicType, TeamType, TrendResult } from '~/types'
+import { TeamPublicType, TeamType } from '~/types'
 
 import { EventTriggerFilters, TRIGGER_VOLUME_DAYS, eventTriggerVolumeQuery } from './triggerVolume'
 
@@ -101,35 +98,24 @@ export const triggerVolumeLogic = kea<triggerVolumeLogicType>([
                     // Every filter edit asks for a new count, so wait out a burst of typing. The
                     // first estimate of a trigger waits far less, since there is nothing to show yet.
                     await breakpoint(values.volume === null ? 100 : 1000)
-                    const flagCallFilters = storesFlagCallsOutsideEvents(values.currentTeam)
-                        ? flagCallsMatchingFilters(props.filters)
-                        : null
-                    const [response, flagCallsResponse] = await Promise.all([
-                        performQuery(eventTriggerVolumeQuery(props.filters)),
-                        flagCallFilters
-                            ? performQuery(
-                                  flagCallsDailyCountQuery(
-                                      flagCallFilters,
-                                      props.filters.filter_test_accounts,
-                                      TRIGGER_VOLUME_DAYS
-                                  )
-                              )
-                            : null,
-                    ])
+                    const {
+                        data: daily,
+                        count: total,
+                        labels,
+                    } = await performTrendsQueryWithFlagCalls(
+                        eventTriggerVolumeQuery(props.filters),
+                        flagCallsOutsideEventsFilters(values.currentTeam, props.filters),
+                        TRIGGER_VOLUME_DAYS
+                    )
                     breakpoint()
 
-                    const series = response.results?.[0]
-                    const { data: daily, count: total } =
-                        series && flagCallsResponse
-                            ? withFlagCallCounts(series as TrendResult, flagCallsResponse.results as [string, number][])
-                            : { data: (series?.data ?? []) as number[], count: (series?.count ?? 0) as number }
                     // Divide by the days the response actually carries, so a range that resolves to
                     // a different number of buckets than asked for cannot skew the average.
                     const days = daily.length || TRIGGER_VOLUME_DAYS
                     return {
                         total,
                         daily,
-                        labels: series?.labels ?? [],
+                        labels,
                         perDay: Math.round(total / days),
                         peakPerDay: daily.length ? Math.max(...daily) : 0,
                     }

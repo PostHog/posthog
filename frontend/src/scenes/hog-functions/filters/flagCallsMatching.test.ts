@@ -1,6 +1,9 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
+import { FlagEvaluationsModeEnumApi } from '~/generated/core/api.schemas'
 import { CyclotronJobFilterPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
-import { flagCallsMatchingFilters, withFlagCallCounts } from './flagCallsMatching'
+import { flagCallsOutsideEventsFilters, withFlagCallCounts } from './flagCallsMatching'
 import { MatchingFiltersInput, matchingFiltersToPropertyGroup } from './matchingFilters'
 
 const FLAG_CALLED = { id: '$feature_flag_called', name: '$feature_flag_called', type: 'events' as const, order: 0 }
@@ -13,6 +16,7 @@ const GLOBAL_PROPERTY = {
     operator: PropertyOperator.Exact,
     type: PropertyFilterType.Event,
 } as CyclotronJobFilterPropertyFilter
+const FLAG_EVALUATIONS_ONLY_TEAM = { ...MOCK_DEFAULT_TEAM, flag_evaluations_mode: FlagEvaluationsModeEnumApi.Number2 }
 
 describe('flagCallsMatching', () => {
     it.each<[string, MatchingFiltersInput, MatchingFiltersInput | null]>([
@@ -29,7 +33,9 @@ describe('flagCallsMatching', () => {
         ],
         ['is null when no matcher can match a flag call', { events: [PAGEVIEW], actions: [ACTION] }, null],
     ])('%s', (_name, input, expected) => {
-        expect(flagCallsMatchingFilters(input)).toEqual(expected ? matchingFiltersToPropertyGroup(expected) : null)
+        expect(flagCallsOutsideEventsFilters(FLAG_EVALUATIONS_ONLY_TEAM, input)).toEqual(
+            expected ? matchingFiltersToPropertyGroup(expected) : null
+        )
     })
 
     it('adds flag call counts to the trends days they fall on', () => {

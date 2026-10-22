@@ -110,10 +110,8 @@ export function HogFlowEditorTestEvent(): JSX.Element {
                                                 type="secondary"
                                                 onClick={() => loadSampleGlobals()}
                                                 tooltip={
-                                                    noMatchingEvents
-                                                        ? triggerMatchesFlagCallsOutsideEvents
-                                                            ? FLAG_CALLS_NOT_LOADABLE
-                                                            : 'No events match the current filters. Try adjusting your trigger filters.'
+                                                    noMatchingEvents && !triggerMatchesFlagCallsOutsideEvents
+                                                        ? 'No events match the current filters. Try adjusting your trigger filters.'
                                                         : 'Find the last event matching the trigger event filters, and use it to populate the globals for a test run.'
                                                 }
                                                 disabledReason={

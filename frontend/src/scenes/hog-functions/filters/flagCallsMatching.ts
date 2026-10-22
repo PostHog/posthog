@@ -1,7 +1,7 @@
-import { FEATURE_FLAG_CALLED_EVENT } from 'scenes/feature-flags/flagEvaluationsTable'
+import { FEATURE_FLAG_CALLED_EVENT, storesFlagCallsOutsideEvents } from 'scenes/feature-flags/flagEvaluationsTable'
 
-import { FlagEvaluationsModeEnumApi } from '~/generated/core/api.schemas'
-import { EventsQuery, NodeKind } from '~/queries/schema/schema-general'
+import { performQuery } from '~/queries/query'
+import { EventsQuery, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
 import { setLatestVersionsOnQuery } from '~/queries/utils'
 import { PropertyGroupFilter, TeamPublicType, TeamType, TrendResult } from '~/types'
 
@@ -11,24 +11,20 @@ export const FLAG_CALLS_NOT_LOADABLE =
     "Feature flag calls are stored separately from other events, so they can't be loaded as a test event."
 
 /**
- * Whether ingestion writes the team's flag calls to flag_evaluations instead of `events`. Destinations and
- * workflows still receive those calls, so a count on `events` alone misses them.
+ * The matchers that can match a flag call that `events` does not hold, as a property group to count on
+ * flag_evaluations. Null when the team's flag calls are in `events`, or when no matcher can match one.
+ * Destinations and workflows still receive those calls, so a count on `events` alone misses them.
+ * A matcher on the flag call event or on all events can match one. So can a configuration with no event or
+ * action matcher, because it matches every event. Action matchers are left out, so a flag call that only an
+ * action matches is not counted.
  */
-export function storesFlagCallsOutsideEvents(team: TeamPublicType | TeamType | null): boolean {
-    return team?.flag_evaluations_mode === FlagEvaluationsModeEnumApi.Number2
-}
-
-/**
- * The matchers that can match a flag call, as a property group to count on flag_evaluations, or null when none
- * can. A matcher on the flag call event or on all events can. So can a configuration with no event or action
- * matcher, because it matches every event. Action matchers are left out, so a flag call that only an action
- * matches is not counted.
- */
-export function flagCallsMatchingFilters({
-    events,
-    actions,
-    properties,
-}: MatchingFiltersInput): PropertyGroupFilter | null {
+export function flagCallsOutsideEventsFilters(
+    team: TeamPublicType | TeamType | null,
+    { events, actions, properties }: MatchingFiltersInput
+): PropertyGroupFilter | null {
+    if (!storesFlagCallsOutsideEvents(team)) {
+        return null
+    }
     if (!events?.length && !actions?.length) {
         return matchingFiltersToPropertyGroup({ properties })
     }
@@ -41,7 +37,7 @@ export function flagCallsMatchingFilters({
  * flag_evaluations for a query that names only the flag call event. The window starts a day early, so the first
  * day of a trends window over the same days is whole in every timezone.
  */
-export function flagCallsDailyCountQuery(
+function flagCallsDailyCountQuery(
     filters: PropertyGroupFilter,
     filterTestAccounts: boolean | undefined,
     days: number
@@ -59,13 +55,36 @@ export function flagCallsDailyCountQuery(
 
 /** Adds daily flag call counts to a trends series by date. A day outside the series is left out. */
 export function withFlagCallCounts(
-    series: Pick<TrendResult, 'data' | 'days' | 'count'>,
-    rows: [string, number][]
+    series: Pick<TrendResult, 'data' | 'days' | 'count'> | undefined,
+    rows: [string, number][] | null
 ): Pick<TrendResult, 'data' | 'count'> {
+    if (!series) {
+        return { data: [], count: 0 }
+    }
     const flagCallsByDay = new Map(rows)
     const added = series.days.map((day) => flagCallsByDay.get(day) ?? 0)
     return {
         data: series.data.map((value, index) => value + added[index]),
         count: series.count + added.reduce((sum, value) => sum + value, 0),
     }
+}
+
+/**
+ * Runs a trends query over the last `days` days. When `flagCallFilters` is set, it also counts the flag calls
+ * those filters match and adds them to the first series.
+ */
+export async function performTrendsQueryWithFlagCalls(
+    trendsQuery: TrendsQuery,
+    flagCallFilters: PropertyGroupFilter | null,
+    days: number
+): Promise<Pick<TrendResult, 'data' | 'count' | 'labels'>> {
+    const [trends, flagCalls] = await Promise.all([
+        performQuery(trendsQuery),
+        flagCallFilters
+            ? performQuery(flagCallsDailyCountQuery(flagCallFilters, trendsQuery.filterTestAccounts, days))
+            : null,
+    ])
+    const series = trends.results?.[0] as TrendResult | undefined
+    const rows = (flagCalls?.results as [string, number][] | undefined) ?? null
+    return { ...withFlagCallCounts(series, rows), labels: series?.labels ?? [] }
 }
