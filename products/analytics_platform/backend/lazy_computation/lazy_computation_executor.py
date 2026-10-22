@@ -1673,11 +1673,13 @@ def _with_precompute_events_table(
         return modifiers, cache_key_context
     flag_called = _ConstantFinder(FLAG_CALLED_EVENT)
     flag_called.visit(query)
-    if not flag_called.found and native_events_precompute_enabled(team.pk):
-        modifiers = (modifiers or create_default_modifiers_for_team(team)).model_copy(
-            update={"useNewEventsSchema": True}
-        )
-    if not use_new_events_schema(team.pk, create_default_modifiers_for_team(team, modifiers)):
+    reads_events_json = (not flag_called.found and native_events_precompute_enabled(team.pk)) or use_new_events_schema(
+        team.pk, create_default_modifiers_for_team(team, modifiers)
+    )
+    modifiers = (modifiers or create_default_modifiers_for_team(team)).model_copy(
+        update={"useNewEventsSchema": reads_events_json}
+    )
+    if not reads_events_json:
         return modifiers, cache_key_context
     return modifiers, {**(cache_key_context or {}), "events_table": "events_json"}
 
