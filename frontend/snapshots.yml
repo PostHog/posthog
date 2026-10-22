@@ -199,7 +199,7 @@ snapshots:
     charts-heatmap--cell-labels--dark:
         hash: v1.k794b7964.19b11a43aa9280e0b85498c1e87397d128cb1a1c9f1451419ab32de324783441.xEjoCIC6MhETYkz5iStffBD3Oc77sUugobUIKzq3EME
     charts-heatmap--cell-labels--light:
-        hash: v1.k794b7964.2cc87c7069cfc6f370663f581b6866d795754e5a3604bf5c9827ca81a605f2d0.QBtjIUNJc3gvAOkojmyfhJUQwB1HB0zUkm3rdoUr3D0
+        hash: v1.k794b7964.079b5cc67a8b51e1235f402297fcb1fcddbf60fbec81cdbb18d4bb76385cca67.kVs5ctRg_j0CW1xt0dbltRs8E7nvEE8u6oeDuiafyow
     charts-heatmap--cell-labels-dropped-when-cells-are-small--dark:
         hash: v1.k794b7964.8f0bf7a9fc58c93f4dc73333e7debc16ac9e8beb1397753f8bf7876528c6be5e.l9lHu-Urnd94-CElJYYehON5QJ85IHWjuWrcd6QzZAg
     charts-heatmap--cell-labels-dropped-when-cells-are-small--light:
@@ -4071,7 +4071,7 @@ snapshots:
     insights-retentionheatmap--realistic-curve--dark:
         hash: v1.k794b7964.4f02030d0fd563d4d43cbcc27370f193baa7ace7644a5b0c22472d1c8a4ea4e1.LWPOR-QMZyhQUNC-x0RxzmEfG_nF3OcNbe68TtmBWAo
     insights-retentionheatmap--realistic-curve--light:
-        hash: v1.k794b7964.706c85b05f246352dc0440d0cf163336bbde11303f8bdd6719835f4b79bd9927.aaAit22MSaqvCwpgBcq5E0fMjjbaajpztd_42xZqHJo
+        hash: v1.k794b7964.686aefd17a89d1e73ac12efe7f06feb9f0c5a4b59b73c87ae7214cc9efcebb3d.ieDv1jPpvILFcSmVac3h_QmJkSq92Xh5vQNxvT28pmc
     insights-retentionlinechart--default--dark:
         hash: v1.k794b7964.ec5fcf8d9e4c3a49e94ffe769cb6147257f0e8fa0639f615e8d0f8a35d471492.jTfjU2lenc3lmyfgHtnetORnAO8bK6N9RMhAUqpTR7E
     insights-retentionlinechart--default--light:
@@ -13435,9 +13435,9 @@ snapshots:
     scenes-app-mcp-analytics-dashboard-cards--daily-tool-breakdown--light:
         hash: v1.k794b7964.ef1d01e79c64ba3a610716272257daa8015654e54cc4ee09d6a9fa8ec91f6d41.wJlkho2QkeMjd3FbjVsFK37nxaziOX6bUnlEGyPtXHg
     scenes-app-mcp-analytics-dashboard-cards--error-rate-by-tool--dark:
-        hash: v1.k794b7964.3e9e147230095c6602e7cb5c25414cfab376bef36d895cde3ca3a709c18c6ae3.F1OrEv_affEy1PYJgo6RjuZCfSr2Bi6iYIhbICb3_94
+        hash: v1.k794b7964.3f656ffe6d8226b9f4b3f7a5251213c8543a1eab0556d2641c34b59f0f9cba8b.ohYeZoJUaMMj0N6IwVBtxAg0mFsVIy9O7l4c_JlAB7w
     scenes-app-mcp-analytics-dashboard-cards--error-rate-by-tool--light:
-        hash: v1.k794b7964.0c5f4e1cb28d098e43a7cb57082fc15f04cdf31ad6b842ac1f6590d95102dc14.Y5SYKK2ptHxU-rb2O9zDPruRrI7LFMmcP6AREWQABoQ
+        hash: v1.k794b7964.fe471dcf12c63b12241de6f9f29bddc63820281fbc857317a7fcd71e4b496b90.CNzpuJ2s8g8tWPT5ZMru2m8oYxIlk00e7mUNNO5bt-E
     scenes-app-mcp-analytics-dashboard-cards--flagged-sessions--dark:
         hash: v1.k794b7964.3cb2da2576280c91d6c8ded46d37cb622ff5a7ed1c5806a44c0fccf9efee0c0f.siDD7CL4vymuXEIyfWny7zcxf7Lo9I8GeuZ3SIODDrY
     scenes-app-mcp-analytics-dashboard-cards--flagged-sessions--light:
@@ -15251,9 +15251,9 @@ snapshots:
     scenes-app-surveys--survey-results--light:
         hash: v1.k794b7964.87758b68551b35277bd0b576abc586689fb10db7008d23bd8af6a5e11c388e81.CWamhYwGuu-xmoseaC2gYIzTF0NmCcoSzSEDsvfDpkk
     scenes-app-surveys--survey-summary-export--dark:
-        hash: v1.k794b7964.939714ca04ee24ff16b27316ff41c6bdc44c84b3a73151a9264015400adad28d.631SJTGu5VHJuYY6FBAZs2M2V-GCPuPxAZa8IMYHS9s
+        hash: v1.k794b7964.248a55693556d924297d9a78344afe313cb10b30a18f04bd792e435877046b1e.r8ETvvcyvYdI8mYlE2QyzZClgwLTcazbNT8TcnlHtI8
     scenes-app-surveys--survey-summary-export--light:
-        hash: v1.k794b7964.117d4c4bf8074f5c074d913daee28b97c37d086d9152f96f60c328f4178ad1ed.rkLsbZ23kLk_NZ8p91LVl5LZ8vqs_iUK2INZP5-S4wM
+        hash: v1.k794b7964.fa67712a95fba6a01faa0b770538185585d4f3b85850425378f49a2036114c75.VO7wl076eCdnhi6Te2WjvOhs-OxFTBZwN6gcGQG2ctI
     scenes-app-surveys--surveys-global-settings--dark:
         hash: v1.k794b7964.476a85556bb374416ca1ae0cccfb23f8cc6f6a2e0e71d3f7d0e37a2ad3d463aa.lCKgctegJe2jQZ7Bf7sXK6YhuGh17KhGftYqoY3s5PM
     scenes-app-surveys--surveys-global-settings--light:
