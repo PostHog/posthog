@@ -62,8 +62,9 @@ jobs:
                       .github/actions/setup-uv
                   sparse-checkout-cone-mode: false
 
-            # Reads job durations from the Actions API — the same purpose as
-            # Backend CI's calculate-running-time, so it shares that bucket rather
+            # Reads job durations from the Actions API, the same purpose as the
+            # calculate-running-time jobs in the frontend, Storybook and Playwright
+            # workflows, so it shares their bucket rather
             # than the posthog-tests app ci-alerts-devex already bursts on at merge
             # peaks. A failed mint degrades to github.token instead of skipping the tick.
             - name: Mint telemetry GitHub token

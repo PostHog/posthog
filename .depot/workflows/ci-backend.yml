@@ -1,8 +1,9 @@
 # Backend CI. Lives under .depot/ so GitHub Actions ignores it; only Depot CI parses this
 # file. Every pull request event, master push, manual run and the hourly master run start
-# here, and the gate job's `Test results` check is the required one.
+# here. Branch protection requires the gate job's own `Django Tests Pass on Depot` check and
+# the `Test results` check it posts, so renaming that job blocks every pull request.
 #
-# How this file differs from a GitHub Actions workflow of the same shape:
+# Depot CI behavior this file works around:
 # - Depot's own checks carry no output, so the gate posts a `Test results` check with the
 #   failure summary.
 # - Depot resolves ./.github/actions/<x> from .depot/actions/<x>, so every local action this
@@ -40,7 +41,7 @@
 #   run runs the events_json rows instead, so trial runs match PR runs.
 # - Per-segment split plans (.test_durations.core/.temporal) restore from Depot Cache and miss
 #   until .github/workflows/ci-backend-update-test-timing.yml saves them there; shards then fall
-#   back to the union .test_durations, and to the committed file after that.
+#   back to the union .test_durations.
 # - actions/cache reads and writes go to Depot Cache, which Depot GitHub Actions runners share,
 #   not to GitHub Actions cache.
 # - The hypothesis constants cache is saved by master matrix runs only, so PR shards rebuild the
@@ -85,16 +86,14 @@
 # - handle-snapshots sets up Node from .nvmrc for its CI report steps, and fails with a rebase
 #   hint when the PR head predates .depot/actions/commit-snapshots.
 # - Test durations restore from Depot Cache (posthog-test-durations- prefix), which
-#   .github/workflows/ci-backend-update-test-timing.yml writes from Depot runners. The committed
-#   .test_durations is the fallback.
+#   .github/workflows/ci-backend-update-test-timing.yml writes from Depot runners. On a miss,
+#   shards fall back to the newest `test-durations` artifact of that workflow.
 
 # This workflow runs all of our backend django tests.
 #
-# Shards derive from .test_durations (Amdahl), restored from Depot Cache (else committed);
-# .github/workflows/ci-backend-update-test-timing.yml keeps that cache fresh.
+# Shards derive from .test_durations (Amdahl), restored from Depot Cache or the timing
+# workflow's newest artifact; .github/workflows/ci-backend-update-test-timing.yml keeps both fresh.
 name: Backend CI on Depot
-# Branch protection requires the gate job's `Backend CI on Depot / Test results` check,
-# posted by the PostHog tests app.
 # Pull requests, master pushes, manual runs and the hourly master run all start here.
 on:
     push:
@@ -804,7 +803,6 @@ jobs:
                   enable-cache: false
               continue-on-error: true
             - name: Restore test durations from cache
-              # Restore fresh timings so shard counts match GitHub Actions; miss falls back to committed.
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: .test_durations
@@ -1130,8 +1128,6 @@ jobs:
                   client-id: ${{ vars.GH_APP_POSTHOG_PRODUCT_TESTS_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_PRODUCT_TESTS_PRIVATE_KEY }}
                   skip-token-revoke: true
-            # One step after another; see "Put the setup actions in a `parallel:` block" in
-            # docs/internal/ci-things-already-tried.md.
             - name: Set up pnpm and Node
               uses: ./.depot/actions/setup-pnpm
               with:
@@ -3151,8 +3147,6 @@ jobs:
               with:
                   path: ${{ runner.tool_cache }}/Python/${{ matrix.python-version }}
                   key: python-toolcache-${{ runner.os }}-${{ runner.arch }}-${{ matrix.python-version }}
-            # One step after another; see "Put the setup actions in a `parallel:` block" in
-            # docs/internal/ci-things-already-tried.md.
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:

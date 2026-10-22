@@ -251,7 +251,7 @@ history, hand off to `fixing-flaky-tests`, which covers the `search-test` and
 
 Backend CI runs on Depot CI, not GitHub Actions, so `gh run` finds no run for it.
 The required checks are `Backend CI on Depot / Test results` and `Backend CI on Depot / Django Tests Pass on Depot`.
-`Test results` lists the failing tests in its summary; read it with `gh api repos/PostHog/posthog/commits/<sha>/check-runs --jq '.check_runs[] | select(.name == "Backend CI on Depot / Test results") | .output.summary'`.
+`Test results` lists the failing tests in its summary; read it with `gh api 'repos/PostHog/posthog/commits/<sha>/check-runs?check_name=Backend%20CI%20on%20Depot%20/%20Test%20results' --jq '.check_runs[0].output.summary'`.
 A passing draft run posts no `Test results`, so a draft shows it as expected until the PR is marked ready. Do not wait on it for a draft.
 
 GitHub's Re-run button does nothing on a Depot check.
