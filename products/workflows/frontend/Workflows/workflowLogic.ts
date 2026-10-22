@@ -319,8 +319,8 @@ export interface workflowLogicValues {
     scheduleTimezone: string
     schedules: HogFlowSchedule[]
     showDraftActions: boolean
-    statusToggleDisabledReason: string | undefined
     showWorkflowErrors: boolean
+    statusToggleDisabledReason: string | undefined
     triggerAction: TriggerAction | null
     workflow: HogFlow
     workflowAllErrors: Record<string, any>
