@@ -145,6 +145,8 @@ EXISTING_CUSTOM_LIST_VIEWSETS = {
     "products.data_catalog.backend.presentation.views.MetricViewSet",
     "products.data_catalog.backend.presentation.views.RelationshipProposalViewSet",
     "products.data_modeling.backend.presentation.views.node.NodeViewSet",
+    # Only the model breakdown is paginated; overview and trends cover the full range.
+    "products.data_modeling.backend.presentation.views.usage.ModelUsageViewSet",
     "products.data_quality.backend.presentation.views.DataQualityCheckViewSet",
     "products.data_quality.backend.presentation.views.DataQualityRunViewSet",
     "products.data_warehouse.backend.presentation.views.column_annotation.WarehouseColumnAnnotationViewSet",
