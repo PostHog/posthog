@@ -2,7 +2,6 @@
 
 from products.workflows.backend.services.batch_jobs import (
     create_batch_job,
-    delete_batch_jobs_for_teams,
     get_batch_job,
     hog_flow_ids_with_broadcast_status,
     list_batch_jobs,
@@ -11,7 +10,6 @@ from products.workflows.backend.services.batch_jobs import (
 
 __all__ = [
     "create_batch_job",
-    "delete_batch_jobs_for_teams",
     "get_batch_job",
     "hog_flow_ids_with_broadcast_status",
     "list_batch_jobs",

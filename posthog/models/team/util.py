@@ -90,7 +90,6 @@ def _delete_misc_small_tables_for_teams(team_ids: list[int]) -> None:
     from products.data_modeling.backend.facade.models import Edge, Node
     from products.early_access_features.backend.models import EarlyAccessFeature
     from products.today.backend.facade import api as today_facade
-    from products.workflows.backend.facade.batch_jobs import delete_batch_jobs_for_teams
 
     error_tracking_fingerprint = apps.get_model("error_tracking", "ErrorTrackingIssueFingerprintV2")
 
@@ -106,9 +105,6 @@ def _delete_misc_small_tables_for_teams(team_ids: list[int]) -> None:
     _raw_delete_batch(error_tracking_fingerprint.objects.filter(team_id__in=team_ids))
     # Highlights carry team_id as a plain integer, so nothing cascades to them.
     today_facade.delete_highlights_for_teams(team_ids)
-    # Batch jobs point at their team and workflow with DO_NOTHING, so the Team cascade leaves them behind,
-    # and their deferred foreign keys then fail the team delete at commit.
-    delete_batch_jobs_for_teams(team_ids)
     # FeatureFlagHashKeyOverride references Person, so it must go before persons are deleted.
     _delete_hash_key_overrides_for_teams(team_ids)
     _delete_llm_evaluations_for_teams(team_ids)
@@ -362,11 +358,26 @@ def delete_team_records(team_ids: list[int]) -> None:
 
     from posthog.models.team import Team
 
+    hog_flow = apps.get_model("workflows", "HogFlow")
+    hog_flow_batch_job = apps.get_model("workflows", "HogFlowBatchJob")
+
     with transaction.atomic():
         # nosemgrep: hot-parent-row-select-for-update -- Team deletion must block concurrent child inserts.
         teams = list(Team.objects.select_for_update().filter(id__in=team_ids))
         for team in teams:
             queue_training_deletion(team.pk, "team")
+        # Batch jobs point at their team and workflow with DO_NOTHING, so the cascade leaves them and their
+        # deferred foreign keys fail this commit. They are deleted here, not in an earlier phase, because the
+        # lock above stops new jobs, and a retry of this step after a failed commit runs the delete again.
+        _raw_delete_batch(hog_flow_batch_job.objects.filter(team_id__in=team_ids))
+        # A batch job saves under its project's root team, but its workflow can belong to an environment.
+        # Each condition gets its own pass, because an OR across the join stops PostgreSQL from using
+        # the team index on either table.
+        _raw_delete_batch(
+            hog_flow_batch_job.objects.filter(
+                hog_flow_id__in=hog_flow.objects.filter(team_id__in=team_ids).values("id")
+            )
+        )
         Team.objects.filter(id__in=team_ids).delete()
 
 

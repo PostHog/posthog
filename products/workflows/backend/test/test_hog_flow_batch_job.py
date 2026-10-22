@@ -13,7 +13,7 @@ from celery.exceptions import Retry
 from parameterized import parameterized
 
 from posthog.models.team import Team
-from posthog.models.team.util import _delete_misc_small_tables_for_teams, delete_team_records
+from posthog.models.team.util import delete_team_records
 from posthog.models.user import User
 
 from products.cohorts.backend.facade.ready_signals import realtime_cohort_ready
@@ -86,7 +86,6 @@ class TestHogFlowBatchJob(TestCase):
         hog_flow = HogFlow.objects.create(team=team, name="Broadcast", actions=self.hog_flow.actions)
         HogFlowBatchJob.objects.create(team=team, hog_flow=hog_flow)
 
-        _delete_misc_small_tables_for_teams([team.id])
         delete_team_records([team.id])
         # The foreign keys are deferred, so production fails at COMMIT, which a TestCase never reaches.
         connection.check_constraints()
