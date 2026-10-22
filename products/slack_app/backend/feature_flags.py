@@ -46,6 +46,7 @@ logger = structlog.get_logger(__name__)
 
 
 SLACK_APP_AGENT_DESIGN_FLAG = "slack-app-agent-design"
+SLACK_APP_CHART_LINKS_FLAG = "slack-app-chart-links"
 SLACK_APP_FORKING_FLAG = "slack-app-forking"
 SLACK_APP_UNPROMPTED_ANSWERS_FLAG = "slack-app-unprompted-answers"
 
@@ -123,6 +124,17 @@ def is_slack_app_agent_design_enabled(integration: Integration, distinct_id: str
         integration,
         failure_log_key="slack_app_agent_design_feature_flag_check_failed",
         distinct_id=distinct_id,
+    )
+
+
+def is_slack_app_chart_links_enabled(integration: Integration) -> bool:
+    """Gate for charts as insight links: a Slack task run shares a PostHog insight link
+    instead of rendering a chart image, and the link unfurl draws the chart. Resolved once,
+    when the run starts, and stored on the run for the unfurl webhook to read."""
+    return _workspace_flag_enabled(
+        SLACK_APP_CHART_LINKS_FLAG,
+        integration,
+        failure_log_key="slack_app_chart_links_feature_flag_check_failed",
     )
 
 
