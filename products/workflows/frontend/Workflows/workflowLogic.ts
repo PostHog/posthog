@@ -253,6 +253,15 @@ interface SaveContext {
     keepsFormEdits: boolean
 }
 
+/** The schedule editor state, kept across a status change so unsaved schedule edits survive it. */
+interface ScheduleEdits {
+    scheduleState: ScheduleState
+    scheduleStartsAt: string | null
+    scheduleTimezone: string
+    isScheduleRepeating: boolean
+    scheduleConfigSources: { picker: boolean; natural_language: boolean }
+}
+
 function omitWorkflowContent(workflow: HogFlow): Partial<HogFlow> {
     const result: Record<string, unknown> = { ...workflow }
     for (const field of WORKFLOW_CONTENT_FIELDS) {
@@ -2515,6 +2524,9 @@ export interface workflowLogicActions {
     resetWorkflow: (values?: HogFlow) => {
         values?: HogFlow
     }
+    restoreScheduleEdits: (edits: ScheduleEdits) => {
+        edits: ScheduleEdits
+    }
     resumeEmailSending: () => {
         value: true
     }
@@ -3260,6 +3272,7 @@ export const workflowLogic = kea<workflowLogicType>([
         setScheduleTimezone: (timezone: string, previousTimezone?: string) => ({ timezone, previousTimezone }),
         setScheduleRepeating: (repeating: boolean) => ({ repeating }),
         setSchedules: (schedules: HogFlowSchedule[]) => ({ schedules }),
+        restoreScheduleEdits: (edits: ScheduleEdits) => ({ edits }),
         saveWorkflowPartial: (workflow: Partial<HogFlow>) => ({ workflow }),
         markSaveAttempted: (actionIds: string[]) => ({ actionIds }),
         triggerManualWorkflow: (variables: Record<string, any>) => ({
@@ -3358,11 +3371,13 @@ export const workflowLogic = kea<workflowLogicType>([
                     // The pending schedule rides along because an earlier save's reset clears it,
                     // which would drop a schedule change the user asked a manual save to persist.
                     const saveContexts = (cache.saveContexts ??= []) as SaveContext[]
+                    const keepsFormEdits = cache.nextSaveKeepsFormEdits === true
                     const saveContext: SaveContext = {
                         initiatedByAutoSave,
-                        pendingSchedule: values.pendingSchedule,
+                        // A status change keeps schedule edits unsaved, like the other edits in the form.
+                        pendingSchedule: keepsFormEdits ? false : values.pendingSchedule,
                         moveToBroadcastIds: (cache.nextSaveMovesWorkflowIds ?? []) as string[],
-                        keepsFormEdits: cache.nextSaveKeepsFormEdits === true,
+                        keepsFormEdits,
                     }
                     saveContexts.push(saveContext)
                     cache.nextSaveMovesWorkflowIds = []
@@ -3622,6 +3637,7 @@ export const workflowLogic = kea<workflowLogicType>([
             { ...DEFAULT_STATE } as ScheduleState,
             {
                 setScheduleState: (_, { scheduleState }) => scheduleState,
+                restoreScheduleEdits: (_, { edits }) => edits.scheduleState,
                 setSchedules: (_, { schedules }) => {
                     const schedule = schedules[0]
                     if (schedule && !isOneTimeSchedule(schedule.rrule)) {
@@ -3635,6 +3651,7 @@ export const workflowLogic = kea<workflowLogicType>([
             null as string | null,
             {
                 setScheduleStartsAt: (_, { startsAt }) => startsAt,
+                restoreScheduleEdits: (_, { edits }) => edits.scheduleStartsAt,
                 setSchedules: (_, { schedules }) => schedules[0]?.starts_at ?? null,
             },
         ],
@@ -3642,6 +3659,7 @@ export const workflowLogic = kea<workflowLogicType>([
             dayjs.tz.guess() as string,
             {
                 setScheduleTimezone: (_, { timezone }) => timezone,
+                restoreScheduleEdits: (_, { edits }) => edits.scheduleTimezone,
                 setSchedules: (_, { schedules }) => schedules[0]?.timezone ?? dayjs.tz.guess(),
             },
         ],
@@ -3649,6 +3667,7 @@ export const workflowLogic = kea<workflowLogicType>([
             false as boolean,
             {
                 setScheduleRepeating: (_, { repeating }) => repeating,
+                restoreScheduleEdits: (_, { edits }) => edits.isScheduleRepeating,
                 setSchedules: (_, { schedules }) => {
                     const schedule = schedules[0]
                     return !!schedule && !isOneTimeSchedule(schedule.rrule)
@@ -3661,6 +3680,7 @@ export const workflowLogic = kea<workflowLogicType>([
             { picker: false, natural_language: false } as { picker: boolean; natural_language: boolean },
             {
                 setScheduleState: (state, { source }) => ({ ...state, [source]: true }),
+                restoreScheduleEdits: (_, { edits }) => edits.scheduleConfigSources,
                 setSchedules: () => ({ picker: false, natural_language: false }),
             },
         ],
@@ -4561,7 +4581,19 @@ export const workflowLogic = kea<workflowLogicType>([
                 !!saveContext?.keepsFormEdits ||
                 (cache.saveEditVersion !== undefined && values.workflowEditVersion !== cache.saveEditVersion)
             const editsDuringSave = editedDuringSave ? pickWorkflowEdits(values.workflow) : null
+            const scheduleEdits: ScheduleEdits | null = saveContext?.keepsFormEdits
+                ? {
+                      scheduleState: values.scheduleState,
+                      scheduleStartsAt: values.scheduleStartsAt,
+                      scheduleTimezone: values.scheduleTimezone,
+                      isScheduleRepeating: values.isScheduleRepeating,
+                      scheduleConfigSources: values.scheduleConfigSources,
+                  }
+                : null
             actions.resetWorkflow(withStagedDraft(originalWorkflow))
+            if (scheduleEdits) {
+                actions.restoreScheduleEdits(scheduleEdits)
+            }
             actions.markAutoSave(false)
             if (editsDuringSave) {
                 // The response only reflects the payload that was sent. Anything typed while it was
