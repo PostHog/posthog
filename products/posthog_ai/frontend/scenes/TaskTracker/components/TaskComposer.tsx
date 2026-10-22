@@ -45,6 +45,7 @@ import { QuillAttachedContextPicker } from '../../../components/quill/QuillAttac
 import { QuillComposerLayout } from '../../../components/quill/QuillComposerLayout'
 import { QuillComposerSendButton } from '../../../components/quill/QuillComposerSendButton'
 import { QuillOnboardingReplayButton } from '../../../components/quill/QuillOnboardingReplayButton'
+import { QuillSuggestionChips } from '../../../components/quill/QuillSuggestionChips'
 import { taskTrackerSceneLogic } from '../taskTrackerSceneLogic'
 import { RepositorySelector } from './RepositorySelector'
 import { TaskComposerAddMenu } from './TaskComposerAddMenu'
@@ -150,7 +151,7 @@ export function TaskComposer({
         <Composer.Field>
             <Composer.Placeholder>
                 {composerOverride?.placeholder ??
-                    (skin === 'quill' ? 'Ask a question or describe what to build…' : 'Describe the task in detail…')}
+                    (skin === 'quill' ? 'What do you want to work on?' : 'Describe the task in detail…')}
             </Composer.Placeholder>
             <Composer.Textarea autoFocus={autoFocus} onPaste={onPaste} data-attr="task-composer-input" />
         </Composer.Field>
@@ -327,6 +328,9 @@ export function TaskComposer({
                         </Composer.Root>
                     </div>
                     {showSuggestions && <Suggestions.Buttons data={DEFAULT_SUGGESTIONS_DATA} />}{' '}
+                    {skin === 'quill' && !composerOverride?.hideSuggestions && (
+                        <QuillSuggestionChips data={DEFAULT_SUGGESTIONS_DATA} onSelect={handleSelectSuggestion} />
+                    )}
                 </Suggestions.Root>
             </div>
         </div>
