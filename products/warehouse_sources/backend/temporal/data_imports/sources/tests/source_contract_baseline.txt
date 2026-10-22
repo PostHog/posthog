@@ -10,6 +10,7 @@ Appsignal fail:safe-point
 Attentive not-checkable:database
 AwsAthena not-checkable:schemas
 AwsCostExplorer fail:safe-point
+AwsDocumentDB not-checkable:driver:pymongo
 AzureBlob not-checkable:schemas
 AzureCostManagement not-checkable:no-request
 AzureLogAnalytics not-checkable:schemas
