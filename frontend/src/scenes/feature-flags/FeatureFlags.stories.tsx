@@ -27,7 +27,7 @@ const EXPERIMENT_RULE_FIELDS = {
 // Served on its own route only, so the list stories keep their rows.
 const RULES_V2_EXPERIMENT_FLAG = {
     ...featureFlags.results.find((flag) => flag.id === RULES_V2_FLAG_ID),
-    id: 1803,
+    id: 1804,
     key: 'checkout-layout-rules-v2',
     name: 'Checkout layout, split across three variants',
     filters: {
