@@ -12,13 +12,14 @@ from typing import Any, Final
 from posthog.dataclasses import frozen
 from posthog.utils import absolute_uri, pluralize
 
-from products.alerts_platform.backend.delivery.describers import describe
+from products.alerts_platform.backend.delivery.describers import describe, resolve_image
 from products.alerts_platform.backend.facade.contracts import (
     AlertEventKind,
     AnnouncedTransition,
     EvaluationAnnouncement,
     IncidentAction,
     MessageDetail,
+    MessageImage,
     MessageLink,
     SourceKind,
 )
@@ -70,6 +71,8 @@ class AlertMessage:
     transition: AnnouncedTransition
     context: tuple[str, ...] = ()
     data_link: MessageLink | None = None
+    image: MessageImage | None = None
+    slack_elements: tuple[dict[str, Any], ...] = ()
     incident_action: IncidentAction | None = None
 
     @property
@@ -199,5 +202,7 @@ def build_message(
         transition=transition,
         context=description.context,
         data_link=description.data_link,
+        image=resolve_image(announcement.source, team_id=team_id, transition=transition),
+        slack_elements=description.slack_elements,
         incident_action=incident_action,
     )
