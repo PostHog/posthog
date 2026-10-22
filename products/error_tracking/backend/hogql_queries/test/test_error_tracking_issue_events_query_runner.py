@@ -102,6 +102,7 @@ class TestErrorTrackingIssueEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
 
         seen: list[str] = []
+        recording_flags: list[bool] = []
         source = EventsQuery(
             kind="EventsQuery",
             event="$exception",
@@ -121,8 +122,10 @@ class TestErrorTrackingIssueEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 ),
             ).calculate()
             seen += [str(row[0]["uuid"]) for row in response.results]
+            recording_flags += [row[0]["properties"]["$has_recording"] for row in response.results]
             if not response.hasMore:
                 break
             source = source.model_copy(update={"before": response.nextCursor})
 
         assert seen == [exceptions[0], exceptions[1], exceptions[4], exceptions[5]]
+        assert recording_flags == [True] * len(seen)
