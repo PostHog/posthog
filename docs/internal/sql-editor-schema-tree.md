@@ -46,6 +46,7 @@ Schema mutations refresh previously hydrated or pending tables, as well as expan
 Saved-query lists expose metadata only; refreshing them preserves the query and columns already fetched for an open editor tab.
 
 In PostHog Warehouse, sidebar search accepts `status:failed`, `status:running`, and `status:completed` to filter materialized views by their latest run status.
+The Models tab accepts the same status tokens and combines them with its name and lineage search syntax.
 The funnel menu beside search inserts and removes the same tokens. Select multiple statuses to include views matching any of them. **Failed** includes views paused after repeated failures.
 Status tokens combine with a name search, and matching views retain their folders and expandable columns. The funnel button highlights while a status filter is active.
 Status filters do not apply to direct connections. **Clear filters**, removing every status token, or locating a table restores the unfiltered tree.

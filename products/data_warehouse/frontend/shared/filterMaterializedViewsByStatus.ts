@@ -56,6 +56,13 @@ export function clearMaterializationStatusSearchTokens(searchTerm: string): stri
     return parseDatabaseSearch(searchTerm).searchText
 }
 
+export function matchesMaterializationStatus(
+    view: { is_materialized?: boolean; status?: string | null },
+    statuses: MaterializationStatusFilter[]
+): boolean {
+    return statuses.length === 0 || Boolean(view.is_materialized && statuses.some((status) => view.status === status))
+}
+
 export function filterMaterializedViewsByStatus(
     items: TreeDataItem[],
     statuses: MaterializationStatusFilter[]
@@ -66,7 +73,7 @@ export function filterMaterializedViewsByStatus(
 
     return items.flatMap((item) => {
         if (item.record?.type === 'view') {
-            return item.record.view?.is_materialized && statuses.includes(item.record.view.status) ? [item] : []
+            return item.record.view && matchesMaterializationStatus(item.record.view, statuses) ? [item] : []
         }
 
         if (item.type === 'loading-indicator') {
