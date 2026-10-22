@@ -1,4 +1,46 @@
 database "posthog" {
+  table "app_metrics2" {
+    column "team_id" {
+      type = "Int64"
+    }
+    column "timestamp" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "app_source" {
+      type = "LowCardinality(String)"
+    }
+    column "app_source_id" {
+      type = "String"
+    }
+    column "instance_id" {
+      type = "String"
+    }
+    column "metric_kind" {
+      type = "LowCardinality(String)"
+    }
+    column "metric_name" {
+      type = "LowCardinality(String)"
+    }
+    column "count" {
+      type = "SimpleAggregateFunction(sum, Int64)"
+    }
+    column "_timestamp" {
+      type = "DateTime"
+    }
+    column "_offset" {
+      type = "UInt64"
+    }
+    column "_partition" {
+      type = "UInt64"
+    }
+    engine "distributed" {
+      cluster_name    = "aux"
+      remote_database = "posthog"
+      remote_table    = "sharded_app_metrics2"
+      sharding_key    = "rand()"
+    }
+  }
+
   table "channel_definition" {
     column "domain" {
       type = "String"
@@ -2711,6 +2753,56 @@ database "posthog" {
       remote_database = "posthog"
       remote_table    = "sharded_session_replay_features"
       sharding_key    = "sipHash64(session_id)"
+    }
+  }
+
+  table "sharded_app_metrics2" {
+    order_by = ["team_id", "app_source", "app_source_id", "instance_id", "toStartOfHour(timestamp)", "metric_kind", "metric_name"]
+    ttl      = "toDate(timestamp) + toIntervalDay(90)"
+    settings = {
+      index_granularity = "8192"
+    }
+    column "team_id" {
+      type = "Int64"
+    }
+    column "timestamp" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "app_source" {
+      type = "LowCardinality(String)"
+    }
+    column "app_source_id" {
+      type = "String"
+    }
+    column "instance_id" {
+      type = "String"
+    }
+    column "metric_kind" {
+      type = "LowCardinality(String)"
+    }
+    column "metric_name" {
+      type = "LowCardinality(String)"
+    }
+    column "count" {
+      type = "SimpleAggregateFunction(sum, Int64)"
+    }
+    column "_timestamp" {
+      type = "DateTime"
+    }
+    column "_offset" {
+      type = "UInt64"
+    }
+    column "_partition" {
+      type = "UInt64"
+    }
+    index "timestamp_minmax" {
+      expr        = "timestamp"
+      type        = "minmax"
+      granularity = 1
+    }
+    engine "replicated_aggregating_merge_tree" {
+      zoo_path     = "/clickhouse/tables/{shard}/posthog.sharded_app_metrics2"
+      replica_name = "{replica}"
     }
   }
 

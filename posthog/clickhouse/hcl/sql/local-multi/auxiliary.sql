@@ -576,6 +576,20 @@ CREATE TABLE posthog.session_replay_events (
   surfacing_score SimpleAggregateFunction(max, Nullable(Float32)),
   snapshot_mode_v2 AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))
 ) ENGINE = Distributed('posthog', 'posthog', 'sharded_session_replay_events', sipHash64(distinct_id));
+CREATE TABLE posthog.sharded_app_metrics2 (
+  team_id Int64,
+  timestamp DateTime64(6, 'UTC'),
+  app_source LowCardinality(String),
+  app_source_id String,
+  instance_id String,
+  metric_kind LowCardinality(String),
+  metric_name LowCardinality(String),
+  count SimpleAggregateFunction(sum, Int64),
+  _timestamp DateTime,
+  _offset UInt64,
+  _partition UInt64,
+  INDEX timestamp_minmax timestamp TYPE minmax GRANULARITY 1
+) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/{shard}/posthog.sharded_app_metrics2', '{replica}') ORDER BY (team_id, app_source, app_source_id, instance_id, toStartOfHour(timestamp), metric_kind, metric_name) TTL toDate(timestamp) + toIntervalDay(90) SETTINGS index_granularity = 8192;
 CREATE TABLE posthog.sharded_billing_usage_records (
   schema_version UInt8,
   record_id String,
@@ -1636,6 +1650,19 @@ CREATE VIEW posthog.custom_metrics_test AS SELECT
   'Test to check that the metric endpoint is working' AS help,
   'gauge' AS type;
 CREATE OR REPLACE DICTIONARY posthog.web_bot_definition_dict (`regexp` String, `name` String, `category` String, `traffic_type` String, `operator` String) PRIMARY KEY regexp SOURCE(CLICKHOUSE(USER 'default' DB 'posthog' TABLE 'web_bot_definition')) LAYOUT(REGEXP_TREE()) LIFETIME(MIN 3000 MAX 3600);
+CREATE TABLE posthog.app_metrics2 (
+  team_id Int64,
+  timestamp DateTime64(6, 'UTC'),
+  app_source LowCardinality(String),
+  app_source_id String,
+  instance_id String,
+  metric_kind LowCardinality(String),
+  metric_name LowCardinality(String),
+  count SimpleAggregateFunction(sum, Int64),
+  _timestamp DateTime,
+  _offset UInt64,
+  _partition UInt64
+) ENGINE = Distributed('aux', 'posthog', 'sharded_app_metrics2', rand());
 CREATE TABLE posthog.conversion_goal_attributed_preaggregated (
   team_id Int64,
   job_id UUID,
