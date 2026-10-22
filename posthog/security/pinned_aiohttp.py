@@ -106,8 +106,6 @@ class PinnedTCPConnector(TCPConnector):
         return await self._pinned_resolver.resolve(host, port, socket.AddressFamily(self.family))
 
 
-def pinned_session(
-    host_to_resolved_ips: Mapping[str, ResolvedIPs], *, trust_env: bool = True, **kwargs: Any
-) -> ClientSession:
+def pinned_session(host_to_resolved_ips: Mapping[str, ResolvedIPs], **kwargs: Any) -> ClientSession:
     connector = PinnedTCPConnector(host_to_resolved_ips)
-    return ClientSession(connector=connector, trust_env=trust_env, **kwargs)
+    return ClientSession(connector=connector, trust_env=True, **kwargs)

@@ -47,7 +47,7 @@ async def test_direct_connections_keep_pins_and_tls_identity(
         patch("aiohttp.connector.DefaultResolver.resolve", side_effect=AssertionError("Unexpected DNS lookup")),
         patch("aiohttp.TCPConnector._wrap_create_connection", side_effect=ConnectionIntercepted) as connect,
     ):
-        async with pinned_session({host: {address}}, trust_env=False) as client:
+        async with pinned_session({host: {address}}) as client:
             with pytest.raises(ConnectionIntercepted):
                 await client.get(url)
 
@@ -118,7 +118,7 @@ async def test_proxy_routing(
 @pytest.mark.parametrize("proxy", ["http://proxy.example.com:3129", "http://other.example.com:3128"])
 async def test_untrusted_proxy_is_rejected_before_connecting(proxy: str, pinned: bool) -> None:
     with patch("aiohttp.TCPConnector.connect", side_effect=AssertionError("Unexpected connection")) as connect:
-        async with pinned_session({"example.com": {PUBLIC_IP}} if pinned else {}, trust_env=False) as client:
+        async with pinned_session({"example.com": {PUBLIC_IP}} if pinned else {}) as client:
             with pytest.raises(SSRFBlockedError, match="proxy"):
                 await client.get("https://example.com/", proxy=proxy, headers={"Authorization": "Bearer fake-token"})
     connect.assert_not_awaited()
@@ -142,7 +142,7 @@ async def test_redirects_only_reuse_validated_hosts(proxy: str | None, target: s
         patch("aiohttp.TCPConnector.connect", return_value=Mock()) as connect,
         patch("aiohttp.ClientRequest.send", side_effect=[response, ConnectionIntercepted]) as send,
     ):
-        async with pinned_session({"example.com": {PUBLIC_IP}}, trust_env=False) as client:
+        async with pinned_session({"example.com": {PUBLIC_IP}}) as client:
             with pytest.raises(ConnectionIntercepted if allowed else SSRFBlockedError):
                 await client.get("https://example.com/", proxy=proxy)
 
@@ -179,7 +179,7 @@ async def test_proxy_tunnel_keeps_tls_hostname_and_verification() -> None:
             asyncio.get_running_loop(), "start_tls", side_effect=ssl.SSLCertVerificationError("Rejected certificate")
         ) as start_tls,
     ):
-        async with pinned_session({"example.com": {PUBLIC_IP}}, trust_env=False) as client:
+        async with pinned_session({"example.com": {PUBLIC_IP}}) as client:
             with pytest.raises(aiohttp.ClientConnectorCertificateError):
                 await client.get("https://example.com/", proxy=PROXY_URL)
 
@@ -200,7 +200,7 @@ async def test_proxy_rejection_does_not_fall_back_to_direct() -> None:
             "aiohttp.TCPConnector._create_direct_connection", side_effect=AssertionError("Unexpected fallback")
         ) as direct,
     ):
-        async with pinned_session({"example.com": {PUBLIC_IP}}, trust_env=False) as client:
+        async with pinned_session({"example.com": {PUBLIC_IP}}) as client:
             with pytest.raises(aiohttp.ClientHttpProxyError):
                 await client.get("https://example.com/", proxy=PROXY_URL)
 
@@ -217,7 +217,7 @@ async def test_missing_pins_reject_before_connecting(pins: dict[str, ResolvedIPs
         await PinnedResolver(pins).resolve("example.com", 443)
 
     with patch("aiohttp.TCPConnector.connect", side_effect=AssertionError("Unexpected connection")) as connect:
-        async with pinned_session(pins, trust_env=False) as client:
+        async with pinned_session(pins) as client:
             with pytest.raises(SSRFBlockedError):
                 await client.get("https://example.com/", proxy=proxy)
 
