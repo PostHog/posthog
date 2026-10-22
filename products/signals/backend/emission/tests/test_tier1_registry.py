@@ -49,6 +49,20 @@ TIER1_SOURCES = [
     # OAuth-connected support sources
     (ExternalDataSourceType.INTERCOM, "conversations", "intercom", "ticket"),
     (ExternalDataSourceType.HUBSPOT, "tickets", "hubspot", "ticket"),
+    # Incident management / on-call
+    (ExternalDataSourceType.PAGERDUTY, "incidents", "pagerduty", "incident"),
+    (ExternalDataSourceType.OPSGENIE, "alerts", "opsgenie", "incident"),
+    (ExternalDataSourceType.INCIDENTIO, "incidents", "incident_io", "incident"),
+    (ExternalDataSourceType.FIREHYDRANT, "incidents", "firehydrant", "incident"),
+    (ExternalDataSourceType.SQUADCAST, "incidents", "squadcast", "incident"),
+    (ExternalDataSourceType.SERVICENOW, "incidents", "servicenow", "incident"),
+    (ExternalDataSourceType.SOLARWINDSSERVICEDESK, "incidents", "solarwinds_service_desk", "incident"),
+    (ExternalDataSourceType.GRAFANAIRM, "incidents", "grafana_irm", "incident"),
+    (ExternalDataSourceType.XMATTERS, "incidents", "xmatters", "incident"),
+    (ExternalDataSourceType.BETTERSTACK, "incidents", "betterstack", "incident"),
+    # Data quality / observability
+    (ExternalDataSourceType.MONTECARLO, "alerts", "monte_carlo", "incident"),
+    (ExternalDataSourceType.BIGEYE, "Issues", "bigeye", "incident"),
 ]
 
 IDS = [product for _, _, product, _ in TIER1_SOURCES]

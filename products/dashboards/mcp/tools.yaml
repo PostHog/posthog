@@ -561,10 +561,11 @@ tools:
             idempotent: true
         title: List dashboard widget catalog
         description: >
-            List registered dashboard widget types with labels, descriptions, and per-type config_schema. Use before
-            dashboard-widgets-batch-add to pick a widget_type and shape config. Each type documents its own config keys
-            under config_schema (shared keys include limit, orderBy, orderDirection, dateRange, filterTestAccounts, and
-            optional widgetFilters).
+            List registered dashboard widget types with labels, descriptions, and per-type config_schema. Pass
+            `widget_type` (one type or a list) to get only the types you will write; the full catalog is large, so omit
+            it only when you still need to pick a type. The valid `widget_type` values are listed in this tool's schema.
+            Each type documents its own config keys under config_schema (shared keys include limit, orderBy,
+            orderDirection, dateRange, filterTestAccounts, and optional widgetFilters).
     dashboard-widgets-batch-add:
         operation: dashboards_widgets_batch_create
         enabled: true
@@ -577,11 +578,13 @@ tools:
         enrich_url: '{params.id}'
         title: Add dashboard widgets
         description: >
-            Add widget tiles to a dashboard atomically via POST .../widgets/batch/ (1–10 tiles). Call
-            dashboard-widget-catalog-list first for valid widget_type values and config_schema. Pass `widgets` as an
-            array of payloads (widget_type, config, optional name, description, layouts). Config shape is per
-            widget_type (see catalog hints); widgetFilters when supported is a map of filter id to property filter
-            entries. For a single tile, pass a one-element `widgets` array. Tiles stack at the bottom when layouts are
+            Add widget tiles to a dashboard atomically via POST .../widgets/batch/ (1–10 tiles). Before writing a
+            config, call dashboard-widget-catalog-list with `widget_type` set to the types you will add, to read their
+            config_schema. The valid widget_type values are in this tool's schema. Pass `widgets` as an array of
+            payloads (widget_type, config, optional name, description, layouts). This schema does not list config keys:
+            build each config from the config_schema of its widget_type in the catalog. widgetFilters, when supported,
+            is a map of filter id to property filter entries. An invalid config returns a 400 that names each invalid
+            field. For a single tile, pass a one-element `widgets` array. Tiles stack at the bottom when layouts are
             omitted. Returns all created tiles; use dashboard-widgets-run to fetch live data. This only adds new tiles —
             to edit existing widget tiles, use dashboard-widgets-batch-update (no delete-and-re-add needed).
         param_overrides:
@@ -602,11 +605,12 @@ tools:
             Update the settings of existing widgets in place atomically (1–10), without delete-and-re-add. Edits widget
             settings only — `config`, `name`, and `description`. Pass `widgets` as an array of payloads, each identified
             by its DashboardTile `tile_id` (use dashboard-get to look up widget tile IDs) plus the settings to change.
-            Only the fields you provide per widget are updated; omitted fields are left unchanged. Optionally pass
-            `widget_type` to get the typed config shape; widget_type is immutable. Config shape is per widget_type — see
-            dashboard-widget-catalog-list. All updates succeed or fail together. Tile placement (layout,
-            show_description) is not changed here — use dashboard-update or dashboard-reorder-tiles for that. To add new
-            widgets, use dashboard-widgets-batch-add; to remove one, use dashboard-delete-tile.
+            Only the fields you provide per widget are updated; omitted fields are left unchanged. A config update
+            replaces only the top-level keys you send. This schema does not list config keys: read the config_schema of
+            the tile's widget_type from dashboard-widget-catalog-list, passing `widget_type` to fetch only that type.
+            All updates succeed or fail together. Tile placement (layout, show_description) is not changed here — use
+            dashboard-update or dashboard-reorder-tiles for that. To add new widgets, use dashboard-widgets-batch-add;
+            to remove one, use dashboard-delete-tile.
         param_overrides:
             id:
                 cast: string-int
