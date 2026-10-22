@@ -19,6 +19,8 @@ from posthog.models.user import User
 from posthog.redis import get_client
 from posthog.storage import object_storage
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
+
 from ..facade.enums import CheckRunStatus, CheckSeverity, CheckType, SubjectType, SuiteRunTrigger
 from ..models import (
     DataQualityCheck,
@@ -127,6 +129,9 @@ class DurableQuestionRunner:
         principal = User.objects.get(id=execution.principal_id, is_active=True)
         if not principal.teams.filter(id=self.team.id).exists():
             raise ValueError(INCOMPLETE_ERROR)
+        # REST gates data quality checks on query access separately from table grants, so execution must too.
+        if not UserAccessControl(user=principal, team=self.team).check_access_level_for_resource("query", "viewer"):
+            raise ValueError(INCOMPLETE_ERROR)
         self.execution.principal = principal
         subject = resolve_subject(self.team.id, SubjectType.TABLE, str(execution.subject_uuid))
         authorize_warehouse_question_subject(
@@ -144,33 +149,44 @@ class DurableQuestionRunner:
             expires_at=datetime.now(UTC) + timedelta(hours=24),
         )
 
-    def prepare(self) -> PreparedQuestion:
+    def begin_prepare(self) -> "tuple[SubjectRef, User] | None":
+        """Authorize preparation. None means no scan is needed because the snapshot already exists."""
         if self.execution.finished_at is not None:
-            return PreparedQuestion(execution_id=str(self.execution.id), chunk_count=0)
+            return None
         subject = self.authorize()
         principal = self.execution.principal
         if principal is None:
             raise ValueError(INCOMPLETE_ERROR)
-        if not self.execution.manifest_key:
-            manifest = async_to_sync(freeze_question_inputs)(
-                inputs=warehouse_question_inputs(
-                    team=self.team,
-                    user=principal,
-                    subject=subject,
-                    config=self.config,
-                    column_name=self.execution.column_name,
-                ),
-                store=self.store,
-                team_id=self.team.id,
-                run_id=str(self.execution.id),
-                subject_uuid=str(self.execution.subject_uuid),
-                model_id=self.execution.model_id,
-                model_revision=self.execution.model_revision,
+        if self.execution.manifest_key:
+            return None
+        return subject, principal
+
+    async def freeze_inputs(self, subject: "SubjectRef", principal: User) -> QuestionManifest:
+        """Awaited by the caller's event loop, so no executor thread waits on the scan's own executor jobs."""
+        return await freeze_question_inputs(
+            inputs=warehouse_question_inputs(
+                team=self.team,
+                user=principal,
+                subject=subject,
                 config=self.config,
                 column_name=self.execution.column_name,
-                register_attempt=self.register_attempt,
-            )
-            key = f"{manifest.prefix}/manifest.json"
+            ),
+            store=self.store,
+            team_id=self.team.id,
+            run_id=str(self.execution.id),
+            subject_uuid=str(self.execution.subject_uuid),
+            model_id=self.execution.model_id,
+            model_revision=self.execution.model_revision,
+            config=self.config,
+            column_name=self.execution.column_name,
+            register_attempt=self.register_attempt,
+        )
+
+    def complete_prepare(self, frozen: QuestionManifest | None = None) -> PreparedQuestion:
+        if self.execution.finished_at is not None:
+            return PreparedQuestion(execution_id=str(self.execution.id), chunk_count=0)
+        if frozen is not None:
+            key = f"{frozen.prefix}/manifest.json"
             with transaction.atomic():
                 selected = (
                     DataQualityQuestionExecution.objects.for_team(self.team.id)
@@ -179,17 +195,22 @@ class DurableQuestionRunner:
                 )
                 if not selected.manifest_key and selected.finished_at is None:
                     selected.manifest_key = key
-                    selected.total_chunk_count = manifest.chunk_count
-                    selected.examined_row_count = manifest.examined_row_count
-                    selected.unique_input_count = manifest.unique_input_count
+                    selected.total_chunk_count = frozen.chunk_count
+                    selected.examined_row_count = frozen.examined_row_count
+                    selected.unique_input_count = frozen.unique_input_count
                     selected.save(
                         update_fields=["manifest_key", "total_chunk_count", "examined_row_count", "unique_input_count"]
                     )
                 self.execution = selected
             if self.execution.manifest_key != key:
-                self.store.delete(manifest)
+                self.store.delete(frozen)
         manifest = self.manifest()
         return PreparedQuestion(execution_id=str(self.execution.id), chunk_count=manifest.chunk_count)
+
+    def prepare(self) -> PreparedQuestion:
+        pending = self.begin_prepare()
+        frozen = async_to_sync(self.freeze_inputs)(*pending) if pending is not None else None
+        return self.complete_prepare(frozen)
 
     def manifest(self) -> QuestionManifest:
         manifest = self.store.read_manifest(

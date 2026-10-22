@@ -1,3 +1,5 @@
+from contextlib import AbstractContextManager
+
 from django.db import transaction
 
 from temporalio import activity
@@ -19,25 +21,32 @@ from ..contracts import BatchOutcome, FinishQuestionInputs, QuestionChunkInputs,
 LOGGER = get_logger(__name__)
 
 
-def _prepare(inputs: QuestionInputs) -> PreparedQuestion:
-    runner = DurableQuestionRunner.start(inputs.team_id, inputs.suite_run_id, inputs.check_id)
-    with tags_context(
+def _start(inputs: QuestionInputs) -> DurableQuestionRunner:
+    return DurableQuestionRunner.start(inputs.team_id, inputs.suite_run_id, inputs.check_id)
+
+
+def _question_tags(runner: DurableQuestionRunner) -> AbstractContextManager[object]:
+    return tags_context(
         product=Product.DATA_QUALITY,
         feature=Feature.DATA_QUALITY_CHECK,
-        data_quality_check_id=inputs.check_id,
+        data_quality_check_id=str(runner.execution.definition_id),
         data_quality_run_id=str(runner.execution.id),
         data_quality_check_type="question",
         data_quality_subject_type="table",
         data_quality_subject_id=str(runner.execution.subject_uuid),
-    ):
-        return runner.prepare()
+    )
 
 
 @activity.defn
 async def prepare_question_activity(inputs: QuestionInputs) -> PreparedQuestion:
     async with Heartbeater():
         try:
-            return await database_sync_to_async_pool(_prepare)(inputs)
+            runner = await database_sync_to_async_pool(_start)(inputs)
+            with _question_tags(runner):
+                pending = await database_sync_to_async_pool(runner.begin_prepare)()
+                # The scan runs on this event loop; it submits its own executor jobs, so no pool thread may wait on it.
+                frozen = await runner.freeze_inputs(*pending) if pending is not None else None
+                return await database_sync_to_async_pool(runner.complete_prepare)(frozen)
         except Exception as error:
             # The ApplicationError is deliberately generic, so the cause is only recoverable from this log.
             LOGGER.exception(
@@ -52,15 +61,7 @@ async def prepare_question_activity(inputs: QuestionInputs) -> PreparedQuestion:
 
 def _chunk(inputs: QuestionChunkInputs) -> None:
     runner = DurableQuestionRunner(inputs.team_id, inputs.execution_id)
-    with tags_context(
-        product=Product.DATA_QUALITY,
-        feature=Feature.DATA_QUALITY_CHECK,
-        data_quality_check_id=str(runner.execution.definition_id),
-        data_quality_run_id=inputs.execution_id,
-        data_quality_check_type="question",
-        data_quality_subject_type="table",
-        data_quality_subject_id=str(runner.execution.subject_uuid),
-    ):
+    with _question_tags(runner):
         runner.chunk(inputs.chunk_index)
 
 

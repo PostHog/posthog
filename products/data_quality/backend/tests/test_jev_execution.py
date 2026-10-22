@@ -253,6 +253,18 @@ class TestDurableQuestionExecution(BaseTest):
             "failing"
         ]
 
+    def test_a_principal_without_query_access_cannot_prepare_or_run_inference(self) -> None:
+        runner = self.runner()
+        with patch(
+            "products.data_quality.backend.logic.jev_execution.UserAccessControl.check_access_level_for_resource",
+            return_value=False,
+        ) as check:
+            with self.assertRaises(ValueError):
+                runner.prepare()
+        check.assert_called_with("query", "viewer")
+        assert self.calls == []
+        assert not self.objects
+
     def test_disabled_question_check_is_not_started(self) -> None:
         DataQualityCheck.objects.for_team(self.team.id).filter(id=self.check.id).update(enabled=False)
         with self.assertRaises(ValueError):
