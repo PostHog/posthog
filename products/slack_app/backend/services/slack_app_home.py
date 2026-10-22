@@ -38,6 +38,7 @@ from products.slack_app.backend.models import (
     ChannelWelcomeMode,
     SlackSettings,
     SlackUserProfileCache,
+    ThreadJoinMode,
     UntaggedFollowupMode,
 )
 from products.slack_app.backend.services.integration_resolver import load_integrations, resolve_from_candidates
@@ -72,10 +73,12 @@ from products.slack_app.backend.services.slack_settings import (
     AIPreferences,
     resolve_auto_model_choice,
     resolve_channel_welcome_mode,
+    resolve_thread_join_mode,
     resolve_untagged_followup_mode,
     resolve_untagged_question_mode,
     set_auto_model_choice,
     set_channel_welcome_mode,
+    set_thread_join_mode,
     set_untagged_followup_mode,
     set_untagged_question_mode,
 )
@@ -102,6 +105,7 @@ ACTION_TASKS_REFRESH = "slack_app_home:tasks_refresh"
 ACTION_TASKS_PAGE_PREV = "slack_app_home:tasks_page_prev"
 ACTION_TASKS_PAGE_NEXT = "slack_app_home:tasks_page_next"
 ACTION_STATS_WINDOW = "slack_app_home:stats_window"
+ACTION_SET_THREAD_JOIN_MODE = "slack_app_home:set_thread_join_mode"
 ACTION_STATS_REFRESH = "slack_app_home:stats_refresh"
 ACTION_SET_UNTAGGED_FOLLOWUP_MODE = "slack_app_home:set_untagged_followup_mode"
 ACTION_SET_UNTAGGED_QUESTION_MODE = "slack_app_home:set_untagged_question_mode"
@@ -129,6 +133,7 @@ HOME_ACTION_IDS: frozenset[str] = frozenset(
         ACTION_TASKS_REFRESH,
         ACTION_TASKS_PAGE_PREV,
         ACTION_TASKS_PAGE_NEXT,
+        ACTION_SET_THREAD_JOIN_MODE,
         ACTION_STATS_WINDOW,
         ACTION_STATS_REFRESH,
         ACTION_SET_UNTAGGED_FOLLOWUP_MODE,
@@ -449,6 +454,7 @@ def render_home_view(
     untagged_question_mode: UntaggedFollowupMode | None = None,
     channel_welcome_mode: ChannelWelcomeMode | None = None,
     auto_model_choice: bool | None = None,
+    thread_join_mode: ThreadJoinMode | None = None,
     has_project_access: bool = True,
     account_settings_url: str | None = None,
 ) -> dict:
@@ -491,10 +497,12 @@ def render_home_view(
         blocks.extend(_auto_model_choice_blocks(auto_model_choice))
 
     # Section 4 — thread follow-ups: whether replies other people leave in the
-    # threads you started reach PostHog on their own.
+    # threads you started reach PostHog on their own, and who may join those threads.
     if untagged_followup_mode is not None:
         blocks.append({"type": "divider"})
         blocks.extend(_untagged_followups_section_blocks(untagged_followup_mode))
+    if thread_join_mode is not None:
+        blocks.extend(_thread_join_blocks(thread_join_mode))
 
     # Section 4b — channel questions. `None` means the flag is off for this workspace.
     if untagged_question_mode is not None:
@@ -1023,6 +1031,20 @@ def _untagged_questions_section_blocks(mode: UntaggedFollowupMode) -> list[dict]
         ),
         note="Only your own questions. Thread follow-ups keep the setting above.",
     )
+
+
+def _thread_join_blocks(mode: ThreadJoinMode) -> list[dict]:
+    """Picker for what happens when someone else tags PostHog in a thread you started."""
+    select = _static_select(
+        action_id=ACTION_SET_THREAD_JOIN_MODE,
+        placeholder="Choose who can join",
+        pairs=ThreadJoinMode.choices,
+        selected=mode.value,
+    )
+    return [
+        _subsection_label("People who join your threads"),
+        {"type": "actions", "elements": [select]},
+    ]
 
 
 CHANNEL_WELCOME_MODE_LABELS: dict[str, str] = {
@@ -1739,6 +1761,15 @@ def handle_ai_preferences_block_action(payload: dict, action: dict) -> HttpRespo
         republish()
         return HttpResponse(status=200)
 
+    if action_id == ACTION_SET_THREAD_JOIN_MODE:
+        picked = (action.get("selected_option") or {}).get("value")
+        # An unrecognised value is ignored rather than stored.
+        if picked in ThreadJoinMode.values:
+            set_thread_join_mode(integration.integration_id, slack_user_id, ThreadJoinMode(picked))
+            capture_slack_event(integration, "slack app thread join mode set", slack_user_id=slack_user_id, mode=picked)
+        republish()
+        return HttpResponse(status=200)
+
     if action_id == ACTION_SET_UNTAGGED_FOLLOWUP_MODE:
         if (mode := _picked_untagged_mode(action)) is not None:
             set_untagged_followup_mode(integration.integration_id, slack_user_id, mode)
@@ -2137,7 +2168,12 @@ def _clear_project_personal(integration: Integration, slack_user_id: str) -> Non
     ).first()
     if row is None:
         return
-    if not row.untagged_followup_mode and not row.untagged_question_mode and not row.auto_model_choice:
+    if (
+        not row.untagged_followup_mode
+        and not row.untagged_question_mode
+        and not row.auto_model_choice
+        and not row.thread_join_mode
+    ):
         row.delete()
         return
     row.default_integration = None
@@ -2209,6 +2245,7 @@ def _build_home_view(
             if _auto_model_choice_offered(integration, slack_user_id)
             else None
         ),
+        thread_join_mode=resolve_thread_join_mode(integration, slack_user_id),
         has_project_access=bool(accessible),
         # The same settings page the GitHub card deep-links to.
         account_settings_url=github_state.settings_url,

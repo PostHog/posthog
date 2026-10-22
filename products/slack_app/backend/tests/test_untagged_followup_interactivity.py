@@ -8,6 +8,7 @@ from django.apps import apps
 from django.core.cache import cache
 from django.test import TestCase, override_settings
 
+from parameterized import parameterized
 from rest_framework.test import APIClient
 
 from posthog.models.integration import Integration
@@ -16,6 +17,8 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from products.slack_app.backend.api import (
+    THREAD_JOIN_ACTION_ALLOW,
+    THREAD_JOIN_CONTEXT_KIND,
     UNTAGGED_FOLLOWUP_ACTION_DISMISS,
     UNTAGGED_FOLLOWUP_ACTION_RUN,
     UNTAGGED_FOLLOWUP_BLOCK_ID_PREFIX,
@@ -25,8 +28,15 @@ from products.slack_app.backend.api import (
     UNTAGGED_QUESTION_BLOCK_ID_PREFIX,
     UNTAGGED_QUESTION_CONTEXT_KIND,
     _picker_context_cache_key,
+    post_thread_join_prompt,
 )
-from products.slack_app.backend.models import SlackSettings, SlackThreadTaskMapping, UntaggedFollowupMode
+from products.slack_app.backend.models import (
+    SlackSettings,
+    SlackThreadJoin,
+    SlackThreadTaskMapping,
+    UntaggedFollowupMode,
+)
+from products.slack_app.backend.temporal.types import PostHogCodeSlackMentionWorkflowInputs
 from products.slack_app.backend.tests.helpers import sign_slack_request
 
 
@@ -107,6 +117,24 @@ class TestUntaggedFollowupInteractivity(TestCase):
                 "event": self.event,
                 "is_ext_shared_channel": False,
                 "created_at": int(time.time()),
+            },
+            timeout=900,
+        )
+
+    def _stash_thread_join_prompt(self) -> None:
+        cache.set(
+            _picker_context_cache_key(self.context_token),
+            {
+                "kind": THREAD_JOIN_CONTEXT_KIND,
+                "integration_id": self.integration.id,
+                "slack_channel_id": self.slack_channel_id,
+                "thread_ts": "1000.0000",
+                "owner_slack_user_id": "U_ALICE",
+                "joiner_slack_user_id": "U_BOB",
+                "event": self.event,
+                "untagged_followup": False,
+                "untagged_followup_confirmed": False,
+                "is_ext_shared_channel": False,
             },
             timeout=900,
         )
@@ -256,6 +284,51 @@ class TestUntaggedFollowupInteractivity(TestCase):
 
         assert response.status_code == 200
         mock_start.assert_not_called()
+
+    def test_a_waiting_join_prompt_is_not_posted_again(self, mock_slack_cls, mock_post):
+        # A joiner who keeps typing while the creator has not answered must not flood the creator.
+        slack = MagicMock()
+        inputs = PostHogCodeSlackMentionWorkflowInputs(
+            event=self.event, integration_id=self.integration.id, slack_team_id=self.slack_team_id, user_id=1
+        )
+        for _ in range(3):
+            post_thread_join_prompt(
+                slack,
+                self.integration,
+                inputs,
+                channel=self.slack_channel_id,
+                thread_ts="1000.0000",
+                owner_slack_user_id="U_ALICE",
+                joiner_slack_user_id="U_BOB",
+                opens_thread=False,
+            )
+
+        assert [c.kwargs["user"] for c in slack.client.chat_postEphemeral.call_args_list] == ["U_ALICE", "U_BOB"]
+
+    @parameterized.expand([("thread_creator", "U_ALICE", True), ("someone_else", "U_MALLORY", False)])
+    def test_only_the_thread_creator_can_let_someone_join(
+        self, mock_slack_cls, mock_post, _name: str, clicker: str, joins: bool
+    ):
+        mock_slack_cls.slack_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
+        self._stash_thread_join_prompt()
+
+        with (
+            self._stub_slack_user_email(self.member_user.email),
+            patch("products.slack_app.backend.api._start_mention_workflow") as mock_start,
+        ):
+            response = self._click(THREAD_JOIN_ACTION_ALLOW, clicker)
+
+        assert response.status_code == 200
+        joined = list(
+            SlackThreadJoin.objects.for_team(self.team.id)
+            .filter(thread_mapping=self.mapping)
+            .values_list("slack_user_id", flat=True)
+        )
+        assert joined == (["U_BOB"] if joins else [])
+        assert mock_start.called is joins
+        if joins:
+            assert mock_start.call_args.args[0] == self.event
+            assert mock_start.call_args.kwargs["posthog_user"].id == self.member_user.id
 
 
 @override_settings(DEBUG=True)

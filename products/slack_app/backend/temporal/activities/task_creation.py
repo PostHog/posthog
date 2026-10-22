@@ -14,6 +14,7 @@ from posthog.temporal.common.utils import close_db_connections
 
 from products.slack_app.backend.facade.api import slack_artifact_delivery_state_updates
 from products.slack_app.backend.logic.reply_suggestions import clear_open_suggestions
+from products.slack_app.backend.logic.thread_join import ThreadJoinDecision, decide_thread_join
 from products.slack_app.backend.services.slack_messages import (
     SlackThreadMessage,
     context_block,
@@ -950,6 +951,12 @@ def forward_posthog_code_followup_activity(
     actor_user = mapping.task.created_by
     followup_user_text_prefix: str | None = None
     if slack_user_id != mapping.mentioning_slack_user_id:
+        # Checked before the Slack lookup below, so a message the creator's mode drops costs
+        # no Slack call.
+        join = decide_thread_join(integration, mapping, slack_user_id)
+        if join == ThreadJoinDecision.DENY:
+            logger.info("slack_app_followup_thread_join_denied", channel=channel, thread_ts=thread_ts)
+            return True
         # The follow-up is from a different Slack user than the one who started the
         # thread. Try to resolve them to a PostHog user with access to the same team
         # — if so, let them participate under their own sandbox token, with their
@@ -978,6 +985,21 @@ def forward_posthog_code_followup_activity(
             actor=slack_user_id,
             actor_user_id=resolved.user.id,
         )
+        if join != ThreadJoinDecision.ALLOW:
+            from products.slack_app.backend.api import post_thread_join_prompt  # noqa: PLC0415
+
+            # The creator's approval sends this message again, so it stops here.
+            post_thread_join_prompt(
+                slack,
+                integration,
+                inputs,
+                channel=channel,
+                thread_ts=thread_ts,
+                owner_slack_user_id=mapping.mentioning_slack_user_id,
+                joiner_slack_user_id=slack_user_id,
+                opens_thread=join == ThreadJoinDecision.ASK_FOR_THREAD,
+            )
+            return True
 
     if block_if_team_over_quota(
         integration=integration,

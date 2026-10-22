@@ -59,6 +59,7 @@ from products.slack_app.backend.models import (
     ChannelWelcomeMode,
     SlackChannel,
     SlackSettings,
+    SlackThreadJoin,
     SlackThreadTaskMapping,
     UntaggedFollowupMode,
 )
@@ -213,6 +214,13 @@ UNTAGGED_FOLLOWUP_BLOCK_ID_PREFIX = "posthog_code_untagged_followup"
 UNTAGGED_FOLLOWUP_ACTION_RUN = "posthog_code_untagged_followup_run"
 UNTAGGED_FOLLOWUP_ACTION_DISMISS = "posthog_code_untagged_followup_dismiss"
 UNTAGGED_FOLLOWUP_CONTEXT_KIND = "untagged_followup"
+
+THREAD_JOIN_BLOCK_ID_PREFIX = "posthog_code_thread_join"
+THREAD_JOIN_ACTION_ALLOW = "posthog_code_thread_join_allow"
+THREAD_JOIN_ACTION_DECLINE = "posthog_code_thread_join_decline"
+THREAD_JOIN_CONTEXT_KIND = "thread_join"
+# The thread creator is often away when someone asks to join, so the prompt outlives a picker.
+THREAD_JOIN_PROMPT_MAX_AGE_SECONDS = 24 * 60 * 60
 UNTAGGED_QUESTION_BLOCK_ID_PREFIX = "posthog_code_untagged_question"
 UNTAGGED_QUESTION_ACTION_RUN = "posthog_code_untagged_question_run"
 UNTAGGED_QUESTION_ACTION_DISMISS = "posthog_code_untagged_question_dismiss"
@@ -4169,6 +4177,220 @@ def _handle_untagged_question_turn_off(payload: dict) -> HttpResponse:
     return HttpResponse(status=200)
 
 
+def _thread_join_pending_key(integration_id: int, channel: str, thread_ts: str, joiner_slack_user_id: str) -> str:
+    return f"slack_app_thread_join_pending:{integration_id}:{channel}:{thread_ts}:{joiner_slack_user_id}"
+
+
+def post_thread_join_prompt(
+    slack: SlackIntegration,
+    integration: Integration,
+    inputs: PostHogCodeSlackMentionWorkflowInputs,
+    *,
+    channel: str,
+    thread_ts: str,
+    owner_slack_user_id: str,
+    joiner_slack_user_id: str,
+    opens_thread: bool,
+) -> None:
+    """Ask the thread creator whether someone else may join their thread.
+
+    ``opens_thread`` says that approving lets anyone join the thread, not only this person.
+
+    The whole event is stashed behind a one-off token, so letting them join sends the original
+    message rather than a reconstruction of it. The person who asked hears that the creator was
+    asked, so their message does not seem lost. While a prompt for this person waits, their
+    next messages post no new prompt, so a chatty joiner cannot flood the creator.
+    """
+    pending_key = _thread_join_pending_key(integration.id, channel, thread_ts, joiner_slack_user_id)
+    if not cache.add(pending_key, True, timeout=THREAD_JOIN_PROMPT_MAX_AGE_SECONDS):
+        return
+
+    context_token = uuid.uuid4().hex
+    cache.set(
+        _picker_context_cache_key(context_token),
+        {
+            "kind": THREAD_JOIN_CONTEXT_KIND,
+            "integration_id": integration.id,
+            "slack_channel_id": channel,
+            "thread_ts": thread_ts,
+            "owner_slack_user_id": owner_slack_user_id,
+            "joiner_slack_user_id": joiner_slack_user_id,
+            "event": inputs.event,
+            "untagged_followup": inputs.untagged_followup,
+            "untagged_followup_confirmed": inputs.untagged_followup_confirmed,
+            "is_ext_shared_channel": inputs.is_ext_shared_channel,
+        },
+        timeout=THREAD_JOIN_PROMPT_MAX_AGE_SECONDS,
+    )
+    home_tab_url = app_home_url(integration)
+    home_tab_label = f"<{home_tab_url}|PostHog app Home tab>" if home_tab_url else "PostHog app Home tab"
+    blocks: list[dict[str, Any]] = [
+        {
+            "type": "section",
+            "block_id": f"{THREAD_JOIN_BLOCK_ID_PREFIX}:{context_token}",
+            "text": {
+                "type": "mrkdwn",
+                "text": f"<@{joiner_slack_user_id}> wants to work with me in your thread. "
+                + ("Let anyone join this thread?" if opens_thread else "Let them join?"),
+            },
+        },
+        {
+            "type": "actions",
+            "block_id": f"{THREAD_JOIN_BLOCK_ID_PREFIX}_actions:{context_token}",
+            "elements": [
+                {
+                    "type": "button",
+                    "action_id": THREAD_JOIN_ACTION_ALLOW,
+                    "style": "primary",
+                    "text": {"type": "plain_text", "text": "Let anyone join" if opens_thread else "Let them join"},
+                    "value": context_token,
+                },
+                {
+                    "type": "button",
+                    "action_id": THREAD_JOIN_ACTION_DECLINE,
+                    "text": {"type": "plain_text", "text": "Not now"},
+                    "value": context_token,
+                },
+            ],
+        },
+        {
+            "type": "context",
+            "elements": [
+                {
+                    "type": "mrkdwn",
+                    "text": f"In the {home_tab_label} you can choose who joins your threads.",
+                }
+            ],
+        },
+    ]
+    try:
+        slack.client.chat_postEphemeral(
+            channel=channel,
+            user=owner_slack_user_id,
+            thread_ts=thread_ts,
+            text="Someone wants to join your PostHog thread.",
+            blocks=blocks,
+        )
+        slack.client.chat_postEphemeral(
+            channel=channel,
+            user=joiner_slack_user_id,
+            thread_ts=thread_ts,
+            text=f"I asked <@{owner_slack_user_id}> to let you join this thread. I'll pick up your message if they do.",
+        )
+    except Exception:
+        logger.warning(
+            "slack_app_thread_join_prompt_failed",
+            integration_id=integration.id,
+            slack_channel_id=channel,
+            exc_info=True,
+        )
+        cache.delete(pending_key)
+        return
+    capture_slack_event(integration, "slack app thread join requested", slack_user_id=joiner_slack_user_id)
+
+
+def _thread_join_context(payload: dict) -> dict[str, Any] | None:
+    """The live join prompt this click answers, when the thread creator is the one clicking.
+
+    Either answer closes the prompt, so the token and the pending marker go with it.
+    """
+    context_token = _extract_context_token(payload)
+    context = _decode_picker_context(context_token) if context_token else None
+    if not context or context.get("kind") != THREAD_JOIN_CONTEXT_KIND:
+        return None
+    # The prompt is ephemeral, so only the creator sees it, but the answer acts for them.
+    if payload.get("user", {}).get("id", "") != context.get("owner_slack_user_id"):
+        return None
+    cache.delete(_picker_context_cache_key(context_token))
+    cache.delete(
+        _thread_join_pending_key(
+            context["integration_id"],
+            context["slack_channel_id"],
+            context["thread_ts"],
+            context["joiner_slack_user_id"],
+        )
+    )
+    return context
+
+
+def _handle_thread_join_allow(payload: dict) -> HttpResponse:
+    """Let the person join the thread, then send the message that asked to join."""
+    response_url = payload.get("response_url", "")
+    context = _thread_join_context(payload)
+    slack_team_id = payload.get("team", {}).get("id", "")
+    if context is None or not slack_team_id:
+        _delete_ephemeral_via_response_url(response_url)
+        return HttpResponse(status=200)
+    integration_id = context.get("integration_id")
+    if not isinstance(integration_id, int):
+        _delete_ephemeral_via_response_url(response_url)
+        return HttpResponse(status=200)
+    integration = (
+        Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
+            id=integration_id,  # nosemgrep: idor-taint-user-input-to-model-get
+            kind=SLACK_INTEGRATION_KIND,
+            integration_id=slack_team_id,
+        )
+        .select_related("team__organization")
+        .first()
+    )
+    joiner_slack_user_id = context.get("joiner_slack_user_id")
+    event = context.get("event")
+    if integration is None or not isinstance(joiner_slack_user_id, str) or not isinstance(event, dict):
+        _delete_ephemeral_via_response_url(response_url)
+        return HttpResponse(status=200)
+
+    mapping = (
+        SlackThreadTaskMapping.objects.filter(
+            integration_id=integration.id,
+            channel=context.get("slack_channel_id"),
+            thread_ts=context.get("thread_ts"),
+        )
+        .only("id", "team_id")
+        .first()
+    )
+    if mapping is None:
+        _delete_ephemeral_via_response_url(response_url)
+        return HttpResponse(status=200)
+    # The message re-enters the pipeline past the webhook's gates, so the joiner's access to the
+    # mapped project is checked again here.
+    joiner = _is_org_member(integration, joiner_slack_user_id)
+    if joiner is None or not _can_access_team(joiner, integration):
+        _delete_ephemeral_via_response_url(response_url)
+        return HttpResponse(status=200)
+    # The unique constraint makes a double click or a retry a no-op.
+    SlackThreadJoin.objects.for_team(mapping.team_id).get_or_create(
+        thread_mapping=mapping,
+        slack_user_id=joiner_slack_user_id,
+        defaults={"team_id": mapping.team_id},
+    )
+
+    _start_mention_workflow(
+        event,
+        integration,
+        slack_team_id,
+        None,
+        posthog_user=joiner,
+        untagged_followup=bool(context.get("untagged_followup")),
+        untagged_followup_confirmed=bool(context.get("untagged_followup_confirmed")),
+        is_ext_shared_channel=bool(context.get("is_ext_shared_channel")),
+    )
+    capture_slack_event(
+        integration,
+        "slack app thread join allowed",
+        slack_user_id=payload.get("user", {}).get("id"),
+    )
+    _delete_ephemeral_via_response_url(response_url)
+    return HttpResponse(status=200)
+
+
+def _handle_thread_join_decline(payload: dict) -> HttpResponse:
+    """Drop the message. Nothing is stored, so the same person can ask again later."""
+    _thread_join_context(payload)
+    _delete_ephemeral_via_response_url(payload.get("response_url", ""))
+    return HttpResponse(status=200)
+
+
 def _can_access_team(posthog_user: User, integration: Integration) -> bool:
     """Whether the user can reach the integration's project.
 
@@ -6201,6 +6423,10 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
                 return _handle_untagged_followup_run(payload)
             if action_id == UNTAGGED_FOLLOWUP_ACTION_DISMISS:
                 return _handle_untagged_followup_dismiss(payload)
+            if action_id == THREAD_JOIN_ACTION_ALLOW:
+                return _handle_thread_join_allow(payload)
+            if action_id == THREAD_JOIN_ACTION_DECLINE:
+                return _handle_thread_join_decline(payload)
             if action_id == UNTAGGED_QUESTION_ACTION_RUN:
                 return _handle_untagged_question_run(payload)
             if action_id == UNTAGGED_QUESTION_ACTION_DISMISS:
