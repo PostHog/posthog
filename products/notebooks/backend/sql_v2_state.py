@@ -78,6 +78,8 @@ class NotebookCellState:
     # cell's own terms — not just the editor, which passes them per request — needs them.
     connection_id: str | None = None
     send_raw_query: bool = False
+    # A Python cell's data warehouse table for its result dataframe, or None to save no table.
+    warehouse_table_name: str | None = None
     status: str = "never_run"
     depends_on: list[str] = field(default_factory=list)
     dependents: list[str] = field(default_factory=list)
@@ -175,6 +177,11 @@ def extract_cells(content: Any) -> list[NotebookCellState]:
         if cell_type == "saved_insight" and not (isinstance(code, str) and code.strip()):
             dataframe_name = ""
         connection_id = props.get("connectionId")
+        warehouse_table_name = props.get("warehouseTableName")
+        if not (
+            cell_type == "python" and props.get("saveToWarehouse") is True and isinstance(warehouse_table_name, str)
+        ):
+            warehouse_table_name = None
         cells.append(
             NotebookCellState(
                 node_id=node_id,
@@ -183,6 +190,7 @@ def extract_cells(content: Any) -> list[NotebookCellState]:
                 code=code if isinstance(code, str) else "",
                 connection_id=connection_id if isinstance(connection_id, str) and connection_id else None,
                 send_raw_query=props.get("sendRawQuery") is True,
+                warehouse_table_name=warehouse_table_name.strip() or None if warehouse_table_name else None,
                 visualization=_visualization_from_props(props) if tag_name == "SQLV2" else None,
             )
         )
@@ -354,6 +362,43 @@ def annotate_run_state(cells: list[NotebookCellState], team_id: int, notebook: A
             cell.status = "stale"
         else:
             cell.status = latest.status
+
+
+def upstream_hogql_queries(team_id: int, notebook: Any, node_id: str) -> list[str]:
+    """The ClickHouse queries a cell's result comes from, for data lineage.
+
+    Walks the cell's upstream cells in the notebook. A SQL cell whose last done run went to
+    ClickHouse gives its run code, which already has its own upstream SQL inlined. A Python
+    cell, or a SQL cell that ran in DuckDB, reads other cells, so the walk goes on through it.
+    A cell on another connection reads nothing PostHog tracks, so it adds nothing.
+    """
+    cells = extract_cells(notebook.content)
+    build_dependency_edges(cells)
+    cells_by_node = {cell.node_id: cell for cell in cells}
+    if node_id not in cells_by_node:
+        return []
+    latest_done_by_node = {
+        run.node_id: run
+        for run in NotebookNodeRun.objects.for_team(team_id)
+        .filter(notebook=notebook, node_id__in=list(cells_by_node), status=NotebookNodeRun.Status.DONE)
+        .order_by("node_id", "-created_at")
+        .distinct("node_id")
+    }
+    queries: list[str] = []
+    seen = {node_id}
+    pending = list(cells_by_node[node_id].depends_on)
+    while pending:
+        upstream_id = pending.pop()
+        if upstream_id in seen:
+            continue
+        seen.add(upstream_id)
+        run = latest_done_by_node.get(upstream_id)
+        if run is not None and run.node_type == NotebookNodeRun.NodeType.HOGQL:
+            if run.connection_id is None and run.code.strip():
+                queries.append(run.code)
+            continue
+        pending.extend(cells_by_node[upstream_id].depends_on)
+    return queries
 
 
 def build_notebook_cell_state(team_id: int, notebook: Any) -> list[NotebookCellState]:

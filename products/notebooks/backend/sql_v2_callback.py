@@ -20,6 +20,8 @@ from products.notebooks.backend.sql_v2 import verify_callback_token
 from products.notebooks.backend.sql_v2_concurrency import release_run_slots
 from products.notebooks.backend.sql_v2_metrics import outcome_for_status, record_node_run_terminal
 from products.notebooks.backend.sql_v2_serializers import NotebookSQLV2CallbackRequestSerializer
+from products.notebooks.backend.tasks.warehouse_tables import save_notebook_warehouse_table
+from products.notebooks.backend.warehouse_tables import upload_outcome
 
 logger = structlog.get_logger(__name__)
 
@@ -98,6 +100,10 @@ def notebook_sql_v2_callback(request, run_id: str) -> JsonResponse:
         "interrupted": NotebookNodeRun.Status.INTERRUPTED,
     }
     run.status = status_by_envelope.get(envelope.get("status"), NotebookNodeRun.Status.FAILED)
+    warehouse_upload = envelope.pop("warehouse_upload", None)
+    if run.status == NotebookNodeRun.Status.DONE and run.warehouse_table_name:
+        envelope["warehouse_table"] = upload_outcome(run.warehouse_table_name, warehouse_upload)
+    stored_warehouse_table = run.envelope.get("warehouse_table") if isinstance(run.envelope, dict) else None
     run.envelope = envelope
     run.result_id = envelope.get("result_id")
     run.error = envelope.get("error")
@@ -117,7 +123,12 @@ def notebook_sql_v2_callback(request, run_id: str) -> JsonResponse:
         )
     )
     if not won_transition:
+        if stored_warehouse_table is not None:
+            # Only the winning delivery saves the table, so a re-delivery keeps its outcome.
+            envelope["warehouse_table"] = stored_warehouse_table
         run.save(update_fields=["status", "envelope", "result_id", "error", "updated_at"])
+    elif envelope.get("warehouse_table", {}).get("pending"):
+        save_notebook_warehouse_table.delay(team_id, str(run.id))
 
     _store_frame_snapshot(run, frames, team_id)
 

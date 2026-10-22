@@ -10,7 +10,7 @@ Document order is dependency order: a cell can only read exports of earlier cell
 the rule the editor's staleness chain already relies on. So the plan needs no sorting.
 """
 
-from typing import Any, TypedDict
+from typing import Any, NotRequired, TypedDict
 from uuid import UUID
 
 from django.db import IntegrityError, transaction
@@ -59,6 +59,8 @@ class PlannedCell(TypedDict):
     code: str
     connection_id: str | None
     send_raw_query: bool
+    # Absent from plans stored before warehouse tables existed.
+    warehouse_table_name: NotRequired[str | None]
 
 
 class NotebookRunNothingToRun(Exception):
@@ -98,6 +100,7 @@ def plan_notebook_cells(notebook: Notebook, *, include_prepared_insights: bool =
             code=cell.code,
             connection_id=cell.connection_id,
             send_raw_query=cell.send_raw_query,
+            warehouse_table_name=cell.warehouse_table_name,
         )
         for cell in extract_cells(notebook.content)
         if (cell.cell_type in RUNNABLE_CELL_TYPES or (include_prepared_insights and cell.cell_type == "saved_insight"))
@@ -202,6 +205,12 @@ def start_notebook_run(
     )
 
 
+def notebook_saves_warehouse_tables(*, team_id: int, notebook_short_id: str) -> bool:
+    """Whether a whole-notebook run would save any cell's dataframe as a warehouse table."""
+    notebook = resolve_team_notebook(team_id, notebook_short_id)
+    return any(cell.warehouse_table_name for cell in extract_cells(notebook.content))
+
+
 def read_notebook_run(*, team_id: int, notebook_short_id: str, run_id: str | UUID) -> dict[str, Any] | None:
     """One run as a client reads it, or None when this notebook has no such run."""
     notebook = resolve_team_notebook(team_id, notebook_short_id)
@@ -269,6 +278,7 @@ def node_run_request_for(notebook_run: NotebookRun, index: int) -> NodeRunReques
         connection_id=UUID(connection_id) if connection_id else None,
         send_raw_query=bool(cell.get("send_raw_query")) and connection_id is not None,
         notebook_run_id=notebook_run.id,
+        warehouse_table_name=cell.get("warehouse_table_name") if is_python else None,
     )
 
 
@@ -436,6 +446,7 @@ __all__ = [
     "interrupt_notebook_run",
     "node_run_request_for",
     "notebook_run_status",
+    "notebook_saves_warehouse_tables",
     "plan_notebook_cells",
     "start_notebook_run",
     "stop_current_cell",

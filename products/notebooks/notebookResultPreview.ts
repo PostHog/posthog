@@ -7,6 +7,7 @@ export interface NotebookResultPreviewSource<Row extends unknown[]> {
     stdout?: string
     stderr?: string
     result_text?: string
+    warehouse_table?: { name: string; error?: string | null; pending?: boolean }
 }
 
 export function notebookResultPreview<Row extends unknown[]>(
@@ -20,6 +21,7 @@ export function notebookResultPreview<Row extends unknown[]>(
     stdout: string
     stderr: string
     result_text?: string
+    warehouse_table?: { name: string; error?: string | null; pending?: boolean }
     previewOnly: true
 } {
     const rows: Row[] = []
@@ -38,6 +40,7 @@ export function notebookResultPreview<Row extends unknown[]>(
         stdout: (result.stdout ?? '').slice(0, 2048),
         stderr: (result.stderr ?? '').slice(0, 2048),
         ...(result.result_text ? { result_text: result.result_text.slice(0, 2048) } : {}),
+        ...(result.warehouse_table ? { warehouse_table: result.warehouse_table } : {}),
         previewOnly: true,
     }
 }
