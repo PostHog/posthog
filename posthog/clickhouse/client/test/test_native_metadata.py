@@ -77,9 +77,9 @@ class TestNativeMetadataCapacity(SimpleTestCase):
             patch("posthog.clickhouse.native_metadata._run_metadata_process", side_effect=run),
         ):
             try:
-                poll = submit_legacy_metadata({"poll": True}, polling=True)
+                poll = submit_legacy_metadata({"operation": "poll", "poll": True})
                 self.assertTrue(started.wait(1))
-                self.assertIsNone(submit_legacy_metadata({}, polling=True))
+                self.assertIsNone(submit_legacy_metadata({"operation": "poll"}))
                 for submit in (
                     submit_legacy_metadata,
                     partial(submit_native_metadata, native_host="native.example.com"),

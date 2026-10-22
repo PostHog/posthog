@@ -10,7 +10,7 @@ from posthog.api.services.query import logger
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import default_client
 from posthog.clickhouse.metadata_worker import PHYSICAL_QUERY_ID_PREDICATE, physical_query_id_prefix
-from posthog.clickhouse.native_metadata import submit_legacy_metadata, submit_native_metadata
+from posthog.clickhouse.native_metadata import CANCEL_DEADLINE_SECONDS, submit_legacy_metadata, submit_native_metadata
 from posthog.clickhouse.query_tagging import tags_context
 from posthog.models.event.new_events_schema import (
     get_new_events_cluster_host_or_none,
@@ -47,7 +47,7 @@ def cancel_query_on_cluster(team_id: int, client_query_id: str) -> None:
             _cancel_legacy_query(team_id, client_query_id)
             return
 
-        deadline = monotonic() + 20
+        deadline = monotonic() + CANCEL_DEADLINE_SECONDS
         common = {
             "prefix": physical_query_id_prefix(team_id, client_query_id),
             "fallback": settings.CLICKHOUSE_FALLBACK_CANCEL_QUERY_ON_CLUSTER,

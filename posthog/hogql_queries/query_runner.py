@@ -2164,10 +2164,19 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         """
         return True
 
-    def _async_runner_state(self) -> dict[str, Any] | None:
+    def _async_task_payload(self) -> tuple[dict[str, Any], dict[str, Any] | None]:
+        query_json = self.query.model_dump()
         if not self._modifiers_override_provided:
-            return None
-        return {"query": self.query.model_dump(), "modifiers": self.modifiers.model_dump()}
+            if self._should_pin_events_route():
+                query_json = with_pinned_events_route(query_json, self.modifiers)
+            return query_json, None
+        # Normalize every source so old workers cannot inherit a modifier cleared by the constructor.
+        source: dict[str, Any] | None = query_json
+        while isinstance(source, dict):
+            if "modifiers" in source:
+                source["modifiers"] = self.modifiers.model_dump()
+            source = source.get("source")
+        return query_json, {"query": self.query.model_dump(), "modifiers": self.modifiers.model_dump()}
 
     def enqueue_async_calculation(
         self,
@@ -2203,18 +2212,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         # `user` is typed Optional[User] but shared renders pass a SharedLinkUser at runtime.
         principal = cast("Optional[User | SyntheticUser | SharedLinkUser]", user)
         sharing_configuration_id = principal.sharing_configuration.pk if isinstance(principal, SharedLinkUser) else None
-        query_json = self.query.model_dump()
-        modifier_sources = [query_json]
-        while isinstance(source := modifier_sources[-1].get("source"), dict):
-            modifier_sources.append(source)
-        if self._modifiers_override_provided:
-            # Normalize every source so old workers cannot inherit a modifier cleared by the constructor.
-            for source in modifier_sources:
-                if "modifiers" in source:
-                    source["modifiers"] = self.modifiers.model_dump()
-        elif self._should_pin_events_route():
-            query_json = with_pinned_events_route(query_json, self.modifiers)
-
+        query_json, runner_state = self._async_task_payload()
         return enqueue_process_query_task(
             team=self.team,
             user_id=user.id if user else None,
@@ -2222,7 +2220,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             insight_id=cache_manager.insight_id,
             dashboard_id=cache_manager.dashboard_id,
             query_json=query_json,
-            runner_state=self._async_runner_state(),
+            runner_state=runner_state,
             query_id=self.query_id or cache_manager.cache_key,  # Use cache key as query ID to avoid duplicates
             cache_key=cache_manager.cache_key,
             labels=self.query_status_labels(),

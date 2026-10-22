@@ -14,6 +14,9 @@ from statshog.defaults.django import statsd
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload, default_client_kwargs
 from posthog.clickhouse.query_tagging import get_query_tags
 
+POLL_DEADLINE_SECONDS = 3.0
+CANCEL_DEADLINE_SECONDS = 20.0
+
 _pools: dict[tuple[bool, bool], tuple[ThreadPoolExecutor, BoundedSemaphore]] = {}
 _pool_lock = Lock()
 
@@ -45,9 +48,9 @@ def submit_native_metadata(
     *,
     native_host: str,
     team_id: int | None = None,
-    polling: bool = False,
     deadline: float | None = None,
 ) -> Future[Any] | None:
+    polling = _is_poll(job)
     job = {
         **job,
         "cluster": settings.CLICKHOUSE_EVENTS_CLUSTER,
@@ -56,16 +59,19 @@ def submit_native_metadata(
     return _submit_metadata(job, native=True, polling=polling, deadline=deadline)
 
 
-def submit_legacy_metadata(
-    job: dict[str, Any], *, polling: bool = False, deadline: float | None = None
-) -> Future[Any] | None:
+def submit_legacy_metadata(job: dict[str, Any], *, deadline: float | None = None) -> Future[Any] | None:
+    polling = _is_poll(job)
     job = {**job, "cluster": settings.CLICKHOUSE_CLUSTER, "connection": metadata_connection(polling=polling)}
     return _submit_metadata(job, native=False, polling=polling, deadline=deadline)
 
 
+def _is_poll(job: dict[str, Any]) -> bool:
+    return job.get("operation") == "poll"
+
+
 def _submit_metadata(job: dict[str, Any], *, native: bool, polling: bool, deadline: float | None) -> Future[Any] | None:
     if deadline is None:
-        deadline = monotonic() + (3 if polling else 20)
+        deadline = monotonic() + (POLL_DEADLINE_SECONDS if polling else CANCEL_DEADLINE_SECONDS)
     key = (native, polling)
     with _pool_lock:
         if key not in _pools:
