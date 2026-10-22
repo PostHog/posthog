@@ -562,9 +562,11 @@ impl ActiveState {
 
     /// Only an accepted or partial settlement is a sample, because a fault or
     /// a busy answer measures the failure, not the worker. Saturation still
-    /// reaches the average: a saturated worker answers late, or partial at
-    /// the soft budget. Faults and ack timeouts go to health routing instead,
-    /// and a busy answer waits out the busy retry delay.
+    /// reaches the average, because the workers send no busy answer: a
+    /// request that finds no free slot waits for one, and at its soft budget
+    /// it comes back as a partial with nothing finished. Faults and ack
+    /// timeouts go to health routing instead, and a busy answer waits out the
+    /// busy retry delay.
     fn observe_rtt(&mut self, sent: &InFlightRequest, now: Instant) {
         let sent_while_reconnecting = self
             .reconnecting

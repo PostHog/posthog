@@ -508,6 +508,8 @@ mod tests {
     use std::num::{NonZeroU32, NonZeroUsize};
     use std::time::Duration;
 
+    use rstest::rstest;
+
     use super::*;
     use crate::batcher::packer::{PackTargets, Packer};
     use crate::batcher::retry_policy::RetryPolicy;
@@ -979,8 +981,16 @@ mod tests {
         );
     }
 
+    #[rstest]
+    #[case::accepted(SendOutcome::Accepted(1))]
+    #[case::a_partial_that_finished_nothing(SendOutcome::Partial {
+        accepted: 0,
+        unfinished: vec![message("a", 0, 1)],
+    })]
     #[tokio::test(start_paused = true)]
-    async fn the_rtt_sample_is_the_time_between_dispatch_and_settlement() {
+    async fn the_rtt_sample_is_the_time_between_dispatch_and_settlement(
+        #[case] outcome: SendOutcome,
+    ) {
         let h = Harness::new(&["w"], 4);
         let snapshots = h.driver.snapshot_sender();
         h.submit(vec![run("a", &[1])]);
@@ -989,7 +999,7 @@ mod tests {
 
         let rtt = Duration::from_millis(750);
         tokio::time::advance(rtt).await;
-        send.reply.send(Ok(SendOutcome::Accepted(1))).unwrap();
+        send.reply.send(Ok(outcome)).unwrap();
         settle().await;
         let snapshot = snapshots.snapshot().await.expect("the task answers");
         assert_eq!(snapshot.governor.rtt, Some(rtt));
