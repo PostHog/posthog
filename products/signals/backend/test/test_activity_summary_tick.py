@@ -2,6 +2,7 @@ import json
 import uuid
 import asyncio
 import datetime
+import dataclasses
 from typing import Any
 
 import pytest
@@ -9,9 +10,12 @@ import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.test import override_settings
+
 from parameterized import parameterized
 from temporalio import activity
 from temporalio.client import Client, ScheduleState
+from temporalio.converter import DataConverter
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
@@ -24,15 +28,18 @@ from products.signals.backend.activity_summary import (
 from products.signals.backend.activity_summary.config import ActivitySummaryConfig, parse_config
 from products.signals.backend.activity_summary.queue import (
     ActivitySummaryPair,
+    DailyUsage,
     daily_usage,
     max_update_cost_usd,
     select_pairs,
 )
+from products.signals.backend.activity_summary.render import DEFAULT_LIMITS, MAX_LIMITS, RenderLimits
 from products.signals.backend.activity_summary.schedule import (
     ACTIVITY_SUMMARY_TICK_SCHEDULE_ID,
     create_activity_summary_tick_schedule,
 )
 from products.signals.backend.activity_summary.tick import (
+    STOP_GATEWAY_NOT_CONFIGURED,
     STOP_MAX_COST_USD_PER_DAY,
     STOP_MAX_PAIRS_PER_DAY,
     STOP_MAX_PAIRS_PER_TICK,
@@ -99,6 +106,24 @@ _CONFIG_CASES: list[tuple[str, Any, ActivitySummaryConfig]] = [
             capture_events=False,
         ),
     ),
+    (
+        "limits fall back to the defaults when invalid and clamp when too large",
+        {
+            "enabled": True,
+            "limits": {
+                "task_lines": 20,
+                "activity_lines": 0,
+                "max_units_per_day": True,
+                "sections_max_chars": "9000",
+                "window_days": 10_000,
+                "max_completion_tokens": 10_000_000,
+            },
+        },
+        ActivitySummaryConfig(
+            enabled=True, limits=RenderLimits(task_lines=20, window_days=90, max_completion_tokens=16000)
+        ),
+    ),
+    ("limits that are not an object", {"enabled": True, "limits": [5]}, ActivitySummaryConfig(enabled=True)),
 ]
 
 
@@ -201,35 +226,58 @@ class TestActivitySummaryQueue(BaseTest):
         usage = daily_usage(NOW)
 
         assert usage.updates == 2
-        assert usage.cost_usd == pytest.approx(0.25 + max_update_cost_usd())
+        assert usage.cost_usd == pytest.approx(0.25 + max_update_cost_usd(MAX_LIMITS))
         with time_machine.travel(NOW + datetime.timedelta(days=1, minutes=1), tick=False):
             assert daily_usage(NOW + datetime.timedelta(days=1, minutes=1)).updates == 0
 
     @parameterized.expand(
         [
-            ("the tick cap", {"max_pairs_per_tick": 1}, STOP_MAX_PAIRS_PER_TICK, 1),
-            ("the daily pair cap", {"max_pairs_per_day": 1}, STOP_MAX_PAIRS_PER_DAY, 0),
-            ("the daily cost cap", {"max_cost_usd_per_day": 0.1}, STOP_MAX_COST_USD_PER_DAY, 0),
-            ("no cap", {}, None, 2),
+            ("the tick cap", {"max_pairs_per_tick": 1}, "phs_test", STOP_MAX_PAIRS_PER_TICK, 1),
+            ("the daily pair cap", {"max_pairs_per_day": 1}, "phs_test", STOP_MAX_PAIRS_PER_DAY, 0),
+            ("the daily cost cap", {"max_cost_usd_per_day": 0.1}, "phs_test", STOP_MAX_COST_USD_PER_DAY, 0),
+            ("no cap", {}, "phs_test", None, 2),
+            ("no gateway", {}, "", STOP_GATEWAY_NOT_CONFIGURED, 0),
         ]
     )
     def test_plan_names_the_cap_that_stops_it(
-        self, _name: str, overrides: dict[str, Any], stop_reason: str | None, pairs: int
+        self, _name: str, overrides: dict[str, Any], gateway_key: str, stop_reason: str | None, pairs: int
     ) -> None:
         self._changes(self._user("a@example.com"), 3)
         self._changes(self._user("b@example.com"), 3)
         self._summary(self.user, cost_usd=0.1)
 
         with (
+            override_settings(
+                AI_GATEWAY_URL="https://ai-gateway.example/v1" if gateway_key else "",
+                AI_GATEWAY_API_KEY=gateway_key,
+                LLM_GATEWAY_URL="",
+                LLM_GATEWAY_API_KEY="",
+            ),
             patch.object(tick, "read_config", return_value=self._config(**overrides)),
             patch("products.signals.backend.activity_summary.queue.list_user_task_times", return_value=[]),
         ):
             plan = plan_tick(None, NOW)
 
-        assert (plan.stop_reason, len(plan.pairs)) == (stop_reason, pairs)
+        assert (plan.stop_reason, len(plan.pairs), plan.enabled) == (stop_reason, pairs, bool(gateway_key))
 
-    def test_a_skipped_pair_does_not_come_back_on_the_next_tick(self) -> None:
-        self._changes(self.user, 2)
+    @parameterized.expand(
+        [
+            ("too few units", 2, {"return_value": FakeLLM([ANSWER])}, False, "skipped_too_few_units", False),
+            (
+                "an exception before the model call",
+                3,
+                {"side_effect": RuntimeError("no gateway")},
+                False,
+                "failed",
+                False,
+            ),
+            ("an exception after the model call", 3, {"return_value": FakeLLM([ANSWER])}, True, "failed", True),
+        ]
+    )
+    def test_a_pair_that_raised_or_skipped_does_not_come_back_on_the_next_tick(
+        self, _name: str, changes: int, gateway: dict[str, Any], store_fails: bool, status: str, called_model: bool
+    ) -> None:
+        self._changes(self.user, changes)
         pair_input = ActivitySummaryPairInput(
             team_id=self.team.id,
             user_id=self.user.id,
@@ -240,11 +288,49 @@ class TestActivitySummaryQueue(BaseTest):
         )
         assert self._select() == [(self.team.id, self.user.id)]
 
-        with patch("products.signals.backend.activity_summary.logic.gateway_client", return_value=FakeLLM([ANSWER])):
+        with (
+            patch("products.signals.backend.activity_summary.logic.gateway_client", **gateway),
+            patch(
+                "products.signals.backend.activity_summary.logic.summary_text",
+                side_effect=RuntimeError("store failed") if store_fails else None,
+                return_value="summary",
+            ),
+        ):
             result = run_pair(pair_input)
 
-        assert (result.status, result.called_model) == ("skipped_too_few_units", False)
+        assert (result.status, result.called_model) == (status, called_model)
         assert self._select() == []
+        if called_model:
+            assert result.cost_usd
+            usage = daily_usage(NOW)
+            assert usage.updates == 1
+            assert usage.cost_usd == pytest.approx(result.cost_usd)
+        else:
+            assert daily_usage(NOW) == DailyUsage(updates=0, cost_usd=0.0)
+
+    def test_an_exception_before_the_model_call_keeps_an_earlier_paid_update_in_the_daily_caps(self) -> None:
+        self._changes(self.user, 3)
+        UserActivitySummary.objects.for_team(self.team.id).create(
+            team_id=self.team.id, user_id=self.user.id, status=UserActivitySummary.Status.FAILED, cost_usd=0.25
+        )
+
+        with patch(
+            "products.signals.backend.activity_summary.logic.gateway_client", side_effect=RuntimeError("no gateway")
+        ):
+            result = run_pair(
+                ActivitySummaryPairInput(
+                    team_id=self.team.id,
+                    user_id=self.user.id,
+                    min_units=3,
+                    min_update_interval_hours=24,
+                    emit_embeddings=True,
+                    capture_events=True,
+                )
+            )
+
+        assert (result.status, result.called_model) == ("failed", False)
+        assert self._select() == []
+        assert daily_usage(NOW) == DailyUsage(updates=1, cost_usd=0.25)
 
     def test_an_ok_update_emits_the_embedding_and_an_event_without_the_summary(self) -> None:
         self._changes(self.user, 3)
@@ -306,6 +392,7 @@ def _plan(pairs: int, **overrides: Any) -> ActivitySummaryTickPlan:
         "min_update_interval_hours": 24.0,
         "emit_embeddings": True,
         "capture_events": True,
+        "limits": DEFAULT_LIMITS,
         "stop_reason": None,
     }
     return ActivitySummaryTickPlan(**{**fields, **overrides})
@@ -376,3 +463,32 @@ async def test_a_disabled_tick_runs_no_pair() -> None:
     result, peak, captured = await _run_tick(_plan(0, enabled=False), 0.01)
 
     assert (result, peak, captured) == (ActivitySummaryTickResult(), 0, [])
+
+
+@parameterized.expand(
+    [
+        ("tick plan", ActivitySummaryTickPlan, lambda: _plan(1)),
+        (
+            "pair input",
+            ActivitySummaryPairInput,
+            lambda: ActivitySummaryPairInput(
+                team_id=1,
+                user_id=2,
+                min_units=3,
+                min_update_interval_hours=24.0,
+                emit_embeddings=True,
+                capture_events=True,
+            ),
+        ),
+    ]
+)
+def test_a_payload_recorded_before_limits_existed_decodes_with_the_default_limits(
+    _name: str, cls: type, build: Any
+) -> None:
+    converter = DataConverter.default.payload_converter
+    recorded = {key: value for key, value in dataclasses.asdict(build()).items() if key != "limits"}
+
+    [decoded] = converter.from_payloads(converter.to_payloads([recorded]), [cls])
+
+    assert decoded == build()
+    assert decoded.limits == DEFAULT_LIMITS

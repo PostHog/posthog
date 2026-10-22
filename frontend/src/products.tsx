@@ -133,7 +133,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/canvases/:id': ['CanvasDetail', 'canvasDetail'],
     '/transformations': ['Transformations', 'transformations'],
     '/event-filtering': ['EventFiltering', 'eventFiltering'],
-    '/feature_flags/staff/cohorts': ['CohortsStaffTools', 'cohortsStaffTools'],
+    '/feature-flags/staff/cohorts': ['CohortsStaffTools', 'cohortsStaffTools'],
     '/support/tickets': ['SupportTickets', 'supportTickets'],
     '/support/tickets/:ticketId': ['SupportTicketDetail', 'supportTicketDetail'],
     '/support/settings': ['SupportSettings', 'supportSettings'],
@@ -241,8 +241,8 @@ export const productRoutes: Record<string, [string, string]> = {
     '/error-tracking/:id': ['ErrorTrackingIssue', 'errorTrackingIssue'],
     '/experiments': ['Experiments', 'experiments'],
     '/experiments/staff': ['ExperimentsStaffTools', 'experimentsStaffTools'],
-    '/feature_flags/templates': ['FeatureFlagTemplates', 'featureFlagTemplates'],
-    '/feature_flags/staff': ['FeatureFlagsStaffTools', 'featureFlagsStaffTools'],
+    '/feature-flags/templates': ['FeatureFlagTemplates', 'featureFlagTemplates'],
+    '/feature-flags/staff': ['FeatureFlagsStaffTools', 'featureFlagsStaffTools'],
     '/games/368hedgehogs': ['Game368Hedgehogs', 'game368Hedgehogs'],
     '/games/flappyhog': ['FlappyHog', 'flappyHog'],
     '/games/shipit': ['ShipIt', 'shipIt'],
@@ -338,6 +338,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/tracing/operation': ['TracingOperation', 'tracingOperation'],
     '/tracing/retention-rules/new': ['TracingRetentionNew', 'tracingRetentionNew'],
     '/tracing/retention-rules/:id': ['TracingRetentionDetail', 'tracingRetentionDetail'],
+    '/uptime-monitoring': ['UptimeMonitoring', 'uptimeMonitoring'],
     '/visual-review': ['VisualReviewIndex', 'visualReviewIndex'],
     '/visual-review/settings': ['VisualReviewSettings', 'visualReviewSettings'],
     '/visual-review/repos/:repoOwner/:repoName/runs': ['VisualReviewRuns', 'visualReviewRepoRuns'],
@@ -556,6 +557,10 @@ export const productRedirects: Record<
         combineUrl(`/error-tracking/alerts/${id}`, searchParams, hashParams).url,
     '/error_tracking/:id': ({ id }, searchParams, hashParams) =>
         combineUrl(`/error-tracking/${id}`, searchParams, hashParams).url,
+    '/feature_flags': (_params, searchParams, hashParams): string =>
+        combineUrl(urls.featureFlags(), searchParams, hashParams).url,
+    '/feature_flags/*': ({ _ }, searchParams, hashParams): string =>
+        combineUrl(`/feature-flags/${_}`, searchParams, hashParams).url,
     '/logs/sampling/new': (_params, searchParams, hashParams) =>
         combineUrl('/logs/drop-rules/new', searchParams, hashParams).url,
     '/logs/sampling/:id': (params, searchParams, hashParams) =>
@@ -1242,6 +1247,12 @@ export const productConfiguration: Record<string, any> = {
         activityScope: 'Tracing',
         iconType: 'tracing',
     },
+    UptimeMonitoring: {
+        name: 'Uptime monitoring',
+        projectBased: true,
+        description: 'Check that your sites and endpoints respond, and find out when they go down.',
+        iconType: 'uptime_monitoring',
+    },
     VisualReviewIndex: {
         name: 'Visual review',
         description:
@@ -1449,7 +1460,7 @@ export const productUrls = {
     cohorts: (): string => '/cohorts',
     cohortCalculationHistory: (id: string | number): string => `/cohorts/${id}/calculation-history`,
     cohortsStaffTools: (cohortId?: number): string =>
-        `/feature_flags/staff/cohorts${cohortId ? `?cohort_id=${cohortId}` : ''}`,
+        `/feature-flags/staff/cohorts${cohortId ? `?cohort_id=${cohortId}` : ''}`,
     supportDashboard: (): string => '/support',
     supportTickets: (): string => '/support/tickets',
     supportTicketDetail: (ticketId: string | number): string => `/support/tickets/${ticketId}`,
@@ -1678,10 +1689,10 @@ export const productUrls = {
     experimentsSharedMetrics: (): string => '/experiments/shared-metrics',
     experimentsSharedMetric: (id: string | number, action?: string): string =>
         action ? `/experiments/shared-metrics/${id}/${action}` : `/experiments/shared-metrics/${id}`,
-    featureFlag: (id: string | number): string => `/feature_flags/${id}`,
-    featureFlags: (tab?: string): string => `/feature_flags${tab ? `?tab=${tab}` : ''}`,
-    featureFlagTemplates: (): string => '/feature_flags/templates',
-    featureFlagsStaffTools: (teamId?: number): string => `/feature_flags/staff${teamId ? `?team_id=${teamId}` : ''}`,
+    featureFlag: (id: string | number): string => `/feature-flags/${id}`,
+    featureFlags: (tab?: string): string => `/feature-flags${tab ? `?tab=${tab}` : ''}`,
+    featureFlagTemplates: (): string => '/feature-flags/templates',
+    featureFlagsStaffTools: (teamId?: number): string => `/feature-flags/staff${teamId ? `?team_id=${teamId}` : ''}`,
     featureFlagNew: ({
         type,
         sourceId,
@@ -1716,7 +1727,7 @@ export const productUrls = {
         if (properties?.length) {
             params.set('properties', JSON.stringify(properties))
         }
-        return `/feature_flags/new?${params.toString()}`
+        return `/feature-flags/new?${params.toString()}`
     },
     game368hedgehogs: (): string => `/games/368hedgehogs`,
     flappyHog: (): string => `/games/flappyhog`,
@@ -1943,6 +1954,7 @@ export const productUrls = {
         }).url,
     tracingRetentionNew: (): string => '/tracing/retention-rules/new',
     tracingRetentionDetail: (id: string): string => `/tracing/retention-rules/${id}`,
+    uptimeMonitoring: (): string => '/uptime-monitoring',
     visualReviewRuns: (): string => '/visual-review',
     visualReviewSettings: (): string => '/visual-review/settings',
     visualReviewRun: (runId: string): string => `/visual-review/runs/${runId}`,
@@ -2360,6 +2372,7 @@ export type ProductTreePath =
     | 'Tasks'
     | 'Toolbar'
     | 'Tracing'
+    | 'Uptime monitoring'
     | 'Visual review'
     | 'Web analytics'
     | 'Web scripts'
@@ -3283,6 +3296,18 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         sceneKeys: ['Tracing', 'TracingOperation', 'TracingRetentionNew', 'TracingRetentionDetail'],
     },
     {
+        path: 'Uptime monitoring',
+        intents: [ProductKey.UPTIME_MONITORING],
+        category: ProductItemCategory.UNRELEASED,
+        iconType: 'uptime_monitoring',
+        href: urls.uptimeMonitoring(),
+        searchKeywords: ['uptime', 'status', 'health check', 'synthetics', 'ping'],
+        flag: FEATURE_FLAGS.UPTIME_MONITORING,
+        tags: ['alpha'],
+        sceneKey: 'UptimeMonitoring',
+        sceneKeys: ['UptimeMonitoring'],
+    },
+    {
         path: 'Visual review',
         intents: [ProductKey.VISUAL_REVIEW],
         category: ProductItemCategory.UNRELEASED,
@@ -3489,7 +3514,6 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
             {
                 name: 'Data quality',
                 href: urls.models('data-quality'),
-                flag: FEATURE_FLAGS.DATA_QUALITY_CHECKS,
                 searchKeywords: ['tests', 'checks', 'freshness'],
             },
         ],

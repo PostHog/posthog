@@ -50,7 +50,6 @@ from products.slack_app.backend.feature_flags import (
     ASSISTANT_REQUIRED_SCOPES,
     is_slack_app_assistant_enabled,
     is_slack_app_oauth_enabled,
-    is_slack_app_project_picker_enabled,
     is_slack_app_unprompted_answers_enabled,
 )
 from products.slack_app.backend.helpers import local_dev_slack_email
@@ -183,6 +182,9 @@ SLACK_PLACEHOLDER_USER_ID = "U00"
 # cutover. A real re-join after this window should re-onboard — most likely the
 # person forgot how it works.
 ONBOARDING_DEDUPE_TTL_SECONDS = 60 * 10
+
+# Shown when the alerts platform owns an insight alert and refuses a snooze from Slack.
+NOT_SNOOZABLE_FROM_SLACK = "This alert couldn't be snoozed from Slack. Snooze it in PostHog instead."
 
 EDITED_MENTION_WINDOW_SECONDS = 60 * 60
 # Outlives the window, because an expired marker would let an edit start a second run.
@@ -1900,7 +1902,6 @@ def _post_project_picker(
     event: dict[str, Any],
     event_id: str | None,
     *,
-    posthog_user: User,
     is_ext_shared_channel: bool,
     mention_is_threaded: bool,
 ) -> bool:
@@ -1911,9 +1912,6 @@ def _post_project_picker(
     message_ts = event.get("ts")
     if not isinstance(slack_user_id, str) or not isinstance(channel, str) or not isinstance(message_ts, str):
         return False
-    if not is_slack_app_project_picker_enabled(probe, posthog_user.distinct_id):
-        return False
-
     context_token = uuid.uuid4().hex
     cache.set(
         _picker_context_cache_key(context_token),
@@ -3097,7 +3095,6 @@ def route_posthog_code_event_to_relevant_region(
                 candidates,
                 event,
                 event_id,
-                posthog_user=posthog_user,
                 is_ext_shared_channel=is_ext_shared_channel,
                 mention_is_threaded=mention_is_threaded,
             )
@@ -5788,6 +5785,15 @@ def _handle_insight_alert_snooze(payload: dict) -> HttpResponse:
         logger.info("insight_alert_snooze_alert_disabled", alert_id=str(alert_uuid))
         _replace_message_stripping_actions(payload, "This alert is disabled, so there is nothing to snooze.")
         return HttpResponse(status=200)
+    if outcome == "not_snoozable":
+        logger.warning("insight_alert_snooze_refused_by_platform", alert_id=str(alert_uuid))
+        response_url = payload.get("response_url")
+        if response_url:
+            inbox_interactivity.post_response_url(
+                response_url,
+                {"response_type": "ephemeral", "replace_original": False, "text": NOT_SNOOZABLE_FROM_SLACK},
+            )
+        return HttpResponse(status=200)
     if outcome == "invalid_until":
         logger.info("insight_alert_snooze_invalid_until", alert_id=str(alert_uuid))
         response_url = payload.get("response_url")
@@ -5913,6 +5919,8 @@ def _handle_insight_alert_snooze_modal_submit(payload: dict) -> HttpResponse:
     outcome = snooze_alert_from_slack(alert_uuid, until=until, user=org_member)
     if outcome == "invalid_until":
         return _snooze_modal_error(f"Pick a time in the next {SLACK_SNOOZE_MAX_DAYS} days.")
+    if outcome == "not_snoozable":
+        return _snooze_modal_error(NOT_SNOOZABLE_FROM_SLACK)
     if outcome in ("no_access", "not_found", "disabled"):
         logger.info("insight_alert_snooze_modal_submit_rejected", alert_id=str(alert_uuid), outcome=outcome)
         return HttpResponse(status=200)

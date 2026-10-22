@@ -2816,6 +2816,7 @@ export interface CredentialApi {
  * * `ReplyIo` - ReplyIo
  * * `RetailExpress` - RetailExpress
  * * `Retently` - Retently
+ * * `Retreaver` - Retreaver
  * * `RevolutMerchant` - RevolutMerchant
  * * `RocketChat` - RocketChat
  * * `Rocketlane` - Rocketlane
@@ -3755,6 +3756,7 @@ export interface CredentialApi {
  * * `Klar` - Klar
  * * `ConectoCRM` - ConectoCRM
  * * `CloudflareR2` - CloudflareR2
+ * * `Particle` - Particle
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -4223,6 +4225,7 @@ export const ExternalDataSourceTypeEnumApi = {
     ReplyIo: 'ReplyIo',
     RetailExpress: 'RetailExpress',
     Retently: 'Retently',
+    Retreaver: 'Retreaver',
     RevolutMerchant: 'RevolutMerchant',
     RocketChat: 'RocketChat',
     Rocketlane: 'Rocketlane',
@@ -5162,6 +5165,7 @@ export const ExternalDataSourceTypeEnumApi = {
     Klar: 'Klar',
     ConectoCRM: 'ConectoCRM',
     CloudflareR2: 'CloudflareR2',
+    Particle: 'Particle',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {

@@ -51,6 +51,7 @@ HEAD_FILE_SUFFIX = ".ubj"
 MANIFEST_FILE = "manifest.json"
 METADATA_FILE = "metadata.json"
 PROJECT_VECTORS_FILE = "project_vectors.parquet"
+ENGAGEMENT_FILE = "engagement.parquet"
 
 _SERVING_SEGMENT = "serving"
 
@@ -69,6 +70,12 @@ def serving_project_vectors_key(prefix: str, partition_key: str) -> str:
     """Where one day of `inbox_project_vectors` sits. Keyed by its `dt`, so a day is published once
     however many manifests name it."""
     return f"{prefix}/{_SERVING_SEGMENT}/project_vectors/{partition_key}/{PROJECT_VECTORS_FILE}"
+
+
+def serving_engagement_key(prefix: str, partition_key: str) -> str:
+    """Where one day of the engagement export for another region's reports sits. The US dataset dag
+    writes it to the mirror store, and the mirror region reads it to build its own project vectors."""
+    return f"{prefix}/{_SERVING_SEGMENT}/engagement/{partition_key}/{ENGAGEMENT_FILE}"
 
 
 def model_key(model_name: str, model_version: str) -> str:

@@ -24,7 +24,7 @@ from posthog.event_usage import groups
 from posthog.models.user import User
 
 from products.signals.backend.artefact_attribution import ArtefactAttribution
-from products.signals.backend.models import SignalReport, SignalReportArtefact
+from products.signals.backend.models import SignalFirstReportNotification, SignalReport, SignalReportArtefact
 from products.signals.backend.report_embeddings import (
     emit_report_embeddings,
     emit_report_tombstone,
@@ -37,6 +37,39 @@ if TYPE_CHECKING:
     from products.signals.backend.implementation_pr import PrCloseReason
 
 logger = structlog.get_logger(__name__)
+
+
+def _enqueue_first_report_notification(team_id: int) -> None:
+    if (
+        SignalFirstReportNotification.objects.for_team(team_id)
+        .filter(queued_at__isnull=True, cancelled_at__isnull=True, send_started_at__isnull=True)
+        .exists()
+    ):
+        from products.signals.backend.first_report_notification_tasks import (
+            dispatch_first_report_notification,  # noqa: PLC0415 - keep the task graph off Django startup
+        )
+
+        dispatch_first_report_notification.delay(team_id)
+
+
+def _schedule_first_report_notification(team_id: int) -> None:
+    def enqueue() -> None:
+        _enqueue_first_report_notification(team_id)
+
+    transaction.on_commit(enqueue, robust=True)
+
+
+@receiver(post_save, sender=SignalReport)
+def enqueue_first_report_notification(
+    sender: type[SignalReport],
+    instance: SignalReport,
+    created: bool,
+    update_fields: set[str] | None = None,
+    **kwargs: Any,
+) -> None:
+    if instance.status == SignalReport.Status.READY and (created or update_fields is None or "status" in update_fields):
+        _schedule_first_report_notification(instance.team_id)
+
 
 _SNOOZE_SOURCE_STATUSES = frozenset(
     {SignalReport.Status.READY, SignalReport.Status.RESOLVED, SignalReport.Status.MONITORING}
@@ -819,6 +852,8 @@ def sync_report_latest_actionability_on_save(
     tools. Not gated on `created`, because `update_content` edits a judgment row in place.
     """
     _sync_report_latest_actionability(instance)
+    if instance.type == SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT:
+        _schedule_first_report_notification(instance.team_id)
 
 
 def _deleted_directly(origin: Any) -> bool:
@@ -921,6 +956,9 @@ def capture_status_change_analytics(
 
     # Snapshot now — the instance may be mutated again before the commit callback runs.
     properties = _status_change_properties(instance, prior_status, pending_reason=pending_reason)
+    # PR reconciliation supplies a known outcome without creating caller-provided dismissal feedback.
+    if instance.status == SignalReport.Status.RESOLVED and getattr(instance, "_status_from_pr_state", False):
+        properties["resolution_reason"] = "pr_merged"
     report_id = str(instance.id)
     new_status = instance.status
     team = instance.team

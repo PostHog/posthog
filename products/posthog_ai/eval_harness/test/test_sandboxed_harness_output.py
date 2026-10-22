@@ -413,7 +413,7 @@ async def test_sandboxed_eval_publishes_existing_results_without_disrupting_repo
     http_status: int,
     delivery_state: Literal["ready", "unavailable", "closed"],
 ) -> None:
-    for key in ("API_KEY", "HOST"):
+    for key in ("API_KEY", "HOST", "LOCAL_CONFIG"):
         monkeypatch.delenv(f"POSTHOG_OFFLINE_EVAL_{key}", raising=False)
     monkeypatch.setenv("EXPORT_EVAL_RESULTS", "1")
     monkeypatch.chdir(tmp_path)
@@ -570,10 +570,9 @@ async def test_suite_enrolls_every_scorer_in_offline_publishing(
         else:
             monkeypatch.setattr(module, "fetch_search_intent_prompt", MagicMock())
     run = AsyncMock()
-    runner = "SandboxedPrivateEval" if domain == "experiments" else "SandboxedPublicEval"
-    if suite_kind == SuiteKind.ONE_SHOT:
-        runner = "OneShotPublicEval"
-    monkeypatch.setattr(module, runner, run)
+    runner_kind = "OneShot" if suite_kind == SuiteKind.ONE_SHOT else "Sandboxed"
+    runner_visibility = "Private" if discovered.no_send_logs else "Public"
+    monkeypatch.setattr(module, f"{runner_kind}{runner_visibility}Eval", run)
 
     await discovered.fn(MagicMock(skill_delivery="bundled"))
 
