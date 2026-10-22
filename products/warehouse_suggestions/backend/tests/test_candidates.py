@@ -28,6 +28,7 @@ from products.warehouse_suggestions.backend.facade.enums import (
 from products.warehouse_suggestions.backend.logic.candidates.base import (
     DEPENDENTS_REJECTION,
     FEEDS_CONSUMERS_REJECTION,
+    READER_ACCESS_REJECTION,
     CandidateContext,
 )
 from products.warehouse_suggestions.backend.logic.candidates.certify import CertifyCandidate
@@ -534,6 +535,7 @@ class TestUnmaterializeCandidate(BaseTest):
                 frozenset({VIEW_ID}),
                 FEEDS_CONSUMERS_REJECTION,
             ),
+            ("readers_could_lose_access", "inlining_could_deny_a_reader", True, READER_ACCESS_REJECTION),
         ]
     )
     def test_rejects_a_view_others_rely_on(self, _name: str, lookup: str, found: object, expected_reason: str) -> None:

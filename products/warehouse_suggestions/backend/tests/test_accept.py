@@ -9,11 +9,13 @@ from unittest.mock import patch
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.constants import AvailableFeature
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
+from products.access_control.backend.facade.testing import create_access_control
 from products.cdp.backend.models.hog_functions import HogFunction
 from products.data_catalog.backend.facade.api import certifications_for_team, propose_certification
 from products.data_catalog.backend.facade.enums import CertificationStatus
@@ -170,6 +172,38 @@ def change_the_upstream_query(view: DataWarehouseSavedQuery) -> None:
     DataWarehouseSavedQuery.objects.filter(team=view.team, name="orders_source").update(
         query={"kind": "HogQLQuery", "query": "SELECT * FROM postgres_orders WHERE 1 = 1"}
     )
+
+
+def _restrict_table(view: DataWarehouseSavedQuery, table_name: str) -> None:
+    view.team.organization.available_product_features = [
+        {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+    ]
+    view.team.organization.save()
+    table = DataWarehouseTable.objects.get(team=view.team, name=table_name)
+    create_access_control(
+        team_id=view.team_id, resource="warehouse_table", resource_id=str(table.id), access_level="none"
+    )
+
+
+def restrict_the_postgres_table(view: DataWarehouseSavedQuery) -> None:
+    _restrict_table(view, "postgres_orders")
+
+
+def restrict_an_unrelated_table(view: DataWarehouseSavedQuery) -> None:
+    DataWarehouseTable.objects.create(team=view.team, name="unrelated", format="Parquet")
+    _restrict_table(view, "unrelated")
+
+
+def read_a_system_table(view: DataWarehouseSavedQuery) -> None:
+    node = Node.objects.get(saved_query=view)
+    system_node = Node.objects.create(
+        team=view.team,
+        dag=node.dag,
+        name="system.feature_flags",
+        type=NodeType.TABLE,
+        properties={"origin": "posthog"},
+    )
+    Edge.objects.create(team=view.team, dag=node.dag, source=system_node, target=node)
 
 
 def change_query(view: DataWarehouseSavedQuery) -> None:
@@ -401,6 +435,19 @@ class TestAcceptSuggestion(APIBaseTest):
                 make_the_postgres_source_direct,
                 status.HTTP_409_CONFLICT,
             ),
+            (
+                "an_upstream_table_was_restricted_since",
+                add_an_upstream_view_over_postgres,
+                restrict_the_postgres_table,
+                status.HTTP_409_CONFLICT,
+            ),
+            (
+                "stops_refreshes_when_only_an_unrelated_table_is_restricted",
+                add_an_upstream_view_over_postgres,
+                restrict_an_unrelated_table,
+                status.HTTP_200_OK,
+            ),
+            ("it_reads_a_system_table_since", None, read_a_system_table, status.HTTP_409_CONFLICT),
         ]
     )
     def test_accepting_an_unmaterialize_suggestion_turns_the_view_back_into_a_plain_view(

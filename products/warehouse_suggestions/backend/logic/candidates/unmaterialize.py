@@ -26,10 +26,12 @@ from .base import (
     DIRECT_SOURCE_REJECTION,
     FEEDS_CONSUMERS_REJECTION,
     MILLISECONDS_PER_SECOND,
+    READER_ACCESS_REJECTION,
     Candidate,
     CandidateContext,
     CandidateResult,
     Rejection,
+    inlining_could_deny_a_reader,
 )
 
 INCREMENTAL_REJECTION = "refreshes incrementally, so one refresh does not show what a full read costs"
@@ -167,6 +169,8 @@ def _graph_rejection(
         return FEEDS_CONSUMERS_REJECTION
     if context.reads_direct_source(saved_query_id):
         return DIRECT_SOURCE_REJECTION
+    if inlining_could_deny_a_reader(context.team_id, saved_query_id):
+        return READER_ACCESS_REJECTION
     return None
 
 

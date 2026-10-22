@@ -61,7 +61,7 @@ from ..facade.enums import (
 )
 from ..models import WarehouseSuggestion
 from .analytics import SuggestionOutcome, report_outcomes
-from .candidates.base import reads_direct_source
+from .candidates.base import inlining_could_deny_a_reader, reads_direct_source
 from .candidates.unmaterialize import effective_definition
 from .payloads import payload_from_json
 from .suggestions import HUMAN_TRANSITIONS, Transitions, transition_to
@@ -97,6 +97,10 @@ WAREHOUSE_SUGGESTION_TRIGGER_JOB_TYPE = "warehouse_suggestion"
 OTHER_VIEWS_READ_IT = "Other views now read from this view."
 SYNCS_READ_IT = "This view now feeds person properties, account properties, a destination or a workflow."
 READS_DIRECT_SOURCE = "This view now reads a direct-connection source, whose reads are not logged."
+READERS_WOULD_LOSE_ACCESS = (
+    "Someone who can read this view may not be able to read the tables it reads from, "
+    "so they could lose access once it computes on read."
+)
 
 
 @frozen
@@ -163,6 +167,8 @@ def stop_blocker(team_id: int, definition: SavedQueryDefinition) -> str | None:
         return SYNCS_READ_IT
     if reads_direct_source(team_id, definition.id, direct_access_table_ids(team_id)):
         return READS_DIRECT_SOURCE
+    if inlining_could_deny_a_reader(team_id, definition.id):
+        return READERS_WOULD_LOSE_ACCESS
     return None
 
 
