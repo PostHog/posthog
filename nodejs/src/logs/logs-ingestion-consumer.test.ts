@@ -39,6 +39,7 @@ import {
     logMessageDlqCounter,
     logMessageDroppedCounter,
     logsBillingBytesCreditedCounter,
+    logsBillingRecordsCreditedCounter,
     logsBytesAllowedCounter,
     logsBytesDroppedCounter,
     logsBytesReceivedCounter,
@@ -169,10 +170,12 @@ const createMultiRecordKafkaMessage = async (
             { name: 'instrumentation_scope', type: ['null', 'string'] },
             { name: 'event_name', type: ['null', 'string'] },
             { name: 'attributes', type: ['null', { type: 'map', values: 'string' }] },
+            { name: 'retention_days', type: ['null', 'int'], default: null },
         ],
     })
 
     const records: LogRecord[] = logDataList.map((logData, i) => ({
+        retention_days: logData.retentionDays ?? null,
         uuid: `test-uuid-${offsetIncrementer}-${i}`,
         trace_id: null,
         span_id: null,
@@ -1120,6 +1123,42 @@ describe('LogsIngestionConsumer', () => {
                 internalMetrics: signed,
                 billedMetrics: !signed,
             })
+        })
+
+        it('drops a row past its stamped retention without crediting billing', async () => {
+            await consumer.stop()
+            consumer = await createLogsIngestionConsumer(hub, {
+                LOGS_INTERNAL_INGESTION_ENABLED_TEAMS: String(team.id),
+                LOGS_INTERNAL_INGESTION_SIGNING_KEYS: SIGNING_KEY,
+            })
+            // Five days old is inside the 14-day team default but past the 1-day stamp.
+            const fiveDaysAgoMicros = DateTime.now().minus({ days: 5 }).toMillis() * 1000
+            const message = await createMultiRecordKafkaMessage(
+                [{ level: 'info', timestampMicros: fiveDaysAgoMicros, retentionDays: 1 }, { level: 'info' }],
+                {
+                    token: team.api_token,
+                    bytes_uncompressed: '200',
+                    record_count: '2',
+                    min_timestamp: fiveDaysAgoMicros.toString(),
+                }
+            )
+            message.headers!.push({
+                [INTERNAL_LOGS_HEADER]: Buffer.from(signInternalLogs(SIGNING_KEY, team.id, message.value!)),
+            })
+            const bytesCreditSpy = jest.spyOn(logsBillingBytesCreditedCounter, 'inc')
+            const recordsCreditSpy = jest.spyOn(logsBillingRecordsCreditedCounter, 'inc')
+
+            await waitForBackgroundTasks(consumer.processKafkaBatch([message]))
+
+            const expiredMetric = mockProducerObserver
+                .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                .map((m) => m.value)
+                .find((v) => v.metric_name === 'records_dropped_retention_expired' && v.team_id === team.id)
+            expect({
+                expired: expiredMetric?.count,
+                produced: getProducedKafkaMessages().filter((m) => m.topic === KAFKA_LOGS_CLICKHOUSE).length,
+                credits: [...bytesCreditSpy.mock.calls, ...recordsCreditSpy.mock.calls],
+            }).toEqual({ expired: 1, produced: 1, credits: [] })
         })
     })
 

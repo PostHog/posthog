@@ -100,6 +100,10 @@ export interface LogsIngestionConsumerDeps {
 /** Ingestion default when `logs_settings.retention_days` is unset; must match `DEFAULT_LOGS_RETENTION_DAYS` in `posthog/models/team/logs_retention.py`. */
 export const DEFAULT_LOGS_RETENTION_DAYS = 14
 
+/** The producer of an internal batch stamps per-row retention, which can be shorter than the team
+ * default, so the expiry check for an internal batch uses the shortest stamp a producer can write. */
+const INTERNAL_LOGS_MIN_RETENTION_DAYS = 1
+
 /** Retention day counts that get their own per-tier usage metric. */
 const RETENTION_USAGE_TIERS = new Set([14, 30, 90])
 
@@ -606,7 +610,7 @@ export class LogsIngestionConsumer {
         if (recordsTransform) {
             stages.push(makeTransformStage(recordsTransform))
         }
-        let shortestRetentionDays = defaultRetentionDays
+        let shortestRetentionDays = message.internalLogs ? INTERNAL_LOGS_MIN_RETENTION_DAYS : defaultRetentionDays
         if (useRetention && retentionRuleSet) {
             stages.push(makeRetentionStage(retentionRuleSet, message.teamId, defaultRetentionDays))
             shortestRetentionDays = Math.min(
@@ -1150,11 +1154,15 @@ export class LogsIngestionConsumer {
                                 message.recordCount
                             )
 
-                            const teamIdLabel = message.teamId.toString()
-                            if (contentCredit > 0) {
-                                logsBillingBytesCreditedCounter.inc({ team_id: teamIdLabel }, contentCredit)
+                            // An internal batch is never billed, so a credit against it would understate
+                            // billed volume.
+                            if (!message.internalLogs) {
+                                const teamIdLabel = message.teamId.toString()
+                                if (contentCredit > 0) {
+                                    logsBillingBytesCreditedCounter.inc({ team_id: teamIdLabel }, contentCredit)
+                                }
+                                logsBillingRecordsCreditedCounter.inc({ team_id: teamIdLabel }, resolved.recordsDropped)
                             }
-                            logsBillingRecordsCreditedCounter.inc({ team_id: teamIdLabel }, resolved.recordsDropped)
                             if (message.recordCount > 0) {
                                 logsDropBatchRowsHistogram.observe(message.recordCount)
                             }
