@@ -992,13 +992,22 @@ describe('EmailService', () => {
         it("should send a code send's headers", async () => {
             invocation.queueParameters = createEmailParams({
                 from: { integrationId: 1 },
-                headers: [{ name: 'X-Entity-Ref-ID', value: 'order-123' }],
+                headers: [
+                    { name: 'X-Entity-Ref-ID', value: 'order-123' },
+                    { name: 'key', value: 'invoice' },
+                    { name: 'value', value: '123' },
+                ],
             })
             const result = await service.executeSendEmail(invocation)
             expect(result.error).toBeUndefined()
             await waitForExpect(async () => expect(mailDevAPI.getEmails()).resolves.toHaveLength(1))
             const emails = await mailDevAPI.getEmails()
-            expect(emails[0].headers).toMatchObject({ 'x-entity-ref-id': 'order-123' })
+            expect(emails[0].headers).toMatchObject({
+                'x-entity-ref-id': 'order-123',
+                key: 'invoice',
+                value: '123',
+                'auto-submitted': 'auto-generated',
+            })
         })
         it('should include tracking code in the email with distinct_id', async () => {
             invocation.queueParameters = createEmailParams({
