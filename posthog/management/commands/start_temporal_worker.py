@@ -518,6 +518,7 @@ _task_queue_specs = [
         + USAGE_REPORTS_ACTIVITIES
         + BILLING_ALERTS_ACTIVITIES,
     ),
+    (settings.USAGE_REPORT_AGGREGATION_TASK_QUEUE, [], USAGE_REPORTS_AGGREGATION_ACTIVITIES),
     (
         settings.VIDEO_EXPORT_TASK_QUEUE,
         SIGNALS_PRODUCT_WORKFLOWS
@@ -663,15 +664,25 @@ for task_queue_name, workflows_for_queue, activities_for_queue in _task_queue_sp
 
 WORKFLOWS_DICT = _workflows
 ACTIVITIES_DICT = _activities
-ACTIVITY_WORKER_CONFIGS = {
-    settings.BILLING_TASK_QUEUE: (
-        ActivityWorkerConfig(
-            task_queue=settings.USAGE_REPORT_AGGREGATION_TASK_QUEUE,
-            activities=USAGE_REPORTS_AGGREGATION_ACTIVITIES,
-            max_concurrent_activities=1,
+
+
+def _activity_worker_configs(*, run_usage_report_aggregation: bool) -> dict[str, tuple[ActivityWorkerConfig, ...]]:
+    if not run_usage_report_aggregation:
+        return {}
+    return {
+        settings.BILLING_TASK_QUEUE: (
+            ActivityWorkerConfig(
+                task_queue=settings.USAGE_REPORT_AGGREGATION_TASK_QUEUE,
+                activities=USAGE_REPORTS_AGGREGATION_ACTIVITIES,
+                max_concurrent_activities=1,
+            ),
         ),
-    ),
-}
+    }
+
+
+ACTIVITY_WORKER_CONFIGS = _activity_worker_configs(
+    run_usage_report_aggregation=settings.BILLING_WORKER_RUNS_USAGE_REPORT_AGGREGATION
+)
 
 
 def workflows_include_data_import_syncs(workflows: collections.abc.Iterable[type]) -> bool:

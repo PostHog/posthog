@@ -365,6 +365,11 @@ TEST_TASK_QUEUE = _set_temporal_task_queue("test-task-queue")
 BILLING_TASK_QUEUE = _set_temporal_task_queue("billing-task-queue")
 # Keep aggregation separate even when local development combines the other queues.
 USAGE_REPORT_AGGREGATION_TASK_QUEUE = f"{BILLING_TASK_QUEUE}-usage-report-aggregation"
+# Set to false when a dedicated deployment polls the aggregation queue.
+# Aggregation then runs outside this process and does not hold its GIL during quota limiting.
+BILLING_WORKER_RUNS_USAGE_REPORT_AGGREGATION: bool = get_from_env(
+    "BILLING_WORKER_RUNS_USAGE_REPORT_AGGREGATION", True, type_cast=str_to_bool
+)
 VIDEO_EXPORT_TASK_QUEUE = _set_temporal_task_queue("video-export-task-queue")
 ANALYTICS_PLATFORM_TASK_QUEUE = _set_temporal_task_queue("analytics-platform-task-queue")
 # Keep the smoke fleets separate in local development as well as deployed environments.

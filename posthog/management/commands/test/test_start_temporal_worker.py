@@ -15,6 +15,7 @@ from posthog.management.commands.start_temporal_worker import (
     WA_DIGEST_WORKFLOWS,
     WEEKLY_DIGEST_WORKFLOWS,
     WORKFLOWS_DICT,
+    _activity_worker_configs,
     _task_queue_specs,
     workflows_include_data_import_syncs,
 )
@@ -51,6 +52,11 @@ def test_billing_registers_aggregation_with_separate_capacity() -> None:
     assert aggregation_worker.activities == [aggregate_and_chunk_org_reports]
     # A workflow may have scheduled aggregation before the queue change deployed.
     assert aggregate_and_chunk_org_reports in ACTIVITIES_DICT[settings.BILLING_TASK_QUEUE]
+
+
+def test_aggregation_queue_can_run_in_its_own_worker() -> None:
+    assert ACTIVITIES_DICT[settings.USAGE_REPORT_AGGREGATION_TASK_QUEUE] == {aggregate_and_chunk_org_reports}
+    assert _activity_worker_configs(run_usage_report_aggregation=False) == {}
 
 
 @pytest.mark.parametrize(
