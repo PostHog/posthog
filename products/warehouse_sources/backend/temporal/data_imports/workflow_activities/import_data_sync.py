@@ -68,6 +68,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
     SchemaColumnTypeChangedException,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
+    is_invalid_version_race,
     is_transient_delta_maintenance_error,
     is_transient_object_store_error,
 )
@@ -1067,6 +1068,17 @@ async def _handle_import_error(
     if is_transient_delta_maintenance_error(error):
         await logger.awarning(error_msg)
         await logger.adebug("Transient Delta maintenance/reset race - re-raising for Temporal retry")
+        raise NonReportableError(error_msg) from error
+
+    # execute_with_conflict_retry (ops.py) already refreshes the table handle and retries this exact
+    # race a bounded number of times - sustained contention (most commonly a heartbeat-timed-out
+    # zombie attempt still committing against the same table during a rolling deploy, see
+    # batch_consumer.py's MAX_INTERRUPTIONS comment) can still exhaust that budget. The race is
+    # self-healing on the next attempt, same as the maintenance-path race above, so it must not be
+    # captured as a bug either.
+    if is_invalid_version_race(error):
+        await logger.awarning(error_msg)
+        await logger.adebug("Delta commit-conflict race exhausted its internal retries - re-raising for Temporal retry")
         raise NonReportableError(error_msg) from error
 
     # DATA_WAREHOUSE_REDIS backs resumable-source checkpoints, row tracking, and sync locks — it's
