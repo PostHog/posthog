@@ -35,11 +35,10 @@ from django.db.models import (
     BooleanField,
     CharField,
     Count,
-    DateTimeField,
     Exists,
     ExpressionWrapper,
     F,
-    Field,
+    FilteredRelation,
     FloatField,
     IntegerField,
     Max,
@@ -50,7 +49,6 @@ from django.db.models import (
     QuerySet,
     Subquery,
     Sum,
-    TextField,
     Value,
 )
 from django.db.models.fields.json import KeyTextTransform
@@ -1364,8 +1362,8 @@ def _to_user_customer_analytics_config(
     return contracts.UserCustomerAnalyticsConfig(
         pinned_properties=[
             contracts.PinnedAccountProperty(
-                kind=cast(Literal["custom_property", "relationship"], reference["kind"]),
-                id=UUID(str(reference["id"])),
+                kind=cast(contracts.PinnedAccountPropertyKind, reference["kind"]),
+                id=str(reference["id"]),
             )
             for reference in raw_references
         ],
@@ -3336,15 +3334,6 @@ def _apply_account_table_filters(
         raise InvalidAccountTableColumn(str(error)) from error
 
 
-def _custom_property_sort_output_field(display_type: DisplayType) -> Field:
-    return {
-        DataType.STRING: TextField(),
-        DataType.NUMERIC: FloatField(),
-        DataType.BOOLEAN: BooleanField(),
-        DataType.DATETIME: DateTimeField(),
-    }[DATA_TYPE_BY_DISPLAY_TYPE[display_type]]
-
-
 def _apply_account_table_sort(
     queryset: QuerySet[Account],
     *,
@@ -3417,14 +3406,16 @@ def _apply_account_table_sort(
             DataType.BOOLEAN: "value_bool",
             DataType.DATETIME: "value_datetime",
         }[DATA_TYPE_BY_DISPLAY_TYPE[display_type]]
-        custom_property_value = CustomPropertyValue.objects.for_team(team_id).filter(
-            account_id=OuterRef("pk"), definition_id=sort.definition_id, is_deleted=False
-        )
         queryset = queryset.annotate(
-            _account_table_sort=Subquery(
-                custom_property_value.values(value_field)[:1],
-                output_field=_custom_property_sort_output_field(display_type),
-            )
+            _custom_property_sort_value=FilteredRelation(
+                "custom_property_values",
+                condition=Q(
+                    custom_property_values__team_id=team_id,
+                    custom_property_values__definition_id=sort.definition_id,
+                    custom_property_values__is_deleted=False,
+                ),
+            ),
+            _account_table_sort=F(f"_custom_property_sort_value__{value_field}"),
         )
 
     order = F("_account_table_sort")

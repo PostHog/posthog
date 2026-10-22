@@ -647,6 +647,38 @@
             "readOnlyHint": true
         }
     },
+    "activity-summary-get": {
+        "description": "Get a summary of what the current user has been working on in this project: a one-page markdown profile, a short headline, the main focus areas with the day each was last seen, and the PostHog products they use. It is built only from the user's own recent activity in PostHog, such as tasks they gave to PostHog AI and things they created, changed or opened. It updates at most once a day, when there is enough new activity. Use it to tailor answers and suggestions to what this person works on. `status: not_ready` means no summary exists yet, which is normal for new or quiet users. `stale: true` means a newer version will replace it soon. A 404 means activity summaries are not available for this project.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Get your activity summary",
+        "title": "Get your activity summary",
+        "required_scopes": ["task:read"],
+        "api_operations": ["GET /api/projects/{project_id}/signals/activity_summary/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "activity-summary"
+    },
+    "activity-summary-versions-list": {
+        "description": "List earlier versions of the current user's activity summary in this project, newest first, to see how their focus changed over time. Each version has a headline, the focus areas and `recent_shift`, which says what changed since the version before it. The list leaves out the profile to stay small. Pass `version` to get one version with its full profile. A 404 means activity summaries are not available for this project, or that the requested version does not exist.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "List your activity summary versions",
+        "title": "List your activity summary versions",
+        "required_scopes": ["task:read"],
+        "api_operations": ["GET /api/projects/{project_id}/signals/activity_summary/versions/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "activity-summary"
+    },
     "advanced-activity-logs-filters": {
         "description": "Get the valid filter values for activity logs — the scopes, activity types, and users that actually have logged activity in this project. Call this before advanced-activity-logs-list when you need to filter and don't know the exact scope or activity strings to pass; skip it when you already know them.",
         "category": "Platform Features",
@@ -2924,7 +2956,7 @@
         }
     },
     "cohorts-partial-update": {
-        "description": "Update an existing cohort's name, description, or filters. Changing filters on a dynamic cohort triggers recalculation. To soft-delete a cohort, set 'deleted: true'.\n\nTo add more people to an existing STATIC cohort in bulk, set a 'query' (HogQLQuery or ActorsQuery) on it — the server runs the query and inserts every newly matched person (existing members are skipped), with no row limit. The query must expose the person id under one of these column names, checked in order: 'person_id', 'actor_id', 'id', or 'distinct_id' (selecting from the 'events' or 'persons' tables resolves the actor automatically). Validate the query before saving it — run a HogQLQuery through 'execute-sql' and an ActorsQuery through its matching 'query-*-actors' tool (e.g. 'query-trends-actors') — and only save one that returned successfully. Prefer this over 'cohorts-add-persons-to-static-cohort-partial-update' for anything beyond a handful (~20) of people.",
+        "description": "Update an existing cohort's name, description, or filters. Changing filters on a dynamic cohort triggers recalculation. To soft-delete a cohort, set 'deleted: true'.\n\nTo add more people to an existing STATIC cohort in bulk, set a 'query' (HogQLQuery or ActorsQuery) on it — the server runs the query and inserts every newly matched person (existing members are skipped), with no row limit. The query must expose the person id under one of these column names, checked in order: 'person_id', 'actor_id', 'id', or 'distinct_id' (selecting from the 'events' or 'persons' tables resolves the actor automatically). Validate the query before saving it — run a HogQLQuery through 'execute-sql' and an ActorsQuery through its matching 'query-*-actors' tool (e.g. 'query-trends-actors') — and only save one that returned successfully. Prefer this over 'cohorts-add-persons-to-static-cohort-partial-update' for anything beyond a handful (~20) of people.\n\nAn update that sets 'query' returns a 400 while the cohort's 'is_calculating' is true. That includes the first population right after 'cohorts-create' with a query. Before you send the next query, call 'cohorts-retrieve' and wait until 'is_calculating' is false.",
         "category": "Cohorts",
         "feature": "cohorts",
         "summary": "Update cohort",
