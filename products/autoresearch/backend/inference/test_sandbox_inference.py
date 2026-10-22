@@ -13,6 +13,7 @@ from django.test import SimpleTestCase
 
 import pandas as pd
 from parameterized import parameterized
+from temporalio.exceptions import CancelledError
 
 from posthog.api.capture import CaptureInternalResult
 from posthog.hogql_queries.query_runner import ExecutionMode
@@ -346,6 +347,27 @@ class TestMaterializeData(TeamScopedTestMixin, BaseTest):
         with patch.object(sandbox_inference, "run_hogql", return_value=page):
             with self.assertRaises(SandboxInferenceError):
                 sandbox_inference._materialize_rows(team=self.team, sql="SELECT person_id FROM events", values={})
+
+    @parameterized.expand(
+        [
+            (
+                "materialize_rows",
+                lambda team: sandbox_inference._materialize_rows(team=team, sql="SELECT 1", values={}),
+            ),
+            (
+                "count_rows",
+                lambda team: sandbox_inference._count_rows(
+                    team=team, sql="SELECT 1", values={}, user=None, what="Anchor count"
+                ),
+            ),
+        ]
+    )
+    def test_query_helpers_pass_temporal_cancellation_through(self, _name, call):
+        cancelled = CancelledError("Cancelled")
+        with patch.object(sandbox_inference, "run_hogql", side_effect=cancelled):
+            with self.assertRaises(CancelledError) as ctx:
+                call(self.team)
+        assert ctx.exception is cancelled
 
 
 class TestParquetSerialization(SimpleTestCase):
