@@ -448,7 +448,10 @@ async def test_create_sandbox_cancellation_stops_docker_subprocess(monkeypatch: 
         ({}, None),
     ],
 )
-def test_clone_repository_uses_saved_branch_only_for_resumes(mocker, activity_environment, state, expected_branch):
+@pytest.mark.parametrize("baked_repo_clone_enabled", [True, False])
+def test_clone_repository_uses_saved_branch_only_for_resumes(
+    mocker, activity_environment, state, expected_branch, baked_repo_clone_enabled
+):
     context = TaskProcessingContext(
         task_id="task-id",
         run_id="run-id",
@@ -461,6 +464,7 @@ def test_clone_repository_uses_saved_branch_only_for_resumes(mocker, activity_en
         origin_product=Task.OriginProduct.SIGNAL_REPORT,
         state=state,
         _branch="feature-branch",
+        baked_repo_clone_enabled=baked_repo_clone_enabled,
     )
     sandbox = mocker.Mock()
     sandbox.clone_repository.return_value = ExecutionResult(stdout="", stderr="", exit_code=0)
@@ -490,6 +494,7 @@ def test_clone_repository_uses_saved_branch_only_for_resumes(mocker, activity_en
         shallow=True,
         branch=expected_branch,
         blobless=True,
+        baked_repo_clone=baked_repo_clone_enabled,
     )
 
 
@@ -541,6 +546,7 @@ def test_resume_clone_falls_back_to_default_branch_when_saved_branch_is_missing(
             shallow=True,
             branch="branch-from-a-sibling-repository",
             blobless=False,
+            baked_repo_clone=False,
         ),
         mocker.call(
             "posthog/posthog",
@@ -548,6 +554,7 @@ def test_resume_clone_falls_back_to_default_branch_when_saved_branch_is_missing(
             shallow=True,
             branch=None,
             blobless=False,
+            baked_repo_clone=False,
         ),
     ]
 

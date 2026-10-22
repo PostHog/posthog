@@ -1464,18 +1464,20 @@ class TestModalSandboxCommandEscaping:
                 assert shlex.quote(repo) in command
 
     @pytest.mark.parametrize(
-        "shallow,blobless,expected_in_command,not_expected_in_command",
+        "shallow,blobless,baked_repo_clone,expected_in_command,not_expected_in_command",
         [
-            (True, False, "--depth 1", "--filter=blob:"),
-            (False, False, "--filter=blob:limit=128k", "--filter=blob:none"),
-            (False, True, "--filter=blob:none", "--filter=blob:limit=128k"),
-            (True, False, "if [ -d /tmp/workspace/repos/posthog/posthog/.git ]", None),
-            (True, False, "git ls-remote --symref origin HEAD", "refs/remotes/origin/HEAD"),
-            (True, False, "log -1 --format=%ct 2>/dev/null) && [ $(( $(date +%s) - BAKED_AT )) -lt 172800 ]", None),
-            (False, False, "--filter=blob:limit=128k", "/tmp/workspace/repos/posthog/posthog/.git ]"),
+            (True, False, False, "--depth 1", "--filter=blob:"),
+            (False, False, False, "--filter=blob:limit=128k", "--filter=blob:none"),
+            (False, True, False, "--filter=blob:none", "--filter=blob:limit=128k"),
+            (True, False, False, "git checkout -q -f", "/posthog/posthog/.git ]"),
+            (True, False, False, "git checkout -q -f", "checkout.workers"),
+            (True, False, True, "git -c checkout.workers=0 checkout -q -f;", None),
+            (False, False, True, "--filter=blob:limit=128k", "/posthog/posthog/.git ]"),
         ],
     )
-    def test_clone_repository_shallow_flag(self, shallow, blobless, expected_in_command, not_expected_in_command):
+    def test_clone_repository_shallow_flag(
+        self, shallow, blobless, baked_repo_clone, expected_in_command, not_expected_in_command
+    ):
         sandbox = ModalSandbox.__new__(ModalSandbox)
         sandbox.id = "sb-123"
         sandbox.config = SandboxConfig(name="test")
@@ -1484,7 +1486,11 @@ class TestModalSandboxCommandEscaping:
         with patch.object(sandbox, "is_running", return_value=True):
             with patch.object(sandbox, "execute") as mock_execute:
                 sandbox.clone_repository(
-                    "PostHog/posthog", github_token="test-token", shallow=shallow, blobless=blobless
+                    "PostHog/posthog",
+                    github_token="test-token",
+                    shallow=shallow,
+                    blobless=blobless,
+                    baked_repo_clone=baked_repo_clone,
                 )
                 command = mock_execute.call_args[0][0]
 

@@ -15,6 +15,7 @@ from posthog.models.user_integration import UserIntegration
 from products.signals.backend.models import SignalTeamConfig
 from products.skills.backend.models.skills import LLMSkill
 from products.tasks.backend.constants import (
+    BAKED_REPO_CLONE_FEATURE_FLAG,
     BENJAMIN_FEATURE_FLAG,
     CLAUDE_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG,
     CODEX_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG,
@@ -39,6 +40,7 @@ from products.tasks.backend.temporal.process_task.activities.get_task_processing
     TaskProcessingContext,
     VmSandboxDecision,
     _ensure_subscription_allowed,
+    _is_baked_repo_clone_enabled,
     _is_benjamin_enabled,
     _is_burstable_sandbox_resources_enabled,
     _is_desktop_workspace_warm_enabled,
@@ -110,14 +112,21 @@ def test_snapshot_resume_requires_a_resume_marker_and_snapshot(state: dict[str, 
     assert context.is_snapshot_resume is expected
 
 
+ORGANIZATION_ROLLOUT_FLAG_CHECKS = [
+    (_is_desktop_workspace_warm_enabled, DESKTOP_WORKSPACE_WARM_FEATURE_FLAG),
+    (_is_baked_repo_clone_enabled, BAKED_REPO_CLONE_FEATURE_FLAG),
+]
+
+
+@pytest.mark.parametrize("flag_check,flag_key", ORGANIZATION_ROLLOUT_FLAG_CHECKS)
 @pytest.mark.parametrize("flag_value,expected", [(True, True), (False, False), (None, False)])
-def test_desktop_workspace_warm_flag_uses_organization_rollout(flag_value, expected):
+def test_organization_rollout_flag_checks(flag_check, flag_key, flag_value, expected):
     with patch(
         "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled",
         return_value=flag_value,
     ) as feature_enabled_mock:
         assert (
-            _is_desktop_workspace_warm_enabled(
+            flag_check(
                 distinct_id="distinct-id",
                 organization_id="organization-id",
                 run_id="run-id",
@@ -126,7 +135,7 @@ def test_desktop_workspace_warm_flag_uses_organization_rollout(flag_value, expec
         )
 
     feature_enabled_mock.assert_called_once_with(
-        DESKTOP_WORKSPACE_WARM_FEATURE_FLAG,
+        flag_key,
         distinct_id="distinct-id",
         groups={"organization": "organization-id"},
         group_properties={"organization": {"id": "organization-id"}},
@@ -135,13 +144,14 @@ def test_desktop_workspace_warm_flag_uses_organization_rollout(flag_value, expec
     )
 
 
-def test_desktop_workspace_warm_flag_fails_closed():
+@pytest.mark.parametrize("flag_check,flag_key", ORGANIZATION_ROLLOUT_FLAG_CHECKS)
+def test_organization_rollout_flag_checks_fail_closed(flag_check, flag_key):
     with patch(
         "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled",
         side_effect=RuntimeError("flag service failed"),
     ):
         assert (
-            _is_desktop_workspace_warm_enabled(
+            flag_check(
                 distinct_id="distinct-id",
                 organization_id="organization-id",
                 run_id="run-id",

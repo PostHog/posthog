@@ -629,6 +629,7 @@ class SandboxBase(ABC):
         shallow: bool = True,
         branch: str | None = None,
         blobless: bool = False,
+        baked_repo_clone: bool = False,
     ) -> ExecutionResult:
         if not self.is_running():
             raise RuntimeError("Sandbox not in running state.")
@@ -648,6 +649,7 @@ class SandboxBase(ABC):
         blob_filter = ""
         if not shallow:
             blob_filter = " --filter=blob:none" if blobless else " --filter=blob:limit=128k"
+        checkout_workers = " -c checkout.workers=0" if baked_repo_clone else ""
         fresh_clone_command = _timed_clone_command(
             prepare=f"rm -rf {shlex.quote(target_path)} && mkdir -p {shlex.quote(org_path)} && cd {shlex.quote(org_path)}",
             fetch=(
@@ -656,11 +658,11 @@ class SandboxBase(ABC):
             ),
             checkout=(
                 f"cd {shlex.quote(repo)} && "
-                "{ ! git rev-parse -q --verify HEAD > /dev/null || git -c checkout.workers=0 checkout -q -f; }"
+                f"{{ ! git rev-parse -q --verify HEAD > /dev/null || git{checkout_workers} checkout -q -f; }}"
             ),
         )
         clone_command = f"MODE=fresh && {fresh_clone_command}"
-        if shallow:
+        if shallow and baked_repo_clone:
             resolve_branch = (
                 f"BRANCH={shlex.quote(branch)}"
                 if branch
@@ -678,6 +680,7 @@ class SandboxBase(ABC):
                 ),
                 checkout=(
                     'git -c checkout.workers=0 checkout -q -f -B "$BRANCH" --track "origin/$BRANCH" && '
+                    '[ "$(git rev-parse HEAD)" = "$(git rev-parse "origin/$BRANCH")" ] && '
                     "git for-each-ref --format='delete %(refname)' refs/heads refs/remotes | "
                     '{ grep -vxF -e "delete refs/heads/$BRANCH" -e "delete refs/remotes/origin/$BRANCH" || true; } | '
                     "git update-ref --no-deref --stdin && "

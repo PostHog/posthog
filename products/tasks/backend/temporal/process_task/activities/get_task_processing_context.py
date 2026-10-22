@@ -19,6 +19,7 @@ from products.context_layer.backend.facade import api as context_layer_facade
 from products.tasks.backend.constants import (
     AGENT_OTEL_TELEMETRY_STATE_KEY,
     AGENT_PEER_MESSAGING_FEATURE_FLAG,
+    BAKED_REPO_CLONE_FEATURE_FLAG,
     BENJAMIN_FEATURE_FLAG,
     CLAUDE_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG,
     CODEX_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG,
@@ -149,6 +150,7 @@ class TaskProcessingContext:
     overlap_clone_boot_enabled: bool = False
     # Captured at workflow start so the warmup decision stays stable across retries.
     desktop_workspace_warm_enabled: bool = False
+    baked_repo_clone_enabled: bool = False
     agent_proxy_keep_stream_open: bool = True  # Temporal payload compatibility
     # Set only when the run resolved to the VM runtime — custom images layer on the VM base.
     custom_image_name: str | None = None
@@ -852,6 +854,36 @@ def _is_desktop_workspace_warm_enabled(
     return enabled
 
 
+@StepTimer("flag_baked_repo_clone")
+def _is_baked_repo_clone_enabled(
+    *,
+    distinct_id: str,
+    organization_id: str,
+    run_id: str,
+) -> bool:
+    try:
+        enabled = bool(
+            posthoganalytics.feature_enabled(
+                BAKED_REPO_CLONE_FEATURE_FLAG,
+                distinct_id=distinct_id,
+                groups={"organization": organization_id},
+                group_properties={"organization": {"id": organization_id}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception as e:
+        log_with_activity_context("baked_repo_clone_flag_check_failed", run_id=run_id, error=str(e))
+        return False
+
+    log_with_activity_context(
+        "baked_repo_clone_flag_checked",
+        run_id=run_id,
+        baked_repo_clone_enabled=enabled,
+    )
+    return enabled
+
+
 @StepTimer("flag_dev_stack_preview")
 def _is_dev_stack_preview_enabled(
     *,
@@ -1293,6 +1325,11 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
     log_with_activity_context(
         f"desktop_workspace_warm_enabled: {desktop_workspace_warm_enabled} for this task run", run_id=run_id
     )
+    baked_repo_clone_enabled = _is_baked_repo_clone_enabled(
+        distinct_id=distinct_id,
+        organization_id=organization_id,
+        run_id=run_id,
+    )
     rtk_enabled = _is_rtk_enabled(
         distinct_id=distinct_id,
         organization_id=organization_id,
@@ -1450,6 +1487,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         use_hogland_hotplug_golden=use_hogland_hotplug_golden,
         overlap_clone_boot_enabled=overlap_clone_boot_enabled,
         desktop_workspace_warm_enabled=desktop_workspace_warm_enabled,
+        baked_repo_clone_enabled=baked_repo_clone_enabled,
         custom_image_name=custom_image_name,
         rtk_enabled=rtk_enabled,
         benjamin_enabled=benjamin_enabled,

@@ -1182,6 +1182,7 @@ def clone_repository_in_sandbox(input: CloneRepositoryInSandboxInput) -> CloneRe
                 shallow=input.shallow_clone,
                 branch=ctx.branch if is_resume else None,
                 blobless=blobless_clone,
+                baked_repo_clone=ctx.baked_repo_clone_enabled,
             )
 
             if is_resume and ctx.branch and _is_missing_remote_branch_clone_error(clone_result):
@@ -1196,6 +1197,7 @@ def clone_repository_in_sandbox(input: CloneRepositoryInSandboxInput) -> CloneRe
                     shallow=input.shallow_clone,
                     branch=None,
                     blobless=blobless_clone,
+                    baked_repo_clone=ctx.baked_repo_clone_enabled,
                 )
 
             if _is_repository_access_denied_clone_error(clone_result):
