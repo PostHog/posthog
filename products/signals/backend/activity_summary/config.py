@@ -28,6 +28,8 @@ ACTIVITY_SUMMARY_FLAG_DISTINCT_ID = "signals_activity_summary"
 @frozen
 class ActivitySummaryConfig:
     enabled: bool = False
+    # Enrolls every organization with AI data processing approval. Otherwise only `organization_ids`.
+    enroll_all_approved: bool = False
     organization_ids: tuple[str, ...] = ()
     skip_team_ids: tuple[int, ...] = ()
     max_pairs_per_tick: int = 50
@@ -40,6 +42,8 @@ class ActivitySummaryConfig:
     max_versions: int = MAX_VERSIONS
     emit_embeddings: bool = True
     capture_events: bool = True
+    # Count viewed objects in the queue. Turn it on only when the update reads views as an input.
+    count_views: bool = False
     limits: RenderLimits = DEFAULT_LIMITS
     # Summaries generated before this time are rebuilt from the full window, as after a version change.
     rebuild_before: datetime.datetime | None = None
@@ -106,6 +110,7 @@ def parse_config(payload: Any) -> ActivitySummaryConfig:
     defaults = ActivitySummaryConfig()
     return ActivitySummaryConfig(
         enabled=True,
+        enroll_all_approved=_bool(payload.get("enroll_all_approved"), defaults.enroll_all_approved),
         organization_ids=_organization_ids(payload.get("organization_ids")),
         skip_team_ids=_team_ids(payload.get("skip_team_ids")),
         max_pairs_per_tick=_positive_int(payload.get("max_pairs_per_tick"), defaults.max_pairs_per_tick),
@@ -119,6 +124,7 @@ def parse_config(payload: Any) -> ActivitySummaryConfig:
         max_versions=_positive_int(payload.get("max_versions"), defaults.max_versions),
         emit_embeddings=_bool(payload.get("emit_embeddings"), defaults.emit_embeddings),
         capture_events=_bool(payload.get("capture_events"), defaults.capture_events),
+        count_views=_bool(payload.get("count_views"), defaults.count_views),
         limits=parse_limits(payload.get("limits")),
         rebuild_before=_timestamp(payload.get("rebuild_before")),
     )
@@ -129,6 +135,7 @@ def read_config() -> ActivitySummaryConfig:
     logger.info(
         "activity_summary_config_read",
         enabled=config.enabled,
+        enroll_all_approved=config.enroll_all_approved,
         organizations=len(config.organization_ids),
     )
     return config

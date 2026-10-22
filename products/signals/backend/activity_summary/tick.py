@@ -38,8 +38,10 @@ from products.signals.backend.activity_summary.prompt import PROMPT_VERSION
 from products.signals.backend.activity_summary.queue import (
     ActivitySummaryPair,
     daily_usage,
+    feed_queue,
     max_update_cost_usd,
     select_pairs,
+    sync_pair_state,
 )
 from products.signals.backend.activity_summary.render import DEFAULT_LIMITS, RENDER_VERSION, RenderLimits
 from products.signals.backend.activity_summary.summaries import DEFAULT_MODEL, PIPELINE_DISTINCT_ID
@@ -133,6 +135,9 @@ def plan_tick(limit: int | None, now: datetime.datetime) -> ActivitySummaryTickP
         # Every pair would fail on the same missing gateway, so the tick runs none.
         logger.warning("activity_summary_tick_gateway_not_configured")
     enabled = config.enabled and not gateway_missing
+    if config.enabled:
+        # The cursors move even when a cap stops the tick, so new rows do not pile up behind them.
+        feed_queue(config, now)
     usage = daily_usage(now) if enabled else None
     updates_left = max(0, config.max_pairs_per_day - usage.updates) if usage else 0
     cost_left = max(0.0, config.max_cost_usd_per_day - usage.cost_usd) if usage else 0.0
@@ -239,6 +244,11 @@ def run_pair(input: ActivitySummaryPairInput, *, last_attempt: bool = True) -> A
         # Without a failed row and a backoff, the queue picks the same pair again on the next tick.
         update = record_update_exception(input.team_id, input.user_id, error)
         called_model = isinstance(error, UpdateAfterModelCallError)
+    try:
+        sync_pair_state(input.team_id, input.user_id)
+    except Exception:
+        # The pair stays due, so the next tick picks it, skips it as not eligible yet, and syncs it then.
+        logger.exception("activity_summary_queue_sync_failed", team_id=input.team_id, user_id=input.user_id)
     if update.status == UpdateStatus.OK and input.emit_embeddings:
         try:
             _emit_embedding(input.team_id, input.user_id)
