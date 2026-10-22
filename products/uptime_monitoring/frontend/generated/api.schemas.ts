@@ -34,7 +34,7 @@ export interface UptimeMonitorApi {
     method: UptimeMonitorMethodEnumApi
     /** Seconds between checks, a whole number of minutes from 60 to 86400. */
     interval_seconds: number
-    /** Seconds to wait for a response before the check fails, from 1 to 30. */
+    /** Seconds to wait for a response before the check fails, from 1 to 10. */
     timeout_seconds: number
     /** Whether checks run for this monitor. */
     enabled: boolean
@@ -76,9 +76,9 @@ export interface CreateUptimeMonitorInputApi {
      */
     interval_seconds?: number
     /**
-     * Seconds to wait for a response before the check fails, from 1 to 30.
+     * Seconds to wait for a response before the check fails, from 1 to 10.
      * @minimum 1
-     * @maximum 30
+     * @maximum 10
      */
     timeout_seconds?: number
     /** Whether checks run for this monitor. */
@@ -108,9 +108,9 @@ export interface PatchedUpdateUptimeMonitorInputApi {
      */
     interval_seconds?: number
     /**
-     * Seconds to wait for a response before the check fails, from 1 to 30.
+     * Seconds to wait for a response before the check fails, from 1 to 10.
      * @minimum 1
-     * @maximum 30
+     * @maximum 10
      */
     timeout_seconds?: number
     /** Whether checks run for this monitor. */

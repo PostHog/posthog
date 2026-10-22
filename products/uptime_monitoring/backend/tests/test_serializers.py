@@ -21,7 +21,7 @@ class TestUptimeMonitorInputValidation(SimpleTestCase):
             ("interval_below_minimum", {"interval_seconds": 30}, "interval_seconds"),
             ("interval_above_maximum", {"interval_seconds": 2 * 24 * 60 * 60}, "interval_seconds"),
             ("interval_between_minutes", {"interval_seconds": 90}, "interval_seconds"),
-            ("timeout_above_maximum", {"timeout_seconds": 31}, "timeout_seconds"),
+            ("timeout_above_maximum", {"timeout_seconds": 11}, "timeout_seconds"),
             ("unknown_method", {"method": "POST"}, "method"),
         ]
     )

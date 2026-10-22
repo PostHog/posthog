@@ -19,7 +19,7 @@ export const uptimeMonitorsCreateBodyNameMax = 255
 export const uptimeMonitorsCreateBodyIntervalSecondsMin = 60
 export const uptimeMonitorsCreateBodyIntervalSecondsMax = 86400
 
-export const uptimeMonitorsCreateBodyTimeoutSecondsMax = 30
+export const uptimeMonitorsCreateBodyTimeoutSecondsMax = 10
 
 export const UptimeMonitorsCreateBody = /* @__PURE__ */ zod.object({
     url: zod.url().max(uptimeMonitorsCreateBodyUrlMax).describe('The http or https URL to check.'),
@@ -40,7 +40,7 @@ export const UptimeMonitorsCreateBody = /* @__PURE__ */ zod.object({
         .min(1)
         .max(uptimeMonitorsCreateBodyTimeoutSecondsMax)
         .optional()
-        .describe('Seconds to wait for a response before the check fails, from 1 to 30.'),
+        .describe('Seconds to wait for a response before the check fails, from 1 to 10.'),
     enabled: zod.boolean().optional().describe('Whether checks run for this monitor.'),
 })
 
@@ -54,7 +54,7 @@ export const uptimeMonitorsPartialUpdateBodyNameMax = 255
 export const uptimeMonitorsPartialUpdateBodyIntervalSecondsMin = 60
 export const uptimeMonitorsPartialUpdateBodyIntervalSecondsMax = 86400
 
-export const uptimeMonitorsPartialUpdateBodyTimeoutSecondsMax = 30
+export const uptimeMonitorsPartialUpdateBodyTimeoutSecondsMax = 10
 
 export const UptimeMonitorsPartialUpdateBody = /* @__PURE__ */ zod.object({
     url: zod.url().max(uptimeMonitorsPartialUpdateBodyUrlMax).optional().describe('The http or https URL to check.'),
@@ -75,6 +75,6 @@ export const UptimeMonitorsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .min(1)
         .max(uptimeMonitorsPartialUpdateBodyTimeoutSecondsMax)
         .optional()
-        .describe('Seconds to wait for a response before the check fails, from 1 to 30.'),
+        .describe('Seconds to wait for a response before the check fails, from 1 to 10.'),
     enabled: zod.boolean().optional().describe('Whether checks run for this monitor.'),
 })
