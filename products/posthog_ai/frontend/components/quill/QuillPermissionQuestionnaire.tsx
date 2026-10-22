@@ -19,12 +19,17 @@ import {
     QuestionnaireTitle,
 } from '@posthog/quill-primitives'
 
-import { FEEDBACK_PLACEHOLDER, optionRowLabel, optionSublabel } from '../../policy/permissionOptionCopy'
+import {
+    FEEDBACK_PLACEHOLDER,
+    isFeedbackOption,
+    optionRowLabel,
+    optionSublabel,
+} from '../../policy/permissionOptionCopy'
 import type { ApprovalCardOption } from '../../policy/permissionUtils'
 
 const ANSWER_NAME = 'permission'
 
-type PermissionAnswer = { kind: 'choice'; optionId: string } | { kind: 'note'; text: string }
+type PermissionAnswer = { kind: 'choice'; optionId: string } | { kind: 'note'; optionId: string; text: string }
 
 export interface QuillPermissionQuestionnaireProps {
     headline: ReactNode
@@ -37,9 +42,13 @@ export interface QuillPermissionQuestionnaireProps {
 /**
  * The note row answers a decline that relays feedback, so that decline's own choice only has to say "No".
  * Without that split the choice and the note row both read as "tell the agent what to do differently".
+ * With several such declines, each keeps its own label so the choices stay distinct.
  */
-function choiceCopy(option: ApprovalCardOption): { label: string; description: string | null } {
-    if (option.supportsFeedback) {
+function choiceCopy(
+    option: ApprovalCardOption,
+    soleFeedbackOption: boolean
+): { label: string; description: string | null } {
+    if (option.supportsFeedback && soleFeedbackOption) {
         return { label: 'No', description: 'Stops this turn.' }
     }
     return { label: optionRowLabel(option), description: optionSublabel(option) }
@@ -53,7 +62,8 @@ export function QuillPermissionQuestionnaire({
     onRespond,
 }: QuillPermissionQuestionnaireProps): JSX.Element {
     const [answer, setAnswer] = useState<PermissionAnswer | null>(null)
-    const feedbackOption = options.find((option) => option.requiresFeedback || option.supportsFeedback)
+    const feedbackOptions = options.filter(isFeedbackOption)
+    const soleFeedbackOption = feedbackOptions.length === 1
     const choiceOptions = options.filter((option) => !option.requiresFeedback)
 
     return (
@@ -71,10 +81,10 @@ export function QuillPermissionQuestionnaire({
                     if (responding || !answer) {
                         return
                     }
-                    if (answer.kind === 'choice') {
+                    if (answer.kind === 'note') {
+                        onRespond(answer.optionId, answer.text)
+                    } else {
                         onRespond(answer.optionId)
-                    } else if (feedbackOption) {
-                        onRespond(feedbackOption.optionId, answer.text)
                     }
                 }}
             >
@@ -84,7 +94,7 @@ export function QuillPermissionQuestionnaire({
                         <QuestionnaireTitle className="sr-only">Allow this?</QuestionnaireTitle>
                         <QuestionnaireChoices>
                             {choiceOptions.map((option) => {
-                                const { label, description } = choiceCopy(option)
+                                const { label, description } = choiceCopy(option, soleFeedbackOption)
                                 return (
                                     <QuestionnaireChoice
                                         key={option.optionId}
@@ -103,18 +113,26 @@ export function QuillPermissionQuestionnaire({
                                     </QuestionnaireChoice>
                                 )
                             })}
-                            {feedbackOption && (
-                                <QuestionnaireInput
-                                    aria-label={FEEDBACK_PLACEHOLDER}
-                                    placeholder={FEEDBACK_PLACEHOLDER}
-                                    onChange={(event) => {
-                                        const text = event.target.value.trim()
-                                        setAnswer((current) =>
-                                            text ? { kind: 'note', text } : current?.kind === 'note' ? null : current
-                                        )
-                                    }}
-                                />
-                            )}
+                            {feedbackOptions.map((option) => {
+                                const noteLabel = soleFeedbackOption ? FEEDBACK_PLACEHOLDER : optionRowLabel(option)
+                                return (
+                                    <QuestionnaireInput
+                                        key={option.optionId}
+                                        aria-label={noteLabel}
+                                        placeholder={noteLabel}
+                                        onChange={(event) => {
+                                            const text = event.target.value.trim()
+                                            setAnswer((current) =>
+                                                text
+                                                    ? { kind: 'note', optionId: option.optionId, text }
+                                                    : current?.kind === 'note' && current.optionId === option.optionId
+                                                      ? null
+                                                      : current
+                                            )
+                                        }}
+                                    />
+                                )
+                            })}
                         </QuestionnaireChoices>
                         <QuestionnaireError />
                     </QuestionnaireItem>

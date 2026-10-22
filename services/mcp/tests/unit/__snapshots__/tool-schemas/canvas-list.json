@@ -5,6 +5,10 @@
             "description": "Only return canvases in this channel (channel id).",
             "type": "string"
         },
+        "created_by": {
+            "description": "Only return canvases created by the user with this UUID.",
+            "type": "string"
+        },
         "kind": {
             "description": "Only return canvases of this kind. kind=component lists the component store.",
             "enum": ["component", "freeform", "grid"],
@@ -17,6 +21,11 @@
         "offset": {
             "description": "The initial index from which to return the results.",
             "type": "number"
+        },
+        "ordering": {
+            "description": "Sort order. -created_at (default) puts the newest canvases first. -updated_at puts the most recently changed canvases first.",
+            "enum": ["-created_at", "-updated_at"],
+            "type": "string"
         },
         "search": {
             "description": "Case-insensitive match on name and description — use to find store components by what they show.",

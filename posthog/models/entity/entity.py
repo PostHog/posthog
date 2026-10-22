@@ -1,4 +1,4 @@
-import inspect
+import json
 from collections import Counter
 from typing import TYPE_CHECKING, Any, Literal, Optional
 
@@ -6,8 +6,14 @@ from django.conf import settings
 
 from rest_framework.exceptions import ValidationError
 
-from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_DATA_WAREHOUSE, TREND_FILTER_TYPE_EVENTS
-from posthog.models.filters.mixins.funnel import FunnelFromToStepsMixin
+from posthog.constants import (
+    ACTIONS,
+    DATA_WAREHOUSE_ENTITIES,
+    EVENTS,
+    TREND_FILTER_TYPE_ACTIONS,
+    TREND_FILTER_TYPE_DATA_WAREHOUSE,
+    TREND_FILTER_TYPE_EVENTS,
+)
 from posthog.models.filters.mixins.property import PropertyMixin
 from posthog.models.filters.utils import validate_group_type_index
 from posthog.models.property import GroupTypeIndex
@@ -65,9 +71,9 @@ class Entity(PropertyMixin):
     math_property_revenue_currency: Optional["RevenueCurrencyPropertyConfig"]
     math_hogql: Optional[str]
     math_group_type_index: Optional[GroupTypeIndex]
-    # Index is not set at all by default (meaning: access = AttributeError) - it's populated in EntitiesMixin.entities
+    # Index is not set at all by default (meaning: access = AttributeError) - it's populated in parse_entities
     # Used for identifying entities within a single query during query building,
-    # which generally uses Entity objects processed by EntitiesMixin
+    # which generally uses Entity objects processed by parse_entities
     # The clean room way to do this would be passing the index _alongside_ the object, but OOP abuse is much less work
     index: int
 
@@ -199,20 +205,22 @@ class Entity(PropertyMixin):
     )
 
 
-class ExclusionEntity(Entity, FunnelFromToStepsMixin):
-    """
-    Exclusion Entities represent Entities in Filter objects
-    with extra parameters for exclusion semantics.
-    """
+def parse_entities(data: dict) -> list["Entity"]:
+    """Build the ordered entity list from an insight-style filter dict."""
+    processed_entities: list[Entity] = []
+    for key, entity_type in (
+        (ACTIONS, TREND_FILTER_TYPE_ACTIONS),
+        (EVENTS, TREND_FILTER_TYPE_EVENTS),
+        (DATA_WAREHOUSE_ENTITIES, TREND_FILTER_TYPE_DATA_WAREHOUSE),
+    ):
+        raw = data.get(key)
+        if not raw:
+            continue
+        if isinstance(raw, str):
+            raw = json.loads(raw)
+        processed_entities.extend([Entity({**entity, "type": entity_type}) for entity in raw])
 
-    def __init__(self, data: dict[str, Any]) -> None:
-        super().__init__(data)
-
-    def to_dict(self) -> dict[str, Any]:
-        ret = super().to_dict()
-
-        for _, func in inspect.getmembers(self, inspect.ismethod):
-            if hasattr(func, "include_dict"):  # provided by @include_dict decorator
-                ret.update(func())
-
-        return ret
+    processed_entities.sort(key=lambda entity: entity.order if entity.order else -1)
+    for index, entity in enumerate(processed_entities):
+        entity.index = index
+    return processed_entities

@@ -29,12 +29,12 @@ export interface TodayRecentFilterContext {
     pinnedIds: Set<string>
 }
 
-type FilterOptions<T extends string> = { value: T; label: string }[]
+type FilterOptions<T extends string> = { value: T; label: string; dotClassName?: string }[]
 
 // Like PostHog Desktop. The web has no "Needs input" signal, so Status offers unread only.
 export const RECENT_STATUS_OPTIONS: FilterOptions<TodayRecentStatusFilter> = [
     { value: 'any', label: 'Any status' },
-    { value: 'unread', label: 'Unread' },
+    { value: 'unread', label: 'Unread', dotClassName: 'bg-primary' },
 ]
 
 export const RECENT_CREATED_BY_OPTIONS: FilterOptions<TodayRecentCreatedByFilter> = [
@@ -67,7 +67,7 @@ const SOURCE_LABELS: Record<string, string> = {
     task_analysis: 'Task analysis',
     hogdesk: 'HogDesk',
     mcp_analytics: 'MCP analytics',
-    review_hog: 'ReviewHog',
+    review_hog: 'PostHog Review',
 }
 
 export function recentSourceLabel(source: string): string {

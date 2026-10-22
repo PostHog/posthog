@@ -38,6 +38,41 @@ export const BusinessKnowledgeGapSuggestionsDismissTopicCreateBody = /* @__PURE_
 })
 
 /**
+ * @summary Create a business knowledge library
+ */
+export const businessKnowledgeLibrariesCreateBodyNameMax = 255
+
+export const BusinessKnowledgeLibrariesCreateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(businessKnowledgeLibrariesCreateBodyNameMax).describe('Name for the new library.'),
+})
+
+/**
+ * Send only the fields you want to change. `source_ids` replaces every source in the library. `repos` replaces this environment's repositories and leaves repositories that only another environment allows.
+ * @summary Rename a library or replace its sources and repositories
+ */
+export const businessKnowledgeLibrariesPartialUpdateBodyNameMax = 255
+
+export const BusinessKnowledgeLibrariesPartialUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(businessKnowledgeLibrariesPartialUpdateBodyNameMax)
+        .optional()
+        .describe('New name. Omit to keep the current name.'),
+    source_ids: zod
+        .array(zod.uuid())
+        .optional()
+        .describe(
+            'Replaces every source in this library. Omit to leave sources unchanged. An empty list removes them all.'
+        ),
+    repos: zod
+        .array(zod.string())
+        .optional()
+        .describe(
+            "Replaces this environment's repositories in the library. Omit to leave them unchanged. Repositories only another environment allows stay."
+        ),
+})
+
+/**
  * Append a turn and start a sandbox run. A second question in the same chat while its answer is still open returns 409. Other chats can run at the same time, up to 3 open answers per person.
  * @summary Ask a question in a playground chat
  */
@@ -64,13 +99,13 @@ export const BusinessKnowledgeRepositoriesConnectCreateBody = /* @__PURE__ */ zo
  * Every name must be a repository the connected installation can see. Names are stored lowercased.
  * @summary Replace the repositories business knowledge can read
  */
-export const businessKnowledgeRepositoriesSelectionCreateBodyReposMax = 20
+export const businessKnowledgeRepositoriesSelectionCreateBodyReposMax = 100
 
 export const BusinessKnowledgeRepositoriesSelectionCreateBody = /* @__PURE__ */ zod.object({
     repos: zod
         .array(zod.string())
         .max(businessKnowledgeRepositoriesSelectionCreateBodyReposMax)
-        .describe('owner\/repo names to allow. At most 20. Replaces the current list.'),
+        .describe('owner\/repo names to allow. At most 100. Replaces the current list.'),
 })
 
 /**
@@ -138,6 +173,12 @@ export const BusinessKnowledgeSourcesPartialUpdateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 "When true, this source's content is injected into every support reply prompt as general context."
+            ),
+        library_ids: zod
+            .array(zod.uuid())
+            .optional()
+            .describe(
+                'Replaces the libraries this source belongs to. Omit to leave membership unchanged. An empty list removes it from every library.'
             ),
     })
     .describe(

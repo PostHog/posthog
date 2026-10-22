@@ -1,3 +1,6 @@
+import time
+from dataclasses import replace
+
 import pytest
 from unittest.mock import patch
 
@@ -177,3 +180,42 @@ def test_failed_refresh_reverts_a_managed_safety_prompt_to_bundled() -> None:
             assert cache.current(fallback) == fallback
     finally:
         cache._executor.shutdown(wait=True)
+
+
+def test_versioned_shadow_refresh_does_not_replace_production() -> None:
+    fallback = SIGNAL_SAFETY_SYSTEM_ONE_PROMPT
+    primary = replace(fallback, source="managed", version=2)
+    candidate = replace(primary, model="posthog/hogference/jeeves-0.1", version=3)
+    cache = _PromptCache()
+    cache._states[fallback.name] = _PromptState(primary)
+    cache._states[fallback.name].refreshed_at = time.monotonic()
+    try:
+        with patch("products.signals.backend.system_one_prompts.fetch_prompt", return_value=candidate):
+            cache.current(fallback, version=3)
+            cache._executor.shutdown(wait=True)
+            assert cache.current(fallback, version=3) == candidate
+            assert cache.current(fallback) == primary
+    finally:
+        cache._executor.shutdown(wait=True)
+
+
+@pytest.mark.parametrize("fallback", [SIGNAL_SAFETY_SYSTEM_ONE_PROMPT, REPORT_SAFETY_SYSTEM_ONE_PROMPT])
+def test_managed_jevk_prompt_is_rejected(fallback: SystemOnePrompt) -> None:
+    result = PromptResult(
+        source="api",
+        name=fallback.name,
+        version=1,
+        prompt=fallback.policy,
+        config={
+            "model": "posthog/hogference/jevk5-fp8-0.2",
+            "question": fallback.question,
+            "threshold": fallback.threshold,
+        },
+    )
+    with (
+        patch("products.signals.backend.system_one_prompts.posthoganalytics.personal_api_key", "test-key"),
+        patch("products.signals.backend.system_one_prompts.Prompts") as prompts,
+    ):
+        prompts.return_value.get.return_value = result
+        assert fetch_prompt(fallback) is None
+    assert fallback.model == DEFAULT_SYSTEM_ONE_MODEL

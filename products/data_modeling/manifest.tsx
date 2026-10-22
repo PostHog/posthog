@@ -38,6 +38,15 @@ export const manifest: ProductManifest = {
             iconType: 'data_modeling',
             iconColor: ['var(--color-product-models-light)', 'var(--color-product-models-dark)'],
             href: urls.models(),
+            searchKeywords: ['materialized views', 'materialization', 'data modeling', 'sql views', 'saved queries'],
+            searchTabs: [
+                { name: 'Lineage', href: urls.models('lineage'), searchKeywords: ['dag', 'dependencies'] },
+                {
+                    name: 'Data quality',
+                    href: urls.models('data-quality'),
+                    searchKeywords: ['tests', 'checks', 'freshness'],
+                },
+            ],
             sceneKey: 'Models',
             sceneKeys: ['Models'],
         },

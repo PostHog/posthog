@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator } from '@posthog/quill'
 
 import { TodayFilterMenuTrigger } from '~/layout/today/TodayFilterMenuTrigger'
-import { RECENT_CREATED_BY_OPTIONS } from '~/layout/today/todayRecentFilters'
+import { RECENT_CREATED_BY_OPTIONS, RECENT_STATUS_OPTIONS } from '~/layout/today/todayRecentFilters'
 import { DEFAULT_RECENT_SORT, RECENT_SORT_OPTIONS } from '~/layout/today/todayRecentOrder'
 import { TodayRecentRadioSubmenu } from '~/layout/today/TodayRecentRadioSubmenu'
 import { TodayRecentSourceSubmenu } from '~/layout/today/TodayRecentSourceSubmenu'
@@ -13,18 +13,12 @@ import {
     SpaceFeedEnvironmentFilter,
     SpaceFeedGrouping,
     SpaceFeedPinnedFilter,
-    SpaceFeedStatusFilter,
 } from './spaceFeedEntries'
 import { spaceFeedViewLogic } from './spaceFeedViewLogic'
 
 const GROUPING_OPTIONS: { value: SpaceFeedGrouping; label: string }[] = [
     { value: 'date', label: 'Date' },
     { value: 'repository', label: 'Repository' },
-]
-
-const STATUS_OPTIONS: { value: SpaceFeedStatusFilter; label: string }[] = [
-    { value: 'any', label: 'Any status' },
-    { value: 'unread', label: 'Unread' },
 ]
 
 const PINNED_OPTIONS: { value: SpaceFeedPinnedFilter; label: string }[] = [
@@ -66,7 +60,7 @@ export function SpaceFeedFilterMenu({ sourceOptions }: { sourceOptions: string[]
                 <DropdownMenuSeparator />
                 <TodayRecentRadioSubmenu
                     label="Status"
-                    options={STATUS_OPTIONS}
+                    options={RECENT_STATUS_OPTIONS}
                     value={filters.status}
                     defaultValue={DEFAULT_SPACE_FEED_FILTERS.status}
                     onChange={(status) => setFilters({ ...filters, status })}

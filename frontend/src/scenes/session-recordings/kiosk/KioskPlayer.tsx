@@ -83,6 +83,7 @@ export function KioskPlayer(): JSX.Element | null {
                 }`}
             >
                 <LemonButton
+                    data-attr="kiosk-exit"
                     type="secondary"
                     icon={<IconX className="text-2xl" />}
                     size="large"

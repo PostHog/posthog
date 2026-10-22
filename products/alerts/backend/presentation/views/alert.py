@@ -1,10 +1,11 @@
 import json
 import uuid
+from datetime import datetime
 from typing import Annotated, Any, cast
 from zoneinfo import ZoneInfo
 
 from django.db import transaction
-from django.db.models import OuterRef, Prefetch, Q, QuerySet, Subquery
+from django.db.models import OuterRef, Prefetch, QuerySet, Subquery
 from django.utils import timezone
 
 import pydantic
@@ -81,8 +82,6 @@ from products.alerts.backend.evaluation.validation import (
     validate_alert_insight_query,
 )
 from products.alerts.backend.facade.api import (
-    INSIGHT_ALERT_DESTINATION_TYPES,
-    INSIGHT_ALERT_EVENT_IDS,
     LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
     MAX_PROMPT_POINTS,
     LLMAlertWrite,
@@ -93,9 +92,10 @@ from products.alerts.backend.facade.api import (
     llm_detector_access_error,
 )
 from products.alerts.backend.facade.contracts import (
-    AlertDestinationData,
-    AlertDestinationValidationError,
-    DestinationType,
+    INSIGHT_ALERT_DESTINATION_TYPES,
+    INSIGHT_ALERT_EVENT_IDS,
+    MovedAlertCheck,
+    PlatformCannotOwn,
 )
 from products.alerts.backend.facade.destinations import (
     MAX_DESTINATION_IDS_PER_DELETE_REQUEST,
@@ -106,16 +106,39 @@ from products.alerts.backend.facade.destinations import (
     soft_delete_alert_destinations,
     validate_destination_data,
 )
-from products.alerts.backend.facade.scheduling import validate_and_normalize_schedule_start_time
+from products.alerts.backend.facade.evaluation import DelayedEvaluationUnavailable, validate_evaluation_delay
+from products.alerts.backend.facade.platform import (
+    close_moved_alert_firings,
+    delete_moved_alert_copy,
+    follow_insight_alert,
+    hand_over_new_alert,
+    moved_alert_check_page,
+    moved_alert_statuses,
+    write_moved_alert_edit,
+)
 from products.alerts.backend.insight_alert_state_machine import (
     apply_disable,
     apply_enable,
+    apply_platform_state,
     apply_snooze,
     apply_threshold_change,
     apply_unsnooze,
 )
-from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, AlertSubscription, Threshold
-from products.alerts.backend.presentation.views.schedule_restriction import AlertScheduleRestriction
+from products.alerts.backend.models.alert import (
+    METRICS_INSIGHT_QUERY_FILTER,
+    AlertCheck,
+    AlertConfiguration,
+    AlertSubscription,
+    Threshold,
+)
+from products.alerts_platform.backend.facade.contracts import (
+    AlertDestinationData,
+    AlertDestinationValidationError,
+    DestinationType,
+    InvalidPlatformAlertEdit,
+)
+from products.alerts_platform.backend.facade.scheduling import validate_and_normalize_schedule_start_time
+from products.alerts_platform.backend.presentation.views.schedule_restriction import ScheduleRestrictionField
 from products.product_analytics.backend.facade.api import lock_insight_for_evaluation
 from products.product_analytics.backend.facade.models import Insight, resolve_insight_by_id_or_short_id
 
@@ -369,11 +392,6 @@ def _enforce_alert_feature_flags(context: dict[str, Any], insight: Insight) -> N
         raise ValidationError("Metrics insight alerts are not enabled for your account.")
 
 
-# Matches insights whose (bare or one-level-wrapped) query is a MetricsQuery — the shapes the
-# product persists today. Used to hide metric alert data from tokens lacking the metrics scope.
-_METRICS_INSIGHT_QUERY_FILTER = Q(insight__query__kind="MetricsQuery") | Q(insight__query__source__kind="MetricsQuery")
-
-
 def _token_lacks_metrics_scope(request) -> bool:
     # Session auth (no token scopes) is exempt: those users are gated by team membership and
     # insight viewer access instead.
@@ -456,11 +474,6 @@ class TeamScopedInsightReferenceField(TeamScopedPrimaryKeyRelatedField):
             return insight
 
         self.fail("does_not_exist", pk_value=data)
-
-
-@extend_schema_field(AlertScheduleRestriction)  # type: ignore[arg-type]
-class ScheduleRestrictionField(serializers.JSONField):
-    pass
 
 
 class ThresholdSerializer(serializers.ModelSerializer):
@@ -633,6 +646,14 @@ class RelativeDateTimeField(serializers.DateTimeField):
 
 
 class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializer):
+    evaluation_delay_intervals = serializers.IntegerField(
+        min_value=0,
+        max_value=100,
+        required=False,
+        help_text="Skip this many completed insight intervals after excluding the ongoing interval (0-100, default 0). "
+        "Time-series Trends only. A positive delay requires check_ongoing_interval=false. Uses the insight interval, "
+        "not the check frequency. Allows late data to arrive, but also delays detection of real problems.",
+    )
     created_by = UserBasicSerializer(read_only=True)
     checks = AlertCheckSerializer(
         many=True,
@@ -805,6 +826,7 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             "checks_total",
             "config",
             "detector_config",
+            "evaluation_delay_intervals",
             "calculation_interval",
             "snoozed_until",
             "skip_weekend",
@@ -884,6 +906,8 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             if instance.schedule_start_time is not None:
                 instance.next_check_at = next_check_at_after_schedule_restriction_change(instance)
                 instance.save(update_fields=["next_check_at"])
+            if hand_over_new_alert(team_id=instance.team_id, alert_id=instance.id, at=timezone.now()):
+                instance.refresh_from_db(fields=["owner", "owner_changed_at"])
 
         for user in subscribed_users:
             AlertSubscription.objects.create(
@@ -894,6 +918,11 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             self.context["request"].user,
             analytics_props=get_request_analytics_properties(self.context["request"]),
         )
+        # A handed-over copy is the platform's now, and a revived copy would lose its state.
+        if instance.enabled and not instance.platform_owned:
+            transaction.on_commit(
+                lambda: follow_insight_alert(team_id=instance.team_id, alert_id=instance.id), robust=True
+            )
         return instance
 
     @transaction.atomic
@@ -966,7 +995,7 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
 
         evaluation_changed = conditions_or_threshold_changed or any(
             validated_data.get(field, getattr(instance, field)) != getattr(instance, field)
-            for field in ("condition", "config", "skip_weekend", "detector_config")
+            for field in ("condition", "config", "skip_weekend", "detector_config", "evaluation_delay_intervals")
         )
         calculation_interval_changed = (
             "calculation_interval" in validated_data
@@ -1013,11 +1042,26 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
         if schedule_restriction_changed or schedule_start_time_changed:
             instance.next_check_at = next_check_at_after_schedule_restriction_change(instance)
             instance.save(update_fields=["next_check_at"])
+        if instance.platform_owned:
+            try:
+                write_moved_alert_edit(
+                    team_id=instance.team_id,
+                    alert_id=instance.id,
+                    snooze_changed=snoozed_until_param is not serializers.empty,
+                )
+            except PlatformCannotOwn as error:
+                raise ValidationError(str(error)) from error
+            except InvalidPlatformAlertEdit as error:
+                raise ValidationError({error.field_name: str(error)}) from error
 
         instance.report_updated(
             self.context["request"].user,
             analytics_props=get_request_analytics_properties(self.context["request"]),
         )
+        if enable_now and not instance.platform_owned:
+            transaction.on_commit(
+                lambda: follow_insight_alert(team_id=instance.team_id, alert_id=instance.id), robust=True
+            )
         return instance
 
     def validate_schedule_start_time(self, value: str | None) -> str | None:
@@ -1101,7 +1145,10 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
 
         # Mirror the UI's default for cadences finer than the insight interval. Applied before
         # validate_alert_config so the validated config is the persisted config.
-        if isinstance(config, dict) and config.get("check_ongoing_interval") is None:
+        evaluation_delay = attrs.get(
+            "evaluation_delay_intervals", self.instance.evaluation_delay_intervals if self.instance else 0
+        )
+        if not evaluation_delay and isinstance(config, dict) and config.get("check_ongoing_interval") is None:
             if should_default_check_ongoing_interval(
                 query=query,
                 config=config,
@@ -1115,6 +1162,7 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
         request_user = self.context["request"].user
         creating_user = request_user if isinstance(request_user, User) else None
         try:
+            validate_evaluation_delay(query, config, evaluation_delay)
             validate_alert_insight_query(
                 query,
                 team=self.context["get_team"](),
@@ -1208,6 +1256,13 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
 
 
 class AlertSimulateSerializer(serializers.Serializer):
+    evaluation_delay_intervals = serializers.IntegerField(
+        min_value=0,
+        max_value=100,
+        default=0,
+        help_text="Skip this many completed insight intervals before simulation, matching live evaluation. "
+        "Time-series Trends only; a positive delay requires check_ongoing_interval=false.",
+    )
     insight = TeamScopedInsightReferenceField(
         queryset=Insight.objects.all(),
         help_text="Numeric insight ID or saved insight short ID to simulate the detector on.",
@@ -1256,6 +1311,15 @@ class AlertSimulateSerializer(serializers.Serializer):
         _enforce_alert_feature_flags(self.context, value)
         return value
 
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        with upgrade_insight(attrs["insight"]):
+            query = attrs["insight"].query
+        try:
+            validate_evaluation_delay(query, attrs.get("config"), attrs["evaluation_delay_intervals"])
+        except ValueError as err:
+            raise ValidationError({"evaluation_delay_intervals": [str(err)]}) from err
+        return attrs
+
     def validate_detector_config(self, value):
         # Same gate as create/update: previewing a flag-gated detector must be rejected the
         # same way saving one is, or the preview becomes the way to use it.
@@ -1287,6 +1351,12 @@ class BreakdownSimulationResultSerializer(serializers.Serializer):
 
 
 class AlertSimulateResponseSerializer(serializers.Serializer):
+    evaluation_delay_intervals = serializers.IntegerField(required=False, help_text="Completed intervals skipped.")
+    evaluated_interval_start = serializers.CharField(required=False, help_text="Start of the latest eligible interval.")
+    evaluated_interval_end = serializers.CharField(
+        required=False, help_text="Exclusive end of the latest eligible interval."
+    )
+    evaluated_interval_timezone = serializers.CharField(required=False, help_text="Project timezone of the interval.")
     data = serializers.ListField(child=serializers.FloatField(), help_text="Data values for each point.")  # type: ignore[assignment]
     dates = serializers.ListField(child=serializers.CharField(), help_text="Date labels for each point.")
     scores = serializers.ListField(
@@ -1382,6 +1452,39 @@ class AlertDeleteDestinationSerializer(serializers.Serializer):
 class AlertListFiltersSerializer(serializers.Serializer):
     insight_tag = serializers.CharField(required=False, max_length=255)
     has_detector = OptionalBooleanField(required=False)
+
+
+def _show_platform_status(alerts: list[AlertConfiguration], *, now: datetime) -> None:
+    """Shows each alert the platform owns as the platform has it, in place. Its own row stops
+    moving once the insight stack stops checking it."""
+    moved = {alert.id: alert for alert in alerts if alert.platform_owned}
+    if not moved:
+        return
+    statuses = moved_alert_statuses(team_id=next(iter(moved.values())).team_id, alert_ids=list(moved), now=now)
+    for alert_id, moved_status in statuses.items():
+        alert = moved[alert_id]
+        if moved_status.runtime is not None:
+            apply_platform_state(alert, moved_status.runtime.state)
+            alert.next_check_at = moved_status.runtime.next_check_at
+            alert.last_notified_at = moved_status.runtime.last_notified_at
+        if moved_status.last_check is not None:
+            alert.last_checked_at = moved_status.last_check.checked_at
+            # Annotated from the alert's own checks, which stop once the shadow ends.
+            alert.last_value = moved_status.last_check.value  # type: ignore[attr-defined]
+
+
+def _as_alert_check(alert: AlertConfiguration, check: MovedAlertCheck) -> AlertCheck:
+    # Never saved. It carries what the check serializer shows.
+    return AlertCheck(
+        id=check.id,
+        alert_configuration=alert,
+        created_at=check.checked_at,
+        calculated_value=check.value,
+        condition=alert.condition,
+        state=check.state,
+        error={"message": check.error_message} if check.error_message else None,
+        targets_notified={},
+    )
 
 
 @extend_schema_view(
@@ -1504,7 +1607,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # filter-then-exclude-by-id rather than exclude(Q) — NOT over a JSON path is three-valued,
         # so a plain exclude also drops rows whose query lacks the key entirely.
         if _token_lacks_metrics_scope(self.request):
-            queryset = queryset.exclude(id__in=queryset.filter(_METRICS_INSIGHT_QUERY_FILTER).values("id"))
+            queryset = queryset.exclude(id__in=queryset.filter(METRICS_INSIGHT_QUERY_FILTER).values("id"))
 
         latest_check = AlertCheck.objects.filter(alert_configuration=OuterRef("pk")).order_by("-created_at")
         queryset = queryset.annotate(last_value=Subquery(latest_check.values("calculated_value")[:1]))
@@ -1561,14 +1664,14 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         checks_qs = instance.alertcheck_set.select_related("investigation_notebook").order_by("-created_at")
 
         checks_date_from = request.query_params.get("checks_date_from")
-        if checks_date_from:
-            parsed_date = relative_date_parse(checks_date_from, ZoneInfo("UTC"))
-            checks_qs = checks_qs.filter(created_at__gte=parsed_date)
+        checks_since = relative_date_parse(checks_date_from, ZoneInfo("UTC")) if checks_date_from else None
+        if checks_since is not None:
+            checks_qs = checks_qs.filter(created_at__gte=checks_since)
 
         checks_date_to = request.query_params.get("checks_date_to")
-        if checks_date_to:
-            parsed_date = relative_date_parse(checks_date_to, ZoneInfo("UTC"))
-            checks_qs = checks_qs.filter(created_at__lte=parsed_date)
+        checks_until = relative_date_parse(checks_date_to, ZoneInfo("UTC")) if checks_date_to else None
+        if checks_until is not None:
+            checks_qs = checks_qs.filter(created_at__lte=checks_until)
 
         has_date_filter = checks_date_from or checks_date_to
         raw_limit = request.query_params.get("checks_limit")
@@ -1589,12 +1692,39 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         else:
             offset = 0
 
-        checks_total = checks_qs.count()
-        instance.checks_total = checks_total
-        offset = min(offset, checks_total)
-        instance.checks = checks_qs[offset : offset + limit]
+        _show_platform_status([instance], now=timezone.now())
+        platform_page = (
+            moved_alert_check_page(
+                team_id=instance.team_id,
+                alert_id=instance.id,
+                since=checks_since,
+                until=checks_until,
+                limit=limit,
+                offset=offset,
+            )
+            if instance.platform_owned
+            else None
+        )
+        if platform_page is not None:
+            instance.checks_total = platform_page.total
+            instance.checks = [_as_alert_check(instance, check) for check in platform_page.checks]
+        else:
+            checks_total = checks_qs.count()
+            instance.checks_total = checks_total
+            offset = min(offset, checks_total)
+            instance.checks = checks_qs[offset : offset + limit]
         serializer = self.get_serializer(instance)
         return Response(serializer.data)
+
+    def perform_destroy(self, instance: AlertConfiguration) -> None:
+        # Before the delete, while the destinations a firing's resolve goes to still exist.
+        if instance.platform_owned:
+            close_moved_alert_firings(team_id=instance.team_id, alert_id=instance.id)
+        # The copy and the alert go together, so a failed delete leaves no moved alert without its copy.
+        with transaction.atomic():
+            if instance.platform_owned:
+                delete_moved_alert_copy(team_id=instance.team_id, alert_id=instance.id)
+            super().perform_destroy(instance)
 
     def list(self, request, *args, **kwargs):
         queryset = self.filter_queryset(self.get_queryset())
@@ -1602,6 +1732,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # Paginate first, then prefetch checks only for the page
         page = self.paginate_queryset(queryset)
         alerts = list(page) if page is not None else list(queryset)
+        _show_platform_status(alerts, now=timezone.now())
 
         # Prefetch firing checks for anomaly point display on chart.
         if alerts:
@@ -1843,8 +1974,9 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 user=cast(User, request.user),
                 config=config,
                 is_agent_billable=not is_impersonated(request),
+                evaluation_delay_intervals=serializer.validated_data["evaluation_delay_intervals"],
             )
-        except (ValueError, IndexError, AlertExtractionError) as e:
+        except (ValueError, IndexError, AlertExtractionError, DelayedEvaluationUnavailable) as e:
             raise ValidationError(str(e))
         except LLMDetectorError as e:
             capture_exception(e)
@@ -1873,5 +2005,5 @@ class ThresholdViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
         # Thresholds embed full alerts (including check values), so they get the same read-side
         # metrics scope gate as the alerts endpoints. Same null-safe filter-then-exclude shape.
         if _token_lacks_metrics_scope(self.request):
-            queryset = queryset.exclude(id__in=queryset.filter(_METRICS_INSIGHT_QUERY_FILTER).values("id"))
+            queryset = queryset.exclude(id__in=queryset.filter(METRICS_INSIGHT_QUERY_FILTER).values("id"))
         return queryset

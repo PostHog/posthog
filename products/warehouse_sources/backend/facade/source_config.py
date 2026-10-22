@@ -75,9 +75,18 @@ class DataWarehouseSourceCategory(StrEnum):
 
 
 class ReleaseStatus(StrEnum):
-    ALPHA = "alpha"
     BETA = "beta"
     GA = "ga"
+    # Deprecated alias of BETA so source PRs written before alpha was dropped still import.
+    # Remove once no open PR uses it.
+    ALPHA = "beta"
+
+    @classmethod
+    def __get_pydantic_json_schema__(cls, core_schema: Any, handler: Any) -> dict[str, Any]:
+        # The alias would otherwise list "beta" twice in the OpenAPI enum.
+        schema = handler.resolve_ref_schema(handler(core_schema))
+        schema["enum"] = list(dict.fromkeys(schema["enum"]))
+        return schema
 
 
 class SourceFieldInputConfigType(StrEnum):
@@ -161,6 +170,15 @@ class SourceFieldCredentialAccountSelectConfig(BaseModel):
         description=(
             "Names of the sibling fields whose values the account listing needs. The form sends"
             " exactly these, and the listing endpoint accepts exactly these."
+        ),
+    )
+    integrationField: str | None = Field(
+        default=None,
+        description=(
+            "Name of an OAuth integration id field that lists the same accounts, for a source"
+            " offering both a typed-in credential and a connected account. The form sends this"
+            " instead of `credentialFields` when it holds a value, and the listing endpoint"
+            " accepts it on the same allowlist."
         ),
     )
     label: str

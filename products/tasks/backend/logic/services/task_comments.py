@@ -1,18 +1,17 @@
 from base64 import urlsafe_b64decode, urlsafe_b64encode
 from collections.abc import Callable, Sequence
 from datetime import datetime
+from urllib.parse import urlsplit
 from uuid import UUID
 
-from django.db.models import CharField, Count, Q, QuerySet
-from django.db.models.functions import Cast
+from django.db.models import Count, Q, QuerySet
 
 from posthog.models import Comment
 from posthog.models.comment.comment import CANVAS_COMMENT_SCOPES
 from posthog.models.comment.utils import DESKTOP_COMMENT_SCOPES
 
-from products.canvas.backend.models import Canvas
 from products.tasks.backend.facade import contracts
-from products.tasks.backend.models import Channel, TaskArtifact, TaskRun, TaskThreadMessage
+from products.tasks.backend.models import TaskArtifact, TaskRun, TaskThreadMessage
 
 COMMENT_STATES = frozenset({"open", "resolved"})
 LEGACY_TASK_RUN_LIMIT = 100
@@ -127,14 +126,22 @@ def _without_emoji(comments: QuerySet[Comment]) -> QuerySet[Comment]:
     )
 
 
-def visible_canvas_comment_item_ids(team_id: int, user_id: int | None) -> QuerySet[Canvas, dict[str, str]]:
-    return (
-        Canvas.objects.for_team(team_id)
-        .filter(deleted=False)
-        .filter(Channel.visible_to_q(user_id, relation="channel"))
-        .annotate(comment_item_id=Cast("id", output_field=CharField()))
-        .values("comment_item_id")
+def _visible_task_canvas_ids(team_id: int, task_id_string: str, user_id: int | None) -> set[str]:
+    """Ids of the visible canvases among those this task's canvas comments name."""
+    from products.canvas.backend.facade import (
+        access as canvas_access,  # noqa: PLC0415 — keeps canvas off django.setup()
     )
+
+    # Only the canvases this task's comments name are candidates, so the lookup stays bounded by the
+    # task and not by every canvas in the team.
+    item_ids = (
+        Comment.objects.filter(
+            team_id=team_id, deleted=False, scope__in=CANVAS_COMMENT_SCOPES, item_context__taskId=task_id_string
+        )
+        .values_list("item_id", flat=True)
+        .distinct()
+    )
+    return canvas_access.live_visible_canvas_ids(team_id, user_id, [item_id for item_id in item_ids if item_id])
 
 
 def _comments(team_id: int, task_id: UUID, user_id: int | None) -> QuerySet[Comment]:
@@ -146,7 +153,7 @@ def _comments(team_id: int, task_id: UUID, user_id: int | None) -> QuerySet[Comm
             | Q(
                 scope__in=CANVAS_COMMENT_SCOPES,
                 item_context__taskId=task_id_string,
-                item_id__in=visible_canvas_comment_item_ids(team_id, user_id),
+                item_id__in=_visible_task_canvas_ids(team_id, task_id_string, user_id),
             )
         )
     )
@@ -156,6 +163,13 @@ def _canvas_comments(team_id: int, canvas_id: UUID) -> QuerySet[Comment]:
     return _without_emoji(
         Comment.objects.filter(team_id=team_id, deleted=False, scope__in=CANVAS_COMMENT_SCOPES, item_id=str(canvas_id))
     )
+
+
+def _canvas_id_from_url(canvas_url: object) -> str:
+    # Read the id from the path only, so a query or fragment on the URL never becomes part of it.
+    if not isinstance(canvas_url, str):
+        return ""
+    return urlsplit(canvas_url).path.rstrip("/").rsplit("/", 1)[-1]
 
 
 def _canvas_names(*, team_id: int, task_id: UUID, canvas_ids: Sequence[str]) -> dict[str, str]:
@@ -170,7 +184,7 @@ def _canvas_names(*, team_id: int, task_id: UUID, canvas_ids: Sequence[str]) -> 
         .values_list("payload", flat=True)[:CANVAS_EVENT_LIMIT]
     ):
         canvas_url = payload.get("canvas_url") if isinstance(payload, dict) else None
-        canvas_id = canvas_url.rstrip("/").rsplit("/", 1)[-1] if isinstance(canvas_url, str) else ""
+        canvas_id = _canvas_id_from_url(canvas_url)
         canvas_name = payload.get("canvas_name") if isinstance(payload, dict) else None
         if canvas_id in wanted and isinstance(canvas_name, str) and canvas_name:
             names.setdefault(canvas_id, canvas_name)
@@ -267,7 +281,7 @@ def list_artifacts(*, team_id: int, task_id: UUID) -> list[contracts.TaskArtifac
     ):
         canvas_url = payload.get("canvas_url") if isinstance(payload, dict) else None
         canvas_name = payload.get("canvas_name") if isinstance(payload, dict) else None
-        canvas_id = canvas_url.rstrip("/").rsplit("/", 1)[-1] if isinstance(canvas_url, str) else ""
+        canvas_id = _canvas_id_from_url(canvas_url)
         if canvas_id:
             artifacts.setdefault(
                 ("canvas", canvas_id),

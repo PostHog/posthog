@@ -1,10 +1,8 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
-import { router } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import { createElement } from 'react'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
 import { materializationJobsLogic } from 'scenes/data-warehouse/saved_queries/materializationJobsLogic'
 import { urls } from 'scenes/urls'
@@ -26,7 +24,6 @@ function buildNode(type: DataModelingNodeType, overrides: Partial<DataModelingNo
         id: NODE_ID,
         name: 'orders',
         type,
-        dag: 'dag-1',
         created_at: '2024-01-01T00:00:00Z',
         updated_at: '2024-01-01T00:00:00Z',
         upstream_count: 0,
@@ -38,13 +35,12 @@ function buildNode(type: DataModelingNodeType, overrides: Partial<DataModelingNo
 
 describe('nodeDetailSceneLogic', () => {
     let logic: ReturnType<typeof nodeDetailSceneLogic.build>
-    let flagsLogic: ReturnType<typeof featureFlagLogic.build>
     let node: DataModelingNode
     let savedQuery: Partial<DataWarehouseSavedQuery>
 
-    const mountScene = async (path: string): Promise<void> => {
+    const mountScene = async (path: string, id = NODE_ID): Promise<void> => {
         router.actions.push(path)
-        logic = nodeDetailSceneLogic({ id: NODE_ID })
+        logic = nodeDetailSceneLogic({ id })
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
     }
@@ -60,17 +56,11 @@ describe('nodeDetailSceneLogic', () => {
             },
         })
         initKeaTests()
-        flagsLogic = featureFlagLogic()
-        flagsLogic.mount()
-        flagsLogic.actions.setFeatureFlags([FEATURE_FLAGS.DATA_QUALITY_CHECKS], {
-            [FEATURE_FLAGS.DATA_QUALITY_CHECKS]: true,
-        })
     })
 
     afterEach(() => {
         cleanup()
         logic?.unmount()
-        flagsLogic.unmount()
     })
 
     it.each([undefined, {}])(
@@ -121,6 +111,16 @@ describe('nodeDetailSceneLogic', () => {
         expect(logic.values.currentTab).toEqual('lineage')
     })
 
+    it('replaces a backing-resource URL with the canonical node URL', async () => {
+        await mountScene(
+            combineUrl(urls.nodeDetail(SAVED_QUERY_ID, 'lineage'), { lookup: 'saved_query' }).url,
+            SAVED_QUERY_ID
+        )
+
+        expect(router.values.location.pathname).toEqual(`/project/997${urls.nodeDetail(NODE_ID, 'lineage')}`)
+        expect(router.values.searchParams).toEqual({})
+    })
+
     it('adds data quality for a warehouse table ID and loads its details', async () => {
         node = buildNode('table', { warehouse_table_id: 'table-1' })
         useMocks({
@@ -148,7 +148,7 @@ describe('nodeDetailSceneLogic', () => {
 
         await mountScene(urls.nodeDetail(NODE_ID))
 
-        expect(logic.values.availableTabs).toEqual(['lineage', 'tests'])
+        expect(logic.values.availableTabs).toEqual(['lineage', 'data-quality'])
         expect(logic.values.dataQualitySubject).toEqual({ subjectType: 'table', subjectId: 'table-1' })
         expect(logic.values.tableDetails).toMatchObject({
             table: { id: 'table-1' },
@@ -184,7 +184,7 @@ describe('nodeDetailSceneLogic', () => {
 
             await mountScene(urls.nodeDetail(NODE_ID))
 
-            expect(logic.values.availableTabs).toEqual(['lineage', 'tests'])
+            expect(logic.values.availableTabs).toEqual(['lineage', 'data-quality'])
             expect(logic.values.dataQualitySubject).toEqual({
                 subjectType: 'posthog_table',
                 subjectId: `${tableName}-subject`,
@@ -199,46 +199,6 @@ describe('nodeDetailSceneLogic', () => {
         }
     )
 
-    it('loads the PostHog subject when the data quality flag arrives after the node', async () => {
-        node = buildNode('table', { name: 'events', origin: 'posthog' })
-        flagsLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.DATA_QUALITY_CHECKS]: false })
-        useMocks({
-            get: {
-                '/api/environments/:team_id/data_modeling_nodes/lineage/': { nodes: [], edges: [] },
-                '/api/environments/:team_id/data_modeling_nodes/:id/': () => [200, node],
-                '/api/projects/:team_id/data_quality_checks/subjects/': () => [
-                    200,
-                    [
-                        {
-                            subject_type: 'posthog_table',
-                            id: 'events-subject',
-                            name: 'events',
-                            display_name: '',
-                            time_column: 'timestamp',
-                            columns: {},
-                            editable: true,
-                        },
-                    ],
-                ],
-            },
-        })
-
-        await mountScene(urls.nodeDetail(NODE_ID))
-        expect(logic.values.availableTabs).toEqual(['lineage'])
-
-        await expectLogic(logic, () => {
-            flagsLogic.actions.setFeatureFlags([FEATURE_FLAGS.DATA_QUALITY_CHECKS], {
-                [FEATURE_FLAGS.DATA_QUALITY_CHECKS]: true,
-            })
-        }).toFinishAllListeners()
-
-        expect(logic.values.availableTabs).toEqual(['lineage', 'tests'])
-        expect(logic.values.dataQualitySubject).toMatchObject({
-            subjectType: 'posthog_table',
-            subjectId: 'events-subject',
-        })
-    })
-
     it('keeps the data quality tab for an unsupported PostHog table', async () => {
         node = buildNode('table', { name: 'unsupported_table', origin: 'posthog' })
         useMocks({
@@ -249,9 +209,10 @@ describe('nodeDetailSceneLogic', () => {
             },
         })
 
-        await mountScene(urls.nodeDetail(NODE_ID, 'tests'))
+        await mountScene(`/models/${NODE_ID}/tests`)
 
-        expect(logic.values.effectiveTab).toEqual('tests')
+        expect(logic.values.effectiveTab).toEqual('data-quality')
+        expect(router.values.location.pathname).toEqual(`/project/997${urls.nodeDetail(NODE_ID, 'data-quality')}`)
         expect(logic.values.dataQualitySubject).toBeNull()
 
         render(createElement(NodeDetailTests, { id: NODE_ID }))
@@ -271,7 +232,7 @@ describe('nodeDetailSceneLogic', () => {
 
         await mountScene(urls.nodeDetail(NODE_ID))
 
-        expect(logic.values.availableTabs).toEqual(['lineage', 'tests'])
+        expect(logic.values.availableTabs).toEqual(['lineage', 'data-quality'])
         expect(logic.values.lineageGraph).toEqual({ currentNodeId: NODE_ID, nodes: [], edges: [] })
         expect(logic.values.postHogSubjectError).toBe(true)
 
@@ -332,6 +293,10 @@ describe('nodeDetailSceneLogic', () => {
 
         render(createElement(NodeDetailQuery, { id: NODE_ID }))
 
+        // The columns panel is collapsed by default.
+        expect(screen.queryByText('column_1')).toBeNull()
+        fireEvent.click(screen.getByText('Columns (11)'))
+
         expect(screen.getByText('column_10')).toBeTruthy()
         expect(screen.queryByText('column_11')).toBeNull()
         expect(screen.getByText('1-10 of 11 columns')).toBeTruthy()
@@ -346,7 +311,7 @@ describe('nodeDetailSceneLogic', () => {
     it('lists every tab a saved query supports when data quality checks are on', async () => {
         await mountScene(urls.nodeDetail(NODE_ID))
 
-        expect(logic.values.availableTabs).toEqual(['query', 'lineage', 'materialization', 'tests', 'history'])
+        expect(logic.values.availableTabs).toEqual(['query', 'lineage', 'materialization', 'data-quality', 'history'])
     })
 
     // The tab is gated on the node's saved_query_id, not the loaded saved query, so a load failure
@@ -365,6 +330,24 @@ describe('nodeDetailSceneLogic', () => {
         expect(logic.values.savedQueryError).toBe(true)
         expect(logic.values.availableTabs).toContain('materialization')
         expect(logic.values.effectiveTab).toEqual('materialization')
+    })
+
+    it('marks the saved query deleted instead of failing when it returns 404', async () => {
+        useMocks({
+            get: {
+                '/api/environments/:team_id/data_modeling_nodes/lineage/': { nodes: [], edges: [] },
+                '/api/environments/:team_id/data_modeling_nodes/:id/': () => [200, node],
+                '/api/environments/:team_id/warehouse_saved_queries/:id/': () => [404, { detail: 'Not found.' }],
+            },
+        })
+
+        await mountScene(urls.nodeDetail(NODE_ID))
+
+        await expectLogic(logic)
+            .toDispatchActions(['loadSavedQuerySuccess'])
+            .toNotHaveDispatchedActions(['loadSavedQueryFailure'])
+        expect(logic.values.savedQueryDeleted).toBe(true)
+        expect(logic.values.savedQueryError).toBe(false)
     })
 
     // A failed saved-query request leaves the scene rendering with nothing to read is_materialized
@@ -387,14 +370,13 @@ describe('nodeDetailSceneLogic', () => {
         expect(logic.values.effectiveTab).toEqual('materialization')
     })
 
-    // Deep links from the data quality overview outlive the flag that created them.
     it('falls back to the default tab when the URL names a tab this model does not have', async () => {
-        flagsLogic.actions.setFeatureFlags([], {})
+        node = buildNode('table')
 
-        await mountScene(urls.nodeDetail(NODE_ID, 'tests'))
+        await mountScene(urls.nodeDetail(NODE_ID, 'data-quality'))
 
-        expect(logic.values.effectiveTab).toEqual('query')
-        expect(logic.values.currentTab).toEqual('query')
+        expect(logic.values.effectiveTab).toEqual('lineage')
+        expect(logic.values.currentTab).toEqual('lineage')
     })
 
     // Clicking through the lineage graph navigates model to model. The outgoing model's logic is

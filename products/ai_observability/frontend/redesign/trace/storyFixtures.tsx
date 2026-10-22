@@ -1,18 +1,10 @@
 import type { Decorator } from '@storybook/react'
 
+import type { TraceNodeApi, TraceNodeStatsApi, TraceTimelineRowApi } from '../../generated/api.schemas'
 import { SampleNodeDetail, SampleTraceFixture } from './sampleFixtures/sampleTraceFixture'
-import {
-    ConversationTurn,
-    EvalResult,
-    MessagePart,
-    NodeProperties,
-    NodeStats,
-    ThreadMessage,
-    TimelineRowData,
-    TraceTreeNode,
-} from './types'
+import { ConversationTurn, EvalResult, MessagePart, NodeProperties, ThreadMessage } from './types'
 
-export const FIXTURE_STATS: NodeStats = {
+export const FIXTURE_STATS: TraceNodeStatsApi = {
     costUsd: 0.0021,
     inputTokens: 1840,
     outputTokens: 212,
@@ -21,7 +13,7 @@ export const FIXTURE_STATS: NodeStats = {
     latencyMs: 2310,
 }
 
-const noStats: NodeStats = {
+const noStats: TraceNodeStatsApi = {
     costUsd: null,
     inputTokens: null,
     outputTokens: null,
@@ -30,7 +22,7 @@ const noStats: NodeStats = {
     latencyMs: null,
 }
 
-export const FIXTURE_TREE: TraceTreeNode[] = [
+export const FIXTURE_TREE: TraceNodeApi[] = [
     {
         id: 'trace-1',
         kind: 'trace',
@@ -167,7 +159,7 @@ export const FIXTURE_TURN: ConversationTurn = {
     error: null,
 }
 
-export const FIXTURE_TIMELINE_ROWS: TimelineRowData[] = [
+export const FIXTURE_TIMELINE_ROWS: TraceTimelineRowApi[] = [
     {
         id: 'trace-1',
         kind: 'trace',

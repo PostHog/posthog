@@ -20,6 +20,7 @@ import type {
     CopyFlagsDependencyRequirementsResponseApi,
     CopyFlagsRequestApi,
     CopyFlagsResponseApi,
+    CreateStaticCohortForFlagResponseApi,
     DependentFlagApi,
     EvaluationContextSuggestionRequestApi,
     EvaluationContextSuggestionResponseApi,
@@ -783,15 +784,15 @@ export const getFeatureFlagsCreateStaticCohortForFlagCreateUrl = (projectId: str
 export const featureFlagsCreateStaticCohortForFlagCreate = async (
     projectId: string,
     id: number,
-    featureFlagApi: NonReadonly<FeatureFlagApi>,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getFeatureFlagsCreateStaticCohortForFlagCreateUrl(projectId, id), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(featureFlagApi),
-    })
+): Promise<CreateStaticCohortForFlagResponseApi> => {
+    return apiMutator<CreateStaticCohortForFlagResponseApi>(
+        getFeatureFlagsCreateStaticCohortForFlagCreateUrl(projectId, id),
+        {
+            ...options,
+            method: 'POST',
+        }
+    )
 }
 
 export const getFeatureFlagsDependentFlagsListUrl = (projectId: string, id: number) => {
@@ -847,7 +848,8 @@ export const getFeatureFlagsEnableCreateUrl = (projectId: string, id: number) =>
  * Sets `active` to true and changes nothing else. Targeting, variants, payloads, tags and
  * archived state are left as they are. An archived flag is refused: unarchive it first. A
  * flag whose own flag dependencies are disabled or use an unsupported configuration
- * format is also refused. An already-enabled flag is returned unchanged.
+ * format is also refused, as is a flag whose release conditions target a deleted cohort.
+ * An already-enabled flag is returned unchanged.
  */
 export const featureFlagsEnableCreate = async (
     projectId: string,
@@ -1008,7 +1010,8 @@ export const getFeatureFlagsUnarchiveCreateUrl = (projectId: string, id: number)
  * Restore an archived feature flag to the default flag list.
  *
  * Sets `archived` to false and changes nothing else. The flag stays disabled; enable it
- * with a separate call. An already-unarchived flag is returned unchanged.
+ * with a separate call. A flag whose release conditions target a deleted cohort is
+ * refused: remove that condition first. An already-unarchived flag is returned unchanged.
  */
 export const featureFlagsUnarchiveCreate = async (
     projectId: string,
@@ -1090,8 +1093,9 @@ export const getFeatureFlagsBulkDeleteCreateUrl = (projectId: string) => {
  *
  * Returns same format as bulk_delete for UI compatibility.
  *
- * Uses bulk operations for efficiency: database updates are batched and cache
- * invalidation happens once at the end rather than per-flag.
+ * Config version 1 flags are deleted with batched updates, and cache invalidation
+ * runs once at the end. Config version 2 flags are deleted one at a time through
+ * ``update_flag``. Each one bumps its ``version`` and commits on its own.
  */
 export const featureFlagsBulkDeleteCreate = async (
     projectId: string,

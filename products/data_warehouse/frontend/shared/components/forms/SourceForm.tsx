@@ -51,6 +51,8 @@ const NO_OP_SET_VALUE = (): void => undefined
 export interface SourceFormProps {
     sourceConfig: SourceConfigResponseApi
     showPrefix?: boolean
+    /** Another source of this type already has no prefix, so the API rejects a new one without a prefix. */
+    prefixRequired?: boolean
     showDescription?: boolean
     showAccessMethodSelector?: boolean
     showDirectQueryToggle?: boolean
@@ -413,6 +415,7 @@ export const sourceFieldToElement = (
                 fieldName={field.name}
                 fieldLabel={field.label}
                 credentialFields={field.credentialFields}
+                integrationField={field.integrationField ?? undefined}
                 sourceType={sourceConfig.name}
                 placeholder={field.placeholder ?? undefined}
                 caption={field.caption ?? undefined}
@@ -632,7 +635,7 @@ function CDCConfigSection({ sourceName }: { sourceName: string }): JSX.Element {
                                 <div>
                                     <div className="flex items-center gap-2 mb-1">
                                         <h4 className="mb-0 text-base font-semibold">Change data capture (CDC)</h4>
-                                        <LemonTag type="completion">Alpha</LemonTag>
+                                        <LemonTag type="completion">Beta</LemonTag>
                                     </div>
                                     <p className="text-sm text-secondary mb-2">
                                         Real-time sync via PostgreSQL logical replication. Captures inserts, updates,
@@ -823,6 +826,7 @@ export default function SourceFormContainer(props: SourceFormProps): JSX.Element
 export function SourceFormComponent({
     sourceConfig,
     showPrefix = true,
+    prefixRequired = false,
     showDescription,
     showAccessMethodSelector = true,
     showDirectQueryToggle = false,
@@ -1032,8 +1036,12 @@ export function SourceFormComponent({
             {showPrefix && !isDirectQuerySource && !customAiIntroActive && (
                 <LemonField
                     name="prefix"
-                    label="Table name prefix (optional)"
-                    help="Renames the tables PostHog creates. It doesn't filter which tables get imported. Use only letters, numbers, and underscores, and start with a letter or underscore."
+                    label={prefixRequired ? 'Table name prefix' : 'Table name prefix (optional)'}
+                    help={
+                        prefixRequired
+                            ? `You already have a ${sourceConfig.label ?? sourceConfig.name} source without a prefix. Add one so this connection's tables don't clash with it.`
+                            : "Renames the tables PostHog creates. It doesn't filter which tables get imported. Use only letters, numbers, and underscores, and start with a letter or underscore."
+                    }
                 >
                     {({ value, onChange }) => {
                         const cleaned = value ? value.trim().replace(/^_+|_+$/g, '') : ''

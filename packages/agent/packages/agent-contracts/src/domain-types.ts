@@ -76,6 +76,11 @@ export interface OrganizationMemberBasic {
   user: UserBasic;
 }
 
+export type TaskClientProvenance =
+  | "posthog_desktop"
+  | "posthog_mobile"
+  | "posthog_web";
+
 export interface Task {
   id: string;
   task_number: number | null;
@@ -95,6 +100,7 @@ export interface Task {
   last_activity_at?: string;
   created_by?: UserBasic | null;
   origin_product: string;
+  client_provenance?: TaskClientProvenance | null;
   repository?: string | null; // Format: "organization/repository" (e.g., "posthog/posthog-js")
   repositories?: string[];
   github_integration?: number | null;
@@ -357,10 +363,13 @@ const storeSkillStubSchema = z.object({
 export type StoreSkillStub = z.infer<typeof storeSkillStubSchema>;
 
 const taskRunStateFields = {
+  agent_instructions: optionalField(z.string()),
   ai_agent_name: optionalField(z.string()),
   ai_stage: optionalField(z.string()),
   auto_publish: optionalField(z.boolean()),
   benjamin_version: optionalField(z.string()),
+  codex_max_subagents: optionalField(z.number().int().positive()),
+  codex_shared_prompt_cache: optionalField(z.boolean()),
   initial_permission_mode: optionalField(executionModeSchema),
   initial_prompt_override: optionalField(z.string()),
   pending_followup_messages: optionalField(
@@ -379,6 +388,7 @@ const taskRunStateFields = {
     z.enum(["none", "message", "canvas_file"]),
   ),
   slack_chart_delivery: optionalField(z.boolean()),
+  slack_chart_links: optionalField(z.boolean()),
   slack_notified_pr_url: optionalField(z.string()),
   slack_thread_url: optionalField(z.string()),
   snapshot_kind: optionalField(z.string()),
@@ -807,6 +817,21 @@ export interface SignalReport {
   refund_ineligibility_reason?: string | null;
   /** The space (task channel) this report is assigned to, or null when unassigned. The general view lists every report regardless of this value. */
   channel_id?: string | null;
+  /** A product the team doesn't use that would have given this report better evidence. Set on the detail response only; null in list responses. */
+  source_suggestion?: SignalReportSourceSuggestion | null;
+}
+
+/** Products a report can suggest turning on. Mirrors `SuggestedSourceProduct` in the signals backend. */
+export type SuggestedSourceProduct =
+  | "logs"
+  | "session_replay"
+  | "error_tracking"
+  | "llm_analytics";
+
+export interface SignalReportSourceSuggestion {
+  product: SuggestedSourceProduct;
+  /** One sentence on what the product would have shown for this report. */
+  reason: string;
 }
 
 export type SignalReportRefundReason =
@@ -932,6 +957,7 @@ export interface DismissalArtefact extends SignalReportArtefactBase {
 }
 
 export interface DismissalContent {
+  state?: "resolved" | "suppressed" | "potential" | null;
   reason: ReportStateReason;
   /** Optional free-form detail provided alongside the reason. */
   note: string;
@@ -1020,6 +1046,62 @@ export interface NoteContent {
   author?: string | null;
 }
 
+/** Artefact with `type: "work_claim"` — someone took ownership of the report's work. */
+export interface WorkClaimArtefact extends SignalReportArtefactBase {
+  type: "work_claim";
+  content: WorkClaimContent;
+}
+
+export interface WorkClaimContent {
+  display_name: string | null;
+}
+
+/** Artefact with `type: "work_release"` — ownership of the report's work ended. */
+export interface WorkReleaseArtefact extends SignalReportArtefactBase {
+  type: "work_release";
+  content: WorkReleaseContent;
+}
+
+export interface WorkReleaseContent {
+  reason: "released" | "taken_over";
+}
+
+/**
+ * Artefact with `type: "ranking_score"` — one scoring pass of the inbox ranking
+ * models. Only staff receive these rows.
+ */
+export interface RankingScoreArtefact extends SignalReportArtefactBase {
+  type: "ranking_score";
+  content: RankingScoreContent;
+}
+
+/**
+ * One outcome head. `readable` is false when the head has no holdout AUC yet.
+ * `lift` is the probability over the head's base rate, or null when the model saved no base rate.
+ */
+export interface RankingHead {
+  name: string;
+  probability: number;
+  lift: number | null;
+  readable: boolean;
+}
+
+export interface RankingModelResult {
+  /** `<model_name>@<model_version>`. */
+  key: string;
+  roles: string[];
+  status: "scored" | "skipped";
+  skip_reason: string | null;
+  /** Highest lift first. Heads without a lift come last, highest probability first. */
+  heads: RankingHead[];
+}
+
+export interface RankingScoreContent {
+  scored_at: string | null;
+  manifest_version: string | null;
+  served: RankingModelResult;
+  challengers: RankingModelResult[];
+}
 /** Response from the `commit` artefact diff endpoint — the commit rendered against its parent. */
 export interface CommitDiffResponse {
   /** Unified diff (patch) text introduced by the commit. */
@@ -1123,7 +1205,10 @@ export type AnySignalReportArtefact =
   | LineReferenceArtefact
   | CommitArtefact
   | TaskRunArtefact
-  | NoteArtefact;
+  | NoteArtefact
+  | WorkClaimArtefact
+  | WorkReleaseArtefact
+  | RankingScoreArtefact;
 
 export interface SignalReportArtefactsResponse {
   results: AnySignalReportArtefact[];

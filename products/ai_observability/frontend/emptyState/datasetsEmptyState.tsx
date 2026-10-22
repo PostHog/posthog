@@ -39,7 +39,7 @@ export const datasetsEmptyState: SceneProductEmptyState = {
         },
         docsUrl: 'https://posthog.com/docs/ai-evals/datasets',
         skippable: false,
-        previewLabel: 'Your datasets, once filled',
+        previewLabel: 'Example: how your datasets will look',
         Preview: DatasetsPreview,
     },
 }

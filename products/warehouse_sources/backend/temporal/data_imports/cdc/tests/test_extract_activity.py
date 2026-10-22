@@ -16,6 +16,7 @@ from parameterized import parameterized
 from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.temporal.common.errors import NonReportableError
+from posthog.temporal.common.shutdown import WorkerShuttingDownError
 
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import CDC_SNAPSHOT_LANE_KEY, ExternalDataSchema
@@ -127,8 +128,7 @@ def _fake_update_schema_sync_type_config(schema, *, updates=None, removes=None, 
 
 @pytest.fixture(autouse=True)
 def _stub_app_db_writes():
-    # The real sync_type_config merge and the legacy-state conversion both go to the app DB, which
-    # these mock-only tests don't have. The conversion has its own tests.
+    # The real sync_type_config merge goes to the app DB, which these mock-only tests don't have.
     with (
         patch(
             "products.warehouse_sources.backend.temporal.data_imports.cdc.activities.cancel_running_sync",
@@ -144,7 +144,6 @@ def _stub_app_db_writes():
             "_update_schema_sync_type_config",
             side_effect=_fake_update_schema_sync_type_config,
         ),
-        patch(f"{_ACTIVITIES}.convert_legacy_cdc_state"),
         patch(f"{_ACTIVITIES}.cancel_running_sync", return_value=None),
     ):
         yield
@@ -1650,6 +1649,65 @@ class TestCDCBoundedReadLoop:
         capture.buffer.write_batch.assert_called_once()
         assert reader.confirmed_positions == ["0/100"]
 
+    @parameterized.expand(
+        [
+            ("retry_left_continues_on_another_worker", 1, CDC_MAX_CHANGES_PER_READ, True),
+            (
+                "last_attempt_leaves_the_backlog_to_the_next_run",
+                CDC_MAX_EXTRACTION_ATTEMPTS,
+                CDC_MAX_CHANGES_PER_READ,
+                False,
+            ),
+            ("backlog_already_drained", 1, 5, False),
+        ]
+    )
+    def test_worker_shutdown_stops_at_a_page_boundary_and_the_next_run_continues(
+        self, _name, attempt, first_page_rows, hands_off
+    ):
+        source = _make_source()
+        schema = _make_schema("users", cdc_mode="streaming", source=source)
+        schema.sync_type_config["primary_key_columns"] = ["id"]
+        first_page = ([_make_event(op="I", table="users", position="0/100")], first_page_rows, "0/100")
+        second_page = ([_make_event(op="I", table="users", position="0/200")], 5, "0/200")
+        stopped_reader = _ScriptedReader([first_page, second_page])
+        written: list[list[int]] = []
+
+        with _capture_harness(source, [schema]) as capture, patch(f"{_ACTIVITIES}.ShutdownMonitor") as monitor:
+            monitor.return_value.__enter__.return_value.is_worker_shutdown.return_value = True
+            capture.activity.info.return_value.attempt = attempt
+            capture.adapter.create_reader.return_value = stopped_reader
+            handoff = WorkerShuttingDownError("activity", "cdc_extract_activity", "queue", attempt, "wf-1", "cdc")
+            with patch.object(WorkerShuttingDownError, "from_activity_context", return_value=handoff):
+                if hands_off:
+                    with pytest.raises(WorkerShuttingDownError):
+                        capture.extract()
+                else:
+                    capture.extract()
+            written += [
+                c.kwargs["table"].column(CDC_SEQ_COLUMN).to_pylist() for c in capture.buffer.write_batch.call_args_list
+            ]
+
+        # The second page is not read, and the slot and the stored position are at the end of the
+        # first page before the run ends, so the next run starts at the first unread change.
+        assert len(stopped_reader.upto_nchanges_calls) == 1
+        assert stopped_reader.confirmed_positions == ["0/100"]
+        assert schema.sync_type_config["cdc_last_log_position"] == "0/100"
+        assert written == [[0x100]]
+        if first_page_rows < CDC_MAX_CHANGES_PER_READ:
+            return
+
+        next_reader = _ScriptedReader([second_page])
+        with _capture_harness(source, [schema]) as capture:
+            capture.adapter.create_reader.return_value = next_reader
+            capture.extract()
+            written += [
+                c.kwargs["table"].column(CDC_SEQ_COLUMN).to_pylist() for c in capture.buffer.write_batch.call_args_list
+            ]
+
+        assert next_reader.confirmed_positions == ["0/200"]
+        assert schema.sync_type_config["cdc_last_log_position"] == "0/200"
+        assert written == [[0x100], [0x200]]
+
     def test_full_page_with_no_committed_progress_doubles_the_limit(self):
         # Defensive backstop: a full page that commits nothing (so the slot can't advance) grows
         # the window instead of re-peeking the identical page forever.
@@ -1988,41 +2046,31 @@ class TestBufferedIngressCapture:
 
     @parameterized.expand(
         [
-            ("sync_still_stopping", None, None, {}, "waits"),
+            ("sync_still_stopping", None, None, "waits"),
             (
                 "sync_closed_with_batches_still_loading",
                 RPCError("workflow not found", RPCStatusCode.NOT_FOUND, b""),
                 30.0,
-                {},
                 "waits",
             ),
             (
                 "sync_closed_and_nothing_queued",
                 RPCError("workflow not found", RPCStatusCode.NOT_FOUND, b""),
                 None,
-                {},
                 "resets",
             ),
-            (
-                "deferred_runs_left_and_nothing_queued",
-                RPCError("workflow not found", RPCStatusCode.NOT_FOUND, b""),
-                None,
-                {"cdc_deferred_runs": [{"run_uuid": "r1"}]},
-                "resets",
-            ),
-            ("temporal_unavailable", RPCError("unavailable", RPCStatusCode.UNAVAILABLE, b""), None, {}, "raises"),
+            ("temporal_unavailable", RPCError("unavailable", RPCStatusCode.UNAVAILABLE, b""), None, "raises"),
         ]
     )
     @patch(f"{_ACTIVITIES}.purge_buffer_prefix")
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane.ExternalDataJob")
     def test_a_reset_stops_the_tables_running_sync_first(
-        self, _name, cancel_error, oldest_queued_batch_age, config, outcome, MockJob, mock_purge
+        self, _name, cancel_error, oldest_queued_batch_age, outcome, MockJob, mock_purge
     ):
         # A snapshot that started before a repeated reset missed the changes the reset drops, so it
         # must not reach its hand-over.
         source = _make_source()
         schema = _make_schema("users", cdc_mode="snapshot", source=source)
-        schema.sync_type_config.update(config)
         act = _make_extract_activity(source)
         running = MockJob.objects.filter.return_value.exclude.return_value.exclude.return_value
         running.order_by.return_value.first.return_value = MagicMock(workflow_id="users-snapshot")
@@ -2059,33 +2107,17 @@ class TestBufferedIngressCapture:
 
     @parameterized.expand(
         [
-            ("sync_still_stopping", "users-snapshot", {"clear_deferred_runs": False}, False, True),
-            ("sync_stopped", None, {"clear_deferred_runs": False}, False, False),
-            ("sync_stopped_after_a_request_reset", None, {"clear_deferred_runs": True, "trigger": True}, False, False),
-            (
-                "legacy_deferred_runs_old_sync_stopping",
-                "users-snapshot",
-                {"clear_deferred_runs": True, "trigger": True},
-                True,
-                True,
-            ),
-            (
-                "legacy_deferred_runs_old_sync_stopped",
-                None,
-                {"clear_deferred_runs": True, "trigger": True},
-                True,
-                False,
-            ),
+            ("sync_still_stopping", "users-snapshot", {"awaiting_slot": False}, True),
+            ("sync_stopped", None, {"awaiting_slot": False}, False),
+            ("sync_stopped_after_a_request_reset", None, {"trigger": True}, False),
         ]
     )
     def test_a_pending_reset_finishes_before_the_read_once_the_sync_stopped(
-        self, _name, stopping_workflow_id, pending, deferred_runs, waits
+        self, _name, stopping_workflow_id, pending, waits
     ):
         source = _make_source()
-        schema = _make_schema("users", cdc_mode="snapshot" if deferred_runs else "streaming", source=source)
+        schema = _make_schema("users", cdc_mode="streaming", source=source)
         schema.sync_type_config["cdc_reset_pending"] = pending
-        if deferred_runs:
-            schema.sync_type_config["cdc_deferred_runs"] = [{"run_uuid": "r1"}]
         events = [_make_event(op="I", position="0/100", columns={"id": 1})]
 
         with (
@@ -2104,7 +2136,6 @@ class TestBufferedIngressCapture:
         assert trigger.called is (not waits and bool(pending.get("trigger")))
         assert schema.sync_type_config.get("reset_pipeline") is (None if waits else True)
         assert ("cdc_reset_pending" in schema.sync_type_config) is waits
-        assert ("cdc_deferred_runs" in schema.sync_type_config) is (deferred_runs and waits)
         assert capture.buffer.write_batch.called is not waits
         capture.reader.confirm_position.assert_called_once_with("0/100")
 
@@ -2120,7 +2151,7 @@ class TestBufferedIngressCapture:
         # the request that handed the reset over would have recreated the schedule itself.
         source = _make_source()
         schema = _make_schema("users", cdc_mode="streaming", source=source)
-        schema.sync_type_config["cdc_reset_pending"] = {"clear_deferred_runs": True, "trigger": True}
+        schema.sync_type_config["cdc_reset_pending"] = {"trigger": True}
         events = [_make_event(op="I", position="0/100", columns={"id": 1})]
 
         with (
@@ -2146,8 +2177,8 @@ class TestBufferedIngressCapture:
 
     @parameterized.expand(
         [
-            ("a_different_reset", {"clear_deferred_runs": False}),
-            ("the_same_reset_again", {"clear_deferred_runs": True, "trigger": True}),
+            ("a_different_reset", {"awaiting_slot": False}),
+            ("the_same_reset_again", {"trigger": True}),
         ]
     )
     def test_a_reset_staged_while_the_snapshot_was_starting_is_left_pending(self, _name, pending):
@@ -2186,7 +2217,7 @@ class TestBufferedIngressCapture:
         # is not the only way out, or a failure right after the recreation would strand the table.
         source = _make_source()
         schema = _make_schema("users", cdc_mode="streaming", source=source)
-        schema.sync_type_config["cdc_reset_pending"] = {"clear_deferred_runs": True, "awaiting_slot": True}
+        schema.sync_type_config["cdc_reset_pending"] = {"awaiting_slot": True}
         events = [_make_event(op="I", position="0/100", columns={"id": 1})]
 
         with (
@@ -2202,7 +2233,7 @@ class TestBufferedIngressCapture:
         unpause.assert_not_called()
         assert capture.purge.called is False
         assert capture.buffer.write_batch.called is False
-        assert schema.sync_type_config["cdc_reset_pending"] == {"clear_deferred_runs": True, "awaiting_slot": False}
+        assert schema.sync_type_config["cdc_reset_pending"] == {"awaiting_slot": False}
 
     @parameterized.expand(
         [

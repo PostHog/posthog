@@ -1,3 +1,4 @@
+import type { GatewayBlockedStatus } from "@posthog/shared";
 import { z } from "zod";
 
 export const llmMessageSchema = z.object({
@@ -47,6 +48,28 @@ export interface AnthropicMessagesResponse {
   };
 }
 
+export interface ChatCompletionsRequest {
+  model: string;
+  messages: Array<{
+    role: "system" | "user" | "assistant";
+    content: string;
+  }>;
+  max_tokens?: number;
+  stream?: boolean;
+}
+
+export interface ChatCompletionsResponse {
+  model: string;
+  choices: Array<{
+    message: { content: string | null };
+    finish_reason: string | null;
+  }>;
+  usage?: {
+    prompt_tokens: number;
+    completion_tokens: number;
+  };
+}
+
 export interface AnthropicErrorResponse {
   error?: {
     message: string;
@@ -82,12 +105,14 @@ export const gatewayTokenRefusalSchema = z.object({
   access: z.unknown().optional(),
 });
 
+export type { GatewayBlockedStatus };
+
 export type GatewayRoute =
-  | { mode: "legacy"; reason: string }
   | {
       mode: "blocked";
-      reason: "credit_bucket_exhausted";
+      reason: string;
       detail: string;
+      status: GatewayBlockedStatus;
     }
   | {
       mode: "go";

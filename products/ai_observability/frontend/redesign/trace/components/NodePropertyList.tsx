@@ -2,7 +2,8 @@ import { ReactNode } from 'react'
 
 import { TZLabel } from 'lib/components/TZLabel'
 
-import { NodeProperties, TraceTreeNode } from '../types'
+import type { TraceNodeApi } from '../../../generated/api.schemas'
+import { NodeProperties } from '../types'
 import { formatCacheTokens, formatCostUsd, formatLatencyMs, formatTokenCounts } from './formatStats'
 
 const UNKNOWN_VALUE = <span className="text-secondary">Unknown</span>
@@ -10,13 +11,13 @@ const UNKNOWN_VALUE = <span className="text-secondary">Unknown</span>
 type PropertyRow = [label: string, value: ReactNode]
 
 export interface NodePropertyListProps {
-    node: TraceTreeNode
+    node: TraceNodeApi
     properties: NodeProperties
 }
 
 export function NodePropertyList({ node, properties }: NodePropertyListProps): JSX.Element {
     const { stats } = node
-    const time = (
+    const time = properties.timestamp ? (
         <TZLabel
             time={properties.timestamp}
             timestampStyle="absolute"
@@ -25,7 +26,7 @@ export function NodePropertyList({ node, properties }: NodePropertyListProps): J
             showSeconds
             className="font-mono"
         />
-    )
+    ) : null
     const tokens = formatTokenCounts(stats.inputTokens, stats.outputTokens) ?? UNKNOWN_VALUE
     const cache = formatCacheTokens(stats.cacheReadTokens, stats.cacheWriteTokens)
     const latency = stats.latencyMs !== null ? formatLatencyMs(stats.latencyMs) : UNKNOWN_VALUE

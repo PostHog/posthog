@@ -1,4 +1,5 @@
 import ast
+from datetime import UTC
 
 from django import forms
 from django.conf import settings
@@ -7,6 +8,7 @@ from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
 from django.template.response import TemplateResponse
 from django.urls import path, reverse
 from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 from django.utils.html import format_html
 
 from posthog.models.data_deletion_request import (
@@ -376,6 +378,26 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
         form = super().get_form(request, obj, change=change, **kwargs)
         is_clickhouse_team = request.user.groups.filter(name=CLICKHOUSE_TEAM_GROUP).exists()
         return type(form.__name__, (form,), {"offer_clickhouse_team_types": is_clickhouse_team})
+
+    def get_changeform_initial_data(self, request):
+        initial: dict[str, object] = dict(super().get_changeform_initial_data(request))
+        # The split datetime widget can't render a raw query-string value, so a prefilled add link
+        # with dates would error. Parse them, read naive values as UTC, and drop what doesn't parse.
+        for field in ("start_time", "end_time"):
+            value = initial.get(field)
+            if not isinstance(value, str):
+                continue
+            try:
+                parsed = parse_datetime(value)
+            except ValueError:
+                parsed = None
+            if parsed is None:
+                initial.pop(field)
+            elif timezone.is_naive(parsed):
+                initial[field] = timezone.make_aware(parsed, UTC)
+            else:
+                initial[field] = parsed
+        return initial
 
     def save_model(self, request, obj, form, change):
         if not change:

@@ -1,14 +1,15 @@
 use crate::authorizer::{Authorizer, Signal};
-use crate::log_record::KafkaLogRow;
+use crate::log_record::{default_max_past, KafkaLogRow};
 use crate::metric_record::{flatten_metric, KafkaMetricRow};
 use crate::trace_record::KafkaTraceRow;
 use axum::{
     extract::Query,
     extract::State,
-    http::{HeaderMap, StatusCode},
-    response::Json,
+    http::{header::CONTENT_TYPE, HeaderMap, StatusCode},
+    response::{IntoResponse, Json, Response},
 };
 use bytes::Bytes;
+use chrono::TimeDelta;
 use common_compression::{decompress_gzip_capped, has_gzip_magic_header, CompressionError};
 use opentelemetry_proto::tonic::collector::logs::v1::ExportLogsServiceRequest;
 use opentelemetry_proto::tonic::collector::metrics::v1::ExportMetricsServiceRequest;
@@ -20,6 +21,7 @@ use std::fs::File;
 use std::io::Write;
 
 use crate::kafka::KafkaSink;
+use metrics::counter;
 
 use tracing::{debug, error, instrument};
 
@@ -305,11 +307,18 @@ pub struct Service {
     pub(crate) authorizer: Authorizer,
     pub(crate) max_request_body_size_bytes: usize,
     pub(crate) firehose_max_request_body_size_bytes: usize,
+    pub(crate) max_backfill_days: u32,
 }
 
 #[derive(Deserialize)]
 pub struct QueryParams {
     token: Option<String>,
+}
+
+/// Logs-only, so the traces and metrics handlers cannot accept a parameter they do not honor.
+#[derive(Deserialize)]
+pub struct BackfillParams {
+    backfill_days: Option<u32>,
 }
 
 impl Service {
@@ -318,12 +327,14 @@ impl Service {
         authorizer: Authorizer,
         max_request_body_size_bytes: usize,
         firehose_max_request_body_size_bytes: usize,
+        max_backfill_days: u32,
     ) -> Result<Self, anyhow::Error> {
         Ok(Self {
             sink: kafka_sink,
             authorizer,
             max_request_body_size_bytes,
             firehose_max_request_body_size_bytes,
+            max_backfill_days,
         })
     }
 }
@@ -353,6 +364,29 @@ pub(crate) fn gunzip_if_magic(
     }
 }
 
+/// An over-wide request is rejected, not narrowed to the default. A quietly narrowed import
+/// writes most of its records onto the ingest time and still returns 200, so nobody notices.
+pub(crate) fn resolve_backfill_window(
+    requested_days: Option<u32>,
+    max_backfill_days: u32,
+) -> Result<TimeDelta, String> {
+    let Some(days) = requested_days else {
+        return Ok(default_max_past());
+    };
+
+    if max_backfill_days == 0 {
+        return Err("This deployment does not accept backdated logs. Remove backfill_days, or contact PostHog support to turn on historical imports.".to_string());
+    }
+
+    if days == 0 || days > max_backfill_days {
+        return Err(format!(
+            "backfill_days {days} is outside the accepted range. Use a value between 1 and {max_backfill_days}."
+        ));
+    }
+
+    Ok(TimeDelta::days(days as i64))
+}
+
 pub(crate) fn decode_body_if_gzip_magic(
     body: Bytes,
     max_request_body_size_bytes: usize,
@@ -361,6 +395,21 @@ pub(crate) fn decode_body_if_gzip_magic(
         Ok(None) => Ok(body),
         Ok(Some(decompressed)) => Ok(Bytes::from(decompressed)),
         Err((status, message)) => Err((status, Json(json!({"error": message})))),
+    }
+}
+
+/// Protobuf clients can't decode a JSON body.
+pub fn export_success_response(headers: &HeaderMap) -> Response {
+    let is_protobuf = headers
+        .get(CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.split(';').next())
+        .is_some_and(|mime| mime.trim().eq_ignore_ascii_case("application/x-protobuf"));
+
+    if is_protobuf {
+        ([(CONTENT_TYPE, "application/x-protobuf")], Vec::<u8>::new()).into_response()
+    } else {
+        Json(json!({})).into_response()
     }
 }
 
@@ -382,15 +431,20 @@ pub(crate) fn decode_body_if_gzip_magic(
 pub async fn export_logs_http(
     State(service): State<Service>,
     Query(query_params): Query<QueryParams>,
+    Query(backfill_params): Query<BackfillParams>,
     headers: HeaderMap,
     body: Bytes,
-) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+) -> Result<Response, (StatusCode, Json<serde_json::Value>)> {
     let token =
         service
             .authorizer
             .authorize(&headers, query_params.token.as_deref(), Signal::Logs)?;
 
     tracing::Span::current().record("token", token);
+
+    let max_past =
+        resolve_backfill_window(backfill_params.backfill_days, service.max_backfill_days)
+            .map_err(|message| (StatusCode::BAD_REQUEST, Json(json!({ "error": message }))))?;
 
     let body = decode_body_if_gzip_magic(body, service.max_request_body_size_bytes)?;
 
@@ -433,6 +487,7 @@ pub async fn export_logs_http(
                     log_record,
                     resource_logs.resource.clone(),
                     scope_logs.scope.clone(),
+                    max_past,
                 ) {
                     Ok(result) => result,
                     Err(e) => {
@@ -454,7 +509,13 @@ pub async fn export_logs_http(
     let row_count = rows.len();
     if let Err(e) = service
         .sink
-        .write(token, rows, body.len() as u64, timestamps_overridden)
+        .write(
+            token,
+            rows,
+            body.len() as u64,
+            timestamps_overridden,
+            backfill_params.backfill_days,
+        )
         .await
     {
         error!("Failed to send logs to Kafka: {}", e);
@@ -466,8 +527,7 @@ pub async fn export_logs_http(
         debug!("Successfully sent {} logs to Kafka", row_count);
     }
 
-    // Return empty JSON object per OTLP spec
-    Ok(Json(json!({})))
+    Ok(export_success_response(&headers))
 }
 
 /// Handle CORS preflight requests (OPTIONS method) for all log endpoints.
@@ -535,7 +595,7 @@ pub async fn export_traces_http(
     Query(query_params): Query<QueryParams>,
     headers: HeaderMap,
     body: Bytes,
-) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+) -> Result<Response, (StatusCode, Json<serde_json::Value>)> {
     let token =
         service
             .authorizer
@@ -614,7 +674,7 @@ pub async fn export_traces_http(
         debug!("Successfully sent {} traces to Kafka", row_count);
     }
 
-    Ok(Json(json!({})))
+    Ok(export_success_response(&headers))
 }
 
 /// Parse OpenTelemetry metric message from JSON bytes.
@@ -673,7 +733,7 @@ pub async fn export_metrics_http(
     Query(query_params): Query<QueryParams>,
     headers: HeaderMap,
     body: Bytes,
-) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+) -> Result<Response, (StatusCode, Json<serde_json::Value>)> {
     let token =
         service
             .authorizer
@@ -748,13 +808,15 @@ pub async fn export_metrics_http(
             Json(json!({"error": "Internal server error"})),
         ));
     } else {
+        counter!("capture_metrics_records_produced", "source" => "otlp")
+            .increment(row_count as u64);
         debug!(
             "Successfully sent {} metric data points to Kafka",
             row_count
         );
     }
 
-    Ok(Json(json!({})))
+    Ok(export_success_response(&headers))
 }
 
 #[cfg(test)]
@@ -768,6 +830,44 @@ mod tests {
         Bytes::from(encoder.finish().unwrap())
     }
 
+    #[tokio::test]
+    async fn export_success_response_matches_request_encoding() {
+        let cases = [
+            (
+                Some("application/x-protobuf"),
+                "application/x-protobuf",
+                &b""[..],
+            ),
+            (
+                Some("Application/X-Protobuf; charset=binary"),
+                "application/x-protobuf",
+                &b""[..],
+            ),
+            (Some("application/json"), "application/json", &b"{}"[..]),
+            (None, "application/json", &b"{}"[..]),
+        ];
+
+        for (request_content_type, expected_content_type, expected_body) in cases {
+            let mut headers = HeaderMap::new();
+            if let Some(content_type) = request_content_type {
+                headers.insert(CONTENT_TYPE, content_type.parse().unwrap());
+            }
+
+            let response = export_success_response(&headers);
+
+            assert_eq!(response.status(), StatusCode::OK);
+            assert_eq!(
+                response.headers().get(CONTENT_TYPE).unwrap(),
+                expected_content_type,
+                "request content type {request_content_type:?}"
+            );
+            let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .unwrap();
+            assert_eq!(body.as_ref(), expected_body);
+        }
+    }
+
     #[test]
     fn decode_body_if_gzip_magic_decompresses_without_header() {
         let body = gzip(br#"{"resourceLogs":[]}"#);
@@ -775,6 +875,41 @@ mod tests {
         let decoded = decode_body_if_gzip_magic(body, 1024).unwrap();
 
         assert_eq!(decoded, Bytes::from_static(br#"{"resourceLogs":[]}"#));
+    }
+
+    #[test]
+    fn resolve_backfill_window_defaults_when_no_window_is_requested() {
+        for (case, ceiling) in [("backfill off", 0), ("backfill on", 400)] {
+            let window = resolve_backfill_window(None, ceiling);
+
+            assert_eq!(window, Ok(default_max_past()), "{case}");
+        }
+    }
+
+    #[test]
+    fn resolve_backfill_window_accepts_a_window_within_the_ceiling() {
+        for (case, days, ceiling) in [
+            ("at the ceiling", 400, 400),
+            ("under the ceiling", 30, 400),
+            ("the smallest window", 1, 400),
+        ] {
+            let window = resolve_backfill_window(Some(days), ceiling);
+
+            assert_eq!(window, Ok(TimeDelta::days(days as i64)), "{case}");
+        }
+    }
+
+    #[test]
+    fn resolve_backfill_window_rejects_a_window_it_cannot_grant() {
+        for (case, days, ceiling) in [
+            ("above the ceiling", 401, 400),
+            ("zero is not a window", 0, 400),
+            ("any window where backfill is off", 1, 0),
+        ] {
+            let window = resolve_backfill_window(Some(days), ceiling);
+
+            assert!(window.is_err(), "{case}");
+        }
     }
 
     #[test]

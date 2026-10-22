@@ -6,6 +6,7 @@ import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 
 import { billingJson } from '~/mocks/fixtures/_billing'
 import billingJsonWithFlatFee from '~/mocks/fixtures/_billing_with_flat_fee.json'
+import type { BillingProductV2Type } from '~/types'
 
 import {
     buildUsageLimitApproachingMessage,
@@ -17,6 +18,7 @@ import {
     convertUsageToAmount,
     formatDisplayUsage,
     formatProductNames,
+    formatTierPrice,
     formatWithDecimals,
     getMinimumBillingAccessLevel,
     getMinimumUsageSpendReadAccessLevel,
@@ -360,6 +362,23 @@ describe('formatWithDecimals', () => {
     })
 })
 
+describe('formatTierPrice', () => {
+    const withDisplay = (display_divisor: number | null, display_unit: string | null): BillingProductV2Type => ({
+        ...billingJson.products[0],
+        display_divisor,
+        display_unit,
+    })
+
+    it.each([
+        ['a per-MB-day price scaled to GB-month', '0.00000166666667', withDisplay(30000, 'GB-month'), '$0.05'],
+        ['a scaled price that rounds up to $0.1', '0.00000333333333', withDisplay(30000, 'GB-month'), '$0.1'],
+        ['a per-MB price scaled to GB', '0.00005', withDisplay(1000, 'GB'), '$0.05'],
+        ['an unscaled price at full precision', '0.000000625', withDisplay(null, null), '$0.000000625'],
+    ])('formats %s', (_name, unitAmountUsd, product, expected) => {
+        expect(formatTierPrice(unitAmountUsd, product)).toEqual(expected)
+    })
+})
+
 describe('formatDisplayUsage', () => {
     it('should return empty string for null value', () => {
         const product = { display_divisor: 1000, display_decimals: 2, display_unit: 'GB' } as any
@@ -457,8 +476,8 @@ describe('formatProductNames', () => {
 })
 
 describe('getUsageLimitConsequence', () => {
-    it('should return specific message for Data warehouse', () => {
-        expect(getUsageLimitConsequence('Data warehouse')).toEqual('data will not be synced')
+    it.each(['Data warehouse', 'Sources'])('should return the sync consequence for %s', (name) => {
+        expect(getUsageLimitConsequence(name)).toEqual('data will not be synced')
     })
 
     it('should return specific message for Feature flags & Experiments', () => {
@@ -496,6 +515,13 @@ describe('buildUsageLimitReachedMessage', () => {
     it('should build message for single unsubscribed product', () => {
         const result = buildUsageLimitReachedMessage([{ name: 'Session replay', subscribed: false }])
         expect(result.message).toContain('upgrade your plan')
+    })
+
+    it.each(['Data warehouse', 'Sources'])('should explain stopped syncing for %s at its usage limit', (name) => {
+        const result = buildUsageLimitReachedMessage([{ type: 'data_warehouse', name, subscribed: true }])
+        expect(result.message).toEqual(
+            `You have reached the usage limit for ${name}. Please increase your billing limit or data will not be synced.`
+        )
     })
 
     it('should build message for multiple products with unique consequences', () => {

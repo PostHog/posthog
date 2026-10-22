@@ -20,10 +20,21 @@ KEYWORDS = ["true", "false", "null"]
 # Keywords you can't alias to
 RESERVED_KEYWORDS = [*KEYWORDS, "team_id"]
 
-# The ingest cleaner stores a feature flag variant named "false" under this sentinel in the `$feature_flags` map, because
-# the map holds strings and a flag that was evaluated and switched off is already stored as 'false'. Reads map the
-# sentinel back to "false", and the flag API refuses it as a variant key.
-FEATURE_FLAG_FALSE_VARIANT_SENTINEL = "$false"
+# The ingest cleaner stores a feature flag variant named "false" or "true" under a sentinel in the `$feature_flags` map,
+# because the map holds strings and a boolean flag is already stored as 'false' or 'true'. Reads map each sentinel back
+# to its variant name, and the flag API refuses the sentinels as variant keys.
+FEATURE_FLAG_VARIANT_SENTINELS: dict[str, str] = {"$false": "false", "$true": "true"}
+
+# `$feature_flags` map values of a flag evaluated to off, which `$active_feature_flags` leaves out.
+INACTIVE_FEATURE_FLAG_VALUES: tuple[str, ...] = ("", "false")
+
+FEATURE_FLAG_PROPERTY_PREFIX = "$feature/"
+
+
+def is_virtual_feature_flag_key(key: str) -> bool:
+    """Whether an events_json property is rebuilt from the `$feature_flags` map instead of read under its own name."""
+    return key in ("$active_feature_flags", "$feature_flags") or key.startswith(FEATURE_FLAG_PROPERTY_PREFIX)
+
 
 # Limit applied to SELECT statements without LIMIT clause when queried via the API
 DEFAULT_RETURNED_ROWS = 100
@@ -37,9 +48,8 @@ MAX_SELECT_HEATMAPS_LIMIT = 1000000  # 1m datapoints
 # Max limit for all cohort calculations
 MAX_SELECT_COHORT_CALCULATION_LIMIT = 1000000000  # 1b persons
 # Max limit for notebook dataframe materialization (the sandbox kernel fetching a whole frame
-# over the object-storage frame store). Tier 1 of the rollout ladder in
-# products/notebooks/backend/sql_v2_frame_store.md — raised toward the kernel executor's
-# _MATERIALIZE_ROW_CAP (2M) on query-log evidence.
+# over the object-storage frame store). Raise it toward the kernel executor's
+# _MATERIALIZE_ROW_CAP (2M) only when query-log evidence supports it.
 MAX_SELECT_NOTEBOOK_MATERIALIZE_LIMIT = 500000  # 500k rows
 # Max limit for LLM traces
 MAX_SELECT_TRACES_LIMIT_EXPORT = 10000  # 10k traces
@@ -171,6 +181,8 @@ class HogQLQuerySettings(BaseModel):
     join_algorithm: Optional[str] = None
     grace_hash_join_initial_buckets: Optional[int] = None
     force_data_skipping_indices: Optional[list[str]] = None
+    force_optimize_projection: Optional[bool] = None
+    query_plan_max_limit_for_top_k_optimization: Optional[int] = None
     load_balancing: Optional[str] = None
     format_csv_allow_double_quotes: Optional[bool] = None
     optimize_skip_unused_shards: Optional[bool] = None

@@ -1,6 +1,5 @@
 """Stripe App integration: writing PostHog OAuth secrets into Stripe's Secret Store."""
 
-from collections.abc import Collection
 from datetime import timedelta
 from typing import TYPE_CHECKING
 
@@ -38,22 +37,12 @@ STRIPE_POSTHOG_SECRET_NAMES = (
 
 @frozen
 class StripeSecretPublication:
-    """What one attempt to publish PostHog's credentials into Stripe's Secret Store produced.
+    """What one attempt to publish PostHog's credentials into Stripe's Secret Store produced."""
 
-    `access_token_id` is None when nothing reached Stripe, because the credential minted for
-    that attempt is then unreachable by anyone and is dropped rather than left to expire.
-    """
-
-    access_token_id: int | None
     unwritten: tuple[str, ...]
 
 
-def revoke_team_oauth_tokens(
-    applications: list[OAuthApplication],
-    team_id: int,
-    *,
-    keep_access_token_ids: Collection[int] = (),
-) -> None:
+def revoke_team_oauth_tokens(applications: list[OAuthApplication], team_id: int) -> None:
     """Remove one team's access to the OAuth credentials these applications hold.
 
     Match refresh tokens by application and team. Do not match them through their access token.
@@ -94,19 +83,15 @@ def revoke_team_oauth_tokens(
             OAuthApplication.objects.select_for_update().filter(pk=application_id).first()
 
         shared = [
-            *covered_refresh.exclude(scoped_teams=[team_id]).exclude(access_token_id__in=keep_access_token_ids),
-            *covered_access.exclude(scoped_teams=[team_id]).exclude(id__in=keep_access_token_ids),
+            *covered_refresh.exclude(scoped_teams=[team_id]),
+            *covered_access.exclude(scoped_teams=[team_id]),
         ]
         for token in shared:
             token.scoped_teams = [scoped for scoped in token.scoped_teams if scoped != team_id]
             token.save(update_fields=["scoped_teams"])
 
-        OAuthRefreshToken.objects.filter(application__in=applications, scoped_teams=[team_id]).exclude(
-            access_token_id__in=keep_access_token_ids
-        ).delete()
-        OAuthAccessToken.objects.filter(application__in=applications, scoped_teams=[team_id]).exclude(
-            id__in=keep_access_token_ids
-        ).delete()
+        OAuthRefreshToken.objects.filter(application__in=applications, scoped_teams=[team_id]).delete()
+        OAuthAccessToken.objects.filter(application__in=applications, scoped_teams=[team_id]).delete()
 
 
 class StripeIntegration:
@@ -136,7 +121,7 @@ class StripeIntegration:
         from stripe import StripeClient  # noqa: PLC0415
 
         try:
-            oauth_config = oauth.OauthIntegration.oauth_config_for_kind("stripe")
+            client = oauth.OauthIntegration.client_credentials_for_kind("stripe")
         except NotImplementedError as e:
             capture_exception(
                 e,
@@ -145,15 +130,10 @@ class StripeIntegration:
                 },
             )
             return None
-        return StripeClient(oauth_config.client_secret)
+        return StripeClient(client.client_secret)
 
     def write_posthog_secrets(self, team_id: int, created_by: "User") -> StripeSecretPublication:
-        """Write PostHog OAuth tokens to Stripe's Secret Store so the Stripe App can call PostHog APIs.
-
-        Reports the secrets it could not write. A caller that revokes the previous credential must
-        treat a non-empty `unwritten` as failure: Stripe would still be holding the old token, so
-        revoking it leaves the customer with nothing that works.
-        """
+        """Write PostHog OAuth tokens to Stripe's Secret Store so the Stripe App can call PostHog APIs."""
 
         oauth_app = self._get_posthog_oauth_app()
         if not oauth_app:
@@ -161,7 +141,7 @@ class StripeIntegration:
                 Exception("Stripe marketplace OAuth application not found, cannot write secrets to Stripe"),
                 {"integration_id": self.integration.id, "team_id": self.integration.team_id},
             )
-            return StripeSecretPublication(access_token_id=None, unwritten=STRIPE_POSTHOG_SECRET_NAMES)
+            return StripeSecretPublication(unwritten=STRIPE_POSTHOG_SECRET_NAMES)
 
         access_token_value = generate_random_oauth_access_token(None)
         access_token = OAuthAccessToken.objects.create(
@@ -224,14 +204,14 @@ class StripeIntegration:
         if len(failed) == len(secrets):
             return self._discard_unpublished(access_token, tuple(failed))
 
-        return StripeSecretPublication(access_token_id=access_token.pk, unwritten=tuple(failed))
+        return StripeSecretPublication(unwritten=tuple(failed))
 
     @staticmethod
     def _discard_unpublished(access_token: OAuthAccessToken, unwritten: tuple[str, ...]) -> StripeSecretPublication:
         """Drop a credential that never reached Stripe, so a retry cannot accumulate live tokens."""
         OAuthRefreshToken.objects.filter(access_token=access_token).delete()
         access_token.delete()
-        return StripeSecretPublication(access_token_id=None, unwritten=unwritten)
+        return StripeSecretPublication(unwritten=unwritten)
 
     def clear_posthog_secrets(self) -> None:
         """Best-effort clear of PostHog secrets from Stripe and revoke local OAuth tokens."""
@@ -239,30 +219,31 @@ class StripeIntegration:
         if not stripe_user_id:
             raise ValueError("Missing stripe_user_id on integration")
 
-        client = self._stripe_client()
-        if client is None:
+        try:
+            client = self._stripe_client()
+            if client is None:
+                return
+
+            for name in STRIPE_POSTHOG_SECRET_NAMES:
+                try:
+                    client.apps.secrets.delete_where(
+                        params={
+                            "scope": {"type": "account"},
+                            "name": name,
+                        },
+                        options={"stripe_account": stripe_user_id},
+                    )
+                except Exception as e:
+                    capture_exception(
+                        e,
+                        {
+                            "secret_name": name,
+                            "stripe_user_id": stripe_user_id,
+                        },
+                    )
+        finally:
+            # Revoke locally even when the credentials service lookup raises.
             self._destroy_posthog_oauth_tokens()
-            return
-
-        for name in STRIPE_POSTHOG_SECRET_NAMES:
-            try:
-                client.apps.secrets.delete_where(
-                    params={
-                        "scope": {"type": "account"},
-                        "name": name,
-                    },
-                    options={"stripe_account": stripe_user_id},
-                )
-            except Exception as e:
-                capture_exception(
-                    e,
-                    {
-                        "secret_name": name,
-                        "stripe_user_id": stripe_user_id,
-                    },
-                )
-
-        self._destroy_posthog_oauth_tokens()
 
     def _destroy_posthog_oauth_tokens(self) -> None:
         """Delete the local OAuth access and refresh tokens created for this Stripe integration."""

@@ -3,9 +3,12 @@ import posthog from 'posthog-js'
 
 import { IconBell, IconRefresh } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
 import { dayjs } from 'lib/dayjs'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
 import { pluralize } from 'lib/utils/strings'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -36,6 +39,11 @@ export function SdkHealthScene(): JSX.Element {
     const { isDev } = useValues(preflightLogic)
 
     const { loadReport, snoozeSdkHealth, unsnooze } = useActions(sdkHealthLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    const trackAlertsClick = (): void => {
+        posthog.capture('health_alerts_entry_point_clicked', { source: 'sdk_health' })
+    }
 
     useOnMountEffect(() => {
         posthog.capture('sdk doctor loaded', { needsUpdatingCount })
@@ -73,29 +81,49 @@ export function SdkHealthScene(): JSX.Element {
                     type: 'sdk_health',
                 }}
                 actions={
-                    <>
-                        <LemonButton
-                            size="small"
-                            type="secondary"
-                            to={urls.healthAlerts(['sdk_outdated'])}
-                            onClick={() => {
-                                posthog.capture('health_alerts_entry_point_clicked', { source: 'sdk_health' })
-                            }}
-                            icon={<IconBell className="size-4" />}
-                            tooltip="Subscribe to alerts when SDKs go outdated"
-                        >
-                            Alerts
-                        </LemonButton>
-                        <LemonButton
-                            size="small"
-                            type="primary"
-                            disabledReason={loading ? 'Scan in progress' : undefined}
-                            onClick={scanEvents}
-                            icon={<IconRefresh className="size-4" />}
-                        >
-                            {loading ? 'Scanning events...' : 'Scan events'}
-                        </LemonButton>
-                    </>
+                    todayRailNav ? (
+                        <>
+                            <Button
+                                variant="outline"
+                                render={<LinkPrimitive to={urls.healthAlerts(['sdk_outdated'])} />}
+                                onClick={trackAlertsClick}
+                                tooltip="Subscribe to alerts when SDKs go outdated"
+                            >
+                                <IconBell />
+                                Alerts
+                            </Button>
+                            <Button
+                                variant="primary"
+                                disabledReason={loading ? 'Scan in progress' : undefined}
+                                onClick={scanEvents}
+                            >
+                                <IconRefresh />
+                                {loading ? 'Scanning events...' : 'Scan events'}
+                            </Button>
+                        </>
+                    ) : (
+                        <>
+                            <LemonButton
+                                size="small"
+                                type="secondary"
+                                to={urls.healthAlerts(['sdk_outdated'])}
+                                onClick={trackAlertsClick}
+                                icon={<IconBell className="size-4" />}
+                                tooltip="Subscribe to alerts when SDKs go outdated"
+                            >
+                                Alerts
+                            </LemonButton>
+                            <LemonButton
+                                size="small"
+                                type="primary"
+                                disabledReason={loading ? 'Scan in progress' : undefined}
+                                onClick={scanEvents}
+                                icon={<IconRefresh className="size-4" />}
+                            >
+                                {loading ? 'Scanning events...' : 'Scan events'}
+                            </LemonButton>
+                        </>
+                    )
                 }
             />
 

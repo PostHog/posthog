@@ -2,8 +2,8 @@
 
 A scheme whose lookup step fails answers `UNAVAILABLE` rather than judging the signature, because
 a step that never completed proves nothing about the caller. `BearerJwt` does this for a JWKS
-fetch failure, `HmacSha256` for a secret read that the database refuses, and `SnsSignature` for
-a signing certificate its verifier could not fetch.
+fetch failure, `HmacSha256` for a secret read that the database or the credentials service refuses,
+and `SnsSignature` for a signing certificate its verifier could not fetch.
 """
 
 import re
@@ -20,17 +20,22 @@ from django.db import DatabaseError, InterfaceError
 
 import structlog
 
+from posthog.credentials_service.errors import CredentialsServiceFailure
 from posthog.dataclasses import frozen
 from posthog.ingress.verify.errors import VerifierUnavailable
 from posthog.ingress.verify.sns_signature import verify_sns_message
 
 logger = structlog.get_logger(__name__)
 
-SignedInput = Literal["body", "v0_timestamp_body"]
+SignedInput = Literal["body", "v0_timestamp_body", "id_timestamp_body"]
 SignatureEncoding = Literal["hex", "base64"]
 # SHA-1 is on this list because one provider signs with it, not because it is a choice worth
 # making for a new one. Reach for `HmacSha256` unless the provider leaves no option.
 HmacDigest = Literal["sha256", "sha1"]
+
+# A secret getter that raises one of these could not read the secret, which says nothing about the
+# caller. Any other exception is a bug and still raises.
+_SECRET_READ_FAILURES = (DatabaseError, InterfaceError, CredentialsServiceFailure)
 
 
 class VerificationOutcome(StrEnum):
@@ -73,20 +78,20 @@ def header_value(headers: Mapping[str, str], name: str) -> str | None:
 
 
 def hmac_signature(
-    secret: str,
+    secret: str | bytes,
     signed: bytes,
     *,
     digest: HmacDigest = "sha256",
     encoding: SignatureEncoding = "hex",
     prefix: str = "",
 ) -> str:
-    computed = hmac.digest(secret.encode("utf-8"), signed, digest)
+    computed = hmac.digest(secret.encode("utf-8") if isinstance(secret, str) else secret, signed, digest)
     encoded = base64.b64encode(computed).decode("ascii") if encoding == "base64" else computed.hex()
     return prefix + encoded
 
 
 def hmac_sha256_signature(
-    secret: str,
+    secret: str | bytes,
     signed: bytes,
     *,
     encoding: SignatureEncoding = "hex",
@@ -125,16 +130,17 @@ class HmacSignature:
     to anything but the default.
     """
 
-    secret_getter: Callable[[], str | None]
+    secret_getter: Callable[[], str | bytes | None]
     signature_header: str
     prefix: str = ""
     digest: HmacDigest = "sha256"
     encoding: SignatureEncoding = "hex"
     signed_input: SignedInput = "body"
     timestamp_header: str | None = None
+    delivery_id_header: str | None = None
     timestamp_max_age_seconds: int = 300
     timestamp_max_future_seconds: int = 300
-    # Cheap shape gate run before the HMAC, so a probe cannot drive digest CPU (Vapi).
+    # Cheap shape gate run before the HMAC, so a probe cannot drive digest CPU.
     signature_pattern: re.Pattern[str] | None = None
 
     def _timestamp_is_fresh(self, timestamp: str) -> bool:
@@ -144,14 +150,16 @@ class HmacSignature:
             return False
         return -self.timestamp_max_future_seconds <= age_seconds <= self.timestamp_max_age_seconds
 
-    def _signed_bytes(self, body: bytes, timestamp: str | None) -> bytes:
+    def _signed_bytes(self, body: bytes, timestamp: str | None, delivery_id: str | None = None) -> bytes:
         if self.signed_input == "v0_timestamp_body" and timestamp is not None:
             # Assembled as bytes rather than through a decoded string, so a body that is
             # not valid UTF-8 fails the comparison instead of raising.
             return b"v0:" + timestamp.encode("utf-8") + b":" + body
+        if self.signed_input == "id_timestamp_body" and timestamp is not None and delivery_id is not None:
+            return delivery_id.encode("utf-8") + b"." + timestamp.encode("utf-8") + b"." + body
         return body
 
-    def _expected_signature(self, secret: str, signed: bytes) -> str:
+    def _expected_signature(self, secret: str | bytes, signed: bytes) -> str:
         return hmac_signature(secret, signed, digest=self.digest, encoding=self.encoding, prefix=self.prefix)
 
     def _headers_fail(self, headers: Mapping[str, str]) -> bool:
@@ -160,6 +168,12 @@ class HmacSignature:
             return True
         if self.signature_pattern is not None and not self.signature_pattern.match(provided):
             return True
+        if self.signed_input == "id_timestamp_body" and (
+            self.delivery_id_header is None
+            or not header_value(headers, self.delivery_id_header)
+            or self.timestamp_header is None
+        ):
+            return True
         if self.timestamp_header is None:
             return False
         # Freshness needs only the clock, so a malformed or stale timestamp costs no body read either.
@@ -167,23 +181,27 @@ class HmacSignature:
         return not timestamp or not self._timestamp_is_fresh(timestamp)
 
     def rejects_headers(self, headers: Mapping[str, str]) -> bool:
+        # Well-shaped headers go straight to `_outcome` without a secret read here, so a delivery
+        # reads the secret once: during a credentials-service outage a second read would wait out
+        # a second timeout before answering UNAVAILABLE.
+        if not self._headers_fail(headers):
+            return False
         # An unconfigured endpoint keeps answering NOT_CONFIGURED, whatever the headers carry.
         try:
             secret = self.secret_getter()
-        except (DatabaseError, InterfaceError):
+        except _SECRET_READ_FAILURES:
             # Leave a failed read to `_outcome`, which answers UNAVAILABLE for it.
             return False
-        if not secret:
-            return False
-        return self._headers_fail(headers)
+        return bool(secret)
 
     def _outcome(self, *, body: bytes, headers: Mapping[str, str]) -> VerificationOutcome:
         try:
             secret = self.secret_getter()
-        except (DatabaseError, InterfaceError) as error:
-            # A getter that keeps its secret in Postgres reads it here, so a dropped connection
-            # leaves the signature unchecked. Letting the error out answers 500, which asks no
-            # sender to come back and leaves the lost delivery uncounted.
+        except _SECRET_READ_FAILURES as error:
+            # A getter that keeps its secret in Postgres or in the credentials service reads it here,
+            # so a dropped connection or a service outage leaves the signature unchecked. Letting the
+            # error out answers 500, which asks no sender to come back and leaves the lost delivery
+            # uncounted.
             logger.warning(
                 "ingress_secret_unavailable",
                 signature_header=self.signature_header,
@@ -200,7 +218,8 @@ class HmacSignature:
 
         timestamp = header_value(headers, self.timestamp_header) if self.timestamp_header is not None else None
 
-        expected = self._expected_signature(secret, self._signed_bytes(body, timestamp))
+        delivery_id = header_value(headers, self.delivery_id_header) if self.delivery_id_header is not None else None
+        expected = self._expected_signature(secret, self._signed_bytes(body, timestamp, delivery_id))
         if signatures_match(expected, provided):
             return VerificationOutcome.VERIFIED
         return VerificationOutcome.INVALID

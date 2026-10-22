@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { memo, useMemo } from 'react'
 
 import { Link, Tooltip } from '@posthog/lemon-ui'
 
@@ -73,7 +73,7 @@ function runTooltip(run: SignalScoutRunSummary, now: Date, costUsd: number | und
  * vertical line. Left-aligning instead scatters the newest run across the column by run count,
  * which is the one box a reader is scanning for.
  */
-export function ScoutRunBoxes({
+export const ScoutRunBoxes = memo(function ScoutRunBoxes({
     runs,
     costs,
     costThreshold,
@@ -110,11 +110,13 @@ export function ScoutRunBoxes({
             {newestFirst.map(({ run, outcome, expensive, tooltip }) => {
                 const boxClass = `${BOX_CLASS} ${OUTCOME_BOX_CLASS[outcome]}`
                 const boxTooltip = run.task_url ? `${tooltip} · open task run` : tooltip
-                const label = <span className="sr-only">Run {boxTooltip}</span>
+                // The label is an attribute, not an `sr-only` child: the roster renders a strip per
+                // scout, so one more node per box adds thousands of nodes to a large fleet.
+                const label = `Run ${boxTooltip}`
                 const column = (
                     <>
                         {expensive ? <span className={MARKER_CLASS} /> : null}
-                        <span className={boxClass}>{label}</span>
+                        <span className={boxClass} role="img" aria-label={label} />
                     </>
                 )
                 // The whole column links, not only the box, because the tooltip spans the column
@@ -137,4 +139,4 @@ export function ScoutRunBoxes({
             {hidden > 0 ? <span className="shrink-0 text-[10px] text-muted">+{hidden}</span> : null}
         </div>
     )
-}
+})

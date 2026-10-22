@@ -8,7 +8,7 @@ from typing import Any
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
@@ -694,7 +694,7 @@ class TestSampleRateSerializationForRustCompatibility(BaseTest):
 # test_team_llm_gateway_policy_cache.py); we explicitly assert the field is NOT
 # in the shared team_metadata blob so the flags-pipeline consumers stay
 # unaffected by llm-gateway changes.
-class TestLLMGatewayFieldsNotInSharedProjection(BaseTest):
+class TestLLMGatewayFieldsNotInSharedProjection(SimpleTestCase):
     def test_llm_gateway_fields_excluded_from_shared_metadata(self):
         self.assertNotIn("llm_gateway_enabled_at", TEAM_METADATA_FIELDS)
         self.assertNotIn("llm_gateway_revoked_at", TEAM_METADATA_FIELDS)

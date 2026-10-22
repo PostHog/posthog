@@ -14,11 +14,16 @@ interface OpenDismissReportDialogParams {
     selectedCount?: number
     /** Whether the report has an implementation PR that is still open. Dismissing closes it, so the copy says so. */
     hasOpenPr?: boolean
+    submitDataAttr?: string
+    onAfterClose?: () => void
     /** Show a digit keycap on each reason and let 1..9 pick it. On for triage mode, where the whole flow is keyboard-driven. */
     hotkeys?: boolean
     /** Preselect this reason. The context menu's "Something else…" opens the dialog with it set,
      * so the person only has to write the note. */
     initialReason?: DismissalReasonValue
+    /** Replaces the default title, description and submit label. Today uses them to ask for a reason
+     * after the report was already dismissd, so the copy must not ask to dismiss it again. */
+    copy?: { title: string; description: string; submitLabel: string }
     /** Called with the chosen reason, note and optional repo correction once the user confirms. */
     onConfirm: (result: DismissalFeedback) => void | Promise<void>
 }
@@ -39,8 +44,11 @@ export function openDismissReportDialog({
     reportTitle,
     selectedCount,
     hasOpenPr = false,
+    submitDataAttr,
+    onAfterClose,
     hotkeys = false,
     initialReason,
+    copy,
     onConfirm,
 }: OpenDismissReportDialogParams): void {
     // The selection bar knows the count and no titles, so its copy counts reports even when one
@@ -58,9 +66,14 @@ export function openDismissReportDialog({
               hasOpenPr ? ' The pull request opened for this report is closed.' : ''
           }`
 
+    const primaryButtonProps = {
+        children: copy?.submitLabel ?? 'Dismiss & teach the agent',
+        'data-attr': submitDataAttr,
+    }
     LemonDialog.openForm({
-        title,
-        description,
+        onAfterClose,
+        title: copy?.title ?? title,
+        description: copy?.description ?? description,
         maxWidth: '36rem',
         overlayClassName: '!items-center',
         initialValues: {
@@ -101,7 +114,7 @@ export function openDismissReportDialog({
         errors: {
             reason: (reason) => (!reason ? "You haven't picked a reason" : undefined),
         },
-        primaryButtonProps: { children: 'Dismiss & teach the agent' },
+        primaryButtonProps,
         shouldAwaitSubmit: true,
         onSubmit: async ({ reason, note, correctedRepository }) => {
             if (!reason) {

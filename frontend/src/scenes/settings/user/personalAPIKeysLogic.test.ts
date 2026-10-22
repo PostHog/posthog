@@ -1,9 +1,11 @@
 import { MOCK_DEFAULT_USER } from 'lib/api.mock'
 
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
@@ -110,6 +112,16 @@ describe('personalAPIKeysLogic', () => {
         expect(capturedCreatePayload.scopes).toEqual(['*'])
     })
 
+    it('opens a new key with the preset scopes for a ?preset= link', () => {
+        router.actions.push(urls.settings('user-api-keys'), { preset: 'source_map_upload' })
+
+        expect(logic.values.editingKeyId).toBe('new')
+        expect(logic.values.editingKey).toMatchObject({
+            preset: 'source_map_upload',
+            scopes: ['organization:read', 'error_tracking:write'],
+        })
+    })
+
     it.each(['survey', 'early_access_feature'])(
         'auto-selects feature_flag:write when %s write is granted',
         async (scope) => {
@@ -121,6 +133,29 @@ describe('personalAPIKeysLogic', () => {
             expect(logic.values.editingKey.scopes).toContain('feature_flag:write')
         }
     )
+
+    it('clamps a group write to what each row can take', async () => {
+        logic.actions.setEditingKeyId('new')
+        logic.actions.setEditingKeyValues({ access_type: 'teams' })
+        // integration is read-only, and organization is not available for a project scoped key.
+        logic.actions.setScopeGroupAccess(['survey', 'integration', 'organization'], 'write')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect([...logic.values.editingKey.scopes].sort()).toEqual([
+            'feature_flag:write',
+            'integration:read',
+            'survey:write',
+        ])
+    })
+
+    it('keeps only the groups with a row that matches the search', () => {
+        logic.actions.setEditingKeyId('new')
+        logic.actions.setSearchTerm('survey')
+
+        expect(logic.values.filteredScopeGroups.flatMap(({ rows }) => rows.map(({ scope }) => scope.key))).toEqual([
+            'survey',
+        ])
+    })
 
     it('leaves the auto-selected feature_flag:write removable', async () => {
         logic.actions.setEditingKeyId('new')

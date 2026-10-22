@@ -12,8 +12,8 @@ import pytest_asyncio
 import botocore.exceptions
 
 from posthog.models.integration import Integration
-from posthog.temporal.tests.utils.models import acreate_batch_export, adelete_batch_export
 
+from products.batch_exports.backend.tests.temporal.utils.models import acreate_batch_export, adelete_batch_export
 from products.batch_exports.backend.tests.temporal.utils.s3 import aws_role, create_test_client, delete_all_from_s3
 
 if typing.TYPE_CHECKING:

@@ -1,11 +1,14 @@
 import { useActions, useValues } from 'kea'
 
-import { IconPlusSmall, IconRefresh } from '@posthog/icons'
+import { IconPlus, IconPlusSmall, IconRefresh } from '@posthog/icons'
 import { LemonButton, LemonSelect } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
 import { NotFound } from 'lib/components/NotFound'
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -22,7 +25,7 @@ import { PipelineHealth } from './PipelineHealth'
 import type { PipelineStatsWindow } from './pipelineOverviewSceneLogic'
 import { pipelineOverviewSceneLogic } from './pipelineOverviewSceneLogic'
 import { PipelineStatTiles } from './PipelineStatTiles'
-import { RecentFailures } from './RecentFailures'
+import { RecentRuns } from './RecentRuns'
 import { RowsByDestination } from './RowsByDestination'
 
 export const scene: SceneExport = {
@@ -35,41 +38,64 @@ export function PipelineOverviewScene(): JSX.Element {
     const { featureFlags, receivedFeatureFlags } = useValues(featureFlagLogic)
     const { window, jobStatsLoading, hasIssues, lastUpdatedAt } = useValues(pipelineOverviewSceneLogic)
     const { setWindow, refresh } = useActions(pipelineOverviewSceneLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     // Wait for the flags to land before refusing. Rendering NotFound first and the scene a beat
     // later reads as a broken page to anyone who does have the flag.
     if (receivedFeatureFlags && !featureFlags[FEATURE_FLAGS.WAREHOUSE_MULTI_DESTINATION]) {
-        return <NotFound object="page" caption="ETL isn't available for this project yet." />
+        return <NotFound object="page" caption="ELT isn't available for this project yet." />
     }
 
     return (
         <SceneContent className="pb-4">
             <SceneTitleSection
-                name="ETL"
+                name="ELT"
                 description="Every source you import from and every destination you write to, with the health of each."
                 resourceType={{ type: 'data_pipeline' }}
                 actions={
-                    <div className="flex flex-wrap gap-2">
-                        <LemonButton
-                            type="secondary"
-                            size="small"
-                            icon={<IconRefresh />}
-                            onClick={refresh}
-                            loading={jobStatsLoading}
-                            data-attr="etl-refresh"
-                        >
-                            Refresh
-                        </LemonButton>
-                        <LemonButton
-                            type="primary"
-                            size="small"
-                            icon={<IconPlusSmall />}
-                            to={urls.dataPipelinesNew('source')}
-                            data-attr="etl-new-source"
-                        >
-                            New source
-                        </LemonButton>
-                    </div>
+                    todayRailNav ? (
+                        <div className="flex flex-wrap items-center gap-2">
+                            <Button
+                                variant="outline"
+                                onClick={refresh}
+                                loading={jobStatsLoading}
+                                data-attr="etl-refresh"
+                            >
+                                <IconRefresh />
+                                Refresh
+                            </Button>
+                            <Button
+                                variant="primary"
+                                render={<LinkPrimitive to={urls.dataPipelinesNew('source')} />}
+                                data-attr="etl-new-source"
+                            >
+                                <IconPlus />
+                                New source
+                            </Button>
+                        </div>
+                    ) : (
+                        <div className="flex flex-wrap gap-2">
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                icon={<IconRefresh />}
+                                onClick={refresh}
+                                loading={jobStatsLoading}
+                                data-attr="etl-refresh"
+                            >
+                                Refresh
+                            </LemonButton>
+                            <LemonButton
+                                type="primary"
+                                size="small"
+                                icon={<IconPlusSmall />}
+                                to={urls.dataPipelinesNew('source')}
+                                data-attr="etl-new-source"
+                            >
+                                New source
+                            </LemonButton>
+                        </div>
+                    )
                 }
             />
 
@@ -94,9 +120,14 @@ export function PipelineOverviewScene(): JSX.Element {
                 </>
             ) : null}
 
+            <SceneSection title="Rows synced by destination">
+                <RowsByDestination />
+            </SceneSection>
+
+            <SceneDivider />
             <SceneSection
                 title="Runs"
-                description="Runs that failed in this window. A table can be broken here with no recent run, if nothing retried it."
+                description="Every sync in this window, newest first. Runs in flight appear as they start."
                 actions={
                     <LemonSelect<PipelineStatsWindow>
                         size="small"
@@ -111,16 +142,7 @@ export function PipelineOverviewScene(): JSX.Element {
                     />
                 }
             >
-                <RecentFailures />
-            </SceneSection>
-
-            <SceneDivider />
-
-            <SceneSection
-                title="Rows synced by destination"
-                description="Rows written to each destination. A row that reaches two destinations counts against both, so the series stack."
-            >
-                <RowsByDestination />
+                <RecentRuns />
             </SceneSection>
 
             <SceneDivider />

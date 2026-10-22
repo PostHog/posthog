@@ -108,14 +108,19 @@ export function buildSemanticColors(): Record<string, ColorTuple> {
             'text-subtle-foreground',
         ],
 
-        // Chrome — UI furniture surface (toolbars, menubars, nav). Matched to
-        // PostHog app's --color-bg-surface-tertiary: light hsl(77 13% 89%),
-        // dark hsl(240 8% 8%), in OKLCH. Hue stays theme-derived; chroma is
-        // near-zero so the hue offset is imperceptible.
-        chrome: [surface(0.923, 1.67, 'light'), surface(0.187, 1.1, 'dark'), 'bg-chrome'],
+        // Chrome — UI furniture surface (toolbars, menubars, nav). Light matches
+        // PostHog app's --color-bg-surface-tertiary, hsl(77 13% 89%), in OKLCH.
+        // Dark sits a step above `background` instead of on it, so the chrome
+        // and the content stay apart as they do in light mode, where chrome
+        // sits a step below. Hue stays theme-derived; chroma is near-zero so
+        // the hue offset is imperceptible.
+        chrome: [surface(0.923, 1.67, 'light'), surface(0.225, 1.1, 'dark'), 'bg-chrome'],
 
         // ── Brand (driven by --primary-light / --primary-dark) ─
         primary: ['var(--primary-light)', 'var(--primary-dark)', 'bg-primary'],
+        // Brand text on an inverted surface, such as a tooltip on `--foreground`. It takes the other mode's brand,
+        // so a dark tooltip in light mode gets the yellow, and a light tooltip in dark mode gets the orange.
+        'primary-on-foreground': ['var(--primary-dark)', 'var(--primary-light)', 'text-primary-on-foreground'],
         'primary-foreground': [oklch(1, 0, 0), oklch(0.13, 0.028, 262), 'text-primary-foreground'],
 
         // ── Status (independent of theme hue) ─────────
@@ -224,6 +229,7 @@ const THEME_DERIVED_TOKENS: ReadonlySet<string> = new Set([
     'muted',
     'chrome',
     'primary',
+    'primary-on-foreground',
     'border',
     'input',
     // Transitive: reference var(--foreground) / var(--muted) — must also live

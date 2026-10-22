@@ -1,6 +1,6 @@
 import re
 import dataclasses
-from collections.abc import Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional, cast
 from urllib.parse import parse_qs, quote, urlsplit
@@ -11,6 +11,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bamboohr.s
     BAMBOOHR_ENDPOINTS,
     EMPLOYEE_TABLE_EMPLOYEE_ID,
     EMPLOYEE_TABLE_LAST_CHANGED,
+    ENCODED_PARENT_ID,
     GOAL_ID,
     BambooHREndpointConfig,
     ChunkedDateWindow,
@@ -150,12 +151,13 @@ def _page_from_url(url: Any) -> int | None:
         return None
 
 
-class BambooHRApplicationsPaginator(BasePaginator):
-    """Walks the ATS applications envelope (``paginationComplete`` plus ``nextPageUrl``).
+class BambooHRPageLinksPaginator(BasePaginator):
+    """Walks a page-numbered endpoint by the page number in the next-page link of each response.
 
-    ``nextPageUrl`` is read only for the page number it carries, never followed: BambooHR builds
-    it against the company's own domain while we call the same API through the gateway host the
-    API key was issued for, so following it verbatim would leave that host.
+    The link is read only for the page number it carries, never followed: BambooHR builds it
+    against the company's own domain while we call the same API through the gateway host the
+    API key was issued for, so following it verbatim would leave that host. Reading the number
+    from the link also keeps the walk correct whichever page number the endpoint counts from.
     """
 
     def __init__(self, page_param: str = "page") -> None:
@@ -174,17 +176,23 @@ class BambooHRApplicationsPaginator(BasePaginator):
     def init_request(self, request: Request) -> None:
         self._apply(request)
 
+    def _next_page_url(self, payload: dict[str, Any]) -> Any:
+        links = payload.get("_links")
+        next_link = links.get("next") if isinstance(links, dict) else None
+        return next_link.get("href") if isinstance(next_link, dict) else None
+
     def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
         try:
             payload = response.json()
         except Exception:
             payload = None
-        if not isinstance(payload, dict) or payload.get("paginationComplete") or not data:
+        if not isinstance(payload, dict) or not data:
             self._has_next_page = False
             return
-        next_page = _page_from_url(payload.get("nextPageUrl"))
+        next_page_url = self._next_page_url(payload)
+        next_page = _page_from_url(next_page_url)
         if next_page is None:
-            if not payload.get("nextPageUrl"):
+            if not next_page_url:
                 self._has_next_page = False
                 return
             # A next link we cannot read a page number out of still means more rows, so step
@@ -198,6 +206,18 @@ class BambooHRApplicationsPaginator(BasePaginator):
         self._apply(request)
 
     def __str__(self) -> str:
+        return "BambooHRPageLinksPaginator(_links.next.href)"
+
+
+class BambooHRApplicationsPaginator(BambooHRPageLinksPaginator):
+    """Walks the ATS applications envelope (``paginationComplete`` plus ``nextPageUrl``)."""
+
+    def _next_page_url(self, payload: dict[str, Any]) -> Any:
+        if payload.get("paginationComplete"):
+            return None
+        return payload.get("nextPageUrl")
+
+    def __str__(self) -> str:
         return "BambooHRApplicationsPaginator(paginationComplete|nextPageUrl)"
 
 
@@ -208,6 +228,8 @@ def _paginator_for(config: BambooHREndpointConfig) -> BasePaginator:
         return PageNumberPaginator(base_page=FIRST_PAGE_NUMBER, stop_after_empty_page=True)
     if config.pagination == "ats_applications":
         return BambooHRApplicationsPaginator()
+    if config.pagination == "page_links":
+        return BambooHRPageLinksPaginator()
     return BambooHRPaginator()
 
 
@@ -255,6 +277,13 @@ def _rest_client(base_url: str, api_key: str) -> RESTClient:
         allowed_hosts=[],
         request_timeout=SYNC_TIMEOUT_SECONDS,
     )
+
+
+def _encode_parent_id(field: str) -> Callable[[dict[str, Any]], dict[str, Any]]:
+    def encode(row: dict[str, Any]) -> dict[str, Any]:
+        return {**row, ENCODED_PARENT_ID: quote(str(row[field]), safe="")}
+
+    return encode
 
 
 def _employee_table_rows(body: Any) -> Iterator[dict[str, Any]]:
@@ -468,6 +497,7 @@ def bamboohr_source(
                 page_size_param=None,
                 parent_endpoint_extra=_endpoint_extra(parent_config),
                 child_endpoint_extra=_endpoint_extra(config),
+                parent_data_map=(_encode_parent_id(config.encode_parent_field) if config.encode_parent_field else None),
             ),
         )
         return SourceResponse(

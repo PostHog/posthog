@@ -49,6 +49,8 @@ FORBIDDEN_AT_SETUP = [
     "ee.vercel.integration",  # reaches ee.api.authentication (@api_view -> DRF schema class) — receivers live in ee.vercel.receivers and import it at call time
     "posthog.api.documentation",  # drf_spectacular schema hooks — request-time only
     "django.test",  # test client — was dragged in by drf_spectacular.plumbing via rest_framework.test
+    "zxcvbn",  # password strength, needed only by posthog.auth (deferred in posthog.helpers.impersonation and posthog.event_usage)
+    "webauthn",  # passkeys, same door as zxcvbn (posthog.auth)
     "posthog.async_migrations.setup",  # imports every async migration — only when SKIP_ASYNC_MIGRATIONS_SETUP is off
     "infi.clickhouse_orm",  # ClickHouse ORM — migration commands only; its package __init__ imports pkg_resources
     "pkg_resources",  # setuptools shim (~40ms) — only reached via infi.clickhouse_orm

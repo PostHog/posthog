@@ -1,6 +1,7 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { type MutableRefObject, useEffect, useRef } from 'react'
+import { type MutableRefObject, useEffect, useMemo, useRef } from 'react'
 
+import { cn } from 'lib/utils/css-classes'
 import { userLogic } from 'scenes/userLogic'
 
 import { runInteractionLogic, type RunInteractionLogicProps } from 'products/posthog_ai/frontend/api/logics'
@@ -11,10 +12,13 @@ import { RunSurface } from 'products/posthog_ai/frontend/api/runSurface'
 
 import { RunEscapeBoundary, type RunEscapeBoundaryProps } from '../../../components/RunEscapeBoundary'
 import { useForegroundStream } from '../../../hooks/useForegroundStream'
+import { useThreadSkin } from '../../../hooks/useThreadSkin'
+import { resolveRunStreamKey } from '../../../logics/retainedLogics'
 import { runCancellationLogic } from '../../../logics/runCancellationLogic'
 import type { RunContinuationHandoff } from '../../../logics/runInteractionLogic'
 import type { AttachedContextItem } from '../../../types/contextTypes'
 import { taskDetailSceneLogic } from '../taskDetailSceneLogic'
+import { QuillTaskComposerSkeleton } from './QuillTaskComposerSkeleton'
 import { TaskRunComposer } from './TaskRunComposer'
 
 export interface TaskRunChatProps {
@@ -68,10 +72,11 @@ export function TaskRunChat({
     // the run's setup only when the two agree; a mismatch would launch the successor on another run's config.
     const runConfig = selectedRun?.id === runId ? selectedRun : undefined
     const pendingInteraction = interactionKey ? runInteractionLogic.findMounted(interactionKey) : undefined
+    const resolvedStreamKey = useMemo(() => resolveRunStreamKey(runId, streamKey), [runId, streamKey])
     const logicProps: RunInteractionLogicProps = {
         taskId,
         runId,
-        streamKey,
+        streamKey: resolvedStreamKey,
         interactionKey,
         initialDraft,
         onDraftAdopted,
@@ -92,6 +97,11 @@ export function TaskRunChat({
                 ? runConfig.state.initial_permission_mode
                 : pendingInteraction?.props.currentMode,
         currentRuntimeAdapter: runConfig?.runtime_adapter ?? pendingInteraction?.props.currentRuntimeAdapter,
+        currentCodexModelAccess:
+            typeof runConfig?.state?.codex_model_access === 'string'
+                ? runConfig.state.codex_model_access
+                : pendingInteraction?.props.currentCodexModelAccess,
+        taskRuntime: task?.runtime ?? pendingInteraction?.props.taskRuntime,
         onRunStarted: (newRunId, handoff) => {
             if (handoff) {
                 continueWithRun(handoff)
@@ -132,6 +142,7 @@ function TaskRunChatContent({
     flushDraftRef: MutableRefObject<() => void>
 }): JSX.Element {
     const textAreaRef = useRef<HTMLTextAreaElement>(null)
+    const skin = useThreadSkin()
     const { handleEscape } = useActions(runInteractionLogic(logicProps))
     const { cancellationState } = useValues(runInteractionLogic(logicProps))
     const { clearCancellation } = useActions(
@@ -151,6 +162,7 @@ function TaskRunChatContent({
             runId={logicProps.runId}
             streamKey={logicProps.streamKey}
             interaction="live"
+            retainAfterUnmount
         >
             <RunEscapeBoundary
                 scope={escapeScope}
@@ -158,7 +170,7 @@ function TaskRunChatContent({
                 textAreaRef={textAreaRef}
                 onEscape={handleEscape}
                 disabled={readOnly}
-                className="@container/thread flex flex-col h-full -mx-4"
+                className={cn('@container/thread flex flex-col h-full', skin === 'lemon' && '-mx-4')}
             >
                 <RunSurface.Thread
                     restoreReadPosition
@@ -168,7 +180,10 @@ function TaskRunChatContent({
                 />
                 {/* Stay live (stream keeps flowing) but omit the composer entirely for a read-only viewer. */}
                 {!readOnly && (
-                    <RunSurface.Composer isStopping={!!cancellationState}>
+                    <RunSurface.Composer
+                        isStopping={!!cancellationState}
+                        loadingFallback={skin === 'quill' ? <QuillTaskComposerSkeleton /> : undefined}
+                    >
                         {/* The composer owns the per-keystroke draft in an isolated child so typing never re-renders
                         the thread/virtualizer rendered as its sibling above — that cascade is what made the input lag. */}
                         <TaskRunComposer

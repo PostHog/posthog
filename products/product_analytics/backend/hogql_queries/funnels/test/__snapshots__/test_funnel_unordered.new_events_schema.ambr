@@ -76,7 +76,8 @@
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0,
-                    json_type_escape_dots_in_keys=1
+                    json_type_escape_dots_in_keys=1,
+                    output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestFunnelUnorderedGroupBreakdown.test_funnel_breakdown_group[new_events_schema.1]
@@ -146,7 +147,8 @@
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0,
-                    json_type_escape_dots_in_keys=1
+                    json_type_escape_dots_in_keys=1,
+                    output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestFunnelUnorderedGroupBreakdown.test_funnel_breakdown_group[new_events_schema.2]
@@ -216,7 +218,8 @@
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0,
-                    json_type_escape_dots_in_keys=1
+                    json_type_escape_dots_in_keys=1,
+                    output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestFunnelUnorderedGroupBreakdown.test_funnel_breakdown_group[new_events_schema.3]
@@ -286,7 +289,8 @@
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0,
-                    json_type_escape_dots_in_keys=1
+                    json_type_escape_dots_in_keys=1,
+                    output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestFunnelUnorderedGroupBreakdown.test_funnel_breakdown_group[new_events_schema.4]
@@ -356,7 +360,8 @@
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0,
-                    json_type_escape_dots_in_keys=1
+                    json_type_escape_dots_in_keys=1,
+                    output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestFunnelUnorderedGroupBreakdown.test_funnel_breakdown_group[new_events_schema]
@@ -443,7 +448,8 @@
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0,
-                    json_type_escape_dots_in_keys=1
+                    json_type_escape_dots_in_keys=1,
+                    output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestFunnelUnorderedStepsBreakdown.test_funnel_breakdown_correct_breakdown_props_are_chosen[new_events_schema]
@@ -479,8 +485,8 @@
                   e.properties.`$session_id` AS `$session_id`,
                   e.properties.`$window_id` AS `$window_id`,
                   if(equals(e.event, 'sign up'), 1, 0) AS step_0,
-                  if(and(equals(e.event, 'buy'), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$version`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$version`)), if(isNull(nullIf(toString(e.properties.`$version`), '')), NULL, if(and(in(ascii(toString(e.properties.`$version`)), tuple(91, 123)), in(ascii(toJSONString(e.properties.`$version`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.`$version`), '[]'), '{}'), toString(e.properties.`$version`)))), 'xyz'), 0)), 1, 0) AS step_1,
-                  [ifNull(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$browser`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$browser`)), if(isNull(nullIf(toString(e.properties.`$browser`), '')), NULL, if(and(in(ascii(toString(e.properties.`$browser`)), tuple(91, 123)), in(ascii(toJSONString(e.properties.`$browser`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.`$browser`), '[]'), '{}'), toString(e.properties.`$browser`))))), '')] AS prop_basic,
+                  if(and(equals(e.event, 'buy'), ifNull(equals(CAST(e.properties.`$version`, 'Nullable(String)'), 'xyz'), 0)), 1, 0) AS step_1,
+                  [ifNull(toString(if(notEquals(toJSONString(e.properties.^`$browser`), '{}'), toJSONString(e.properties.^`$browser`), if(isNull(nullIf(toString(e.properties.`$browser`), '')), NULL, if(and(in(ascii(toString(e.properties.`$browser`)), tuple(91, 123)), in(ascii(toJSONString(e.properties.`$browser`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.`$browser`), '[]'), '{}'), toString(e.properties.`$browser`))))), '')] AS prop_basic,
                   prop_basic AS prop
            FROM events_json AS e
            LEFT OUTER JOIN
@@ -512,7 +518,8 @@
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0,
-                    json_type_escape_dots_in_keys=1
+                    json_type_escape_dots_in_keys=1,
+                    output_format_json_escape_forward_slashes=0
   '''
 # ---
 # name: TestFunnelUnorderedStepsBreakdown.test_funnel_step_multiple_breakdown_snapshot[new_events_schema]
@@ -549,8 +556,8 @@
                   e.properties.`$window_id` AS `$window_id`,
                   if(equals(e.event, 'sign up'), 1, 0) AS step_0,
                   if(equals(e.event, 'buy'), 1, 0) AS step_1,
-                  [ifNull(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$browser`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$browser`)), if(isNull(nullIf(toString(e.properties.`$browser`), '')), NULL, if(and(in(ascii(toString(e.properties.`$browser`)), tuple(91, 123)), in(ascii(toJSONString(e.properties.`$browser`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.`$browser`), '[]'), '{}'), toString(e.properties.`$browser`))))), ''),
-                   ifNull(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$version`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(e.properties.^`$version`)), if(isNull(nullIf(toString(e.properties.`$version`), '')), NULL, if(and(in(ascii(toString(e.properties.`$version`)), tuple(91, 123)), in(ascii(toJSONString(e.properties.`$version`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.`$version`), '[]'), '{}'), toString(e.properties.`$version`))))), '')] AS prop_basic,
+                  [ifNull(toString(if(notEquals(toJSONString(e.properties.^`$browser`), '{}'), toJSONString(e.properties.^`$browser`), if(isNull(nullIf(toString(e.properties.`$browser`), '')), NULL, if(and(in(ascii(toString(e.properties.`$browser`)), tuple(91, 123)), in(ascii(toJSONString(e.properties.`$browser`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.`$browser`), '[]'), '{}'), toString(e.properties.`$browser`))))), ''),
+                   ifNull(toString(if(notEquals(toJSONString(e.properties.^`$version`), '{}'), toJSONString(e.properties.^`$version`), if(isNull(nullIf(toString(e.properties.`$version`), '')), NULL, if(and(in(ascii(toString(e.properties.`$version`)), tuple(91, 123)), in(ascii(toJSONString(e.properties.`$version`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.`$version`), '[]'), '{}'), toString(e.properties.`$version`))))), '')] AS prop_basic,
                   prop_basic AS prop
            FROM events_json AS e
            LEFT OUTER JOIN
@@ -582,6 +589,7 @@
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
                     use_hive_partitioning=0,
-                    json_type_escape_dots_in_keys=1
+                    json_type_escape_dots_in_keys=1,
+                    output_format_json_escape_forward_slashes=0
   '''
 # ---

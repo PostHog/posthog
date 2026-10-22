@@ -32,12 +32,19 @@ from products.signals.backend.report_metric_query_access import (
 class ReportMetricAccessPolicy:
     """Decide which data-bearing fields of a report metric this request may read."""
 
-    def __init__(self, *, request: Request | None, team: Team | None) -> None:
+    def __init__(
+        self,
+        *,
+        request: Request | None,
+        team: Team | None,
+        user: User | None = None,
+        token_scopes: Sequence[str] | None = None,
+    ) -> None:
         self._team = team
-        request_user = getattr(request, "user", None)
+        request_user = getattr(request, "user", None) if request is not None else user
         self._user = request_user if isinstance(request_user, User) else None
         authenticator = getattr(request, "successful_authenticator", None)
-        self._token_scopes = get_authenticator_scopes(authenticator) if request is not None else []
+        self._token_scopes = get_authenticator_scopes(authenticator) if request is not None else token_scopes
 
     def may_read_query(self, metric: Mapping[str, object]) -> bool:
         """Whether the stored definition itself is safe to return to this viewer."""

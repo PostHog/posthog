@@ -123,15 +123,6 @@
       }
     },
     {
-      // Object-tag kind registry generated from posthog/object_tags/kinds.py; the
-      // renderer's byte-stable output is what `hogli build:projections --check`
-      // compares against, so no formatter may touch it.
-      "includes": ["packages/core/src/inbox/objectKinds.generated.ts"],
-      "formatter": {
-        "enabled": false
-      }
-    },
-    {
       // TanStack Router generated route tree — uses `as any` and its own
       // formatting; the file header explicitly says not to lint/format it.
       "includes": ["packages/ui/src/router/routeTree.gen.ts"],
@@ -146,8 +137,12 @@
       }
     },
     {
-      // Disallow console.* in Code source code - use logger instead
-      "includes": ["apps/code/src/**/*.ts", "apps/code/src/**/*.tsx"],
+      // Disallow console.* in Code and agent source code - use logger instead
+      "includes": [
+        "apps/code/src/**/*.ts",
+        "apps/code/src/**/*.tsx",
+        "packages/agent/src/**/*.ts"
+      ],
       "linter": {
         "rules": {
           "suspicious": {
@@ -159,6 +154,7 @@
     {
       // Logger implementations intentionally wrap console
       "includes": [
+        "packages/agent/src/utils/logger.ts",
         "apps/code/src/main/lib/logger.ts",
         "apps/code/src/renderer/lib/logger.ts"
       ],

@@ -14,7 +14,7 @@ from typing import ParamSpec, TypeVar
 
 from django.core.serializers.json import DjangoJSONEncoder
 from django.db import transaction
-from django.db.models import Case, Count, F, IntegerField, Min, Q, Value, When, Window
+from django.db.models import Case, Count, F, IntegerField, Min, Value, When, Window
 from django.db.models.functions import Coalesce, RowNumber
 
 import structlog
@@ -37,17 +37,22 @@ from posthog.schema_migrations.upgrade_manager import upgrade_insight
 from posthog.sync import database_sync_to_async
 from posthog.tasks.alerts.investigation_notifications import run_investigation_notification_safety_net
 from posthog.tasks.alerts.metrics_investigation import run_metrics_alert_investigation, should_investigate_metrics_alert
-from posthog.tasks.alerts.schedule_restriction import is_utc_datetime_blocked, next_unblocked_utc
+from posthog.tasks.alerts.schedule_restriction import (
+    is_utc_datetime_blocked,
+    snap_candidate_utc_to_schedule_restriction,
+)
 from posthog.tasks.alerts.utils import (
     CALCULATION_INTERVAL_ORDER,
     add_alert_check,
     disable_invalid_alert,
     dispatch_alert_notification,
+    due_insight_alerts_q,
     get_alert_error_notification_recipients,
     next_check_time,
     next_scheduled_check_time,
     record_alert_delivery,
     skip_because_of_weekend,
+    stamp_alert_notified,
 )
 from posthog.temporal.alerts.admission import (
     admit_evaluation_slots,
@@ -58,7 +63,11 @@ from posthog.temporal.alerts.admission import (
     release_evaluation_slot,
     release_evaluation_slots,
 )
-from posthog.temporal.alerts.investigation import claim_investigation_slot, decide_investigation
+from posthog.temporal.alerts.investigation import (
+    carried_verdict_suppresses,
+    claim_investigation_slot,
+    decide_investigation,
+)
 from posthog.temporal.alerts.metrics import record_ai_detector_check_outcome, record_due_insight_alert_metrics
 from posthog.temporal.alerts.retry_policy import ALERT_PREPARE_RETRY_POLICY, SlotLease, alert_timeouts
 from posthog.temporal.alerts.types import (
@@ -86,12 +95,13 @@ from products.alerts.backend.evaluation.validation import validate_alert_config,
 from products.alerts.backend.facade.api import (
     LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
     LLM_DETECTOR_UNAVAILABLE_MESSAGE,
-    MAX_CONCURRENT_MODEL_CALLS,
+    LLM_EVALUATE_EXECUTOR,
     LLMDetectorMisconfiguredError,
     LLMDetectorUnavailableError,
     is_llm_detector_config,
 )
 from products.alerts.backend.facade.destinations import count_active_alert_destinations
+from products.alerts.backend.facade.email import alert_email_recipients
 from products.alerts.backend.insight_alert_state_machine import apply_unsnooze
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, Threshold
 from products.notifications.backend.facade.api import (
@@ -123,14 +133,6 @@ async def _run_control(
 
 _NOTIFICATION_DELIVERY_EXECUTOR = ThreadPoolExecutor(max_workers=10, thread_name_prefix="insight-alert-delivery")
 
-# AI-detector checks hold a thread for the model call, up to a minute each. On the shared
-# default pool that would let a slow model stall every alert's database work on the worker,
-# so they run on their own pool, sized to the detector's own concurrency bound. A check
-# past that bound queues here without holding any thread.
-_LLM_EVALUATE_EXECUTOR = ThreadPoolExecutor(
-    max_workers=MAX_CONCURRENT_MODEL_CALLS, thread_name_prefix="insight-alert-llm-evaluate"
-)
-
 
 @frozen
 class _RetrievedAlerts:
@@ -159,13 +161,7 @@ async def retrieve_due_alerts(inputs: ScheduleDueAlertChecksWorkflowInputs | Non
             output_field=IntegerField(),
         )
 
-        due_alerts_query = (
-            AlertConfiguration.objects.filter(
-                Q(enabled=True, next_check_at__lte=polled_at) | Q(enabled=True, next_check_at__isnull=True)
-            )
-            .filter(Q(snoozed_until__isnull=True) | Q(snoozed_until__lt=polled_at))
-            .filter(insight__deleted=False)
-        )
+        due_alerts_query = AlertConfiguration.objects.filter(due_insight_alerts_q(polled_at))
         # A check stays due until it finishes, so admitted alerts would otherwise be handed out again.
         in_flight = inflight_alert_ids()
         selectable_query = due_alerts_query.exclude(id__in=in_flight) if in_flight else due_alerts_query
@@ -538,7 +534,7 @@ async def prepare_alert(inputs: PrepareAlertActivityInputs) -> PrepareAlertResul
                 "Skipping alert check because of schedule restriction (quiet hours)",
                 alert_id=alert.id,
             )
-            alert.next_check_at = next_unblocked_utc(alert, now)
+            alert.next_check_at = snap_candidate_utc_to_schedule_restriction(alert, now)
             alert.save(update_fields=["next_check_at"])
             return PrepareAlertResult(action=PrepareAction.SKIP, reason=SkipReason.QUIET_HOURS)
 
@@ -616,7 +612,21 @@ def _write_errored_alert_check(alert: AlertConfiguration, error: dict) -> tuple[
     Both evaluate_alert's failure path and the retry-exhausted record_failed_evaluation activity go
     through here, so the errored-check write stays in one place.
     """
-    return add_alert_check(alert, None, error)
+    alert_check, should_notify = add_alert_check(alert, None, error)
+    return alert_check, _sends_from_insight_stack(alert, alert_check, should_notify)
+
+
+def _sends_from_insight_stack(alert: AlertConfiguration, alert_check: AlertCheck, should_notify: bool) -> bool:
+    """Whether the insight stack sends the check's notification. It sends nothing for a platform-owned alert.
+
+    A held send is still recorded as sent, so `last_notified_at` moves as it would have and the
+    shadow stays comparable with the platform. The stamp on the check also keeps the investigation
+    safety net from sending it later.
+    """
+    if not (should_notify and alert.platform_owned):
+        return should_notify
+    stamp_alert_notified(alert, alert_check, datetime.now(UTC))
+    return False
 
 
 @temporalio.activity.defn
@@ -748,7 +758,9 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
                     alert, invalid_configuration, notify_subscribers=False, error_code="invalid_configuration"
                 )
                 return EvaluateAlertResult(
-                    alert_check_id=str(alert_check.id), should_notify=True, new_state=AlertState.ERRORED
+                    alert_check_id=str(alert_check.id),
+                    should_notify=_sends_from_insight_stack(alert, alert_check, True),
+                    new_state=AlertState.ERRORED,
                 )
             if error is not None:
                 alert_check, should_notify = _write_errored_alert_check(alert, error)
@@ -757,13 +769,26 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
                 )
             previous_state = alert.state
             alert_check, should_notify = add_alert_check(alert, alert_evaluation_result, error)
+            if alert_evaluation_result is not None and alert_evaluation_result.skipped_reason is not None:
+                return EvaluateAlertResult(
+                    alert_check_id=str(alert_check.id), should_notify=False, new_state=AlertState(alert.state)
+                )
+            if alert.platform_owned:
+                # No investigation either: it exists to gate a notification, and each one costs a model call.
+                return EvaluateAlertResult(
+                    alert_check_id=str(alert_check.id),
+                    should_notify=_sends_from_insight_stack(alert, alert_check, should_notify),
+                    new_state=AlertState(alert_check.state),
+                )
 
             investigation = decide_investigation(alert, alert_check)
             if investigation.should_investigate and claim_investigation_slot(alert, alert_check):
                 should_start_investigation = True
-                should_gate_notification = investigation.is_first_of_episode and bool(
-                    alert.investigation_gates_notifications
-                )
+                should_gate_notification = should_notify and bool(alert.investigation_gates_notifications)
+            elif should_notify and carried_verdict_suppresses(alert, investigation):
+                # Marked so the safety net does not force-send it and the UI shows why it was held.
+                AlertCheck.objects.filter(id=alert_check.id).update(notification_suppressed_by_agent=True)
+                should_notify = False
 
             # Claim the cooldown slot inside the transaction so a flapping or
             # concurrently-retried alert can't pile up investigations.
@@ -805,7 +830,7 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
             # tick, which prepares and routes it again.
             logger.info("alerts.skip_detector_type_changed", alert_id=inputs.alert_id)
             return EvaluateAlertResult(alert_check_id=None, should_notify=False, new_state=AlertState(alert.state))
-        executor = _LLM_EVALUATE_EXECUTOR if uses_llm_detector else None
+        executor = LLM_EVALUATE_EXECUTOR if uses_llm_detector else None
         # Shielded, so cancelling the attempt leaves this future to complete when the thread exits,
         # which is what _stop_work waits for.
         thread = asyncio.ensure_future(
@@ -888,6 +913,7 @@ def _evaluation_fingerprint(alert: AlertConfiguration) -> str:
         "condition",
         "config",
         "detector_config",
+        "evaluation_delay_intervals",
         "threshold_id",
         "calculation_interval",
         "next_check_at",
@@ -895,6 +921,8 @@ def _evaluation_fingerprint(alert: AlertConfiguration) -> str:
         "schedule_start_time",
         "schedule_restriction",
         "snoozed_until",
+        "owner",
+        "owner_changed_at",
     )
     values = [
         *(getattr(alert, field) for field in fields),
@@ -993,7 +1021,7 @@ async def record_failed_evaluation(inputs: RecordFailedEvaluationActivityInputs)
 def dispatch_alert_firing_realtime_notification(
     alert: AlertConfiguration, alert_check: AlertCheck, breaches: list[str]
 ) -> None:
-    """Fan out one realtime in-app notification per subscribed user when an alert fires.
+    """Fan out one realtime in-app notification per subscribed user who can view the insight.
 
     Exceptions are caught and logged internally so a realtime delivery failure does not
     poison the email path or the alert-check transaction.
@@ -1004,7 +1032,7 @@ def dispatch_alert_firing_realtime_notification(
             body += f" (+{len(breaches) - 3} more)"
         title = f"Alert firing: {alert.name}"[:100]
         source_url = f"/project/{alert.team.project_id}/insights/{alert.insight.short_id}#alert={alert.id}"
-        for user_id in alert.subscribed_users.values_list("id", flat=True):
+        for user_id, _ in alert_email_recipients(team_id=alert.team_id, alert_id=alert.id):
             create_notification(
                 NotificationData(
                     team_id=alert.team_id,

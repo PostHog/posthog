@@ -24,7 +24,7 @@ import { captureInboxReportAction } from '../../inboxAnalytics'
 import { inboxDetailLayoutLogic } from '../../logics/inboxDetailLayoutLogic'
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { SignalCard } from '../../SignalCard'
-import { SignalReport, SignalReportArtefact, SignalReportStatus } from '../../types'
+import { SignalReport, SignalReportStatus } from '../../types'
 import { canCreateImplementationPr } from '../../utils/reportActions'
 import {
     displayConventionalCommitTitle,
@@ -49,12 +49,14 @@ import { PullRequestDiffPending, PullRequestDiffStat, PullRequestDiffStatSkeleto
 import { PullRequestFilesChanged } from './PullRequestFilesChanged'
 import { ReportActivitySection } from './ReportActivitySection'
 import { ReportChart } from './ReportChart'
+import { ReportChartsContext } from './reportChartsContext'
 import { ReportChecksSection } from './ReportChecksSection'
 import { useReportDetailActions } from './ReportDetailActions'
 import { ReportExpectedImpact } from './ReportExpectedImpact'
 import { ReportFeedbackFooter } from './ReportFeedbackFooter'
 import { ReportImpactMetrics } from './ReportImpactMetrics'
 import { ReportPrimaryMetric } from './ReportPrimaryMetric'
+import { ReportSourceSuggestion } from './ReportSourceSuggestion'
 import { ReportStatusSection } from './ReportStatusSection'
 import { ReportSummaryBody } from './ReportSummaryBody'
 import { ReportTasksSection } from './ReportTasksSection'
@@ -79,7 +81,7 @@ export function ReportDetailBadges({
         <>
             <SignalReportPriorityBadge priority={report.priority} explanation={priorityExplanation} />
             {!isStatusRedundantWithActionability(report.status, report.actionability) && (
-                <SignalReportStatusBadge status={report.status} />
+                <SignalReportStatusBadge status={report.status} suppressionSource={report.suppression_source} />
             )}
             <SignalReportActionabilityBadge
                 actionability={report.actionability}
@@ -172,8 +174,6 @@ export function ReportDetailSkeleton(): JSX.Element {
 
 interface InboxDetailFrameProps {
     report: SignalReport
-    impactArtefacts?: SignalReportArtefact[] | null
-    onImpactApproved?: () => void
     /** Content closing the evidence rail, after Activity (e.g. the PR conversation). */
     asideFooter?: ReactNode
     /** Extra primary action(s) rendered after the shared report actions. */
@@ -194,9 +194,9 @@ interface InboxDetailFrameProps {
 
 /**
  * Shared chrome for the Report and Pull request detail bodies. A back link and the actions sit on
- * one row over a bordered container: the evidence rail on the left (Evidence first, then the PR
- * checks, reviewers, runs, and activity), and the report summary on the right under its own
- * "Report summary" header. The status section collects the report and pull request state. The
+ * one row over a bordered container: the evidence rail on the left (Evidence first, then reviewers,
+ * runs, activity, and the PR checks and conversation), and the report summary on the right under its
+ * own "Report summary" header. The status section collects the report and pull request state. The
  * summary's title stands alone; the priority, the size of the change, and the created/updated times
  * head the "Files changed" tab, where a reviewer weighs the change. The rail can be hidden (a
  * persisted preference) so the report column, and above all the diff, takes the full width.
@@ -204,8 +204,6 @@ interface InboxDetailFrameProps {
  */
 export function InboxDetailFrame({
     report,
-    impactArtefacts,
-    onImpactApproved,
     asideFooter,
     primaryAction,
     showFilesTab,
@@ -232,11 +230,18 @@ export function InboxDetailFrame({
         evidenceExpanded,
         priorityExplanation,
         chartPlacements,
+        chartsById,
         trailingCharts,
         detailTab,
         reportTaskToOpen,
+        reportChecks,
+        reportChecksError,
+        prioritySaving,
+        report: currentReport,
     } = useValues(inboxReportDetailLogic(logicProps))
-    const { setDetailTab, expandEvidence, collapseEvidence } = useActions(inboxReportDetailLogic(logicProps))
+    const { setDetailTab, expandEvidence, collapseEvidence, updatePriority } = useActions(
+        inboxReportDetailLogic(logicProps)
+    )
     const { evidenceRailCollapsed } = useValues(inboxDetailLayoutLogic)
     const { toggleEvidenceRail } = useActions(inboxDetailLayoutLogic)
     // The API returns evidence oldest-first, but a reader wants the most recent signal at the top of
@@ -334,48 +339,48 @@ export function InboxDetailFrame({
         : []
     const impactMetrics =
         supportingMetrics.length > 0 ? <ReportImpactMetrics reportId={report.id} metrics={supportingMetrics} /> : null
+    const hasMeasurements = reportChecks?.some(
+        (check) => check.kind === 'metric_threshold' && check.status !== 'cancelled'
+    )
     const expectedImpact =
-        expectedImpactEnabled && !summaryPending ? (
-            <ReportExpectedImpact
-                report={report}
-                reportUrl={reportUrl}
-                artefacts={impactArtefacts}
-                onApprovalComplete={onImpactApproved}
-            />
+        expectedImpactEnabled && !summaryPending && (reportChecks === null || reportChecksError || hasMeasurements) ? (
+            <ReportExpectedImpact report={report} reportUrl={reportUrl} />
         ) : null
 
     const summaryColumn = (
         <div className="flex flex-1 flex-col gap-6">
             {titleHeading}
 
-            <div>
-                {report.summary ? (
-                    <ReportSummaryBody
-                        summary={report.summary}
-                        chartPlacements={chartPlacements}
-                        implementButton={implementButton}
-                        pullRequestNote={pullRequestNote}
-                        impactMetrics={impactMetrics}
-                        expectedImpact={expectedImpact}
-                    />
-                ) : (
-                    <div className="flex flex-col gap-6">
-                        <p className={`text-sm text-tertiary m-0${summaryPending ? ' italic' : ''}`}>
-                            No summary yet. An agent is still investigating.
-                        </p>
-                        {pullRequestNote}
-                        {impactMetrics}
-                        {expectedImpact}
-                    </div>
-                )}
-                {trailingCharts.length > 0 && (
-                    <div className="flex flex-col gap-4 mt-5">
-                        {trailingCharts.map((chart) => (
-                            <ReportChart key={chart.chart_id} chartId={chart.chart_id} />
-                        ))}
-                    </div>
-                )}
-            </div>
+            <ReportChartsContext.Provider value={chartsById}>
+                <div>
+                    {report.summary ? (
+                        <ReportSummaryBody
+                            summary={report.summary}
+                            chartPlacements={chartPlacements}
+                            implementButton={implementButton}
+                            pullRequestNote={pullRequestNote}
+                            impactMetrics={impactMetrics}
+                            expectedImpact={expectedImpact}
+                        />
+                    ) : (
+                        <div className="flex flex-col gap-6">
+                            <p className={`text-sm text-tertiary m-0${summaryPending ? ' italic' : ''}`}>
+                                No summary yet. An agent is still investigating.
+                            </p>
+                            {pullRequestNote}
+                            {impactMetrics}
+                            {expectedImpact}
+                        </div>
+                    )}
+                    {trailingCharts.length > 0 && (
+                        <div className="flex flex-col gap-4 mt-5">
+                            {trailingCharts.map((chart) => (
+                                <ReportChart key={chart.chart_id} chartId={chart.chart_id} />
+                            ))}
+                        </div>
+                    )}
+                </div>
+            </ReportChartsContext.Provider>
             {/* The rating closes out the report body, pinned to the bottom of the column. */}
             <div className="mt-auto">
                 <ReportFeedbackFooter report={report} align="end" />
@@ -426,7 +431,12 @@ export function InboxDetailFrame({
                     <aside className={DETAIL_ASIDE_COLLAPSED_CLASS}>{showRailButton}</aside>
                 ) : (
                     <aside className={DETAIL_ASIDE_CLASS}>
-                        <ReportStatusSection report={report} rightSlot={hideRailButton} />
+                        <ReportStatusSection
+                            report={currentReport ?? report}
+                            rightSlot={hideRailButton}
+                            onPriorityChange={updatePriority}
+                            prioritySaving={prioritySaving}
+                        />
                         {/* The observation leads, then the evidence its claims rest on. */}
                         {primaryMetric && (
                             <DetailSection
@@ -463,11 +473,17 @@ export function InboxDetailFrame({
                                                 {evidenceExpanded ? 'Show less' : 'Show more'}
                                             </LemonButton>
                                         )}
+                                        {report.source_suggestion && (
+                                            <ReportSourceSuggestion
+                                                report={report}
+                                                suggestion={report.source_suggestion}
+                                            />
+                                        )}
                                     </div>
                                 )}
                             </DetailSection>
                         )}
-                        {/* Pull request checks (when present), then reviewers, runs, and activity. */}
+                        {/* The pull request picker (when present), then reviewers, runs, and activity. */}
                         {children}
                         <SuggestedReviewersSection report={report} />
                         <ReportTasksSection report={report} />
@@ -626,7 +642,7 @@ function OpenPullRequestButton({
 export function ReportDetail({ report }: { report: SignalReport }): JSX.Element {
     const logic = inboxReportDetailLogic({ reportId: report.id, report })
     const { latestCommitArtefact, reportArtefacts, selectedPullRequest } = useValues(logic)
-    const { selectPullRequest, loadReportArtefacts } = useActions(logic)
+    const { selectPullRequest } = useActions(logic)
 
     const prUrl = safeHttpUrl(selectedPullRequest.url)
     const prRef = prUrl ? parsePrUrlParts(prUrl) : null
@@ -656,8 +672,6 @@ export function ReportDetail({ report }: { report: SignalReport }): JSX.Element 
     return (
         <InboxDetailFrame
             report={report}
-            impactArtefacts={reportArtefacts}
-            onImpactApproved={loadReportArtefacts}
             showFilesTab={hasPr || canDiff}
             diffSection={
                 canDiff && commit ? (
@@ -700,9 +714,16 @@ export function ReportDetail({ report }: { report: SignalReport }): JSX.Element 
                     </div>
                 ) : undefined
             }
-            // The PR conversation closes the evidence rail, under Activity; CI checks sit higher in
-            // the same rail. Both drop themselves when there's nothing to show.
-            asideFooter={hasPr ? <PrCommentsSection report={report} /> : undefined}
+            // CI checks and the PR conversation close the evidence rail, under Activity, so they do not
+            // push the reviewers down. Both drop themselves when there's nothing to show.
+            asideFooter={
+                hasPr ? (
+                    <>
+                        <PrChecksSection report={report} />
+                        <PrCommentsSection report={report} />
+                    </>
+                ) : undefined
+            }
         >
             {reportPullRequests(report).length > 1 && (
                 <LemonSelect
@@ -715,7 +736,6 @@ export function ReportDetail({ report }: { report: SignalReport }): JSX.Element 
                     data-attr="inbox-report-select-pull-request"
                 />
             )}
-            {hasPr && <PrChecksSection report={report} />}
         </InboxDetailFrame>
     )
 }

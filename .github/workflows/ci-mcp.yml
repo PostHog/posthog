@@ -683,7 +683,7 @@ jobs:
               run: bin/ci-wait-for-docker launch personhog-replica personhog-router
 
             - name: Seed test data
-              run: python manage.py generate_demo_data --n-clusters 10 --days-past 7 --days-future 0 --skip-materialization --skip-flag-sync --skip-user-product-list
+              run: python manage.py generate_demo_data --n-clusters 10 --days-past 7 --days-future 0 --skip-materialization --skip-flag-sync
 
             - name: Create API key and extract test IDs
               run: |
@@ -761,6 +761,7 @@ jobs:
               uses: ./.github/actions/trunk-quarantine-gate
               with:
                   junit-paths: services/mcp/junit-integration.xml
+                  test-collection-id: Nt38b1Ej # mcp
                   previous-step-outcome: ${{ steps.run-integration-tests.outcome }}
                   token: ${{ secrets.TRUNK_API_TOKEN }}
 

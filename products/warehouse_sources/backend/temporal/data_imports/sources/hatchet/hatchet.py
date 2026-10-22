@@ -1,17 +1,19 @@
 import re
 import json
 import base64
+import hashlib
 import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
-from urllib.parse import urlencode, urlparse
+from urllib.parse import quote, urlencode, urlparse
 
 import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from posthog.cloud_utils import is_cloud
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import Batcher
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
@@ -34,6 +36,9 @@ HOST_NOT_ALLOWED_ERROR = "Hatchet host is not allowed"
 # Returned when a cloud connection would send the bearer token over plaintext HTTP.
 INSECURE_SCHEME_ERROR = "Hatchet host must use https"
 
+# Limit for re-reading one timestamp's rows of a `since`-paged listing when they fill a whole page.
+TIE_GROUP_LIMIT = 10000
+
 
 class HatchetRetryableError(Exception):
     pass
@@ -55,6 +60,15 @@ class HatchetResumeConfig:
     # resumed run keeps paging the same time window (a different `since` would shift what each
     # offset points at).
     offset: int
+    since: str | None = None
+
+
+@frozen
+class HatchetPage:
+    offset: int
+    rows: list[Any]
+    is_last_page: bool
+    # The `since` this page was read with, so a resume re-reads it.
     since: str | None = None
 
 
@@ -127,6 +141,15 @@ def resolve_connection(api_token: str, host: str | None = None, tenant_id: str |
         )
 
     return HatchetConnection(base_url=resolved_host, tenant_id=resolved_tenant)
+
+
+def _parse_datetime(value: Any) -> datetime | None:
+    if isinstance(value, str):
+        try:
+            return _to_datetime(datetime.fromisoformat(value))
+        except ValueError:
+            return None
+    return _to_datetime(value)
 
 
 def _get_headers(api_token: str) -> dict[str, str]:
@@ -224,7 +247,13 @@ def _build_url(base_url: str, path: str, params: dict[str, Any]) -> str:
     wait=wait_exponential_jitter(initial=1, max=30),
     reraise=True,
 )
-def _fetch_page(session: requests.Session, url: str, headers: dict[str, str], logger: FilteringBoundLogger) -> Any:
+def _fetch_page(
+    session: requests.Session,
+    url: str,
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+    allow_not_found: bool = False,
+) -> Any:
     response = session.get(url, headers=headers, timeout=60)
 
     # 429 and transient 5xx are retryable; auth/permission errors below are not.
@@ -237,6 +266,9 @@ def _fetch_page(session: requests.Session, url: str, headers: dict[str, str], lo
         raise HatchetHostNotAllowedError(
             f"Hatchet API returned an unexpected redirect: status={response.status_code}, url={url}"
         )
+
+    if allow_not_found and response.status_code == 404:
+        return None
 
     if not response.ok:
         logger.error(f"Hatchet API error: status={response.status_code}, body={response.text}, url={url}")
@@ -308,6 +340,27 @@ def _normalize_row(item: Any) -> dict[str, Any]:
     return item
 
 
+def _assign_synthetic_ids(rows: list[Any], fields: tuple[str, ...]) -> list[dict[str, Any]]:
+    """Give each row an `id` hashed from `fields`.
+
+    Identical rows (the same line logged twice in one insert) get an ordinal, so they stay separate
+    rows. Identical rows are interchangeable, so the ordinal stays stable when the rows come back in
+    another order."""
+    counts: dict[str, int] = {}
+    for row in rows:
+        base = json.dumps([row.get(name) for name in fields], sort_keys=True, default=str)
+        ordinal = counts.get(base, 0)
+        counts[base] = ordinal + 1
+        row["id"] = hashlib.sha256(f"{base}\x1f{ordinal}".encode()).hexdigest()
+    return rows
+
+
+def _normalize_rows(items: list[Any], config: HatchetEndpointConfig) -> list[Any]:
+    if config.synthetic_id_fields:
+        return _assign_synthetic_ids(items, config.synthetic_id_fields)
+    return [_normalize_row(item) for item in items]
+
+
 def get_rows(
     api_token: str,
     connection: HatchetConnection,
@@ -351,8 +404,56 @@ def get_rows(
     else:
         offset = 0
 
-    # The window actually in use (after any resume override); re-saved state pins this same window.
-    effective_since = params.get("since")
+    for page in _iter_pages(session, connection, path, params, offset, config, headers, logger):
+        rows = (
+            _iter_fan_out_rows(session, connection, page.rows, config.fan_out_path, config, headers, logger)
+            if config.fan_out_path
+            else iter(page.rows)
+        )
+        for row in rows:
+            batcher.batch(row)
+            if batcher.should_yield():
+                yield batcher.get_table()
+                # Save state AFTER yielding so a crash re-reads this page rather than skipping it.
+                if not page.is_last_page:
+                    resumable_source_manager.save_state(HatchetResumeConfig(offset=page.offset, since=page.since))
+
+    if batcher.should_yield(include_incomplete_chunk=True):
+        yield batcher.get_table()
+
+
+def _extract_rows(data: Any, config: HatchetEndpointConfig) -> list[Any]:
+    # List endpoints wrap results as `{"rows": [...]}`, but some (e.g. event keys) return a bare
+    # top-level array; take that directly so those endpoints don't silently sync zero rows.
+    if isinstance(data, list):
+        return data
+    if isinstance(data, dict):
+        rows = data.get(config.response_data_path) or []
+        return rows if isinstance(rows, list) else []
+    return []
+
+
+def _iter_pages(
+    session: requests.Session,
+    connection: HatchetConnection,
+    path: str,
+    params: dict[str, Any],
+    offset: int,
+    config: HatchetEndpointConfig,
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+) -> Iterator[HatchetPage]:
+    """Yield each non-empty page of a list, with its rows normalized."""
+    if config.pagination == "since":
+        yield from _iter_since_pages(session, connection, path, params, config, headers, logger)
+        return
+
+    if config.pagination == "none":
+        data = _fetch_page(session, _build_url(connection.base_url, path, params), headers, logger)
+        rows = _extract_rows(data, config)
+        if rows:
+            yield HatchetPage(offset=0, rows=_normalize_rows(rows, config), is_last_page=True)
+        return
 
     while True:
         # Checkpoint the offset of the page we're about to read. The batcher accumulates across
@@ -363,16 +464,9 @@ def get_rows(
         url = _build_url(connection.base_url, path, page_params)
         data = _fetch_page(session, url, headers, logger)
 
-        # List endpoints wrap results as `{"rows": [...]}`, but some (e.g. event keys) return a bare
-        # top-level array; take that directly so those endpoints don't silently sync zero rows.
-        if isinstance(data, list):
-            rows = data
-        elif isinstance(data, dict):
-            rows = data.get(config.response_data_path, [])
-        else:
-            rows = []
-        if not isinstance(rows, list) or not rows:
-            break
+        rows = _extract_rows(data, config)
+        if not rows:
+            return
 
         # A short page is the last page; a full page can still be the last if pagination says so.
         is_last_page = len(rows) < config.page_size
@@ -383,20 +477,107 @@ def get_rows(
             if isinstance(current_page, int) and isinstance(num_pages, int) and current_page >= num_pages:
                 is_last_page = True
 
-        for item in rows:
-            batcher.batch(_normalize_row(item))
-            if batcher.should_yield():
-                yield batcher.get_table()
-                # Save state AFTER yielding so a crash re-reads this page rather than skipping it.
-                if not is_last_page:
-                    resumable_source_manager.save_state(HatchetResumeConfig(offset=page_offset, since=effective_since))
+        yield HatchetPage(
+            offset=page_offset,
+            rows=_normalize_rows(rows, config),
+            is_last_page=is_last_page,
+            since=params.get("since"),
+        )
 
         if is_last_page:
-            break
+            return
         offset = page_offset + config.page_size
 
-    if batcher.should_yield(include_incomplete_chunk=True):
-        yield batcher.get_table()
+
+def _iter_since_pages(
+    session: requests.Session,
+    connection: HatchetConnection,
+    path: str,
+    params: dict[str, Any],
+    config: HatchetEndpointConfig,
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+) -> Iterator[HatchetPage]:
+    """Yield the pages of a list that has no offset param, read in ascending `createdAt` order.
+
+    `since` is exclusive and many rows can share one timestamp, so each next window starts 1µs
+    before the last row's timestamp and drops the rows of that timestamp that were already yielded."""
+    since: str | None = params.get("since")
+    seen_at_boundary: set[str] = set()
+
+    while True:
+        page_params = {**params, "since": since} if since is not None else dict(params)
+        data = _fetch_page(session, _build_url(connection.base_url, path, page_params), headers, logger)
+        rows = _normalize_rows(_extract_rows(data, config), config)
+        if not rows:
+            return
+
+        is_last_page = len(rows) < config.page_size
+        read_whole_group = False
+        last_created_at = _parse_datetime(rows[-1].get("createdAt"))
+        if last_created_at is None:
+            # Without a timestamp the window can't advance, so stop rather than re-read the same page.
+            logger.warning(f"Hatchet: stopping {path} pagination, a row has no createdAt")
+            is_last_page = True
+        elif not is_last_page and _parse_datetime(rows[0].get("createdAt")) == last_created_at:
+            # The whole page shares one timestamp, so a moved window can't reach the rest of it. Read
+            # all rows of that timestamp in one larger request, then move past it.
+            group_params = {
+                **params,
+                "since": _format_datetime(last_created_at - timedelta(microseconds=1)),
+                "until": _format_datetime(last_created_at + timedelta(microseconds=1)),
+                "limit": TIE_GROUP_LIMIT,
+            }
+            data = _fetch_page(session, _build_url(connection.base_url, path, group_params), headers, logger)
+            rows = _normalize_rows(_extract_rows(data, config), config)
+            read_whole_group = True
+            if len(rows) >= TIE_GROUP_LIMIT:
+                logger.warning(f"Hatchet: {path} has more than {TIE_GROUP_LIMIT} rows at {last_created_at}")
+
+        new_rows = [row for row in rows if row.get("id") not in seen_at_boundary]
+        if new_rows:
+            yield HatchetPage(offset=0, rows=new_rows, is_last_page=is_last_page, since=since)
+
+        if is_last_page or last_created_at is None:
+            return
+
+        if read_whole_group:
+            since = _format_datetime(last_created_at)
+            seen_at_boundary = set()
+        else:
+            since = _format_datetime(last_created_at - timedelta(microseconds=1))
+            seen_at_boundary = {row["id"] for row in rows if _parse_datetime(row.get("createdAt")) == last_created_at}
+
+
+def _iter_fan_out_rows(
+    session: requests.Session,
+    connection: HatchetConnection,
+    parent_runs: list[Any],
+    fan_out_path: str,
+    config: HatchetEndpointConfig,
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+) -> Iterator[dict[str, Any]]:
+    """Fetch the per-run child rows for one page of parent workflow runs."""
+    for parent in parent_runs:
+        run = _normalize_row(parent)
+        run_id = run.get("id")
+        if not run_id:
+            continue
+
+        child_path = fan_out_path.format(workflow_run=quote(str(run_id), safe=""))
+        data = _fetch_page(
+            session, _build_url(connection.base_url, child_path, {}), headers, logger, allow_not_found=True
+        )
+        # The run was listed but has since aged out of retention; skip it rather than fail the sync.
+        if data is None:
+            continue
+
+        for item in _extract_rows(data, config):
+            row = _normalize_row(item)
+            row["workflow_run_id"] = run_id
+            row["workflow_run_created_at"] = run.get("created_at")
+            yield row
 
 
 def hatchet_source(

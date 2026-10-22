@@ -18,6 +18,7 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.rate_limit import ClickHouseBurstRateThrottle, HogQLQueryThrottle
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.data_catalog.backend.facade.api import DESCRIPTION_TOO_LONG_MESSAGE, MAX_DESCRIPTION_LENGTH
 from products.data_catalog.backend.facade.enums import MetricStatus
 from products.data_catalog.backend.logic.metrics import (
     BULK_SKIP_ALREADY_APPROVED,
@@ -53,6 +54,21 @@ class TestMetricAPI(APIBaseTest):
         assert body["name"] == "mrr"
         assert body["status"] == MetricStatus.PROPOSED
 
+    def test_list_filters_status_and_definition_kind_before_pagination(self) -> None:
+        for name, metric_status, definition in [
+            ("approved_sql", MetricStatus.APPROVED, _HOGQL),
+            ("proposed_sql", MetricStatus.PROPOSED, _HOGQL),
+            ("approved_markdown", MetricStatus.APPROVED, None),
+        ]:
+            Metric.objects.for_team(self.team.id).create(
+                team=self.team, name=name, status=metric_status, definition=definition
+            )
+        response = self.client.get(self.url, {"status": "approved", "definition_kind": "HogQLQuery", "limit": "1"})
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["count"] == 1
+        assert [row["name"] for row in response.json()["results"]] == ["approved_sql"]
+
     def test_status_and_approval_are_not_writable(self) -> None:
         response = self.client.post(
             self.url,
@@ -64,21 +80,32 @@ class TestMetricAPI(APIBaseTest):
         assert response.json()["approved_at"] is None
 
     def test_overlong_description_rejected(self) -> None:
-        response = self.client.post(self.url, {"name": "mrr", "description": "x" * 1_001}, format="json")
+        response = self.client.post(
+            self.url, {"name": "mrr", "description": "x" * (MAX_DESCRIPTION_LENGTH + 1)}, format="json"
+        )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["attr"] == "description"
+        assert response.json()["detail"] == DESCRIPTION_TOO_LONG_MESSAGE
 
-    def test_create_is_upsert_on_name(self) -> None:
+    def test_create_with_taken_name_conflicts_until_overwrite(self) -> None:
         self.client.post(self.url, {"name": "mrr", "description": "v1"}, format="json")
-        response = self.client.post(self.url, {"name": "mrr", "description": "v2"}, format="json")
-        assert response.status_code == status.HTTP_201_CREATED
+
+        conflict = self.client.post(self.url, {"name": "mrr", "description": "v2"}, format="json")
+        assert conflict.status_code == status.HTTP_409_CONFLICT, conflict.json()
+        assert conflict.json()["code"] == "metric_name_taken"
+        assert conflict.json()["extra"] == {"existing_metric": {"name": "mrr", "status": MetricStatus.PROPOSED}}
+        assert self.client.get(f"{self.url}mrr/").json()["description"] == "v1"
+
+        response = self.client.post(self.url, {"name": "mrr", "description": "v2", "overwrite": True}, format="json")
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert "overwrite" not in response.json()
         assert Metric.objects.for_team(self.team.id).count() == 1
         assert self.client.get(f"{self.url}mrr/").json()["description"] == "v2"
 
     def test_refine_via_post_preserves_omitted_definition(self) -> None:
         definition = {"kind": "HogQLQuery", "query": "select count() from events"}
         self.client.post(self.url, {"name": "mrr", "description": "v1", "definition": definition}, format="json")
-        response = self.client.post(self.url, {"name": "mrr", "description": "v2"}, format="json")
+        response = self.client.post(self.url, {"name": "mrr", "description": "v2", "overwrite": True}, format="json")
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         body = self.client.get(f"{self.url}mrr/").json()
         assert body["description"] == "v2"
@@ -142,15 +169,35 @@ class TestMetricAPI(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         assert response.json()["definition_kind"] == "MarkdownDefinition"
 
-    def test_list_is_team_scoped(self) -> None:
+    @parameterized.expand(
+        [
+            ("unfiltered", "", ["mine", "unrelated"], "description"),
+            ("search", "activation revenue", ["mine"], "description"),
+            ("natural_language", "what is our activation", ["mine"], "description"),
+            ("stop_words", "what is our", [], "description"),
+            ("display_name", "what is activation", ["mine"], "display_name"),
+            ("definition", "what is activation", ["mine"], "definition"),
+            ("query", "what is count", ["mine"], "query"),
+        ]
+    )
+    def test_list_is_team_scoped(self, name: str, search: str, expected: list[str], match_field: str) -> None:
         other_team = Team.objects.create_with_data(
             organization=self.organization, initiating_user=self.user, name="Other"
         )
-        self.client.post(self.url, {"name": "mine", "description": "d"}, format="json")
-        Metric.objects.for_team(other_team.id).create(team=other_team, name="theirs", description="d")
+        fields: dict[str, object] = {"description": "retention"}
+        if match_field == "definition":
+            fields["definition"] = {"kind": "MarkdownDefinition", "markdown": "Overview\nactivation"}
+        elif match_field == "query":
+            fields["definition"] = {"kind": "HogQLQuery", "query": "SELECT\ncount() FROM events"}
+        else:
+            fields[match_field] = "activation"
+        created = self.client.post(self.url, {"name": "mine", **fields}, format="json")
+        assert created.status_code == status.HTTP_201_CREATED, created.json()
+        Metric.objects.for_team(other_team.id).create(team=other_team, name="theirs", **fields)
 
-        names = [row["name"] for row in self.client.get(self.url).json()["results"]]
-        assert names == ["mine"]
+        self.client.post(self.url, {"name": "unrelated", "description": "retention"}, format="json")
+        names = [row["name"] for row in self.client.get(self.url, {"search": search}).json()["results"]]
+        assert sorted(names) == expected
 
     @patch("products.data_catalog.backend.logic.metrics.Database.create_for")
     def test_metrics_referencing_denied_tables_are_hidden(self, create_database: MagicMock) -> None:
@@ -168,6 +215,22 @@ class TestMetricAPI(APIBaseTest):
 
         assert names == ["allowed"]
         assert self.client.get(f"{self.url}hidden/").status_code == status.HTTP_404_NOT_FOUND
+        for overwrite in (False, True):
+            conflict = self.client.post(
+                self.url, {"name": "hidden", "description": "taken over", "overwrite": overwrite}, format="json"
+            )
+            assert conflict.status_code == status.HTTP_409_CONFLICT, conflict.json()
+            assert "extra" not in conflict.json()
+        assert Metric.objects.for_team(self.team.id).get(pk=hidden["id"]).description == "d"
+
+        conflict = self.client.post(self.url, {"name": "allowed", "description": "taken over"}, format="json")
+        assert conflict.status_code == status.HTTP_409_CONFLICT, conflict.json()
+        assert conflict.json()["extra"] == {"existing_metric": {"name": "allowed", "status": MetricStatus.PROPOSED}}
+        overwritten = self.client.post(
+            self.url, {"name": "allowed", "description": "taken over", "overwrite": True}, format="json"
+        )
+        assert overwritten.status_code == status.HTTP_201_CREATED, overwritten.json()
+        assert overwritten.json()["description"] == "taken over"
 
 
 class TestMetricLifecycleAPI(APIBaseTest):

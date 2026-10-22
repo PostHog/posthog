@@ -3,6 +3,7 @@ from contextlib import ExitStack
 from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
+from django.db.models import Q
 from django.utils import timezone
 
 import pytz
@@ -17,10 +18,7 @@ from posthog.slo.context import get_current_slo
 from posthog.slo.types import SloOperation
 from posthog.tasks.alerts.schedule_restriction import snap_candidate_utc_to_schedule_restriction
 
-from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.alerts.backend.facade.api import LLM_DETECTOR_UNAVAILABLE_ERROR_CODE
-from products.alerts.backend.facade.contracts import AlertDelivery
-from products.alerts.backend.facade.delivery_slo import alert_delivery_slo
 from products.alerts.backend.facade.destinations import (
     ALERT_NOTIFICATION_FLUSH_TIMEOUT_SECONDS,
     alert_internal_event_delivered,
@@ -29,26 +27,33 @@ from products.alerts.backend.facade.destinations import (
     produce_alert_internal_event,
     serialize_deliveries,
 )
-from products.alerts.backend.facade.email import send_alert_email
-from products.alerts.backend.facade.scheduling import (
-    EVERY_15_MINUTES_CADENCE_MINUTES as EVERY_15_MINUTES_CADENCE_MINUTES,
-    REAL_TIME_CADENCE_MINUTES as REAL_TIME_CADENCE_MINUTES,
-    is_weekend,
-    next_calendar_check_time,
-    to_calendar_interval,
-)
+from products.alerts.backend.facade.email import alert_email_recipients, send_alert_email
 from products.alerts.backend.insight_alert_state_machine import (
     apply_invalid_configuration,
     apply_outcome,
     evaluate_alert_check,
     should_notify,
 )
-from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, derive_detector_event_fields
+from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
+from products.alerts_platform.backend.facade.contracts import AlertDelivery
+from products.alerts_platform.backend.facade.delivery_slo import alert_delivery_slo
+from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
+from products.alerts_platform.backend.facade.scheduling import (
+    EVERY_15_MINUTES_CADENCE_MINUTES as EVERY_15_MINUTES_CADENCE_MINUTES,
+    REAL_TIME_CADENCE_MINUTES as REAL_TIME_CADENCE_MINUTES,
+    is_weekend,
+    next_calendar_check_time,
+    to_calendar_interval,
+)
 from products.exports.backend.facade import api as exports
 
 logger = structlog.get_logger(__name__)
 
 INSIGHT_ALERT_FIRING_EVENT = "$insight_alert_firing"
+
+# How long the insight stack keeps evaluating an alert after the platform takes it over, so the two
+# stacks' checks can be compared. It sends nothing for the alert in that time.
+PLATFORM_SHADOW = timedelta(days=7)
 
 # TTL for the tokenized chart URL embedded in Slack. Slack fetches the image at delivery,
 # but the URL must stay resolvable while people scroll back to the message; 30 days matches
@@ -69,18 +74,45 @@ class AlertEvaluationResult:
     triggered_dates: list[str] | None = None
     interval: str | None = None
     triggered_metadata: dict | None = None
+    skipped_reason: str | None = None
 
 
-WRAPPER_NODE_KINDS = [NodeKind.DATA_TABLE_NODE, NodeKind.DATA_VISUALIZATION_NODE, NodeKind.INSIGHT_VIZ_NODE]
+WRAPPER_NODE_KINDS = [
+    NodeKind.DATA_TABLE_NODE,
+    NodeKind.DATA_VISUALIZATION_NODE,
+    NodeKind.BI_VISUALIZATION_NODE,
+    NodeKind.INSIGHT_VIZ_NODE,
+]
 
 NON_TIME_SERIES_DISPLAY_TYPES = {
     ChartDisplayType.BOLD_NUMBER,
     ChartDisplayType.ACTIONS_PIE,
     ChartDisplayType.ACTIONS_DONUT,
+    ChartDisplayType.ACTIONS_PROPORTION_BAR,
     ChartDisplayType.ACTIONS_BAR_VALUE,
     ChartDisplayType.ACTIONS_TABLE,
     ChartDisplayType.WORLD_MAP,
 }
+
+
+def evaluated_by_insight_stack_q(now: datetime) -> Q:
+    """The alerts the insight stack still checks: every alert it owns, and a platform-owned alert inside its shadow."""
+    # A platform-owned row with no cutover time has no shadow to finish, so it is not evaluated.
+    return ~(
+        Q(owner=PlatformAlertOwner.PLATFORM.value)
+        & (Q(owner_changed_at__isnull=True) | Q(owner_changed_at__lt=now - PLATFORM_SHADOW))
+    )
+
+
+def due_insight_alerts_q(now: datetime) -> Q:
+    """The alerts the insight scheduler owes a check at `now`."""
+    return (
+        Q(enabled=True)
+        & (Q(next_check_at__lte=now) | Q(next_check_at__isnull=True))
+        & (Q(snoozed_until__isnull=True) | Q(snoozed_until__lt=now))
+        & Q(insight__deleted=False)
+        & evaluated_by_insight_stack_q(now)
+    )
 
 
 def is_non_time_series_trend(query: TrendsQuery) -> bool:
@@ -123,18 +155,21 @@ def _next_check_time_core(alert: AlertConfiguration) -> datetime:
         now=datetime.now(pytz.UTC),
         tz_name=alert.team.timezone,
         next_check_at=alert.next_check_at,
+        alert_id=alert.id,
         schedule_start_time=alert.schedule_start_time,
     )
 
 
 def next_check_time(alert: AlertConfiguration) -> datetime:
     """
-    Rule by calculation interval
+    Rule by calculation interval. Each alert keeps a stable offset after the interval boundary
+    (alert_check_offset), so alerts that share an interval do not all run at its start.
 
-    hourly alerts -> want them to run at the same min every hour (same min comes from creation time so that they're spread out and don't all run at the start of the hour)
-    daily alerts -> want them to run at the start of the day (around 1am) by the timezone of the team
-    weekly alerts -> want them to run at the start of the week (Mon around 3am) by the timezone of the team
-    monthly alerts -> want them to run at the start of the month (first day of the month around 4am) by the timezone of the team
+    every 15 minutes alerts -> 1 to 3 minutes after each quarter hour
+    hourly alerts -> 2 to 13 minutes after each hour
+    daily alerts -> in the 1am hour of the team's timezone
+    weekly alerts -> in the 3am hour on Monday, in the team's timezone
+    monthly alerts -> in the 4am hour on the first day of the month, in the team's timezone
     """
     candidate = _next_check_time_core(alert)
     return snap_candidate_utc_to_schedule_restriction(alert, candidate)
@@ -176,14 +211,7 @@ def trigger_alert_hog_functions(alert: AlertConfiguration, properties: dict) -> 
     )
 
     props = {
-        "alert_id": str(alert.id),
-        "alert_name": alert.name,
-        "project_name": alert.team.name,
-        "insight_name": alert.insight.name,
-        "insight_id": alert.insight.short_id,
-        "state": alert.state,
-        "last_checked_at": alert.last_checked_at.isoformat() if alert.last_checked_at else None,
-        **derive_detector_event_fields(alert.detector_config),
+        **alert.internal_event_properties(state=alert.state, last_checked_at=alert.last_checked_at),
         **properties,
     }
 
@@ -336,16 +364,7 @@ def next_scheduled_check_time(alert: AlertConfiguration) -> str | None:
 
 
 def get_alert_error_notification_recipients(alert: AlertConfiguration) -> list[tuple[int, str]]:
-    candidates = (
-        alert.team.all_users_with_access()
-        .filter(id__in=alert.subscribed_users.values_list("id", flat=True))
-        .only("id", "email")
-    )
-    return [
-        (user.id, user.email)
-        for user in candidates
-        if UserAccessControl(user, team=alert.team).check_access_level_for_object(alert.insight, "viewer")
-    ]
+    return alert_email_recipients(team_id=alert.team_id, alert_id=alert.id)
 
 
 def _inconclusive_is_suppressed(verdict: str | None, inconclusive_action: str | None) -> bool:
@@ -400,6 +419,29 @@ def prepare_alert_insight_chart_url(
     ).exists()
     if not pending:
         return None
+    return render_alert_insight_chart_url(alert, render_user)
+
+
+@frozen
+class RenderedInsightChart:
+    """A chart rendered for an alert, by id. The URL that opens it is minted from these when a message
+    goes out, because that URL opens the chart without a login and must not be stored."""
+
+    asset_id: int
+    render_user_id: int
+
+
+def render_alert_insight_chart(
+    alert: AlertConfiguration, render_user: User | None = None
+) -> RenderedInsightChart | None:
+    """Render the alerted insight for its Slack destinations, or None when none would show it.
+
+    Best-effort, like `prepare_alert_insight_chart_url`: any failure returns None. The render user
+    defaults the way that function's does.
+    """
+    render_user = render_user or _resolve_alert_render_user(alert)
+    if render_user is None:
+        return None
     try:
         destinations = list_active_alert_destinations(
             team_id=alert.team_id, alert_id=str(alert.id), allowed_event_ids=(INSIGHT_ALERT_FIRING_EVENT,)
@@ -422,12 +464,33 @@ def prepare_alert_insight_chart_url(
                 exception=asset.exception,
             )
             return None
-        return exports.get_delivery_image_url(
-            team_id=alert.team_id, asset_id=asset.id, expiry_delta=_INSIGHT_CHART_URL_TTL
-        )
+        return RenderedInsightChart(asset_id=asset.id, render_user_id=render_user.id)
     except Exception:
         logger.exception("alerts.insight_chart_render_failed", alert_id=str(alert.id))
         return None
+
+
+def insight_chart_url(*, team_id: int, chart: RenderedInsightChart) -> str | None:
+    """The URL a message embeds for a rendered chart, or None when the asset is gone.
+
+    The ids may come back from storage, so the asset is pinned to the user that rendered it.
+    """
+    try:
+        return exports.get_delivery_image_url(
+            team_id=team_id,
+            asset_id=chart.asset_id,
+            expiry_delta=_INSIGHT_CHART_URL_TTL,
+            created_by_id=chart.render_user_id,
+        )
+    except Exception:
+        logger.exception("alerts.insight_chart_url_failed", asset_id=chart.asset_id)
+        return None
+
+
+def render_alert_insight_chart_url(alert: AlertConfiguration, render_user: User | None = None) -> str | None:
+    """Render the alerted insight and mint the URL that embeds it, or None when no chart applies."""
+    chart = render_alert_insight_chart(alert, render_user)
+    return insight_chart_url(team_id=alert.team_id, chart=chart) if chart is not None else None
 
 
 def detector_verdict_event_fields(alert_check: AlertCheck) -> dict[str, str]:
@@ -453,7 +516,7 @@ def dispatch_alert_notification(
     """Route an AlertCheck to the correct notification sender.
 
     Returns the delivery receipts the notification produced, or None if nothing was sent
-    (NOT_FIRING, or ERRORED with a non-dict error payload). Callers pass the returned
+    (NOT_FIRING, a platform-owned alert, or ERRORED with a non-dict error payload). Callers pass the returned
     receipts to record_alert_delivery so the `targets_notified` sentinel reflects reality,
     never claiming delivery for a state that didn't actually send.
 
@@ -472,6 +535,16 @@ def dispatch_alert_notification(
         ValueError: state is FIRING but breaches is None/empty.
         AssertionError: unknown state — surfaces a missing AlertState branch loudly.
     """
+    # An investigation dispatches minutes after it loaded `alert`, and the platform can take the
+    # alert over in that time, so the stored owner decides.
+    if (
+        alert.platform_owned
+        or AlertConfiguration.objects.filter(
+            team_id=alert.team_id, id=alert.id, owner=PlatformAlertOwner.PLATFORM
+        ).exists()
+    ):
+        logger.info("Alert is owned by the platform, nothing to send", alert_id=alert.id)
+        return None
     key = idempotency_key or str(alert_check.id)
     with ExitStack() as stack:
         if alert_check.state == AlertState.FIRING:
@@ -588,11 +661,18 @@ def record_alert_delivery(
         "users": [delivery.target for delivery in deliveries if delivery.channel == "email"],
         "destinations": serialize_deliveries([d for d in deliveries if d.channel != "email"]),
     }
-    alert_check.notification_sent_at = recorded_at
-    alert_check.save(update_fields=["targets_notified", "notification_sent_at"])
-    alert.last_notified_at = recorded_at
-    alert.save(update_fields=["last_notified_at"])
+    stamp_alert_notified(alert, alert_check, recorded_at, extra_check_fields=["targets_notified"])
     return True
+
+
+def stamp_alert_notified(
+    alert: AlertConfiguration, alert_check: AlertCheck, at: datetime, *, extra_check_fields: Collection[str] = ()
+) -> None:
+    """Marks the check as notified and moves the alert's last notification time to `at`."""
+    alert_check.notification_sent_at = at
+    alert_check.save(update_fields=[*extra_check_fields, "notification_sent_at"])
+    alert.last_notified_at = at
+    alert.save(update_fields=["last_notified_at"])
 
 
 def add_alert_check(
@@ -608,6 +688,19 @@ def add_alert_check(
     """
     # Evaluation never ran (query error): record an all-empty result so the check row still lands.
     result = evaluation_result if evaluation_result is not None else AlertEvaluationResult(value=None, breaches=None)
+    if result.skipped_reason is not None:
+        alert.last_checked_at = datetime.now(UTC)
+        alert.next_check_at = next_check_time(alert)
+        alert_check = AlertCheck.objects.create(
+            alert_configuration=alert,
+            calculated_value=None,
+            condition=alert.condition,
+            state=alert.state,
+            targets_notified={},
+            triggered_metadata={**(result.triggered_metadata or {}), "skipped_reason": result.skipped_reason},
+        )
+        alert.save(update_fields=["last_checked_at", "next_check_at"])
+        return alert_check, False
     error_message = error.get("message") if error else None
     outcome = evaluate_alert_check(
         alert,
@@ -680,7 +773,7 @@ def disable_invalid_alert(
         state=AlertState.ERRORED,
         error=error,
     )
-    if targets_to_notify and notify_subscribers:
+    if targets_to_notify and notify_subscribers and not alert.platform_owned:
         deliveries = send_notifications_for_disabled(alert, reason, targets_to_notify)
         record_alert_delivery(alert, alert_check, deliveries)
     return alert_check

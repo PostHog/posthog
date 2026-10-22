@@ -15,9 +15,14 @@ from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from posthog.temporal.tests.utils.models import afetch_batch_export_runs
-
-from products.batch_exports.backend.service import BackfillDetails, BatchExportModel, BatchExportSchema
+from products.batch_exports.backend.service import (
+    AnyBatchExportModel,
+    BackfillDetails,
+    BatchExportEventsCustomModel,
+    BatchExportEventsModel,
+    BatchExportPersonsModel,
+    BatchExportSchema,
+)
 from products.batch_exports.backend.temporal.batch_exports import finish_batch_export_run, start_batch_export_run
 from products.batch_exports.backend.temporal.destinations.postgres_batch_export import (
     PostgresBatchExportInputs,
@@ -29,6 +34,7 @@ from products.batch_exports.backend.tests.temporal.destinations.postgres.utils i
     TEST_MODELS,
     assert_clickhouse_records_in_postgres,
 )
+from products.batch_exports.backend.tests.temporal.utils.models import afetch_batch_export_runs
 from products.batch_exports.backend.tests.temporal.utils.workflow import (
     WORKFLOW_REAL_TIME_LIMIT_SECONDS,
     NeverFinishingActivity,
@@ -53,7 +59,7 @@ async def test_postgres_export_workflow(
     exclude_events,
     ateam,
     table_name,
-    model: BatchExportModel | BatchExportSchema | None,
+    model: AnyBatchExportModel | BatchExportSchema | None,
     generate_test_data,
     data_interval_start,
     data_interval_end,
@@ -64,18 +70,17 @@ async def test_postgres_export_workflow(
     records to the local development PostgreSQL database.
     """
     if (
-        isinstance(model, BatchExportModel)
+        isinstance(model, AnyBatchExportModel)
         and (model.name == "persons" or model.name == "sessions")
         and exclude_events is not None
     ):
         pytest.skip("Unnecessary test case as person batch export is not affected by 'exclude_events'")
 
-    batch_export_schema: BatchExportSchema | None = None
-    batch_export_model: BatchExportModel | None = None
-    if isinstance(model, BatchExportModel):
+    batch_export_model: AnyBatchExportModel | None = None
+    if isinstance(model, AnyBatchExportModel):
         batch_export_model = model
     elif model is not None:
-        batch_export_schema = model
+        batch_export_model = BatchExportEventsCustomModel(schema=model)
 
     config = postgres_batch_export.destination.config
 
@@ -85,7 +90,6 @@ async def test_postgres_export_workflow(
         batch_export_id=str(postgres_batch_export.id),
         data_interval_end=data_interval_end.isoformat(),
         interval=interval,
-        batch_export_schema=batch_export_schema,
         batch_export_model=batch_export_model,
         **config,
     )
@@ -134,7 +138,7 @@ async def test_postgres_export_workflow(
         or run.records_completed == len(persons_to_export_created)
         or run.records_completed
         == len([event for event in events_to_export_created if event["properties"] is not None])
-        or (isinstance(model, BatchExportModel) and model.name == "sessions" and run.records_completed == 1)
+        or (isinstance(model, AnyBatchExportModel) and model.name == "sessions" and run.records_completed == 1)
     )
 
     await assert_clickhouse_records_in_postgres(
@@ -153,7 +157,7 @@ async def test_postgres_export_workflow(
 
 @pytest.mark.parametrize("interval", ["hour"], indirect=True)
 @pytest.mark.parametrize("exclude_events", [None], indirect=True)
-@pytest.mark.parametrize("model", [BatchExportModel(name="events", schema=None)])
+@pytest.mark.parametrize("model", [BatchExportEventsModel()])
 @pytest.mark.parametrize("integration", [True], indirect=True)
 async def test_postgres_export_workflow_with_integration(
     clickhouse_client,
@@ -164,7 +168,7 @@ async def test_postgres_export_workflow_with_integration(
     exclude_events,
     ateam,
     table_name,
-    model: BatchExportModel | None,
+    model: AnyBatchExportModel | None,
     generate_test_data,
     data_interval_start,
     data_interval_end,
@@ -248,7 +252,7 @@ async def test_postgres_export_workflow_without_events(
     exclude_events,
     ateam,
     table_name,
-    model: BatchExportModel | BatchExportSchema | None,
+    model: AnyBatchExportModel | BatchExportSchema | None,
     data_interval_start,
     data_interval_end,
 ):
@@ -257,18 +261,17 @@ async def test_postgres_export_workflow_without_events(
     The workflow should update the batch export run status to completed and set 0 as `records_completed`.
     """
     if (
-        isinstance(model, BatchExportModel)
+        isinstance(model, AnyBatchExportModel)
         and (model.name == "persons" or model.name == "sessions")
         and exclude_events is not None
     ):
         pytest.skip("Unnecessary test case as person batch export is not affected by 'exclude_events'")
 
-    batch_export_schema: BatchExportSchema | None = None
-    batch_export_model: BatchExportModel | None = None
-    if isinstance(model, BatchExportModel):
+    batch_export_model: AnyBatchExportModel | None = None
+    if isinstance(model, AnyBatchExportModel):
         batch_export_model = model
     elif model is not None:
-        batch_export_schema = model
+        batch_export_model = BatchExportEventsCustomModel(schema=model)
 
     workflow_id = str(uuid.uuid4())
     inputs = PostgresBatchExportInputs(
@@ -276,7 +279,6 @@ async def test_postgres_export_workflow_without_events(
         batch_export_id=str(postgres_batch_export.id),
         data_interval_end=data_interval_end.isoformat(),
         interval=interval,
-        batch_export_schema=batch_export_schema,
         batch_export_model=batch_export_model,
         **postgres_batch_export.destination.config,
     )
@@ -323,7 +325,7 @@ async def test_postgres_export_workflow_without_events(
     indirect=True,
 )
 @pytest.mark.parametrize("interval", ["hour"], indirect=True)
-@pytest.mark.parametrize("model", [BatchExportModel(name="persons", schema=None)])
+@pytest.mark.parametrize("model", [BatchExportPersonsModel()])
 async def test_postgres_export_workflow_backfill_earliest_persons(
     ateam,
     clickhouse_client,
@@ -594,7 +596,7 @@ async def test_postgres_export_workflow_with_many_files(
     can take longer, so we keep the event count low and bump the Workflow timeout.
     """
 
-    model = BatchExportModel(name="events", schema=None)
+    model = BatchExportEventsModel()
 
     workflow_id = str(uuid.uuid4())
     inputs = PostgresBatchExportInputs(

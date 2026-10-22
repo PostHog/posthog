@@ -21,7 +21,15 @@ from products.visual_review.backend.facade.contracts import (
     SnapshotManifestItem,
 )
 from products.visual_review.backend.facade.enums import RunType
-from products.visual_review.backend.logic import artifact_store, debt_digest, quarantine, repos, runs, story_index
+from products.visual_review.backend.logic import (
+    artifact_store,
+    debt_digest,
+    quarantine,
+    repos,
+    runs,
+    story_index,
+    team_channels,
+)
 from products.visual_review.backend.models import Run, ToleratedHash
 from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES
 
@@ -122,9 +130,9 @@ class TestLead:
             # The page opens on the team's own rows, so a shared repo does not bury them.
             (
                 "Open flakiness overview",
-                f"{settings.SITE_URL}/project/7/visual_review/repos/abc/flakiness#teams=team-devex",
+                f"{settings.SITE_URL}/project/7/visual-review/repos/abc/flakiness#teams=team-devex",
             ),
-            ("Open snapshots", f"{settings.SITE_URL}/project/7/visual_review/repos/abc/snapshots"),
+            ("Open snapshots", f"{settings.SITE_URL}/project/7/visual-review/repos/abc/snapshots"),
         ]
 
     def test_the_fallback_text_says_what_the_blocks_say(self) -> None:
@@ -156,7 +164,7 @@ class TestThreadReplies:
         buttons = _all_buttons(messages)
         assert [button["text"]["text"] for button in buttons] == ["Extend or fix", "Fix or quarantine"]
         assert all(
-            button["url"] == f"{settings.SITE_URL}/project/7/visual_review/repos/abc/storybook/snapshots/{_IDENTIFIER}"
+            button["url"] == f"{settings.SITE_URL}/project/7/visual-review/repos/abc/storybook/snapshots/{_IDENTIFIER}"
             for button in buttons
         )
 
@@ -168,7 +176,7 @@ class TestThreadReplies:
 
         messages = debt_digest.thread_messages(_repo(), digest, _MONDAY)
 
-        assert _all_buttons(messages)[0]["url"] == f"{settings.SITE_URL}/project/7/visual_review/repos/abc/snapshots"
+        assert _all_buttons(messages)[0]["url"] == f"{settings.SITE_URL}/project/7/visual-review/repos/abc/snapshots"
 
     def test_the_last_reply_says_when_the_next_digest_comes(self) -> None:
         messages = debt_digest.thread_messages(_repo(), _team_digest(expiring=1, pileups=1), _MONDAY)
@@ -184,7 +192,7 @@ class TestThreadReplies:
                 "",
                 "Expires *Wednesday*",
                 [f"*{_STORY_ID}* storybook · light and dark"],
-                [f"{settings.SITE_URL}/project/7/visual_review/repos/abc/flakiness#preset=quarantined&q={_STORY_ID}"],
+                [f"{settings.SITE_URL}/project/7/visual-review/repos/abc/flakiness#preset=quarantined&q={_STORY_ID}"],
             ),
             # A webkit identifier puts the theme before the browser suffix, so the search has to
             # drop both to match the two variants.
@@ -192,15 +200,15 @@ class TestThreadReplies:
                 "--webkit",
                 "Expires *Wednesday*",
                 [f"*{_STORY_ID}--webkit* storybook · light and dark"],
-                [f"{settings.SITE_URL}/project/7/visual_review/repos/abc/flakiness#preset=quarantined&q={_STORY_ID}"],
+                [f"{settings.SITE_URL}/project/7/visual-review/repos/abc/flakiness#preset=quarantined&q={_STORY_ID}"],
             ),
             (
                 "",
                 "Expires *Thursday*",
                 [f"*{_STORY_ID}--light* storybook", f"*{_STORY_ID}--dark* storybook"],
                 [
-                    f"{settings.SITE_URL}/project/7/visual_review/repos/abc/storybook/snapshots/{_STORY_ID}--light",
-                    f"{settings.SITE_URL}/project/7/visual_review/repos/abc/storybook/snapshots/{_STORY_ID}--dark",
+                    f"{settings.SITE_URL}/project/7/visual-review/repos/abc/storybook/snapshots/{_STORY_ID}--light",
+                    f"{settings.SITE_URL}/project/7/visual-review/repos/abc/storybook/snapshots/{_STORY_ID}--dark",
                 ],
             ),
         ],
@@ -274,7 +282,7 @@ class TestMaintainersMessage:
             ("Open file", f"https://github.com/PostHog/posthog/blob/HEAD/{_SOURCE_PATH}"),
             (
                 "Open snapshot",
-                f"{settings.SITE_URL}/project/7/visual_review/repos/abc/storybook/snapshots/{_ABSENT_IDENTIFIER}",
+                f"{settings.SITE_URL}/project/7/visual-review/repos/abc/storybook/snapshots/{_ABSENT_IDENTIFIER}",
             ),
         ]
         # The path stays readable in the message, because it is what somebody types into owners.yaml.
@@ -334,7 +342,7 @@ class TestRendering:
         repo = _repo()
 
         line = debt_digest._quarantine_line(repo, entry, {}, _MONDAY)
-        facts = debt_digest._quarantine_facts(entry, {}, _MONDAY)
+        facts = debt_digest.quarantine_facts(entry, {}, _MONDAY)
         item = _item(_PLACED, identifier="Button<!channel>", line=line, facts=facts)
         digest = debt_digest.TeamDigest(team_slug="team-devex", expiring_quarantines=[item], variant_pileups=[])
         rendered = str(debt_digest.thread_messages(repo, digest, _MONDAY)[0])
@@ -356,13 +364,13 @@ class TestRendering:
         # A weekday name seven days out names the day the reader is reading on, so that one dates itself.
         entry = MagicMock(reason="flaky", expires_at=_MONDAY + expires_in, created_by_id=None)
 
-        assert debt_digest._quarantine_facts(entry, {}, _MONDAY).startswith(f"Expires *{expected}*")
+        assert debt_digest.quarantine_facts(entry, {}, _MONDAY).startswith(f"Expires *{expected}*")
 
     def test_links_to_the_snapshot_page_with_encoded_segments(self) -> None:
         line = debt_digest._pileup_line(_repo(), "storybook", "scenes/Button--dark", 4)
 
         assert line.startswith("Tolerated 4 times in 30 days · scenes/Button--dark (storybook)")
-        assert line.endswith("/project/7/visual_review/repos/abc/storybook/snapshots/scenes%2FButton--dark")
+        assert line.endswith("/project/7/visual-review/repos/abc/storybook/snapshots/scenes%2FButton--dark")
 
     @pytest.mark.parametrize(
         "identifier,reason,links_to_the_snapshot",
@@ -385,7 +393,7 @@ class TestRendering:
             created_by_id=None,
         )
         line = debt_digest._quarantine_line(repo, entry, {}, _MONDAY)
-        item = _item(_PLACED, identifier=identifier, line=line, facts=debt_digest._quarantine_facts(entry, {}, _MONDAY))
+        item = _item(_PLACED, identifier=identifier, line=line, facts=debt_digest.quarantine_facts(entry, {}, _MONDAY))
         digest = debt_digest.TeamDigest(team_slug="team-devex", expiring_quarantines=[item] * 2, variant_pileups=[])
 
         messages = debt_digest.thread_messages(repo, digest, _MONDAY)
@@ -441,17 +449,17 @@ class TestRouting:
     def test_a_team_that_opted_out_is_skipped(self) -> None:
         registry = {"team-devex": TeamEntry(notifications={"visual_review": False})}
 
-        assert debt_digest.resolve_channel("team-devex", registry, self._CHANNELS) is None
+        assert team_channels.resolve_channel("team-devex", registry, self._CHANNELS) is None
 
     def test_a_shared_channel_is_refused(self) -> None:
         # A name match onto a shared channel would send an internal reminder out of the workspace.
-        assert debt_digest.resolve_channel("team-shared", {}, self._CHANNELS) is None
+        assert team_channels.resolve_channel("team-shared", {}, self._CHANNELS) is None
 
     @pytest.mark.parametrize("mode", ["preveiw", "shadow", ""])
     def test_an_unknown_mode_evaluates_nothing_and_posts_nothing(self, mode: str) -> None:
         with (
             patch("products.visual_review.backend.logic.debt_digest.collect_debt") as collect,
-            patch("products.visual_review.backend.logic.debt_digest.post_with_join") as post,
+            patch("products.visual_review.backend.logic.team_channels.post_with_join") as post,
         ):
             assert debt_digest.send_debt_digest(MagicMock(), mode=mode) == []
 
@@ -660,8 +668,8 @@ class TestCollectAndSend:
                 "products.visual_review.backend.logic.debt_digest.resolve_path_owners",
                 return_value=_ownership({_SOURCE_PATH: "team-devex", _PRODUCT_PATH: "team-devex"}),
             ),
-            patch("products.visual_review.backend.logic.debt_digest.fetch_channel_map") as channel_map,
-            patch("products.visual_review.backend.logic.debt_digest.post_with_join") as post,
+            patch("products.visual_review.backend.logic.team_channels.fetch_channel_map") as channel_map,
+            patch("products.visual_review.backend.logic.team_channels.post_with_join") as post,
         ):
             rendered = debt_digest.send_debt_digest(repo, mode=debt_digest.MODE_PREVIEW)
 
@@ -684,7 +692,7 @@ class TestCollectAndSend:
         with (
             _with_index(_INDEX),
             patch("products.visual_review.backend.logic.debt_digest.resolve_path_owners", return_value=blind),
-            patch("products.visual_review.backend.logic.debt_digest.post_with_join") as post,
+            patch("products.visual_review.backend.logic.team_channels.post_with_join") as post,
         ):
             assert debt_digest.send_debt_digest(repo, mode=debt_digest.MODE_LIVE) == []
 
@@ -701,22 +709,23 @@ class TestCollectAndSend:
                 "products.visual_review.backend.logic.debt_digest.resolve_path_owners",
                 return_value=_ownership({_SOURCE_PATH: "team-one", _OTHER_PATH: "team-two", _PRODUCT_PATH: "team-two"}),
             ),
-            patch("products.visual_review.backend.logic.debt_digest.Integration") as integration,
-            patch("products.visual_review.backend.logic.debt_digest.SlackIntegration"),
+            patch("products.visual_review.backend.logic.team_channels.Integration") as integration,
+            patch("products.visual_review.backend.logic.team_channels.SlackIntegration") as slack,
             patch(
-                "products.visual_review.backend.logic.debt_digest.fetch_channel_map",
+                "products.visual_review.backend.logic.team_channels.fetch_channel_map",
                 return_value={
                     "team-one": SlackChannel(channel_id="C1", shared=False),
                     "team-two": SlackChannel(channel_id="C2", shared=False),
                 },
             ),
             patch(
-                "products.visual_review.backend.logic.debt_digest.post_with_join",
+                "products.visual_review.backend.logic.team_channels.post_with_join",
                 side_effect=[SlackPostRefused("no"), "1700000000.1"],
             ) as post,
-            patch("products.visual_review.backend.logic.debt_digest.post_message") as thread_post,
+            patch("products.visual_review.backend.logic.team_channels.post_message") as thread_post,
         ):
             integration.objects.filter.return_value.first.return_value = MagicMock()
+            slack.return_value.client.conversations_info.return_value = {"channel": {"id": "C1"}}
             debt_digest.send_debt_digest(repo, mode=debt_digest.MODE_LIVE)
 
         assert post.call_count == 2

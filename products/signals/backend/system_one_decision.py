@@ -381,6 +381,7 @@ async def run_model_decision(
             "$ai_prompt_name": prompt.name,
             "$ai_prompt_version": str(prompt.version) if prompt.version is not None else None,
             "system_one_prompt_source": prompt.source,
+            "system_one_requested_model": prompt.model,
         }
         if system_one is not None:
             disagreement = traditional_verdict != system_one_verdict if traditional_verdict is not None else None

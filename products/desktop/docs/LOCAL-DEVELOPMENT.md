@@ -70,8 +70,8 @@ openssl genrsa 2048 | openssl pkcs8 -topk8 -nocrypt -outform PEM | \
 
 ## Bundled agent versions
 
-The desktop app bundles Codex 0.154.0 and Claude Code 2.1.280 from Claude Agent SDK 0.3.280.
-Codex 0.154.0 includes GPT-6-Astra support.
+The desktop app bundles Codex 0.159.2 and Claude Code 2.1.280 from Claude Agent SDK 0.3.280.
+Codex 0.159.2 supports GPT-6.1-Sol with ChatGPT subscription billing.
 Updating a separately installed CLI does not update the app's bundled agents.
 
 When changing Codex versions, update both `packages/agent/packages/agent/package.json` (agent workspace, from the repo root) and `apps/code/scripts/download-binaries.mjs` so Codex and its code-mode host stay on the same release.

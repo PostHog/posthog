@@ -7,7 +7,7 @@ from urllib.parse import parse_qs, quote, urlencode, urlparse, urlunparse
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import Batcher
 from products.warehouse_sources.backend.temporal.data_imports.sources.bugsnag.settings import (
@@ -15,7 +15,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bugsnag.se
     BugsnagEndpointConfig,
     BugsnagScope,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    make_tracked_session,
+    retry_with_deadline,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
@@ -104,7 +107,7 @@ def _next_offset_url(url: str, page_len: int) -> str | None:
     return urlunparse(parsed._replace(query=urlencode(query, doseq=True)))
 
 
-@retry(
+@retry_with_deadline(
     retry=retry_if_exception_type((BugsnagRetryableError, requests.ReadTimeout, requests.ConnectionError)),
     stop=stop_after_attempt(5),
     wait=wait_exponential_jitter(initial=1, max=60),
@@ -120,8 +123,10 @@ def _fetch_page(
     response = session.get(page_url, headers=headers, timeout=60)
 
     # BugSnag rate limits per 1-minute window and returns 429 on exceed; retry those plus
-    # transient 5xx. Exponential backoff covers the (typically sub-minute) reset window.
-    if response.status_code == 429 or response.status_code >= 500:
+    # transient 5xx. Exponential backoff covers the (typically sub-minute) reset window. 408 is a
+    # transient request timeout on BugSnag's side; retry it like 429/5xx rather than letting it
+    # raise_for_status() into a fatal, non-retried HTTPError.
+    if response.status_code in (408, 429) or response.status_code >= 500:
         raise BugsnagRetryableError(f"BugSnag API error (retryable): status={response.status_code}, url={page_url}")
 
     if not response.ok and response.status_code not in tolerated_statuses:

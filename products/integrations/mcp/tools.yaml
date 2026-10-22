@@ -1,9 +1,7 @@
-# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
-# The tool list and operation IDs are kept in sync automatically:
-#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
-#
-# To enable a tool, set enabled: true and add required scopes + annotations.
-# All other fields (title, description, enrich_url, etc.) are yours to configure.
+# MCP tool definitions. Tools are opt-in: an operation is exposed only when it has an entry here.
+# List operations without an entry: pnpm --filter=@posthog/mcp run scaffold-yaml -- --candidates --product integrations
+# Add one: pnpm --filter=@posthog/mcp run scaffold-yaml -- --add <operationId> --product integrations
+# To keep an operation off on purpose, set enabled: false and give a disabled_reason.
 category: Integrations
 feature: integrations
 url_prefix: /settings/environment-integrations
@@ -43,18 +41,6 @@ tools:
                 - errors
                 - created_at
                 - created_by
-    integrations-anthropic-managed-agent-envs-retrieve:
-        operation: integrations_anthropic_managed_agent_envs_retrieve
-        enabled: false
-    integrations-anthropic-managed-agent-vaults-retrieve:
-        operation: integrations_anthropic_managed_agent_vaults_retrieve
-        enabled: false
-    integrations-anthropic-managed-agents-retrieve:
-        operation: integrations_anthropic_managed_agents_retrieve
-        enabled: false
-    integrations-authorize-retrieve:
-        operation: integrations_authorize_retrieve
-        enabled: false
     integrations-channels-retrieve:
         operation: integrations_channels_retrieve
         enabled: true
@@ -73,51 +59,6 @@ tools:
             to find a channel_id when wiring up Slack delivery for an alert — pass the channel id into the
             cdp-functions-create inputs.channel.value field. Requires the Slack integration's id; use integrations-list
             (filter by kind=slack) to find it.
-    integrations-clickup-lists-retrieve:
-        operation: integrations_clickup_lists_retrieve
-        enabled: false
-    integrations-clickup-spaces-retrieve:
-        operation: integrations_clickup_spaces_retrieve
-        enabled: false
-    integrations-clickup-workspaces-retrieve:
-        operation: integrations_clickup_workspaces_retrieve
-        enabled: false
-    integrations-create:
-        operation: integrations_create
-        enabled: false
-    integrations-domain-connect-apply-url-create:
-        operation: integrations_domain_connect_apply_url_create
-        enabled: false
-    integrations-domain-connect-check-retrieve:
-        operation: integrations_domain_connect_check_retrieve
-        enabled: false
-    integrations-email-partial-update:
-        operation: integrations_email_partial_update
-        enabled: false
-    integrations-email-verify-create:
-        operation: integrations_email_verify_create
-        enabled: false
-    integrations-environment-mapping-partial-update:
-        operation: integrations_environment_mapping_partial_update
-        enabled: false
-    integrations-github-available-installations-retrieve:
-        operation: integrations_github_available_installations_retrieve
-        enabled: false
-    integrations-github-branches-retrieve:
-        operation: integrations_github_branches_retrieve
-        enabled: false
-    integrations-github-link-existing-create:
-        operation: integrations_github_link_existing_create
-        enabled: false
-    integrations-github-oauth-authorize-create:
-        operation: integrations_github_oauth_authorize_create
-        enabled: false
-    integrations-github-prepare-callback-create:
-        operation: integrations_github_prepare_callback_create
-        enabled: false
-    integrations-github-repos-refresh-create:
-        operation: integrations_github_repos_refresh_create
-        enabled: false
     integrations-github-repos-retrieve:
         operation: integrations_github_repos_retrieve
         enabled: true
@@ -131,18 +72,14 @@ tools:
         description: >
             List the repositories accessible to a GitHub integration (by integration ID). Serves the cached repository
             list from the GitHub App installation. Supports `search` (case-insensitive name match), `limit` (default
-            100, max 500), and `offset` query parameters. Returns repository id, name, and full_name (owner/repo) plus a
-            has_more flag. Use this to validate that a repository is accessible to the integration before referencing it
-            (e.g. when creating a GitHub data warehouse source).
-    integrations-github-teams-retrieve:
-        operation: integrations_github_teams_retrieve
-        enabled: false
-    integrations-google-accessible-accounts-retrieve:
-        operation: integrations_google_accessible_accounts_retrieve
-        enabled: false
-    integrations-google-conversion-actions-retrieve:
-        operation: integrations_google_conversion_actions_retrieve
-        enabled: false
+            100, max 500), and `offset` query parameters. Returns repository id, name, and full_name (owner/repo), a
+            has_more flag, a total count, and next_offset. When has_more is true, call again with `offset` set to
+            next_offset to get the next page. Set `compact` to false only when you need the extra repository details.
+            Use this to validate that a repository is accessible to the integration before referencing it (e.g. when
+            creating a GitHub data warehouse source).
+        param_overrides:
+            compact:
+                default: true
     integrations-jira-projects-retrieve:
         operation: integrations_jira_projects_retrieve
         enabled: true
@@ -171,12 +108,6 @@ tools:
             List Linear teams available through a connected Linear integration. Use integrations-list with kind=linear
             first to find the integration id, then pass a returned team id as `config.team_id` when creating an error
             tracking external reference.
-    integrations-linkedin-ads-accounts-retrieve:
-        operation: integrations_linkedin_ads_accounts_retrieve
-        enabled: false
-    integrations-linkedin-ads-conversion-rules-retrieve:
-        operation: integrations_linkedin_ads_conversion_rules_retrieve
-        enabled: false
     integrations-list:
         operation: integrations_list
         enabled: true
@@ -201,12 +132,6 @@ tools:
                 - errors
                 - created_at
                 - created_by
-    integrations-request-access-create:
-        operation: integrations_request_access_create
-        enabled: false
-    integrations-twilio-phone-numbers-retrieve:
-        operation: integrations_twilio_phone_numbers_retrieve
-        enabled: false
     integrations-users-retrieve:
         operation: integrations_users_retrieve
         enabled: true
@@ -254,18 +179,3 @@ tools:
             one. The target's own status code comes back in the `status` field rather than as a tool error, so check it:
             401 or 403 there means the granted scopes do not cover the request.
         feature_flag: posthog-connect
-    posthog-connections-target-retrieve:
-        operation: posthog_connections_target_retrieve
-        enabled: false
-    role-external-references-create:
-        operation: role_external_references_create
-        enabled: false
-    role-external-references-destroy:
-        operation: role_external_references_destroy
-        enabled: false
-    role-external-references-list:
-        operation: role_external_references_list
-        enabled: false
-    role-external-references-lookup-retrieve:
-        operation: role_external_references_lookup_retrieve
-        enabled: false

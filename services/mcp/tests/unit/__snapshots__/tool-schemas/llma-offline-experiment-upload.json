@@ -1,0 +1,324 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "id": {
+            "description": "Experiment UUID.",
+            "type": "string"
+        },
+        "items": {
+            "description": "Complete immutable declarations for referenced items. Omit existing items to reuse them without a payload.",
+            "items": {
+                "properties": {
+                    "application_trace_id": {
+                        "anyOf": [
+                            {
+                                "maxLength": 255,
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "description": "Trace identifier for the application execution that produced this output."
+                    },
+                    "case_key": {
+                        "anyOf": [
+                            {
+                                "maxLength": 255,
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "description": "Stable case identifier for matching inputs across experiments."
+                    },
+                    "dataset_item_identifier": {
+                        "anyOf": [
+                            {
+                                "maxLength": 255,
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "description": "Stable item identifier in an external dataset."
+                    },
+                    "dataset_item_version_id": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "description": "UUID of the hosted item version in the experiment's dataset revision."
+                    },
+                    "dataset_item_version_identifier": {
+                        "anyOf": [
+                            {
+                                "maxLength": 255,
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "description": "Pinned item-version identifier in an external dataset."
+                    },
+                    "id": {
+                        "description": "Caller-generated UUID for one input/output execution. Reuse for exact retries.",
+                        "type": "string"
+                    },
+                    "payload": {
+                        "additionalProperties": false,
+                        "description": "Optional input/output payload, up to 1 MiB and 32 JSON levels. Omission, {} and null properties differ.",
+                        "properties": {
+                            "expected_output": {
+                                "anyOf": [
+                                    {
+                                        "additionalProperties": {},
+                                        "propertyNames": {
+                                            "type": "string"
+                                        },
+                                        "type": "object"
+                                    },
+                                    {
+                                        "items": {},
+                                        "type": "array"
+                                    },
+                                    {
+                                        "type": "string"
+                                    },
+                                    {
+                                        "type": "number"
+                                    },
+                                    {
+                                        "type": "boolean"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ]
+                            },
+                            "input": {
+                                "anyOf": [
+                                    {
+                                        "additionalProperties": {},
+                                        "propertyNames": {
+                                            "type": "string"
+                                        },
+                                        "type": "object"
+                                    },
+                                    {
+                                        "items": {},
+                                        "type": "array"
+                                    },
+                                    {
+                                        "type": "string"
+                                    },
+                                    {
+                                        "type": "number"
+                                    },
+                                    {
+                                        "type": "boolean"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ]
+                            },
+                            "metadata": {
+                                "anyOf": [
+                                    {
+                                        "additionalProperties": {},
+                                        "propertyNames": {
+                                            "type": "string"
+                                        },
+                                        "type": "object"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ]
+                            },
+                            "output": {
+                                "anyOf": [
+                                    {
+                                        "additionalProperties": {},
+                                        "propertyNames": {
+                                            "type": "string"
+                                        },
+                                        "type": "object"
+                                    },
+                                    {
+                                        "items": {},
+                                        "type": "array"
+                                    },
+                                    {
+                                        "type": "string"
+                                    },
+                                    {
+                                        "type": "number"
+                                    },
+                                    {
+                                        "type": "boolean"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ]
+                            }
+                        },
+                        "type": "object"
+                    },
+                    "trial": {
+                        "anyOf": [
+                            {
+                                "maxLength": 255,
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "description": "Identifier for a repeated execution of the same case."
+                    }
+                },
+                "required": ["id"],
+                "type": "object"
+            },
+            "maxItems": 1000,
+            "type": "array"
+        },
+        "results": {
+            "description": "One to 1,000 unique item/scorer-version results. The entire request commits atomically.",
+            "items": {
+                "properties": {
+                    "error_code": {
+                        "anyOf": [
+                            {
+                                "maxLength": 128,
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "description": "Optional stable error code, permitted only for error outcomes."
+                    },
+                    "evaluated_at": {
+                        "anyOf": [
+                            {
+                                "format": "date-time",
+                                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "description": "Caller-supplied evaluation time in ISO 8601 format."
+                    },
+                    "evaluator_trace_id": {
+                        "anyOf": [
+                            {
+                                "maxLength": 255,
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "description": "Trace identifier of the evaluator that produced this result."
+                    },
+                    "item_id": {
+                        "description": "UUID of an item declared in this request or already accepted in this experiment.",
+                        "type": "string"
+                    },
+                    "payload": {
+                        "additionalProperties": false,
+                        "description": "Optional reasoning, error message, and metadata, up to 256 KiB and 32 JSON levels.",
+                        "properties": {
+                            "error_message": {
+                                "anyOf": [
+                                    {
+                                        "type": "string"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ]
+                            },
+                            "metadata": {
+                                "anyOf": [
+                                    {
+                                        "additionalProperties": {},
+                                        "propertyNames": {
+                                            "type": "string"
+                                        },
+                                        "type": "object"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ]
+                            },
+                            "reasoning": {
+                                "anyOf": [
+                                    {
+                                        "type": "string"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ]
+                            }
+                        },
+                        "type": "object"
+                    },
+                    "scorer_version_id": {
+                        "description": "Exact UUID of an existing scorer version in this project.",
+                        "type": "string"
+                    },
+                    "status": {
+                        "description": "Outcome of this scorer execution.\n\n* `ok` - OK\n* `error` - Error\n* `skipped` - Skipped\n* `not_applicable` - Not applicable",
+                        "enum": ["ok", "error", "skipped", "not_applicable"],
+                        "type": "string"
+                    },
+                    "value": {
+                        "anyOf": [
+                            {
+                                "type": "number"
+                            },
+                            {
+                                "type": "boolean"
+                            },
+                            {
+                                "items": {
+                                    "maxLength": 128,
+                                    "type": "string"
+                                },
+                                "minItems": 1,
+                                "type": "array"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "description": "Required for ok: finite number, boolean, or distinct category keys matching the scorer version."
+                    }
+                },
+                "required": ["item_id", "scorer_version_id", "status"],
+                "type": "object"
+            },
+            "maxItems": 1000,
+            "minItems": 1,
+            "type": "array"
+        }
+    },
+    "required": ["id", "results"],
+    "type": "object"
+}

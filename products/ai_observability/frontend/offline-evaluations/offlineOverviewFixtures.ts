@@ -2,6 +2,7 @@ import type { OfflineExperimentReadApi, OfflineHistoryPointApi, ScoreDefinitionA
 
 export const overviewScorers: ScoreDefinitionApi[] = ['Answer quality', 'Groundedness', 'Response time'].map(
     (name, index) => ({
+        tags: ['regression', 'production', 'quality'],
         id: `11111111-1111-4111-8111-${String(index + 1).padStart(12, '0')}`,
         name,
         description: '',
@@ -11,21 +12,28 @@ export const overviewScorers: ScoreDefinitionApi[] = ['Answer quality', 'Grounde
         current_version_id: `22222222-2222-4222-8222-${String(index + 1).padStart(12, '0')}`,
         config:
             index === 1
-                ? { true_label: 'Grounded', false_label: 'Ungrounded' }
-                : { min: 0, max: index === 2 ? 5000 : 1 },
+                ? { true_label: 'Grounded', false_label: 'Ungrounded', true_is_failure: false }
+                : {
+                      min: 0,
+                      max: index === 2 ? 5000 : 1,
+                      passing_rule: { operator: index === 2 ? 'lte' : 'gte', threshold: index === 2 ? 1800 : 0.8 },
+                  },
         created_by: null,
         created_at: '2026-09-01T12:00:00Z',
+        updated_by: null,
         updated_at: '2026-09-20T12:00:00Z',
         team: 997,
     })
 )
 
 export const overviewExperiments: OfflineExperimentReadApi[] = Array.from({ length: 8 }, (_, index) => ({
+    tags: ['regression', 'production', 'quality'],
     id: `33333333-3333-4333-8333-${String(index + 1).padStart(12, '0')}`,
     name: ['Support assistant prompt update', 'Tool selection regression', 'Response quality baseline'][index % 3],
     run_source: index % 3 === 0 ? 'ci' : index % 3 === 1 ? 'local' : null,
     status: index === 0 ? 'uploading' : index === 3 ? 'failed' : 'completed',
     started_at: `2026-09-${String(27 - index).padStart(2, '0')}T14:30:00Z`,
+    created_by: null,
     created_at: `2026-09-${String(27 - index).padStart(2, '0')}T14:32:00Z`,
     finished_at: index === 0 ? null : `2026-09-${String(27 - index).padStart(2, '0')}T14:33:00Z`,
     expected_item_count: 100,
@@ -79,6 +87,9 @@ export function overviewHistory(scorer: ScoreDefinitionApi): OfflineHistoryPoint
                 true_count: scorer.kind === 'boolean' ? 90 - index : null,
                 false_count: scorer.kind === 'boolean' ? 5 + index : null,
                 true_rate: scorer.kind === 'boolean' ? (90 - index) / 95 : null,
+                pass_count: scorer.kind === 'boolean' ? 90 - index : 65 + index * 5,
+                fail_count: scorer.kind === 'boolean' ? 5 + index : 30 - index * 5,
+                pass_rate: (scorer.kind === 'boolean' ? 90 - index : 65 + index * 5) / 95,
                 categories: [],
             },
         }))

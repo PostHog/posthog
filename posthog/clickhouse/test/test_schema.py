@@ -7,13 +7,15 @@ from pathlib import Path
 import pytest
 
 from django.conf import settings as django_settings
+from django.test import override_settings
 
-from posthog.hogql.database.models import DatabaseField, Table
+from posthog.hogql.database.models import DatabaseField, ExpressionField, Table
 from posthog.hogql.database.schema.flag_evaluations import FLAG_EVALUATIONS_CLICKHOUSE_TABLE, FlagEvaluationsTable
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.kafka_engine import CONSUMER_GROUP_EVENTS_JSON_NATIVE_JSON, KAFKA_COLUMNS_WITH_PARTITION
-from posthog.clickhouse.logs import LOGS34_TO_VOLUME_BUCKETS_MV_SELECT
+from posthog.clickhouse.logs import LOGS34_TO_PATTERN_BUCKETS_MV_SELECT, LOGS34_TO_VOLUME_BUCKETS_MV_SELECT
+from posthog.clickhouse.property_groups import flag_evaluations_property_group_definitions, iter_groups
 from posthog.clickhouse.schema import (
     CREATE_KAFKA_TABLE_QUERIES,
     CREATE_MERGETREE_TABLE_QUERIES,
@@ -22,24 +24,30 @@ from posthog.clickhouse.schema import (
     build_query,
     get_table_name,
 )
+from posthog.dags.flag_evaluations_backfill import _COPIED_COLUMNS
 from posthog.models.event.sql import (
     EVENTS_JSON_TABLE_MV_SQL,
     KAFKA_EVENTS_NATIVE_JSON_TABLE,
     KAFKA_EVENTS_NATIVE_JSON_TABLE_SQL,
 )
 from posthog.models.flag_evaluations.sql import (
+    _FLAG_EVALUATIONS_TYPED_COLUMNS,
     DISTRIBUTED_FLAG_EVALUATIONS_TABLE_SQL,
     FLAG_EVALUATIONS_KAFKA_COLUMNS,
+    FLAG_EVALUATIONS_MV_SELECT_SQL,
     FLAG_EVALUATIONS_MV_SQL,
     FLAG_EVALUATIONS_TABLE,
     FLAG_EVALUATIONS_TABLE_SQL,
+    KAFKA_FLAG_EVALUATIONS_TABLE,
 )
+from posthog.models.ingestion_warnings.sql_v2 import INGESTION_WARNINGS_V2_DATA_TABLE_SQL
 from posthog.settings.data_stores import SUFFIX
 from posthog.settings.kafka import KAFKA_PREFIX
 
 
 @pytest.mark.parametrize("query", CREATE_TABLE_QUERIES, ids=get_table_name)
 def test_create_table_query(query, snapshot, settings):
+    settings.CLICKHOUSE_DATABASE = "posthog_test"
     settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA = False
 
     assert build_query(query) == snapshot
@@ -47,10 +55,18 @@ def test_create_table_query(query, snapshot, settings):
 
 @pytest.mark.parametrize("query", CREATE_MERGETREE_TABLE_QUERIES, ids=get_table_name)
 def test_create_table_query_replicated_and_storage(query, snapshot, settings):
+    settings.CLICKHOUSE_DATABASE = "posthog_test"
     settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA = False
     settings.CLICKHOUSE_ENABLE_STORAGE_POLICY = True
 
     assert build_query(query) == snapshot
+
+
+def test_ingestion_warnings_v2_keeps_ttl_outside_tests() -> None:
+    with override_settings(TEST=False):
+        query = INGESTION_WARNINGS_V2_DATA_TABLE_SQL()
+
+    assert "\nTTL " in query
 
 
 @pytest.mark.parametrize("query", CREATE_KAFKA_TABLE_QUERIES, ids=get_table_name)
@@ -137,6 +153,32 @@ def test_logs_volume_bucket_retention_covers_raw_expiry(
         )
 
 
+@pytest.mark.usefixtures("clickhouse_database")
+def test_logs_pattern_buckets_keep_stamped_empty_patterns_and_drop_unstamped_rows() -> None:
+    select = LOGS34_TO_PATTERN_BUCKETS_MV_SELECT().replace(
+        f"FROM {django_settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.logs34", "FROM pattern_input"
+    )
+    rows = sync_execute(
+        """
+        WITH pattern_input AS (
+            SELECT
+                42 AS team_id,
+                toDateTime64('2026-01-02 12:01:00', 6, 'UTC') AS timestamp,
+                timestamp + toIntervalDay(row.3) AS original_expiry_timestamp,
+                'checkout' AS service_name,
+                'INFO' AS severity_text,
+                CAST(map(), 'Map(String, String)') AS resource_attributes,
+                toUInt8(row.1) AS pattern_version,
+                row.2 AS pattern
+            FROM (SELECT arrayJoin([(0, '', 14), (5, '', 14), (5, 'GET <N>', 14), (5, 'GET <N>', 30)]) AS row)
+        )
+        SELECT pattern_version, pattern, retention_days, log_count FROM ("""
+        + select
+        + ") ORDER BY pattern"
+    )
+    assert rows == [(5, "", 15, 1), (5, "GET <N>", 31, 2)]
+
+
 def _column_definition_lines(block: str) -> Iterator[str]:
     for raw_line in block.splitlines():
         line = raw_line.strip().lstrip(",").strip()
@@ -186,6 +228,38 @@ def test_flag_evaluations_mv_projection_matches_column_template():
     assert _mv_projected_names(FLAG_EVALUATIONS_MV_SQL()) == template_columns + kafka_meta_columns
 
 
+@pytest.mark.usefixtures("clickhouse_database")
+def test_flag_evaluations_mv_overrides_producer_values() -> None:
+    select = FLAG_EVALUATIONS_MV_SELECT_SQL().replace(
+        f"FROM {django_settings.CLICKHOUSE_DATABASE}.{KAFKA_FLAG_EVALUATIONS_TABLE}", "FROM mv_input"
+    )
+    rows = sync_execute(
+        """
+        WITH mv_input AS (
+            SELECT
+                generateUUIDv4() AS uuid,
+                '$feature_flag_called' AS event,
+                '{}' AS properties,
+                toDateTime64('2020-01-01 00:00:00', 6, 'UTC') AS timestamp,
+                1 AS team_id,
+                'user' AS distinct_id,
+                timestamp AS created_at,
+                generateUUIDv4() AS person_id,
+                arrayJoin(['', '{"email": "a@example.com"}']) AS person_properties,
+                timestamp AS person_created_at,
+                timestamp AS inserted_at,
+                'full' AS person_mode,
+                toDateTime('2020-01-01 00:00:00', 'UTC') AS _timestamp,
+                0 AS _offset,
+                0 AS _partition
+        )
+        SELECT inserted_at > timestamp, person_properties FROM ("""
+        + select
+        + ") ORDER BY person_properties"
+    )
+    assert rows == [(1, '{"email": "a@example.com"}'), (1, "{}")]
+
+
 def test_flag_evaluations_read_table_declares_every_stored_column():
     # The typed property columns carry their DEFAULT expression on
     # sharded_flag_evaluations, which computes them, and are repeated as plain
@@ -199,18 +273,49 @@ def test_flag_evaluations_read_table_declares_every_stored_column():
     assert _flag_evaluations_table_columns(DISTRIBUTED_FLAG_EVALUATIONS_TABLE_SQL()) == stored_columns
 
 
+# The comment above _COPIED_COLUMNS gives the reason the backfill leaves out each of these columns.
+_FLAG_EVALUATIONS_COLUMNS_THE_BACKFILL_LEAVES_OUT = {"inserted_at", "_offset", "_partition"}
+
+# MATERIALIZED, so no insert can name them, and every shard computes them from the JSON.
+_FLAG_EVALUATIONS_PROPERTY_GROUP_COLUMN_NAMES = {
+    group.definition.get_column_name(group.source_column, group.group_name)
+    for group in iter_groups(flag_evaluations_property_group_definitions)
+}
+
+
+def test_flag_evaluations_backfill_copies_every_stored_column():
+    # A column that the backfill does not copy gets its DEFAULT on every backfilled row. No error
+    # reports this. The typed columns compute their DEFAULT from properties, so the copy leaves them
+    # out by design. Any other new column fails here until the copy or the set above names it.
+    stored = {column.split()[0] for column in _flag_evaluations_table_columns(FLAG_EVALUATIONS_TABLE_SQL())}
+    typed = set(_declared_column_names(_FLAG_EVALUATIONS_TYPED_COLUMNS))
+
+    assert typed
+    assert stored == (
+        set(_COPIED_COLUMNS)
+        | typed
+        | _FLAG_EVALUATIONS_COLUMNS_THE_BACKFILL_LEAVES_OUT
+        | _FLAG_EVALUATIONS_PROPERTY_GROUP_COLUMN_NAMES
+    )
+
+
 def _hogql_column_names(table: Table) -> set[str]:
     names: set[str] = set()
     for field in table.fields.values():
         if isinstance(field, Table):
             names |= _hogql_column_names(field)
-        elif isinstance(field, DatabaseField):
+        elif isinstance(field, DatabaseField) and not isinstance(field, ExpressionField):
             names.add(field.name)
     return names
 
 
-# Kafka metadata, deliberately not exposed to customers.
-_FLAG_EVALUATIONS_COLUMNS_HIDDEN_FROM_HOGQL = {"_timestamp", "_offset", "_partition"}
+# _timestamp, _offset and _partition are Kafka metadata, deliberately not exposed to customers.
+_FLAG_EVALUATIONS_COLUMNS_HIDDEN_FROM_HOGQL = {
+    "_timestamp",
+    "_offset",
+    "_partition",
+    *_FLAG_EVALUATIONS_PROPERTY_GROUP_COLUMN_NAMES,
+}
 
 
 def test_flag_evaluations_hogql_table_matches_the_read_table():

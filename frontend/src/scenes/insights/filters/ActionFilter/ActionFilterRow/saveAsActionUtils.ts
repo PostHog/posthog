@@ -4,12 +4,11 @@ import {
     ActionStepStringMatching,
     ActionStepType,
     AnyPropertyFilter,
-    EntityTypes,
     PropertyFilterType,
     PropertyOperator,
 } from '~/types'
 
-import { LocalFilter } from '../entityFilterLogic'
+import { SeriesNode, isEventsSeriesNode } from '../seriesNode'
 
 interface ElementKeyMapping {
     stepField: 'text' | 'selector' | 'href'
@@ -71,11 +70,11 @@ function canMapToActionStep(prop: AnyPropertyFilter): boolean {
     return operator === undefined || operator === PropertyOperator.Exact
 }
 
-export function isAutocaptureFilterWithElements(filter: LocalFilter): boolean {
-    if (filter.id !== '$autocapture' || filter.type !== EntityTypes.EVENTS) {
+export function isAutocaptureSeriesWithElements(node: SeriesNode): boolean {
+    if (!isEventsSeriesNode(node) || node.event !== '$autocapture') {
         return false
     }
-    return (filter.properties ?? []).some(canMapToActionStep)
+    return (node.properties ?? []).some(canMapToActionStep)
 }
 
 export function operatorToStringMatching(operator: PropertyOperator | undefined): ActionStepStringMatching | null {
@@ -103,11 +102,11 @@ function extractStringValue(prop: AnyPropertyFilter): string {
     return Array.isArray(raw) ? String(raw[0] ?? '') : String(raw)
 }
 
-export function filterToActionStep(filter: LocalFilter): ActionStepType {
+export function seriesNodeToActionStep(node: SeriesNode): ActionStepType {
     const step: ActionStepType = { event: '$autocapture' }
     const remainingProperties: AnyPropertyFilter[] = []
 
-    for (const prop of filter.properties ?? []) {
+    for (const prop of node.properties ?? []) {
         const value = extractStringValue(prop)
         const operator = 'operator' in prop ? prop.operator : undefined
         const matching = operatorToStringMatching(operator)
@@ -132,8 +131,8 @@ export function filterToActionStep(filter: LocalFilter): ActionStepType {
 
 const MAX_NAME_VALUE_LENGTH = 50
 
-export function generateActionNameFromFilter(filter: LocalFilter): string {
-    for (const prop of filter.properties ?? []) {
+export function generateActionNameFromSeriesNode(node: SeriesNode): string {
+    for (const prop of node.properties ?? []) {
         if (!canMapToActionStep(prop)) {
             continue
         }

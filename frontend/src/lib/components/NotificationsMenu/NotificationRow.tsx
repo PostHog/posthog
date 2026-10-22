@@ -77,6 +77,14 @@ export const REALTIME_NOTIFICATION_TYPE_META: Record<string, { label: string; de
         label: 'Data quality check failures',
         description: 'When a data quality check on a warehouse table or view starts failing',
     },
+    workflow_suggestion: {
+        label: 'Workflow suggestions',
+        description: 'When PostHog suggests a change to a workflow you set up',
+    },
+    feature_flag_failure: {
+        label: 'Feature flag failures',
+        description: 'When a feature flag in your project fails to evaluate',
+    },
 }
 
 export function NotificationTitle({

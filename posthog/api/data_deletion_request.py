@@ -179,7 +179,7 @@ class DataDeletionRequestViewSet(
     def initial(self, request: Request, *args: object, **kwargs: object) -> None:
         super().initial(request, *args, **kwargs)
         if not self_service_data_deletion_enabled(self.team):
-            raise PermissionDenied("Self-service data deletion is not enabled for this project.")
+            raise PermissionDenied("This endpoint is in alpha and is not yet publicly available.")
 
     def safely_get_queryset(self, queryset: QuerySet[DataDeletionRequest]) -> QuerySet[DataDeletionRequest]:
         return queryset.filter(request_type=RequestType.HOGQL_EVENT_REMOVAL)

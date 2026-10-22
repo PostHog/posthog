@@ -44,7 +44,7 @@ from products.feature_flags.backend.facade.config_validation import (
 )
 
 # Vendored from the released harness contract; SOURCE.json records the revision and digests.
-CONTRACT_DIR = Path(__file__).parent / "fixtures" / "rules_v2_contract" / "2.0.0"
+CONTRACT_DIR = Path(__file__).parent / "fixtures" / "rules_v2_contract"
 LIMITS = ValidationLimits(max_config_bytes=64 * 1024, max_metadata_bytes=1024)
 
 TARGETED_ID = "11111111-1111-4111-8111-111111111111"
@@ -96,7 +96,7 @@ def without(document: dict[str, Any], key: str) -> dict[str, Any]:
     return {name: value for name, value in document.items() if name != key}
 
 
-def errors_of(document: object, limits: ValidationLimits = LIMITS) -> list[tuple[str, str]]:
+def errors_of(document: object, limits: ValidationLimits = LIMITS) -> list[tuple[str, str | None]]:
     with pytest.raises(ConfigValidationError) as exc_info:
         validate_config(document, limits=limits)
     return [(error.code, error.attr) for error in exc_info.value.errors]
@@ -173,11 +173,15 @@ VALID_DOCUMENTS: list[tuple[str, dict[str, Any]]] = [
             )
         ),
     ),
+    ("uncompilable_regex", config(targeted(targeting={"properties": [person(operator="regex", value="[")]}))),
+    ("uncompilable_not_regex", config(targeted(targeting={"properties": [person(operator="not_regex", value="(")]}))),
     (
         "string_values",
         config(targeted(value="compact"), rollout(value="wide"), return_type="string", default_value="standard"),
     ),
     ("string_null_default", config(targeted(value="compact"), return_type="string", default_value=None)),
+    # Readers accept the event-storage sentinels; only the writer reserves them.
+    ("string_sentinels", config(targeted(value="$false"), return_type="string", default_value="$true")),
     ("number_values", config(targeted(value=1.25), rollout(value=-40), return_type="number", default_value=0)),
     (
         "number_safe_integer_bounds",
@@ -235,11 +239,6 @@ INVALID_DOCUMENTS: list[tuple[str, object, list[tuple[str, str]]]] = [
         "string_bool_value",
         config(targeted(value=True), return_type="string", default_value=None),
         [("invalid", "filters.rules[0].value")],
-    ),
-    (
-        "string_reserved_false_sentinel",
-        config(targeted(value="$false"), return_type="string", default_value="$false"),
-        [("invalid", "filters.default_value"), ("invalid", "filters.rules[0].value")],
     ),
     ("number_bool_default", config(return_type="number", default_value=False), [("invalid", "filters.default_value")]),
     (
@@ -345,9 +344,9 @@ INVALID_DOCUMENTS: list[tuple[str, object, list[tuple[str, str]]]] = [
     ),
     (
         "targeted_with_experiment_fields",
-        config(targeted(experiment_id=1, variants=[], holdout=None)),
+        config(targeted(paused=False, variants=[], holdout=None)),
         [
-            ("unknown_field", "filters.rules[0].experiment_id"),
+            ("unknown_field", "filters.rules[0].paused"),
             ("unknown_field", "filters.rules[0].variants"),
             ("unknown_field", "filters.rules[0].holdout"),
         ],
@@ -748,7 +747,7 @@ class TestValidateConfig:
     @parameterized.expand(
         [
             ("boolean", 1, "Must be true or false"),
-            ("string", "$false", "Must be a non-empty string other than $false"),
+            ("string", "", "Must be a non-empty string"),
             ("number", "1", "Must be a number from -9007199254740991 to 9007199254740991"),
             (
                 "object",
@@ -767,6 +766,50 @@ class TestValidateConfig:
             ("filters.default_value", f"{message}, or null."),
             ("filters.rules[0].value", f"{message}."),
         ]
+
+    @parameterized.expand(
+        [
+            # Mirrors the semver cases of the flags service's parser test in rust/feature-flags/tests/test_config_v2.rs.
+            *[
+                (operator, value, True)
+                for operator, value in [
+                    ("semver_eq", "1.2.3"),
+                    ("semver_eq", " 1.2.3 "),
+                    ("semver_tilde", "1.2"),
+                    ("semver_wildcard", "1.2.*"),
+                    ("semver_eq", "01.2.3-rc.1"),
+                    ("semver_eq", "1.2.3-alpha+build.01"),
+                    ("semver_eq", "18446744073709551615.0.0"),
+                ]
+            ],
+            *[
+                (operator, value, False)
+                for operator, value in [
+                    ("semver_eq", "1.2.3.4"),
+                    ("semver_tilde", "1.2.3.4"),
+                    ("semver_wildcard", "1.2.3.4.*"),
+                    ("semver_eq", "1.2.3-"),
+                    ("semver_eq", "1.2.3-01"),
+                    ("semver_eq", "1.2.3-a_b"),
+                    ("semver_eq", "1_0.2.3"),
+                    ("semver_eq", "18446744073709551616.0.0"),
+                    ("semver_eq", "1.2.3+meta"),
+                    ("semver_eq", "v1.2.3"),
+                    ("semver_eq", "+1.2.3"),
+                    ("semver_eq", "1. 2.3"),
+                    ("semver_eq", "1.+2.3"),
+                ]
+            ],
+        ]
+    )
+    def test_semver_values_are_the_ones_the_flags_service_parses(
+        self, operator: str, value: str, accepted: bool
+    ) -> None:
+        document = config(targeted(targeting={"properties": [person(operator=operator, value=value)]}))
+        if accepted:
+            validate_config(document, limits=LIMITS)
+        else:
+            assert errors_of(document) == [("invalid", "filters.rules[0].targeting.properties[0].value")]
 
     def test_v1_only_fields_name_the_format_clash(self) -> None:
         with pytest.raises(ConfigValidationError) as exc_info:
@@ -870,27 +913,16 @@ def _admitted_family(document: dict[str, Any]) -> bool:
 class TestReleasedContract:
     def test_vendored_contract_is_intact(self) -> None:
         source = load_contract("SOURCE.json")
-        index_bytes = (CONTRACT_DIR / "SHA256SUMS").read_bytes()
-        assert hashlib.sha256(index_bytes).hexdigest() == source["source_sha256sums_digest"]
-        index = {
-            path: digest for digest, path in re.findall(r"^([0-9a-f]{64})  (.+)$", index_bytes.decode("utf-8"), re.M)
-        }
-        vendored = [
-            path
+        vendored = {
+            path.relative_to(CONTRACT_DIR).as_posix(): path
             for path in CONTRACT_DIR.rglob("*")
-            if path.is_file() and path.name not in ("SHA256SUMS", "SOURCE.json")
-        ]
-        relatives = {path.relative_to(CONTRACT_DIR).as_posix() for path in vendored}
-        # A deliberate subset of the upstream index: the corpus and wire files stay with the Rust runner.
-        assert relatives <= set(index)
-        for path in vendored:
-            relative = path.relative_to(CONTRACT_DIR).as_posix()
-            assert hashlib.sha256(path.read_bytes()).hexdigest() == index[relative], relative
-        assert {entry["path"] for entry in CONTRACT_FIXTURES} <= relatives
+            if path.is_file() and path.name != "SOURCE.json"
+        }
+        assert set(vendored) == set(source["files"])
+        for relative, path in vendored.items():
+            assert hashlib.sha256(path.read_bytes()).hexdigest() == source["files"][relative], relative
+        assert {entry["path"] for entry in CONTRACT_FIXTURES} <= set(vendored)
         assert MANIFEST["contract"]["version"] == source["contract_version"]
-        versions = {artifact["path"]: artifact.get("version") for artifact in MANIFEST["artifacts"]}
-        assert versions["schemas/config.schema.json"] == source["config_schema_version"]
-        assert versions["registries/literals.json"] == source["registry_version"]
 
     def test_literals_agree_with_the_released_registry(self) -> None:
         registry = load_contract("registries/literals.json")

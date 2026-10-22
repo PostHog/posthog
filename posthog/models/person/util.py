@@ -4,16 +4,19 @@ import json
 import time
 import datetime
 import contextvars
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Optional, Union
+from enum import StrEnum
+from functools import partial
+from typing import TYPE_CHECKING, Any, Optional, TypeVar, Union
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
 from django.conf import settings
 from django.utils.timezone import now
 
+import grpc
 import structlog
 from dateutil.parser import isoparse
 from prometheus_client import Counter, Histogram
@@ -33,12 +36,17 @@ from posthog.models.person.sql import (
 from posthog.models.utils import UUIDT
 from posthog.personhog_client.client import personhog_call, require_personhog_client
 from posthog.personhog_client.converters import proto_person_to_model
+from posthog.personhog_client.interceptor import is_transient_rpc_error
 from posthog.personhog_client.metrics import PERSONHOG_TEAM_MISMATCH_TOTAL, get_client_name
 from posthog.personhog_client.proto import (
+    CONSISTENCY_LEVEL_STRONG,
     AckedPersonTombstone,
     AckPersonTombstonesRequest,
     DeletePersonsMode,
     DeletePersonsRequest,
+    DistinctIdRow,
+    EnsurePersonVersionFloorsRequest,
+    GetDistinctIdRowsRequest,
     GetDistinctIdsForPersonRequest,
     GetDistinctIdsForPersonsRequest,
     GetPersonByDistinctIdRequest,
@@ -47,8 +55,13 @@ from posthog.personhog_client.proto import (
     GetPersonsByDistinctIdsInTeamRequest,
     GetPersonsByUuidsRequest,
     GetPersonTombstonesRequest,
+    ListPersonsForTeamRequest,
     ListPersonTombstoneQueueRequest,
+    PersonListEntry,
+    PersonVersionFloor as PersonVersionFloorProto,
     ReadOptions,
+    SetPersonDistinctIdVersionFloorRequest,
+    VersionFloorOutcome as VersionFloorOutcomeProto,
 )
 from posthog.settings import TEST
 
@@ -704,27 +717,6 @@ def get_person_uuids_and_matched_distinct_ids(team_id: int, distinct_ids: list[s
     )
 
 
-def delete_persons_from_postgres(team_id: int, persons: list[Person]) -> None:
-    """Remove Person rows (and associated PersonDistinctId rows) via the personhog RPC.
-
-    Processes in batches of 1000 (the RPC maximum). Asks for a hard delete explicitly: the
-    caller has already published ClickHouse tombstones at version + 100, so the replica's own
-    default must not turn this into a tombstone.
-    """
-
-    def personhog_fn() -> None:
-        uuids = [str(p.uuid) for p in persons]
-        for i in range(0, len(uuids), 1000):
-            batch = uuids[i : i + 1000]
-            _get_client().delete_persons(
-                DeletePersonsRequest(
-                    team_id=team_id, person_uuids=batch, mode=DeletePersonsMode.DELETE_PERSONS_MODE_HARD
-                )
-            )
-
-    personhog_call("delete_persons", personhog_fn)
-
-
 @frozen
 class PersonTombstone:
     """The versions the replica wrote when it tombstoned one person."""
@@ -785,6 +777,40 @@ def get_person_tombstones(team_id: int, person_uuids: list[UUID]) -> list[Person
         return tombstones
 
     return personhog_call("get_person_tombstones", personhog_fn)
+
+
+def get_distinct_id_rows(team_id: int, distinct_ids: list[str], *, strong: bool = False) -> list[DistinctIdRow]:
+    """Mapping rows, live or tombstoned, with their owner's state. `strong` reads the primary."""
+
+    def personhog_fn() -> list[DistinctIdRow]:
+        read_options = ReadOptions(consistency=CONSISTENCY_LEVEL_STRONG) if strong else None
+        rows: list[DistinctIdRow] = []
+        for i in range(0, len(distinct_ids), 1000):
+            response = _get_client().get_distinct_id_rows(
+                GetDistinctIdRowsRequest(
+                    team_id=team_id, distinct_ids=distinct_ids[i : i + 1000], read_options=read_options
+                )
+            )
+            rows.extend(response.rows)
+        return rows
+
+    return personhog_call("get_distinct_id_rows", personhog_fn)
+
+
+def list_persons_for_team(
+    team_id: int, after_person_id: int, *, before_person_id: int | None = None, limit: int = 1000
+) -> tuple[list[PersonListEntry], int | None]:
+    """One id-ordered page of a team's persons, live and tombstoned, and the cursor for the next page."""
+
+    def personhog_fn() -> tuple[list[PersonListEntry], int | None]:
+        request = ListPersonsForTeamRequest(team_id=team_id, after_person_id=after_person_id, limit=limit)
+        if before_person_id is not None:
+            request.before_person_id = before_person_id
+        response = _get_client().list_persons_for_team(request)
+        next_after = response.next_after_person_id if response.HasField("next_after_person_id") else None
+        return list(response.persons), next_after
+
+    return personhog_call("list_persons_for_team", personhog_fn)
 
 
 def list_person_tombstone_queue(
@@ -953,54 +979,96 @@ def _flush_person_producers(timeout: float) -> None:
         producer.flush(max(0.0, deadline - time.monotonic()))
 
 
-def delete_person(person: Person, distinct_ids: list[DistinctIdForPerson] | None = None) -> None:
-    """Produce ClickHouse deletion tombstones for a person and its distinct_ids.
+# -- Version floors --
 
-    ``distinct_ids`` can be prefetched in batch (see ``delete_persons_profile``) to
-    avoid one RPC per person; when omitted it is fetched here.
+_T = TypeVar("_T")
+
+# An ensure call waits out a concurrent insert of the same key and classifies the winner's row.
+# It fails whole with FAILED_PRECONDITION, and commits nothing, only when that row is gone before the call can lock it.
+VERSION_FLOOR_ATTEMPTS = 3
+VERSION_FLOOR_RETRY_BACKOFF_SECONDS = 0.05
+_LOST_RACE_CODES = frozenset({grpc.StatusCode.FAILED_PRECONDITION})
+
+
+class VersionFloorOutcome(StrEnum):
+    TOMBSTONE_INSERTED = "tombstone_inserted"
+    TOMBSTONE_RAISED = "tombstone_raised"
+    TOMBSTONE_AT_FLOOR = "tombstone_at_floor"
+    LIVE = "live"
+
+
+_FLOOR_OUTCOMES = {
+    VersionFloorOutcomeProto.VERSION_FLOOR_OUTCOME_TOMBSTONE_INSERTED: VersionFloorOutcome.TOMBSTONE_INSERTED,
+    VersionFloorOutcomeProto.VERSION_FLOOR_OUTCOME_TOMBSTONE_RAISED: VersionFloorOutcome.TOMBSTONE_RAISED,
+    VersionFloorOutcomeProto.VERSION_FLOOR_OUTCOME_TOMBSTONE_AT_FLOOR: VersionFloorOutcome.TOMBSTONE_AT_FLOOR,
+    VersionFloorOutcomeProto.VERSION_FLOOR_OUTCOME_LIVE: VersionFloorOutcome.LIVE,
+}
+
+
+@frozen
+class PersonVersionFloor:
+    uuid: UUID
+    min_version: int
+
+
+@frozen
+class PersonVersionFloorResult:
+    uuid: UUID
+    outcome: VersionFloorOutcome
+    version: int
+
+
+def _retry_lost_race(fn: Callable[[], _T]) -> _T:
+    """Retry ``fn`` only on a lost race. Every other error, including the DEADLINE_EXCEEDED lock timeout, propagates."""
+    for attempt in range(1, VERSION_FLOOR_ATTEMPTS):
+        try:
+            return fn()
+        except Exception as exc:
+            if not is_transient_rpc_error(exc, codes=_LOST_RACE_CODES):
+                raise
+        time.sleep(VERSION_FLOOR_RETRY_BACKOFF_SECONDS * attempt)
+    return fn()
+
+
+def ensure_person_version_floors(team_id: int, floors: Sequence[PersonVersionFloor]) -> list[PersonVersionFloorResult]:
+    """Raise each person tombstone's Postgres version to at least ``min_version``, so a later revival lands above it.
+
+    A missing person gets a tombstone and a live person is left unchanged. Each batch commits on its own and is
+    safe to repeat; results keep request order. Publish a ClickHouse tombstone at the returned version for every
+    result that is not LIVE, because the Postgres cleanup drain removes only tombstones the ClickHouse deletion
+    sweep finds; a retry can report its own insert as TOMBSTONE_AT_FLOOR.
     """
-    # This is racy https://github.com/PostHog/posthog/issues/11590
-    if distinct_ids is None:
-        distinct_ids = _get_distinct_ids_with_version(person)
-    _delete_person(person.team_id, person.uuid, int(person.version or 0), person.created_at)
-    for distinct_id in distinct_ids:
-        _delete_ch_distinct_id(person.team_id, person.uuid, distinct_id.id, distinct_id.version)
+
+    def personhog_fn() -> list[PersonVersionFloorResult]:
+        results: list[PersonVersionFloorResult] = []
+        for i in range(0, len(floors), PERSONHOG_BATCH_SIZE):
+            request = EnsurePersonVersionFloorsRequest(
+                team_id=team_id,
+                floors=[
+                    PersonVersionFloorProto(person_uuid=str(f.uuid), min_version=f.min_version)
+                    for f in floors[i : i + PERSONHOG_BATCH_SIZE]
+                ],
+            )
+            response = _retry_lost_race(partial(_get_client().ensure_person_version_floors, request))
+            results.extend(
+                PersonVersionFloorResult(
+                    uuid=UUID(r.person_uuid), outcome=_FLOOR_OUTCOMES[r.outcome], version=int(r.version)
+                )
+                for r in response.results
+            )
+        return results
+
+    return personhog_call("ensure_person_version_floors", personhog_fn)
 
 
-def _delete_person(
-    team_id: int,
-    uuid: UUID,
-    version: int,
-    created_at: Optional[datetime.datetime] = None,
-) -> None:
-    create_person(
-        uuid=str(uuid),
-        team_id=team_id,
-        # Version + 100 ensures delete takes precedence over normal updates.
-        # Keep in sync with:
-        # - plugin-server/src/utils/db/utils.ts:152 (generateKafkaPersonUpdateMessage)
-        # - posthog/models/person/person.py:112 (split_person uses version + 101 to override deletes)
-        version=version + 100,
-        created_at=created_at,
-        is_deleted=True,
-    )
+def set_distinct_id_version_floor(team_id: int, distinct_id: str, min_version: int) -> None:
+    """Raise the Postgres version of the distinct id's row to at least ``min_version``, live or tombstoned.
 
-
-def _get_distinct_ids_with_version(person: Person) -> list[DistinctIdForPerson]:
-    def personhog_fn() -> list[DistinctIdForPerson]:
-        resp = _get_client().get_distinct_ids_for_person(
-            GetDistinctIdsForPersonRequest(team_id=person.team_id, person_id=person.pk)
-        )
-        return [DistinctIdForPerson(id=d.distinct_id, version=int(d.version or 0)) for d in resp.distinct_ids]
-
-    return personhog_call("get_distinct_ids_with_version", personhog_fn)
-
-
-def _delete_ch_distinct_id(team_id: int, uuid: UUID, distinct_id: str, version: int) -> None:
-    create_person_distinct_id(
-        team_id=team_id,
-        distinct_id=distinct_id,
-        person_id=str(uuid),
-        version=version + 100,
-        is_deleted=True,
+    The response does not say whether the row is live or tombstoned, so read the row from the primary before
+    publishing it.
+    """
+    request = SetPersonDistinctIdVersionFloorRequest(team_id=team_id, distinct_id=distinct_id, min_version=min_version)
+    personhog_call(
+        "set_person_distinct_id_version_floor",
+        lambda: _get_client().set_person_distinct_id_version_floor(request),
     )

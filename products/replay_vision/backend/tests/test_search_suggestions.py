@@ -295,6 +295,25 @@ class TestRefreshAndCandidates(_SuggestionsTestCase):
         self.assertFalse(refresh_team_suggestions(self.team))
         self.assertEqual(TeamReplayVisionConfig.objects.get(team_id=self.team.id).search_suggestions, [])
 
+    def test_team_candidates_count_rows_completed_after_the_watermark_even_when_created_before_it(self) -> None:
+        scanner = self._scanner("checkout")
+        watermark = timezone.now() - dt.timedelta(hours=1)
+        TeamReplayVisionConfig.objects.update_or_create(
+            team_id=self.team.id,
+            defaults={
+                "search_suggestions_watermark": watermark,
+                "search_suggestions_generated_at": timezone.now() - dt.timedelta(days=30),
+            },
+        )
+        self._seed(scanner, MIN_OBSERVATIONS_FOR_FIRST_PHRASES)
+        ReplayObservation.objects.filter(scanner=scanner).update(
+            created_at=watermark - dt.timedelta(minutes=30), completed_at=watermark - dt.timedelta(minutes=5)
+        )
+        self.assertEqual(stale_team_candidates(10), [])
+
+        ReplayObservation.objects.filter(scanner=scanner).update(completed_at=watermark + dt.timedelta(minutes=5))
+        self.assertEqual(stale_team_candidates(10), [self.team.id])
+
     @patch(_GENERATE_PATH, side_effect=SuggestionError("model down"))
     def test_activity_keeps_old_phrases_and_backs_off_on_model_failure(self, _mock: MagicMock) -> None:
         scanner = self._scanner("checkout", search_suggestions=["old phrase"], search_last_viewed_at=timezone.now())

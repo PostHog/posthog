@@ -27,6 +27,7 @@ from products.posthog_ai.evals.cli_mcp.skill_usage_seeder import (
     PROJECT_SKILL_REFERENCE_PATH,
     seed_project_skill,
 )
+from products.posthog_ai.evals.offline_config import offline_suite
 from products.tasks.backend.facade.agents import EVAL_INTERACTION_ORIGIN
 
 
@@ -70,19 +71,20 @@ async def eval_skill_usage(ctx: EvalContext) -> None:
             prompt=(
                 "The 'bias-warning-demo-uneven-split' experiment is showing a bias warning. "
                 "At exactly what multi-variant ($multiple) exposure share does that warning fire, "
-                "and at what share does the Exposures tab show a $multiple row? "
+                "and at what share does the collapsed exposures summary show a $multiple row? "
                 "Compute this experiment's actual $multiple exposure share from its data and state "
                 "whether the row is visible for it."
             ),
-            skill="diagnosing-experiment-results",
+            skill="diagnosing-experiment-health",
             # The support front door wraps the diagnostic skill and also answers this prompt.
             alternate_skills=["debugging-experiments"],
-            downstream_tools=["experiment-get", "experiment-stats", "execute-sql"],
+            downstream_tools=["experiment-get", "experiment-results-get", "execute-sql"],
             skill_delivery=ctx.skill_delivery,
             reference_paths=["references/bias-and-skew.md"],
             expected_answer=(
                 "The bias warning fires when the $multiple exposure share is above 0.1%. "
-                "The Exposures tab hides the $multiple row when its share is at or below 0.5%. "
+                "The collapsed exposures summary leaves the $multiple row out when its share is at or "
+                "below 0.5%, and the expanded table always lists it. "
                 "This experiment's actual $multiple exposure share is above 0.5%, "
                 "so the $multiple row is visible for it."
             ),
@@ -137,6 +139,20 @@ async def eval_skill_usage(ctx: EvalContext) -> None:
 
     await SandboxedPublicEval(
         experiment_name="sandboxed-cli-mcp-skill-usage-cli",
+        offline_suite=offline_suite(
+            "cli_mcp/eval_skill_usage::eval_skill_usage",
+            metrics=[
+                "skill_search_first",
+                "expected_skill_discovered",
+                "expected_skill_loaded",
+                "skill_loaded_before_tool",
+                "no_bundled_skill_bypass",
+                "no_exec_skill_bypass",
+                "expected_reference_pulled",
+                "search_recovery_after_zero_hit",
+                "skill_answer_correctness",
+            ],
+        ),
         cases=cases,
         scorers=[
             SkillSearchFirst(),

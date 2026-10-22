@@ -10,6 +10,7 @@ from django.utils import timezone
 
 import requests
 
+from posthog.egress.limiter.policies import Priority
 from posthog.models.integration import GitHubIntegration, Integration
 
 from products.error_tracking.backend.facade import api as error_tracking_api
@@ -115,7 +116,7 @@ def _cache_key(*, team_id: int, integration_id: int, repository: str, window_day
 
 
 def _refresh_installation_token(integration: Integration) -> None:
-    github = GitHubIntegration(integration)
+    github = GitHubIntegration(integration, source="tasks", priority=Priority.CRITICAL)
     try:
         if github.access_token_expired():
             github.refresh_access_token()
@@ -232,7 +233,7 @@ def _fetch_file_content(github: GitHubIntegration, repository: str, path: str, r
 
 
 def _scan_repository(integration: Integration, repository: str) -> tuple[RepositoryScanEvidence, list[str]]:
-    github = GitHubIntegration(integration, source="tasks")
+    github = GitHubIntegration(integration, source="tasks", priority=Priority.CRITICAL)
     tree_paths, default_branch = _fetch_repository_tree(github, repository)
 
     found_posthog_init = False

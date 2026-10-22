@@ -1,6 +1,7 @@
 """Tests for the declarative policy loader, resolver, and prompt recomposition."""
 
 import sys
+from functools import partial
 from pathlib import Path
 
 import pytest
@@ -23,8 +24,10 @@ from policy import (  # noqa: E402
     PolicyError,
     ScopeBudget,
     _sanitize_folder_prose,
-    default_policy_path,
+    bundled_defaults_dir,
+    load_effective_policy,
     load_policy,
+    merge_policy,
     resolve,
 )
 
@@ -83,7 +86,7 @@ OLD_DENY_PATTERN_DEFS = {
             "k8s",
             "dockerfile",
             "docker-compose",
-            "\\.github/workflows",
+            "\\.(github|depot)/workflows/(ci-security|codeql|auto-assign-reviewers)",
             "\\.github/pr-deploy",
             "iam",
             "cloudflare",
@@ -92,6 +95,12 @@ OLD_DENY_PATTERN_DEFS = {
             "(?:^|/)bin/deploy",
             "deploy\\.sh",
         ],
+    },
+    "ci_workflows": {
+        "paths": [
+            "\\.github/workflows",
+            "\\.depot/workflows",
+        ]
     },
     "billing": {"any": ["billing", "payment", "stripe", "invoice", "pricing"]},
     "public_api": {"any": ["openapi", "api_schema", "swagger", "public_api"]},
@@ -113,6 +122,49 @@ OLD_DENY_PATTERN_DEFS = {
             "Dockerfile",
             "\\.tool-versions",
             "\\.nvmrc",
+        ]
+    },
+    "devex_guardrails": {
+        "paths": [
+            "^\\.github/scripts/migration-deletion-allowlist\\.txt$",
+            "^\\.semgrep/rules/devex/",
+            "^\\.semgrep/rules/security/prefer-codegen-api\\.",
+            "^frontend/src/lib/api-ratchet-baseline\\.txt$",
+            "^posthog/(egress|ingress)/agents\\.md$",
+            "^posthog/egress/(limiter|observability|transport)/",
+            "^posthog/ingress/(dispatch|observability|verify)/",
+            "^posthog/ingress/views\\.py$",
+            "^posthog/management/migration_analysis/",
+            "^posthog/migration_helpers/",
+            "^posthog/product_urls\\.py$",
+            "^posthog/settings/nextgensquash\\.py$",
+            "^posthog/test/repo_invariants/(dataclass_secret_field_exemptions\\.txt|setup_import_baseline\\.txt)$",
+            "^posthog/test/repo_invariants/test_(admin_url_conf|dataclass_secret_fields|generated_files_are_registered|migration_dependencies_share_a_database|migration_run_before|model_crossing_uses|model_enum_defaults|squash_partial_fallback|startup_import_budget)\\.py$",
+            "^products/(architecture\\.md|isolation_baseline\\.txt|readme\\.md)$",
+            "^docs/internal/django-startup-time\\.md$",
+            "^docs/published/handbook/engineering/type-system\\.md$",
+            "^tools/hogli-commands/hogli_commands/(api_ratchet|projections|tach_lint)\\.py$",
+            "^tools/hogli-commands/hogli_commands/product_structure\\.yaml$",
+            "^tools/hogli-commands/hogli_commands/product/",
+        ]
+    },
+    "agent_steering": {
+        "paths": [
+            "^agents\\.md$",
+            "^claude\\.md$",
+            "^\\.github/pull_request_template\\.md$",
+            "^\\.agents/skills/writing-pr-descriptions/",
+            "^\\.claude/settings\\.json$",
+            "^\\.claude/hooks/",
+            "^\\.mcp\\.json$",
+        ]
+    },
+    "workflows_delivery": {
+        "paths": [
+            "^products/cdp/backend/(api|models)/",
+            "^products/workflows/backend/(facade|presentation|models)/",
+            "^products/messaging/backend/(api|models)/",
+            "^nodejs/src/cdp/[\\s\\S]*(?<!\\.test\\.ts)\\Z",
         ]
     },
 }
@@ -144,11 +196,11 @@ OLD_ALLOW_PATH_PATTERNS = [
     "CHANGELOG",
     "LICENSE",
     "CONTRIBUTING",
-    ".github/CODEOWNERS",
     ".gitignore",
     ".editorconfig",
     "generated/",
     "__snapshots__/",
+    ".github/CODEOWNERS",
 ]
 OLD_MAX_LINES = 800
 OLD_MAX_FILES = 30
@@ -187,7 +239,7 @@ def test_tier_thresholds_unchanged(lines: int, files: int, breadth: str, expecte
 
 
 def _valid_policy_dict() -> dict:
-    return yaml.safe_load(default_policy_path().read_text())
+    return yaml.safe_load((bundled_defaults_dir() / "policy.yml").read_text())
 
 
 def _unknown_top_level_key(d: dict) -> None:
@@ -218,6 +270,14 @@ def _rename_deps_toolchain(d: dict) -> None:
     d["deny"]["dependencies_toolchain"] = d["deny"].pop("deps_toolchain")
 
 
+def _self_governance_exempts_a_team(d: dict) -> None:
+    d["deny"]["stamphog_policy"]["exempt_author_teams"] = ["team-devex"]
+
+
+def _exempt_author_team_with_org_prefix(d: dict) -> None:
+    d["deny"]["auth"]["exempt_author_teams"] = ["@PostHog/team-security"]
+
+
 def _ownership_unknown_format(d: dict) -> None:
     d["ownership"]["sources"][0]["format"] = "svn-blame"
 
@@ -242,6 +302,10 @@ def _ownership_wrong_locator_for_format(d: dict) -> None:
     d["ownership"]["sources"][0] = {"format": "hogli-resolver", "glob": "products/*/product.yaml"}
 
 
+def _set_deny_exceptions(d: dict, *, raw: object) -> None:
+    d["deny_exceptions"] = raw
+
+
 @pytest.mark.parametrize(
     "mutate",
     [
@@ -252,12 +316,84 @@ def _ownership_wrong_locator_for_format(d: dict) -> None:
         _out_of_contract_delegation,
         _ceiling_under_global_default,
         _rename_deps_toolchain,
+        _self_governance_exempts_a_team,
+        _exempt_author_team_with_org_prefix,
         _ownership_unknown_format,
         _ownership_both_locators,
         _ownership_no_locator,
         _ownership_empty_sources,
         _ownership_path_escapes_repo,
         _ownership_wrong_locator_for_format,
+        *[
+            pytest.param(partial(_set_deny_exceptions, raw=raw), id=f"deny-exceptions-{name}")
+            for name, raw in [
+                ("null", None),
+                ("not-mapping", []),
+                ("unknown-category", {"billling": [{"path_prefixes": ["apps/"]}]}),
+                ("self-governance", {"stamphog_policy": [{"path_prefixes": [".stamphog/"]}]}),
+                ("self-governance-empty", {"stamphog_policy": []}),
+                ("rules-not-list", {"billing": {"path_prefixes": ["apps/"]}}),
+                ("empty-rules", {"billing": []}),
+                ("rule-not-mapping", {"billing": ["apps/"]}),
+                ("missing-prefixes", {"billing": [{"keyword": "billing"}]}),
+                ("unknown-rule-key", {"billing": [{"path_prefixes": ["apps/"], "extension": [".yaml"]}]}),
+                ("mixed-rule-keys", {"billing": [{"path_prefixes": ["apps/"], None: True, "bogus": True}]}),
+                ("invented-keyword", {"billing": [{"path_prefixes": ["apps/"], "keyword": "subscription"}]}),
+                ("title-only-keyword", {"auth": [{"path_prefixes": ["apps/"], "keyword": "authorized"}]}),
+                ("regex-keyword", {"auth": [{"path_prefixes": ["apps/"], "keyword": "two[_-]?factor"}]}),
+                ("null-keyword", {"billing": [{"path_prefixes": ["apps/"], "keyword": None}]}),
+                ("non-string-keyword", {"billing": [{"path_prefixes": ["apps/"], "keyword": 1}]}),
+                ("empty-keyword", {"billing": [{"path_prefixes": ["apps/"], "keyword": ""}]}),
+                ("non-ascii-keyword", {"billing": [{"path_prefixes": ["apps/"], "keyword": "billíng"}]}),
+            ]
+        ],
+        *[
+            pytest.param(
+                partial(_set_deny_exceptions, raw={"billing": [{"path_prefixes": prefixes}]}),
+                id=f"deny-exceptions-prefix-{name}",
+            )
+            for name, prefixes in [
+                ("not-list", "apps/"),
+                ("empty-list", []),
+                ("non-string", [1]),
+                ("empty", [""]),
+                ("absolute", ["/apps/"]),
+                ("missing-slash", ["apps"]),
+                ("dot-segment", ["apps/./"]),
+                ("parent-segment", ["apps/../shared/"]),
+                ("repeated-slash", ["apps//billing/"]),
+                ("backslash", ["apps\\billing/"]),
+                ("wildcard", ["apps/*/"]),
+                ("regex", ["apps/(billing|payment)/"]),
+                ("whitespace", ["apps /"]),
+                ("control", ["apps\x00/"]),
+                ("invalid-second-entry", ["apps/", "../"]),
+            ]
+        ],
+        *[
+            pytest.param(
+                partial(
+                    _set_deny_exceptions, raw={"billing": [{"path_prefixes": ["apps/"], "extensions": extensions}]}
+                ),
+                id=f"deny-exceptions-extension-{name}",
+            )
+            for name, extensions in [
+                ("not-list", ".yaml"),
+                ("empty-list", []),
+                ("non-string", [1]),
+                ("empty", [""]),
+                ("missing-dot", ["yaml"]),
+                ("empty-suffix", ["."]),
+                ("empty-compound-segment", [".tar..gz"]),
+                ("slash", [".yaml/"]),
+                ("backslash", [".yaml\\"]),
+                ("wildcard", [".*"]),
+                ("regex", [".(yaml|yml)"]),
+                ("whitespace", [".yaml "]),
+                ("control", [".yaml\x00"]),
+                ("invalid-second-entry", [".yaml", "."]),
+            ]
+        ],
     ],
 )
 def test_malformed_policy_hard_fails(tmp_path: Path, mutate) -> None:
@@ -269,6 +405,59 @@ def test_malformed_policy_hard_fails(tmp_path: Path, mutate) -> None:
         load_policy(bad, lockfile_names=_LOCKFILE_NAMES, ownership_formats=_OWNERSHIP_FORMATS)
 
 
+@pytest.mark.parametrize(
+    "overlay, expected",
+    [
+        pytest.param({"a": {"b": [3]}}, {"a": {"b": [3], "c": 1}}, id="declared-list-replaces"),
+        pytest.param({"a": {"extend_b": [2, 3]}}, {"a": {"b": [1, 2, 3], "c": 1}}, id="extend-appends-new-items"),
+        pytest.param({"a": {"c": 2}, "d": {"e": 1}}, {"a": {"b": [1], "c": 2}, "d": {"e": 1}}, id="mappings-merge"),
+        pytest.param({"a": {"b": [3], "extend_b": [4]}}, PolicyError, id="replace-and-extend"),
+        pytest.param({"a": {"extend_c": [4]}}, PolicyError, id="extend-a-non-list"),
+        pytest.param({"a": {"extend_missing": [4]}}, PolicyError, id="extend-a-missing-list"),
+    ],
+)
+def test_merge_policy(overlay: dict, expected: dict | type[Exception]) -> None:
+    default = {"a": {"b": [1], "c": 1}}
+    if isinstance(expected, dict):
+        assert merge_policy(default, overlay) == expected
+        return
+    with pytest.raises(expected):
+        merge_policy(default, overlay)
+
+
+@pytest.mark.parametrize(
+    "overlay, error",
+    [
+        pytest.param(None, None, id="no-repo-file-reviews-under-the-default"),
+        pytest.param({"size_gate": {"max_lines": 500}}, None, id="partial-section"),
+        pytest.param(
+            {"deny": {"stamphog_policy": {"match": {"paths": ["\\.stamphog/"]}}}},
+            "drops the shipped self-governance patterns",
+            id="self-governance-floor",
+        ),
+        pytest.param(
+            {"deny": {"auth": {"exempt_path_prefixes": ["apps/"]}}},
+            "declare deny_exceptions.auth",
+            id="retired-exemption-key",
+        ),
+    ],
+)
+def test_load_effective_policy(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, overlay: dict | None, error: str | None
+) -> None:
+    repo_file = tmp_path / "policy.yml"
+    if overlay is not None:
+        repo_file.write_text(yaml.safe_dump(overlay))
+    monkeypatch.setattr(policy, "repo_policy_path", lambda: repo_file)
+    if error is not None:
+        with pytest.raises(PolicyError, match=error):
+            load_effective_policy(lockfile_names=_LOCKFILE_NAMES, ownership_formats=_OWNERSHIP_FORMATS)
+        return
+    loaded = load_effective_policy(lockfile_names=_LOCKFILE_NAMES, ownership_formats=_OWNERSHIP_FORMATS)
+    assert set(loaded.deny) == set(_valid_policy_dict()["deny"])
+    assert loaded.size_gate.max_lines == (overlay or {}).get("size_gate", {}).get("max_lines", 800)
+
+
 def test_server_owned_digest_section_is_allowed_and_ignored(tmp_path: Path) -> None:
     # The hosted server declares a `digest:` top-level section it parses itself; the engine must
     # tolerate (not require, not read) it, or any repo with a digest channel crashes every review.
@@ -278,6 +467,28 @@ def test_server_owned_digest_section_is_allowed_and_ignored(tmp_path: Path) -> N
     path.write_text(yaml.safe_dump(data))
     loaded = load_policy(path, lockfile_names=_LOCKFILE_NAMES, ownership_formats=_OWNERSHIP_FORMATS)
     assert loaded.version == 1
+
+
+@pytest.mark.parametrize(
+    "match, keyword",
+    [
+        ({"titles": ["billing"]}, "billing"),
+        ({"paths": ["payment"]}, "billing"),
+        ({"any": ["billing.*"]}, "billing"),
+        ({"paths": ["[Bb]illing"]}, "billing"),
+        ({"paths": [r"\bbilling\b"]}, "billing"),
+    ],
+)
+def test_deny_exception_keyword_requires_effective_path_literal(
+    tmp_path: Path, match: dict[str, list[str]], keyword: str
+) -> None:
+    data = _valid_policy_dict()
+    data["deny"]["billing"]["match"] = match
+    data["deny_exceptions"] = {"billing": [{"keyword": keyword, "path_prefixes": ["apps/"]}]}
+    path = tmp_path / "policy.yml"
+    path.write_text(yaml.safe_dump(data))
+    with pytest.raises(PolicyError, match="path-capable literal pattern"):
+        load_policy(path, lockfile_names=_LOCKFILE_NAMES, ownership_formats=_OWNERSHIP_FORMATS)
 
 
 # ── 3. Folder-override resolution ──
@@ -646,10 +857,11 @@ def test_policy_file_only_pr_is_t2_never(path: str) -> None:
 def test_reviewer_system_composes_guidance_and_scaffold() -> None:
     # Wording changes are governed by human review (stamphog_policy deny), not a
     # frozen snapshot; this only guards the composition seam itself.
-    guidance = policy.review_guidance_path().read_text()
-    assert reviewer.REVIEWER_SYSTEM == guidance + reviewer._REVIEWER_SCAFFOLD_TAIL
+    guidance = reviewer._load_review_guidance()
+    assert reviewer.REVIEWER_SYSTEM == reviewer._AUDIT_HEAD + guidance + reviewer._REVIEWER_SCAFFOLD_TAIL
+    assert guidance.startswith(policy.review_guidance_path().read_text())
     assert "showstoppers" in guidance
-    assert "Verdicts:" in reviewer._REVIEWER_SCAFFOLD_TAIL
+    assert "Facts to report:" in reviewer._AUDIT_HEAD
 
 
 # ── 6. Folder prose is sanitized and capped ──
@@ -733,3 +945,17 @@ def test_review_body_without_familiarity_has_no_familiarity_bullet() -> None:
     body = _body_pipeline(None)._render_review_body()
     assert body is not None
     assert "familiarity" not in body.lower()
+
+
+def test_explicit_repo_root_wins_over_a_nearer_stamphog_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # The hosted checkout is the PR head, and the engine sits at tools/pr-approval-agent. A PR that adds
+    # tools/.stamphog/ would become the root of the upward walk and supply its own policy.
+    (tmp_path / ".stamphog").mkdir()
+    (tmp_path / "tools" / ".stamphog").mkdir(parents=True)
+    monkeypatch.setenv("STAMPHOG_REPO_ROOT", str(tmp_path))
+    policy.repo_root.cache_clear()
+    try:
+        assert policy.repo_root() == tmp_path.resolve()
+    finally:
+        monkeypatch.delenv("STAMPHOG_REPO_ROOT")
+        policy.repo_root.cache_clear()

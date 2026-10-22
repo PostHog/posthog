@@ -28,7 +28,7 @@ real engine behavior. Only the fields the engine reads are documented here; unkn
 - **`client.headers`** (optional) — static headers sent on every request.
 - **`client.paginator`** (optional) — a default paginator for all resources; override per resource on the endpoint.
 - **`resource_defaults.endpoint`** (optional) — endpoint fields merged into every resource (e.g. a shared paginator or
-  `data_selector`).
+  `data_selector`). Incremental config isn't allowed here; set `endpoint.incremental` on each resource instead.
 - **`resources`** (required, 1–50) — one entry per table you want to import. Each has a unique `name` (becomes the
   table name) and an `endpoint`.
 
@@ -129,6 +129,10 @@ Set `endpoint.paginator` (or `client.paginator`) to one of:
 | `single_page`   | —                                                                                            | endpoint returns everything in one response                                     |
 | `auto`          | —                                                                                            | fetches only the first response — no auto-detection; single-page endpoints only |
 
+`cursor`, `offset`, and `page_number` also take `param_location`: `"query"` (default) or `"json"` to write the page
+fields into the request body. With `"json"`, a dotted name is a path into nested objects, so `"variables.offset"`
+sets `{"variables": {"offset": ...}}`. Use this for GraphQL APIs, which read their arguments from `variables`.
+
 ## Incremental sync
 
 `endpoint.incremental` makes re-syncs fetch only new/changed rows:
@@ -146,6 +150,9 @@ Set `endpoint.paginator` (or `client.paginator`) to one of:
 - **`cursor_path`** — JSONPath to the cursor field on each record (the high-watermark).
 - **`start_param`** — query param the engine sets to the last-seen cursor value on the next sync.
 - **`end_param`** (optional) — upper-bound param if the API supports a window.
+- **`param_location`** (optional) — `"query"` (default) or `"json"` to send `start_param` and `end_param` in the
+  request body. With `"json"`, a dotted name such as `"variables.since"` is a path into nested objects. A child
+  resource in a fan-out sends no body, so it can't use `"json"`.
 - **`cursor_type`** (optional) — `datetime` (default), `date`, `timestamp`, `integer`, `numeric`, or `objectid`. Set
   it when the cursor is not a datetime (e.g. an autoincrement id) so it's stored and compared correctly.
 - **`datetime_format`** (optional) — strftime pattern for how the watermark is serialized into `start_param`. Defaults

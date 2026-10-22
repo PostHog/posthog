@@ -28,6 +28,7 @@ class TypeSafeClient(EgressClient):
     every caller; wire it through :func:`typesafe_request`."""
 
     observability = typesafe_egress
+    egress_domain = "typesafe"
 
     def _gate(self, scope: str | None, source: str, priority: Priority, url: str) -> None:
         if not typesafe_allowed():

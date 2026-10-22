@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -33,6 +34,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class DagsterCloudSource(ResumableSource[DagsterCloudSourceConfig, DagsterCloudResumeConfig]):
+    codebase_detection = detect(env=("^(DAGSTER_CLOUD|DAGSTERCLOUD)_",), pypi=("dagster-cloud", "dagster-cloud-cli"))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -51,7 +54,7 @@ class DagsterCloudSource(ResumableSource[DagsterCloudSourceConfig, DagsterCloudR
             name=ExternalDataSourceType.DAGSTERCLOUD,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Dagster+ (Dagster Cloud)",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Connect your Dagster+ deployment to sync run history, backfills, and your asset catalog into the PostHog Data warehouse.
 
 Create a user token under **Organization settings → Tokens** in Dagster+, then enter your organization name, deployment name, and the token below.""",

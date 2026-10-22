@@ -8,8 +8,9 @@ import { urls } from 'scenes/urls'
 
 import type { offlineExperimentsLogicType } from './offlineExperimentsLogic'
 import { offlineOverviewTrendLogic, type OfflineOverviewTrendLogicProps } from './offlineOverviewTrendLogic'
+import { OfflineScoreSummaryDisplay } from './OfflineScoreSummaryDisplay'
 import { OfflineScoreTrendChart } from './OfflineScoreTrendChart'
-import { formatOfflineScore, getOfflineHistoryCoverage, offlineScoreMetricLabel } from './offlineScoreTrends'
+import { getOfflineHistoryCoverage } from './offlineScoreTrends'
 
 export function OfflineOverviewTrend(
     props: OfflineOverviewTrendLogicProps & {
@@ -21,10 +22,15 @@ export function OfflineOverviewTrend(
 ): JSX.Element {
     const { overviewLogic, ...trendProps } = props
     const logic = offlineOverviewTrendLogic(trendProps)
-    const { trend, trendLoading, trendError, versions, activeVersion, versionPoints, periodSummary } = useValues(logic)
+    const { trend, trendLoading, trendError, points, versionSummaries, periodSummary } = useValues(logic)
     const { loadOfflineOverviewTrend, selectVersion } = useActions(logic)
-    const versionIndex = versions.findIndex((version) => version.id === activeVersion?.id)
+    const versionIndex = versionSummaries.findIndex((summary) => summary.scorer.id === periodSummary?.scorer.id)
     const hasPartialHistory = !!trend && trend.page.count > trend.page.results.length
+    const scoredItemCount = periodSummary
+        ? periodSummary.pass_count != null && periodSummary.fail_count != null
+            ? periodSummary.pass_count + periodSummary.fail_count
+            : periodSummary.status_counts.ok
+        : 0
 
     return (
         <LemonCard hoverEffect={false} className="min-w-0 flex flex-col gap-3">
@@ -42,7 +48,7 @@ export function OfflineOverviewTrend(
                                 to={
                                     combineUrl(urls.aiObservabilityOfflineScorerHistory(props.scorerId), {
                                         ...props.filters,
-                                        version: activeVersion?.id,
+                                        version: periodSummary?.scorer.id,
                                         date_from: props.dateFrom || 'all',
                                         date_to: props.dateTo,
                                     }).url
@@ -53,48 +59,51 @@ export function OfflineOverviewTrend(
                             </Link>
                         </h3>
                         <LemonTag type="muted">{trend.definition.kind}</LemonTag>
-                        {versions.length > 1 && activeVersion && (
+                        {periodSummary && (
                             <div className="flex items-center gap-1 ml-auto">
-                                <LemonButton
-                                    size="xsmall"
-                                    type="tertiary"
-                                    icon={<IconChevronLeft />}
-                                    aria-label="Older scorer version"
-                                    tooltip="Older version"
-                                    disabledReason={
-                                        versionIndex === versions.length - 1
-                                            ? hasPartialHistory
-                                                ? 'Oldest loaded version'
-                                                : 'Oldest version in this period'
-                                            : undefined
-                                    }
-                                    onClick={() => selectVersion(versions[versionIndex + 1].id)}
-                                    data-attr="offline-score-older-version"
-                                />
-                                <span className="text-xs text-muted tabular-nums">{`v${activeVersion.version}`}</span>
-                                <LemonButton
-                                    size="xsmall"
-                                    type="tertiary"
-                                    icon={<IconChevronRight />}
-                                    aria-label="Newer scorer version"
-                                    tooltip="Newer version"
-                                    disabledReason={
-                                        versionIndex === 0
-                                            ? hasPartialHistory
-                                                ? 'Newest loaded version'
-                                                : 'Newest version in this period'
-                                            : undefined
-                                    }
-                                    onClick={() => selectVersion(versions[versionIndex - 1].id)}
-                                    data-attr="offline-score-newer-version"
-                                />
+                                {versionSummaries.length > 1 && (
+                                    <LemonButton
+                                        size="xsmall"
+                                        type="tertiary"
+                                        icon={<IconChevronLeft />}
+                                        aria-label="Older scorer version"
+                                        tooltip="Show summary for older version"
+                                        disabledReason={
+                                            versionIndex === versionSummaries.length - 1
+                                                ? 'Oldest version in this period'
+                                                : undefined
+                                        }
+                                        onClick={() => selectVersion(versionSummaries[versionIndex + 1].scorer.id)}
+                                        data-attr="offline-score-older-version"
+                                    />
+                                )}
+                                <span
+                                    className="text-xs text-muted tabular-nums"
+                                    data-attr="offline-score-summary-version"
+                                >
+                                    {`v${periodSummary.scorer.version}`}
+                                </span>
+                                {versionSummaries.length > 1 && (
+                                    <LemonButton
+                                        size="xsmall"
+                                        type="tertiary"
+                                        icon={<IconChevronRight />}
+                                        aria-label="Newer scorer version"
+                                        tooltip="Show summary for newer version"
+                                        disabledReason={
+                                            versionIndex === 0 ? 'Newest version in this period' : undefined
+                                        }
+                                        onClick={() => selectVersion(versionSummaries[versionIndex - 1].scorer.id)}
+                                        data-attr="offline-score-newer-version"
+                                    />
+                                )}
                             </div>
                         )}
                     </div>
                     {periodSummary && (
-                        <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-                            <strong>{formatOfflineScore(periodSummary)}</strong>
-                            <span className="text-muted text-xs">{`${offlineScoreMetricLabel(periodSummary.scorer)} · ${periodSummary.experimentCount} ${periodSummary.experimentCount === 1 ? 'experiment' : 'experiments'}`}</span>
+                        <div className="flex flex-col gap-1">
+                            <OfflineScoreSummaryDisplay summary={periodSummary} />
+                            <div className="text-muted text-xs">{`${periodSummary.experimentCount} ${periodSummary.experimentCount === 1 ? 'experiment' : 'experiments'} (${scoredItemCount} ${scoredItemCount === 1 ? 'item' : 'items'})`}</div>
                         </div>
                     )}
                     {hasPartialHistory && (
@@ -103,9 +112,11 @@ export function OfflineOverviewTrend(
                             <p className="mb-0">Earlier experiments and scorer versions may not be shown.</p>
                         </div>
                     )}
-                    {versionPoints.length ? (
+                    {points.length ? (
                         <OfflineScoreTrendChart
                             heightClassName="h-36"
+                            showHeading={false}
+                            combineVersions
                             hoverLogic={overviewLogic}
                             xDomain={props.xDomain}
                             colorOffset={props.colorOffset}
@@ -114,7 +125,7 @@ export function OfflineOverviewTrend(
                                 {
                                     key: 'overview',
                                     label: 'Experiments',
-                                    points: versionPoints,
+                                    points,
                                     dateFrom: props.dateFrom,
                                     dateTo: props.dateTo,
                                 },

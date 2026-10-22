@@ -22,7 +22,7 @@ const RUN_STATUSES: Record<string, SpaceFeedStatus> = {
 const PR_STATUSES: Record<Exclude<PrStateEnumApi, 'unknown'>, SpaceFeedStatus> = {
     open: { label: 'PR ready', variant: 'info' },
     draft: { label: 'Draft PR', variant: 'default' },
-    merged: { label: 'Merged', variant: 'default' },
+    merged: { label: 'Merged', variant: 'completed' },
     closed: { label: 'Closed', variant: 'destructive' },
 }
 
@@ -49,6 +49,10 @@ export function spaceFeedStatus(
     }
     if (run.environment !== 'cloud' && !TERMINAL_STATUSES.has(run.status)) {
         return null
+    }
+    // An interactive run stays `in_progress` between turns, so its turn output is ready for the reader.
+    if (run.status === 'in_progress' && run.state?.mode === 'interactive') {
+        return RUN_STATUSES.completed
     }
     return RUN_STATUSES[run.status] ?? null
 }

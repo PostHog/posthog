@@ -1,15 +1,19 @@
-import { useContext } from 'react'
+import { useValues } from 'kea'
+import { useContext, useId } from 'react'
 
 import { IconThumbsDown, IconThumbsDownFilled, IconThumbsUp, IconThumbsUpFilled, IconX } from '@posthog/icons'
 import { Button, ChatMessageFooter, Input, Text, cn } from '@posthog/quill-primitives'
 
-import { TZLabel } from 'lib/components/TZLabel'
 import { stripMarkdown } from 'lib/utils/markdown'
+
+import { todayShellLogic } from '~/layout/today/todayShellLogic'
 
 import type { TurnFeedbackActionsProps } from '../turnFeedbackTypes'
 import { TurnRevealContext } from '../TurnRevealContext'
 import { useTurnRating } from '../useTurnRating'
+import { footerRevealClass } from './footerReveal'
 import { QuillCopyButton, QuillFooterButton } from './QuillFooterButton'
+import { QuillFooterTimestamp } from './QuillFooterTimestamp'
 
 export function QuillTurnFeedbackActions({
     sessionId,
@@ -20,20 +24,20 @@ export function QuillTurnFeedbackActions({
     timestamp,
 }: TurnFeedbackActionsProps): JSX.Element {
     const turnHovered = useContext(TurnRevealContext)
+    const { todayRailEnabled, phoneLayout } = useValues(todayShellLogic)
     const { rating, submitRating, feedback, setFeedback, feedbackInputStatus, closeFeedback, submitFeedback } =
         useTurnRating({ sessionId, turnIndex, run, traceId })
+    const feedbackPromptId = useId()
 
     return (
         <div className="flex flex-col gap-2">
             <ChatMessageFooter
                 className={cn(
-                    'min-h-5 items-center gap-1 ps-0 transition-opacity focus-within:opacity-100',
-                    rating || turnHovered ? 'opacity-100' : 'opacity-0'
+                    'min-h-5 items-center gap-1 ps-0',
+                    footerRevealClass(!!rating || turnHovered || (todayRailEnabled && phoneLayout))
                 )}
             >
-                {timestamp !== undefined && (
-                    <TZLabel time={new Date(timestamp).toISOString()} className="text-xs text-foreground" />
-                )}
+                {timestamp !== undefined && <QuillFooterTimestamp time={timestamp} />}
                 {turnText && (
                     <QuillCopyButton
                         value={stripMarkdown(turnText)}
@@ -63,7 +67,7 @@ export function QuillTurnFeedbackActions({
             {feedbackInputStatus !== 'hidden' && (
                 <div className="flex max-w-4/5 flex-col gap-2 rounded-lg border border-border p-3">
                     <div className="flex items-center gap-1">
-                        <Text size="sm" weight="medium" className="grow">
+                        <Text id={feedbackPromptId} size="sm" weight="medium" className="grow">
                             {feedbackInputStatus === 'pending'
                                 ? 'What disappointed you about the answer?'
                                 : 'Thank you for your feedback!'}
@@ -81,6 +85,7 @@ export function QuillTurnFeedbackActions({
                             }}
                         >
                             <Input
+                                aria-labelledby={feedbackPromptId}
                                 placeholder="Help us improve PostHog AI…"
                                 value={feedback}
                                 onChange={(event) => setFeedback(event.target.value)}
