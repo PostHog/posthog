@@ -68,7 +68,7 @@ def derive_label(branch: str, max_length: int) -> str:
     if slug and len(slug) <= max_length and not reserved:
         return slug
 
-    digest = hashlib.sha1(branch.encode()).hexdigest()[:_HASH_LENGTH]
+    digest = hashlib.sha256(branch.encode()).hexdigest()[:_HASH_LENGTH]
     stem_length = max_length - _HASH_LENGTH - 1
     stem = slug[:stem_length].rstrip("-") if stem_length > 0 else ""
     return f"{stem}-{digest}" if stem else digest
