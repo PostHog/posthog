@@ -1,4 +1,8 @@
-import { RemoteContext, RemoteRequest, settleRequest } from './commandKSources'
+import api from 'lib/api'
+
+import { GroupTypeIndex } from '~/types'
+
+import { REMOTE_REQUESTS, RemoteContext, RemoteRequest, settleRequest } from './commandKSources'
 
 const context: RemoteContext = {
     currentTeamId: 1,
@@ -35,5 +39,38 @@ describe('settleRequest', () => {
         }
 
         await expect(settled).resolves.toEqual(expected)
+    })
+
+    it('keeps the group types that answered when the deadline passes', async () => {
+        jest.spyOn(api.groups, 'listClickhouse').mockImplementation((params, options) =>
+            params.group_type_index === 0
+                ? Promise.resolve({
+                      columns: ['group_name'],
+                      results: [[{ display_name: 'Acme', key: 'acme' }]],
+                  } as any)
+                : new Promise((_resolve, reject) =>
+                      options?.signal?.addEventListener('abort', () => reject(options.signal?.reason))
+                  )
+        )
+        const groups = REMOTE_REQUESTS.find((request) => request.id === 'groups')!
+        const settled = settleRequest(
+            groups,
+            'acme',
+            new AbortController().signal,
+            {
+                ...context,
+                groupTypes: [0, 1].map((index) => ({
+                    group_type: `type-${index}`,
+                    group_type_index: index as GroupTypeIndex,
+                })) as RemoteContext['groupTypes'],
+            },
+            3000
+        )
+
+        await jest.advanceTimersByTimeAsync(3000)
+
+        const result = await settled
+        expect(result?.failed).toBe(true)
+        expect(result?.results.groups?.map((item) => item.id)).toEqual(['group-0-acme'])
     })
 })

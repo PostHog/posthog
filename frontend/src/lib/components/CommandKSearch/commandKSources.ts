@@ -28,6 +28,8 @@ import { freeWords } from './commandKRanking'
 
 export const RESULTS_LIMIT = 20
 export const REQUEST_DEADLINE_MS = 3000
+// An AbortError, so the API layer treats it like any cancelled request and reports nothing.
+const DEADLINE_PASSED = new DOMException('The request deadline passed', 'AbortError')
 export const SECONDARY_LIMIT = 5
 const RANKED_RESULTS_LIMIT = 40
 const RANKED_PER_TYPE = 4
@@ -102,7 +104,10 @@ const fetchGroups = async (term: string, signal: AbortSignal, context: RemoteCon
             )
         )
     )
-    signal.throwIfAborted()
+    // At the deadline, the group types that already answered still show.
+    if (signal.reason !== DEADLINE_PASSED) {
+        signal.throwIfAborted()
+    }
     return {
         groups: settled.flatMap((result, index) => {
             if (result.status !== 'fulfilled') {
@@ -253,18 +258,15 @@ export function settleRequest(
     const controller = new AbortController()
     const abort = (): void => controller.abort()
     signal.addEventListener('abort', abort, { once: true })
-    let timedOut = false
-    const deadline = setTimeout(() => {
-        timedOut = true
-        controller.abort()
-    }, deadlineMs)
+    const deadline = setTimeout(() => controller.abort(DEADLINE_PASSED), deadlineMs)
+    const timedOut = (): boolean => controller.signal.reason === DEADLINE_PASSED
     return (
         request
             .fetch(query, controller.signal, context)
-            .then((results) => ({ results: settleSources(request, results), failed: false }))
+            .then((results) => ({ results: settleSources(request, results), failed: timedOut() }))
             // A failed source settles empty so its section never stays on skeletons.
             .catch((error) =>
-                isAbortError(error) && !timedOut ? null : { results: settleSources(request, {}), failed: true }
+                isAbortError(error) && !timedOut() ? null : { results: settleSources(request, {}), failed: true }
             )
             .finally(() => {
                 clearTimeout(deadline)
