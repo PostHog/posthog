@@ -5,10 +5,9 @@ import os from 'os'
 import path from 'path'
 import { fileURLToPath } from 'url'
 
-const GIB = 1024 ** 3
+import { tsgoPlan } from './typescriptCheckPlan.mjs'
+
 const WATCHDOG_RATIO = 0.85
-const UNTUNED_MIN_HEADROOM_GIB = 24
-const MIN_GOMEMLIMIT_GIB = 6
 const frontendDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 
 function readNumber(file, key) {
@@ -51,15 +50,18 @@ function headroomBytes() {
     )
 }
 
-const headroom = headroomBytes()
-const constrained = headroom !== null && headroom < UNTUNED_MIN_HEADROOM_GIB * GIB
+const plan = tsgoPlan(headroomBytes())
+if (plan.mode === 'refuse') {
+    console.error(plan.message)
+    process.exit(75)
+}
+const constrained = plan.mode === 'constrained'
 const args = ['--noEmit', ...(constrained ? ['--checkers', '1'] : []), ...process.argv.slice(2)]
 let env = process.env
 if (constrained) {
-    const memoryLimit = `${Math.max(MIN_GOMEMLIMIT_GIB, Math.floor(headroom / GIB / 2))}GiB`
-    env = { GOMEMLIMIT: memoryLimit, ...process.env }
+    env = { GOMEMLIMIT: plan.goMemLimit, ...process.env }
     console.info(
-        `${(headroom / GIB).toFixed(1)} GiB of memory headroom: running tsgo with one checker and GOMEMLIMIT=${env.GOMEMLIMIT}.`
+        `${plan.headroomGib} GiB of memory headroom: running tsgo with one checker and GOMEMLIMIT=${env.GOMEMLIMIT}.`
     )
 }
 
