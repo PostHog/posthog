@@ -147,7 +147,7 @@ export function watchForGoldRingsContent(
 
     const timeout = window.setTimeout(stopWatching, observationWindowMs)
     attachToContent()
-    if (!isStopped && !getContent()) {
+    if (!isStopped && !contentObserver) {
         documentObserver = new MutationObserver(attachToContent)
         if (document.documentElement) {
             documentObserver.observe(document.documentElement, { childList: true, subtree: true })
