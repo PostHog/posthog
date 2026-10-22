@@ -591,6 +591,8 @@ export class TaskCreationSaga extends Saga<
             if (!taskRun?.id) {
               throw new Error("Failed to create task run");
             }
+            // The Pi view keys its session on `latest_run`; a run that appears only after a refetch resets the live session.
+            task = { ...task, latest_run: taskRun };
 
             await this.deps.piRunner.create({
               taskContext: {

@@ -431,9 +431,8 @@ describe("TaskCreationSaga", () => {
     });
     const createdTask = createTask({ repository: undefined });
     const createTaskRequest = vi.fn().mockResolvedValue(createdTask);
-    const createTaskRun = vi
-      .fn()
-      .mockResolvedValue(createRun({ environment: "local" }));
+    const localRun = createRun({ environment: "local" });
+    const createTaskRun = vi.fn().mockResolvedValue(localRun);
     const onTaskReady = vi.fn();
     piRunner.create.mockImplementationOnce(() => piSessionCreated);
     const saga = makeSaga(
@@ -460,7 +459,7 @@ describe("TaskCreationSaga", () => {
 
     expect(result.success).toBe(true);
     expect(onTaskReady).toHaveBeenCalledWith({
-      task: createdTask,
+      task: { ...createdTask, latest_run: localRun },
       workspace: null,
     });
     expect(createTaskRequest).toHaveBeenCalledWith(
@@ -482,6 +481,30 @@ describe("TaskCreationSaga", () => {
     });
     expect(sessionService.connectToTask).not.toHaveBeenCalled();
     expect(sessionService.markTaskCreationInFlight).not.toHaveBeenCalled();
+  });
+
+  it("fails a new local Pi task without starting Pi when no run is created", async () => {
+    const onTaskReady = vi.fn();
+    const saga = makeSaga(
+      {
+        createTask: vi
+          .fn()
+          .mockResolvedValue(createTask({ repository: undefined })),
+        createTaskRun: vi.fn().mockResolvedValue(undefined),
+      },
+      { onTaskReady },
+    );
+
+    const result = await saga.run({
+      content: "Draft a launch email",
+      workspaceMode: "local",
+      runtime: "pi",
+      allowNoRepo: true,
+    });
+
+    expect(result.success).toBe(false);
+    expect(piRunner.create).not.toHaveBeenCalled();
+    expect(onTaskReady).not.toHaveBeenCalled();
   });
 
   it("starts a Pi session before surfacing a new worktree task", async () => {
@@ -519,7 +542,10 @@ describe("TaskCreationSaga", () => {
     expect(result).toMatchObject({ success: true });
     expect(mockHost.createWorkspace).toHaveBeenCalledOnce();
     expect(onTaskReady).toHaveBeenCalledWith({
-      task: createdTask,
+      task: {
+        ...createdTask,
+        latest_run: expect.objectContaining({ id: "run-123" }),
+      },
       workspace: expect.objectContaining({ taskId: createdTask.id }),
     });
   });

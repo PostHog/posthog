@@ -1071,23 +1071,43 @@ describe("PiSessionController", () => {
     },
   );
 
-  it("retries a local session with a local run instead of resuming it in the cloud", async () => {
-    const session = createSession();
-    const taskService = {
-      openTask: vi.fn(async () => ({ success: true })),
-      resumeCloudPiRun: vi.fn(),
-    } as unknown as TaskService;
-    const controller = createController(session, taskService);
+  it.each([
+    ["a loaded local session", true, "local", false],
+    ["a failed load of a local run", false, "local", false],
+    ["a failed load of a cloud run", false, "cloud", true],
+  ])(
+    "restart with %s resumes in the cloud only for a cloud run",
+    async (_label, sessionLoads, environment, resumesInCloud) => {
+      const session = createSession();
+      const provider: PiSessionProvider = {
+        get: sessionLoads
+          ? vi.fn(async () => session)
+          : vi.fn(async () => {
+              throw new Error("Pi failed to start");
+            }),
+      };
+      const taskService = {
+        openTask: vi.fn(async () => ({ success: true })),
+        getTask: vi.fn(async () => ({
+          id: "task-1",
+          latest_run: { id: "run-1", environment },
+        })),
+        resumeCloudPiRun: vi.fn(async () => ({ id: "run-1" })),
+      } as unknown as TaskService;
+      const controller = new PiSessionController(
+        provider,
+        taskService,
+        createLogger().logger,
+      );
 
-    await controller.connect("task-1", "run-local");
-    await controller.restart("task-1");
+      await controller.connect("task-1", "run-1").catch(() => {});
+      await controller.restart("task-1").catch(() => {});
 
-    expect(taskService.resumeCloudPiRun).not.toHaveBeenCalled();
-    expect(controller.store.getState().sessions["task-1"]).toMatchObject({
-      connectionState: "connected",
-      error: undefined,
-    });
-  });
+      expect(vi.mocked(taskService.resumeCloudPiRun).mock.calls.length).toBe(
+        resumesInCloud ? 1 : 0,
+      );
+    },
+  );
 
   it("keeps a background cloud session until the run ends", async () => {
     const session: PiSession = {

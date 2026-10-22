@@ -438,11 +438,7 @@ export class PiSessionController {
       return;
     }
     const taskRunId = this.taskRunIds.get(taskId);
-    // Local Pi tasks have local runs too; only a cloud session can be resumed in the cloud.
-    const session = taskRunId
-      ? await this.sessions.get(taskId)?.catch(() => undefined)
-      : undefined;
-    if (!taskRunId || (session && !session.taskRunId)) {
+    if (!taskRunId || !(await this.isCloudRun(taskId, taskRunId))) {
       await this.retry(taskId);
       return;
     }
@@ -1840,6 +1836,21 @@ export class PiSessionController {
   private disposeConversationSubscription(taskId: string): void {
     this.subscriptions.get(taskId)?.();
     this.subscriptions.delete(taskId);
+  }
+
+  /** Local Pi tasks have runs too; only a cloud run can be resumed in the cloud. */
+  private async isCloudRun(
+    taskId: string,
+    taskRunId: string,
+  ): Promise<boolean> {
+    const session = await this.sessions.get(taskId)?.catch(() => undefined);
+    if (session) {
+      return session.taskRunId !== undefined;
+    }
+    const task = await this.taskService
+      .getTask(taskId, taskRunId)
+      .catch(() => undefined);
+    return task?.latest_run?.environment === "cloud";
   }
 
   private getPiSession(taskId: string): Promise<PiSession> {
