@@ -1,7 +1,13 @@
 import { Counter } from 'prom-client'
 import { z } from 'zod'
 
-import { BareEmailAddressSchema } from '~/cdp/schema/emailFields'
+import {
+    BareEmailAddressSchema,
+    EmailHeaderSchema,
+    EmailTagSchema,
+    MAX_EMAIL_HEADERS,
+    MAX_EMAIL_TAGS,
+} from '~/cdp/schema/emailFields'
 import { HogFlow } from '~/cdp/schema/hogflow'
 
 import { IntegrationManagerService } from '../managers/integration-manager.service'
@@ -34,6 +40,10 @@ export const AcceptedSendSchema = z
             .readonly()
             .optional(),
         replyTo: z.array(z.string()).readonly().optional(),
+        cc: z.array(z.string().email()).max(10).readonly().optional(),
+        bcc: z.array(z.string().email()).max(10).readonly().optional(),
+        headers: z.array(EmailHeaderSchema.readonly()).max(MAX_EMAIL_HEADERS).readonly().optional(),
+        tags: z.array(EmailTagSchema.readonly()).max(MAX_EMAIL_TAGS).readonly().optional(),
         tracking: z.object({ captureEngagement: z.boolean() }).readonly(),
     })
     .readonly()

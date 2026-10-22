@@ -3311,6 +3311,31 @@ describe('Hogflow Executor', () => {
                     html: '<p>Hi {{ variables.name }}</p>',
                 }),
             },
+            {
+                name: "a code send with the caller's copies, headers and tags over the step",
+                step: codeKeyStep,
+                send: (): AcceptedSend => ({
+                    ...codeSend(),
+                    cc: ['jane@example.com', 'joe@example.com'],
+                    bcc: ['audit@example.com'],
+                    headers: [{ name: 'X-Entity-Ref-ID', value: 'order-123' }],
+                    tags: [{ name: 'category', value: 'password_reset' }],
+                }),
+                expected: () => ({
+                    type: 'email',
+                    to: { email: 'recipient@example.com', name: 'Recipient' },
+                    from: { integrationId, email: 'security@posthog.com', name: 'Security' },
+                    cc: 'jane@example.com, joe@example.com',
+                    bcc: 'audit@example.com',
+                    headers: [{ name: 'X-Entity-Ref-ID', value: 'order-123' }],
+                    tags: [{ name: 'category', value: 'password_reset' }],
+                    replyTo: 'help@example.com, support@example.com',
+                    subject: 'Reset your password',
+                    preheader: '',
+                    text: 'Hi',
+                    html: '<p>Hi {{ variables.name }}</p>',
+                }),
+            },
         ])('hands the email queue $name', async ({ step, send, expected }) => {
             const invocation = flowInvocation(emailFlow(step()))
             invocation.state.variables = { name: 'Ada' }

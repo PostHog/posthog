@@ -418,6 +418,14 @@ def _send_payload(send: AcceptedSend) -> dict[str, Any]:
         )
     if send.reply_to:
         payload["replyTo"] = list(send.reply_to)
+    if send.cc:
+        payload["cc"] = list(send.cc)
+    if send.bcc:
+        payload["bcc"] = list(send.bcc)
+    if send.headers:
+        payload["headers"] = [{"name": header.name, "value": header.value} for header in send.headers]
+    if send.tags:
+        payload["tags"] = [{"name": tag.name, "value": tag.value} for tag in send.tags]
     return payload
 
 

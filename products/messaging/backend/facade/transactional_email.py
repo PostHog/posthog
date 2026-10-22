@@ -2,6 +2,7 @@
 
 from products.messaging.backend.facade.contracts import (
     AcceptedSend,
+    EmailField,
     EmailSendCommand,
     EmailSendOutcome,
     Queued,
@@ -28,6 +29,7 @@ from products.messaging.backend.services.transactional_email import (
 __all__ = [
     "SENDER_ADDRESS_MAX_LENGTH",
     "AcceptedSend",
+    "EmailField",
     "EmailSendCommand",
     "EmailSendOutcome",
     "Queued",
