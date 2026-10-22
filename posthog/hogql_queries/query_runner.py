@@ -157,7 +157,10 @@ from posthog.clickhouse.client.limit import (
     get_materialized_endpoints_rate_limiter,
 )
 from posthog.clickhouse.query_tagging import (
+    Product,
+    add_fallback_query_tags,
     get_query_tag_value,
+    get_query_tags,
     is_api_key_access_method,
     is_known_product_tag,
     tag_queries,
@@ -541,6 +544,15 @@ def _api_queries_budget_enforcement_enabled(team: Team) -> bool:
         return False
 
 
+def _budget_event_product() -> str:
+    """The budget is checked before the query runs, so the product fallbacks the ClickHouse
+    client applies at execution have not run yet. Apply them to a copy so the event names the
+    same product the query log will. A budgeted read with no other product is a plain API read."""
+    tags = get_query_tags().model_copy(deep=True)
+    add_fallback_query_tags(tags)
+    return str(tags.product or Product.API)
+
+
 def api_queries_budget_enforcement_enabled(team: Team) -> bool:
     """Whether the read-byte budget rejects API requests for this team.
 
@@ -599,7 +611,7 @@ def enforce_api_queries_budget(team: Team) -> None:
     if claim_limited_event(str(team.pk)):
         try:
             access_method = get_query_tag_value("access_method")
-            product = get_query_tag_value("product")
+            product = _budget_event_product()
             report_team_action(
                 team,
                 "api queries budget limited",
@@ -610,7 +622,7 @@ def enforce_api_queries_budget(team: Team) -> None:
                     "remaining_bytes": status.remaining_bytes,
                     "retry_after_seconds": status.retry_after_seconds,
                     "access_method": str(access_method) if access_method else None,
-                    "product": str(product) if product else None,
+                    "product": product,
                 },
             )
         except Exception as e:
