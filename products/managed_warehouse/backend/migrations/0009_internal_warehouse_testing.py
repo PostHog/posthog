@@ -11,6 +11,11 @@ class Migration(migrations.Migration):
     operations = [
         migrations.AddField(
             model_name="managedwarehousesourcelifecycle",
+            name="background_loading_enabled",
+            field=models.BooleanField(default=False, db_default=False),
+        ),
+        migrations.AddField(
+            model_name="managedwarehousesourcelifecycle",
             name="internal_only",
             field=models.BooleanField(default=False, db_default=False),
         ),
