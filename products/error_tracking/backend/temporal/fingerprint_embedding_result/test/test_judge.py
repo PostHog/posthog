@@ -25,6 +25,7 @@ from products.error_tracking.backend.temporal.fingerprint_embedding_result.activ
 )
 from products.error_tracking.backend.temporal.fingerprint_embedding_result.judge import (
     JEEVES_MODEL,
+    JEVK5_MODEL,
     AutoMergeConfig,
     JudgeModel,
     JudgeUnavailableError,
@@ -63,12 +64,18 @@ class TestAutoMergeConfig:
     def test_no_payload_keeps_todays_rule(self) -> None:
         assert parse_auto_merge_config(None) == AutoMergeConfig(auto_merge_threshold=0.019, judge_enabled=False)
 
-    def test_full_payload(self) -> None:
+    @parameterized.expand(
+        [
+            ("no_model", {}, JEEVES_MODEL),
+            ("selected_model", {"model": JEVK5_MODEL}, JEVK5_MODEL),
+        ]
+    )
+    def test_full_payload(self, _name: str, model_payload: dict[str, str], expected_model: JudgeModel) -> None:
         payload = {
             "auto_merge_threshold": 0.005,
             "judge": {
                 "enabled": True,
-                "model": JEEVES_MODEL,
+                **model_payload,
                 "max_distance": 0.3,
                 "cutoff": 0.8,
                 "shadow": False,
@@ -79,7 +86,7 @@ class TestAutoMergeConfig:
         assert parse_auto_merge_config(payload) == AutoMergeConfig(
             auto_merge_threshold=0.005,
             judge_enabled=True,
-            judge_model=JEEVES_MODEL,
+            judge_model=expected_model,
             judge_max_distance=0.3,
             judge_cutoff=0.8,
             judge_shadow=False,
@@ -93,10 +100,10 @@ class TestAutoMergeConfig:
             ("enabled_must_be_true", {"judge": {"enabled": "yes"}}, "judge_enabled", False),
             ("shadow_unless_false", {"judge": {"shadow": 0}}, "judge_shadow", True),
             ("unknown_model", {"judge": {"enabled": True, "model": "other", "cutoff": 0.8}}, "judge_enabled", False),
-            ("model_without_cutoff", {"judge": {"enabled": True, "model": JEEVES_MODEL}}, "judge_enabled", False),
+            ("model_without_cutoff", {"judge": {"enabled": True, "model": JEVK5_MODEL}}, "judge_enabled", False),
             (
                 "model_with_invalid_cutoff",
-                {"judge": {"enabled": True, "model": JEEVES_MODEL, "cutoff": "0.8"}},
+                {"judge": {"enabled": True, "model": JEVK5_MODEL, "cutoff": "0.8"}},
                 "judge_enabled",
                 False,
             ),
@@ -135,8 +142,8 @@ class TestAskJudge:
 
     @parameterized.expand(
         [
-            ("default", None, "posthog/hogference/jevk5-fp8-0.2"),
-            ("selected", JEEVES_MODEL, JEEVES_MODEL),
+            ("default", None, JEEVES_MODEL),
+            ("selected", JEVK5_MODEL, JEVK5_MODEL),
         ]
     )
     def test_returns_the_noul_probability(self, _name: str, model: JudgeModel | None, expected: JudgeModel) -> None:
@@ -248,11 +255,11 @@ class TestMergeWithJudge:
         assert (merged["merge_decision"], merged["judge_score"]) == ("judge", 0.8)
 
     def test_selected_model_is_used_and_reported(self) -> None:
-        run = self._merge(0.05, config=dataclasses.replace(JUDGE_ON, judge_model=JEEVES_MODEL))
+        run = self._merge(0.05, config=dataclasses.replace(JUDGE_ON, judge_model=JEVK5_MODEL))
 
-        assert run.judge.call_args.kwargs["model"] == JEEVES_MODEL
-        assert run.events["error_tracking_auto_merge_judged"]["judge_model"] == JEEVES_MODEL
-        assert run.events["error_tracking_issue_merged"]["judge_model"] == JEEVES_MODEL
+        assert run.judge.call_args.kwargs["model"] == JEVK5_MODEL
+        assert run.events["error_tracking_auto_merge_judged"]["judge_model"] == JEVK5_MODEL
+        assert run.events["error_tracking_issue_merged"]["judge_model"] == JEVK5_MODEL
 
     def test_judge_below_the_cutoff_does_not_merge(self) -> None:
         run = self._merge(0.05, score=0.79)

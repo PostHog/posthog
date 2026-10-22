@@ -30,8 +30,9 @@ AUTO_MERGE_CONFIG_FLAG = "error-tracking-auto-merge-config"
 DEFAULT_AUTO_MERGE_THRESHOLD = 0.019
 # Only approved gateway models may receive error documents; each needs its own calibrated cutoff.
 type JudgeModel = Literal["posthog/hogference/jevk5-fp8-0.2", "posthog/hogference/jeeves-0.1"]
-JUDGE_MODEL: JudgeModel = "posthog/hogference/jevk5-fp8-0.2"
 JEEVES_MODEL: JudgeModel = "posthog/hogference/jeeves-0.1"
+JEVK5_MODEL: JudgeModel = "posthog/hogference/jevk5-fp8-0.2"
+JUDGE_MODEL: JudgeModel = JEEVES_MODEL
 JUDGE_PROMPT_VERSION = "v5"
 JUDGE_QUESTION_KEY = "same_issue"
 MAX_DOCUMENT_CHARS = 6000  # what the judge was evaluated with
@@ -63,10 +64,10 @@ def _bounded(value: object, default: float, low: float, high: float) -> float:
 
 
 def _judge_model(value: object) -> JudgeModel | None:
-    if value == JUDGE_MODEL:
-        return JUDGE_MODEL
     if value == JEEVES_MODEL:
         return JEEVES_MODEL
+    if value == JEVK5_MODEL:
+        return JEVK5_MODEL
     return None
 
 
