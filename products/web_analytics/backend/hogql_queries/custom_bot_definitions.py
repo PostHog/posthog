@@ -30,6 +30,7 @@ to the API before a rule tightened cannot break every query for the project.
 
 import re
 from collections.abc import Iterable, Iterator
+from dataclasses import replace
 from functools import lru_cache
 from ipaddress import (
     IPv4Address,
@@ -208,7 +209,19 @@ def compile_pattern(pattern: str, matcher: str) -> str:
     return f"(?i){_escape_literal(pattern)}"
 
 
-def parse_ip_entry(entry: str) -> tuple[int, int, int]:
+@frozen
+class IpBounds:
+    version: int
+    start: int
+    end: int
+
+    def summarized(self) -> Iterator[IPv4Network | IPv6Network]:
+        if self.version == 4:
+            return summarize_address_range(IPv4Address(self.start), IPv4Address(self.end))
+        return summarize_address_range(IPv6Address(self.start), IPv6Address(self.end))
+
+
+def parse_ip_entry(entry: str) -> IpBounds:
     """Normalized with strict=False first, matching what validation accepts — otherwise a range
     written with host bits set, like 192.0.2.7/24, would save and then fail to compile.
     """
@@ -220,7 +233,7 @@ def parse_ip_entry(entry: str) -> tuple[int, int, int]:
         raise ValueError("a zone identifier is not supported")
     if "-" not in stripped:
         network = ip_network(stripped, strict=False)
-        return network.version, int(network.network_address), int(network.broadcast_address)
+        return IpBounds(version=network.version, start=int(network.network_address), end=int(network.broadcast_address))
     start_text, _, end_text = stripped.partition("-")
     start = ip_address(start_text.strip())
     end = ip_address(end_text.strip())
@@ -228,23 +241,18 @@ def parse_ip_entry(entry: str) -> tuple[int, int, int]:
         raise ValueError("both ends of a range must be the same IP version")
     if int(start) > int(end):
         raise ValueError("the start of a range must not come after its end")
-    return start.version, int(start), int(end)
+    return IpBounds(version=start.version, start=int(start), end=int(end))
 
 
-def _merged_bounds(bounds: Iterable[tuple[int, int, int]]) -> list[tuple[int, int, int]]:
-    merged: list[tuple[int, int, int]] = []
-    for version, start, end in sorted(bounds):
-        if merged and merged[-1][0] == version and start <= merged[-1][2] + 1:
-            merged[-1] = (version, merged[-1][1], max(merged[-1][2], end))
+def _merged_bounds(bounds: Iterable[IpBounds]) -> list[IpBounds]:
+    merged: list[IpBounds] = []
+    for current in sorted(bounds, key=lambda bound: (bound.version, bound.start)):
+        last = merged[-1] if merged else None
+        if last and last.version == current.version and current.start <= last.end + 1:
+            merged[-1] = replace(last, end=max(last.end, current.end))
         else:
-            merged.append((version, start, end))
+            merged.append(current)
     return merged
-
-
-def _summarized(version: int, start: int, end: int) -> Iterator[IPv4Network | IPv6Network]:
-    if version == 4:
-        return summarize_address_range(IPv4Address(start), IPv4Address(end))
-    return summarize_address_range(IPv6Address(start), IPv6Address(end))
 
 
 def ip_range_count(groups: IpPrefixGroups) -> int:
@@ -254,13 +262,13 @@ def ip_range_count(groups: IpPrefixGroups) -> int:
 @lru_cache(maxsize=256)
 def compile_cidr(ranges: tuple[str, ...]) -> IpPrefixGroups:
     """Turn an IP rule into the (prefix length, network addresses) groups the IP matcher compares."""
-    bounds: list[tuple[int, int, int]] = []
+    bounds: list[IpBounds] = []
     for entry in ranges:
         try:
             bounds.append(parse_ip_entry(entry))
         except ValueError as error:
             raise ValueError(f"'{entry}' is not a valid IP address or range: {error}.") from error
-    blocks = chain.from_iterable(_summarized(*bound) for bound in _merged_bounds(bounds))
+    blocks = chain.from_iterable(bound.summarized() for bound in _merged_bounds(bounds))
     networks = list(islice(blocks, MAX_IP_RANGES_PER_CONDITION + 1))
     if len(networks) > MAX_IP_RANGES_PER_CONDITION:
         raise ValueError(
