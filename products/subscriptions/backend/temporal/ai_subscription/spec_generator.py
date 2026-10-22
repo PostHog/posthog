@@ -14,6 +14,7 @@ from posthog.schema import CachedTeamTaxonomyQueryResponse, SubscriptionAIPrompt
 
 from posthog.hogql import ast
 from posthog.hogql.errors import BaseHogQLError
+from posthog.hogql.functions import find_hogql_function
 from posthog.hogql.parser import parse_select
 from posthog.hogql.visitor import TraversingVisitor
 
@@ -98,7 +99,9 @@ WINDOW_PLACEHOLDERS = (
     WINDOW_START_PLACEHOLDER,
     WINDOW_END_PLACEHOLDER,
 )
-_DATE_CONVERSION_FUNCTION = re.compile(r"(?:to(?:Date|DateTime)|parseDateTime)\w*")
+_NULL_ON_FAILURE_DATE_PARSERS = frozenset(
+    {"parseDateTime64BestEffortOrNull", "parseDateTime64BestEffortUSOrNull", "toDateOrNull"}
+)
 _DOUBLE_BRACE_TOKEN = re.compile(r"\{\{[^{}]*\}\}")
 _BRACKETED_NAME = re.compile(r"[{<][^{}<>A-Za-z_]*[A-Za-z_][^{}<>]*[}>]")
 # Bumping invalidates every frozen plan (they lazily re-plan on next delivery), so prompt/harness
@@ -249,8 +252,10 @@ class _PlaceholderTokenFinder(TraversingVisitor):
 
     def visit_call(self, node: ast.Call) -> None:
         literal = node.args[0] if node.args else None
+        function = find_hogql_function(node.name)
         if (
-            _DATE_CONVERSION_FUNCTION.fullmatch(node.name)
+            function is not None
+            and function.clickhouse_name in _NULL_ON_FAILURE_DATE_PARSERS
             and isinstance(literal, ast.Constant)
             and isinstance(literal.value, str)
         ):
