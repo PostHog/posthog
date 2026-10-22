@@ -416,10 +416,24 @@ class TestFailMaterializationActivity:
             job_id=str(current_job.id),
             error=error,
         )
-        await activity_environment.run(fail_materialization_activity, inputs)
+        with (
+            unittest.mock.patch(
+                "posthog.temporal.data_modeling.activities.notify_materialization_failure.create_notification"
+            ) as mock_create,
+            unittest.mock.patch(
+                "posthog.temporal.data_modeling.activities.notify_materialization_failure.send_matview_failure_immediate_email"
+            ) as mock_email,
+        ):
+            await activity_environment.run(fail_materialization_activity, inputs)
 
         await database_sync_to_async(anode.refresh_from_db)()
         assert is_node_suspended(anode, DataModelingJobEngine.CLICKHOUSE) is True
+        mock_email.delay.assert_called_once_with(ateam.pk, str(asaved_query.id), str(current_job.id), suspended=True)
+        mock_create.assert_called_once()
+        data = mock_create.call_args.args[0]
+        assert "suspended" in data.title
+        assert data.target_type == TargetType.TEAM
+        assert data.idempotency_key == f"matview-suspended-{current_job.id}"
 
     @pytest.mark.parametrize(
         "previous_status,parent_workflow_id,with_runner,expect_email,expect_in_app",

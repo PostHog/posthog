@@ -19,7 +19,7 @@ from products.data_modeling.backend.facade.models import (
 )
 
 from ..metrics import get_node_suspended_metric
-from .notify_materialization_failure import maybe_notify_materialization_failure
+from .notify_materialization_failure import maybe_notify_materialization_failure, notify_node_suspended
 from .utils import (
     CONSECUTIVE_FAILURES_TO_SUSPEND,
     bind_data_modeling_log_context,
@@ -122,6 +122,7 @@ async def fail_materialization_activity(inputs: FailMaterializationInputs) -> st
         return None
     error = inputs.error
     saved_query = None
+    suspended = False
     try:
         saved_query = await _get_saved_query_for_job(job)
         if saved_query is None:
@@ -158,7 +159,12 @@ async def fail_materialization_activity(inputs: FailMaterializationInputs) -> st
     # needs telling, so it must not take the notification down with it.
     if saved_query is not None and not inputs.cancelled:
         try:
-            notified = await maybe_notify_materialization_failure(job, saved_query, inputs.team_id)
+            if suspended:
+                # Replaces the failure notification for this run, so nobody gets two for one event.
+                await notify_node_suspended(job, saved_query, inputs.team_id)
+                notified = True
+            else:
+                notified = await maybe_notify_materialization_failure(job, saved_query, inputs.team_id)
             if notified:
                 await logger.ainfo(f"Sent materialization failure notification for node {inputs.node_id}")
         except Exception as e:
