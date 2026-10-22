@@ -5913,13 +5913,13 @@ Note: Parsed every GET operation in the official external API specification and 
 
 ## HeyReach — gaps
 
-Today (7): `campaign_leads`, `campaigns`, `conversations`, `linkedin_accounts`, `list_leads`, `lists`, `overall_stats`
+Today (10): `campaign_leads`, `campaign_stats`, `campaigns`, `conversations`, `linkedin_accounts`, `list_companies`, `list_leads`, `lists`, `overall_stats`, `sender_network`
 
 Diffed against: <https://documenter.gw.postman.com/api/collections/23808049/2sA2xb5F75?segregateAuth=true&versionTag=latest>
 
-- [ ] `GetOverallStatsByCampaign (POST /api/public/stats/GetOverallStatsByCampaign)` — compare daily reply rates, connection acceptance, and messages sent for each campaign instead of workspace totals (high)
-- [ ] `GetCompaniesFromList (POST /api/public/list/GetCompaniesFromList)` — analyze company audiences by industry, size, and location; current list_leads covers only lead lists (medium)
-- [ ] `GetMyNetworkForSender (POST /api/public/MyNetwork/GetMyNetworkForSender)` — measure sender network size and identify connections outside active campaigns and lead lists (medium)
+- [x] `GetOverallStatsByCampaign (POST /api/public/stats/GetOverallStatsByCampaign)` — compare daily reply rates, connection acceptance, and messages sent for each campaign instead of workspace totals (high)
+- [x] `GetCompaniesFromList (POST /api/public/list/GetCompaniesFromList)` — analyze company audiences by industry, size, and location; current list_leads covers only lead lists (medium)
+- [x] `GetMyNetworkForSender (POST /api/public/MyNetwork/GetMyNetworkForSender)` — measure sender network size and identify connections outside active campaigns and lead lists (medium)
 
 Note: Parsed all requests and response examples in the vendor's published Postman collection. Read-only POST endpoints are included because this API uses POST for lists. Conversations already contain messages and tags. Company lists and sender networks need fan-out; organization administration is excluded.
 
