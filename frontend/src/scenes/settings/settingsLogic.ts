@@ -177,7 +177,8 @@ export interface settingsLogicMeta {
             preflight: PreflightStatus | null,
             billingEntryUrl: string | null,
             isAdminOrOwner: boolean | null,
-            featureFlags: FeatureFlagsSet
+            featureFlags: FeatureFlagsSet,
+            user: UserType | null
         ) => SettingSection[]
         selectedLevel: (
             selectedLevelRaw: 'environment' | 'organization' | 'project' | 'user',
@@ -210,7 +211,8 @@ export interface settingsLogicMeta {
             doesMatchFlags: (flagDefinition: Pick<Setting, 'flag'>) => boolean,
             preflight: PreflightStatus | null,
             currentTeam: TeamPublicType | TeamType | null,
-            isAdminOrOwner: boolean | null
+            isAdminOrOwner: boolean | null,
+            user: UserType | null
         ) => Setting[]
         selectedSetting: (settings: Setting[], selectedSettingId: SettingId | null) => Setting | null
         doesMatchFlags: (featureFlags: FeatureFlagsSet) => (flagDefinition: Pick<Setting, 'flag'>) => boolean
@@ -222,7 +224,8 @@ export interface settingsLogicMeta {
             doesMatchFlags: (flagDefinition: Pick<Setting, 'flag'>) => boolean,
             preflight: PreflightStatus | null,
             currentTeam: TeamPublicType | TeamType | null,
-            isAdminOrOwner: boolean | null
+            isAdminOrOwner: boolean | null,
+            user: UserType | null
         ) => GlobalSearchFuse
         searchResults: (searchTerm: string, globalSearchIndex: GlobalSearchFuse) => SearchResultGroup[]
         filteredLevels: (
