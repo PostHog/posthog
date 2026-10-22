@@ -153,7 +153,7 @@ practice that is most of the queue. So:
   The branch is ephemeral; the run and its logs stay on GitHub, and the
   warehouse keeps its jobs under that `head_branch` (query 8 in the
   `investigating-ci-failures` references).
-  Backend CI is the exception: its tests run on Depot CI, and the `Backend CI on Depot / Django Tests Pass on Depot` check links that run.
+  Backend tests run on Depot CI. The `Backend CI on Depot / Django Tests Pass on Depot` check links to the Depot run.
 - The PR's own checks can be green with the failing job **skipped** or
   narrowed. On the PR, path filters see only that diff and the Django suite runs
   a selected subset; on the queue branch the diff is every carried PR's and the
@@ -247,12 +247,18 @@ token to the server entry in `.mcp.json`. To dig into one test's flakiness
 history, hand off to `fixing-flaky-tests`, which covers the `search-test` and
 `fix-flaky-test` tools.
 
-#### Backend tests, which run on Depot CI
+#### Backend tests on Depot CI
 
-Backend CI runs on Depot CI, not GitHub Actions, so `gh run` finds no run for it.
+Use the Depot CLI for Backend CI runs and logs. `gh run` only lists GitHub Actions runs.
 The required checks are `Backend CI on Depot / Test results` and `Backend CI on Depot / Django Tests Pass on Depot`.
-`Test results` lists the failing tests in its summary; read it with `gh api 'repos/PostHog/posthog/commits/<sha>/check-runs?check_name=Backend%20CI%20on%20Depot%20/%20Test%20results' --jq '.check_runs[0].output.summary'`.
-A passing draft run posts no `Test results`, so a draft shows it as expected until the PR is marked ready. Do not wait on it for a draft.
+`Test results` lists failing tests in its summary:
+
+```bash
+gh api 'repos/PostHog/posthog/commits/<sha>/check-runs?check_name=Backend%20CI%20on%20Depot%20/%20Test%20results' \
+  --jq '.check_runs[0].output.summary'
+```
+
+A passing draft run does not post `Test results`. GitHub shows it as expected until the PR is ready for review, so do not wait for that check on a draft.
 
 GitHub's Re-run button does nothing on a Depot check.
 A `/depot retry` comment on the PR from an organization member or collaborator retries the failed and cancelled jobs of the newest run, also while the rest of the run still goes.
@@ -269,7 +275,7 @@ If a `depot` command fails to authenticate, check `DEPOT_TOKEN` first: it overri
 Without it, ask the user to run `! depot login --clear`.
 Do not run it yourself: it waits on a browser sign-in.
 Every PostHog engineer gets an invite to the Depot org. A user without access checks their email for it, or requests one in #team-devex.
-Until then, retry with the `/depot retry` comment and report the `Test results` summary.
+Without Depot access, use `/depot retry` to retry the run and read its `Test results` summary through the GitHub API.
 
 ## Classification
 

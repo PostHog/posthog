@@ -23,9 +23,11 @@ Where a workflow cannot be planned without such a value, `SCRIPT_STUBS` in `src/
 hogli test:workflows
 ```
 
-`tests/workflows.test.ts` holds one row per workflow and scenario, naming the jobs that must run and the jobs that must skip.
-The rows encode the rules in [the authoring skill](../../.agents/skills/authoring-ci-workflows/SKILL.md): drafts skip the product matrix, the merge queue takes the full one, forks skip telemetry, a `no-ci` draft still reports its gate, the hourly schedule runs the matrices and skips the PR-only checks, and a superseded run records its gate as `cancelled` rather than `failure`.
-A coverage test keeps those rows exhaustive: every job in `.depot/workflows/ci-backend.yml` and `ci-frontend.yml` that carries an `if:` must be named by at least one row, so a new conditional job fails the suite until someone states what it should do.
+`tests/workflows.test.ts` names the jobs that must run or skip for each workflow and scenario.
+The expectations follow [the authoring skill](../../.agents/skills/authoring-ci-workflows/SKILL.md).
+They cover draft and merge-queue matrices, fork telemetry, `no-ci` draft gates, hourly runs, and cancellation verdicts.
+Every job with an `if:` in `.depot/workflows/ci-backend.yml` or `ci-frontend.yml` must appear in at least one expectation.
+The coverage test fails when a new conditional job has no expectation.
 A smoke test also feeds every workflow through the built-in scenarios and fails on any condition the evaluator rejects.
 
 Add a row when you add or change a condition.
