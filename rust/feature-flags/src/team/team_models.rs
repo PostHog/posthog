@@ -91,7 +91,8 @@ pub struct Team {
 }
 
 impl Team {
-    /// Whether this team's request blocklist refuses a caller with this host and client IP.
+    /// The reason this team's request blocklist refuses a caller with this host and client
+    /// IP, or `None` when the caller is allowed.
     pub fn request_block_reason(
         &self,
         origin_host: Option<&str>,

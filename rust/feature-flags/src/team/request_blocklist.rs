@@ -1,7 +1,8 @@
 //! A team's blocklist for `/flags` and `/decide` callers, matched by caller host or client IP.
 //!
 //! Django validates and normalizes both lists on write and puts them in the team metadata
-//! cache. This module parses them when the team is loaded, so a match does no parsing.
+//! cache. This module parses the lists each time a team is deserialized, which happens on
+//! every request, so the matchers themselves do no parsing.
 
 use crate::utils::cidr::{parse_cidr, ParsedCidr};
 use axum::http::HeaderMap;
@@ -88,7 +89,9 @@ impl From<Vec<String>> for BlockedIps {
                 if parsed.is_none() {
                     // Django rejects invalid entries on write, so this is a row written by
                     // another path. One bad entry must not disable the rest of the list.
-                    tracing::warn!(entry = %entry, "skipping invalid blocked IP entry");
+                    // The list is parsed on every request, so a warning would repeat for
+                    // every request while the bad entry stays stored.
+                    tracing::debug!(entry = %entry, "skipping invalid blocked IP entry");
                 }
                 parsed
             })
@@ -103,6 +106,7 @@ impl From<BlockedIps> for Vec<String> {
     }
 }
 
+// `ranges` is derived from `entries`, so equal entries always give equal ranges.
 impl PartialEq for BlockedIps {
     fn eq(&self, other: &Self) -> bool {
         self.entries == other.entries

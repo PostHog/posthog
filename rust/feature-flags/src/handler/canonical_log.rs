@@ -420,7 +420,7 @@ impl FlagsCanonicalLogLine {
             ip = %self.ip,
             user_agent = user_agent,
             origin_host = origin_host,
-            lib =self.lib.as_deref(),
+            lib = self.lib.as_deref(),
             lib_version = self.lib_version.as_deref(),
             api_version = self.api_version.as_deref(),
             response_format = self.response_format,
