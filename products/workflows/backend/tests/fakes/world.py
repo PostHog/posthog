@@ -6,10 +6,10 @@ from typing import Any
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 
-from products.workflows.backend.test.fakes.fake_dns import FakeDnsZone
-from products.workflows.backend.test.fakes.fake_domain_connect import FakeDomainConnectProvider
-from products.workflows.backend.test.fakes.fake_ses import FakeSes
-from products.workflows.backend.test.fakes.faults import FaultInjector
+from products.workflows.backend.tests.fakes.fake_dns import FakeDnsZone
+from products.workflows.backend.tests.fakes.fake_domain_connect import FakeDomainConnectProvider
+from products.workflows.backend.tests.fakes.fake_ses import FakeSes
+from products.workflows.backend.tests.fakes.faults import FaultInjector
 
 
 class EmailDomainWorld:

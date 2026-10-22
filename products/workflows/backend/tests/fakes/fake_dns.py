@@ -21,7 +21,7 @@ from dns.rdtypes.ANY.TXT import TXT
 
 from posthog.dataclasses import frozen
 
-from products.workflows.backend.test.fakes.faults import DnsFault, FaultInjector
+from products.workflows.backend.tests.fakes.faults import DnsFault, FaultInjector
 
 PUBLIC_RESOLVER_ADDRESS = "8.8.8.8"
 UNANSWERED_QUERY_SECONDS = 2.0

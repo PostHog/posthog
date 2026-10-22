@@ -9,8 +9,8 @@ from dns.rdtypes.ANY.MX import MX
 
 from posthog.dataclasses import frozen
 
-from products.workflows.backend.test.fakes.fake_dns import FakeDnsZone
-from products.workflows.backend.test.fakes.faults import AwsFault, FaultInjector
+from products.workflows.backend.tests.fakes.fake_dns import FakeDnsZone
+from products.workflows.backend.tests.fakes.faults import AwsFault, FaultInjector
 
 ACCOUNT_ID = "123456789012"
 SUCCESS = "Success"
