@@ -154,7 +154,6 @@ export const SettingsTabBaseBranchesWithoutGitHub: Story = {
 
 // An assets repository every implementation task can also write to: the list and the Add repository button render.
 export const SettingsTabExtraRepositories: Story = {
-    parameters: REDESIGN,
     render: () => (
         <SettingsCard
             width="wide"
