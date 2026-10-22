@@ -18,7 +18,7 @@ export interface ShareBarRow<T> {
 
 type ShareMeta<T> = T & { share: number }
 
-const SHARE_BAR_CONFIG: BarListConfig = { labelPosition: 'top', scale: 'total', valueDisplay: 'both' }
+const SHARE_BAR_CONFIG: BarListConfig = { labelPosition: 'top', scale: 'total', valueDisplay: 'both', barHeight: 10 }
 
 function formatCalls(value: number): string {
     return `${formatNumber(value)} ${value === 1 ? 'call' : 'calls'}`
