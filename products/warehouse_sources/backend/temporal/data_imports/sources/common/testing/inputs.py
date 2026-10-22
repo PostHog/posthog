@@ -1,4 +1,5 @@
 import datetime
+from collections.abc import Callable
 from typing import Any
 
 import structlog
@@ -27,6 +28,7 @@ def source_inputs(
     history_start: datetime.datetime | None = None,
     logger: FilteringBoundLogger | None = None,
     source_cursor: SourceCursorManager[Any] | None = None,
+    shutdown_wait: Callable[[float], object] | None = None,
 ) -> SourceInputs:
     """The `SourceInputs` the pipeline hands a source, with the fields a test varies.
 
@@ -53,4 +55,5 @@ def source_inputs(
         api_version=api_version,
         source_cursor=source_cursor,
         history_start=history_start,
+        shutdown_wait=shutdown_wait,
     )
