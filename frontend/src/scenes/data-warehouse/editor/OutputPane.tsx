@@ -1375,7 +1375,7 @@ const Content = ({
                         uniqueKey={vizKey}
                         query={sourceQuery}
                         setQuery={setSourceQuery}
-                        context={{}}
+                        context={{ dataVisualizationTableVirtualized: true }}
                         cachedResults={undefined}
                         exportContext={exportContext}
                         editMode
