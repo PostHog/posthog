@@ -18,6 +18,10 @@ TIER1_SOURCES = [
     (ExternalDataSourceType.GITLAB, "issues", "gitlab", "issue"),
     (ExternalDataSourceType.GITEA, "issues", "gitea", "issue"),
     (ExternalDataSourceType.SHORTCUT, "stories", "shortcut", "issue"),
+    (ExternalDataSourceType.CLICKUP, "tasks", "clickup", "issue"),
+    (ExternalDataSourceType.WRIKE, "tasks", "wrike", "issue"),
+    (ExternalDataSourceType.TRELLO, "cards", "trello", "issue"),
+    (ExternalDataSourceType.BUGHERD, "Tasks", "bugherd", "issue"),
     (ExternalDataSourceType.SENTRY, "issues", "sentry", "issue"),
     (ExternalDataSourceType.ROLLBAR, "items", "rollbar", "issue"),
     (ExternalDataSourceType.BUGSNAG, "errors", "bugsnag", "issue"),
@@ -73,7 +77,7 @@ def _mock_record(fields: tuple[str, ...]) -> dict:
     record: dict = {}
     for field in fields:
         name = field.rsplit(" AS ", 1)[-1]
-        if name in ("tags", "labels"):
+        if name in ("tags", "labels", "tag_names"):
             record[name] = '["one", "two"]'
         elif name in ("id", "iid", "project_id", "number", "workflow_state_id"):
             record[name] = 123
