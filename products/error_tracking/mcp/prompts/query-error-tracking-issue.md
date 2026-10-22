@@ -14,6 +14,8 @@ Defaults are intentionally useful: last 7 days, test accounts filtered out, aggr
 
 # Response fields
 
+- `summary`: a model-written summary with `what_happened`, `likely_cause`, `who_is_affected`, `suggested_next_step` and `category`. Use it to answer quickly, and check it against the facts in the same response. `likely_cause` is a hypothesis. Report it as a possible cause, never as a fact, and check it against a stack trace from `query-error-tracking-issue-events` before you act on it.
+- `summary_status`: `ready` when `summary` is present. `generating` means the summary is still being written: call this tool again in a few seconds if the user needs it. `unavailable` means no summary is available for this issue. Do not mention a missing summary to the user.
 - `first_release`: the release on the issue's first event, in the same shape as `latest_release`. It does not depend on `dateRange`. When the user asks which release caused the issue, compare it with `latest_release`. It is absent when the first event has no release metadata.
 - `trend`: occurrences in the second half of `dateRange` against the first half. Read `direction` (`new`, `increasing`, `decreasing` or `stable`) and do not do the arithmetic again. `increasing` and `decreasing` mean a change of at least 25%. `new` means the issue was first seen in the second half. With small counts, check `current_occurrences` and `previous_occurrences` before you call a change significant. `trend` is absent when the issue has no occurrences in `dateRange`.
 
