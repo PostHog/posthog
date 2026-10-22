@@ -221,6 +221,7 @@ import type {
     GitHubReposResponseApi,
 } from 'products/integrations/frontend/generated/api.schemas'
 import type { LogExplanation } from 'products/logs/frontend/components/LogsViewer/LogDetailsModal/Tabs/ExploreWithAI/types'
+import type { TasksRunsLogsRetrieveParams } from 'products/logs/frontend/generated/api.schemas'
 import type { NotebookCollabCursorApi } from 'products/notebooks/frontend/generated/api.schemas'
 import type { Task, TaskListParams, TaskRun, TaskUpsertProps } from 'products/posthog_ai/frontend/types/taskTypes'
 import type {
@@ -5079,6 +5080,7 @@ const api = {
                     tailBytes?: number
                     before?: number
                     start?: number
+                    view?: TasksRunsLogsRetrieveParams['view']
                 }
             ): Promise<{
                 entries: Record<string, any>[]
@@ -5096,6 +5098,7 @@ const api = {
                         ...(options.tailBytes !== undefined ? { tail_bytes: options.tailBytes } : {}),
                         ...(options.before !== undefined ? { before: options.before } : {}),
                         ...(options.start !== undefined ? { start: options.start } : {}),
+                        ...(options.view ? { view: options.view } : {}),
                     })
                     .getResponse({ signal: options.signal })
                 const entries = parseLogEntries(await response.text())
