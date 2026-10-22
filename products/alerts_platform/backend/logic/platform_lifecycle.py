@@ -379,7 +379,7 @@ def _event_row(
         error_message=outcome.error_message,
         consecutive_failures=outcome.consecutive_failures,
         muted_notification=verdict.muted_notification,
-        source_detail=group.source_detail if group else None,
+        source_detail=verdict.source_detail,
         now=now,
     )
 

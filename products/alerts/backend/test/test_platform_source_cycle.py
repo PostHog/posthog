@@ -31,6 +31,7 @@ from products.alerts.backend.judge.contract import (
 )
 from products.alerts.backend.logic.alert_email import INSIGHT_ALERT_ERRORED_EVENT_ID
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
+from products.alerts.backend.platform_alert_wording import insight_alert_url
 from products.alerts.backend.platform_source_cycle import (
     CAPACITY_REJECTED,
     INFLIGHT_KEY,
@@ -192,18 +193,21 @@ class TestPlatformInsightEvaluation(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("source_owned", "source", {"breaches": ["above 100"]}),
-            (
-                "platform_owned",
-                "platform",
-                {"breaches": ["above 100"], "insight_chart_asset_id": 7, "insight_chart_render_user_id": 3},
-            ),
+            ("source_owned", "source", {}),
+            ("platform_owned", "platform", {"insight_chart_asset_id": 7, "insight_chart_render_user_id": 3}),
         ]
     )
     def test_a_firing_records_what_production_sends_beside_it(
-        self, _name: str, owner: str, expected: dict[str, Any]
+        self, _name: str, owner: str, chart: dict[str, Any]
     ) -> None:
-        configuration = self._copy(self._alert(), owner=owner)
+        alert = self._alert()
+        configuration = self._copy(alert, owner=owner)
+        expected = {
+            "breaches": ["above 100"],
+            "insight_name": alert.insight.name,
+            "insight_short_id": alert.insight.short_id,
+            **chart,
+        }
 
         with patch(
             f"{_MODULE}.render_alert_insight_chart",
@@ -364,6 +368,11 @@ class TestPlatformInsightEvaluation(APIBaseTest):
             )
             for delivery in self.deliveries
         ] == (expected if (allowlisted or owned) and not was_firing else [])
+        # A native message links to the alert on its insight, where the insight stack's messages link.
+        assert all(
+            delivery.source_alert_url == insight_alert_url(self.team.id, alert.insight.short_id, str(alert.id))
+            for delivery in self.deliveries
+        )
 
     @parameterized.expand(
         [
@@ -451,6 +460,8 @@ class TestPlatformInsightEvaluation(APIBaseTest):
             "errored",
             True,
         )
+        # The error message names and links the insight, as a firing's does.
+        assert set(outcome.failure.source_detail) == {"insight_name", "insight_short_id"}
 
     @parameterized.expand([("retried", False), ("last_attempt", True)])
     def test_an_ai_detector_without_a_verdict_is_retried_and_only_its_last_attempt_records_an_error(

@@ -47,6 +47,7 @@ from products.alerts.backend.judge.contract import (
 from products.alerts.backend.llm_detector_limits import is_llm_detector_config
 from products.alerts.backend.logic.alert_email import INSIGHT_ALERT_ERRORED_EVENT_ID
 from products.alerts.backend.models.alert import AlertConfiguration
+from products.alerts.backend.platform_alert_wording import insight_alert_url
 from products.alerts_platform.backend.facade.api import due_check_ids, due_checks, refresh_settings, slot_of
 from products.alerts_platform.backend.facade.contracts import (
     SOURCE_CONDITION_KEY,
@@ -379,11 +380,22 @@ def _delivery(check: PlatformAlertCheckInput, outcome: PlatformAlertOutcome) -> 
         evaluation_key=outcome.evaluation_key,
         destination_alert_id=legacy_id,
         event_ids_by_kind=_EVENT_IDS_BY_KIND,
+        source_alert_url=_alert_url(check, legacy_id),
         owned_by_platform=check.owned_by_platform,
         overflowed=outcome.overflowed,
         overflow_is_lower_bound=outcome.overflow_is_lower_bound,
         parts=delivery_parts(outcome),
     )
+
+
+def _alert_url(check: PlatformAlertCheckInput, legacy_id: str) -> str | None:
+    """The alert's page on its insight, so a native message links where the insight stack's does."""
+    insight_short_id = (
+        AlertConfiguration.objects.filter(team_id=check.team_id, id=legacy_id)
+        .values_list("insight__short_id", flat=True)
+        .first()
+    )
+    return insight_alert_url(check.team_id, insight_short_id, legacy_id) if insight_short_id else None
 
 
 def _legacy_alert(check: PlatformAlertCheckInput) -> AlertConfiguration | None:
@@ -454,7 +466,7 @@ def _decide(
         calculation_interval=alert.calculation_interval, organization=alert.team.organization
     )
     if entitlement_error:
-        return _broken(check, snapshot, now=now, message=entitlement_error)
+        return _broken(check, snapshot, alert, now=now, message=entitlement_error)
     if skip_because_of_weekend(alert) or is_utc_datetime_blocked(alert, now):
         return _skipped(check, snapshot, now=now)
     if is_llm_detector_config(alert.detector_config) != uses_llm_detector:
@@ -500,11 +512,12 @@ def _decide(
             CheckInput(threshold_breached=False, error_message=LLM_DETECTOR_UNAVAILABLE_MESSAGE),
             now=now,
             skip=SkipReason.QUERY_FAILED,
+            context=_context(alert),
         )
     except (AlertExtractionError, LLMDetectorMisconfiguredError) as error:
-        return _broken(check, snapshot, now=now, message=str(error))
+        return _broken(check, snapshot, alert, now=now, message=str(error))
     except Exception as error:
-        return _query_failed(check, snapshot, error, now=now)
+        return _query_failed(check, snapshot, alert, error, now=now)
     duration_ms = int((time.monotonic() - started_at) * 1000)
 
     if result.skipped_reason is not None:
@@ -547,7 +560,7 @@ def _following(check: PlatformAlertCheckInput, alert: AlertConfiguration) -> Pla
 
 
 def _broken(
-    check: PlatformAlertCheckInput, snapshot: AlertSnapshot, *, now: datetime, message: str
+    check: PlatformAlertCheckInput, snapshot: AlertSnapshot, alert: AlertConfiguration, *, now: datetime, message: str
 ) -> PlatformAlertOutcome:
     """An alert production cannot evaluate as configured. It errors and is disabled, as production does."""
     return _recorded(
@@ -560,11 +573,17 @@ def _broken(
         error_message=message,
         skip=SkipReason.BROKEN_CONFIG,
         disable=True,
+        source_detail=_context(alert),
     )
 
 
 def _query_failed(
-    check: PlatformAlertCheckInput, snapshot: AlertSnapshot, error: Exception, *, now: datetime
+    check: PlatformAlertCheckInput,
+    snapshot: AlertSnapshot,
+    alert: AlertConfiguration,
+    error: Exception,
+    *,
+    now: datetime,
 ) -> PlatformAlertOutcome:
     """A query that did not finish. A refusal for load is a skip; anything else is a failed check."""
     if classify_query_error(error) == QueryErrorCategory.RATE_LIMITED:
@@ -581,6 +600,7 @@ def _query_failed(
         ),
         now=now,
         skip=SkipReason.QUERY_FAILED,
+        context=_context(alert),
     )
 
 
@@ -611,14 +631,16 @@ def _decide_grouped(
     value the query did not return is left as it is.
     """
     if tuple(check.grouping.keys) != (BREAKDOWN_GROUPING_KEY,):
-        return _broken(check, snapshot, now=now, message=f"An insight alert can only group by {BREAKDOWN_GROUPING_KEY}")
+        return _broken(
+            check, snapshot, alert, now=now, message=f"An insight alert can only group by {BREAKDOWN_GROUPING_KEY}"
+        )
     started_at = time.monotonic()
     try:
         evaluated = check_alert_per_series(alert)
     except AlertExtractionError as error:
-        return _broken(check, snapshot, now=now, message=str(error))
+        return _broken(check, snapshot, alert, now=now, message=str(error))
     except Exception as error:
-        return _query_failed(check, snapshot, error, now=now)
+        return _query_failed(check, snapshot, alert, error, now=now)
     if not isinstance(evaluated, PerSeriesEvaluation):
         return _skipped(check, snapshot, now=now)
     duration_ms = int((time.monotonic() - started_at) * 1000)
@@ -657,7 +679,7 @@ def _decide_grouped(
                     verdict,
                     group=replace(
                         verdict.group,
-                        source_detail=_detail(breaches.get(verdict.group.grouping_key, []), chart),
+                        source_detail=_detail(alert, breaches.get(verdict.group.grouping_key, []), chart),
                     ),
                 )
                 if verdict.outcome.notification == NotificationAction.FIRE
@@ -678,7 +700,7 @@ def _firing_detail(
     check: PlatformAlertCheckInput, alert: AlertConfiguration, breaches: Sequence[str]
 ) -> dict[str, Any]:
     """What production's `$insight_alert_firing` carries beside the verdict, which only the check can know."""
-    return _detail(breaches, _chart(check, alert))
+    return _detail(alert, breaches, _chart(check, alert))
 
 
 def _chart(check: PlatformAlertCheckInput, alert: AlertConfiguration) -> RenderedInsightChart | None:
@@ -689,13 +711,21 @@ def _chart(check: PlatformAlertCheckInput, alert: AlertConfiguration) -> Rendere
     return None
 
 
+def _context(alert: AlertConfiguration) -> dict[str, Any]:
+    """The insight a message names and links to, which every message about the alert carries."""
+    return {"insight_name": alert.insight.name, "insight_short_id": alert.insight.short_id}
+
+
 def _clipped(breach: str) -> str:
     return breach if len(breach) <= MAX_BREACH_CHARS else breach[: MAX_BREACH_CHARS - 1] + "…"
 
 
-def _detail(breaches: Sequence[str], chart: RenderedInsightChart | None) -> dict[str, Any]:
+def _detail(alert: AlertConfiguration, breaches: Sequence[str], chart: RenderedInsightChart | None) -> dict[str, Any]:
     # Bounded, because the outcome crosses into Temporal and a breach names user-written labels.
-    detail: dict[str, Any] = {"breaches": [_clipped(breach) for breach in breaches[:MAX_DETAIL_BREACHES]]}
+    detail: dict[str, Any] = {
+        "breaches": [_clipped(breach) for breach in breaches[:MAX_DETAIL_BREACHES]],
+        **_context(alert),
+    }
     if chart is not None:
         # The ids rather than a URL, because the URL opens the chart without a login and history keeps
         # this for its whole retention. A delivery mints the URL when it sends.
@@ -714,13 +744,16 @@ def _verdict(
     query_duration_ms: int | None = None,
     skip: SkipReason | None = None,
     firing: tuple[AlertConfiguration, Sequence[str]] | None = None,
+    context: dict[str, Any] | None = None,
 ) -> PlatformAlertOutcome:
     outcome = evaluate_alert_check(snapshot, check_input, now, policy=INSIGHT_ALERT_POLICY)
-    source_detail = (
-        _firing_detail(check, *firing)
-        if firing is not None and outcome.notification == NotificationAction.FIRE
-        else None
-    )
+    source_detail: dict[str, Any] | None
+    if firing is not None and outcome.notification == NotificationAction.FIRE:
+        source_detail = _firing_detail(check, *firing)
+    elif outcome.notification != NotificationAction.NONE:
+        source_detail = context
+    else:
+        source_detail = None
     return _recorded(
         check,
         snapshot,
