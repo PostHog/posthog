@@ -18,10 +18,15 @@ from django.test import override_settings
 
 import pyarrow as pa
 import deltalake
+import structlog
 
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.clickhouse import ClickHouseQueryTimeoutError
-from posthog.temporal.data_modeling.activities import MaterializeViewInputs, materialize_view_activity
+from posthog.temporal.data_modeling.activities import (
+    MaterializeViewInputs,
+    materialize_view as materialize_view_module,
+    materialize_view_activity,
+)
 from posthog.temporal.data_modeling.activities.incremental_write import (
     IncrementalWriteError,
     TableUnreadableError,
@@ -39,6 +44,8 @@ from products.data_modeling.backend.facade.api import get_incremental_state
 from products.data_warehouse.backend.facade.api import get_s3_client
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
+
+LOGGER = structlog.get_logger(__name__)
 
 CONFIG = {"enabled": True, "incremental_key": "day", "unique_key": ["day"]}
 
@@ -148,6 +155,7 @@ RECENT_0, RECENT_1, RECENT_2 = (TODAY - timedelta(days=days) for days in (6, 4, 
 TIMESTAMP_TYPES = [("day", "DateTime64(6, 'UTC')"), ("c", "Int64")]
 INTEGER_TYPES = [("day", "Int64"), ("c", "Int64")]
 
+HANG = RuntimeError("this window never returns")
 WindowFailure = Callable[[IncrementalWindow], BaseException | None]
 
 
@@ -196,6 +204,8 @@ class _WindowedSource:
         async def generator():
             selected = [row for row in self.rows if _in_window(row[0], window)]
             error = self._fail(window) if self._fail is not None and window is not None else None
+            if error is HANG:
+                await asyncio.Event().wait()
             if error is not None:
                 if self._partial_on_failure and selected:
                     yield self._batch([max(selected, key=lambda row: row[0])]), self._types
@@ -216,6 +226,12 @@ class _WindowedSource:
 
 def _windowed_source(rows: list[tuple[Any, int]], **options: Any) -> _WindowedSource:
     return _WindowedSource(rows, **options)
+
+
+def _short_window_deadline():
+    return unittest.mock.patch.multiple(
+        MATERIALIZE_VIEW, HOGQL_INCREASED_MAX_EXECUTION_TIME=0, WINDOW_DEADLINE_MARGIN=timedelta(seconds=2)
+    )
 
 
 def _fails_when_window_holds(key: Any, error: BaseException, *, wider_than: Any = None, times: int | None = None):
@@ -929,6 +945,7 @@ class TestWindowedMaterialization:
         [
             pytest.param(ClickHouseQueryTimeoutError("Code: 159. Timeout exceeded"), id="timeout"),
             pytest.param(UniqueKeyCapError("too many unique keys"), id="unique_key_cap"),
+            pytest.param(HANG, id="stream_never_returns"),
         ],
     )
     async def test_an_oversized_window_is_halved_and_the_build_finishes(
@@ -944,7 +961,7 @@ class TestWindowedMaterialization:
             partial_on_failure=True,
         )
 
-        with _settings(bucket_name):
+        with _settings(bucket_name), _short_window_deadline():
             result = await _run_windowed(activity_environment, ateam, anode, ajob, adag, source, (RECENT_0, RECENT_2))
 
         assert _rows(result.table_uri) == rows
@@ -1006,6 +1023,27 @@ class TestWindowedMaterialization:
 
         assert _rows(result.table_uri) == rows
         assert len(windows) < 40
+
+    async def test_an_existence_check_closes_its_stream_as_soon_as_it_returns(self, ateam):
+        closed: list[bool] = []
+
+        def stream(*args, **kwargs):
+            async def generator():
+                try:
+                    yield _batch([RECENT_0], [1]), TIMESTAMP_TYPES
+                    yield _batch([RECENT_1], [2]), TIMESTAMP_TYPES
+                finally:
+                    closed.append(True)
+
+            return generator()
+
+        with unittest.mock.patch(f"{MATERIALIZE_VIEW}.hogql_table", stream):
+            found = await materialize_view_module._has_rows(
+                "SELECT toStartOfDay(timestamp) AS day FROM events", ateam, LOGGER, "day", until=TODAY
+            )
+
+        assert found is True
+        assert closed == [True]
 
     async def test_a_window_at_the_minimum_span_fails_without_losing_progress(
         self, activity_environment, ateam, anode, asaved_query, ajob, bucket_name, adag

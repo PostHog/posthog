@@ -4,6 +4,7 @@ import random
 import typing
 import asyncio
 import datetime as dt
+import contextlib
 import dataclasses
 
 from django.conf import settings
@@ -1298,6 +1299,7 @@ async def _drop_watermark_after(
 
 KEY_RANGE_ALIAS = "__ph_key_range"
 HAS_ROWS_ALIAS = "__ph_has_rows"
+WINDOW_DEADLINE_MARGIN = dt.timedelta(minutes=5)
 FIRST_BUILD_RESUMED_REASON = "first build resumed"
 
 
@@ -1308,6 +1310,21 @@ class _WindowPlan:
     span: WindowSpan[typing.Any]
     first_build: bool
     resumed_first_build: bool
+
+
+def _window_deadline_seconds() -> float:
+    return HOGQL_INCREASED_MAX_EXECUTION_TIME + WINDOW_DEADLINE_MARGIN.total_seconds()
+
+
+async def _first_batch(query: ast.SelectQuery, team: Team, logger: FilteringBoundLogger) -> pa.RecordBatch | None:
+    async with (
+        asyncio.timeout(_window_deadline_seconds()),
+        contextlib.aclosing(hogql_table(query, team, logger)) as stream,
+    ):
+        async for batch, _ in stream:
+            if batch.num_rows:
+                return batch
+    return None
 
 
 async def _probe_key_range(
@@ -1321,10 +1338,10 @@ async def _probe_key_range(
         ],
         select_from=ast.JoinExpr(table=parse_select(hogql_query), alias=KEY_RANGE_ALIAS),
     )
-    async for batch, _ in hogql_table(probe, team, logger):
-        if batch.num_rows:
-            return batch.column("key_min")[0].as_py(), batch.column("key_max")[0].as_py()
-    return None, None
+    batch = await _first_batch(probe, team, logger)
+    if batch is None:
+        return None, None
+    return batch.column("key_min")[0].as_py(), batch.column("key_max")[0].as_py()
 
 
 async def _sample_key(hogql_query: str, team: Team, logger: FilteringBoundLogger, incremental_key: str) -> typing.Any:
@@ -1337,10 +1354,8 @@ async def _sample_key(hogql_query: str, team: Team, logger: FilteringBoundLogger
         ),
         limit=ast.Constant(value=1),
     )
-    async for batch, _ in hogql_table(sample, team, logger):
-        if batch.num_rows:
-            return batch.column("key_sample")[0].as_py()
-    return None
+    batch = await _first_batch(sample, team, logger)
+    return None if batch is None else batch.column("key_sample")[0].as_py()
 
 
 async def _has_rows(
@@ -1358,10 +1373,7 @@ async def _has_rows(
         select_from=ast.JoinExpr(table=bounded, alias=HAS_ROWS_ALIAS),
         limit=ast.Constant(value=1),
     )
-    async for batch, _ in hogql_table(existence, team, logger):
-        if batch.num_rows:
-            return True
-    return False
+    return await _first_batch(existence, team, logger) is not None
 
 
 def _now_like(key: typing.Any) -> typing.Any:
@@ -1502,34 +1514,37 @@ async def _materialize_in_windows(
             await logger.ainfo(f"Materializing window from {start} to {until if until is not None else 'now'}")
             started_at = time.monotonic()
             rows_before_window, watermark_before_window = progress.row_count, progress.watermark
-            batches = hogql_table(hogql_query, objects.team, logger, window=window)
             try:
-                if target_schema is None:
-                    await _write_rows_from_scratch(
-                        objects,
-                        config,
-                        batches,
-                        table_uri,
-                        storage_options,
-                        cdp_sink,
-                        person_property_sink,
-                        progress,
-                        fatal_staging=checkpoints,
-                    )
-                else:
-                    await _upsert_rows(
-                        objects,
-                        config,
-                        batches,
-                        target_schema,
-                        table_uri,
-                        logger,
-                        storage_options,
-                        cdp_sink,
-                        person_property_sink,
-                        progress,
-                    )
-            except (ClickHouseQueryTimeoutError, UniqueKeyCapError) as error:
+                async with (
+                    asyncio.timeout(_window_deadline_seconds()),
+                    contextlib.aclosing(hogql_table(hogql_query, objects.team, logger, window=window)) as batches,
+                ):
+                    if target_schema is None:
+                        await _write_rows_from_scratch(
+                            objects,
+                            config,
+                            batches,
+                            table_uri,
+                            storage_options,
+                            cdp_sink,
+                            person_property_sink,
+                            progress,
+                            fatal_staging=checkpoints,
+                        )
+                    else:
+                        await _upsert_rows(
+                            objects,
+                            config,
+                            batches,
+                            target_schema,
+                            table_uri,
+                            logger,
+                            storage_options,
+                            cdp_sink,
+                            person_property_sink,
+                            progress,
+                        )
+            except (ClickHouseQueryTimeoutError, UniqueKeyCapError, TimeoutError) as error:
                 smaller = span.halved()
                 if smaller is None:
                     raise WindowCannotShrinkError(
