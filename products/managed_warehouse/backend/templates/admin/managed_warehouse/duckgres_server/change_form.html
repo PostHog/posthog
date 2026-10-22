@@ -3,9 +3,6 @@
 {% block object-tools-items %}
     {{ block.super }}
     {% if original.pk %}
-        {% if internal_testing %}
-            <li><a href="{% url 'admin:managed_warehouse_duckgresserver_internal_preview' original.pk %}">Internal warehouse preview</a></li>
-        {% endif %}
         <li>
             <a href="{% url 'admin:managed_warehouse_duckgresserver_enable_backfill' original.pk %}">Enable backfill for a team</a>
         </li>

@@ -1,11 +1,6 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from django.contrib.admin.sites import AdminSite
-from django.contrib.auth.models import Permission
-from django.core.exceptions import PermissionDenied
-from django.test import RequestFactory
-
 from rest_framework.response import Response
 
 from posthog.schema import HogQLQuery
@@ -13,9 +8,7 @@ from posthog.schema import HogQLQuery
 from posthog.hogql.errors import ExposedHogQLError
 
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
-from products.managed_warehouse.backend.admin.duckgres_server_admin import DuckgresServerAdmin
 from products.managed_warehouse.backend.internal_loading import load_internal_team
-from products.managed_warehouse.backend.internal_preview import query_internal_warehouse
 from products.managed_warehouse.backend.logic.connection import (
     activate_managed_warehouse_source_lifecycle,
     deactivate_managed_warehouse_source_lifecycle,
@@ -146,41 +139,3 @@ def test_internal_loading_respects_lifecycle_and_dispatches_existing_data(team, 
         assert copied_model.table_uri.endswith(f"/{model.folder_path}/{model.normalized_name}")
     else:
         temporal.start_workflow.assert_not_called()
-
-
-@pytest.mark.parametrize("staff, permitted", [(False, False), (True, True)])
-def test_internal_preview_is_staff_only(team, user, staff, permitted):
-    server = DuckgresServer.objects.create(
-        organization_id=team.organization_id, host="example.com", username="root", password="synthetic"
-    )
-    activate_managed_warehouse_source_lifecycle(
-        organization_id=team.organization_id, expected_generation=0, internal_only=True
-    )
-    user.is_staff = staff
-    user.save()
-    if permitted:
-        user.user_permissions.add(
-            Permission.objects.get(content_type__app_label="managed_warehouse", codename="view_duckgresserver")
-        )
-    request = RequestFactory().get("/admin/managed_warehouse/duckgresserver/internal-preview/")
-    request.user = user
-    model_admin = DuckgresServerAdmin(DuckgresServer, AdminSite())
-    if permitted:
-        response = model_admin.internal_preview_view(request, str(server.id))
-        assert response.status_code == 200
-        assert b"Customer access is disabled" in response.content
-    else:
-        with pytest.raises(PermissionDenied):
-            model_admin.internal_preview_view(request, str(server.id))
-
-
-@pytest.mark.parametrize("staff, sql", [(False, "SELECT 1"), (True, "DROP TABLE example")])
-def test_internal_preview_rejects_nonstaff_and_mutations_before_connecting(team, user, staff, sql):
-    activate_managed_warehouse_source_lifecycle(
-        organization_id=team.organization_id, expected_generation=0, internal_only=True
-    )
-    user.is_staff = staff
-    with patch("products.managed_warehouse.backend.internal_preview.connect_managed_warehouse_trino") as connect:
-        with pytest.raises(ExposedHogQLError if staff else PermissionError):
-            query_internal_warehouse(team, user, sql, "trino")
-    connect.assert_not_called()

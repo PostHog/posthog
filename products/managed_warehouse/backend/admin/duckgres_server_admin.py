@@ -12,7 +12,7 @@ import posthoganalytics
 
 from posthog.models import Organization, Team, User
 
-from products.managed_warehouse.backend.models import DuckgresServer, ManagedWarehouseSourceLifecycle
+from products.managed_warehouse.backend.models import DuckgresServer
 
 logger = structlog.get_logger(__name__)
 
@@ -37,12 +37,6 @@ class DuckgresServerAdminForm(forms.ModelForm):
         if commit:
             server.save()
         return server
-
-
-class InternalWarehousePreviewForm(forms.Form):
-    team_id = forms.IntegerField(min_value=1, label="Team ID")
-    query = forms.CharField(widget=forms.Textarea, initial="SELECT count() FROM events", max_length=100_000)
-    language = forms.ChoiceField(choices=[("hogql", "HogQL"), ("trino", "Trino SQL")])
 
 
 @admin.register(DuckgresServer)
@@ -158,11 +152,6 @@ class DuckgresServerAdmin(admin.ModelAdmin):
 
     def get_urls(self):
         custom_urls = [
-            path(
-                "<path:object_id>/internal-preview/",
-                self.admin_site.admin_view(self.internal_preview_view),
-                name="managed_warehouse_duckgresserver_internal_preview",
-            ),
             path(
                 "provision/",
                 self.admin_site.admin_view(self.provision_view),
@@ -325,77 +314,6 @@ class DuckgresServerAdmin(admin.ModelAdmin):
         if 200 <= resp.status_code < 300:
             return redirect(reverse("admin:managed_warehouse_duckgresserver_changelist"))
         return redirect(reverse("admin:managed_warehouse_duckgresserver_change", args=[object_id]))
-
-    def change_view(self, request, object_id, form_url="", extra_context=None):
-        server = self._get_server_or_404(object_id)
-        return super().change_view(
-            request, object_id, form_url, {**(extra_context or {}), "internal_testing": self.internal_testing(server)}
-        )
-
-    def internal_preview_view(self, request: HttpRequest, object_id: str) -> HttpResponse:
-        if request.method not in {"GET", "POST"}:
-            return HttpResponseNotAllowed(["GET", "POST"])
-        server = self._get_server_or_404(object_id)
-        if not request.user.is_staff or not self.has_view_permission(request, server):
-            raise PermissionDenied
-        lifecycle = get_object_or_404(
-            ManagedWarehouseSourceLifecycle,
-            organization_id=server.organization_id,
-            internal_only=True,
-            desired_active=True,
-        )
-        form = InternalWarehousePreviewForm(request.POST if request.method == "POST" else None)
-        result = None
-        if request.method == "POST" and form.is_valid():
-            team = self._resolve_team(request, str(server.organization_id), str(form.cleaned_data["team_id"]))
-            if team is not None:
-                from products.managed_warehouse.backend.presentation import views as warehouse  # noqa: PLC0415
-
-                row = warehouse._get_project_team_row(organization_id=server.organization_id, team_id=team.id)
-                if row is None:
-                    form.add_error("team_id", "Onboard this team before querying its warehouse.")
-                elif request.POST.get("action") == "load":
-                    if not self.has_change_permission(request, server):
-                        raise PermissionDenied
-                    from products.managed_warehouse.backend.tasks import load_internal_warehouse  # noqa: PLC0415
-
-                    self._track_action(request, "internal-load", None)
-                    load_internal_warehouse.delay(str(server.organization_id), team.id, lifecycle.generation)
-                    self._track_action(request, "internal-load", 202)
-                    messages.success(
-                        request,
-                        "Warehouse loading queued. Inspect the source jobs and Dagster backfills for completion.",
-                    )
-                else:
-                    from products.managed_warehouse.backend.internal_preview import (
-                        query_internal_warehouse,  # noqa: PLC0415
-                    )
-
-                    self._track_action(request, "internal-query", None)
-                    try:
-                        result = query_internal_warehouse(
-                            team, cast(User, request.user), form.cleaned_data["query"], form.cleaned_data["language"]
-                        )
-                        self._track_action(request, "internal-query", 400 if result.error else 200)
-                    except Exception:
-                        self._track_action(request, "internal-query", 500)
-                        logger.exception("internal_warehouse_preview_failed", team_id=team.id)
-                        form.add_error(
-                            None, "The warehouse query failed. Check the warehouse status and server logs, then retry."
-                        )
-        return render(
-            request,
-            "admin/managed_warehouse/duckgres_server/internal_preview.html",
-            {
-                **self.admin_site.each_context(request),
-                "title": "Internal warehouse preview",
-                "server": server,
-                "form": form,
-                "result": result,
-                "rows": result.results[:100] if result else None,
-                "can_load": self.has_change_permission(request, server),
-            },
-        )
 
     def _get_server_or_404(self, object_id: str) -> DuckgresServer:
         try:

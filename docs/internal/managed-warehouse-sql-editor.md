@@ -74,9 +74,5 @@ Future completed imports continue to register while the internal warehouse is ac
 Loading dispatch retries transient failures and readiness waits with backoff; failed child workflows remain visible in Temporal.
 Deprovisioning or replacing the warehouse makes old queued dispatch tasks no-ops.
 
-Open **Internal warehouse preview** on the warehouse's admin page to run read-only HogQL through the same Trino compiler used by customer queries, or to run native Trino SELECT statements.
-The preview requires an active staff session and an onboarded team from the warehouse's organization.
-Queries use short-lived service credentials, have a one-minute deadline, and display up to 100 result rows.
-**Retry data loading** resubmits loading for the selected team without exposing a customer SQL-editor source.
 Infrastructure readiness and loading completion are separate: inspect the Dagster events/persons backfills and Temporal copy/registration workflows before treating the warehouse as fully loaded.
 Internal testing warehouses cannot be promoted by changing a feature flag; deprovision them before provisioning a customer warehouse.
