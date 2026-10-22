@@ -9,24 +9,28 @@ from unittest.mock import patch
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.constants import AvailableFeature
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
+from products.access_control.backend.facade.testing import create_access_control
 from products.cdp.backend.models.hog_functions import HogFunction
 from products.data_catalog.backend.facade.api import certifications_for_team, propose_certification
 from products.data_catalog.backend.facade.enums import CertificationStatus
 from products.data_modeling.backend.facade.api import get_declared_target, set_declared_target
 from products.data_modeling.backend.facade.models import DAG, DataWarehouseSavedQuery, Edge, Node, NodeType
 from products.data_tools.backend.facade.models import DataWarehouseJoin
-from products.warehouse_sources.backend.facade.models import DataWarehouseTable
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSource
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 from products.warehouse_suggestions.backend.facade.contracts import (
     CertifyPayload,
     DeprecatePayload,
     MaterializePayload,
     SuggestionAlreadyDecidedError,
     SuggestionPayload,
+    UnmaterializePayload,
 )
 from products.warehouse_suggestions.backend.facade.enums import (
     WarehouseSuggestionKind,
@@ -34,6 +38,7 @@ from products.warehouse_suggestions.backend.facade.enums import (
     WarehouseSuggestionStatus,
 )
 from products.warehouse_suggestions.backend.logic.accept import CertificationAcceptor
+from products.warehouse_suggestions.backend.logic.candidates.unmaterialize import definition_fingerprint
 from products.warehouse_suggestions.backend.logic.suggestions import HUMAN_TRANSITIONS, transition_to
 from products.warehouse_suggestions.backend.models import WarehouseSuggestion
 
@@ -49,6 +54,8 @@ DAILY_COUNT_COLUMNS = {
     "day": {"hogql": "DateTimeDatabaseField", "clickhouse": "DateTime64(6, 'UTC')"},
     "c": {"hogql": "IntegerDatabaseField", "clickhouse": "UInt64"},
 }
+ORDERS_SQL = "SELECT timestamp, event FROM events"
+UPSTREAM_SQL = "SELECT * FROM postgres_orders"
 STORED_DAY_KEY = {"enabled": True, "incremental_key": "day", "unique_key": ["day"], "lookback_seconds": 0}
 MATERIALIZE_PAYLOAD = MaterializePayload(
     subject_name="orders",
@@ -66,12 +73,22 @@ INCREMENTAL_DAY_PAYLOAD = replace(
     incremental_key="day",
     unique_key=("day",),
 )
+UNMATERIALIZE_PAYLOAD = UnmaterializePayload(
+    subject_name="orders",
+    refresh_seconds_per_month=3600,
+    refresh_bytes_per_month=10**9,
+    live_seconds_per_month=20,
+    live_bytes_per_month=10**6,
+    read_seconds=5,
+    query_fingerprint=definition_fingerprint([ORDERS_SQL]),
+)
 PAYLOADS: dict[WarehouseSuggestionKind, SuggestionPayload] = {
     WarehouseSuggestionKind.CERTIFY: CertifyPayload(subject_name="orders"),
     WarehouseSuggestionKind.DEPRECATE: DeprecatePayload(
         subject_name="orders", refresh_seconds_per_month=0, refresh_bytes_per_month=0
     ),
     WarehouseSuggestionKind.MATERIALIZE: MATERIALIZE_PAYLOAD,
+    WarehouseSuggestionKind.UNMATERIALIZE: UNMATERIALIZE_PAYLOAD,
 }
 
 
@@ -79,7 +96,7 @@ def create_view_in_dag(team: Team, user: User) -> DataWarehouseSavedQuery:
     view = DataWarehouseSavedQuery.objects.create(
         team=team,
         name="orders",
-        query={"kind": "HogQLQuery", "query": "SELECT timestamp, event FROM events"},
+        query={"kind": "HogQLQuery", "query": ORDERS_SQL},
         created_by=user,
     )
     Node.objects.create(
@@ -109,6 +126,90 @@ def add_dependent_view(view: DataWarehouseSavedQuery) -> None:
         team=view.team, dag=node.dag, name="orders_daily", saved_query=dependent, type=NodeType.VIEW
     )
     Edge.objects.create(team=view.team, dag=node.dag, source=node, target=dependent_node)
+
+
+def switch_to_incremental(view: DataWarehouseSavedQuery) -> None:
+    DataWarehouseSavedQuery.objects.filter(id=view.id).update(incremental_config=STORED_DAY_KEY)
+
+
+def add_an_upstream_view_over_postgres(view: DataWarehouseSavedQuery) -> list[str]:
+    node = Node.objects.get(saved_query=view)
+    source = ExternalDataSource.objects.create(
+        team=view.team,
+        source_id="postgres",
+        connection_id="postgres",
+        status="Completed",
+        source_type=ExternalDataSourceType.POSTGRES,
+    )
+    postgres_table = DataWarehouseTable.objects.create(
+        team=view.team, name="postgres_orders", format="Parquet", external_data_source=source
+    )
+    upstream_view = DataWarehouseSavedQuery.objects.create(
+        team=view.team, name="orders_source", query={"kind": "HogQLQuery", "query": UPSTREAM_SQL}
+    )
+    upstream_node = Node.objects.create(
+        team=view.team, dag=node.dag, name="orders_source", saved_query=upstream_view, type=NodeType.VIEW
+    )
+    table_node = Node.objects.create(
+        team=view.team,
+        dag=node.dag,
+        name="postgres_orders",
+        type=NodeType.TABLE,
+        properties={"warehouse_table_id": str(postgres_table.id)},
+    )
+    Edge.objects.create(team=view.team, dag=node.dag, source=table_node, target=upstream_node)
+    Edge.objects.create(team=view.team, dag=node.dag, source=upstream_node, target=node)
+    return [ORDERS_SQL, UPSTREAM_SQL]
+
+
+def make_the_postgres_source_direct(view: DataWarehouseSavedQuery) -> None:
+    ExternalDataSource.objects.filter(team=view.team, source_id="postgres").update(
+        access_method=ExternalDataSource.AccessMethod.DIRECT
+    )
+
+
+def change_the_upstream_query(view: DataWarehouseSavedQuery) -> None:
+    DataWarehouseSavedQuery.objects.filter(team=view.team, name="orders_source").update(
+        query={"kind": "HogQLQuery", "query": "SELECT * FROM postgres_orders WHERE 1 = 1"}
+    )
+
+
+def _restrict_table(view: DataWarehouseSavedQuery, table_name: str) -> None:
+    view.team.organization.available_product_features = [
+        {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+    ]
+    view.team.organization.save()
+    table = DataWarehouseTable.objects.get(team=view.team, name=table_name)
+    create_access_control(
+        team_id=view.team_id, resource="warehouse_table", resource_id=str(table.id), access_level="none"
+    )
+
+
+def restrict_the_postgres_table(view: DataWarehouseSavedQuery) -> None:
+    _restrict_table(view, "postgres_orders")
+
+
+def restrict_an_unrelated_table(view: DataWarehouseSavedQuery) -> None:
+    DataWarehouseTable.objects.create(team=view.team, name="unrelated", format="Parquet")
+    _restrict_table(view, "unrelated")
+
+
+def read_a_system_table(view: DataWarehouseSavedQuery) -> None:
+    node = Node.objects.get(saved_query=view)
+    system_node = Node.objects.create(
+        team=view.team,
+        dag=node.dag,
+        name="system.feature_flags",
+        type=NodeType.TABLE,
+        properties={"origin": "posthog"},
+    )
+    Edge.objects.create(team=view.team, dag=node.dag, source=system_node, target=node)
+
+
+def change_query(view: DataWarehouseSavedQuery) -> None:
+    DataWarehouseSavedQuery.objects.filter(id=view.id).update(
+        query={"kind": "HogQLQuery", "query": "SELECT timestamp, event, properties FROM events"}
+    )
 
 
 def add_destination(view: DataWarehouseSavedQuery) -> None:
@@ -314,6 +415,77 @@ class TestAcceptSuggestion(APIBaseTest):
         assert untouched == (True, table.id, False)
         assert retried["created_asset"]["stopped_materialization"] is True, retried
         assert (node.type, get_declared_target(node)) == (NodeType.VIEW, None)
+
+    @parameterized.expand(
+        [
+            ("stops_refreshes", None, None, status.HTTP_200_OK),
+            ("stops_refreshes_with_an_upstream_view", add_an_upstream_view_over_postgres, None, status.HTTP_200_OK),
+            ("a_view_was_built_on_it_since", None, add_dependent_view, status.HTTP_409_CONFLICT),
+            ("it_refreshes_incrementally_since", None, switch_to_incremental, status.HTTP_409_CONFLICT),
+            ("its_query_changed_since", None, change_query, status.HTTP_409_CONFLICT),
+            (
+                "an_upstream_query_changed_since",
+                add_an_upstream_view_over_postgres,
+                change_the_upstream_query,
+                status.HTTP_409_CONFLICT,
+            ),
+            (
+                "an_upstream_view_reads_a_direct_source_since",
+                add_an_upstream_view_over_postgres,
+                make_the_postgres_source_direct,
+                status.HTTP_409_CONFLICT,
+            ),
+            (
+                "an_upstream_table_was_restricted_since",
+                add_an_upstream_view_over_postgres,
+                restrict_the_postgres_table,
+                status.HTTP_409_CONFLICT,
+            ),
+            (
+                "stops_refreshes_when_only_an_unrelated_table_is_restricted",
+                add_an_upstream_view_over_postgres,
+                restrict_an_unrelated_table,
+                status.HTTP_200_OK,
+            ),
+            ("it_reads_a_system_table_since", None, read_a_system_table, status.HTTP_409_CONFLICT),
+        ]
+    )
+    def test_accepting_an_unmaterialize_suggestion_turns_the_view_back_into_a_plain_view(
+        self,
+        _name: str,
+        build_before: Callable[[DataWarehouseSavedQuery], list[str]] | None,
+        change_since: Callable[[DataWarehouseSavedQuery], None] | None,
+        expected_status: int,
+    ) -> None:
+        table = materialize_in_place(self.view)
+        queries = build_before(self.view) if build_before is not None else [ORDERS_SQL]
+        payload = replace(UNMATERIALIZE_PAYLOAD, query_fingerprint=definition_fingerprint(queries))
+        draft = make_draft(fingerprint="unmaterialize:orders", subject_id=self.view.id)
+        suggestion = ingest_surfaced(
+            self.team.id, replace(draft, kind=WarehouseSuggestionKind.UNMATERIALIZE, payload=payload)
+        )
+        if change_since is not None:
+            change_since(self.view)
+
+        with patch(REPORT) as report:
+            accepted = self._accept(suggestion.id)
+
+        table.refresh_from_db()
+        suggestion.refresh_from_db()
+        stopped = expected_status == status.HTTP_200_OK
+        assert accepted["http_status"] == expected_status, accepted
+        assert (
+            Node.objects.get(team=self.team, saved_query=self.view).type,
+            bool(table.deleted),
+            suggestion.status,
+        ) == (
+            (NodeType.VIEW, True, WarehouseSuggestionStatus.ACCEPTED)
+            if stopped
+            else (NodeType.MAT_VIEW, False, WarehouseSuggestionStatus.PROPOSED)
+        )
+        if stopped:
+            assert accepted["created_asset"] == {"saved_query_id": str(self.view.id)}
+            assert report.call_args.args[1]["refresh_seconds_per_month"] == 3600
 
     def test_accepting_a_materialize_suggestion_materializes_the_view_on_the_chosen_interval(self) -> None:
         suggestion = self._suggest(WarehouseSuggestionKind.MATERIALIZE)
