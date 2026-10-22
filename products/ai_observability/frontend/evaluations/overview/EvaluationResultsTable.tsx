@@ -13,6 +13,7 @@ import type { EvaluationResultApi } from '../../generated/api.schemas'
 import { llmEvaluationsLogic } from '../llmEvaluationsLogic'
 import { EvaluationCreateSlot } from './EvaluationCreateSlot'
 import { EvaluationDirectoryTiles } from './EvaluationDirectoryTiles'
+import { ATTENTION_LABELS } from './evaluationOverviewDisplay'
 import { EvaluationResultActions } from './EvaluationResultActions'
 import { EvaluationResultCell } from './EvaluationResultCell'
 import { EvaluationResultDrawer } from './EvaluationResultDrawer'
@@ -20,12 +21,10 @@ import { EvaluationResultNameCell } from './EvaluationResultNameCell'
 import { EvaluationResultTrendCell } from './EvaluationResultTrendCell'
 import { type AttentionFilter, OVERVIEW_LIST_ANCHOR_ID, evaluationsOverviewLogic } from './evaluationsOverviewLogic'
 
-const FILTER_OPTIONS: { value: AttentionFilter; key: string; label: string }[] = [
-    { value: null, key: 'all', label: 'All' },
-    { value: 'any', key: 'any', label: 'Needs attention' },
-    { value: 'errored', key: 'errored', label: 'Errored' },
-    { value: 'silent', key: 'silent', label: 'No recent results' },
-    { value: 'worse', key: 'worse', label: 'Worse than before' },
+const FILTER_OPTIONS: { value: AttentionFilter; label: string }[] = [
+    { value: null, label: 'All' },
+    { value: 'any', label: 'Needs attention' },
+    ...(['errored', 'silent', 'worse'] as const).map((reason) => ({ value: reason, label: ATTENTION_LABELS[reason] })),
 ]
 
 export function EvaluationResultsTable(): JSX.Element {
@@ -128,9 +127,9 @@ export function EvaluationResultsTable(): JSX.Element {
                     size="small"
                     value={attentionFilter}
                     onChange={setAttentionFilter}
-                    options={FILTER_OPTIONS.map(({ value, key, label }) => ({
+                    options={FILTER_OPTIONS.map(({ value, label }) => ({
                         value,
-                        label: `${label} (${attentionCounts[key] ?? 0})`,
+                        label: `${label} (${attentionCounts[value ?? 'all'] ?? 0})`,
                     }))}
                     data-attr="evaluation-overview-table-filter"
                 />

@@ -10,7 +10,7 @@ import { evaluationsOverviewLogic } from './evaluationsOverviewLogic'
 
 export function EvaluationPassRateOverview(): JSX.Element {
     const theme = useChartTheme()
-    const { chartedIds, nothingGraded, pausedRows } = useValues(evaluationsOverviewLogic)
+    const { chartedIds, nothingGraded, rows } = useValues(evaluationsOverviewLogic)
     const colors = useMemo(() => {
         const palette = theme.colors.slice(1)
         return new Map(chartedIds.map((id, index) => [id, palette[index % palette.length]]))
@@ -24,7 +24,7 @@ export function EvaluationPassRateOverview(): JSX.Element {
             </div>
             <div className="flex-1 min-w-0 flex flex-col gap-2">
                 {nothingGraded ? (
-                    <EvaluationChartEmptyState pausedRows={pausedRows} />
+                    <EvaluationChartEmptyState pausedRows={rows.filter((row) => !row.enabled)} />
                 ) : (
                     <EvaluationPassRateCompareChart colors={colors} />
                 )}

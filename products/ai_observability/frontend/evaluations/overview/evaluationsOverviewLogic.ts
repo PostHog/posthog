@@ -134,10 +134,6 @@ function wholeDays(start: dayjs.Dayjs, end: dayjs.Dayjs): OverviewPeriod {
     return { dateFrom, dateTo, days: dayjs.utc(dateTo).diff(dayjs.utc(dateFrom), 'day') + 1 }
 }
 
-function elapsedMs(since: number): number {
-    return Math.round(performance.now() - since)
-}
-
 function matchesAttention(row: EvaluationResultApi, filter: AttentionFilter): boolean {
     if (filter === null) {
         return true
@@ -225,7 +221,6 @@ export interface evaluationsOverviewLogicValues {
     timezone: string // teamLogic
     weekStartDay: number // teamLogic
     attentionById: Record<string, boolean>
-    attentionCount: number
     attentionCounts: Record<string, number>
     attentionFilter: AttentionFilter
     buckets: string[]
@@ -234,11 +229,9 @@ export interface evaluationsOverviewLogicValues {
     compareListRows: EvaluationResultApi[]
     comparedIds: string[] | null
     configById: Map<string, EvaluationConfig>
-    defaultComparedIds: string[]
     directoryTiles: DirectoryTile[]
     exploreUrl: string | null
     few: boolean
-    hasSentimentEvaluation: boolean
     interval: BucketInterval
     measuredPassRateRows: EvaluationResultApi[]
     metric: OverviewMetric
@@ -246,12 +239,10 @@ export interface evaluationsOverviewLogicValues {
     overview: EvaluationsOverviewApi | null
     overviewFailure: OverviewFailure | null
     overviewLoading: boolean
-    pausedRows: EvaluationResultApi[]
     periodLength: number
     periodNow: number
     pickedIds: string[]
-    rankedLabels: RankedRow[]
-    rankedResults: RankedRow[]
+    ranked: { results: RankedRow[]; labels: RankedRow[] }
     request: OverviewRequest
     rows: EvaluationResultApi[]
     rowsById: Map<string, EvaluationResultApi>
@@ -439,9 +430,6 @@ export interface evaluationsOverviewLogicMeta {
         rowsById: (rows: EvaluationResultApi[]) => Map<string, EvaluationResultApi>
         few: (evaluations: EvaluationConfig[]) => boolean
         nothingGraded: (rows: EvaluationResultApi[]) => boolean
-        pausedRows: (rows: EvaluationResultApi[]) => EvaluationResultApi[]
-        attentionCount: (rows: EvaluationResultApi[]) => number
-        hasSentimentEvaluation: (rows: EvaluationResultApi[]) => boolean
         sentimentRow: (
             overview: EvaluationsOverviewApi | null,
             rowsById: Map<string, EvaluationResultApi>
@@ -452,15 +440,13 @@ export interface evaluationsOverviewLogicMeta {
             overview: EvaluationsOverviewApi | null,
             rowsById: Map<string, EvaluationResultApi>
         ) => EvaluationResultApi[]
-        defaultComparedIds: (compareListRows: EvaluationResultApi[]) => string[]
-        chartedIds: (comparedIds: string[] | null, defaultComparedIds: string[]) => string[]
+        chartedIds: (comparedIds: string[] | null, compareListRows: EvaluationResultApi[]) => string[]
         statusGridRows: (rows: EvaluationResultApi[]) => EvaluationResultApi[]
-        rankedResults: (
+        ranked: (
             overview: EvaluationsOverviewApi | null,
             rows: EvaluationResultApi[],
             rowsById: Map<string, EvaluationResultApi>
-        ) => RankedRow[]
-        rankedLabels: (rows: EvaluationResultApi[]) => RankedRow[]
+        ) => { results: RankedRow[]; labels: RankedRow[] }
         configById: (evaluations: EvaluationConfig[]) => Map<string, EvaluationConfig>
         attentionCounts: (rows: EvaluationResultApi[]) => Record<string, number>
         directoryTiles: (
@@ -781,18 +767,6 @@ export const evaluationsOverviewLogic = kea<evaluationsOverviewLogicType>([
             (s) => [s.rows],
             (rows: EvaluationResultApi[]): boolean => rows.every((row) => row.gradedCount === 0),
         ],
-        pausedRows: [
-            (s) => [s.rows],
-            (rows: EvaluationResultApi[]): EvaluationResultApi[] => rows.filter((row) => !row.enabled),
-        ],
-        attentionCount: [
-            (s) => [s.rows],
-            (rows: EvaluationResultApi[]): number => rows.filter((row) => row.attentionReasons.length > 0).length,
-        ],
-        hasSentimentEvaluation: [
-            (s) => [s.rows],
-            (rows: EvaluationResultApi[]): boolean => rows.some((row) => row.summary.kind === 'sentiment'),
-        ],
         sentimentRow: [
             (s) => [s.overview, s.rowsById],
             (
@@ -834,19 +808,17 @@ export const evaluationsOverviewLogic = kea<evaluationsOverviewLogicType>([
                     return row ? [row] : []
                 }),
         ],
-        defaultComparedIds: [
-            (s) => [s.compareListRows],
-            (compareListRows: EvaluationResultApi[]): string[] => {
+        chartedIds: [
+            (s) => [s.comparedIds, s.compareListRows],
+            (comparedIds: string[] | null, compareListRows: EvaluationResultApi[]): string[] => {
+                if (comparedIds) {
+                    return comparedIds
+                }
                 const chartable = compareListRows.filter(isChartable)
-                const flagged = chartable.filter((row) => row.attentionReasons.length > 0)
-                const urgent = [...flagged].sort(compareUrgency)
-                const picked = urgent.length > 0 ? urgent : [...chartable].sort((a, b) => b.gradedCount - a.gradedCount)
+                const urgent = chartable.filter((row) => row.attentionReasons.length > 0).sort(compareUrgency)
+                const picked = urgent.length > 0 ? urgent : chartable.sort((a, b) => b.gradedCount - a.gradedCount)
                 return picked.slice(0, DEFAULT_COMPARED).map((row) => row.id)
             },
-        ],
-        chartedIds: [
-            (s) => [s.comparedIds, s.defaultComparedIds],
-            (comparedIds: string[] | null, defaultComparedIds: string[]): string[] => comparedIds ?? defaultComparedIds,
         ],
         // Evaluations with the most unusual days come first. Ones without results go last.
         statusGridRows: [
@@ -859,41 +831,34 @@ export const evaluationsOverviewLogic = kea<evaluationsOverviewLogicType>([
                         gridSortRate(a) - gridSortRate(b)
                 ),
         ],
-        // Results with a better and a worse direction, on one scale where higher is better: pass rates as they are,
-        // sentiment as the share that is not negative, and scores as their position on the scale.
-        rankedResults: [
+        ranked: [
             (s) => [s.overview, s.rows, s.rowsById],
             (
                 overview: EvaluationsOverviewApi | null,
                 rows: EvaluationResultApi[],
                 rowsById: Map<string, EvaluationResultApi>
-            ): RankedRow[] => [
-                ...(overview?.passRateOverview.entries ?? []).flatMap((entry) => {
-                    const row = rowsById.get(entry.evaluationId)
-                    return row ? [{ row, rate: entry.rate }] : []
-                }),
-                ...rows
-                    .filter(
-                        (row) =>
-                            row.enabled &&
-                            row.gradedCount > 0 &&
-                            (row.summary.kind === 'sentiment' || row.summary.kind === 'score')
-                    )
-                    .map((row) => ({
-                        row,
-                        rate: row.summary.kind === 'sentiment' ? 100 - percentValue(row) : percentValue(row),
-                    }))
-                    .filter(({ rate }) => Number.isFinite(rate)),
-            ],
-        ],
-        // Labels without a passing rule have no better or worse, so they rank on their own.
-        rankedLabels: [
-            (s) => [s.rows],
-            (rows: EvaluationResultApi[]): RankedRow[] =>
-                rows
-                    .filter((row) => row.enabled && row.gradedCount > 0 && row.summary.kind === 'categories')
-                    .map((row) => ({ row, rate: percentValue(row) }))
-                    .filter(({ rate }) => Number.isFinite(rate)),
+            ): { results: RankedRow[]; labels: RankedRow[] } => {
+                const rank = (kinds: string[], rate: (row: EvaluationResultApi) => number): RankedRow[] =>
+                    rows
+                        .filter((row) => row.enabled && row.gradedCount > 0 && kinds.includes(row.summary.kind))
+                        .map((row) => ({ row, rate: rate(row) }))
+                        .filter((item) => Number.isFinite(item.rate))
+                return {
+                    // Results with a better and a worse direction, on one scale where higher is better: pass rates as
+                    // they are, sentiment as the share that is not negative, and scores as their position on the scale.
+                    results: [
+                        ...(overview?.passRateOverview.entries ?? []).flatMap((entry) => {
+                            const row = rowsById.get(entry.evaluationId)
+                            return row ? [{ row, rate: entry.rate }] : []
+                        }),
+                        ...rank(['sentiment', 'score'], (row) =>
+                            row.summary.kind === 'sentiment' ? 100 - percentValue(row) : percentValue(row)
+                        ),
+                    ],
+                    // Labels without a passing rule have no better or worse, so they rank on their own.
+                    labels: rank(['categories'], percentValue),
+                }
+            },
         ],
         configById: [
             (s) => [s.evaluations],
@@ -978,9 +943,9 @@ export const evaluationsOverviewLogic = kea<evaluationsOverviewLogicType>([
                 actions.loadOverview()
             }
         }
+        // pinned: every analytics event name and property in these listeners, because renaming one breaks dashboards.
         return {
             setPickedIds: async ({ ids }, breakpoint) => {
-                // pinned: analytics event name, renaming it breaks dashboards
                 posthog.capture('llma evaluation overview scope changed', {
                     evaluation_count: ids.length,
                     directory_scoped: values.selectedDirectoryId !== null,
@@ -990,7 +955,6 @@ export const evaluationsOverviewLogic = kea<evaluationsOverviewLogicType>([
                 refresh()
             },
             selectDirectory: ({ directoryId }) => {
-                // pinned: analytics event name, renaming it breaks dashboards
                 posthog.capture('llma evaluation overview scope changed', {
                     evaluation_count: values.scopedIds?.length ?? values.evaluations.length,
                     directory_scoped: directoryId !== null,
@@ -1008,14 +972,11 @@ export const evaluationsOverviewLogic = kea<evaluationsOverviewLogicType>([
                 }
             },
             setView: ({ view }) => {
-                // pinned: analytics event name, renaming it breaks dashboards
                 posthog.capture('llma evaluation overview view changed', { view })
             },
             selectCard: ({ card }) => {
-                // pinned: analytics event name, renaming it breaks dashboards
                 posthog.capture('llma evaluation overview card clicked', { card })
                 if (card === 'attention') {
-                    // pinned: analytics event name, renaming it breaks dashboards
                     posthog.capture('llma evaluation overview attention filter changed', {
                         filter: 'any',
                         trigger: 'card',
@@ -1035,23 +996,20 @@ export const evaluationsOverviewLogic = kea<evaluationsOverviewLogicType>([
                 if (!overview) {
                     return
                 }
-                // pinned: analytics event name, renaming it breaks dashboards
                 posthog.capture('llma evaluation overview loaded', {
-                    load_ms: elapsedMs(cache.overviewRequestedAt),
+                    load_ms: Math.round(performance.now() - cache.overviewRequestedAt),
                     evaluation_count: overview.evaluations.length,
                     buckets: overview.buckets.length,
                     interval: overview.interval,
                 })
             },
             setAttentionFilter: ({ filter }) => {
-                // pinned: analytics event name, renaming it breaks dashboards
                 posthog.capture('llma evaluation overview attention filter changed', {
                     filter: filter ?? 'all',
                     trigger: 'table',
                 })
             },
             trackTableAction: ({ action }) => {
-                // pinned: analytics event name, renaming it breaks dashboards
                 posthog.capture('llma evaluation overview table action used', { action })
             },
             toggleEvaluationEnabled: ({ id }) => {
@@ -1072,7 +1030,6 @@ export const evaluationsOverviewLogic = kea<evaluationsOverviewLogicType>([
                 actions.loadOverview()
             },
             openDirectory: ({ directoryId }) => {
-                // pinned: analytics event name, renaming it breaks dashboards
                 posthog.capture('llma evaluation overview directory opened', {
                     evaluation_count: values.evaluations.filter((evaluation) => evaluation.directory_id === directoryId)
                         .length,
@@ -1083,7 +1040,6 @@ export const evaluationsOverviewLogic = kea<evaluationsOverviewLogicType>([
                 cache.directoryEditorMode = values.directoryEditor?.mode ?? null
             },
             submitDirectorySuccess: () => {
-                // pinned: analytics event names, renaming them breaks dashboards
                 if (cache.directoryEditorMode === 'create') {
                     posthog.capture('llma evaluation overview directory created')
                 } else if (cache.directoryEditorMode === 'rename') {
@@ -1094,12 +1050,10 @@ export const evaluationsOverviewLogic = kea<evaluationsOverviewLogicType>([
             },
             deleteDirectory: () => actions.trackDirectoryAction('delete'),
             trackDirectoryAction: ({ action }) => {
-                // pinned: analytics event name, renaming it breaks dashboards
                 posthog.capture('llma evaluation overview directory action', { action })
             },
             deleteEvaluation: () => actions.trackTableAction('delete'),
             clickExplore: () => {
-                // pinned: analytics event name, renaming it breaks dashboards
                 posthog.capture('llma evaluation overview explore clicked', {
                     evaluation_count: values.rows.length,
                 })

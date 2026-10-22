@@ -6,7 +6,7 @@ import { cn } from 'lib/utils/css-classes'
 import { urls } from 'scenes/urls'
 
 import type { BucketStatusEnumApi } from '../../generated/api.schemas'
-import { compactHeadline, describeBucket, formatBucket, formatBucketShort } from './evaluationOverviewDisplay'
+import { compactHeadline, describeBucket, formatBucket } from './evaluationOverviewDisplay'
 import { evaluationsOverviewLogic } from './evaluationsOverviewLogic'
 
 /** Below this many graded results the backend never marks a bucket unusual, so the cell is greyed as unreliable. */
@@ -36,8 +36,8 @@ export function EvaluationStatusGrid(): JSX.Element {
             <div className="flex items-center gap-3 text-xs text-secondary">
                 <span className="w-28 @2xl:w-48 shrink-0" />
                 <span className="flex-1 flex justify-between">
-                    <span>{buckets.length ? formatBucketShort(buckets[0], interval) : ''}</span>
-                    <span>{buckets.length ? formatBucketShort(buckets[buckets.length - 1], interval) : ''}</span>
+                    <span>{buckets.length ? formatBucket(buckets[0], interval, 'MMM D') : ''}</span>
+                    <span>{buckets.length ? formatBucket(buckets[buckets.length - 1], interval, 'MMM D') : ''}</span>
                 </span>
                 <span className="w-24 @2xl:w-28 shrink-0 text-right">Result</span>
             </div>

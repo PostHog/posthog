@@ -59,8 +59,7 @@ export function EvaluationOverviewTiles(): JSX.Element {
         periodLength,
         rows,
         metric,
-        attentionCount,
-        hasSentimentEvaluation,
+        attentionCounts,
         sentimentRow,
         measuredPassRateRows: counted,
     } = useValues(evaluationsOverviewLogic)
@@ -78,6 +77,7 @@ export function EvaluationOverviewTiles(): JSX.Element {
         ? percentChange(totals.gradedComparison.current, totals.gradedComparison.previous)
         : null
     const sentiment = totals?.sentiment
+    const hasSentimentEvaluation = rows.some((row) => row.summary.kind === 'sentiment')
     const shared = {
         theme,
         formatLabel: (label: string) => formatBucket(label, interval),
@@ -92,7 +92,7 @@ export function EvaluationOverviewTiles(): JSX.Element {
             <Tile
                 {...shared}
                 title="Needs attention"
-                value={overview ? attentionCount : undefined}
+                value={overview ? attentionCounts.any : undefined}
                 formatValue={(value) => String(Math.round(value))}
                 showChange={false}
                 restingSubtitle={`of ${pluralize(rows.length, 'evaluation')}`}

@@ -19,16 +19,11 @@ export type BucketInterval = 'hour' | 'day'
 
 /**
  * A bucket start for tooltips, read from its own text. Buckets carry the project's offset, so reading the date and
- * time off the string shows project time whatever the viewer's timezone is.
+ * time off the string shows project time whatever the viewer's timezone is. The ends of an axis pass the short
+ * "MMM D" format, for example "Oct 22" or "Oct 22, 14:00".
  */
-export function formatBucket(label: string, interval: BucketInterval): string {
-    const day = dayjs(label.slice(0, 10)).format('ddd, MMM D')
-    return interval === 'hour' ? `${day}, ${label.slice(11, 16)}` : day
-}
-
-/** A short bucket start for the ends of an axis, for example "Oct 22" or "Oct 22, 14:00". */
-export function formatBucketShort(label: string, interval: BucketInterval): string {
-    const day = dayjs(label.slice(0, 10)).format('MMM D')
+export function formatBucket(label: string, interval: BucketInterval, dayFormat: string = 'ddd, MMM D'): string {
+    const day = dayjs(label.slice(0, 10)).format(dayFormat)
     return interval === 'hour' ? `${day}, ${label.slice(11, 16)}` : day
 }
 
@@ -86,46 +81,10 @@ export function percentTrend(row: EvaluationResultApi): number[] {
     return values.map((value) => (scale ? share(value - scale.min, scale.max - scale.min) : NaN))
 }
 
-/** Short result for lists and legends, for example "92.5%", "18% negative" or "Mean 0.71". */
-export function compactHeadline(row: EvaluationResultApi): string {
-    const { summary } = row
-    const value = percentValue(row)
-    switch (summary.kind) {
-        case 'pass_rate':
-            return formatPercent(value)
-        case 'score':
-            return summary.score ? `Mean ${summary.score.mean.toFixed(2)}` : '-'
-        case 'sentiment':
-            return Number.isFinite(value) ? `${Math.round(value)}% negative` : '-'
-        case 'categories':
-            return Number.isFinite(value) ? `${trackedCategory(row)?.label} ${Math.round(value)}%` : '-'
-    }
-}
-
-/** What one bucket means for this row, for tooltips. */
-export function describeBucket(row: EvaluationResultApi, index: number): string {
-    const value = row.trend.values[index]
-    const volume = row.trend.volume[index] ?? 0
-    if (value == null) {
-        return 'No graded results'
-    }
-    switch (row.summary.kind) {
-        case 'pass_rate':
-            return `${formatPercent(value)} passed, ${volume} graded`
-        case 'score':
-            return `Mean ${value.toFixed(2)}, ${volume} graded`
-        case 'sentiment':
-            return `${Math.round(value)}% negative, ${volume} classified`
-        case 'categories':
-            return `${trackedCategory(row)?.label} on ${Math.round(value)}%, ${volume} classified`
-    }
-}
-
-/** One bucket's result without words, for the compact compare tooltip, for example "82.1%" or "Mean 3.80". */
-export function bucketHeadline(row: EvaluationResultApi, index: number): string | null {
-    const value = row.trend.values[index]
-    if (value == null) {
-        return null
+/** A result without words, for example "92.5%", "18% negative", "Billing 42%" or "Mean 0.71". */
+function headline(row: EvaluationResultApi, value: number): string {
+    if (!Number.isFinite(value)) {
+        return '-'
     }
     switch (row.summary.kind) {
         case 'pass_rate':
@@ -137,6 +96,33 @@ export function bucketHeadline(row: EvaluationResultApi, index: number): string 
         case 'categories':
             return `${trackedCategory(row)?.label} ${Math.round(value)}%`
     }
+}
+
+/** Short result for lists and legends. Scores show their mean, the rest their share. */
+export function compactHeadline(row: EvaluationResultApi): string {
+    return headline(row, row.summary.kind === 'score' ? (row.summary.score?.mean ?? NaN) : percentValue(row))
+}
+
+/** One bucket's result without words, for the compact compare tooltip. */
+export function bucketHeadline(row: EvaluationResultApi, index: number): string | null {
+    const value = row.trend.values[index]
+    return value == null ? null : headline(row, value)
+}
+
+/** What one bucket means for this row, for tooltips, for example "82.1% passed, 140 graded". */
+export function describeBucket(row: EvaluationResultApi, index: number): string {
+    const value = row.trend.values[index]
+    if (value == null) {
+        return 'No graded results'
+    }
+    const { kind } = row.summary
+    const result =
+        kind === 'pass_rate'
+            ? `${formatPercent(value)} passed`
+            : kind === 'categories'
+              ? `${trackedCategory(row)?.label} on ${Math.round(value)}%`
+              : headline(row, value)
+    return `${result}, ${row.trend.volume[index] ?? 0} ${kind === 'pass_rate' || kind === 'score' ? 'graded' : 'classified'}`
 }
 
 /** The day of the latest graded run in the project's timezone, which the chart's buckets also use. */

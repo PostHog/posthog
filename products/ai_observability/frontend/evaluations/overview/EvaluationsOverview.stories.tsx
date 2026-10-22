@@ -1,5 +1,5 @@
 import { Meta, StoryObj } from '@storybook/react'
-import { waitFor } from '@testing-library/dom'
+import { within } from '@testing-library/dom'
 import userEvent from '@testing-library/user-event'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -32,6 +32,10 @@ function sum(values: number[]): number {
     return values.reduce((total, value) => total + value, 0)
 }
 
+function uuid(index: number): string {
+    return `0b1e0000-0000-4000-8000-${index.toString(16).padStart(12, '0')}`
+}
+
 type ResultOverrides = Partial<EvaluationResultApi> & Pick<EvaluationResultApi, 'id' | 'name' | 'summary'>
 
 function result(overrides: ResultOverrides): EvaluationResultApi {
@@ -60,7 +64,10 @@ function result(overrides: ResultOverrides): EvaluationResultApi {
 function passRateResult(
     id: string,
     name: string,
-    { rate, previous, perDay, swing = 2 }: { rate: number; previous: number | null; perDay: number; swing?: number }
+    rate: number,
+    previous: number | null,
+    perDay: number,
+    swing = 2
 ): EvaluationResultApi {
     const values = wave(rate, swing, id.length)
     const daily = volume(perDay)
@@ -93,32 +100,14 @@ function passRateResult(
     })
 }
 
-const HELPFULNESS = passRateResult('0b1e0000-0000-4000-8000-000000000001', 'Helpfulness', {
-    rate: 91.4,
-    previous: 92.0,
-    perDay: 140,
-})
-const GROUNDEDNESS = passRateResult('0b1e0000-0000-4000-8000-000000000002', 'Answer is grounded in context', {
-    rate: 78.2,
-    previous: 86.5,
-    perDay: 90,
-    swing: 4,
-})
-const TONE = passRateResult('0b1e0000-0000-4000-8000-000000000003', 'Polite tone', {
-    rate: 97.1,
-    previous: 96.4,
-    perDay: 60,
-    swing: 1,
-})
-const NEW_CHECK = passRateResult('0b1e0000-0000-4000-8000-000000000004', 'Refuses off-topic requests', {
-    rate: 70,
-    previous: null,
-    perDay: 1,
-})
+const HELPFULNESS = passRateResult(uuid(1), 'Helpfulness', 91.4, 92.0, 140)
+const GROUNDEDNESS = passRateResult(uuid(2), 'Answer is grounded in context', 78.2, 86.5, 90, 4)
+const TONE = passRateResult(uuid(3), 'Polite tone', 97.1, 96.4, 60, 1)
+const NEW_CHECK = passRateResult(uuid(4), 'Refuses off-topic requests', 70, null, 1)
 
 const SENTIMENT_VALUES = wave(14, 3, 1)
 const SENTIMENT = result({
-    id: '0b1e0000-0000-4000-8000-000000000005',
+    id: uuid(5),
     name: 'User sentiment',
     evaluationType: 'sentiment',
     outputType: 'sentiment',
@@ -131,7 +120,7 @@ const SENTIMENT = result({
 })
 
 const INTENT = result({
-    id: '0b1e0000-0000-4000-8000-000000000006',
+    id: uuid(6),
     name: 'Request intent',
     outputType: 'categorical',
     gradedCount: 1960,
@@ -153,7 +142,7 @@ const INTENT = result({
 })
 
 const SCORE = result({
-    id: '0b1e0000-0000-4000-8000-000000000007',
+    id: uuid(7),
     name: 'Answer completeness',
     outputType: 'numeric',
     gradedCount: 1120,
@@ -165,7 +154,7 @@ const SCORE = result({
 })
 
 const ERRORED = result({
-    id: '0b1e0000-0000-4000-8000-000000000008',
+    id: uuid(8),
     name: 'Cites a source',
     enabled: false,
     statusReason: 'provider_key_quota_exceeded',
@@ -175,7 +164,7 @@ const ERRORED = result({
 })
 
 const SILENT = result({
-    id: '0b1e0000-0000-4000-8000-000000000009',
+    id: uuid(9),
     name: 'Mentions pricing correctly',
     lastRunAt: '2026-10-03T08:00:00Z',
     summary: { kind: 'pass_rate', passed: 0, failed: 0, previous: null, score: null },
@@ -183,7 +172,7 @@ const SILENT = result({
 })
 
 const PAUSED = result({
-    id: '0b1e0000-0000-4000-8000-00000000000a',
+    id: uuid(10),
     name: 'Hallucination check',
     enabled: false,
     lastRunAt: '2026-09-28T08:00:00Z',
@@ -396,22 +385,12 @@ type Story = StoryObj<{}>
 
 const MANY = [HELPFULNESS, GROUNDEDNESS, TONE, NEW_CHECK, SENTIMENT, INTENT, SCORE, ERRORED, SILENT, PAUSED]
 
-export const ManyEvaluations: Story = {
-    decorators: [scene(MANY)],
-}
+export const ManyEvaluations: Story = { decorators: [scene(MANY)] }
 
 function openDrawer(name: string): Story['play'] {
     return async ({ canvasElement }) => {
-        const link = await waitFor(() => {
-            const match = [
-                ...canvasElement.querySelectorAll<HTMLElement>('[data-attr="evaluation-overview-table-name"]'),
-            ].find((element) => element.textContent === name)
-            if (!match) {
-                throw new Error(`The table must list ${name}`)
-            }
-            return match
-        })
-        await userEvent.click(link)
+        const selector = '[data-attr="evaluation-overview-table-name"]'
+        await userEvent.click(await within(canvasElement).findByText(name, { selector }))
     }
 }
 
@@ -449,15 +428,9 @@ export const DrawerEmptyDisabled: Story = { decorators: [scene(MANY)], play: ope
 
 export const DrawerEmptyErrored: Story = { decorators: [scene(MANY)], play: openDrawer(ERRORED.name) }
 
-export const RateLimited: Story = {
-    decorators: [scene(MANY, { rateLimited: true })],
-}
+export const RateLimited: Story = { decorators: [scene(MANY, { rateLimited: true })] }
 
 // Most teams run one or two evaluations, so the page has to hold up with very little in it.
-export const TwoEvaluations: Story = {
-    decorators: [scene([GROUNDEDNESS, TONE])],
-}
+export const TwoEvaluations: Story = { decorators: [scene([GROUNDEDNESS, TONE])] }
 
-export const NothingGraded: Story = {
-    decorators: [scene([SILENT, PAUSED])],
-}
+export const NothingGraded: Story = { decorators: [scene([SILENT, PAUSED])] }

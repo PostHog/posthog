@@ -12,21 +12,14 @@ import { EvaluationRankedBars } from './EvaluationRankedBars'
 import { type OverviewMetric, type OverviewView, evaluationsOverviewLogic } from './evaluationsOverviewLogic'
 import { EvaluationStatusGrid } from './EvaluationStatusGrid'
 
-function overTimeTitle(metric: OverviewMetric, interval: BucketInterval): string {
-    switch (metric) {
-        case 'pass_rate':
-            return 'Results over time'
-        case 'graded':
-            return `Graded results each ${interval}`
-        case 'sentiment':
-            return 'Negative sentiment over time'
-    }
-}
-
 function viewTitle(view: OverviewView, metric: OverviewMetric, interval: BucketInterval): string {
     switch (view) {
         case 'over_time':
-            return overTimeTitle(metric, interval)
+            return metric === 'pass_rate'
+                ? 'Results over time'
+                : metric === 'graded'
+                  ? `Graded results each ${interval}`
+                  : 'Negative sentiment over time'
         case 'by_bucket':
             return `Each evaluation, ${interval} by ${interval}`
         case 'ranked':
@@ -58,8 +51,7 @@ function viewOptions(interval: BucketInterval): { value: OverviewView; label: st
 }
 
 function ResultsBody(): JSX.Element {
-    const { view, metric, overview, buckets, sentimentRow, rankedResults, rankedLabels } =
-        useValues(evaluationsOverviewLogic)
+    const { view, metric, overview, buckets, sentimentRow, ranked } = useValues(evaluationsOverviewLogic)
 
     if (view === 'by_bucket') {
         return <EvaluationStatusGrid />
@@ -67,11 +59,16 @@ function ResultsBody(): JSX.Element {
     if (view === 'ranked') {
         return (
             <div className="flex flex-col gap-6">
-                {rankedResults.length > 0 && (
-                    <EvaluationRankedBars labelHeader="Evaluation" valueHeader="Result" items={rankedResults} />
+                {ranked.results.length > 0 && (
+                    <EvaluationRankedBars labelHeader="Evaluation" valueHeader="Result" items={ranked.results} />
                 )}
-                {rankedLabels.length > 0 && (
-                    <EvaluationRankedBars labelHeader="Labels" valueHeader="Top label" fullScale items={rankedLabels} />
+                {ranked.labels.length > 0 && (
+                    <EvaluationRankedBars
+                        labelHeader="Labels"
+                        valueHeader="Top label"
+                        fullScale
+                        items={ranked.labels}
+                    />
                 )}
             </div>
         )

@@ -53,6 +53,13 @@ export interface evaluationResultDrawerLogicActions {
     closeDrawer: () => {
         value: true
     }
+    detailsLoaded: (
+        key: string,
+        load: DetailsLoad
+    ) => {
+        key: string
+        load: DetailsLoad
+    }
     detailsRequested: (
         key: string,
         evaluationId: string
@@ -66,20 +73,6 @@ export interface evaluationResultDrawerLogicActions {
     ) => {
         evaluationId: string
         trigger: DetailsTrigger
-    }
-    loadDetailsFailure: (
-        key: string,
-        failure: OverviewFailure
-    ) => {
-        failure: OverviewFailure
-        key: string
-    }
-    loadDetailsSuccess: (
-        key: string,
-        details: EvaluationOverviewDetailsApi
-    ) => {
-        details: EvaluationOverviewDetailsApi
-        key: string
     }
     openDrawer: (evaluationId: string) => {
         evaluationId: string
@@ -134,8 +127,7 @@ export const evaluationResultDrawerLogic = kea<evaluationResultDrawerLogicType>(
         prefetchDetails: (evaluationId: string) => ({ evaluationId }),
         loadDetails: (evaluationId: string, trigger: DetailsTrigger) => ({ evaluationId, trigger }),
         detailsRequested: (key: string, evaluationId: string) => ({ key, evaluationId }),
-        loadDetailsSuccess: (key: string, details: EvaluationOverviewDetailsApi) => ({ key, details }),
-        loadDetailsFailure: (key: string, failure: OverviewFailure) => ({ key, failure }),
+        detailsLoaded: (key: string, load: DetailsLoad) => ({ key, load }),
         resetDetails: true,
     }),
     reducers({
@@ -151,8 +143,7 @@ export const evaluationResultDrawerLogic = kea<evaluationResultDrawerLogicType>(
             {} as Record<string, DetailsLoad>,
             {
                 detailsRequested: (state, { key }) => ({ ...state, [key]: { status: 'loading' } }),
-                loadDetailsSuccess: (state, { key, details }) => ({ ...state, [key]: { status: 'ready', details } }),
-                loadDetailsFailure: (state, { key, failure }) => ({ ...state, [key]: { status: 'error', failure } }),
+                detailsLoaded: (state, { key, load }) => ({ ...state, [key]: load }),
                 resetDetails: () => ({}),
             },
         ],
@@ -173,6 +164,7 @@ export const evaluationResultDrawerLogic = kea<evaluationResultDrawerLogicType>(
                 openEvaluationId ? (details[detailsKey(openEvaluationId, request)] ?? null) : null,
         ],
     }),
+    // pinned: every analytics event name and property in these listeners, because renaming one breaks dashboards.
     listeners(({ actions, values, cache }) => ({
         // A new period or scope can arrive while the drawer stays open, for example through browser Back. Its rows
         // are current only once the overview loads, which the graded check in `loadDetails` needs.
@@ -190,12 +182,10 @@ export const evaluationResultDrawerLogic = kea<evaluationResultDrawerLogicType>(
             actions.resetDetails()
         },
         trackEmptyStateAction: ({ action, state }) => {
-            // pinned: analytics event name, renaming it breaks dashboards
             posthog.capture('llma evaluation overview drawer empty action', { action, state })
         },
         openDrawer: ({ evaluationId }) => {
             const row = values.rowsById.get(evaluationId)
-            // pinned: analytics event name, renaming it breaks dashboards
             posthog.capture('llma evaluation overview drawer opened', {
                 summary_kind: row?.summary.kind,
                 prefetched: values.details[detailsKey(evaluationId, values.request)]?.status === 'ready',
@@ -210,10 +200,8 @@ export const evaluationResultDrawerLogic = kea<evaluationResultDrawerLogicType>(
         loadDetails: ({ evaluationId, trigger }) => {
             const key = detailsKey(evaluationId, values.request)
             const current = values.details[key]
-            if (current?.status === 'loading' || current?.status === 'ready') {
-                return
-            }
-            if (current?.status === 'error' && trigger === 'prefetch') {
+            // A failed read retries only when someone opens the drawer.
+            if (current && (current.status !== 'error' || trigger === 'prefetch')) {
                 return
             }
             // Nothing was graded, so the drawer shows the paused or empty notice and needs no details.
@@ -234,24 +222,19 @@ export const evaluationResultDrawerLogic = kea<evaluationResultDrawerLogicType>(
             const { date_from, date_to } = values.request.params
             const refresh = cache.refreshKeys?.delete(key) === true
             const generation = cache.generation ?? 0
-            const result = await evaluationsOverviewDetailsRetrieve(String(values.currentTeamId), evaluationId, {
+            const load = await evaluationsOverviewDetailsRetrieve(String(values.currentTeamId), evaluationId, {
                 date_from,
                 date_to,
                 ...(refresh ? { refresh: true } : {}),
             }).then(
-                (details: EvaluationOverviewDetailsApi) => ({ details }),
-                (error: unknown) => ({ failure: failureOf(error) })
+                (details): DetailsLoad => ({ status: 'ready', details }),
+                (error: unknown): DetailsLoad => ({ status: 'error', failure: failureOf(error) })
             )
             if (cache.prefetchingKey === key) {
                 cache.prefetchingKey = null
             }
-            if (generation !== (cache.generation ?? 0)) {
-                return
-            }
-            if ('failure' in result) {
-                actions.loadDetailsFailure(key, result.failure)
-            } else {
-                actions.loadDetailsSuccess(key, result.details)
+            if (generation === (cache.generation ?? 0)) {
+                actions.detailsLoaded(key, load)
             }
         },
     })),
