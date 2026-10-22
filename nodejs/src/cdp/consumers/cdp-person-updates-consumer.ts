@@ -14,7 +14,7 @@ import { JobQueue } from '../services/job-queue/job-queue.interface'
 import { CyclotronJobInvocation, CyclotronPerson, HogFunctionInvocationGlobals, HogFunctionTypeType } from '../types'
 import { getPersonDisplayName } from '../utils'
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
-import { assertTeamId, skipIfMalformed } from './message-parsing'
+import { parseBatch } from './message-parsing'
 
 export class CdpPersonUpdatesConsumer extends CdpConsumerBase {
     protected name = 'CdpPersonUpdatesConsumer'
@@ -79,38 +79,23 @@ export class CdpPersonUpdatesConsumer extends CdpConsumerBase {
 
     @instrumented('cdpConsumer.handleEachBatch.parseKafkaMessages')
     public async _parseKafkaBatch(messages: Message[]): Promise<HogFunctionInvocationGlobals[]> {
-        const globals: HogFunctionInvocationGlobals[] = []
-        await Promise.all(
-            messages.map(async (message) => {
-                const data = skipIfMalformed('Error parsing message', () =>
-                    assertTeamId(parseJSON(message.value!.toString()) as ClickHousePerson)
-                )
-                if (!data) {
-                    return
+        return await parseBatch(messages, {
+            errorLog: 'Error parsing message',
+            parse: (message) => {
+                const data = parseJSON(message.value!.toString()) as ClickHousePerson
+                return {
+                    teamId: data.team_id,
+                    toGlobals: (team) => convertClickhousePersonToInvocationGlobals(data, team, this.config.SITE_URL),
                 }
-
-                // Outside skipIfMalformed: a lookup error fails the batch, so the consumer reads the batch again.
+            },
+            loadTeam: async (teamId) => {
                 const [teamHogFunctions, team] = await Promise.all([
-                    this.hogFunctionManager.getHogFunctionsForTeam(data.team_id, this.hogTypes),
-                    this.deps.teamManager.getTeam(data.team_id),
+                    this.hogFunctionManager.getHogFunctionsForTeam(teamId, this.hogTypes),
+                    this.deps.teamManager.getTeam(teamId),
                 ])
-
-                const filteredHogFunctions = teamHogFunctions.filter((fn) => fn.filters?.source === 'person-updates')
-
-                if (!filteredHogFunctions.length || !team) {
-                    return
-                }
-
-                const invocationGlobals = skipIfMalformed('Error parsing message', () =>
-                    convertClickhousePersonToInvocationGlobals(data, team, this.config.SITE_URL)
-                )
-                if (invocationGlobals) {
-                    globals.push(invocationGlobals)
-                }
-            })
-        )
-
-        return globals
+                return teamHogFunctions.some((fn) => fn.filters?.source === 'person-updates') ? team : null
+            },
+        })
     }
 
     public override async start(): Promise<void> {

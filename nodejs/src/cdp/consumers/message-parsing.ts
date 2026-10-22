@@ -1,6 +1,10 @@
+import { Message } from 'node-rdkafka'
+
 import { logger } from '~/common/utils/logger'
 import { isValidTeamId } from '~/common/utils/team-manager'
 
+import { Team } from '../../types'
+import { HogFunctionInvocationGlobals } from '../types'
 import { counterParseError } from './metrics'
 
 // The loaders batch team ids from many messages into one query. One invalid id fails that query for
@@ -27,4 +31,73 @@ export function skipIfMalformed<T>(errorLog: string, step: () => T, onError?: (e
         onError?.(error)
         return null
     }
+}
+
+// What a parse step reads from one message: the team to look up, and how to build the globals once
+// the team has loaded.
+type ParsedMessage = {
+    teamId: unknown
+    toGlobals: (team: Team) => HogFunctionInvocationGlobals
+}
+
+export type ParseBatchOptions = {
+    errorLog: string
+    /** Reads only the message. Returns null to skip it. */
+    parse: (message: Message) => ParsedMessage | null
+    /** Returns the team, or null to skip the message. */
+    loadTeam: (teamId: number) => Promise<Team | null>
+    /** Skips a message whose team id is invalid. Without it, an invalid team id counts as a parse error. */
+    onInvalidTeamId?: () => void
+    /** Runs on each parse error. */
+    onError?: (message: Message, error: string) => void
+}
+
+/**
+ * Builds the globals for each message in a batch, in message order.
+ *
+ * `parse` and `toGlobals` do no I/O. They read only the message and the loaded team, so an error there
+ * means the message is malformed. It fails the same way every time it is read, so this skips it. This
+ * also skips a team id that `loadTeam` cannot query, for the reason `assertTeamId` gives.
+ *
+ * `loadTeam` reads Postgres, and this does not catch its error. The error fails the batch, so the
+ * consumer does not store the batch's offsets and reads the batch again after the pod restarts.
+ * Skipping the message instead would lose the event.
+ */
+export async function parseBatch(
+    messages: Message[],
+    { errorLog, parse, loadTeam, onInvalidTeamId, onError }: ParseBatchOptions
+): Promise<HogFunctionInvocationGlobals[]> {
+    const results = await Promise.all(
+        messages.map(async (message) => {
+            const reportError = onError && ((error: string) => onError(message, error))
+            const parsed = skipIfMalformed(
+                errorLog,
+                () => {
+                    const parsed = parse(message)
+                    if (!parsed) {
+                        return null
+                    }
+                    const { teamId, toGlobals } = parsed
+                    if (isValidTeamId(teamId)) {
+                        return { teamId, toGlobals }
+                    }
+                    if (!onInvalidTeamId) {
+                        throw new Error('invalid_team_id')
+                    }
+                    onInvalidTeamId()
+                    return null
+                },
+                reportError
+            )
+            if (!parsed) {
+                return null
+            }
+            const team = await loadTeam(parsed.teamId)
+            if (!team) {
+                return null
+            }
+            return skipIfMalformed(errorLog, () => parsed.toGlobals(team), reportError)
+        })
+    )
+    return results.filter((globals): globals is HogFunctionInvocationGlobals => globals !== null)
 }
