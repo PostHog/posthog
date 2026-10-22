@@ -47,10 +47,10 @@ from products.dashboards.backend.models.dashboard_tile import ButtonTile, Dashbo
 from products.dashboards.backend.models.dashboard_widget import DashboardWidget
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.exports.backend.models.exported_asset import ExportedAsset, get_render_access_token
-from products.exports.backend.models.subscription import Subscription
 from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.facade.models import Insight
 from products.subscriptions.backend.facade.testing import create_subscription
+from products.subscriptions.backend.models.subscription import Subscription
 
 
 def mock_exporter_template(test_func):
