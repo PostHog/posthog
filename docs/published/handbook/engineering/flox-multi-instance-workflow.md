@@ -402,6 +402,8 @@ phw remove haacked/old-feature
 git worktree prune
 ```
 
+To clear old `phw`, Claude Code, Codex, and PostHog Code worktrees in bulk, run `hogli worktrees:clean --before 7d --mode deps --dry-run` to preview, then drop `--dry-run`, or use `--mode full` to remove whole worktrees.
+
 ## Quick Setup Script
 
 For a complete one-time setup, run:
