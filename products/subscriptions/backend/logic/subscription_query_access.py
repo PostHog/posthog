@@ -21,7 +21,13 @@ _RECIPIENT_FIELDS = ("target_type", "target_value", "integration_id")
 _TARGET_FIELDS = ("insight", "dashboard")
 
 
-def should_check_table_access(instance: Subscription | None, attrs: dict[str, Any]) -> bool:
+def _subscription(team_id: int, subscription_id: int | None) -> Subscription | None:
+    if subscription_id is None:
+        return None
+    return Subscription.objects.get(team_id=team_id, id=subscription_id)
+
+
+def should_check_table_access(*, team_id: int, subscription_id: int | None, attrs: dict[str, Any]) -> bool:
     """Decide if a write to a subscription must pass the table-access check.
 
     These writes need the check: a create, a change to what the subscription delivers, a change
@@ -32,6 +38,7 @@ def should_check_table_access(instance: Subscription | None, attrs: dict[str, An
     or the recipients needs the check, because those changes stay in place after someone else
     enables the subscription again.
     """
+    instance = _subscription(team_id, subscription_id)
     if instance is None:
         return True
     if any(field in attrs and attrs[field] != getattr(instance, field) for field in _RECIPIENT_FIELDS):
@@ -83,7 +90,7 @@ def blocked_access_for_subscription(
     user: User,
     team: Team,
     user_access_control: UserAccessControl,
-    instance: Subscription | None,
+    subscription_id: int | None,
     attrs: dict[str, Any],
 ) -> list[str]:
     """Names of the tables, and of query resources such as logs, that the requester cannot read
@@ -97,4 +104,4 @@ def blocked_access_for_subscription(
         return []
     if user_access_control.is_organization_admin:
         return []
-    return blocked_access_for_user(user, team, delivered_queries(instance, attrs))
+    return blocked_access_for_user(user, team, delivered_queries(_subscription(team.id, subscription_id), attrs))
