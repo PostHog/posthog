@@ -2824,13 +2824,15 @@ class TestQuerySingleFlightRunner(BaseTest):
             runner.get_cache_key(), budget_for_limit_context(runner.limit_context), runner.single_flight_variant()
         )
 
-    def test_runs_tagged_with_another_clickhouse_user_do_not_share_a_flight(self):
-        runner = setup_test_query_runner_class()(query={"some_attr": "bla"}, team=self.team)
-        untagged = self._flight_of(runner)
-        with tags_context(ch_user=ClickHouseUser.ALERTS_PLATFORM_INSIGHT):
-            tagged = self._flight_of(runner)
+    @parameterized.expand([("tagged", None), ("passed_to_the_runner", ClickHouseUser.ALERTS_PLATFORM_INSIGHT)])
+    def test_runs_as_another_clickhouse_user_do_not_share_a_flight(self, _name, runner_user):
+        runner_class = setup_test_query_runner_class()
+        default = self._flight_of(runner_class(query={"some_attr": "bla"}, team=self.team))
+        other = runner_class(query={"some_attr": "bla"}, team=self.team, ch_user=runner_user or ClickHouseUser.DEFAULT)
+        with tags_context(ch_user=None if runner_user else ClickHouseUser.ALERTS_PLATFORM_INSIGHT):
+            flight = self._flight_of(other)
 
-        assert tagged.lock_key != untagged.lock_key
+        assert flight.lock_key != default.lock_key
 
     @parameterized.expand([("success", None), ("failure", ClickHouseQueryTimeOut), ("interrupted", _LeaderInterrupted)])
     def test_leader_releases_the_flight(self, _name, error_class):
