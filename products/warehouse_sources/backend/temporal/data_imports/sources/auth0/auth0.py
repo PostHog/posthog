@@ -82,9 +82,6 @@ class Auth0ResumeConfig:
     # Lower bound of the Lucene date window currently being paged, or None while the run is
     # still inside the first (unfiltered) window.
     window_start: Optional[str] = None
-    # Primary keys of the rows the previous window yielded at `window_start`. The inclusive lower
-    # bound re-reads them, so they are kept here to stay deduplicated across a resume.
-    window_start_keys: list[list[Any]] = dataclasses.field(default_factory=list)
     # Fan-out children only: the last parent on this page whose children were all handed to the
     # pipeline. A resumed run skips the parents up to and including it.
     last_parent_id: Optional[str] = None
@@ -435,11 +432,6 @@ def _row_key(row: dict[str, Any], config: Auth0EndpointConfig) -> tuple[Any, ...
     return tuple(row.get(key) for key in config.primary_keys)
 
 
-def _keys_state(keys: set[tuple[Any, ...]]) -> list[list[Any]]:
-    # Sorted so the saved resume state is deterministic.
-    return [list(key) for key in sorted(keys, key=repr)]
-
-
 def _probe(session: requests.Session, token: str, url: str, read_body: bool) -> tuple[int, Any]:
     """Request one probe URL and return its status, plus the parsed body when asked for it.
 
@@ -567,10 +559,11 @@ def _iter_pages(
     pages_fetched = 0
     # Keys of the rows seen at the newest window value so far, and of the rows the previous window
     # yielded at the current lower bound. The inclusive bound re-reads those rows, and a full
-    # refresh appends batches without a merge, so they are dropped rather than written twice.
+    # refresh appends batches without a merge, so they are dropped rather than written twice. They
+    # are not saved in the resume state: a restart at a window boundary can write a few rows twice.
     newest_seen: Optional[str] = None
     newest_seen_keys: set[tuple[Any, ...]] = set()
-    already_yielded = {tuple(key) for key in position.window_start_keys}
+    already_yielded: set[tuple[Any, ...]] = set()
     while True:
         if pages_fetched >= MAX_PAGES:
             raise Auth0PaginationLimitError(
@@ -626,23 +619,17 @@ def _iter_pages(
             next_window_start = newest
             next_page = 0
 
-        next_yielded = newest_seen_keys if next_window_start != window_start else already_yielded
         yield _Page(
             rows=rows,
-            position=Auth0ResumeConfig(
-                page=page, window_start=window_start, window_start_keys=_keys_state(already_yielded)
-            ),
-            next_position=None
-            if is_last_page
-            else Auth0ResumeConfig(
-                page=next_page, window_start=next_window_start, window_start_keys=_keys_state(next_yielded)
-            ),
+            position=Auth0ResumeConfig(page=page, window_start=window_start),
+            next_position=None if is_last_page else Auth0ResumeConfig(page=next_page, window_start=next_window_start),
         )
 
         if is_last_page:
             return
 
-        already_yielded = set(next_yielded)
+        if next_window_start != window_start:
+            already_yielded = set(newest_seen_keys)
         page = next_page
         window_start = next_window_start
 

@@ -295,7 +295,7 @@ class TestGetRows:
         assert result.requests[3].param("q") == f'updated_at:["{newest}" TO *]'
         assert result.saved_states == [
             Auth0ResumeConfig(page=1, window_start=None),
-            Auth0ResumeConfig(page=0, window_start=newest, window_start_keys=[[f"auth0|{i}"] for i in range(150, 200)]),
+            Auth0ResumeConfig(page=0, window_start=newest),
         ]
         assert result.committed_states == result.saved_states
 
@@ -331,21 +331,16 @@ class TestGetRows:
 
     def test_resumes_from_saved_page_and_window(self) -> None:
         resumed_window = "2024-07-01T00:00:00.000Z"
-        # `auth0|0` was yielded at the window boundary before the worker restarted.
-        page = {
-            "users": _user_rows(1, resumed_window) + _user_rows(1, "2024-07-02T00:00:00.000Z", start=1),
-            "total": 2,
-        }
+        page = {"users": _user_rows(1, "2024-07-02T00:00:00.000Z"), "total": 1}
         result = self._run(
             "users",
             [ScriptedResponse(json=page)],
-            resume_state=Auth0ResumeConfig(page=4, window_start=resumed_window, window_start_keys=[["auth0|0"]]),
+            resume_state=Auth0ResumeConfig(page=4, window_start=resumed_window),
             incremental_field="updated_at",
             db_incremental_field_last_value="2020-01-01T00:00:00.000Z",
         )
 
         assert result.raised is None
-        assert [row["user_id"] for batch in result.items for row in batch] == ["auth0|1"]
         # The saved window wins over the (older) database watermark.
         assert result.requests[1].param("page") == "4"
         assert result.requests[1].param("q") == f'updated_at:["{resumed_window}" TO *]'
