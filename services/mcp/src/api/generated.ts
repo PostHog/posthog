@@ -45540,6 +45540,11 @@ export namespace Schemas {
       required_flag_key: string | null;
       /** The event property that holds the variant. */
       variant_property: string;
+      /**
+         * The event, or the action's name, that has to follow a user's flag call before the user counts. Null without an activation.
+         * @nullable
+         */
+      activation: string | null;
     }
 
     export interface ExperimentHealthInputsFlagChange {

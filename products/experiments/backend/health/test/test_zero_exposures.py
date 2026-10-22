@@ -113,6 +113,77 @@ class TestZeroExposures(TestCase):
         assert finding is not None
         self.assertEqual((finding.subcode, finding.actions), (subcode, actions))
 
+    @parameterized.expand(
+        [
+            ("users", False, None, "No users exposed, although the feature flag is called", False, False),
+            ("groups", True, None, "No groups exposed, although the feature flag is called", True, False),
+            ("activation", False, "signed_up", "No users exposed, although the feature flag is called", False, True),
+        ]
+    )
+    def test_names_what_a_call_needs_to_count(
+        self,
+        _name: str,
+        counts_groups: bool,
+        activation: str | None,
+        title: str,
+        names_the_group: bool,
+        names_the_activation: bool,
+    ) -> None:
+        ctx = replace(
+            RUNNING_CONTEXT,
+            flag=FLAG,
+            exposures=replace(NO_EXPOSURES, counts_groups=counts_groups),
+            exposure_events=replace(FLAG_CALLS, activation=activation),
+            flag_called_during_run=True,
+        )
+
+        finding = zero_exposures(ctx)
+
+        assert finding is not None
+        self.assertEqual(
+            (
+                finding.title,
+                "A call counts only when it carries the group" in finding.detail,
+                'With the activation "signed_up" set' in finding.detail,
+            ),
+            (title, names_the_group, names_the_activation),
+        )
+
+
+class TestExposureActivation(BaseTest):
+    @parameterized.expand(
+        [
+            (
+                "event",
+                {"kind": "ExperimentEventExposureConfig", "event": "signed_up", "properties": []},
+                None,
+                "signed_up",
+            ),
+            ("action", {"kind": "ActionsNode", "id": 7, "name": "Signed up"}, None, "Signed up"),
+            (
+                "ignored_next_to_a_custom_exposure_event",
+                {"kind": "ExperimentEventExposureConfig", "event": "signed_up", "properties": []},
+                {"kind": "ExperimentEventExposureConfig", "event": "checkout_viewed", "properties": []},
+                None,
+            ),
+        ]
+    )
+    def test_reads_the_activation_the_exposure_query_applies(
+        self, _name: str, activation: dict[str, Any], exposure: dict[str, Any] | None, expected: str | None
+    ) -> None:
+        flag = FeatureFlag.objects.create(team=self.team, key="checkout-test", created_by=self.user)
+        criteria: dict[str, Any] = {"activation_config": activation}
+        if exposure is not None:
+            criteria["exposure_config"] = exposure
+        experiment = Experiment.objects.create(
+            team=self.team, name="exp", feature_flag=flag, start_date=LAUNCHED_AT, exposure_criteria=criteria
+        )
+
+        events = load_health_context(experiment).exposure_events
+
+        assert events is not None
+        self.assertEqual(events.activation, expected)
+
 
 class TestFlagCalledDuringRun(BaseTest):
     @parameterized.expand(

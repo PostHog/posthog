@@ -74,6 +74,7 @@ const HEALTH_INPUTS: ExperimentHealthInputsApi = {
         custom_event: null,
         required_flag_key: 'experiment-with-mean-metric',
         variant_property: '$feature_flag_response',
+        activation: null,
     },
     events_received: {},
     flag_history: {

@@ -3293,6 +3293,13 @@ class ExperimentHealthInputsExposureEventsSerializer(serializers.Serializer):
         help_text="The flag key the exposure query requires on the flag call events. Null for a custom event or an action.",
     )
     variant_property = serializers.CharField(help_text="The event property that holds the variant.")
+    activation = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "The event, or the action's name, that has to follow a user's flag call before the user counts. Null "
+            "without an activation."
+        ),
+    )
 
 
 class ExperimentHealthInputsReaderAccessSerializer(serializers.Serializer):

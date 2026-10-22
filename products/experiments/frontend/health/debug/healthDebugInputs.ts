@@ -65,7 +65,8 @@ function describeExposureEvents({ exposure_events, events_received }: Experiment
         return `The event "${exposure_events.custom_event}" (${receivedText}), with the variant in ${exposure_events.variant_property}`
     }
     if (exposure_events.required_flag_key) {
-        return `Calls of the flag "${exposure_events.required_flag_key}"`
+        const calls = `Calls of the flag "${exposure_events.required_flag_key}"`
+        return exposure_events.activation ? `${calls}, then the activation "${exposure_events.activation}"` : calls
     }
     return `An action, with the variant in ${exposure_events.variant_property}`
 }

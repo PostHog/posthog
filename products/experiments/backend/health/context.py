@@ -8,7 +8,13 @@ from django.utils import timezone
 
 import pydantic
 
-from posthog.schema import EventPropertyFilter, ExperimentEventExposureConfig, MultipleVariantHandling, PropertyOperator
+from posthog.schema import (
+    ActionsNode,
+    EventPropertyFilter,
+    ExperimentEventExposureConfig,
+    MultipleVariantHandling,
+    PropertyOperator,
+)
 
 from posthog.dataclasses import frozen
 from posthog.models.activity_logging.activity_log import ActivityLog
@@ -19,6 +25,7 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
     DEFAULT_EXPOSURE_EVENT,
     EXPERIMENT_EXPOSURE_EVENT,
     get_exposure_event_and_property,
+    has_activation_config,
     normalize_to_exposure_criteria,
 )
 from products.experiments.backend.metric_resolution import MetricRole, saved_metric_link_role, saved_metric_links
@@ -270,6 +277,9 @@ class ExposureEvents:
     # on a custom event or the events of an action.
     variant_property: str
     flag_key_filters: tuple[FlagKeyFilter, ...]
+    # The event, or the action's name, that has to follow a user's flag call before the user counts. None without an
+    # activation, which the exposure query reads only next to the flag call events.
+    activation: str | None = None
 
 
 @frozen
@@ -495,6 +505,7 @@ def _exposure_events(experiment: Experiment) -> ExposureEvents | None:
     reads_flag_calls = event in (DEFAULT_EXPOSURE_EVENT, EXPERIMENT_EXPOSURE_EVENT)
     config = criteria.exposure_config if criteria else None
     properties = config.properties if isinstance(config, ExperimentEventExposureConfig) else []
+    activation = criteria.activation_config if criteria and has_activation_config(criteria) else None
     return ExposureEvents(
         custom_event=event if event is not None and not reads_flag_calls else None,
         required_flag_key=flag_key if reads_flag_calls else None,
@@ -505,7 +516,14 @@ def _exposure_events(experiment: Experiment) -> ExposureEvents | None:
             for prop in properties
             if isinstance(prop, EventPropertyFilter) and prop.key == "$feature_flag"
         ),
+        activation=_activation_name(activation) if activation else None,
     )
+
+
+def _activation_name(activation: ExperimentEventExposureConfig | ActionsNode) -> str:
+    if isinstance(activation, ExperimentEventExposureConfig):
+        return activation.event
+    return activation.name or f"action {activation.id}"
 
 
 def _filter_values(value: list[str | float | bool] | str | float | bool | None) -> tuple[str | float | bool, ...]:

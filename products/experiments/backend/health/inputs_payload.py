@@ -225,6 +225,7 @@ def health_inputs_payload(inputs: HealthInputs) -> dict[str, Any]:
             "custom_event": ctx.exposure_events.custom_event,
             "required_flag_key": ctx.exposure_events.required_flag_key,
             "variant_property": ctx.exposure_events.variant_property,
+            "activation": ctx.exposure_events.activation,
         }
         if ctx.exposure_events
         else None,
