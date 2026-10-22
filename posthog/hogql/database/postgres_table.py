@@ -192,9 +192,10 @@ class PostgresTable(FunctionCallTable):
         return user_access_control.blocked_resource_ids_by_scope.get(self.access_scope, frozenset())
 
     def creator_owned_object_ids(
-        self, user_access_control: "UserAccessControl", team_id: Optional[int]
+        self, user_access_control: "UserAccessControl", team_id: Optional[int], candidate_ids: Optional[frozenset[str]]
     ) -> frozenset[str]:
-        """Ids in the `access_control_id` column of objects the user created.
+        """Ids in the `access_control_id` column of objects the user created, among `candidate_ids`
+        (or among all ids when it is None).
 
         The guard keeps these rows, so a child table can follow its parent's creator exemption. The
         default is empty: a child row carries no creator of the parent to compare against.

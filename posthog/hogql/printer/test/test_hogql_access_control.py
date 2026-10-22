@@ -460,14 +460,15 @@ class TestRestParityForObjectGrants(BaseTest):
         deny_key = next(iter(placeholders))
         assert f"notIn(toString(system__{table}.{column}), %({deny_key})s)" in sql
 
-    @parameterized.expand([("resource_granted", "editor", "notIn"), ("resource_denied", "none", "in")])
-    def test_view_creator_keeps_the_jobs_of_their_denied_view(
-        self, _name: str, resource_level: str, operator: str
-    ) -> None:
+    @parameterized.expand([("resource_granted", "editor"), ("resource_denied", "none")])
+    def test_view_creator_keeps_the_jobs_of_their_denied_view(self, _name: str, resource_level: str) -> None:
         from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 
-        own_view = DataWarehouseSavedQuery.objects.create(
-            team=self.team, name="own_view", query={"kind": "HogQLQuery", "query": "SELECT 1"}, created_by=self.user
+        own_view, own_unruled_view = (
+            DataWarehouseSavedQuery.objects.create(
+                team=self.team, name=name, query={"kind": "HogQLQuery", "query": "SELECT 1"}, created_by=self.user
+            )
+            for name in ("own_view", "own_unruled_view")
         )
         other_view_id = "018f0000-0000-0000-0000-000000000003"
         self._ac(resource="warehouse_objects", access_level=resource_level)
@@ -481,9 +482,14 @@ class TestRestParityForObjectGrants(BaseTest):
 
         sql, context = self._compile("SELECT status FROM system.data_modeling_jobs")
 
-        owned_key = next(k for k, v in self._id_list_placeholders(context).items() if v == [str(own_view.id)])
-        assert f"{operator}(toString(system__data_modeling_jobs.saved_query_id)" in sql
-        assert f"in(toString(system__data_modeling_jobs.saved_query_id), %({owned_key})s)" in sql
+        placeholders = self._id_list_placeholders(context)
+        if resource_level == "editor":
+            # Only the denied view is looked up, and the creator's own one leaves the deny list.
+            assert list(placeholders.values()) == [[other_view_id]]
+            assert "notIn(toString(system__data_modeling_jobs.saved_query_id)" in sql
+        else:
+            owned_key = next(k for k, v in placeholders.items() if v == [str(own_unruled_view.id)])
+            assert f"in(toString(system__data_modeling_jobs.saved_query_id), %({owned_key})s)" in sql
 
     @parameterized.expand(
         [

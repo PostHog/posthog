@@ -2022,7 +2022,7 @@ notebooks: PostgresTable = PostgresTable(
 
 class _DataModelingJobsTable(PostgresTable):
     def creator_owned_object_ids(
-        self, user_access_control: "UserAccessControl", team_id: Optional[int]
+        self, user_access_control: "UserAccessControl", team_id: Optional[int], candidate_ids: Optional[frozenset[str]]
     ) -> frozenset[str]:
         # The creator of a view keeps it under a deny rule, so they keep the jobs that ran for it.
         from products.data_modeling.backend.facade.api import (
@@ -2031,7 +2031,8 @@ class _DataModelingJobsTable(PostgresTable):
 
         if team_id is None:
             raise ValueError("system.data_modeling_jobs needs a team to resolve view access")
-        return frozenset(str(view_id) for view_id in saved_query_ids_created_by(team_id, user_access_control.user.pk))
+        owned = saved_query_ids_created_by(team_id, user_access_control.user.pk, ids=candidate_ids)
+        return frozenset(str(view_id) for view_id in owned)
 
 
 data_modeling_jobs: _DataModelingJobsTable = _DataModelingJobsTable(

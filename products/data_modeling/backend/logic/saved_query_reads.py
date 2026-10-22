@@ -125,11 +125,24 @@ def saved_query_definitions(team_id: int) -> list[SavedQueryDefinition]:
     ]
 
 
-def saved_query_ids_created_by(team_id: int, user_id: int) -> frozenset[UUID]:
-    """The saved queries this user created, soft-deleted ones included. One query."""
-    return frozenset(
-        DataWarehouseSavedQuery.objects.filter(team_id=team_id, created_by_id=user_id).values_list("id", flat=True)
-    )
+def saved_query_ids_created_by(team_id: int, user_id: int, *, ids: Collection[str] | None = None) -> frozenset[UUID]:
+    """The saved queries this user created, soft-deleted ones included. One query.
+
+    ``ids`` narrows the lookup to those saved queries; ``None`` asks about every one. An id that is
+    not a UUID matches nothing.
+    """
+    candidates = DataWarehouseSavedQuery.objects.filter(team_id=team_id, created_by_id=user_id)
+    if ids is not None:
+        valid_ids = []
+        for value in ids:
+            try:
+                valid_ids.append(UUID(value))
+            except ValueError:
+                continue
+        if not valid_ids:
+            return frozenset()
+        candidates = candidates.filter(id__in=valid_ids)
+    return frozenset(candidates.values_list("id", flat=True))
 
 
 def allowed_saved_query_ids(
