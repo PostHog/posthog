@@ -6866,6 +6866,10 @@ snapshots:
         hash: v1.k794b7964.1d80c6db4f1f88a1db7ef2cd87c7078817324cb960257d8bc4fc5685876ccac6.ff6KqB1lZjhdbYfDeeK4vL9Y55rFaVr7WhBdiFp_Zno
     products-business-intelligence-worksheet-exploration--sql-preview--light:
         hash: v1.k794b7964.a694a2e34e9c18f6c4c50e3b930558dfd97dd59874df8e104fff77957a14fa06.WiYn-ILI2MLWRei6QPwwv-a_mBBFKFQpDdtAwCBcHaE
+    products-business-intelligence-worksheet-exploration--table-conditional-formatting--dark:
+        hash: v1.k794b7964.2285dff4633e5992bd7d1552cdef4c94f51b055a968f7be591ccee170dd95a90.9L0cgGYF5UAinLuhlN-XVXbarxapwHorTB93Dgkf40U
+    products-business-intelligence-worksheet-exploration--table-conditional-formatting--light:
+        hash: v1.k794b7964.351c0fda7bf0696591ba8fae59fee71acf2a28865cfc5ce637468823c8303fdd.h8tIQMd2l9RRcDLLWKJ9e7fOe_vtc4lvbO0Ak93-5WI
     products-business-intelligence-worksheets--worksheets--dark:
         hash: v1.k794b7964.838bf04ffdacba54c2f70f91dbc672e423e58a4ca8755f797d231d994dce8405.ZSy44AUoYYG-8us1HscrH2qR_SbXbBOzizBhHLB2Kak
     products-business-intelligence-worksheets--worksheets--light:
@@ -8243,13 +8247,13 @@ snapshots:
     products-workflows-editor-configuration-panel--conditional-branch--light:
         hash: v1.k794b7964.3691f905593cd2084ec01847e80b3eeda4c834bd1c34a9d0f37e2d36db9c5f0c.2xvXivEkevaUXKSag8wYob1Hi2ZyfxUcr7VE46qW50w
     products-workflows-editor-configuration-panel--email--dark:
-        hash: v1.k794b7964.8aa43ec8cf9ce9be4b9127e5e9f02585751dcf7a608d721a78139b6d50f7badc.MyDzRS7aT1ol1-R42vCvfzGscOB36K6P73yVH2QlFYU
+        hash: v1.k794b7964.82956ad7b49338362f216d5648ee89813a3e18e903bc45b42c07c78f1b2a8867.byfxv4NIxretK2jzWWtxLDC8JOBfVF-tTXUPEO57PJ8
     products-workflows-editor-configuration-panel--email--light:
-        hash: v1.k794b7964.b32849126a512eded3c17f06cf3195fba34be7650656fbce62eddfda536c0e23.H6EMRSeFlrHqU3mdJSV__LWPiX1U3V99mmtcop_VDp0
+        hash: v1.k794b7964.dd2c15bc5c6a886c41f24f953cd0357978914f002f42d732b842c2349c04317b.6WUo7ta3_veXnom0KzU7BZ1lUzBWNCxugxmfTVPZwlQ
     products-workflows-editor-configuration-panel--email-in-side-panel--dark:
-        hash: v1.k794b7964.11641a90642d56a19bcb4c246b090bee8afea1cbe9e8de036d99dbe0317c66b3.XvJ_Ngs1JOs6ANfMLuuunRyPQhizz_q_xQMaIO7R62I
+        hash: v1.k794b7964.b86dd0589d4176cecbfdfec32ed5fd8d9d6b4da89571a78f3d46567b13b095a7.pmXKJhqonqv2m0izV0rqZGqzaKcC7NuPqds4ykm428Y
     products-workflows-editor-configuration-panel--email-in-side-panel--light:
-        hash: v1.k794b7964.9b09c56e592e9ffc28a819d33e623f1991a51a17968df8b9496e49e01c3fa823.5ipJ50svyohjEDKIEwZ5h3fHKIwfp9esmAIbrWORhMQ
+        hash: v1.k794b7964.5148ef83b4ffa0066217d18ab900c6c7fc93e6c7024dd16c30d3adce5be0ad95.fmtMjqlnEFw4qXHvkmJrJtAAzPGgwrBGTrPYwjoQtQY
     products-workflows-editor-configuration-panel--logs--dark:
         hash: v1.k794b7964.beabe0c2c69154a7e7b8e5709226f710bbb707c7a2a96ea3b908e7b5348ad177.l8BzDM-8b8Z6jYzADnoiRggNuU02m3lgVa6vtNm2VOw
     products-workflows-editor-configuration-panel--logs--light:
@@ -8271,9 +8275,9 @@ snapshots:
     products-workflows-editor-configuration-panel--variables--light:
         hash: v1.k794b7964.e755c7e47cc53fab702c298414df2ab452bbe7f0182475888e8d6a6614174142.NrDxyc4ZMWe9aaXccP1uyLnJoFvt5gp5UDi4IObWHJ4
     products-workflows-editor-configuration-panel--webhook--dark:
-        hash: v1.k794b7964.7110b746becc3e42efc67b87d2e61968935a2af05d7a4e938c47e09f2d848def.5qibm9YGsfhzOIfrbdusaYZEgNh_Cf69S6CQkjStRWo
+        hash: v1.k794b7964.ae40e661ff40af560a8514c23ee903b5ed2612a89d003e30ff8c8538be817241.LZP1-ccPa8UF-2g3VkEU7FCQc74H5K4qd8y7Jvfw3fc
     products-workflows-editor-configuration-panel--webhook--light:
-        hash: v1.k794b7964.57bca0d67317055160426c969f4f9c63a850a2240cda64b141e035c87dc8198a.zdBd3SBBJtGX85QCOFUw2WFRK-SoocCeTjtu__zuhVQ
+        hash: v1.k794b7964.50f31a08c94115097306a76810343499b35294055b5f6a96d8466a77ff6dd72c.KgUwEqV9D2ROlg3pazBZGDM3-z7W6595ojBL0uvLGRc
     products-workflows-editor-graph--add-on-promotion-emails--dark:
         hash: v1.k794b7964.5d37d34ca5aa7b35f278cb1bb1bb6b8546f76cb8c7cac834bc70a503adce6808.Ey0Bf5z3N1u07UPAirdjqG1c09FJDG41oVedkWmAKDE
     products-workflows-editor-graph--add-on-promotion-emails--light:
@@ -10359,9 +10363,9 @@ snapshots:
     scenes-app-data-warehouse-sql-editor--bi-combined-measures--light:
         hash: v1.k794b7964.a28fe74151fe162afed2aef0cc3e08361f697caecea4bad6840cf1202dcc4445.RGSfrPhsnDlNzudY_9ruoEm8qErJKrmNlHW3B6w-h48
     scenes-app-data-warehouse-sql-editor--bi-connections--dark:
-        hash: v1.k794b7964.22a20d17eab279b832fc6b2f6ee0f4b3172941d930da08db6a8e119f262c7357.stu7E8T6rt7DD7Z6Te_UyF3lH3Z8cknHBcr-wQ_aGjs
+        hash: v1.k794b7964.b4ce9e84f0f8d6fd98e0d44d9b1457e6939682ff10968d1742ef3ac626d7a679.oQxm5UEKsWwqTIOq3Bj_OCeP-srCGqHqxaZWa-p2dGk
     scenes-app-data-warehouse-sql-editor--bi-connections--light:
-        hash: v1.k794b7964.b9e4f271b838f88b67d553599338bc9219805d444b324c3340a7de6d4b7a233f.UP-LInLaWrxPn5wtKirfGZem-aa1fVCQLLXCM3K5nLk
+        hash: v1.k794b7964.aba1a2003e94bb3b7260a06ba6f089965fef45f44a2eceaf3b85beccdbe73e35.Y7EU5lpu3LvR5kiaY9mG1YOILQhmUCRF6QO__tWpCj4
     scenes-app-data-warehouse-sql-editor--bi-data-source-picker--dark:
         hash: v1.k794b7964.0420942940ebe86d82b461ba813e00bc9985c9373f93333ae0873135286b9a85.Ya5LBQvbsZd_Oe3qrpE1D1O_i91yHF1350PNQocsCo8
     scenes-app-data-warehouse-sql-editor--bi-data-source-picker--light:
@@ -10407,9 +10411,9 @@ snapshots:
     scenes-app-data-warehouse-sql-editor--bi-quick-filters--light:
         hash: v1.k794b7964.946ee03244d1551a8a10651bd5b9056e21d775b95b705bac58d154f547f46a62.88TBl5h3uvG7yS9W6BXwnV9-1zEo_XifVGV6AUhwF68
     scenes-app-data-warehouse-sql-editor--bi-quick-filters-narrow--dark:
-        hash: v1.k794b7964.74a1daf65ba33fe931c0a94c8af6639dec1aa7ab34bce84f15c7cc2592505c16.s0DXmHm2ZTQBYSCBuP16YZO-_KE6s3vE31tdJD-folY
+        hash: v1.k794b7964.2cac7f0aa71a9a992cbe6f8197b95ce45c4e612025b88157ce2868278f76ea5e.A83E66s_OVMQmI7vWizl0jHLo4cObkWH0jt9oiWnx7U
     scenes-app-data-warehouse-sql-editor--bi-quick-filters-narrow--light:
-        hash: v1.k794b7964.3ed48924bc253517bb87335f23ada51112d858e15a6089afbb1946d992c91c5d.R_CTb0YRRMWizALWLWFEya0tczznLB0ay6V1J7tW0a8
+        hash: v1.k794b7964.d1949187804261259f00f6ac8b4cd6aa4b98df861f32c988c23fc37afb1946b6.mYHscbLc8Nga36gpCDkp1JfXh-67WRSng9Z2rBfLzOI
     scenes-app-data-warehouse-sql-editor--bi-saved-insight--dark:
         hash: v1.k794b7964.06df092616d217a4ebdaf0f5f35015c05fe63f5bc1e9b9c39dcdf6594293c0e3.D8zEjaefT5868HRYC8F6GkfsuMMlcxSxekM5z-VoXyM
     scenes-app-data-warehouse-sql-editor--bi-saved-insight--light:
@@ -10419,9 +10423,9 @@ snapshots:
     scenes-app-data-warehouse-sql-editor--bi-source-preview-large-sample--light:
         hash: v1.k794b7964.f9bdafe72c33b8454fe4d48e70433457801d2d198e398a25d58ff3926f4f29ab.VcdI3e-Cydfw21sTHkEAiZdXPeRVvBT6TBGUZbP5lTc
     scenes-app-data-warehouse-sql-editor--bi-table-analysis--dark:
-        hash: v1.k794b7964.74e9fbf12a84be1c6be726c55f970616d5cb28efb3abbc0a57ef9ac7da1b8861.ONSBDimZYZjRS0Y5C5ldETWfuJiUhgMzJ799ZczUci4
+        hash: v1.k794b7964.13e469538d6b0f6d5fb6f5a1d3b0f7c93a08282d843f28e1b54670cc234f1ef3.0LLI_p2z10NDsCrEq3dnR0bM-utFqudI3A5jwdkcARI
     scenes-app-data-warehouse-sql-editor--bi-table-analysis--light:
-        hash: v1.k794b7964.e861b368d3503bf7c5a027336409e6193af633a03d3a643bea869d586cbd60a5.r1gDj9lKngDStrL1zlONSoXAyrULGZjvGRbexR2xsmM
+        hash: v1.k794b7964.44d69a1bbaccaf0b36c54de60fe8da960486b037d9c463ebd792babe5c06e5e9.fxjYqqNq6B7MDjD9WUXXn2D6PCVSTqWdPMbdlAo44NA
     scenes-app-data-warehouse-sql-editor--bi-wide-transposed-results--dark:
         hash: v1.k794b7964.149351e0c2ce9de8ced8adf4a1c2a990069579b37d826dd4a745d630ef2395e5.wA9l58Kdj1OH6f_5SRT-_guSbpryqUVzCZWDhaFNulw
     scenes-app-data-warehouse-sql-editor--bi-wide-transposed-results--light:
