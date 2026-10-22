@@ -58,6 +58,7 @@ import { ErrorTrackingIssueSceneLogicProps, errorTrackingIssueSceneLogic } from 
 import { IssueEmailMenu } from './IssueEmailMenu'
 import { IssueEmailMenuItems } from './IssueEmailMenuItems'
 import { IssueEventsPanel } from './IssueEventsPanel'
+import { IssueSummary } from './IssueSummary'
 import { LinkedReports } from './LinkedReports'
 import { ErrorTrackingIssueScenePanel } from './ScenePanel'
 import { IssueAssigneeSelect } from './ScenePanel/IssueAssigneeSelect'
@@ -350,6 +351,7 @@ const RightHandColumn = ({
                 </div>
             )}
             <PostHogSDKIssueBanner event={detailEvent} />
+            <IssueSummary />
             <LinkedReports />
             <div className="flex-1 min-h-0 flex flex-col">
                 <ExceptionCard
