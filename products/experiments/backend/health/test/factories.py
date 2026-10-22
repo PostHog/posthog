@@ -24,13 +24,16 @@ RUNNING_CONTEXT = HealthContext(
     archived=False,
     flag=None,
     flag_called=None,
+    flag_called_during_run=None,
     team_has_active_flag=None,
     baseline_variant_key=None,
     primary_metric_count=1,
     secondary_metric_count=0,
     hours_since_launch=72,
     metric_events=(),
-    exposure_events=ExposureEvents(custom_event=None, required_flag_key="flag", flag_key_filters=()),
+    exposure_events=ExposureEvents(
+        custom_event=None, required_flag_key="flag", variant_property="$feature_flag_response", flag_key_filters=()
+    ),
     events_received={},
     exposures=None,
     flag_history=None,
