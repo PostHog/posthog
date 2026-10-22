@@ -50,6 +50,10 @@ from products.subscriptions.backend.facade.contracts import (
     SubscriptionWrite,
 )
 from products.subscriptions.backend.logic.auto_disable import validate_re_enable
+from products.subscriptions.backend.logic.subscription_query_access import (
+    blocked_access_for_subscription,
+    should_check_table_access,
+)
 from products.subscriptions.backend.logic.subscription_utils import MAX_INSIGHTS
 from products.subscriptions.backend.logic.teams_subscriptions import (
     TEAMS_WEBHOOK_URL_ERROR,
@@ -524,7 +528,31 @@ class _SubscriptionWrite:
                 is_create=self.instance is None,
             )
 
+        self._check_query_access(attrs, resource_type)
+
         return attrs
+
+    def _check_query_access(self, attrs: dict, resource_type: str) -> None:
+        if resource_type == Subscription.ResourceType.AI_PROMPT:
+            return
+        subscription_id = self.instance.id if self.instance else None
+        if not should_check_table_access(team_id=self.team_id, subscription_id=subscription_id, attrs=attrs):
+            return
+        # Compiling the queries as the requester needs a real user. The view passes the request's
+        # user cast to User, so a synthetic user can still arrive here.
+        requester: object = self.user
+        if not isinstance(requester, User):
+            return
+        blocked_names = blocked_access_for_subscription(
+            user=requester,
+            team=self.team,
+            user_access_control=self.viewer,
+            subscription_id=subscription_id,
+            attrs=attrs,
+        )
+        if blocked_names:
+            blocked = ", ".join(f"`{name}`" for name in blocked_names)
+            raise SubscriptionRequestInvalidError(f"Can't save this subscription: you don't have access to {blocked}.")
 
     def _is_becoming_active_summary(self, attrs: dict) -> bool:
         pre_summary_enabled = self.instance.summary_enabled if self.instance else False
