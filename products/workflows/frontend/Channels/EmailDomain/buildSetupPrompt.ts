@@ -25,6 +25,7 @@ const buildMcpPrompt = ({
     mailFromSubdomain,
     projectId,
     integrationId,
+    pageUrl,
     dnsHost,
     supportsDomainConnect,
     records,
@@ -33,7 +34,7 @@ const buildMcpPrompt = ({
         ? `- DNS host detected from the nameservers: ${dnsHost.name}${supportsDomainConnect ? ' (supports Domain Connect)' : ''}`
         : '- DNS host: unknown. Ask me where the DNS for this domain is managed before you change anything.'
     return [
-        `Get the email sending domain ${domain} verified for PostHog Workflows. If you have the setting-up-an-email-domain skill, follow it.`,
+        `Get the email sending domain ${domain} verified for PostHog Workflows.`,
         '',
         'Facts',
         `- PostHog project id: ${projectId}`,
@@ -44,10 +45,10 @@ const buildMcpPrompt = ({
         '',
         'Steps',
         `1. Read the current records and status with integrations-email-status-retrieve (project ${projectId}, integration ${integrationId}). If the PostHog MCP is not available, use the records listed below.`,
-        '2. If the host supports Domain Connect, call integrations-domain-connect-check-retrieve, then integrations-domain-connect-apply-url-create to get an approval URL. Show me that URL and wait for me to approve it in my browser. Do not open it yourself.',
+        `2. If the host supports Domain Connect, ask me to open ${pageUrl} and click the button that adds the records at the host. I approve the change there. Wait for me.`,
         '3. Otherwise add the records at the DNS host yourself. Paste names and values exactly. If the host appends the domain to the name field, enter only the part before the domain. Always publish both SPF TXT records, merging include:amazonses.com into an existing SPF record at the same name instead of adding a second one. Never add a second _dmarc record; keep an existing one.',
-        '4. Call integrations-email-verify-create once. Then poll integrations-email-status-retrieve every 30 seconds until the status is "verified". Stop after 30 minutes and tell me which records are still missing.',
-        "5. Only change the sender's display name or MAIL FROM subdomain with integrations-email-partial-update if I ask. Send the sender's current email unchanged.",
+        '4. Poll integrations-email-status-retrieve every 30 seconds until verified is true. Stop after 30 minutes and tell me which records are still missing.',
+        `5. If the status is "verified" but verified stays false, your API key cannot save the verification. Ask me to open ${pageUrl} to finish it.`,
         '',
         'Records',
         ...records.map(formatRecord),
