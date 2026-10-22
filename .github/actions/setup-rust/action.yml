@@ -18,12 +18,32 @@ runs:
     steps:
         - name: Install rustup if needed
           shell: bash
+          env:
+              RUSTUP_VERSION: 1.28.2
           run: |
               set -euo pipefail
               echo "CARGO_HOME=${CARGO_HOME:-$HOME/.cargo}" >> "$GITHUB_ENV"
               if ! command -v rustup &>/dev/null; then
+                case "$(uname -m)" in
+                  x86_64)
+                    target=x86_64-unknown-linux-gnu
+                    expected_sha256=20a06e644b0d9bd2fbdbfd52d42540bdde820ea7df86e92e533c073da0cdd43c
+                    ;;
+                  aarch64)
+                    target=aarch64-unknown-linux-gnu
+                    expected_sha256=e3853c5a252fca15252d07cb23a1bdd9377a8c6f3efa01531109281ae47f841c
+                    ;;
+                  *)
+                    echo "::error::No pinned rustup-init checksum for $(uname -m)"
+                    exit 1
+                    ;;
+                esac
+                installer="$RUNNER_TEMP/rustup-init"
                 curl --proto '=https' --tlsv1.2 -fsSL --retry 5 --retry-all-errors --retry-max-time 60 --connect-timeout 10 \
-                  https://sh.rustup.rs | sh -s -- --default-toolchain none -y
+                  "https://static.rust-lang.org/rustup/archive/${RUSTUP_VERSION}/${target}/rustup-init" -o "$installer"
+                echo "${expected_sha256}  $installer" | sha256sum -c -
+                chmod +x "$installer"
+                "$installer" --default-toolchain none -y
                 echo "${CARGO_HOME:-$HOME/.cargo}/bin" >> "$GITHUB_PATH"
               fi
 
