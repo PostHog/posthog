@@ -2346,6 +2346,10 @@ describe('CDP API', () => {
                 { ...codeSend, content: { subject: 'Hi', html: '<img src="https://example.com/a.png" alt="Hi">' } },
             ],
             ['a code send for a local template', { tracking: { captureEngagement: false } }],
+            [
+                'a code send with copies to addresses with punctuation',
+                { ...codeSend, cc: ['archive=orders@example.com'], bcc: ["o'brien+audit@example.com"] },
+            ],
         ])('stamps %s on the queued run', async (_desc, acceptedSend) => {
             const res = await send(
                 hogFlow.id,
@@ -2363,6 +2367,7 @@ describe('CDP API', () => {
             ['content with an empty subject', { ...codeSend, content: { subject: '', text: 'Hi' } }],
             ['a sender without an integration', { ...codeSend, from: { email: 'security@example.com' } }],
             ['no tracking choice', { content: codeSend.content }],
+            ['a copy that names two recipients', { ...codeSend, cc: ['jane@example.com, joe@example.com'] }],
         ])('refuses a code send with %s', async (_desc, acceptedSend) => {
             const invalidBefore = await outcomeCount('invalid_request')
 

@@ -977,10 +977,11 @@ export class EmailService {
             to: formatMailbox(params.to.name, params.to.email),
             subject: sanitizeEmailSubject(params.subject),
             ...(params.text ? { text: params.text } : {}),
-            headers: {
-                ...Object.fromEntries((params.headers ?? []).map((header) => [header.name, header.value])),
-                [AUTO_SUBMITTED_HEADER.Name!]: AUTO_SUBMITTED_HEADER.Value!,
-            },
+            // A list, because nodemailer reads an object with `key` and `value` names as one header.
+            headers: [
+                ...(params.headers ?? []).map(({ name, value }) => ({ key: name, value })),
+                { key: AUTO_SUBMITTED_HEADER.Name!, value: AUTO_SUBMITTED_HEADER.Value! },
+            ],
             ...(params.html
                 ? {
                       html: trackingEnabled
