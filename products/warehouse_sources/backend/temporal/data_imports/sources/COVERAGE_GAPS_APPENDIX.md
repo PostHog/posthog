@@ -5188,11 +5188,11 @@ Diffed against: <https://api.mypurecloud.com/api/v2/docs/swagger>
 - [x] `Get list of wrapup codes (GET /api/v2/routing/wrapupcodes)` — resolve wrapUpCode values into conversation outcome labels (high)
 - [x] `Get the list of routing skills (GET /api/v2/routing/skills)` — resolve requestedRoutingSkillIds and activeSkillIds on conversation sessions (high)
 - [x] `Retrieve all divisions (GET /api/v2/authorization/divisions)` — resolve divisionIds on conversations and group performance by business unit (high)
-- [ ] `Get Team listing (GET /api/v2/teams)` — resolve participant teamId values for agent team reporting (high)
-- [ ] `Get a group list (GET /api/v2/groups)` — resolve groupId and agentGroups references in conversation routing data (high)
-- [ ] `Get external contacts (GET /api/v2/externalcontacts/contacts)` — resolve externalContactId on participants into customer identities (high)
+- [x] `Get Team listing (GET /api/v2/teams)` — resolve participant teamId values for agent team reporting (high)
+- [x] `Get a group list (GET /api/v2/groups)` — resolve groupId and agentGroups references in conversation routing data (high)
+- [x] `Get external contacts (GET /api/v2/externalcontacts/contacts)` — resolve externalContactId on participants into customer identities (high)
 - [x] `Get external organizations (GET /api/v2/externalcontacts/organizations)` — resolve externalOrganizationId on participants into customer organizations (high)
-- [ ] `Query for user details (POST /api/v2/analytics/users/details/query)` — measure agent presence and routing-state history, including time available and offline (high)
+- [x] `Query for user details (POST /api/v2/analytics/users/details/query)` — measure agent presence and routing-state history, including time available and offline (high)
 - [ ] `Queries Evaluations (GET /api/v2/quality/evaluations/query)` — analyze detailed quality evaluations beyond evaluation summaries embedded in conversations (medium)
 - [ ] `Get the members of this queue (GET /api/v2/routing/queues/{queueId}/members)` — connect agents to queues and report queue staffing and membership (medium)
 
@@ -5967,10 +5967,10 @@ Today (5): `Charges`, `Customers`, `PaymentRequests`, `RecurringBilling`, `Subsc
 
 Diffed against: <https://docs.hitpayapp.com/openapi.json>
 
-- [ ] `Payouts (GET /v1/payouts)` — reconcile collected payments with settlement amounts and bank payout status (high)
-- [ ] `Balance Transactions (GET /v1/balances/{balance_provider}/transactions)` — explain balance changes from payments, fees, refunds, and settlements (high)
-- [ ] `Invoices (GET /v1/invoices)` — measure invoiced revenue, unpaid balances, and collection status alongside payment requests (high)
-- [ ] `Orders (GET /v1/orders)` — analyze order revenue and purchase activity beyond individual payment records (high)
+- [x] `Payouts (GET /v1/payouts)` — reconcile collected payments with settlement amounts and bank payout status (high)
+- [x] `Balance Transactions (GET /v1/balances/{balance_provider}/transactions)` — explain balance changes from payments, fees, refunds, and settlements (high)
+- [x] `Invoices (GET /v1/invoices)` — measure invoiced revenue, unpaid balances, and collection status alongside payment requests (high)
+- [ ] `Orders (GET /v1/orders)` — analyze order revenue and purchase activity beyond individual payment records (high); skipped, the spec documents no page or cursor parameter for this endpoint and describes the response as a single order, so a full sync cannot be paged reliably
 - [ ] `Products (GET /v1/products)` — analyze product sales, prices, inventory, and catalog status (medium)
 - [ ] `Transfers (GET /v1/transfers)` — track outgoing payments to third parties, including their amounts and completion status (medium)
 
@@ -6050,14 +6050,14 @@ Note: Fetched the OpenAPI spec at https://api.hoorayhr.io/swagger.json (linked f
 
 ## Housecall Pro — gaps
 
-Today (6): `customers`, `employees`, `estimates`, `invoices`, `jobs`, `leads`
+Today (10): `customers`, `employees`, `estimates`, `invoices`, `job_appointments`, `job_line_items`, `job_types`, `jobs`, `leads`, `pipeline_statuses`
 
 Diffed against: <https://stoplight.io/api/v1/projects/housecallpro/housecall-public-api/nodes/reference/housecall.v1.yaml?fromExportButton=true&snapshotType=http_service>
 
-- [ ] `Job Types (GET /job_fields/job_types)` — resolve job_type_uuid on leads and group service demand by job type (high)
-- [ ] `Job Appointments (GET /jobs/{job_id}/appointments)` — analyze appointment schedules, assigned technicians, and repeat visits for each job (high)
-- [ ] `Job line items (GET /jobs/{job_id}/line_items)` — break job revenue into services, materials, quantities, and unit prices (high)
-- [ ] `Pipeline Statuses (GET /pipeline/statuses)` — map lead pipeline statuses to names and status types for funnel analysis (medium)
+- [x] `Job Types (GET /job_fields/job_types)` — resolve job_type_uuid on leads and group service demand by job type (high)
+- [x] `Job Appointments (GET /jobs/{job_id}/appointments)` — analyze appointment schedules, assigned technicians, and repeat visits for each job (high)
+- [x] `Job line items (GET /jobs/{job_id}/line_items)` — break job revenue into services, materials, quantities, and unit prices (high)
+- [x] `Pipeline Statuses (GET /pipeline/statuses)` — map lead pipeline statuses to names and status types for funnel analysis (medium)
 - [ ] `Lead Sources (GET /lead_sources)` — compare the available acquisition sources with source names on customers, leads, jobs, and estimates (medium)
 - [ ] `Estimate option line items (GET /estimates/{estimate_id}/options/{option_id}/line_items)` — compare quoted services and prices across estimate options and completed jobs (medium)
 - [ ] `Job input materials (GET /jobs/{job_id}/job_input_materials)` — measure materials consumed on jobs and compare usage with billed items (medium)
@@ -6208,10 +6208,10 @@ Today (8): `Actions`, `ActionUpdates`, `Campaigns`, `Contracts`, `InvoiceDetaile
 
 Diffed against: <https://integrations.impact.com/llms-full.txt/4>
 
-- [ ] `Ads (GET /Advertisers/{AccountSID}/Ads)` — resolve AdId on actions to creative names, types, and landing pages (high)
-- [ ] `Click Export (GET /Advertisers/{AccountSID}/Programs/{ProgramId}/ClickExport)` — measure partner traffic and conversion rates, including clicks that produce no action (high)
-- [ ] `Action items (GET /Advertisers/{AccountSID}/Actions/{ActionId}/Items)` — analyze conversion revenue and commissions by product SKU and quantity (high)
-- [ ] `Promo Codes (GET /Advertisers/{AccountSID}/PromoCodes)` — resolve action promo codes to assigned partners, active dates, and credit policies (high)
+- [x] `Ads (GET /Advertisers/{AccountSID}/Ads)` — resolve AdId on actions to creative names, types, and landing pages (high). Added as `Ads`, incremental on `DateLastUpdated`.
+- [ ] `Click Export (GET /Advertisers/{AccountSID}/Programs/{ProgramId}/ClickExport)` — measure partner traffic and conversion rates, including clicks that produce no action (high); skipped, it is an asynchronous export job that covers one program and one day per request, and impact.com allows 10 ClickExport requests per day per account, so neither a backfill nor a daily sync across programs fits
+- [ ] `Action items (GET /Advertisers/{AccountSID}/Actions/{ActionId}/Items)` — analyze conversion revenue and commissions by product SKU and quantity (high); skipped, it takes one request per action, and the default limit of 1,000 requests per hour per account would stretch a sync of a busy program over days and starve the other impact.com tables
+- [x] `Promo Codes (GET /Advertisers/{AccountSID}/PromoCodes)` — resolve action promo codes to assigned partners, active dates, and credit policies (high). Added as `PromoCodes`, full refresh only.
 - [ ] `Report Export (GET /Advertisers/{AccountSID}/ReportExport/{ReportId})` — import vendor performance reports with dimensions and metrics beyond raw conversion records (medium)
 - [ ] `Partner Groups (GET /Advertisers/{AccountSID}/Campaigns/{CampaignId}/MediaPartnerGroups)` — segment existing partners into vendor groups and retain group membership (medium)
 - [ ] `Action Inquiries (GET /Advertisers/{AccountSID}/ActionInquiries)` — analyze missing conversion claims, resolution status, and commission disputes (medium)
