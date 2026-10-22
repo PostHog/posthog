@@ -11,6 +11,13 @@ const meta = {
         onConnect: () => undefined,
         connectUrl: 'https://example.com/connect',
     },
+    decorators: [
+        (Story) => (
+            <div className="min-h-screen w-full">
+                <Story />
+            </div>
+        ),
+    ],
 } satisfies Meta<typeof ConnectGitHubToFixModal>
 
 export default meta

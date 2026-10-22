@@ -2,7 +2,7 @@ import { useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useState } from 'react'
 
-import { IconWrench } from '@posthog/icons'
+import { IconSparkles } from '@posthog/icons'
 
 import api from 'lib/api'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
@@ -45,7 +45,7 @@ export function IssueFixButton({ issueId }: { issueId: string }): JSX.Element {
                 }
                 data-attr="error-tracking-fix"
             >
-                <IconWrench />
+                <IconSparkles />
                 Fix
             </Button>
             <ConnectGitHubToFixModal

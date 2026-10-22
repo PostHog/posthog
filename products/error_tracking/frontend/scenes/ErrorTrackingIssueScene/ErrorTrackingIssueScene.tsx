@@ -82,6 +82,9 @@ export function ErrorTrackingIssueScene(): JSX.Element {
     const { isWindowLessThan } = useWindowSize()
     const isMobile = isWindowLessThan('md')
     const hasIssueSplitting = useFeatureFlag('ERROR_TRACKING_ISSUE_SPLITTING')
+    const hasAiFix = useFeatureFlag('ERROR_TRACKING_AI_FIX')
+    const hasCodingTasks = useFeatureFlag('PHAI_TASKS')
+    const canFixWithAi = hasAiFix && hasCodingTasks
     const inlineEmailMenuRef = useRef<HTMLDivElement>(null)
     // The overflow menu portals out of the scene container, so a container query cannot hide its email items.
     const [emailInOverflow, setEmailInOverflow] = useState(true)
@@ -256,7 +259,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                                     collapseWhenNarrow={!!issue.name}
                                                     wrapperRef={inlineEmailMenuRef}
                                                 />
-                                                {issue.status === 'active' ? (
+                                                {issue.status === 'active' && canFixWithAi ? (
                                                     <IssueFixButton issueId={issue.id} />
                                                 ) : (
                                                     <IssueStatusButton status={issue.status} onChange={updateStatus} />
@@ -287,7 +290,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                             />
                                         </ButtonGroup>
                                         <IssueEmailMenu issueId={issue.id} issueName={issue.name} />
-                                        {issue.status === 'active' ? (
+                                        {issue.status === 'active' && canFixWithAi ? (
                                             <IssueFixButton issueId={issue.id} />
                                         ) : (
                                             <IssueStatusButton status={issue.status} onChange={updateStatus} />

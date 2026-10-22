@@ -963,6 +963,14 @@ export const GroupPage: Story = {
     parameters: { pageUrl: urls.errorTrackingIssue(ISSUE_ID) },
 }
 
+export const GroupPageWithAiFix: Story = {
+    name: 'Issue scene with AI fix',
+    parameters: {
+        pageUrl: urls.errorTrackingIssue(ISSUE_ID),
+        featureFlags: [FEATURE_FLAGS.ERROR_TRACKING_AI_FIX, FEATURE_FLAGS.PHAI_TASKS],
+    },
+}
+
 export const GroupPageTodayRailNav: Story = {
     name: 'Issue scene with new navigation',
     parameters: {
