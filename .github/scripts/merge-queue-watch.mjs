@@ -28,6 +28,11 @@ const CYCLE_THRESHOLD = 2
 const CYCLE_MIN_FAILED_RUNS = 4
 const FAILED_RUNS_PER_30M_THRESHOLD = 10
 const TIMELINE_CONCURRENCY = 5
+// Timeline reads are enrichment, so they get a total budget well under the workflow's five minute limit.
+const TIMELINE_BUDGET_MS = 60000
+const TIMELINE_TIMEOUT_MS = 10000
+// A new alert inside the cooldown needs one of these labels on a PR that no recent alert named.
+const ESCALATION_LABELS = ['hidden', 'likely']
 // A repeat alert for the same labeled PR inside this window stays quiet.
 const COOLDOWN_MINUTES = 120
 const ALERT_EVENT_TYPE = 'merge_queue_loop_alert'
@@ -60,13 +65,13 @@ function trunkToken() {
     return process.env.TRUNK_API_TOKEN
 }
 
-async function trunk(path, body) {
+async function trunk(path, body, timeoutMs = 30000) {
     trunkCalls++
     const res = await fetch(`${TRUNK_API}${path}`, {
         method: body ? 'POST' : 'GET',
         headers: { 'x-api-token': trunkToken(), 'Content-Type': 'application/json' },
         body: body ? JSON.stringify(body) : undefined,
-        signal: AbortSignal.timeout(30000),
+        signal: AbortSignal.timeout(timeoutMs),
     })
     if (!res.ok) {
         throw new Error(`Trunk ${path} -> HTTP ${res.status}`)
@@ -94,19 +99,24 @@ export async function fetchResults(since, until) {
 }
 
 async function fetchTimeline(pr) {
-    const res = await trunk('/getSubmittedPullRequest', {
-        repo: REPO,
-        targetBranch: BRANCH,
-        pr: { number: pr },
-        includeTimeline: true,
-    })
+    const res = await trunk(
+        '/getSubmittedPullRequest',
+        { repo: REPO, targetBranch: BRANCH, pr: { number: pr }, includeTimeline: true },
+        TIMELINE_TIMEOUT_MS
+    )
     return res.timeline ?? []
 }
 
-// A timeline outage for one PR must not stop the alert, so a failed read just drops that PR's cycles.
-async function fetchTimelines(prs) {
+// A timeline outage must not stop the alert. A failed read drops that PR's cycles, and the whole
+// step stops starting new reads once the budget is spent.
+export async function fetchTimelines(prs, now = Date.now) {
+    const deadline = now() + TIMELINE_BUDGET_MS
     const timelines = new Map()
     for (let i = 0; i < prs.length; i += TIMELINE_CONCURRENCY) {
+        if (now() > deadline) {
+            console.warn(`timeline budget spent, skipped ${prs.length - i} PRs`)
+            break
+        }
         await Promise.all(
             prs.slice(i, i + TIMELINE_CONCURRENCY).map(async (pr) => {
                 try {
@@ -148,11 +158,21 @@ export function evaluate(rows, until) {
     }
     const short = countIn(SHORT_WINDOW_MINUTES)
     const long = countIn(WINDOW_MINUTES)
+    // Failed runs that held a single PR, which is the only direct evidence that a PR fails alone.
+    const solo = new Map()
+    for (const run of failed) {
+        const t = run.endedAt.getTime()
+        if (run.prs.size === 1 && t <= endMs && t > endMs - WINDOW_MINUTES * MINUTE) {
+            const [pr] = run.prs
+            solo.set(pr, (solo.get(pr) ?? 0) + 1)
+        }
+    }
     const sorted = [...long.entries()].sort((a, b) => b[1] - a[1])
     const failedLast30m = failed.filter((r) => r.endedAt.getTime() >= endMs - 30 * MINUTE).length
     return {
         short,
         long,
+        solo,
         top: sorted.slice(0, 5),
         cycleCandidates: sorted.filter(([, n]) => n >= CYCLE_MIN_FAILED_RUNS).map(([pr]) => pr),
         failedRuns: failed.length,
@@ -173,23 +193,27 @@ export function analyzeTimeline(timeline, until) {
     if (events.some((e) => e.state === 'merged')) {
         return { merged: true, cycles: 0 }
     }
-    const inWindow = events.filter((e) => e.at > endMs - WINDOW_MINUTES * MINUTE)
+    // Each pass waits for the next batch failure, and a failure closes at most one pass, so two passes
+    // before one failure make one cycle.
     let cycles = 0
-    inWindow.forEach((e, i) => {
-        if (e.state !== 'pending' || e.pending?.reason !== 'bisection_test_run_passed') {
-            return
-        }
-        const failedInBatchLater = inWindow
-            .slice(i + 1)
-            .some((later) => later.state === 'pending_failure' && (later.testRun?.testedPullRequests ?? []).length > 1)
-        if (failedInBatchLater) {
+    let awaitingFailure = false
+    for (const e of events.filter((e) => e.at > endMs - WINDOW_MINUTES * MINUTE)) {
+        if (e.state === 'pending' && e.pending?.reason === 'bisection_test_run_passed') {
+            awaitingFailure = true
+        } else if (
+            awaitingFailure &&
+            e.state === 'pending_failure' &&
+            (e.testRun?.testedPullRequests ?? []).length > 1
+        ) {
             cycles++
+            awaitingFailure = false
         }
-    })
+    }
     return { merged: false, cycles }
 }
 
-// Pure: counts and cycles -> labeled PRs, most useful first.
+// Pure: counts and cycles -> labeled PRs, most useful first. "Fails alone" needs a failed run that
+// held only that PR. Batch failures alone leave a PR a possible victim.
 export function classify(counts, cyclesByPr) {
     const prs = new Set()
     for (const [pr, n] of counts.short) {
@@ -216,7 +240,7 @@ export function classify(counts, cyclesByPr) {
         let label = 'recent'
         if (cycles >= CYCLE_THRESHOLD && failed180 >= CYCLE_MIN_FAILED_RUNS) {
             label = 'hidden'
-        } else if (inShort && inLong) {
+        } else if (inShort && inLong && (counts.solo?.get(pr) ?? 0) > 0) {
             label = 'likely'
         } else if (inLong) {
             label = 'victim'
@@ -438,7 +462,10 @@ export async function main({ argv = process.argv.slice(2), sleep = defaultSleep 
     }
     // A PR that merged is out of the queue, so the count rules skip it too.
     const unmerged = (counts) => new Map([...counts].filter(([pr]) => !merged.has(pr)))
-    const findings = classify({ short: unmerged(verdict.short), long: unmerged(verdict.long) }, cyclesByPr)
+    const findings = classify(
+        { short: unmerged(verdict.short), long: unmerged(verdict.long), solo: unmerged(verdict.solo) },
+        cyclesByPr
+    )
     console.log(
         JSON.stringify(
             {
@@ -468,10 +495,20 @@ export async function main({ argv = process.argv.slice(2), sleep = defaultSleep 
     }
     const keys = alertKeys(findings, verdict.rateFires)
     const recent = await recentAlerts(now)
-    const alerted = new Set(recent.flatMap((m) => (m.metadata.event_payload?.keys ?? '').split('|')))
-    if (keys.every((k) => alerted.has(k))) {
-        // The alert posted but its webhook failed on an earlier tick. Retry on the same thread.
-        const pending = recent.find((m) => webhook && m.metadata.event_payload?.investigation === 'pending')
+    const keysOf = (m) => (m.metadata.event_payload?.keys ?? '').split('|')
+    const alerted = new Set(recent.flatMap(keysOf))
+    // Inside the cooldown, only a culprit label on a PR that no recent alert named breaks the quiet
+    // period. A new victim or the rate signal alone stays quiet, so a long spike does not alert every tick.
+    const escalates = keys.some((k) => !alerted.has(k) && ESCALATION_LABELS.some((label) => k.startsWith(`${label}:`)))
+    if (recent.length > 0 && !escalates) {
+        // The alert posted but its webhook failed on an earlier tick. Retry on that alert's thread, and
+        // only for an alert that names one of the PRs flagged now.
+        const pending = recent.find(
+            (m) =>
+                webhook &&
+                m.metadata.event_payload?.investigation === 'pending' &&
+                keysOf(m).some((k) => keys.includes(k))
+        )
         if (pending) {
             await startInvestigation(webhook, investigationPayload(findings, verdict, pending.ts), sleep)
             await markInvestigationStarted(pending.ts, {
@@ -481,7 +518,7 @@ export async function main({ argv = process.argv.slice(2), sleep = defaultSleep 
             })
             return
         }
-        console.log('cooldown: every labeled PR already alerted')
+        console.log('cooldown: a recent alert covers this, and no new culprit label appeared')
         return
     }
     const posted = await slack('chat.postMessage', {

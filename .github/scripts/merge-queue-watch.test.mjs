@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict'
 import { afterEach, beforeEach, describe, it } from 'node:test'
 
-import { analyzeTimeline, classify, evaluate, fetchResults, main } from './merge-queue-watch.mjs'
+import { analyzeTimeline, classify, evaluate, fetchResults, fetchTimelines, main } from './merge-queue-watch.mjs'
 
 const NOW = new Date('2026-10-21T22:00:00Z')
 const minutesAgo = (n) => new Date(NOW.getTime() - n * 60000).toISOString()
@@ -24,13 +24,18 @@ describe('count rules', () => {
     for (const [name, agos, expected] of [
         ['four failed runs in an hour', [50, 40, 30, 20], ['recent']],
         ['six failed runs spread over the long window', [170, 140, 110, 80, 50, 20], ['victim']],
-        ['six failed runs, four of them in the last hour', [150, 100, 50, 40, 30, 20], ['likely']],
+        ['six batch failures, four of them in the last hour', [150, 100, 50, 40, 30, 20], ['victim']],
         ['three failed runs', [50, 40, 30], []],
     ]) {
         it(`labels ${name} as ${expected[0] ?? 'nothing'}`, () => {
             assert.deepEqual(labelsOf(failures(100, agos)), expected)
         })
     }
+
+    it('labels a PR likely only once a run held it alone and failed', () => {
+        const input = [...failures(100, [150, 100, 50, 40, 30, 20]), ...rows('solo-100', 'failed', 10, [100])]
+        assert.deepEqual(labelsOf(input), ['likely'])
+    })
 
     it('fires on the failure rate alone when no PR repeats', () => {
         const input = Array.from({ length: 10 }, (_, n) => rows(`run-${n}`, 'failed', n + 1, [1000 + n])).flat()
@@ -67,6 +72,7 @@ describe('analyzeTimeline', () => {
             [passedAlone(150), failedInBatch(140), passedAlone(100), failedInBatch(90)],
             2,
         ],
+        ['two passes before one batch failure', [passedAlone(150), passedAlone(140), failedInBatch(130)], 1],
         ['a pass that no later failure follows', [failedInBatch(150), passedAlone(100)], 0],
         ['a failure when tested alone after a pass', [passedAlone(100), failedAlone(90)], 0],
         ['a cycle older than the long window', [passedAlone(200), failedInBatch(190)], 0],
@@ -105,7 +111,13 @@ const WEBHOOK = 'https://hooks.example.com/investigate'
 const noSleep = async () => {}
 
 // A fake Trunk, Slack and webhook behind `fetch`. `calls` records every request body by endpoint.
-function fakeWorld({ alerts = [], webhookStatus = 200, resultRows = failures(100, [50, 40, 30, 20]) } = {}) {
+function fakeWorld({
+    alerts = [],
+    webhookStatus = 200,
+    resultRows = failures(100, [50, 40, 30, 20]),
+    timelines = {},
+    timelineStatus = 200,
+} = {}) {
     const calls = []
     const json = (data, status = 200) => new Response(JSON.stringify(data), { status })
     const handler = async (url, init) => {
@@ -116,7 +128,7 @@ function fakeWorld({ alerts = [], webhookStatus = 200, resultRows = failures(100
             return json({ testingResults: resultRows, totalItems: resultRows.length })
         }
         if (target.includes('getSubmittedPullRequest')) {
-            return json({ timeline: [] })
+            return json({ timeline: timelines[body.pr.number] ?? [] }, timelineStatus)
         }
         if (target.includes('getMergeQueueMetrics')) {
             return new Response('mq_pr_restarts_1h_total{repo="PostHog/posthog",branch="master",queue_type="main"} 3\n')
@@ -191,6 +203,40 @@ describe('main', () => {
         assert.equal(world.to(WEBHOOK).length, 0)
     })
 
+    it('stays quiet when a recent alert named other PRs and no new culprit label appeared', async (t) => {
+        const world = fakeWorld({ alerts: [alertMessage('9.9', 'victim:200', 'started')] })
+        await run(t, world)
+        assert.equal(world.to('chat.postMessage').length, 0)
+        assert.equal(world.to(WEBHOOK).length, 0)
+    })
+
+    it('alerts again inside the cooldown when a new PR is labeled a hidden culprit', async (t) => {
+        const world = fakeWorld({
+            alerts: [alertMessage('9.9', 'victim:200', 'started')],
+            resultRows: failures(100, [160, 120, 80, 40]),
+            timelines: {
+                100: [passedAlone(150), failedInBatch(140), passedAlone(100), failedInBatch(90)],
+            },
+        })
+        await run(t, world)
+        assert.equal(world.to('chat.postMessage').length, 1)
+        assert.match(world.to('chat.postMessage')[0].body.metadata.event_payload.keys, /hidden:100/)
+    })
+
+    it('does not retry a pending investigation that belongs to an unrelated alert', async (t) => {
+        const world = fakeWorld({
+            alerts: [alertMessage('8.8', 'victim:200', 'pending'), alertMessage('9.9', 'recent:100', 'started')],
+        })
+        await run(t, world)
+        assert.equal(world.to(WEBHOOK).length, 0)
+    })
+
+    it('still posts the alert when every timeline read fails', async (t) => {
+        const world = fakeWorld({ timelineStatus: 500 })
+        await run(t, world)
+        assert.equal(world.to('chat.postMessage').length, 1)
+    })
+
     it('leaves the alert posted when the webhook fails all three attempts', async (t) => {
         const world = fakeWorld({ webhookStatus: 500 })
         await assert.rejects(run(t, world), /Could not start the investigation/)
@@ -215,5 +261,25 @@ describe('fetchResults', () => {
         })
         const result = await fetchResults(new Date(NOW.getTime() - 180 * 60000), NOW)
         assert.equal(result.length, 130)
+    })
+})
+
+describe('fetchTimelines', () => {
+    const saved = { ...process.env }
+    afterEach(() => {
+        process.env = { ...saved }
+    })
+
+    it('stops starting reads once the time budget is spent', async (t) => {
+        process.env.TRUNK_API_TOKEN = 'trunk-token'
+        t.mock.method(globalThis, 'fetch', async () => new Response(JSON.stringify({ timeline: [] })))
+        t.mock.method(console, 'warn', () => {})
+        const clock = [0, 0, 120000]
+        const now = () => clock.shift() ?? 120000
+        const timelines = await fetchTimelines(
+            Array.from({ length: 12 }, (_, n) => n + 1),
+            now
+        )
+        assert.equal(timelines.size, 5)
     })
 })
