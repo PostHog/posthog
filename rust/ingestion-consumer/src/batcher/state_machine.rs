@@ -142,6 +142,7 @@ impl BatcherStateMachine {
             last_progress: now,
             soft_budget: None,
             governor,
+            reconnecting: HashMap::new(),
         }))
     }
 
@@ -344,6 +345,11 @@ pub struct ActiveState {
     last_progress: Instant,
     soft_budget: Option<Duration>,
     governor: Governor,
+    /// Workers whose stream a failure fenced, with the time of that failure.
+    /// The stream reconnects after a backoff, so a request sent since then
+    /// may wait it out and is no RTT sample. The first such request to settle
+    /// clears the mark.
+    reconnecting: HashMap<WorkerId, Instant>,
 }
 
 impl ActiveState {
@@ -404,7 +410,7 @@ impl ActiveState {
     ) -> Result<Effects, String> {
         let mut effects = Effects::default();
         let sent = self.take_request(request, &mut effects)?;
-        self.observe_rtt(sent.sent_at, now);
+        self.observe_rtt(&sent, now);
         if accepted as usize != sent.message_count {
             return Err(format!(
                 "worker accepted {accepted} of {} messages",
@@ -448,7 +454,7 @@ impl ActiveState {
     ) -> Result<Effects, String> {
         let mut effects = Effects::default();
         let sent = self.take_request(request, &mut effects)?;
-        self.observe_rtt(sent.sent_at, now);
+        self.observe_rtt(&sent, now);
         effects.worker_outcomes.push(WorkerOutcome {
             worker: sent.worker.clone(),
             fault: false,
@@ -499,6 +505,7 @@ impl ActiveState {
     ) -> Result<Effects, String> {
         let mut effects = Effects::default();
         let sent = self.take_request(request, &mut effects)?;
+        self.reconnecting.entry(sent.worker.clone()).or_insert(now);
         effects.worker_outcomes.push(WorkerOutcome {
             worker: sent.worker.clone(),
             fault: cause == FailureCause::Fault,
@@ -558,8 +565,16 @@ impl ActiveState {
     /// reaches the average: a saturated worker answers late, or partial at
     /// the soft budget. Faults and ack timeouts go to health routing instead,
     /// and a busy answer waits out the busy retry delay.
-    fn observe_rtt(&mut self, sent_at: Instant, now: Instant) {
-        let rtt = now.saturating_duration_since(sent_at);
+    fn observe_rtt(&mut self, sent: &InFlightRequest, now: Instant) {
+        let sent_while_reconnecting = self
+            .reconnecting
+            .get(&sent.worker)
+            .is_some_and(|failed_at| sent.sent_at >= *failed_at);
+        if sent_while_reconnecting {
+            self.reconnecting.remove(&sent.worker);
+            return;
+        }
+        let rtt = now.saturating_duration_since(sent.sent_at);
         if let Some(decision) = self.governor.observe(rtt, now) {
             counter!(
                 "ingestion_consumer_governor_adjustments_total",
@@ -578,6 +593,8 @@ impl ActiveState {
             .map(|worker| self.assigner.requests_on(worker))
             .sum();
         self.governor.set_pool(workers.len(), in_flight);
+        self.reconnecting
+            .retain(|worker, _| workers.contains(worker));
     }
 
     fn settle_key(
@@ -1006,15 +1023,16 @@ mod tests {
     }
 
     #[test]
-    fn a_failed_request_returns_its_permit_without_an_rtt_sample() {
+    fn a_failure_and_the_requests_sent_until_its_worker_answers_again_give_no_rtt_sample() {
         let now = Instant::now();
         let workers = pool(&["w"]);
         let (batcher, effects) = batcher(4, now).on_groups(now, &workers, 0, vec![run("a", &[1])]);
         let request = effects.sends[0].request;
         assert_eq!(batcher.snapshot().governor.free_permits, 3);
 
+        let failed_at = now + SLOW_RTT;
         let (batcher, _) = batcher.on_request_failed(
-            now + SLOW_RTT,
+            failed_at,
             &workers,
             request,
             FailureCause::Busy,
@@ -1023,6 +1041,22 @@ mod tests {
         let governor = batcher.snapshot().governor;
         assert_eq!(governor.free_permits, 4);
         assert_eq!(governor.rtt, None, "a busy answer is no round-trip sample");
+
+        let (batcher, effects) = batcher.on_wakeup(failed_at + BUSY_DELAY, &workers);
+        let retry = effects.sends[0].request;
+        let answered_at = failed_at + BUSY_DELAY + SLOW_RTT;
+        let (batcher, _) = batcher.on_request_succeeded(answered_at, &workers, retry, 1);
+        assert_eq!(
+            batcher.snapshot().governor.rtt,
+            None,
+            "the retry can wait out the stream's reconnect backoff"
+        );
+
+        let rtt = Duration::from_millis(100);
+        let (batcher, effects) = batcher.on_groups(answered_at, &workers, 0, vec![run("b", &[2])]);
+        let next = effects.sends[0].request;
+        let (batcher, _) = batcher.on_request_succeeded(answered_at + rtt, &workers, next, 1);
+        assert_eq!(batcher.snapshot().governor.rtt, Some(rtt));
     }
 
     #[test]
