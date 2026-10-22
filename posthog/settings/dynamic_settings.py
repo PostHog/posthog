@@ -89,7 +89,7 @@ CONSTANCE_CONFIG = {
     ),
     "CLICKHOUSE_NATIVE_EVENTS_PRECOMPUTE_TEAMS": (
         [],
-        "Project IDs whose precompute builds read the native-JSON events table (events_json). Experiment builds and builds that read $feature_flag_called keep reading the legacy events table. Results built from each table are stored separately.",
+        "Project IDs whose precompute builds read the native-JSON events table (events_json). Experiment builds and builds that mention $feature_flag_called keep reading the legacy events table. Results built from each table are stored separately.",
         list[int],
     ),
     "PERSON_ON_EVENTS_V2_ENABLED": (
