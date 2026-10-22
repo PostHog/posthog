@@ -25,11 +25,17 @@ from products.signals.backend.artefact_schemas import (
     WorkClaim,
 )
 from products.signals.backend.assignment_flags import assignment_side_effects_allowed, assignment_writer_enabled
-from products.signals.backend.models import SignalReport, SignalReportArtefact
+from products.signals.backend.models import (
+    SignalReport,
+    SignalReportArtefact,
+    SignalReviewerExclusion,
+    SignalReviewerExclusionRevision,
+)
 from products.signals.backend.report_generation.resolve_reviewers import (
     get_org_member_github_logins_by_user_uuid,
     resolve_org_github_login_to_users,
 )
+from products.signals.backend.reviewer_exclusions import create_exclusion, revise_exclusion, revoke_exclusion
 from products.signals.backend.reviewer_rules import ReviewerRules, ReviewerWriteError, StaleReviewerProposal
 from products.signals.backend.suggested_reviewer_index import report_ids_naming_reviewers, sync_suggested_reviewer_index
 
@@ -445,6 +451,149 @@ class TestReviewerRules(BaseTest):
                 logins_match_unidentified_only=True,
             )
         ) == [{"report_id": self.report.id}]
+
+
+class TestStandingExclusions(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.enabled = True
+        self.flag = patch(
+            "products.signals.backend.reviewer_rules.assignment_writer_enabled", side_effect=lambda _: self.enabled
+        )
+        self.flag.start()
+        self.addCleanup(self.flag.stop)
+        effects = patch("products.signals.backend.reviewer_rules.assignment_side_effects_enabled", return_value=False)
+        effects.start()
+        self.addCleanup(effects.stop)
+        capture = patch("products.signals.backend.reviewer_rules.capture_reviewer_exclusion_applied")
+        self.capture = capture.start()
+        self.addCleanup(capture.stop)
+        self.report = SignalReport.objects.create(team=self.team, status="ready", title="A report")
+        self.rules = ReviewerRules(team=self.team, report_id=str(self.report.id))
+        self.member = User.objects.create(email="reviewer@example.com")
+        OrganizationMembership.objects.create(user=self.member, organization=self.organization)
+        self.me = SuggestedReviewerEntry(user_uuid=str(self.user.uuid))
+        self.other = SuggestedReviewerEntry(user_uuid=str(self.member.uuid))
+        SignalReportArtefact.objects.create(
+            team=self.team, report=self.report, type="repo_selection", content=json.dumps({"repository": "Org/App"})
+        )
+        SignalReportArtefact.objects.create(
+            team=self.team,
+            report=self.report,
+            type="signal_finding",
+            content=json.dumps({"signal_id": "s1", "relevant_code_paths": ["/src/billing/charge.py"]}),
+        )
+
+    def exclude(self, **area: str) -> str:
+        return str(
+            create_exclusion(
+                team_id=self.team.id,
+                actor_id=self.member.id,
+                instruction="I moved off this area.",
+                subject_user_uuid=self.member.uuid,
+                **area,
+            ).id
+        )
+
+    def write(self, *reviewers: SuggestedReviewerEntry, source: str = "research") -> None:
+        with self.captureOnCommitCallbacks(execute=True):
+            SignalReportArtefact.append_status(
+                team_id=self.team.id,
+                report_id=str(self.report.id),
+                content=SuggestedReviewers(root=list(reviewers)),
+                attribution=ArtefactAttribution.system(),
+                reviewer_proposal=ReviewerProposal(expected_state=self.rules.read().state, source=source),
+            )
+
+    @parameterized.expand(
+        [
+            ("research_any_repo", "research", {}, True, True),
+            ("scout_same_repo", "scout", {"repository": "org/app"}, True, True),
+            ("custom_agent_path", "custom_agent", {"repository": "org/app", "path_prefix": "src/billing"}, True, True),
+            ("other_repo", "research", {"repository": "org/other"}, True, False),
+            ("other_path", "scout", {"repository": "org/app", "path_prefix": "src/bill"}, True, False),
+            ("writer_disabled", "research", {"repository": "org/app"}, False, True),
+        ]
+    )
+    def test_matching_instruction_suppresses_the_subject_for_every_writer(
+        self, _name: str, source: str, area: dict[str, str], enabled: bool, suppressed: bool
+    ) -> None:
+        self.enabled = enabled
+        exclusion_id = self.exclude(**area)
+        self.write(self.me, self.other, source=source)
+        assert [entry.user_uuid for entry in self.rules.read().reviewers] == (
+            [self.me.user_uuid] if suppressed else [self.me.user_uuid, self.other.user_uuid]
+        )
+        assert [call.kwargs for call in self.capture.call_args_list] == (
+            [
+                {
+                    "team_id": self.team.id,
+                    "report_id": str(self.report.id),
+                    "outcome": "suppressed",
+                    "source": source,
+                    "exclusion_ids": [exclusion_id],
+                }
+            ]
+            if suppressed
+            else []
+        )
+
+    def test_revoked_instruction_stops_suppressing_and_keeps_history(self) -> None:
+        exclusion_id = self.exclude()
+        revise_exclusion(team_id=self.team.id, exclusion_id=exclusion_id, actor_id=self.user.id, repository="org/app")
+        revoke_exclusion(team_id=self.team.id, exclusion_id=exclusion_id, actor_id=self.user.id)
+        self.write(self.other)
+        assert [entry.user_uuid for entry in self.rules.read().reviewers] == [self.other.user_uuid]
+        assert list(
+            SignalReviewerExclusionRevision.objects.for_team(self.team.id)
+            .filter(exclusion_id=exclusion_id)
+            .order_by("revision")
+            .values_list("revision", "action", "repository", "status", "actor_id")
+        ) == [
+            (1, "created", "", "active", self.member.id),
+            (2, "revised", "org/app", "active", self.user.id),
+            (3, "revoked", "org/app", "revoked", self.user.id),
+        ]
+
+    @parameterized.expand(
+        [
+            ("no_repository", {"repository": "org/app"}, "repo_selection", None),
+            ("no_paths", {"repository": "org/app", "path_prefix": "src"}, "signal_finding", None),
+            ("identities_disagree", {}, None, "someone-else"),
+        ]
+    )
+    def test_missing_or_ambiguous_state_keeps_the_current_selection(
+        self, _name: str, area: dict[str, str], missing: str | None, login: str | None
+    ) -> None:
+        self.write(self.me)
+        if missing:
+            SignalReportArtefact.objects.filter(report=self.report, type=missing).delete()
+        exclusion_id = self.exclude(**area)
+        if login:
+            SignalReviewerExclusion.objects.for_team(self.team.id).filter(id=exclusion_id).update(
+                subject_github_login=login
+            )
+            UserSocialAuth.objects.create(user=self.member, provider="github", uid="1", extra_data={"login": "member"})
+        self.write(self.other)
+        assert [entry.user_uuid for entry in self.rules.read().reviewers] == [self.me.user_uuid]
+        assert [call.kwargs["outcome"] for call in self.capture.call_args_list] == ["unresolved"]
+
+    def test_report_pin_wins_and_needs_a_person(self) -> None:
+        SignalReportArtefact.append_status(
+            team_id=self.team.id,
+            report_id=str(self.report.id),
+            content=SuggestedReviewers(root=[self.other]),
+            attribution=ArtefactAttribution.from_user(self.user.id),
+            reviewer_edit=ReviewerEdit(action="add"),
+        )
+        exclusion_id = self.exclude()
+        self.write(self.me, self.other)
+        snapshot = self.rules.read()
+        assert [entry.user_uuid for entry in snapshot.reviewers] == [self.me.user_uuid, self.other.user_uuid]
+        assert snapshot.corrections.needs_review
+        assert [(call.kwargs["outcome"], call.kwargs["exclusion_ids"]) for call in self.capture.call_args_list] == [
+            ("pin_conflict", [exclusion_id])
+        ]
 
 
 class TestAssignmentReleaseControls(SimpleTestCase):
