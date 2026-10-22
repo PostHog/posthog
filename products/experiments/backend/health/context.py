@@ -123,6 +123,12 @@ class FlagHistory:
     # Whether anyone was exposed while an override was set and removed again, or removed and set back. A user
     # exposed only outside that window got the same variant throughout. None when unknown.
     exposed_during_overrides: Mapping[ChangeWindow, bool | None]
+    # Whether the experiment counts groups rather than persons, by the rule the exposure query uses.
+    counts_groups: bool
+    # The persons or groups exposed between launch and the last counted change of a kind, up to
+    # MIN_EXPOSED_UNITS_TO_WARN. Asked only for a kind with a counted change, so a kind that was not asked is absent.
+    # None when unknown.
+    exposed_units_before_last: Mapping[ExperimentHealthFlagChangeKind, int | None]
 
     def of_kind[C: FlagChange](self, kind: type[C]) -> tuple[C, ...]:
         return changes_of_kind(self.changes, kind)
@@ -147,6 +153,8 @@ class FlagHistoryNotCheckedReason(StrEnum):
 
 MAX_FLAG_SAVES = 100
 MAX_RELEASE_CONDITIONS = 100
+# A few early exposures, usually the creator's own test, can't move a result, so a change before this many is info.
+MIN_EXPOSED_UNITS_TO_WARN = 5
 
 
 @frozen

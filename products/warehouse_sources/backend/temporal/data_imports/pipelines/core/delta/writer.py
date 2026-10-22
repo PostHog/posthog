@@ -178,6 +178,22 @@ def commit_matches(commit: dict[str, Any], match: dict[str, str]) -> bool:
     return any(all(layout.get(k) == v for k, v in match.items()) for layout in _commit_metadata_layouts(commit))
 
 
+def dedupe_incremental_batch(
+    data: pa.Table, primary_keys: Sequence[Any], use_partitioning: bool
+) -> tuple[pa.Table, list[str]]:
+    """Drop all but the last occurrence of each PK (+ partition) tuple in a batch.
+
+    Returns the batch and the keys it was deduplicated on. The batch comes back as it is when no key
+    repeats, or when none of `primary_keys` is a column of it.
+    """
+    dedupe_keys = [n for x in primary_keys if (n := normalize_column_name(x)) in data.column_names]
+    if not dedupe_keys:
+        return data, []
+    if use_partitioning:
+        dedupe_keys.append(PARTITION_KEY)
+    return first_per_pk_table(data, dedupe_keys, keep="last"), dedupe_keys
+
+
 def commit_members_tag(members: Sequence[tuple[str, int]]) -> str:
     """The `members` commit tag for a set that spans runs: `run_uuid:batch_index` per member."""
     return ",".join(f"{run_uuid}:{batch_index}" for run_uuid, batch_index in members)
@@ -235,14 +251,7 @@ class DeltaWriter:
     async def _dedupe_incremental_batch(
         self, data: pa.Table, primary_keys: Sequence[Any], use_partitioning: bool
     ) -> pa.Table:
-        """Drop all but the last occurrence of each PK (+ partition) tuple in a batch."""
-        dedupe_keys = [n for x in primary_keys if (n := normalize_column_name(x)) in data.column_names]
-        if not dedupe_keys:
-            return data
-        if use_partitioning:
-            dedupe_keys.append(PARTITION_KEY)
-
-        deduped = first_per_pk_table(data, dedupe_keys, keep="last")
+        deduped, dedupe_keys = dedupe_incremental_batch(data, primary_keys, use_partitioning)
         dropped = data.num_rows - deduped.num_rows
         if dropped > 0:
             await self._logger.awarning(
@@ -455,6 +464,10 @@ class DeltaWriter:
                 governor_reserved_slots=adm.reserved_slots,
                 governor_wait_ms=adm.wait_ms,
                 governor_wait_timed_out=adm.wait_timed_out,
+                governor_borrow_slots=adm.borrow_slots,
+                governor_borrow_mpp=adm.borrow_mpp,
+                governor_borrow_mpf=adm.borrow_mpf,
+                governor_borrow_applied=adm.borrow_applied,
                 # Process-wide RSS while this upsert ran; filter on max_concurrent_upserts == 1 for
                 # a clean per-upsert signal.
                 governor_peak_rss_mb=adm.rss.peak_mb if adm.rss else None,
