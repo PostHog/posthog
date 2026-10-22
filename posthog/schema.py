@@ -26426,6 +26426,18 @@ class WebVitalsQueryResponse(BaseModel):
     )
 
 
+class AccountUsersQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    accountId: str = Field(..., description="ID of the account whose users to list.")
+    kind: Literal["AccountUsersQuery"] = "AccountUsersQuery"
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    response: ActorsQueryResponse | None = None
+    tags: QueryLogTags | None = None
+    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+
+
 class AccountsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -33059,6 +33071,7 @@ class ActorsQuery(BaseModel):
         | ExperimentActorsQuery
         | StickinessActorsQuery
         | PathsV2ActorsQuery
+        | AccountUsersQuery
         | HogQLQuery
         | None
     ) = None
