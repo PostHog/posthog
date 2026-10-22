@@ -16,8 +16,8 @@ function readNumber(file, key) {
         const value = key
             ? text
                   .split('\n')
-                  .find((line) => line.startsWith(`${key} `))
-                  ?.split(' ')[1]
+                  .map((line) => line.split(/\s+/))
+                  .find(([name]) => name === key)?.[1]
             : text
         return value === undefined ? null : Number(value.trim())
     } catch {
@@ -34,6 +34,15 @@ function cgroupHeadroomBytes(dir, limitFile, currentFile, inactiveKey) {
     return WATCHDOG_RATIO * limit - current + (readNumber(`${dir}/memory.stat`, inactiveKey) ?? 0)
 }
 
+function meminfoHeadroomBytes() {
+    const total = readNumber('/proc/meminfo', 'MemTotal:')
+    const available = readNumber('/proc/meminfo', 'MemAvailable:')
+    if (!total || available === null || Number.isNaN(available)) {
+        return null
+    }
+    return (WATCHDOG_RATIO * total - (total - available)) * 1024
+}
+
 function headroomBytes() {
     if (process.platform !== 'linux') {
         return null
@@ -46,6 +55,7 @@ function headroomBytes() {
             'memory.usage_in_bytes',
             'total_inactive_file'
         ) ??
+        meminfoHeadroomBytes() ??
         os.freemem() - (1 - WATCHDOG_RATIO) * os.totalmem()
     )
 }
