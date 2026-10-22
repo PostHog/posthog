@@ -1,6 +1,7 @@
 import re
 import json
 from datetime import datetime, timedelta
+from time import monotonic
 from typing import Any
 from uuid import UUID
 
@@ -89,6 +90,13 @@ class _FingerprintMatch:
 
 
 @frozen
+class _Scan:
+    matches: list[_FingerprintMatch]
+    # True when ClickHouse stopped the scan at its time limit and returned the events it read until then.
+    stopped_early: bool
+
+
+@frozen
 class _ExampleIssues:
     top: list[MissingSymbolsIssue]
     count: int
@@ -112,14 +120,15 @@ def missing_symbols_examples(team_id: int, platform: SymbolsPlatform, user: User
     team = Team.objects.get(id=team_id)
 
     try:
-        matches = _exceptions_containing(team, user, [group.raw_ids for group in groups], since)
-        representatives = _representatives(matches)
+        scan = _exceptions_containing(team, user, [group.raw_ids for group in groups], since)
+        representatives = _representatives(scan.matches)
         payloads = _exception_lists(team, user, list(representatives.values()))
         exceptions_loaded = True
     except Exception as error:
-        # The examples stay useful without exceptions, so a slow or failed scan only drops them.
+        # The examples stay useful without exceptions, so a failed scan only drops them.
         capture_exception(error)
-        matches, representatives, payloads, exceptions_loaded = [], {}, {}, False
+        scan, representatives, payloads, exceptions_loaded = _Scan(matches=[], stopped_early=False), {}, {}, False
+    matches = scan.matches
 
     issues = _issues_by_fingerprint(team_id, {match.fingerprint for match in matches})
     examples = [
@@ -134,7 +143,9 @@ def missing_symbols_examples(team_id: int, platform: SymbolsPlatform, user: User
 
     results = []
     for index, (group, example) in enumerate(zip(groups, examples)):
-        example_issues = _example_issues(index, matches, issues, frames_sampled=group.frames > len(group.raw_ids))
+        example_issues = _example_issues(
+            index, matches, issues, scan_incomplete=scan.stopped_early or group.frames > len(group.raw_ids)
+        )
         results.append(
             MissingSymbolsExample(
                 reason=group.key.reason,
@@ -199,16 +210,15 @@ def _example_groups(team_id: int, platform: SymbolsPlatform, since: datetime) ->
     return sorted(groups.values(), key=lambda group: -group.frames)[:EXAMPLES_LIMIT]
 
 
-def _exceptions_containing(
-    team: Team, user: User, raw_ids_per_example: list[list[str]], since: datetime
-) -> list[_FingerprintMatch]:
+def _exceptions_containing(team: Team, user: User, raw_ids_per_example: list[list[str]], since: datetime) -> _Scan:
     """Recent exceptions whose stack traces contain each example's frames, per example and fingerprint."""
     # The quotes make each needle match a whole JSON string, so `hash/1` cannot match `hash/10`.
     needles = [f'"{raw_id}"' for raw_ids in raw_ids_per_example for raw_id in raw_ids]
     needle_examples = [index for index, raw_ids in enumerate(raw_ids_per_example) for _ in raw_ids]
     if not needles:
-        return []
+        return _Scan(matches=[], stopped_early=False)
 
+    started = monotonic()
     with tags_context(
         product=Product.ERROR_TRACKING, feature=Feature.QUERY, team_id=team.id, name="source_maps_examples"
     ):
@@ -247,9 +257,13 @@ def _exceptions_containing(
             team=team,
             user=user,
             ch_user=ClickHouseUser.ERROR_TRACKING,
-            settings=HogQLGlobalSettings(max_execution_time=EXCEPTIONS_QUERY_TIMEOUT_SECONDS),
+            # A team with many exceptions can take longer than the limit. Stopping there still gives
+            # examples, with counts that are lower bounds.
+            settings=HogQLGlobalSettings(
+                max_execution_time=EXCEPTIONS_QUERY_TIMEOUT_SECONDS, timeout_overflow_mode="break"
+            ),
         )
-    return [
+    matches = [
         _FingerprintMatch(
             example_index=example_index,
             fingerprint=fingerprint,
@@ -260,6 +274,8 @@ def _exceptions_containing(
         for example_index, fingerprint, occurrences, event_uuid, timestamp in response.results or []
         if fingerprint
     ]
+    # ClickHouse does not report a break, so a scan that ran to the limit counts as stopped early.
+    return _Scan(matches=matches, stopped_early=monotonic() - started >= EXCEPTIONS_QUERY_TIMEOUT_SECONDS)
 
 
 def _representatives(matches: list[_FingerprintMatch]) -> dict[int, _FingerprintMatch]:
@@ -314,7 +330,7 @@ def _example_issues(
     matches: list[_FingerprintMatch],
     issues: dict[str, MissingSymbolsIssue],
     *,
-    frames_sampled: bool,
+    scan_incomplete: bool,
 ) -> _ExampleIssues:
     # Merged issues own several fingerprints, so their counts add up.
     occurrences: dict[UUID, int] = {}
@@ -341,8 +357,9 @@ def _example_issues(
             for issue_id in ranked[:ISSUES_PER_EXAMPLE]
         ],
         count=len(ranked),
-        # The scan misses the issues of frames left out of the sample, and of fingerprints past its limit.
-        capped=frames_sampled or fingerprints >= FINGERPRINTS_PER_EXAMPLE,
+        # The scan misses the issues of frames left out of the sample, of events past its time limit,
+        # and of fingerprints past its row limit.
+        capped=scan_incomplete or fingerprints >= FINGERPRINTS_PER_EXAMPLE,
     )
 
 
