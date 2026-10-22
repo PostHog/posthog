@@ -2876,8 +2876,7 @@ async def test_first_report_experiment_routes_and_records_assignment(ateam, vari
         return
     assert outcome.status == "completed"
     context = captured["context"]
-    assert captured["internal"] is True
-    assert captured["origin_product"] == "signals_scout"
+    assert (captured["profile"].origin_product, captured["profile"].listed) == ("signals_scout", False)
     assert (context.runtime, context.runtime_adapter, context.model, context.service_tier) == (
         runtime,
         adapter,

@@ -16,6 +16,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import requests
 from parameterized import parameterized
 
+from products.posthog_ai.backend.task_profiles import POSTHOG_AI
 from products.posthog_ai.eval_harness import runner
 from products.posthog_ai.eval_harness.config import AgentArtifacts, SandboxedEvalCase
 from products.posthog_ai.eval_harness.engines.types import AggregateScore, EvalSummary
@@ -103,7 +104,7 @@ async def test_surface_prompt_reaches_task_run_state(
     monkeypatch.setattr(custom_prompt_internals.Task, "create_and_run", create)
 
     await runner.create_task_and_trigger(
-        "prompt", CustomPromptSandboxContext(team_id=25, user_id=26, system_prompt=system_prompt)
+        "prompt", CustomPromptSandboxContext(team_id=25, user_id=26, system_prompt=system_prompt), profile=POSTHOG_AI
     )
 
     assert create.call_args.kwargs["extra_run_state"] == (
