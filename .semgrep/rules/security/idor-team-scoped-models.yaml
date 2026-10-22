@@ -410,6 +410,7 @@ rules:
                               |SignalProjectProfile
                               |SingleSessionSummary
                               |SlackThreadTaskMapping
+                              |SlackThreadJoin
                               |SourceBatch
                               |SourceGroupLease
                               |StreamlitApp
@@ -877,6 +878,7 @@ rules:
                         |SignalProjectProfile
                         |SingleSessionSummary
                         |SlackThreadTaskMapping
+                        |SlackThreadJoin
                         |SourceBatch
                         |SourceGroupLease
                         |StreamlitApp

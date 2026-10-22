@@ -119,6 +119,7 @@ UNKNOWN_SCHEMA_NOT_CHECKABLE: dict[str, str] = {
     "DoIt": "request",
     "DynamoDB": "request",
     "Elasticsearch": "request",
+    "FileUpload": "config",
     "FullStory": "request",
     "Github": "config",
     "GoogleAds": "driver",

@@ -62,6 +62,7 @@ from products.customer_analytics.backend.facade.temporal import stage_warehouse_
 from products.customer_analytics.backend.facade.temporal_contracts import StageAccountPropertySyncInput
 from products.data_modeling.backend.facade.api import (
     TRINO_INCREMENTAL_SCOPE,
+    clear_node_suspension,
     compute_enrichment_hash,
     definition_fingerprint,
     get_incremental_config,
@@ -338,6 +339,8 @@ class TestFailMaterializationActivity:
     ):
         if node_deleted:
             await database_sync_to_async(Node.objects.filter(id=anode.id).delete)()
+        ajob.run_mode = DataModelingJob.RunMode.INCREMENTAL
+        await database_sync_to_async(ajob.save)(update_fields=["run_mode"])
         inputs = FailMaterializationInputs(
             team_id=ateam.pk,
             node_id=str(anode.id),
@@ -346,7 +349,8 @@ class TestFailMaterializationActivity:
             error="Test error message",
             cancelled=cancelled,
         )
-        await activity_environment.run(fail_materialization_activity, inputs)
+        run_mode = await activity_environment.run(fail_materialization_activity, inputs)
+        assert run_mode == "incremental"
         await database_sync_to_async(ajob.refresh_from_db)()
         assert ajob.status == expected_status
         assert ajob.rows_materialized == 0
@@ -416,10 +420,50 @@ class TestFailMaterializationActivity:
             job_id=str(current_job.id),
             error=error,
         )
-        await activity_environment.run(fail_materialization_activity, inputs)
+        with (
+            unittest.mock.patch(
+                "posthog.temporal.data_modeling.activities.notify_materialization_failure.create_notification"
+            ) as mock_create,
+            unittest.mock.patch(
+                "posthog.temporal.data_modeling.activities.notify_materialization_failure.send_matview_failure_immediate_email"
+            ) as mock_email,
+        ):
+            # The first attempt saves the marker, but the in-app notice never lands.
+            mock_create.side_effect = RuntimeError("notifications unavailable")
+            await activity_environment.run(fail_materialization_activity, inputs)
+
+            await database_sync_to_async(anode.refresh_from_db)()
+            assert is_node_suspended(anode, DataModelingJobEngine.CLICKHOUSE) is True
+            suspended_email = unittest.mock.call(ateam.pk, str(asaved_query.id), str(current_job.id), suspended=True)
+            assert mock_email.delay.call_args_list == [suspended_email]
+
+            # The retry no longer sees the transition but still owes the notice. It resends with the
+            # same job, so the email's campaign key and the in-app idempotency key both dedupe.
+            mock_create.side_effect = None
+            await activity_environment.run(fail_materialization_activity, inputs)
+            assert mock_email.delay.call_args_list == [suspended_email, suspended_email]
+            data = mock_create.call_args.args[0]
+            assert "suspended" in data.title
+            assert "Last error: " + error in data.body
+            assert data.target_type == TargetType.TEAM
+            assert {call.args[0].idempotency_key for call in mock_create.call_args_list} == {data.idempotency_key}
+
+            # Resuming and failing the full streak again is a new suspension, so it notifies again.
+            await database_sync_to_async(clear_node_suspension)(
+                anode, engine=DataModelingJobEngine.CLICKHOUSE, by="api"
+            )
+            await database_sync_to_async(anode.save)()
+            for _ in range(4):
+                await _make_job(ateam, asaved_query, DataModelingJob.Status.FAILED, error=previous_error)
+            next_job = await _make_job(ateam, asaved_query, DataModelingJob.Status.RUNNING)
+            await activity_environment.run(fail_materialization_activity, replace(inputs, job_id=str(next_job.id)))
 
         await database_sync_to_async(anode.refresh_from_db)()
         assert is_node_suspended(anode, DataModelingJobEngine.CLICKHOUSE) is True
+        assert mock_email.delay.call_args_list[-1] == unittest.mock.call(
+            ateam.pk, str(asaved_query.id), str(next_job.id), suspended=True
+        )
+        assert mock_email.delay.call_count == 3
 
     @pytest.mark.parametrize(
         "previous_status,parent_workflow_id,with_runner,expect_email,expect_in_app",
