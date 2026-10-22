@@ -1545,7 +1545,14 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 False,
                 PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS,
             ),
-            ("a_person_filter_with_no_query_mode", [PERSON_EMAIL_MATCHER], [("2020-01-10", 1)], False, None, True),
+            (
+                "a_person_filter_with_no_query_mode_on_a_team_that_defaults_to_stored_properties",
+                [PERSON_EMAIL_MATCHER],
+                [("2020-01-10", 1)],
+                False,
+                None,
+                True,
+            ),
         ]
     )
     def test_flag_evaluations_only_organization_counts_matched_flag_calls_per_day(

@@ -478,7 +478,7 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
         if table is not FLAG_EVALUATIONS_LIST_TABLE:
             return False
         # Only a mode set on the query itself skips the join. Many teams default to a mode that reads stored
-        # properties. The activity list sets no mode because it shows each person's current properties.
+        # properties. The activity list sends no mode. It must keep showing each person's current properties.
         modifiers = self.query.modifiers
         return modifiers is None or modifiers.personsOnEventsMode not in STORED_PERSON_PROPERTIES_MODES
 
