@@ -209,6 +209,7 @@ export const DEFAULT_BROADCAST_PUSH: BroadcastPushValue = { channels: [], title:
 
 export const PUSH_INTEGRATION_KINDS = ['firebase', 'apns']
 export const NO_PUSH_CHANNELS_REASON = "Your project doesn't have push set up yet"
+export const PUSH_CHANNELS_LOAD_FAILED_REASON = "Couldn't check your push setup"
 
 // A person with any registered device has a person property under this prefix.
 const PUSH_SUBSCRIBED_HOGQL =
@@ -235,14 +236,18 @@ function readPush(broadcast: HogFlowApi): BroadcastPushValue | null {
     }
 }
 
-function pushInputs(push: BroadcastPushValue): Record<string, any> {
+// Inputs the wizard does not show, such as a custom recipient or extra data keys set in the workflow
+// editor, keep their saved values.
+function pushInputs(push: BroadcastPushValue, existing: Record<string, any> = {}): Record<string, any> {
+    const { url: _url, ...extraData } = (existing.data?.value as Record<string, any> | undefined) ?? {}
     return {
+        ...existing,
         // A batch run's person is the recipient, as in the template's default.
-        distinctId: { value: '{event.distinct_id}' },
+        distinctId: existing.distinctId ?? { value: '{event.distinct_id}' },
         channels: { value: push.channels },
-        title: { value: push.title, templating: 'liquid' },
-        body: { value: push.body, templating: 'liquid' },
-        data: { value: push.link ? { url: push.link } : {} },
+        title: { value: push.title, templating: existing.title?.templating ?? 'liquid' },
+        body: { value: push.body, templating: existing.body?.templating ?? 'liquid' },
+        data: { value: push.link ? { ...extraData, url: push.link } : extraData },
     }
 }
 
@@ -374,6 +379,7 @@ export interface broadcastWizardLogicValues {
     movingToDraft: boolean
     name: string
     push: BroadcastPushValue
+    pushUnavailableReason: "Couldn't check your push setup" | "Your project doesn't have push set up yet" | null
     rateLimitedSendDuration: string
     recipientEmailProperty: string | null
     recipientsWithoutEmail: number | null
@@ -719,6 +725,11 @@ export interface broadcastWizardLogicMeta {
         effectiveTimezone: (scheduleTimezone: string | null, currentTeam: TeamPublicType | TeamType | null) => string
         recipientEmailProperty: (email: BroadcastEmailValue, channel: BroadcastChannel) => string | null
         hasPushChannels: (integrations: IntegrationType[] | null) => boolean
+        pushUnavailableReason: (
+            hasPushChannels: boolean,
+            integrations: IntegrationType[] | null,
+            integrationsLoading: boolean
+        ) => "Couldn't check your push setup" | "Your project doesn't have push set up yet" | null
         missingRecipientEmail: (
             recipientEmailProperty: string | null,
             recipientsWithoutEmail: number | null,
@@ -1391,6 +1402,16 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             (s) => [s.integrations],
             (integrations: IntegrationType[] | null): boolean =>
                 !!integrations?.some((integration) => PUSH_INTEGRATION_KINDS.includes(integration.kind)),
+        ],
+        // Why Push can't be picked, if it can't. A failed load is not the same as no push setup.
+        pushUnavailableReason: [
+            (s) => [s.hasPushChannels, s.integrations, s.integrationsLoading],
+            (hasPushChannels: boolean, integrations: IntegrationType[] | null, integrationsLoading: boolean) =>
+                hasPushChannels || integrationsLoading
+                    ? null
+                    : integrations === null
+                      ? PUSH_CHANNELS_LOAD_FAILED_REASON
+                      : NO_PUSH_CHANNELS_REASON,
         ],
         missingRecipientEmail: [
             (s) => [s.recipientEmailProperty, s.recipientsWithoutEmail, s.blastRadius],
@@ -2686,11 +2707,13 @@ function messageAction(
             ...(existing?.type === BROADCAST_MESSAGE_ACTION_TYPES.push
                 ? existing
                 : {
+                      created_at: 0,
+                      updated_at: 0,
+                      // Step-level settings such as conditions do not depend on the channel.
+                      ...existing,
                       id: existing?.id ?? PUSH_ACTION_ID,
                       name: 'Send push',
                       description: 'The broadcast push notification.',
-                      created_at: 0,
-                      updated_at: 0,
                   }),
             type: BROADCAST_MESSAGE_ACTION_TYPES.push,
             config: {
@@ -2698,7 +2721,7 @@ function messageAction(
                 template_id: 'template-native-push',
                 message_category_id: settings?.messageCategoryId ?? undefined,
                 message_category_type: settings?.messageCategoryType ?? undefined,
-                inputs: { ...config?.inputs, ...pushInputs(values.push ?? DEFAULT_BROADCAST_PUSH) },
+                inputs: pushInputs(values.push ?? DEFAULT_BROADCAST_PUSH, config?.inputs),
             },
         }
     }
@@ -2716,12 +2739,13 @@ function messageAction(
         }
     }
     return {
+        created_at: 0,
+        updated_at: 0,
+        ...existing,
         id: existing?.id ?? EMAIL_ACTION_ID,
         type: 'function_email',
         name: 'Send email',
         description: 'The broadcast email.',
-        created_at: 0,
-        updated_at: 0,
         config: {
             template_id: 'template-email',
             ...emailSettingsConfig(values.emailSettings),

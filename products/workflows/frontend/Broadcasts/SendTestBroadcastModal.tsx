@@ -12,6 +12,7 @@ export function SendTestBroadcastModal(): JSX.Element {
         sendDisabledReason,
         testSendResult,
         testSendSkipReason,
+        testSendPartialFailure,
         testSendResultLoading,
         channel,
         recipientDistinctId,
@@ -82,6 +83,10 @@ export function SendTestBroadcastModal(): JSX.Element {
 
                 {testSendSkipReason ? (
                     <LemonBanner type="warning">{testSendSkipReason}</LemonBanner>
+                ) : testSendPartialFailure ? (
+                    <LemonBanner type="warning">
+                        Some apps took the notification, but at least one failed: {testSendPartialFailure}
+                    </LemonBanner>
                 ) : testSendResult?.status === 'skipped' ? (
                     <LemonBanner type="warning">
                         {testSendResult.logs?.map((log) => log.message).join(' ') ||

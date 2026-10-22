@@ -38,9 +38,10 @@ export function BroadcastPerformance({
     const isPush = props.channel === 'push'
     const headline = isPush
         ? [
+              // The worker counts each app it tries, so these are app attempts rather than people.
               { label: 'Sent', value: humanFriendlyNumber(stats.sent), detail: null },
-              { label: 'No device', value: share(stats.skipped, stats.sent + stats.skipped), detail: stats.skipped },
-              { label: 'Failed', value: share(stats.failed, stats.sent + stats.failed), detail: stats.failed },
+              { label: 'No device', value: humanFriendlyNumber(stats.skipped), detail: null },
+              { label: 'Failed', value: humanFriendlyNumber(stats.failed), detail: null },
           ]
         : [
               { label: 'Sent', value: humanFriendlyNumber(stats.sent), detail: null },
@@ -63,7 +64,7 @@ export function BroadcastPerformance({
     ]
     const footnote = [
         isPush
-            ? 'Opens are counted when your app reports a tapped notification.'
+            ? 'Push counts are per app, so a person sent through two apps counts once for each. Opens are counted when your app reports a tapped notification.'
             : trackingOff
               ? null
               : 'Opens and clicks are counted against sends with tracking on.',

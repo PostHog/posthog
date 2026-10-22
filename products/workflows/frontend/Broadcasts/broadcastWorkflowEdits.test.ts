@@ -27,6 +27,7 @@ const push = (): Record<string, any> => ({
     config: { template_id: 'template-native-push', inputs: { title: { value: 'Hi' } } },
 })
 const exit = { id: 'exit_node', type: 'exit', name: 'Exit', config: {} }
+const stepCondition = { properties: [{ key: 'plan', value: ['pro'], operator: 'exact', type: 'person' }] }
 const edges = [
     { from: 'trigger_node', to: 'email_1', type: 'continue' },
     { from: 'email_1', to: 'exit_node', type: 'continue' },
@@ -168,7 +169,7 @@ describe('broadcast edits to broadcast-shaped workflows', () => {
     it.each([
         [
             'email to push',
-            [trigger(), email(), exit],
+            [trigger(), { ...email(), filters: stepCondition }, exit],
             'push',
             null,
             {
@@ -184,7 +185,7 @@ describe('broadcast edits to broadcast-shaped workflows', () => {
         ],
         [
             'push to email',
-            [trigger(), push(), exit],
+            [trigger(), { ...push(), filters: stepCondition }, exit],
             'email',
             { count: 10, period: 'minute' },
             { type: 'function_email', config: { inputs: { email: { value: { subject: 'Hello' } } } } },
@@ -206,8 +207,43 @@ describe('broadcast edits to broadcast-shaped workflows', () => {
 
             expect(payload.edges).toEqual(edges)
             expect(payload.actions.map((action: any) => action.id)).toEqual(['trigger_node', 'email_1', 'exit_node'])
-            expect(payload.actions[1]).toMatchObject(messageStep)
+            expect(payload.actions[1]).toMatchObject({ ...messageStep, filters: stepCondition })
             expect(payload.email_sending_rate_limit).toEqual(rateLimit)
         }
     )
+
+    it('keeps the push inputs the wizard does not edit, such as a custom recipient or extra data', () => {
+        const customized = {
+            ...push(),
+            config: {
+                template_id: 'template-native-push',
+                inputs: {
+                    distinctId: { value: '{person.properties.device_owner}' },
+                    title: { value: 'Old', templating: 'hog' },
+                    data: { value: { url: 'myapp://old', campaign: 'spring' } },
+                    ios_sound: { value: 'chime' },
+                },
+            },
+        }
+        const payload = buildBroadcastPayload({
+            name: 'Launch',
+            audienceProperties: [],
+            goalEnabled: false,
+            conversion: DEFAULT_BROADCAST_CONVERSION,
+            email: DEFAULT_BROADCAST_EMAIL,
+            emailRateLimit: null,
+            channel: 'push',
+            push: { channels: [7], title: 'New', body: '', link: '' },
+            broadcast: { actions: [trigger(), customized, exit], edges } as unknown as HogFlowApi,
+        })
+
+        expect(payload.actions[1].config.inputs).toEqual({
+            distinctId: { value: '{person.properties.device_owner}' },
+            channels: { value: [7] },
+            title: { value: 'New', templating: 'hog' },
+            body: { value: '', templating: 'liquid' },
+            data: { value: { campaign: 'spring' } },
+            ios_sound: { value: 'chime' },
+        })
+    })
 })

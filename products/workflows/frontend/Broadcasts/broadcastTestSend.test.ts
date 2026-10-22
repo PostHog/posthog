@@ -1,5 +1,5 @@
 import { HogflowTestResult } from '../Workflows/hogflows/steps/types'
-import { findPushTestSkipReason, findTestSendSkipReason } from './broadcastTestSendLogic'
+import { findPushTestPartialFailure, findPushTestSkipReason, findTestSendSkipReason } from './broadcastTestSendLogic'
 
 const result = (partial: Partial<HogflowTestResult>): HogflowTestResult =>
     ({ status: 'success', nextActionId: null, ...partial }) as HogflowTestResult
@@ -40,5 +40,30 @@ describe('test send skip reasons', () => {
         ['a failed run, which reports its own error', result({ status: 'error' }), undefined],
     ])('reports whether a push test reached a device for %s', (_name, input, expected) => {
         expect(findPushTestSkipReason(input)).toBe(expected)
+    })
+
+    it.each([
+        [
+            'one app accepted and another failed',
+            result({
+                logs: [
+                    log('[Action:a] Push notification accepted by FCM for 1 of 1 device(s).'),
+                    log('[Action:a] APNs: BadDeviceToken', 'warn'),
+                ],
+            }),
+            '[Action:a] APNs: BadDeviceToken',
+        ],
+        [
+            'one app accepted and the other had no device',
+            result({
+                logs: [
+                    log('[Action:a] Push notification accepted by FCM for 1 of 1 device(s).'),
+                    log('[Action:a] No active APNS device token found for distinct_id: me', 'warn'),
+                ],
+            }),
+            undefined,
+        ],
+    ])('reports app errors behind a delivered push test when %s', (_name, input, expected) => {
+        expect(findPushTestPartialFailure(input)).toBe(expected)
     })
 })
