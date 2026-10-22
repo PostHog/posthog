@@ -6814,6 +6814,10 @@ snapshots:
         hash: v1.k794b7964.1d80c6db4f1f88a1db7ef2cd87c7078817324cb960257d8bc4fc5685876ccac6.ff6KqB1lZjhdbYfDeeK4vL9Y55rFaVr7WhBdiFp_Zno
     products-business-intelligence-worksheet-exploration--sql-preview--light:
         hash: v1.k794b7964.a694a2e34e9c18f6c4c50e3b930558dfd97dd59874df8e104fff77957a14fa06.WiYn-ILI2MLWRei6QPwwv-a_mBBFKFQpDdtAwCBcHaE
+    products-business-intelligence-worksheet-exploration--table-conditional-formatting--dark:
+        hash: v1.k794b7964.066627055ec147146f95e1f343b7349970d3df7169f99bd6759e7e452b34ceae.dwD52LarWL77MlXm4RqYlbOXmS7UJFiSJP5NhxKhkg8
+    products-business-intelligence-worksheet-exploration--table-conditional-formatting--light:
+        hash: v1.k794b7964.dee31345e5841c39a1d1b90282106b173af0b7c060faa194efec9ca59193e904.rksN_uC771QUKCAZJMqDHj7TOTJlLjCo8EHG45CoFU0
     products-business-intelligence-worksheets--worksheets--dark:
         hash: v1.k794b7964.edb41b692932eca6f21366993f55d43ac3cd6628ffe267cf1ad008b53bbb8843.VSge8V3R4tiEjRliX4E7EFcPZ6PbvFQEU0aEsXueLyY
     products-business-intelligence-worksheets--worksheets--light:
@@ -10299,9 +10303,9 @@ snapshots:
     scenes-app-data-warehouse-sql-editor--bi-combined-measures--light:
         hash: v1.k794b7964.ef9e0272e8a5c3fcaf9b3960fd25fd1349cd2516454bad7200f44387fbcfa49c.zoBc40WBfASsRAZRPoXIyt8qM8i4-3Pal6rrN9MX-4Q
     scenes-app-data-warehouse-sql-editor--bi-connections--dark:
-        hash: v1.k794b7964.b1132caa3c81cabffb7e53faf819ba3d5982875f3616143639000a8e527a978c.TYNB4OeQqOEKUSgz7rpRz3QyTbgvcMPRW3i7GmhjXvw
+        hash: v1.k794b7964.83e718486cc18677ff4f873e77523324f4c76adf66e295c085825427c3e13995.sJzr9LGMmRfJol1oI5GybfipZCQHlUXWgaCtWpWZ7eg
     scenes-app-data-warehouse-sql-editor--bi-connections--light:
-        hash: v1.k794b7964.e5395fcb472f8f739b3d2ac2eb67d6876af3c57a2908aa8b1928d28dd2148eec.w1eNMwnuIBGKLCpINPgtYS9dSWj9w_FPWTj0A6Ozxx0
+        hash: v1.k794b7964.5559b29ac2f2ff87571b3e0d2b48f91bb27be9008024ea4c74740b85f8710527.FyLqP2sPWNHC2WpOH_vYvn8Tz1FYuLLPChFKjFgXJIM
     scenes-app-data-warehouse-sql-editor--bi-data-source-picker--dark:
         hash: v1.k794b7964.b3cf8fcc423a5f169b74cc2df1345ec9c0a1af4e35fa012684452532bff442a7.dbf_2SBnJUTC-U2PWLNTPfICDVRqy0wnA8Qu46ek1yU
     scenes-app-data-warehouse-sql-editor--bi-data-source-picker--light:
@@ -10347,9 +10351,9 @@ snapshots:
     scenes-app-data-warehouse-sql-editor--bi-quick-filters--light:
         hash: v1.k794b7964.7b4838aa8812a6c5bc225b7b304f5ed2d6527ef25f19b67338cce01e119f7242.9UTGUKsf-uMAJm4p1RD_74UCN66CNOaVsmuzFxLhLiA
     scenes-app-data-warehouse-sql-editor--bi-quick-filters-narrow--dark:
-        hash: v1.k794b7964.7c1e6e3a2fede818547a931fa5f0e7c77522c569b2ad897f19f1c69ef1205b12.nRn_tllUISXwIKt4KeVBnGLFnYPrIQn8_wOQuLOybU4
+        hash: v1.k794b7964.716e313875cb4f7a6b83d7aaf01e5d65f4dc48e41087f53608b473797f899b57.Mje4Bcj17Mpj7IZaNfl3YQQNgpk4JcbIxGpFSxabG68
     scenes-app-data-warehouse-sql-editor--bi-quick-filters-narrow--light:
-        hash: v1.k794b7964.2005a7eab7ba893b3be02efd0378f5143d4550a024814cf43b80f822e9c3cf51.AMw2PBXvr44-pl377c-LhLpyu18BmEnVKVg06b4CFxg
+        hash: v1.k794b7964.bff2e01a640a5e69e41dfa8bbf0eef48fef0386bf33ee51d8e03c938ec406fcd.OvSEDNvrTwzneGEE_FtUEPIxSFPm-7ZL8NiVyIAfwz4
     scenes-app-data-warehouse-sql-editor--bi-saved-insight--dark:
         hash: v1.k794b7964.06df092616d217a4ebdaf0f5f35015c05fe63f5bc1e9b9c39dcdf6594293c0e3.D8zEjaefT5868HRYC8F6GkfsuMMlcxSxekM5z-VoXyM
     scenes-app-data-warehouse-sql-editor--bi-saved-insight--light:
@@ -10359,9 +10363,9 @@ snapshots:
     scenes-app-data-warehouse-sql-editor--bi-source-preview-large-sample--light:
         hash: v1.k794b7964.f9bdafe72c33b8454fe4d48e70433457801d2d198e398a25d58ff3926f4f29ab.VcdI3e-Cydfw21sTHkEAiZdXPeRVvBT6TBGUZbP5lTc
     scenes-app-data-warehouse-sql-editor--bi-table-analysis--dark:
-        hash: v1.k794b7964.29a6892f69408e75d2bcdae29d497728fde99162145970d71f8eb360c496e3f0.o9tf11AX8PLroocZlorxrzHmh47URcAZrYIxqcH7kKo
+        hash: v1.k794b7964.334aaeff4f3c65c18c89639ca13cde5c90cc06334adc27234b3e65ff1e70b616.s-RjF_T2Ta_gTjr11R5llLXklPhbjFo9H4sRNf7NVnY
     scenes-app-data-warehouse-sql-editor--bi-table-analysis--light:
-        hash: v1.k794b7964.dbf2cf1ce2e9f86054f7dddb2cbe184dafef8fee54792354aba104f1b8edecba.qbtA2DIHLtYHtxUnH9FjPmnfkr6nie7aEyVjAfCSC3c
+        hash: v1.k794b7964.fd4f4ce1c329dcaf7c3e5278a20f15484f18b3b2b4beab31ee3bf8dc9b154207.mko4Amw571fteLO36ADiRVp2T6B7aNxX813KSxu7WVo
     scenes-app-data-warehouse-sql-editor--bi-wide-transposed-results--dark:
         hash: v1.k794b7964.3000bf710c776e3f294ce279cc8d9f0f72ecf79e481a04adc9bc5914aa49e2c0.raxB59CMEPkmROHy2Tesu6iI5UtrlRdf1Tprx1QtWUE
     scenes-app-data-warehouse-sql-editor--bi-wide-transposed-results--light:
