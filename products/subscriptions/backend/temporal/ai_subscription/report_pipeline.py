@@ -93,6 +93,7 @@ _MIN_STEP_RESULT_CHARS = _SYNTHESIS_RESULTS_CHAR_BUDGET // MAX_QUERY_PLAN_STEPS
 # instead of "no data"; it's injected into that prompt (the {{{failure_marker}}} placeholder) from this
 # same constant in `_synthesize`, so the rendered marker and the prompt instruction can't drift apart.
 QUERY_FAILED_PREFIX = "Query failed to run"
+QUERY_RETURNED_NO_ROWS = "The query ran and returned no rows for this period"
 
 # Per-step query-fix budget: the planner occasionally emits HogQL that fails to parse, so we feed the
 # error back and ask for a rewrite rather than dropping the step. Worst case per step is one original
@@ -124,6 +125,19 @@ def _all_queries_failed_notice(total_steps: int, *, include_manage_link: bool = 
     if include_manage_link:
         notice += " Use the Manage subscription link to review the generated queries and the errors they hit."
     return notice + "\n\n"
+
+
+def _no_rows_notice(*, include_manage_link: bool = True) -> str:
+    notice = (
+        "> ⚠️ None of the queries in this report returned any rows for this period, so there is nothing to summarize."
+    )
+    if include_manage_link:
+        notice += " Use the Manage subscription link to review the generated queries."
+    return notice + "\n\n"
+
+
+async def _no_rows_report(rendered: Sequence[str], *, include_manage_link: bool) -> str:
+    return _no_rows_notice(include_manage_link=include_manage_link) + "\n\n".join(rendered)
 
 
 def _validate_step_chart(
@@ -180,6 +194,7 @@ class StepOutcome:
     rendered: str
     diagnostic: QueryStepDiagnostic
     chart: Optional[ValidatedChart] = None
+    returned_rows: bool = True
 
 
 @dataclass(frozen=True)
@@ -188,6 +203,7 @@ class PlanExecution:
     failed_count: int
     diagnostics: list[QueryStepDiagnostic]
     charts: list[ValidatedChart]
+    empty_count: int = 0
 
 
 @frozen
@@ -271,8 +287,13 @@ async def generate_ai_report(
                     requested=len(charts),
                     selected=len(selected),
                 )
+            no_step_returned_rows = execution.empty_count > 0 and (
+                execution.empty_count + failed_count == len(spec.plan.steps)
+            )
             synthesis_task = asyncio.ensure_future(
-                _synthesize(spec, execution.rendered, team, user, trace_correlation_id)
+                _no_rows_report(execution.rendered, include_manage_link=include_manage_link)
+                if no_step_returned_rows
+                else _synthesize(spec, execution.rendered, team, user, trace_correlation_id)
             )
             render_task = asyncio.ensure_future(render_charts(selected, team=team, user=user))
             try:
@@ -570,8 +591,13 @@ async def _run_steps(
                 except Exception:
                     logger.warning("ai_report.chart_validation_error", step_index=step_index, exc_info=True)
                     chart, chart_dropped_reason = None, ChartFailureReason.VALIDATION_ERROR
+                returned_rows = bool(query_result.response.get("results"))
                 return StepOutcome(
-                    rendered=f"### {safe_description}\n\n{safe_formatted}",
+                    rendered=(
+                        f"### {safe_description}\n\n{safe_formatted}"
+                        if returned_rows
+                        else f"### {safe_description}\n\n_{QUERY_RETURNED_NO_ROWS}._"
+                    ),
                     diagnostic=QueryStepDiagnostic(
                         description=safe_description,
                         hogql=executable_hogql,
@@ -580,6 +606,7 @@ async def _run_steps(
                         chart_dropped_reason=chart_dropped_reason,
                     ),
                     chart=chart,
+                    returned_rows=returned_rows,
                 )
             except Exception as exc:
                 last_exc = exc
@@ -648,6 +675,7 @@ async def _run_steps(
         failed_count=sum(1 for diag in diagnostics if not diag.ok),
         diagnostics=diagnostics,
         charts=[outcome.chart for outcome in step_results if outcome.chart is not None],
+        empty_count=sum(1 for outcome in step_results if outcome.diagnostic.ok and not outcome.returned_rows),
     )
 
 

@@ -24,6 +24,7 @@ from products.subscriptions.backend.temporal.ai_subscription.charts import (
 from products.subscriptions.backend.temporal.ai_subscription.report_pipeline import (
     _MAX_CONCURRENT_STEPS,
     QUERY_FAILED_PREFIX,
+    QUERY_RETURNED_NO_ROWS,
     AiReportStageError,
     PlanExecution,
     QueryStepDiagnostic,
@@ -57,7 +58,8 @@ _SG = "products.subscriptions.backend.temporal.ai_subscription.spec_generator"
 _SLO_CAPTURE = "posthog.slo.events.posthoganalytics.capture"
 
 _WINDOW_END = datetime(2026, 6, 29, 16, 0, tzinfo=UTC)
-_RESPONSE: dict = {"results": [], "columns": []}
+_RESPONSE: dict = {"results": [[1]], "columns": ["count()"]}
+_EMPTY_RESPONSE: dict = {"results": [], "columns": ["count()"]}
 
 
 @pytest.fixture(autouse=True)
@@ -473,6 +475,94 @@ async def test_synthesis_prompt_carries_the_failure_marker(
     system_message = messages[0][1]
     assert QUERY_FAILED_PREFIX in system_message  # {{{failure_marker}}} substituted from the constant
     assert "{{{" not in system_message  # no placeholder left unrendered
+
+
+@pytest.mark.parametrize(
+    "response,expected_rendered,expected_empty",
+    [
+        pytest.param(_RESPONSE, "### s0\n\nformatted table", 0, id="rows"),
+        pytest.param(_EMPTY_RESPONSE, f"### s0\n\n_{QUERY_RETURNED_NO_ROWS}._", 1, id="no_rows"),
+    ],
+)
+@patch(f"{_RP}.AssistantQueryExecutor")
+async def test_run_steps_marks_a_step_that_returned_no_rows(
+    mock_executor_cls: MagicMock, response: dict, expected_rendered: str, expected_empty: int
+) -> None:
+    mock_executor_cls.return_value.arun_format_and_capture = AsyncMock(
+        return_value=FormattedQueryResult(formatted="formatted table", fallback_used=False, response=response)
+    )
+    execution = await _run_steps(
+        _spec(steps=1), MagicMock(), MagicMock(), _test_window(), None, charts_enabled_for_team=True
+    )
+    assert execution.rendered == [expected_rendered]
+    assert execution.empty_count == expected_empty
+    assert execution.failed_count == 0
+
+
+_NO_ROWS_STEP = f"### s0\n\n_{QUERY_RETURNED_NO_ROWS}._"
+_FAILED_STEP = f"### s1\n\n_{QUERY_FAILED_PREFIX} — metric not computed, not empty data._"
+
+
+@pytest.mark.parametrize(
+    "run_result,include_manage_link,expected_report",
+    [
+        pytest.param(
+            PlanExecution(
+                rendered=[_NO_ROWS_STEP],
+                failed_count=0,
+                diagnostics=[QueryStepDiagnostic("s0", "SELECT 1", True, None)],
+                charts=[],
+                empty_count=1,
+            ),
+            True,
+            "> ⚠️ None of the queries in this report returned any rows for this period, so there is nothing to "
+            "summarize. Use the Manage subscription link to review the generated queries.\n\n" + _NO_ROWS_STEP,
+            id="every_step_empty",
+        ),
+        pytest.param(
+            PlanExecution(
+                rendered=[_NO_ROWS_STEP, _FAILED_STEP],
+                failed_count=1,
+                diagnostics=[
+                    QueryStepDiagnostic("s0", "SELECT 1", True, None),
+                    QueryStepDiagnostic("s1", "SELECT bad", False, "ExposedHogQLError"),
+                ],
+                charts=[],
+                empty_count=1,
+            ),
+            False,
+            "> ⚠️ None of the queries in this report returned any rows for this period, so there is nothing to "
+            "summarize.\n\n" + _NO_ROWS_STEP + "\n\n" + _FAILED_STEP,
+            id="empty_and_failed_without_manage_link",
+        ),
+    ],
+)
+@patch(_SLO_CAPTURE)
+@patch(f"{_RP}.MaxChatOpenAI")
+@patch(f"{_RP}._run_steps", new_callable=AsyncMock)
+@patch(f"{_RP}.build_enriched_prompt")
+async def test_a_report_without_any_rows_skips_synthesis(
+    mock_bep: MagicMock,
+    mock_run: AsyncMock,
+    mock_chat: MagicMock,
+    _mock_capture: MagicMock,
+    run_result: PlanExecution,
+    include_manage_link: bool,
+    expected_report: str,
+) -> None:
+    mock_bep.return_value = _spec(steps=len(run_result.rendered))
+    mock_run.return_value = run_result
+
+    result = await generate_ai_report(
+        team=MagicMock(),
+        user=MagicMock(),
+        prompt="x",
+        window=_test_window(),
+        include_manage_link=include_manage_link,
+    )
+
+    assert result.markdown == expected_report
+    mock_chat.return_value.invoke.assert_not_called()
 
 
 @patch(f"{_RP}._arequest_hogql_fix", new_callable=AsyncMock)
