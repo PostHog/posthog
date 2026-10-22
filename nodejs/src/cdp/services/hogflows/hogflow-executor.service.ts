@@ -75,6 +75,11 @@ const TRIGGER_MISMATCH_EXITS: ReadonlySet<string> = new Set([
     'exit_on_trigger_not_matched_or_conversion',
 ])
 
+const CONVERSION_EXITS: ReadonlySet<string> = new Set([
+    'exit_on_conversion',
+    'exit_on_trigger_not_matched_or_conversion',
+])
+
 export function createHogFlowInvocation(
     globals: HogFunctionInvocationGlobals,
     hogFlow: HogFlow,
@@ -620,7 +625,9 @@ export class HogFlowExecutorService {
         if (hogFlow.trigger.type === 'cohort' && TRIGGER_MISMATCH_EXITS.has(hogFlow.exit_condition)) {
             triggerMatch = await this.matchesCohortTrigger(invocation, hogFlow.trigger)
         }
-        if (hogFlow.conversion?.filters?.length && person) {
+        // Only an exit condition reads conversionMatch. A measurement-only workflow counts conversions
+        // through its watcher, so it skips the check and its cohort membership lookup.
+        if (hogFlow.conversion?.filters?.length && person && CONVERSION_EXITS.has(hogFlow.exit_condition)) {
             if (hogFlow.conversion.bytecode?.length) {
                 // With no membership the run carries on, and its next execution checks again.
                 const filterGlobals = await loadConversionGlobals()

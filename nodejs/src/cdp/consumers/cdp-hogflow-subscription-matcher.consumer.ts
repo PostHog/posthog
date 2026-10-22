@@ -33,6 +33,7 @@ import {
     Team,
 } from '../../types'
 import { CdpInternalEventSchema } from '../schema'
+import { PRODUCER_VERSION_FORMAT } from '../services/cohort-membership/sweeper.service'
 import { COHORT_MEMBERSHIP_CHANGED_EVENT } from '../services/cohorts/cohort-membership-repository'
 import { counterHogflowCohortLookupFailure } from '../services/hogflows/actions/conditional_branch'
 import { BatchCohortMembership, CohortMembershipChangeOverlay } from '../services/hogflows/batch-cohort-membership'
@@ -864,7 +865,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         let found
         try {
             found = await this.cyclotronPool.query(
-                `SELECT id, team_id, function_id, run_id, parent_run_id, distinct_id, person_id, flow_version, goal
+                `SELECT id, team_id, function_id, run_id, parent_run_id, distinct_id, person_id, flow_version, goal, created_at
                  FROM conversion_watchers
                  WHERE expires_at > NOW()
                    AND (team_id, person_id) IN (SELECT * FROM unnest($1::int[], $2::text[]))`,
@@ -874,34 +875,56 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             stopTimer()
         }
 
-        const changedCohorts = new Map<string, Set<number>>()
-        for (const { teamId, personId, cohortId } of changes) {
-            const key = `${teamId}:${personId.toLowerCase()}`
-            changedCohorts.set(key, (changedCohorts.get(key) ?? new Set()).add(cohortId))
+        // Each person's changes, in offset order.
+        const changesByPerson = new Map<string, CohortMembershipChangeOverlay[]>()
+        for (const change of changes) {
+            const key = `${change.teamId}:${change.personId.toLowerCase()}`
+            changesByPerson.set(key, [...(changesByPerson.get(key) ?? []), change])
         }
-        const rows = found.rows.filter((row) => {
+        const watchers = found.rows.flatMap((row) => {
             const goalCohortIds: unknown = row.goal?.cohort_ids
-            const changed = changedCohorts.get(`${row.team_id}:${String(row.person_id).toLowerCase()}`)
-            return Array.isArray(goalCohortIds) && goalCohortIds.some((id) => changed?.has(id))
+            if (!Array.isArray(goalCohortIds)) {
+                return []
+            }
+            const enrolledAt = row.created_at ? new Date(row.created_at).getTime() : null
+            // A change from before the run enrolled cannot convert it. The enrollment check already saw
+            // the membership that change left behind.
+            const personChanges = (
+                changesByPerson.get(`${row.team_id}:${String(row.person_id).toLowerCase()}`) ?? []
+            ).filter(
+                (change) => change.changedAt === undefined || enrolledAt === null || change.changedAt >= enrolledAt
+            )
+            return personChanges.some((change) => goalCohortIds.includes(change.cohortId))
+                ? [{ row, personChanges }]
+                : []
         })
-        if (rows.length === 0) {
+        if (watchers.length === 0) {
             return 0
         }
-        counterHogflowMatcherWatchersEvaluated.inc(rows.length)
+        counterHogflowMatcherWatchersEvaluated.inc(watchers.length)
 
-        const cohortMembership = new BatchCohortMembership(this.cohortMembershipRepository, changes)
-        await cohortMembership.load(rows.map((row) => ({ teamId: row.team_id, personId: row.person_id })))
+        const cohortMembership = new BatchCohortMembership(this.cohortMembershipRepository)
+        await cohortMembership.load(watchers.map(({ row }) => ({ teamId: row.team_id, personId: row.person_id })))
 
         const converted: ConvertedWatcher[] = []
-        for (const row of rows) {
-            const cohortIds = cohortMembership.cohortIdsFor(row.team_id, row.person_id)
-            if (cohortIds === null) {
-                counterHogflowCohortLookupFailure.labels('matcher_skipped').inc()
-                continue
-            }
-            const filterGlobals = withCohortIds(membershipChangeFilterGlobals(row.person_id), cohortIds)
-            if (await runFilterBytecode(row.goal.properties, filterGlobals, { hogFlowId: row.function_id })) {
-                converted.push({ row, distinctId: row.distinct_id ?? undefined, conversionType: 'property' })
+        for (const { row, personChanges } of watchers) {
+            // The goal is checked after each change in order, so a join followed by a leave in the same
+            // batch still converts, as it does when the two changes arrive in separate batches.
+            for (let applied = 1; applied <= personChanges.length; applied++) {
+                const cohortIds = cohortMembership.cohortIdsFor(
+                    row.team_id,
+                    row.person_id,
+                    personChanges.slice(0, applied)
+                )
+                if (cohortIds === null) {
+                    counterHogflowCohortLookupFailure.labels('matcher_skipped').inc()
+                    break
+                }
+                const filterGlobals = withCohortIds(membershipChangeFilterGlobals(row.person_id), cohortIds)
+                if (await runFilterBytecode(row.goal.properties, filterGlobals, { hogFlowId: row.function_id })) {
+                    converted.push({ row, distinctId: row.distinct_id ?? undefined, conversionType: 'property' })
+                    break
+                }
             }
         }
         return this.claimConversions(converted)
@@ -937,8 +960,8 @@ export class CdpHogflowSubscriptionMatcherConsumer<
 
     @instrumented('cdpHogflowSubscriptionMatcher.parseCohortMembershipMessages')
     public async _parseCohortMembershipBatch(messages: Message[]): Promise<CohortMembershipChangeOverlay[]> {
-        // The last change in the batch wins for each person and cohort, because the batch is in offset order.
-        const latest = new Map<string, CohortMembershipChangeOverlay>()
+        // Kept in offset order: a join and a later leave are both transitions a goal can match.
+        const parsed: CohortMembershipChangeOverlay[] = []
         for (const message of messages) {
             let change
             try {
@@ -954,32 +977,31 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                 counterHogflowMatcherMembershipChanges.labels({ outcome: 'backfill' }).inc()
                 continue
             }
-            latest.set(`${change.team_id}:${change.person_id}:${change.cohort_id}`, {
+            parsed.push({
                 teamId: change.team_id,
                 personId: change.person_id,
                 cohortId: change.cohort_id,
                 inCohort: change.status === 'entered',
+                changedAt: parseProducerVersion(change.last_updated),
             })
         }
 
-        const checked: CohortMembershipChangeOverlay[] = []
-        for (const change of latest.values()) {
-            if (await this.cohortChangeIsActionable(change)) {
-                checked.push(change)
-            }
-        }
+        // Live watchers can belong to a flow that is now paused, which the flow cache does not hold.
+        // Teams without them need a goal on the changed cohort, loaded in one call for the batch.
+        const teamsToLoad = [
+            ...new Set(parsed.map((c) => c.teamId).filter((id) => !this.teamsWithLiveWatchers.has(id))),
+        ]
+        const hogFlowsByTeam = teamsToLoad.length ? await this.hogFlowManager.getHogFlowsForTeams(teamsToLoad) : {}
+        const checked = parsed.filter(
+            (change) =>
+                this.teamsWithLiveWatchers.has(change.teamId) ||
+                (hogFlowsByTeam[change.teamId] ?? []).some((flow) =>
+                    cohortOnlyGoalIds(flow.conversion?.filters)?.includes(change.cohortId)
+                )
+        )
         counterHogflowMatcherMembershipChanges.labels({ outcome: 'checked' }).inc(checked.length)
-        counterHogflowMatcherMembershipChanges.labels({ outcome: 'no_cohort_goal' }).inc(latest.size - checked.length)
+        counterHogflowMatcherMembershipChanges.labels({ outcome: 'no_cohort_goal' }).inc(parsed.length - checked.length)
         return checked
-    }
-
-    // Live watchers can belong to a flow that is now paused, which the flow cache does not hold.
-    private async cohortChangeIsActionable(change: CohortMembershipChangeOverlay): Promise<boolean> {
-        if (this.teamsWithLiveWatchers.has(change.teamId)) {
-            return true
-        }
-        const teamHogFlows = await this.hogFlowManager.getHogFlowsForTeam(change.teamId)
-        return teamHogFlows.some((flow) => cohortOnlyGoalIds(flow.conversion?.filters)?.includes(change.cohortId))
     }
 
     @instrumented('cdpHogflowSubscriptionMatcher.parseKafkaMessages')
@@ -1595,6 +1617,15 @@ function membershipChangeFilterGlobals(personId: string): FilterGlobals {
         },
         person: { id: personId, properties: {}, name: '', url: '' },
     })
+}
+
+// The stream processor stamps each change with its UTC time, as 'YYYY-MM-DD HH:MM:SS.ffffff'.
+function parseProducerVersion(lastUpdated: string | undefined): number | undefined {
+    if (!lastUpdated || !PRODUCER_VERSION_FORMAT.test(lastUpdated)) {
+        return undefined
+    }
+    const parsed = Date.parse(`${lastUpdated.replace(' ', 'T').slice(0, 23)}Z`)
+    return Number.isNaN(parsed) ? undefined : parsed
 }
 
 // The inCohort and notInCohort STL functions read the cohort_ids global.

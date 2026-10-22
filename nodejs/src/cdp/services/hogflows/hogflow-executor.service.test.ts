@@ -1812,23 +1812,51 @@ describe('Hogflow Executor', () => {
             })
 
             test.each([
-                { name: 'a member of the goal cohort', memberOf: [42], exits: true },
-                { name: 'a person whose membership lookup fails', memberOf: new Error('unavailable'), exits: false },
-            ])('exit_on_conversion with a cohort goal exits for $name: $exits', async ({ memberOf, exits }) => {
-                hogFlow.exit_condition = 'exit_on_conversion'
-                hogFlow.conversion = cohortGoal as any
-                if (memberOf instanceof Error) {
-                    jest.spyOn(cohortMembershipRepository, 'getMemberCohortIds').mockRejectedValue(memberOf)
-                } else {
-                    jest.spyOn(cohortMembershipRepository, 'getMemberCohortIds').mockResolvedValue(memberOf)
+                {
+                    name: 'a member of the goal cohort',
+                    exitCondition: 'exit_on_conversion',
+                    memberOf: [42],
+                    exits: true,
+                    lookups: 1,
+                },
+                {
+                    name: 'a person whose membership lookup fails',
+                    exitCondition: 'exit_on_conversion',
+                    memberOf: new Error('unavailable'),
+                    exits: false,
+                    lookups: 1,
+                },
+                // Its watcher counts the conversion, so a resume has nothing to look up.
+                {
+                    name: 'a measurement-only workflow',
+                    exitCondition: 'exit_only_at_end',
+                    memberOf: [42],
+                    exits: false,
+                    lookups: 0,
+                },
+            ])(
+                'a resumed run with a cohort goal for $name exits: $exits',
+                async ({ exitCondition, memberOf, exits, lookups }) => {
+                    hogFlow.exit_condition = exitCondition as HogFlow['exit_condition']
+                    hogFlow.conversion = cohortGoal as any
+                    const lookup = jest.spyOn(cohortMembershipRepository, 'getMemberCohortIds')
+                    if (memberOf instanceof Error) {
+                        lookup.mockRejectedValue(memberOf)
+                    } else {
+                        lookup.mockResolvedValue(memberOf)
+                    }
+
+                    const invocation = createExampleHogFlowInvocation(hogFlow)
+                    invocation.state.currentAction = {
+                        id: 'function_id_1',
+                        startedAtTimestamp: DateTime.now().toMillis(),
+                    }
+                    const result = await executor.execute(invocation)
+
+                    expect(result.metrics.map((m) => m.metric_name).includes('early_exit')).toBe(exits)
+                    expect(lookup).toHaveBeenCalledTimes(lookups)
                 }
-
-                const invocation = createExampleHogFlowInvocation(hogFlow)
-                invocation.state.currentAction = { id: 'function_id_1', startedAtTimestamp: DateTime.now().toMillis() }
-                const result = await executor.execute(invocation)
-
-                expect(result.metrics.map((m) => m.metric_name).includes('early_exit')).toBe(exits)
-            })
+            )
 
             it('does not count event-based conversions in the executor (counted by the matcher)', async () => {
                 hogFlow.exit_condition = 'exit_only_at_end'

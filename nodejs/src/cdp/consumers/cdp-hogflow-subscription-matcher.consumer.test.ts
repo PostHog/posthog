@@ -134,6 +134,8 @@ class MatcherUnderTest extends CdpHogflowSubscriptionMatcherConsumer {
     public updateRowCount = 0
     // The cohorts every looked-up person is a member of, or the error the lookup fails with.
     public memberCohortIds: number[] | Error = []
+    // Lookups that fail before the next one returns memberCohortIds.
+    public lookupFailuresBeforeSuccess = 0
 
     constructor() {
         // Non-empty URL satisfies the constructor's fail-fast guard; the real Pool (mocked
@@ -184,11 +186,15 @@ class MatcherUnderTest extends CdpHogflowSubscriptionMatcherConsumer {
             ),
         }
         ;(this as any).cohortMembershipRepository = {
-            getMemberCohortIdsForPersons: jest.fn((_teamId: number, personUuids: string[]) =>
-                this.memberCohortIds instanceof Error
+            getMemberCohortIdsForPersons: jest.fn((_teamId: number, personUuids: string[]) => {
+                if (this.lookupFailuresBeforeSuccess > 0) {
+                    this.lookupFailuresBeforeSuccess--
+                    return Promise.reject(new Error('connection timed out'))
+                }
+                return this.memberCohortIds instanceof Error
                     ? Promise.reject(this.memberCohortIds)
                     : Promise.resolve(new Map(personUuids.map((id) => [id, this.memberCohortIds as number[]])))
-            ),
+            }),
         }
         // Stub hogFlowManager
         ;(this as any).hogFlowManager = {
@@ -1653,11 +1659,19 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
             it.each<[string, any[], any, number[] | Error, number]>([
                 // The membership table has not caught up with the change, which is newer than the row.
                 ['a join the table has not stored yet', [membershipChange()], cohortGoalWatcher(), [], 1],
+                // The person reached the goal, as they would if the two changes arrived in separate batches.
                 [
                     'a join and a later leave in one batch',
                     [membershipChange(), membershipChange({ status: 'left' })],
                     cohortGoalWatcher(),
-                    [COHORT_ID],
+                    [],
+                    1,
+                ],
+                [
+                    'a join from before the run enrolled',
+                    [membershipChange({ last_updated: '2026-10-22 09:00:00.000000' })],
+                    { ...cohortGoalWatcher(), created_at: new Date('2026-10-22T10:00:00Z') },
+                    [],
                     0,
                 ],
                 [
@@ -1691,6 +1705,15 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
 
                 expect(matcher.queueAppMetricMock).toHaveBeenCalledTimes(conversions)
                 expect(matcher.queueConversionEventMock).toHaveBeenCalledTimes(conversions)
+            })
+
+            it('retries a membership lookup that fails once', async () => {
+                matcher.lookupFailuresBeforeSuccess = 1
+                matcher.watcherRows = [cohortGoalWatcher()]
+
+                await runChanges([membershipChange()])
+
+                expect(matcher.queueAppMetricMock).toHaveBeenCalledTimes(1)
             })
         })
 
@@ -2033,7 +2056,11 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
             } else {
                 expect(update).toBeUndefined()
             }
-            expect(matcher.cohortLookupMock).toHaveBeenCalledTimes(memberCohortIds ? 1 : 0)
+            if (memberCohortIds) {
+                expect(matcher.cohortLookupMock).toHaveBeenCalled()
+            } else {
+                expect(matcher.cohortLookupMock).not.toHaveBeenCalled()
+            }
         })
     })
 
