@@ -10298,6 +10298,7 @@ export namespace Schemas {
         status: ExperimentExposureHealthCheckStatus;
     };
     export type ExperimentExposureHealthFindingActionKind =
+        | "open_feature_flag"
         | "edit_exposure_criteria"
         | "adjust_distribution"
         | "use_first_seen_variant";
@@ -12259,6 +12260,7 @@ export namespace Schemas {
      * * `ConectoCRM` - ConectoCRM
      * * `CloudflareR2` - CloudflareR2
      * * `Particle` - Particle
+     * * `FileUpload` - FileUpload
      */
     export type ExternalDataSourceTypeEnum =
         | "Ashby"
@@ -13664,7 +13666,8 @@ export namespace Schemas {
         | "Klar"
         | "ConectoCRM"
         | "CloudflareR2"
-        | "Particle";
+        | "Particle"
+        | "FileUpload";
     /**
      * * `web` - web
      * * `api` - api
@@ -15079,6 +15082,7 @@ export namespace Schemas {
          * * `ConectoCRM` - ConectoCRM
          * * `CloudflareR2` - CloudflareR2
          * * `Particle` - Particle
+         * * `FileUpload` - FileUpload
          */
         source_type: ExternalDataSourceTypeEnum;
         /**
