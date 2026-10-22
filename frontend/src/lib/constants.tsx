@@ -556,6 +556,7 @@ export const FEATURE_FLAGS = {
     TRACING_SETTINGS_RETENTION_RULES: 'tracing-settings-retention-rules', // owner: #team-apm — gates the span retention rules in tracing settings
     TRACING_SPAN_ERROR_BADGES: 'tracing-span-error-badges', // owner: #team-apm, badges span rows whose session hit errors and adds the Errors tab to the trace drawer
     TRACING_TRACE_DIALOG: 'tracing-trace-dialog', // owner: #team-apm — opens traces in a dialog over the current page instead of navigating to tracing
+    TRACING_TRACE_FOLDED_RUNS: 'tracing-trace-folded-runs', // owner: #team-apm — folds runs of repeated sibling spans in the trace view's span tree
     TRACING_TRACE_OPERATIONS_TAB: 'tracing-trace-operations-tab', // owner: #team-apm — gates the Operations tab in the trace view's span inspector
     TRACING_UI_V2: 'tracing-ui-v2',
     TRAFFIC_TYPE_VIRTUAL_PROPERTIES: 'traffic-type-virtual-properties', // owner: #team-web-analytics

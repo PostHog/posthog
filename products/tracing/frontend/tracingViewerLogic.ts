@@ -112,8 +112,12 @@ export interface tracingViewerLogicActions {
     disableSpanKeys: () => {
         value: true
     } // traceViewLogic
-    enableSpanKeys: (containerSelector: string) => {
+    enableSpanKeys: (
+        containerSelector: string,
+        surface: import('./components/TraceView/traceViewLogic').TraceViewSurface
+    ) => {
         containerSelector: string
+        surface: import('./components/TraceView/traceViewLogic').TraceViewSurface
     } // traceViewLogic
     selectViewSpan: (spanId: string | null) => {
         spanId: string | null
@@ -530,7 +534,7 @@ export const tracingViewerLogic = kea<tracingViewerLogicType>([
         },
         openTrace: ({ traceId, ts, spanId }) => {
             actions.showTrace(spanId, values.inspectorTab)
-            actions.enableSpanKeys(`[data-attr="${TRACE_DRAWER_DATA_ATTR}"]`)
+            actions.enableSpanKeys(`[data-attr="${TRACE_DRAWER_DATA_ATTR}"]`, 'drawer')
             posthog.capture('tracing trace opened')
             // Fetch the trace by id when the prefetch can be incomplete. A batch with no root span is a
             // cold link (no spans loaded) or an orphan trace, whose prefetch holds only the spans that
@@ -559,12 +563,12 @@ export const tracingViewerLogic = kea<tracingViewerLogicType>([
         },
         closeLogsViewerModal: () => {
             if (values.isTraceOpen) {
-                actions.enableSpanKeys(`[data-attr="${TRACE_DRAWER_DATA_ATTR}"]`)
+                actions.enableSpanKeys(`[data-attr="${TRACE_DRAWER_DATA_ATTR}"]`, 'drawer')
             }
         },
         closeSessionPlayer: () => {
             if (values.isTraceOpen) {
-                actions.enableSpanKeys(`[data-attr="${TRACE_DRAWER_DATA_ATTR}"]`)
+                actions.enableSpanKeys(`[data-attr="${TRACE_DRAWER_DATA_ATTR}"]`, 'drawer')
             }
         },
         selectInspectorTab: ({ tab }) => {

@@ -114,6 +114,7 @@ export function TraceView({
             <div className="flex flex-1 min-w-0 min-h-0 flex-col @min-[56rem]/trace-dialog:flex-row">
                 <div className="flex-1 min-w-0 min-h-0">
                     <TraceDialogSpanTree
+                        surface={surface}
                         openedFrom={openedFrom}
                         openedAtUs={openedAtUs}
                         hasMore={hasMoreSpans}
