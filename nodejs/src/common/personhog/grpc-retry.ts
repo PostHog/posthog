@@ -15,6 +15,11 @@ const RETRYABLE_CODES = new Set([
     Code.Canceled,
 ])
 
+// A server sheds with RESOURCE_EXHAUSTED when it is at capacity: identity's
+// load shed and the leader's full dirty index both do. A fast retry only adds
+// load to a saturated service, so these retries wait longer.
+const CAPACITY_INITIAL_DELAY_MS = 250
+
 function isRetryable(error: unknown): error is ConnectError {
     return error instanceof ConnectError && RETRYABLE_CODES.has(error.code)
 }
@@ -38,6 +43,17 @@ function sleep(ms: number): Promise<void> {
  * another caller's full transport budget can derive its bound from this.
  */
 export const TRANSPORT_MAX_RETRIES = 2
+
+export const TRANSPORT_MAX_BACKOFF_MS = Array.from(
+    { length: TRANSPORT_MAX_RETRIES },
+    (_, attempt) => 2 * CAPACITY_INITIAL_DELAY_MS * Math.pow(2, attempt)
+).reduce((total, delay) => total + delay, 0)
+
+function backoffMs(error: ConnectError, attempt: number, initialDelayMs: number): number {
+    const base = error.code === Code.ResourceExhausted ? CAPACITY_INITIAL_DELAY_MS : initialDelayMs
+    const delay = base * Math.pow(2, attempt)
+    return delay + Math.random() * delay
+}
 
 /**
  * Retry a function with exponential backoff on transient gRPC errors.
@@ -74,7 +90,7 @@ export async function withRetry<T>(
                 maxRetries,
                 error: String(error),
             })
-            await sleep(initialDelayMs * Math.pow(2, attempt))
+            await sleep(backoffMs(error, attempt, initialDelayMs))
         }
     }
     throw lastError
