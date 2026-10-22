@@ -14,6 +14,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     rest_api_resource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import HttpBasicAuth
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.config_setup import (
+    create_response_hooks,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
     build_dependent_resource,
 )
@@ -197,12 +200,22 @@ def _find_sprint_field(fields: list[Any]) -> Optional[str]:
     return None
 
 
-def _changelog_rows(issue_changelogs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _changelog_rows(
+    issue_changelogs: list[dict[str, Any]], created_floor_millis: Optional[int]
+) -> list[dict[str, Any]]:
     return [
         {**history, "issue_id": issue_changelog.get("issueId")}
         for issue_changelog in issue_changelogs
         for history in issue_changelog.get("changeHistories") or []
+        if created_floor_millis is None or _created_at_or_after(history, created_floor_millis)
     ]
+
+
+def _created_at_or_after(history: dict[str, Any], floor_millis: int) -> bool:
+    try:
+        return _to_epoch_millis(history["created"]) >= floor_millis
+    except (KeyError, TypeError, ValueError):
+        return True
 
 
 def _comment_rows(issue: dict[str, Any], comments: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -380,6 +393,13 @@ def _issue_changelogs_source(
     # every changelog entry created since it.
     jql = _build_issues_jql("updated", db_incremental_field_last_value)
     initial_paginator_state = _resume_token_state(resumable_source_manager, jql)
+    # Bulkfetch returns the whole history of each issue. Changelog entries never change, so an
+    # incremental run keeps only the ones inside the JQL lookback window.
+    created_floor_millis = (
+        _to_epoch_millis(db_incremental_field_last_value) - int(INCREMENTAL_LOOKBACK.total_seconds() * 1000)
+        if db_incremental_field_last_value
+        else None
+    )
 
     def items() -> Iterator[list[dict[str, Any]]]:
         client = _rest_client(subdomain, email, api_token)
@@ -419,7 +439,7 @@ def _issue_changelogs_source(
                 data_selector="issueChangeLogs",
                 page_state_hook=stage_more_changelogs,
             ):
-                rows = _changelog_rows(issue_changelogs)
+                rows = _changelog_rows(issue_changelogs, created_floor_millis)
                 # The next issue page is only safe to resume from once this page's last changelogs are in hand.
                 if not next_page["more_changelogs"]:
                     checkpoint()
@@ -454,6 +474,10 @@ def _issue_comments_source(
 
     def items() -> Iterator[list[dict[str, Any]]]:
         client = _rest_client(subdomain, email, api_token)
+        # An issue deleted after the search answers 404, which reads as an issue with no comments.
+        skip_deleted_issue = create_response_hooks(
+            [{"status_code": 404, "action": "ignore"}], resource_name="issue_comments"
+        )
         next_page: dict[str, Any] = {}
 
         def stage_next_page(state: Optional[dict[str, Any]], has_next: bool) -> None:
@@ -483,6 +507,7 @@ def _issue_comments_source(
                         limit=DEFAULT_PAGE_SIZE, offset_param="startAt", limit_param="maxResults", total_path="total"
                     ),
                     data_selector="comments",
+                    hooks=skip_deleted_issue,
                 ):
                     rows.extend(_comment_rows(issue, page))
                     # Hand rows on after each request so a worker shutdown can stop between them.

@@ -378,8 +378,8 @@ class TestIssueChangelogs:
 
     @parameterized.expand(
         [
-            ("full_refresh", {}, 'updated >= "1970-01-01 00:00" ORDER BY updated ASC'),
-            # The changelog watermark filters on the issue's `updated`, less the one day lookback.
+            ("full_refresh", {}, 'updated >= "1970-01-01 00:00" ORDER BY updated ASC', ["old", "recent"]),
+            # The JQL and the changelog filter both use the watermark less the one day lookback.
             (
                 "incremental",
                 {
@@ -387,20 +387,45 @@ class TestIssueChangelogs:
                     "db_incremental_field_last_value": datetime(2026, 3, 4, 2, 58, tzinfo=UTC),
                 },
                 'updated >= "2026-03-03 02:58" ORDER BY updated ASC',
+                ["recent"],
             ),
         ]
     )
-    def test_issue_search_jql(self, _name: str, run_kwargs: dict[str, Any], expected_jql: str) -> None:
+    def test_incremental_shapes_jql_and_drops_history_before_the_window(
+        self, _name: str, run_kwargs: dict[str, Any], expected_jql: str, expected_ids: list[str]
+    ) -> None:
         result = _driver().run(
-            "issue_changelogs", [ScriptedResponse(json={"issues": [], "isLast": True})], **run_kwargs
+            "issue_changelogs",
+            route(
+                {
+                    "/rest/api/3/search/jql": [ScriptedResponse(json={"issues": [{"id": "10"}], "isLast": True})],
+                    "/rest/api/3/changelog/bulkfetch": [
+                        ScriptedResponse(
+                            json={
+                                "issueChangeLogs": [
+                                    {
+                                        "issueId": "10",
+                                        "changeHistories": [
+                                            {"id": "old", "created": "2026-03-03T02:57:00.000+0000"},
+                                            {"id": "recent", "created": "2026-03-03T02:58:00.000+0000"},
+                                        ],
+                                    }
+                                ]
+                            }
+                        )
+                    ],
+                }
+            ),
+            **run_kwargs,
         )
 
         assert result.raised is None
-        assert result.params("jql") == [expected_jql]
+        assert result.params("jql")[0] == expected_jql
+        assert [row["id"] for row in result.rows] == expected_ids
 
 
 class TestIssueComments:
-    def test_reads_embedded_comments_and_refetches_truncated_lists(self) -> None:
+    def test_reads_embedded_comments_and_refetches_truncated_lists_of_existing_issues(self) -> None:
         result = _driver().run(
             "issue_comments",
             route(
@@ -420,6 +445,11 @@ class TestIssueComments:
                                         "fields": {"comment": {"comments": [{"id": "b"}], "total": 2}},
                                     },
                                     {"id": "3", "key": "P-3", "fields": {"comment": {"comments": [], "total": 0}}},
+                                    {
+                                        "id": "4",
+                                        "key": "P-4",
+                                        "fields": {"comment": {"comments": [{"id": "d"}], "total": 2}},
+                                    },
                                 ],
                                 "nextPageToken": "tok2",
                             }
@@ -429,13 +459,22 @@ class TestIssueComments:
                     "/rest/api/3/issue/2/comment": [
                         ScriptedResponse(json={"comments": [{"id": "b"}, {"id": "c"}], "startAt": 0, "total": 2})
                     ],
+                    # Deleted after the search returned it.
+                    "/rest/api/3/issue/4/comment": [
+                        ScriptedResponse(status=404, json={"errorMessages": ["Issue does not exist"]})
+                    ],
                 }
             ),
         )
 
         assert result.raised is None
-        assert result.paths == ["/rest/api/3/search/jql", "/rest/api/3/issue/2/comment", "/rest/api/3/search/jql"]
-        assert result.params("fields") == ["comment", None, "comment"]
+        assert result.paths == [
+            "/rest/api/3/search/jql",
+            "/rest/api/3/issue/2/comment",
+            "/rest/api/3/issue/4/comment",
+            "/rest/api/3/search/jql",
+        ]
+        assert result.params("fields") == ["comment", None, None, "comment"]
         assert [(row["issue_key"], row["id"]) for row in result.rows] == [("P-1", "a"), ("P-2", "b"), ("P-2", "c")]
 
 
