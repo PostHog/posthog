@@ -111,7 +111,7 @@ _CODE_LANGUAGE_RE = re.compile(r"(?:^|\s)lang(?:uage)?-([\w+#.-]+)")
 _CODE_BLOCK_TOKEN_RE = re.compile(r"\x00code-block-(\d+)\x00")
 _BACKTICK_RUN_RE = re.compile(r"`+")
 _TWIN_METADATA_RE = re.compile(r"^canonical url:", re.IGNORECASE)
-_MARKDOWN_COPY_LINK_RE = re.compile(r"(\]\()([^)\s?#]+?)\.md(?=[#?)\s])")
+_MARKDOWN_COPY_LINK_RE = re.compile(r"(\]\()([^()\[\]\s?#]+?)\.md(?=[#?)\s])")
 
 
 def _code_language(attrs: list[tuple[str, str | None]]) -> str:
@@ -329,7 +329,7 @@ def fetch_site_page(url: str) -> SourceDocument | None:
     twin_document: SourceDocument | None = None
     twin = _fetch(_markdown_twin(url), "text/markdown,text/plain;q=0.9")
     if twin is not None and "html" not in twin.content_type.lower() and twin.body.strip():
-        body = _with_page_links(_without_twin_metadata(_from_first_h1(twin.body)), url)
+        body = _with_page_links(_without_twin_metadata(_from_first_h1(_clean(twin.body))), url)
         heading = first_h1(body.splitlines())
         twin_document = SourceDocument(url=url, title=heading[1] if heading else "", text=_clean(body), origin="site")
         if not _is_stub_twin(body, url):
