@@ -139,6 +139,21 @@ describe('usage-records-steps', () => {
         expect(new Set(ingestedUsage.map((record) => record.recordId)).size).toBe(expected)
     })
 
+    it.each([
+        ['a product tour', { $product_tour_id: 'tour-1' }, 'product_tour_survey_responses'],
+        ['an empty product tour ID', { $product_tour_id: '' }, 'survey_responses'],
+        ['no product tour', {}, 'survey_responses'],
+    ])('files a survey response from %s under %s', async (_name, properties, usageKey) => {
+        await queueEventUsage([Promise.resolve({ topic: 'events', partition: 0 })], {
+            event: 'survey sent',
+            properties: { $survey_id: 'survey-1', $survey_submission_id: 'submission-1', ...properties },
+        })
+
+        await eventUsageBatch.flush()
+
+        expect(ingestedUsage.map((record) => record.usageKey)).toEqual([usageKey])
+    })
+
     it('bills two events apart when only the position of a newline differs', async () => {
         const acknowledged = (): Promise<IngestedEventInfo> => Promise.resolve({ topic: 'events', partition: 0 })
         await queueEventUsage([acknowledged()], { event: 'a\nb', distinctId: 'c' })

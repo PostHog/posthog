@@ -86,6 +86,26 @@ function surveyResponseRecordId(preparedEvent: RecordEventUsageInput['preparedEv
     return hashedRecordId(preparedEvent.timestamp, [typeof surveyId === 'string' ? surveyId : '', submissionId])
 }
 
+function isNonEmptyString(value: unknown): value is string {
+    return typeof value === 'string' && value.length > 0
+}
+
+// No billed counter reads this key (`RECORD_USAGE_KEYS` in `posthog/usage_counters.py`), so the
+// records stay available for reporting without a charge.
+const PRODUCT_TOUR_SURVEY_RESPONSES_USAGE_KEY = 'product_tour_survey_responses'
+
+/**
+ * The usage key for usage that the nightly report does not bill. The report leaves out responses
+ * to product tours, which are free. posthog-js sets `$product_tour_id` on the survey events that a
+ * tour sends.
+ */
+function exemptUsageKey(usageKey: string, properties: Properties): string | null {
+    if (usageKey === SURVEY_RESPONSES_USAGE_KEY && isNonEmptyString(properties.$product_tour_id)) {
+        return PRODUCT_TOUR_SURVEY_RESPONSES_USAGE_KEY
+    }
+    return null
+}
+
 export interface EventUsageRecord {
     teamId: number
     usageKey: string
@@ -128,7 +148,8 @@ export function createRecordEventUsageStep<T extends RecordEventUsageInput>(
                 : analyticsRecordId(input.preparedEvent)
         const captureTimestampMs = input.headers.now?.getTime()
         const timestampMs = Number.isFinite(captureTimestampMs) ? captureTimestampMs : undefined
-        const eventUsageRecords: EventUsageRecord[] = [{ teamId, usageKey, recordId, timestampMs }]
+        const recordUsageKey = exemptUsageKey(usageKey, input.preparedEvent.properties) ?? usageKey
+        const eventUsageRecords: EventUsageRecord[] = [{ teamId, usageKey: recordUsageKey, recordId, timestampMs }]
         // Mirrors the report's enhanced-persons query: the plain billable count plus a `person_mode`
         // filter, so an event billed under its own key is outside both. Reading the mode stored on
         // the event rather than `processPerson` keeps force upgrades counted.
