@@ -676,9 +676,9 @@ email@example.org
     def test_static_cohort_patch_with_query_rejected_while_population_in_flight(
         self, mock_delay: MagicMock, mock_csv_delay: MagicMock
     ):
-        cohort = Cohort.objects.create(team=self.team, name="static", is_static=True)
-        url = f"/api/projects/{self.team.id}/cohorts/{cohort.pk}"
         query = {"kind": "ActorsQuery", "properties": []}
+        cohort = Cohort.objects.create(team=self.team, name="static", is_static=True, query=query)
+        url = f"/api/projects/{self.team.id}/cohorts/{cohort.pk}"
         stale_for_rename = Cohort.objects.get(pk=cohort.pk)
         stale_for_query = Cohort.objects.get(pk=cohort.pk)
         stale_for_csv = Cohort.objects.get(pk=cohort.pk)
@@ -737,6 +737,18 @@ email@example.org
         self.assertEqual(failed.json()["attr"], source_field)
         self.assertEqual(retried.status_code, 200, retried.json())
         self.assertEqual(mock_delay.call_count, 2)
+
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
+    def test_csv_patch_recovers_csv_only_cohort_left_calculating(self, mock_csv_delay: MagicMock):
+        cohort = Cohort.objects.create(team=self.team, name="static", is_static=True, is_calculating=True)
+        csv = SimpleUploadedFile("example.csv", b"distinct_id\n123\n", content_type="application/csv")
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{cohort.pk}", data={"csv": csv}, format="multipart"
+        )
+
+        self.assertEqual(response.status_code, 200, response.json())
+        mock_csv_delay.assert_called_once()
 
     @patch(
         "posthog.tasks.calculate_cohort.insert_cohort_from_filters.delay",

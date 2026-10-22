@@ -1790,9 +1790,16 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         # the claim too, because it clears is_calculating when it finishes and would release a running population.
         # The conditional update locks the row, so two concurrent requests cannot both claim it. The task clears
         # is_calculating when it finishes, and the stuck-cohort sweep clears it if the task dies.
-        claimed = Cohort.objects.filter(pk=cohort.pk, team_id=cohort.team_id, is_calculating=False).update(
-            is_calculating=True
-        )
+        from posthog.tasks.calculate_cohort import HAS_STATIC_POPULATION_SOURCE
+
+        claimable = Q(is_calculating=False)
+        if source_field == "csv":
+            # Only a cohort with a query or filters can have a population that a CSV import would release, and the
+            # sourced sweep frees that cohort if this request dies before it enqueues. The sourceless sweep cannot
+            # tell an abandoned claim from a queued upload, so a CSV-only cohort skips the check, and the next upload
+            # recovers it.
+            claimable |= ~HAS_STATIC_POPULATION_SOURCE
+        claimed = Cohort.objects.filter(claimable, pk=cohort.pk, team_id=cohort.team_id).update(is_calculating=True)
         if not claimed:
             raise ValidationError({source_field: ["This cohort is still being populated. Try again when it finishes."]})
         # cohort.save() writes every field, so the in-memory value must match the claim.
