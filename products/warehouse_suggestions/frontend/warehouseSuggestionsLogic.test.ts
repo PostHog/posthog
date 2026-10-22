@@ -2,9 +2,7 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { ApiError } from 'lib/api-error'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import { initKeaTests } from '~/test/init'
@@ -270,11 +268,7 @@ describe('warehouseSuggestionsLogic', () => {
         })
     })
 
-    it.each([true, false])('checks the view for incremental refresh only when the flag is %s', async (flagOn) => {
-        featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags(flagOn ? [FEATURE_FLAGS.DATA_MODELING_INCREMENTAL_VIEWS] : [], {
-            [FEATURE_FLAGS.DATA_MODELING_INCREMENTAL_VIEWS]: flagOn,
-        })
+    it('checks the view for incremental refresh when the dialog opens', async () => {
         mockSavedQuery.mockResolvedValue({
             query: { query: 'SELECT day, plan, count() FROM events GROUP BY day, plan' },
         } as Awaited<ReturnType<typeof warehouseSavedQueriesRetrieve>>)
@@ -291,8 +285,8 @@ describe('warehouseSuggestionsLogic', () => {
         logic.actions.openMaterializeModal(MATERIALIZE.id)
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(mockCheck).toHaveBeenCalledTimes(flagOn ? 1 : 0)
-        expect(logic.values.incrementalCheck?.key_candidates ?? null).toEqual(flagOn ? ['day'] : null)
+        expect(mockCheck).toHaveBeenCalledTimes(1)
+        expect(logic.values.incrementalCheck?.key_candidates).toEqual(['day'])
     })
 
     it.each<[SuggestionSurface, WarehouseSuggestionApi[], string[]]>([

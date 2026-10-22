@@ -367,6 +367,10 @@ export interface SessionPropertyFilterApi {
 }
 
 export interface CohortPropertyFilterApi {
+    /** Set by the feature flag API when the cohort is deleted or does not exist. */
+    cohort_deleted?: boolean | null
+    /** Set by the feature flag API when the cohort does not exist, so it cannot be restored. */
+    cohort_missing?: boolean | null
     cohort_name?: string | null
     key?: 'id'
     label?: string | null
@@ -1417,7 +1421,7 @@ export interface QueryStatusApi {
     end_time?: string | null
     /** If the query failed, this will be set to true. More information can be found in the error_message field. */
     error?: boolean | null
-    /** Stable machine-readable code for the error, when known: the DRF exception code, or the ClickHouse error name. */
+    /** Stable machine-readable code for the error, when known: the DRF exception code, the ClickHouse error name, the HogQL error code, or `unhandled_<exception class>` for a failure that no handler classified. */
     error_code?: string | null
     error_message?: string | null
     expiration_time?: string | null
@@ -9608,6 +9612,10 @@ export type InsightsListParams = {
      * Filter by `last_modified_at < date_to`. Accepts absolute dates or relative strings.
      */
     date_to?: string
+    /**
+     * Comma-separated chart types, e.g. `ActionsLineGraph,ActionsBar`. Only returns trends and SQL insights shown as one of them. A trends insight with no chart type set counts as `ActionsLineGraph`.
+     */
+    display?: string
     /**
      * Exclude Business intelligence worksheets from the insight list.
      */

@@ -14,7 +14,13 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { SuggestedCertificationsTable } from 'products/warehouse_suggestions/frontend/components/SuggestedCertificationsTable'
 
-import { CERTIFICATIONS_PAGE_SIZE, CertificationStatusFilter, certificationsLogic } from '../certificationsLogic'
+import {
+    CERTIFICATIONS_PAGE_SIZE,
+    CERTIFICATIONS_TABLE_ID,
+    CertificationStatusFilter,
+    certificationsLogic,
+} from '../certificationsLogic'
+import { compareText, reportCatalogTableSorted } from '../common'
 import { NewCertificationModal } from '../components/NewCertificationModal'
 import type { DataCatalogCertificationApi } from '../generated/api.schemas'
 
@@ -82,11 +88,13 @@ export function CertificationsTab(): JSX.Element {
             title: 'Target',
             key: 'target_name',
             render: (_, certification) => certification.target_name,
+            sorter: (a, b) => compareText(a.target_name, b.target_name),
         },
         {
             title: 'Type',
             key: 'target_type',
             render: (_, certification) => <LemonTag type="option">{certification.target_type}</LemonTag>,
+            sorter: (a, b) => compareText(a.target_type, b.target_type),
         },
         {
             title: 'Status',
@@ -98,17 +106,20 @@ export function CertificationsTab(): JSX.Element {
                         : (STATUS_TAG[certification.status] ?? { label: certification.status, type: 'muted' as const })
                 return <LemonTag type={tag.type}>{tag.label}</LemonTag>
             },
+            sorter: (a, b) => compareText(a.status, b.status) || compareText(a.proposed_status, b.proposed_status),
         },
         {
             title: 'Notes',
             key: 'notes',
             render: (_, certification) => certification.notes || <span className="text-secondary">-</span>,
+            sorter: (a, b) => compareText(a.notes, b.notes),
         },
         {
             title: 'Certified by',
             key: 'certified_by',
             render: (_, certification) =>
                 certification.certified_by?.email || <span className="text-secondary">-</span>,
+            sorter: (a, b) => compareText(a.certified_by?.email, b.certified_by?.email),
         },
         {
             key: 'actions',
@@ -201,6 +212,8 @@ export function CertificationsTab(): JSX.Element {
                 </div>
             </div>
             <LemonTable
+                key={highlightedCertificationId ?? CERTIFICATIONS_TABLE_ID}
+                id={CERTIFICATIONS_TABLE_ID}
                 data-attr="data-catalog-certifications-table"
                 dataSource={filteredCertifications}
                 rowKey="id"
@@ -212,6 +225,7 @@ export function CertificationsTab(): JSX.Element {
                 }
                 emptyState="No certifications match your filters."
                 nouns={['certification', 'certifications']}
+                onSort={(sorting) => reportCatalogTableSorted('certifications', sorting)}
             />
             <NewCertificationModal />
         </div>

@@ -27,6 +27,7 @@ export interface CertificationsFilters {
 }
 
 export const CERTIFICATIONS_PAGE_SIZE = 20
+export const CERTIFICATIONS_TABLE_ID = 'data-catalog-certifications'
 
 export const DEFAULT_CERTIFICATIONS_FILTERS: CertificationsFilters = {
     search: '',
@@ -292,7 +293,11 @@ export const certificationsLogic = kea<certificationsLogicType>([
             const { location, searchParams, hashParams } = router.values
             router.actions.replace(
                 location.pathname,
-                { ...searchParams, page: Math.floor(index / CERTIFICATIONS_PAGE_SIZE) + 1 },
+                {
+                    ...searchParams,
+                    [`${CERTIFICATIONS_TABLE_ID}_page`]: Math.floor(index / CERTIFICATIONS_PAGE_SIZE) + 1,
+                    [`${CERTIFICATIONS_TABLE_ID}_order`]: undefined,
+                },
                 hashParams
             )
             actions.highlightedCertificationShown()

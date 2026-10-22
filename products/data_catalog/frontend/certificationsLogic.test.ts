@@ -6,7 +6,7 @@ import { databaseTableListLogic } from 'scenes/data-management/database/database
 import { initKeaTests } from '~/test/init'
 import { expectLogic } from '~/test/keaTestUtils'
 
-import { DEFAULT_CERTIFICATIONS_FILTERS, certificationsLogic } from './certificationsLogic'
+import { CERTIFICATIONS_TABLE_ID, DEFAULT_CERTIFICATIONS_FILTERS, certificationsLogic } from './certificationsLogic'
 import type { CertificationsFilters, NewCertificationForm } from './certificationsLogic'
 import {
     dataCatalogCertificationsCertifyCreate,
@@ -166,8 +166,11 @@ describe('certificationsLogic', () => {
         expect(logic.values.isCreatingCertification).toBe(false)
     })
 
-    it('opens the page that holds a highlighted certification once it loads, with the filters cleared', () => {
+    it('opens the page that holds a highlighted certification once it loads, with the filters and sort cleared', () => {
         logic.actions.setFilters({ status: 'proposed', search: 'stripe' })
+        router.actions.replace(router.values.location.pathname, {
+            [`${CERTIFICATIONS_TABLE_ID}_order`]: '-target_name',
+        })
 
         logic.actions.highlightCertification('cert-25')
         logic.actions.loadCertificationsSuccess(
@@ -176,7 +179,8 @@ describe('certificationsLogic', () => {
 
         expect(logic.values.filters).toEqual(DEFAULT_CERTIFICATIONS_FILTERS)
         expect(logic.values.highlightedCertificationId).toEqual('cert-25')
-        expect(router.values.searchParams.page).toEqual(2)
+        expect(router.values.searchParams[`${CERTIFICATIONS_TABLE_ID}_page`]).toEqual(2)
+        expect(router.values.searchParams[`${CERTIFICATIONS_TABLE_ID}_order`]).toBeUndefined()
     })
 
     it('removes the row when revoking', async () => {

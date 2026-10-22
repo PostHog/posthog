@@ -20,6 +20,7 @@ export const overviewScorers: ScoreDefinitionApi[] = ['Answer quality', 'Grounde
                   },
         created_by: null,
         created_at: '2026-09-01T12:00:00Z',
+        updated_by: null,
         updated_at: '2026-09-20T12:00:00Z',
         team: 997,
     })
@@ -32,6 +33,7 @@ export const overviewExperiments: OfflineExperimentReadApi[] = Array.from({ leng
     run_source: index % 3 === 0 ? 'ci' : index % 3 === 1 ? 'local' : null,
     status: index === 0 ? 'uploading' : index === 3 ? 'failed' : 'completed',
     started_at: `2026-09-${String(27 - index).padStart(2, '0')}T14:30:00Z`,
+    created_by: null,
     created_at: `2026-09-${String(27 - index).padStart(2, '0')}T14:32:00Z`,
     finished_at: index === 0 ? null : `2026-09-${String(27 - index).padStart(2, '0')}T14:33:00Z`,
     expected_item_count: 100,

@@ -2,8 +2,6 @@ import type { Meta, StoryObj } from '@storybook/react'
 import { useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-
 import { useStorybookMocks } from '~/mocks/browser'
 import { DataModelingSyncInterval } from '~/types'
 
@@ -202,5 +200,5 @@ export const MaterializeDialogIncrementalProposal: Story = {
         results: [materialize('1', 'sessions_by_plan_daily', 2400, { incremental: true })],
         openDialogWithInterval: '24hour',
     },
-    parameters: { ...DIALOG_SNAPSHOT, featureFlags: [FEATURE_FLAGS.DATA_MODELING_INCREMENTAL_VIEWS] },
+    parameters: DIALOG_SNAPSHOT,
 }

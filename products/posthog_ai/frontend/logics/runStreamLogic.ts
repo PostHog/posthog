@@ -2101,6 +2101,16 @@ export function foldLogFromCheckpoint(
         }
         if (method === '_posthog/turn_complete') {
             const traceId = typeof params.traceId === 'string' ? params.traceId : undefined
+            // A Stop or a steer ends the turn early. Without a notice the thread reads as a turn that went quiet.
+            if (params.stopReason === 'cancelled') {
+                items.push({
+                    id: `turn-cancelled-${separatorSeq}`,
+                    type: 'status',
+                    status: 'turn_cancelled',
+                    isComplete: true,
+                    ...(timestamp !== undefined && { startedAt: timestamp, endedAt: timestamp }),
+                })
+            }
             items.push({
                 id: `turn-${separatorSeq++}`,
                 type: 'turn_separator',
@@ -3986,6 +3996,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
             const bufferedIds = new Set(session.buffer.flatMap((entry) => (entry.event_id ? [entry.event_id] : [])))
             // Rebuild state without publishing a partial transcript or repeating live reactions.
             cache.rebuildingHistory = true
+            cache.coalesceContextUsage = true
             cache.rebuildingLog = log
             cache.trackedToolInvocations = undefined
             try {
@@ -3997,15 +4008,14 @@ export const runStreamLogic = kea<runStreamLogicType>([
                     }
                     if (stored.entry.notification.method === '_client/human_message') {
                         actions.markTurnStarted()
+                    } else if (
+                        stored.source === 'live' &&
+                        (bufferedEntries.has(stored.entry) ||
+                            (stored.entry.event_id && bufferedIds.has(stored.entry.event_id)))
+                    ) {
+                        actions.ingestAcpFrame(stored.entry, 'live')
                     } else if (stored.source !== 'client') {
-                        actions.ingestAcpFrame(
-                            stored.entry,
-                            stored.source === 'live' &&
-                                (bufferedEntries.has(stored.entry) ||
-                                    (stored.entry.event_id && bufferedIds.has(stored.entry.event_id)))
-                                ? 'live'
-                                : 'replay'
-                        )
+                        ingestFrame(stored.entry, 'replay')
                     }
                 }
                 if (cache.retainedMessage && !reachedSuccessor) {
@@ -4013,7 +4023,13 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 }
             } finally {
                 cache.rebuildingHistory = false
+                cache.coalesceContextUsage = false
                 cache.rebuildingLog = undefined
+                const replayContextUsage = cache.replayContextUsage as ContextUsage | undefined
+                cache.replayContextUsage = undefined
+                if (replayContextUsage) {
+                    actions.setContextUsage(replayContextUsage)
+                }
             }
             actions.replaceLog(log)
             cache.eventCoverage = new RunEventCoverage([
@@ -4098,6 +4114,349 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 recordRecovery(session)
                 actions.bootstrapReplayComplete()
             }
+        }
+        const foldContextUsage = (fold: (usage: ContextUsage | null) => ContextUsage): void => {
+            if (cache.coalesceContextUsage) {
+                cache.replayContextUsage = fold(
+                    (cache.replayContextUsage as ContextUsage | undefined) ?? values.contextUsage
+                )
+                return
+            }
+            actions.setContextUsage(fold(values.contextUsage))
+        }
+        const ingestFrame = (entry: StoredLogEntry, source: FrameSource): void => {
+            const notification = entry?.notification
+            if (!notification) {
+                return
+            }
+            const method = notification.method
+            const isReplay = source === 'replay'
+
+            // Tool-stream events go out for every live frame; on replay only when a subscriber opted in
+            // (so history replay doesn't pay per-frame resolution for nobody).
+            const emitToolStream = !isReplay || (!cache.rebuildingHistory && hasReplayListener(values.toolListeners))
+
+            // Per-frame tool-invocation tracker: the same fold the projection applies, maintained
+            // O(1) per tool frame so the telemetry and tool-stream emits below never read the
+            // `toolInvocations` projection (each such read re-folds the entire log, which turns a
+            // long tool-heavy history replay quadratic). Maintained for every source so a live update
+            // whose `tool_call` arrived during replay still sees the right prior status.
+            // `preToolStatus` is the status BEFORE this frame folds in; it gates the
+            // once-per-transition `tool_call_completed` telemetry and the tool-stream phase.
+            const trackedInvocations: Map<string, ToolInvocation> = (cache.trackedToolInvocations ??= new Map())
+            let preToolStatus: ToolInvocationStatus | undefined
+            if (method === 'session/update') {
+                const u = notification.params?.update
+                if (isRecord(u) && u.sessionUpdate === 'tool_call') {
+                    const invocation = invocationFromToolCall(u)
+                    if (invocation) {
+                        trackedInvocations.set(invocation.toolCallId, invocation)
+                    }
+                } else if (isRecord(u) && u.sessionUpdate === 'tool_call_update') {
+                    const existing = trackedInvocations.get(String(u.toolCallId ?? ''))
+                    preToolStatus = existing?.status
+                    const invocation = invocationFromToolCallUpdate(existing, u, notification)
+                    if (invocation) {
+                        trackedInvocations.set(invocation.toolCallId, invocation)
+                    }
+                }
+            }
+
+            // Append to the ordered log — the single source of truth. The bootstrap seam was already
+            // deduped (see `bootstrapRun`) and steady-state live frames resume exclusively, so the
+            // side effects below run exactly once per frame without a per-frame key; the
+            // run-started/permission/tool-completion guards enforce fire-once on their own.
+            if (!cache.rebuildingHistory) {
+                actions.appendEntries([{ entry, source }])
+            }
+
+            // Custom `_posthog/*` notification namespace emitted by the agent-server. Thread items
+            // (errors, status, compaction, task notifications, progress, human turns) are derived by
+            // the projection straight from the log — handled here only for their value-fold side
+            // effects (telemetry, usage/resources/mode folds, permission routing).
+            if (method === '_posthog/run_started') {
+                // TASK_RUN_STARTED telemetry — emit once per run on the first `_posthog/run_started`
+                // frame. Suppressed while replaying history (the run started in a prior session);
+                // `markRunStarted` still runs so started/thinking state stays correct.
+                if (!values.runStarted && !isReplay) {
+                    const activeRun = cache.activeRun as { taskId: string; runId: string } | undefined
+                    cache.turnStartedAtMs = Date.now()
+                    posthog.capture('task_run_started', {
+                        conversation_id: props.conversationId,
+                        trace_id: values.traceId,
+                        run_id: activeRun?.runId,
+                        task_id: activeRun?.taskId,
+                        execution_type: 'sandbox',
+                        task_runtime: values.piRuntime ? TaskRuntimeEnumApi.Pi : TaskRuntimeEnumApi.Acp,
+                        // The run-started frame carries no warmth signal and pre-warming isn't wired
+                        // yet, so every run is a cold start. A later pre-warm hook flips this.
+                        cold_start: true,
+                    })
+                }
+                actions.setConversationClearSupported(
+                    (notification.params as { conversationClear?: unknown } | undefined)?.conversationClear === true
+                )
+                cache.isBootstrapping = false
+                actions.markRunStarted()
+                return
+            }
+            if (method === '_posthog/turn_suggestion') {
+                // The log holds only outcomes this tab saw live; the ledger adds the ones sent while
+                // no tab of this conversation was open. Read once per task, when it first has an offer.
+                const taskId = values.bootstrappedTaskId
+                if (taskId && cache.turnSuggestionLedgerTaskId !== taskId) {
+                    cache.turnSuggestionLedgerTaskId = taskId
+                    actions.loadTurnSuggestionLedger(taskId)
+                    // Another tab's resolution reaches this one only as a live frame, which can be
+                    // lost, so a returning tab rereads the ledger while it shows a card.
+                    cache.disposables.add(
+                        () => {
+                            const onVisibilityChange = (): void => {
+                                if (
+                                    document.visibilityState === 'visible' &&
+                                    values.turnSuggestion &&
+                                    values.bootstrappedTaskId === taskId
+                                ) {
+                                    actions.loadTurnSuggestionLedger(taskId)
+                                }
+                            }
+                            document.addEventListener('visibilitychange', onVisibilityChange)
+                            return () => document.removeEventListener('visibilitychange', onVisibilityChange)
+                        },
+                        'turnSuggestionLedgerRefresh',
+                        { pauseOnPageHidden: false }
+                    )
+                }
+                return
+            }
+            if (method === '_posthog/turn_complete') {
+                if (!isReplay) {
+                    actions.emitTurnCompleteEvent({ streamKey: props.streamKey })
+                }
+                actions.markTurnComplete(isReplay)
+                return
+            }
+            if (method === '_posthog/progress') {
+                const progress = (notification.params ?? {}) as PosthogProgressParams
+                const status = normalizeProgressStatus(progress.status)
+                // A finished step is a milestone (the thread's progress card keeps it), not the current
+                // activity — clear it so the thinking line falls back to the rotating message instead of
+                // sticking on e.g. "Started agent" for the rest of the turn.
+                if (status === 'completed' || status === 'failed') {
+                    actions.setCurrentProgress(null)
+                } else {
+                    actions.setCurrentProgress(
+                        stringifyOptional(progress.label) ?? stringifyOptional(progress.detail) ?? ''
+                    )
+                }
+                return
+            }
+            // The agent-server persists the permission lifecycle to the run log — pending approvals
+            // are re-derived on bootstrap (a reload mid-approval would otherwise lose the card while
+            // the agent stays blocked), and a resolution observed here clears the local card.
+            if (isPosthogNotification(notification, '_posthog/permission_request')) {
+                const record = parsePermissionRequestFrame(notification.params ?? {}, entry.source_run_id)
+                if (
+                    record &&
+                    !values.seenPermissionRequestIds.has(record.requestId) &&
+                    !values.resolvedPermissionRequestIds.has(record.requestId) &&
+                    !permissionEndedByLaterTurn(
+                        entry.event_id ?? notification.params?.event_id,
+                        entry.source_run_id,
+                        (cache.rebuildingLog as RunLog | undefined) ?? values.log
+                    )
+                ) {
+                    actions.routePermissionRequest(record, isReplay)
+                }
+                return
+            }
+            if (isPosthogNotification(notification, '_posthog/permission_resolved')) {
+                const requestId = notification.params?.requestId
+                if (
+                    typeof requestId === 'string' &&
+                    requestId &&
+                    entry.source_run_id === cache.activeRun?.runId &&
+                    entry.source_run_id
+                ) {
+                    actions.markPermissionRequestResolved(requestId)
+                }
+                return
+            }
+            // Token usage + cost + context-window breakdown. The numeric used/size aggregate that
+            // drives the percentage ring arrives separately on a session/update (handled below).
+            if (isPosthogNotification(notification, '_posthog/usage_update')) {
+                foldContextUsage((usage) => foldUsageNotification(usage, notification.params ?? {}))
+                return
+            }
+            // Diagnostic only — no UI; kept for resume telemetry / crash-affordance work.
+            if (isPosthogNotification(notification, '_posthog/sdk_session')) {
+                const params = notification.params
+                actions.setSdkSession({ sessionId: params?.sessionId, adapter: params?.adapter })
+                return
+            }
+            // History-derived context dedupe: a persisted or echoed user message still carries the
+            // context blocks its send was wrapped with; record their rendered lines under the
+            // bootstrapped task (the `logs/` replay spans the task's full resume chain), so
+            // `pendingContextItems` prunes items the chain already carries even after the in-memory
+            // sent-keys bookkeeping is lost (a reload, another tab, a teammate's session). An
+            // unattached optimistic stream has no task id and records nothing — its send path marks
+            // sent keys directly.
+            if (isPosthogNotification(notification, '_posthog/user_message')) {
+                const content = notification.params?.content
+                if (Array.isArray(content) && content.length > 0 && content.every(isHiddenUserContent)) {
+                    return
+                }
+                actions.markTurnStarted()
+                if (values.bootstrappedTaskId) {
+                    const lines = contextBlockLinesFromUserMessage(extractUserMessageText(notification.params?.content))
+                    if (lines.length > 0) {
+                        actions.markContextLinesSeen(values.bootstrappedTaskId, lines)
+                    }
+                }
+                return
+            }
+            if (method?.startsWith('_posthog/')) {
+                // _posthog/error, _posthog/status, _posthog/compact_boundary, _posthog/task_notification
+                // → rendered by the projection. _posthog/console, _posthog/sandbox_output,
+                // other internal events → no UI. No side effect either way.
+                return
+            }
+            // The session/new request carries the run's starting permission mode in its meta. Seed the
+            // mode fold from it so mode-aware permission routing (full-auto answering in
+            // `bypassPermissions`) works before any `current_mode_update` arrives — the adapter only
+            // emits those on changes.
+            if (method === 'session/new') {
+                const meta = (notification.params as { _meta?: { permissionMode?: unknown } } | undefined)?._meta
+                if (typeof meta?.permissionMode === 'string' && meta.permissionMode) {
+                    actions.setCurrentMode(meta.permissionMode)
+                }
+                return
+            }
+            // session/prompt never renders and the resume-context filter is handled in the projection.
+            if (method === 'session/prompt') {
+                return
+            }
+            if (!isSessionUpdateNotification(notification)) {
+                return
+            }
+            const update = notification.params?.update
+            // The numeric used/size usage aggregate is session/update-framed — fold it into the ring.
+            if (isSessionUpdateUsage(update)) {
+                foldContextUsage((usage) => foldUsageAggregate(usage, update))
+                return
+            }
+            // Wire user turns render only on replay (the projection branches on source). Their one side
+            // effect is the same context-line recording as `_posthog/user_message` above — resume
+            // chains persist a turn in both wire forms, and the seen-lines reducer dedupes the overlap.
+            // Chunked frames are skipped: a partial text could truncate a block mid-line.
+            if (isSessionUpdateUserMessage(update)) {
+                if (isHiddenUserContent(update.content)) {
+                    return
+                }
+                actions.markTurnStarted()
+                if (values.bootstrappedTaskId && update.sessionUpdate === 'user_message') {
+                    const lines = contextBlockLinesFromUserMessage(String(update.content?.text ?? update.text ?? ''))
+                    if (lines.length > 0) {
+                        actions.markContextLinesSeen(values.bootstrappedTaskId, lines)
+                    }
+                }
+                return
+            }
+            if (isSessionUpdateAvailableCommands(update)) {
+                actions.setAvailableCommands(parseAvailableCommands(update.availableCommands))
+                return
+            }
+            if (!isKnownSessionUpdate(update)) {
+                return
+            }
+            // The agent producing output is the only marker of a new turn this client can rely on when the
+            // turn was started from outside its own composer. Such a follow-up is queued on the run, which
+            // emits no second `run_started`, and neither wire form of the user turn fills the gap: the live
+            // stream never carries one, and the persisted one is written when the message is received, so a
+            // message sent mid-turn is replayed *before* the previous turn's `turn_complete`. Guarded on
+            // `turnComplete` so this costs one dispatch per turn rather than one per streamed chunk.
+            if (values.turnComplete && AGENT_GENERATING_SESSION_UPDATES.has(update.sessionUpdate)) {
+                actions.markTurnStarted()
+            }
+            if (update.sessionUpdate === 'current_mode_update') {
+                actions.setCurrentMode(String(update.currentModeId ?? update.mode ?? ''))
+                return
+            }
+            if (update.sessionUpdate === 'tool_call') {
+                // A fresh tool call — the tracker folded it in above, so resolve its name off the
+                // merged invocation and publish a `started` event on the bus.
+                if (emitToolStream) {
+                    const toolCallId = String(update.toolCallId ?? '')
+                    const invocation = toolCallId ? trackedInvocations.get(toolCallId) : undefined
+                    if (invocation) {
+                        actions.emitToolEvent({
+                            streamKey: props.streamKey,
+                            toolCallId,
+                            toolName: resolveToolCall(invocation).resolvedKey,
+                            rawToolName: invocation.rawToolName,
+                            phase: 'started',
+                            invocation,
+                            source,
+                        })
+                    }
+                }
+                return
+            }
+            if (update.sessionUpdate === 'tool_call_update') {
+                // TOOL_CALL_COMPLETED telemetry — emit once when a tool call first transitions to a
+                // terminal status. `preToolStatus` (read before the upsert) gates the once-only fire;
+                // the resolved key comes from the tracked merged invocation. Suppressed on replay,
+                // and skipped when the creating `tool_call` was lost (no pre-status).
+                const toolCallId = String(update.toolCallId ?? '')
+                if (!toolCallId) {
+                    return
+                }
+                const status = mapAcpStatus(update.status ?? preToolStatus)
+                if (
+                    !isReplay &&
+                    preToolStatus !== undefined &&
+                    preToolStatus !== 'completed' &&
+                    preToolStatus !== 'failed' &&
+                    (status === 'completed' || status === 'failed')
+                ) {
+                    const invocation = trackedInvocations.get(toolCallId)
+                    const startedAt = cache.turnStartedAtMs as number | undefined
+                    posthog.capture('tool_call_completed', {
+                        conversation_id: props.conversationId,
+                        trace_id: values.traceId,
+                        tool_call_id: toolCallId,
+                        tool_qualified_name: invocation ? resolveToolCall(invocation).resolvedKey : undefined,
+                        status,
+                        duration_ms: startedAt !== undefined ? Date.now() - startedAt : undefined,
+                        execution_type: 'sandbox',
+                    })
+                }
+                // Tool-stream event: phase from the pre-fold status → new status transition. A crossing
+                // into a terminal status is `completed`/`failed`; any other update is `updated`.
+                if (emitToolStream) {
+                    const invocation = trackedInvocations.get(toolCallId)
+                    if (invocation) {
+                        const wasTerminal = preToolStatus === 'completed' || preToolStatus === 'failed'
+                        const phase: ToolStreamPhase =
+                            !wasTerminal && status === 'completed'
+                                ? 'completed'
+                                : !wasTerminal && status === 'failed'
+                                  ? 'failed'
+                                  : 'updated'
+                        actions.emitToolEvent({
+                            streamKey: props.streamKey,
+                            toolCallId,
+                            toolName: resolveToolCall(invocation).resolvedKey,
+                            rawToolName: invocation.rawToolName,
+                            phase,
+                            invocation,
+                            source,
+                        })
+                    }
+                }
+                return
+            }
+            // agent_message_chunk / agent_message / agent_thought_chunk → projection only.
         }
         return {
             [projectLogic.actionTypes.loadCurrentProjectSuccess]: () => {
@@ -5011,345 +5370,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
                     },
                 ])
             },
-            ingestAcpFrame: ({ entry, source }) => {
-                const notification = entry?.notification
-                if (!notification) {
-                    return
-                }
-                const method = notification.method
-                const isReplay = source === 'replay'
-
-                // Tool-stream events go out for every live frame; on replay only when a subscriber opted in
-                // (so history replay doesn't pay per-frame resolution for nobody).
-                const emitToolStream =
-                    !isReplay || (!cache.rebuildingHistory && hasReplayListener(values.toolListeners))
-
-                // Per-frame tool-invocation tracker: the same fold the projection applies, maintained
-                // O(1) per tool frame so the telemetry and tool-stream emits below never read the
-                // `toolInvocations` projection (each such read re-folds the entire log, which turns a
-                // long tool-heavy history replay quadratic). Maintained for every source so a live update
-                // whose `tool_call` arrived during replay still sees the right prior status.
-                // `preToolStatus` is the status BEFORE this frame folds in; it gates the
-                // once-per-transition `tool_call_completed` telemetry and the tool-stream phase.
-                const trackedInvocations: Map<string, ToolInvocation> = (cache.trackedToolInvocations ??= new Map())
-                let preToolStatus: ToolInvocationStatus | undefined
-                if (method === 'session/update') {
-                    const u = notification.params?.update
-                    if (isRecord(u) && u.sessionUpdate === 'tool_call') {
-                        const invocation = invocationFromToolCall(u)
-                        if (invocation) {
-                            trackedInvocations.set(invocation.toolCallId, invocation)
-                        }
-                    } else if (isRecord(u) && u.sessionUpdate === 'tool_call_update') {
-                        const existing = trackedInvocations.get(String(u.toolCallId ?? ''))
-                        preToolStatus = existing?.status
-                        const invocation = invocationFromToolCallUpdate(existing, u, notification)
-                        if (invocation) {
-                            trackedInvocations.set(invocation.toolCallId, invocation)
-                        }
-                    }
-                }
-
-                // Append to the ordered log — the single source of truth. The bootstrap seam was already
-                // deduped (see `bootstrapRun`) and steady-state live frames resume exclusively, so the
-                // side effects below run exactly once per frame without a per-frame key; the
-                // run-started/permission/tool-completion guards enforce fire-once on their own.
-                if (!cache.rebuildingHistory) {
-                    actions.appendEntries([{ entry, source }])
-                }
-
-                // Custom `_posthog/*` notification namespace emitted by the agent-server. Thread items
-                // (errors, status, compaction, task notifications, progress, human turns) are derived by
-                // the projection straight from the log — handled here only for their value-fold side
-                // effects (telemetry, usage/resources/mode folds, permission routing).
-                if (method === '_posthog/run_started') {
-                    // TASK_RUN_STARTED telemetry — emit once per run on the first `_posthog/run_started`
-                    // frame. Suppressed while replaying history (the run started in a prior session);
-                    // `markRunStarted` still runs so started/thinking state stays correct.
-                    if (!values.runStarted && !isReplay) {
-                        const activeRun = cache.activeRun as { taskId: string; runId: string } | undefined
-                        cache.turnStartedAtMs = Date.now()
-                        posthog.capture('task_run_started', {
-                            conversation_id: props.conversationId,
-                            trace_id: values.traceId,
-                            run_id: activeRun?.runId,
-                            task_id: activeRun?.taskId,
-                            execution_type: 'sandbox',
-                            task_runtime: values.piRuntime ? TaskRuntimeEnumApi.Pi : TaskRuntimeEnumApi.Acp,
-                            // The run-started frame carries no warmth signal and pre-warming isn't wired
-                            // yet, so every run is a cold start. A later pre-warm hook flips this.
-                            cold_start: true,
-                        })
-                    }
-                    actions.setConversationClearSupported(
-                        (notification.params as { conversationClear?: unknown } | undefined)?.conversationClear === true
-                    )
-                    cache.isBootstrapping = false
-                    actions.markRunStarted()
-                    return
-                }
-                if (method === '_posthog/turn_suggestion') {
-                    // The log holds only outcomes this tab saw live; the ledger adds the ones sent while
-                    // no tab of this conversation was open. Read once per task, when it first has an offer.
-                    const taskId = values.bootstrappedTaskId
-                    if (taskId && cache.turnSuggestionLedgerTaskId !== taskId) {
-                        cache.turnSuggestionLedgerTaskId = taskId
-                        actions.loadTurnSuggestionLedger(taskId)
-                        // Another tab's resolution reaches this one only as a live frame, which can be
-                        // lost, so a returning tab rereads the ledger while it shows a card.
-                        cache.disposables.add(
-                            () => {
-                                const onVisibilityChange = (): void => {
-                                    if (
-                                        document.visibilityState === 'visible' &&
-                                        values.turnSuggestion &&
-                                        values.bootstrappedTaskId === taskId
-                                    ) {
-                                        actions.loadTurnSuggestionLedger(taskId)
-                                    }
-                                }
-                                document.addEventListener('visibilitychange', onVisibilityChange)
-                                return () => document.removeEventListener('visibilitychange', onVisibilityChange)
-                            },
-                            'turnSuggestionLedgerRefresh',
-                            { pauseOnPageHidden: false }
-                        )
-                    }
-                    return
-                }
-                if (method === '_posthog/turn_complete') {
-                    if (!isReplay) {
-                        actions.emitTurnCompleteEvent({ streamKey: props.streamKey })
-                    }
-                    actions.markTurnComplete(isReplay)
-                    return
-                }
-                if (method === '_posthog/progress') {
-                    const progress = (notification.params ?? {}) as PosthogProgressParams
-                    const status = normalizeProgressStatus(progress.status)
-                    // A finished step is a milestone (the thread's progress card keeps it), not the current
-                    // activity — clear it so the thinking line falls back to the rotating message instead of
-                    // sticking on e.g. "Started agent" for the rest of the turn.
-                    if (status === 'completed' || status === 'failed') {
-                        actions.setCurrentProgress(null)
-                    } else {
-                        actions.setCurrentProgress(
-                            stringifyOptional(progress.label) ?? stringifyOptional(progress.detail) ?? ''
-                        )
-                    }
-                    return
-                }
-                // The agent-server persists the permission lifecycle to the run log — pending approvals
-                // are re-derived on bootstrap (a reload mid-approval would otherwise lose the card while
-                // the agent stays blocked), and a resolution observed here clears the local card.
-                if (isPosthogNotification(notification, '_posthog/permission_request')) {
-                    const record = parsePermissionRequestFrame(notification.params ?? {}, entry.source_run_id)
-                    if (
-                        record &&
-                        !values.seenPermissionRequestIds.has(record.requestId) &&
-                        !values.resolvedPermissionRequestIds.has(record.requestId) &&
-                        !permissionEndedByLaterTurn(
-                            entry.event_id ?? notification.params?.event_id,
-                            entry.source_run_id,
-                            (cache.rebuildingLog as RunLog | undefined) ?? values.log
-                        )
-                    ) {
-                        actions.routePermissionRequest(record, isReplay)
-                    }
-                    return
-                }
-                if (isPosthogNotification(notification, '_posthog/permission_resolved')) {
-                    const requestId = notification.params?.requestId
-                    if (
-                        typeof requestId === 'string' &&
-                        requestId &&
-                        entry.source_run_id === cache.activeRun?.runId &&
-                        entry.source_run_id
-                    ) {
-                        actions.markPermissionRequestResolved(requestId)
-                    }
-                    return
-                }
-                // Token usage + cost + context-window breakdown. The numeric used/size aggregate that
-                // drives the percentage ring arrives separately on a session/update (handled below).
-                if (isPosthogNotification(notification, '_posthog/usage_update')) {
-                    actions.setContextUsage(foldUsageNotification(values.contextUsage, notification.params ?? {}))
-                    return
-                }
-                // Diagnostic only — no UI; kept for resume telemetry / crash-affordance work.
-                if (isPosthogNotification(notification, '_posthog/sdk_session')) {
-                    const params = notification.params
-                    actions.setSdkSession({ sessionId: params?.sessionId, adapter: params?.adapter })
-                    return
-                }
-                // History-derived context dedupe: a persisted or echoed user message still carries the
-                // context blocks its send was wrapped with; record their rendered lines under the
-                // bootstrapped task (the `logs/` replay spans the task's full resume chain), so
-                // `pendingContextItems` prunes items the chain already carries even after the in-memory
-                // sent-keys bookkeeping is lost (a reload, another tab, a teammate's session). An
-                // unattached optimistic stream has no task id and records nothing — its send path marks
-                // sent keys directly.
-                if (isPosthogNotification(notification, '_posthog/user_message')) {
-                    const content = notification.params?.content
-                    if (Array.isArray(content) && content.length > 0 && content.every(isHiddenUserContent)) {
-                        return
-                    }
-                    actions.markTurnStarted()
-                    if (values.bootstrappedTaskId) {
-                        const lines = contextBlockLinesFromUserMessage(
-                            extractUserMessageText(notification.params?.content)
-                        )
-                        if (lines.length > 0) {
-                            actions.markContextLinesSeen(values.bootstrappedTaskId, lines)
-                        }
-                    }
-                    return
-                }
-                if (method?.startsWith('_posthog/')) {
-                    // _posthog/error, _posthog/status, _posthog/compact_boundary, _posthog/task_notification
-                    // → rendered by the projection. _posthog/console, _posthog/sandbox_output,
-                    // other internal events → no UI. No side effect either way.
-                    return
-                }
-                // The session/new request carries the run's starting permission mode in its meta. Seed the
-                // mode fold from it so mode-aware permission routing (full-auto answering in
-                // `bypassPermissions`) works before any `current_mode_update` arrives — the adapter only
-                // emits those on changes.
-                if (method === 'session/new') {
-                    const meta = (notification.params as { _meta?: { permissionMode?: unknown } } | undefined)?._meta
-                    if (typeof meta?.permissionMode === 'string' && meta.permissionMode) {
-                        actions.setCurrentMode(meta.permissionMode)
-                    }
-                    return
-                }
-                // session/prompt never renders and the resume-context filter is handled in the projection.
-                if (method === 'session/prompt') {
-                    return
-                }
-                if (!isSessionUpdateNotification(notification)) {
-                    return
-                }
-                const update = notification.params?.update
-                // The numeric used/size usage aggregate is session/update-framed — fold it into the ring.
-                if (isSessionUpdateUsage(update)) {
-                    actions.setContextUsage(foldUsageAggregate(values.contextUsage, update))
-                    return
-                }
-                // Wire user turns render only on replay (the projection branches on source). Their one side
-                // effect is the same context-line recording as `_posthog/user_message` above — resume
-                // chains persist a turn in both wire forms, and the seen-lines reducer dedupes the overlap.
-                // Chunked frames are skipped: a partial text could truncate a block mid-line.
-                if (isSessionUpdateUserMessage(update)) {
-                    if (isHiddenUserContent(update.content)) {
-                        return
-                    }
-                    actions.markTurnStarted()
-                    if (values.bootstrappedTaskId && update.sessionUpdate === 'user_message') {
-                        const lines = contextBlockLinesFromUserMessage(
-                            String(update.content?.text ?? update.text ?? '')
-                        )
-                        if (lines.length > 0) {
-                            actions.markContextLinesSeen(values.bootstrappedTaskId, lines)
-                        }
-                    }
-                    return
-                }
-                if (isSessionUpdateAvailableCommands(update)) {
-                    actions.setAvailableCommands(parseAvailableCommands(update.availableCommands))
-                    return
-                }
-                if (!isKnownSessionUpdate(update)) {
-                    return
-                }
-                // The agent producing output is the only marker of a new turn this client can rely on when the
-                // turn was started from outside its own composer. Such a follow-up is queued on the run, which
-                // emits no second `run_started`, and neither wire form of the user turn fills the gap: the live
-                // stream never carries one, and the persisted one is written when the message is received, so a
-                // message sent mid-turn is replayed *before* the previous turn's `turn_complete`. Guarded on
-                // `turnComplete` so this costs one dispatch per turn rather than one per streamed chunk.
-                if (values.turnComplete && AGENT_GENERATING_SESSION_UPDATES.has(update.sessionUpdate)) {
-                    actions.markTurnStarted()
-                }
-                if (update.sessionUpdate === 'current_mode_update') {
-                    actions.setCurrentMode(String(update.currentModeId ?? update.mode ?? ''))
-                    return
-                }
-                if (update.sessionUpdate === 'tool_call') {
-                    // A fresh tool call — the tracker folded it in above, so resolve its name off the
-                    // merged invocation and publish a `started` event on the bus.
-                    if (emitToolStream) {
-                        const toolCallId = String(update.toolCallId ?? '')
-                        const invocation = toolCallId ? trackedInvocations.get(toolCallId) : undefined
-                        if (invocation) {
-                            actions.emitToolEvent({
-                                streamKey: props.streamKey,
-                                toolCallId,
-                                toolName: resolveToolCall(invocation).resolvedKey,
-                                rawToolName: invocation.rawToolName,
-                                phase: 'started',
-                                invocation,
-                                source,
-                            })
-                        }
-                    }
-                    return
-                }
-                if (update.sessionUpdate === 'tool_call_update') {
-                    // TOOL_CALL_COMPLETED telemetry — emit once when a tool call first transitions to a
-                    // terminal status. `preToolStatus` (read before the upsert) gates the once-only fire;
-                    // the resolved key comes from the tracked merged invocation. Suppressed on replay,
-                    // and skipped when the creating `tool_call` was lost (no pre-status).
-                    const toolCallId = String(update.toolCallId ?? '')
-                    if (!toolCallId) {
-                        return
-                    }
-                    const status = mapAcpStatus(update.status ?? preToolStatus)
-                    if (
-                        !isReplay &&
-                        preToolStatus !== undefined &&
-                        preToolStatus !== 'completed' &&
-                        preToolStatus !== 'failed' &&
-                        (status === 'completed' || status === 'failed')
-                    ) {
-                        const invocation = trackedInvocations.get(toolCallId)
-                        const startedAt = cache.turnStartedAtMs as number | undefined
-                        posthog.capture('tool_call_completed', {
-                            conversation_id: props.conversationId,
-                            trace_id: values.traceId,
-                            tool_call_id: toolCallId,
-                            tool_qualified_name: invocation ? resolveToolCall(invocation).resolvedKey : undefined,
-                            status,
-                            duration_ms: startedAt !== undefined ? Date.now() - startedAt : undefined,
-                            execution_type: 'sandbox',
-                        })
-                    }
-                    // Tool-stream event: phase from the pre-fold status → new status transition. A crossing
-                    // into a terminal status is `completed`/`failed`; any other update is `updated`.
-                    if (emitToolStream) {
-                        const invocation = trackedInvocations.get(toolCallId)
-                        if (invocation) {
-                            const wasTerminal = preToolStatus === 'completed' || preToolStatus === 'failed'
-                            const phase: ToolStreamPhase =
-                                !wasTerminal && status === 'completed'
-                                    ? 'completed'
-                                    : !wasTerminal && status === 'failed'
-                                      ? 'failed'
-                                      : 'updated'
-                            actions.emitToolEvent({
-                                streamKey: props.streamKey,
-                                toolCallId,
-                                toolName: resolveToolCall(invocation).resolvedKey,
-                                rawToolName: invocation.rawToolName,
-                                phase,
-                                invocation,
-                                source,
-                            })
-                        }
-                    }
-                    return
-                }
-                // agent_message_chunk / agent_message / agent_thought_chunk → projection only.
-            },
+            ingestAcpFrame: ({ entry, source }) => ingestFrame(entry, source),
         }
     }),
     beforeUnmount(({ props }) => {

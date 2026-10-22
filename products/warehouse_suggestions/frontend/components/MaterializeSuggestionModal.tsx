@@ -1,10 +1,11 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonButton, LemonModal, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonModal } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { IncrementalConfigOptions } from 'scenes/data-warehouse/editor/IncrementalConfigFields'
+import {
+    INCREMENTAL_CHECK_LOADING,
+    IncrementalConfigOptions,
+} from 'scenes/data-warehouse/editor/IncrementalConfigFields'
 import { CADENCE_LABELS, SyncFrequencySelect } from 'scenes/data-warehouse/saved_queries/SyncFrequencySelect'
 
 import { INTERVAL_SECONDS, intervalForSeconds } from '../refreshIntervals'
@@ -33,7 +34,6 @@ export function MaterializeSuggestionModal(): JSX.Element | null {
     } = useValues(warehouseSuggestionsLogic)
     const { confirmMaterialize, closeMaterializeModal, setMaterializeInterval, setRefreshDraft } =
         useActions(warehouseSuggestionsLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const payload = materializeModalSuggestion?.payload
 
     if (!materializeModalSuggestion || !payload || !isMaterializePayload(payload)) {
@@ -47,7 +47,6 @@ export function MaterializeSuggestionModal(): JSX.Element | null {
         materializeIntervalShorterThanSuggested && suggestedCadence
             ? shorterScheduleWarning(payload.refresh_interval_basis, suggestedCadence)
             : null
-    const incrementalAvailable = !!featureFlags[FEATURE_FLAGS.DATA_MODELING_INCREMENTAL_VIEWS]
 
     return (
         <LemonModal
@@ -91,20 +90,14 @@ export function MaterializeSuggestionModal(): JSX.Element | null {
                         </span>
                     )}
                 </div>
-                {incrementalAvailable && (
-                    <fieldset disabled={inFlight} className="flex flex-col">
-                        <h4 className="m-0 text-sm font-semibold">Refresh mode</h4>
-                        {incrementalCheckLoading ? (
-                            <LemonSkeleton className="mt-3 h-16 w-full" />
-                        ) : (
-                            <IncrementalConfigOptions
-                                check={incrementalCheck}
-                                draft={refreshDraft}
-                                onChange={setRefreshDraft}
-                            />
-                        )}
-                    </fieldset>
-                )}
+                <fieldset disabled={inFlight} className="flex flex-col">
+                    <h4 className="m-0 text-sm font-semibold">Refresh mode</h4>
+                    <IncrementalConfigOptions
+                        check={incrementalCheckLoading ? INCREMENTAL_CHECK_LOADING : incrementalCheck}
+                        draft={refreshDraft}
+                        onChange={setRefreshDraft}
+                    />
+                </fieldset>
                 <div className="grid grid-cols-1 gap-3 rounded border border-primary px-3 py-2.5">
                     <div className="flex flex-col gap-0.5">
                         <span className="text-xs font-semibold text-secondary">With these settings</span>

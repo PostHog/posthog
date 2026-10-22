@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -23,8 +24,9 @@ use crate::discovery::DiscoveryMode;
 use crate::grpc_transport::GrpcTransport;
 use crate::ledger_rejection::{report_rejection, RejectedSlice};
 use crate::order_sentinel::OffsetSpan;
-use crate::rebalance::{PartitionHook, RebalanceContext};
-use crate::settlement::{self, ChargedSlice, Settlement};
+use crate::partition_budget::BudgetLimits;
+use crate::rebalance::{partition_error, PartitionHook, RebalanceContext};
+use crate::settlement::{self, ChargedSlice, Commit, Pause, Settlement};
 use crate::types::{Accumulator, SerializedKafkaMessage};
 
 /// Batch-wide statistics gathered while collecting, used to emit parity
@@ -229,6 +231,67 @@ struct RevokedPartition {
     generation: u64,
 }
 
+#[derive(Default)]
+struct Partitions {
+    fetching: HashSet<TopicPartition>,
+    paused: HashSet<TopicPartition>,
+}
+
+#[derive(Default)]
+struct FetchingPartitions {
+    partitions: Mutex<Partitions>,
+    all_paused: AtomicBool,
+}
+
+impl FetchingPartitions {
+    fn assigned(&self, topic_partitions: &[TopicPartition]) {
+        self.update(|partitions| {
+            for topic_partition in topic_partitions {
+                partitions.paused.remove(topic_partition);
+                partitions.fetching.insert(topic_partition.clone());
+            }
+        });
+    }
+
+    fn revoked(&self, topic_partitions: &[TopicPartition]) {
+        self.update(|partitions| {
+            for topic_partition in topic_partitions {
+                partitions.paused.remove(topic_partition);
+                partitions.fetching.remove(topic_partition);
+            }
+        });
+    }
+
+    fn paused(&self, topic_partition: &TopicPartition) {
+        self.update(|partitions| {
+            if partitions.fetching.remove(topic_partition) {
+                partitions.paused.insert(topic_partition.clone());
+            }
+        });
+    }
+
+    fn resumed(&self, topic_partition: &TopicPartition) {
+        self.update(|partitions| {
+            if partitions.paused.remove(topic_partition) {
+                partitions.fetching.insert(topic_partition.clone());
+            }
+        });
+    }
+
+    fn all_paused(&self) -> bool {
+        self.all_paused.load(Ordering::Relaxed)
+    }
+
+    fn update(&self, change: impl FnOnce(&mut Partitions)) {
+        let mut partitions = self.partitions.lock().unwrap();
+        change(&mut partitions);
+        self.all_paused.store(
+            !partitions.paused.is_empty() && partitions.fetching.is_empty(),
+            Ordering::Relaxed,
+        );
+    }
+}
+
 /// The consumer's revocation hook: purge the batcher, and record the revoked
 /// partitions, because the purge means their polls never complete.
 fn revoke_hook(
@@ -236,9 +299,11 @@ fn revoke_hook(
     ledger: Arc<TopicOffsetLedger>,
     settlement: Arc<dyn Settlement>,
     revoked_partitions: Arc<Mutex<Vec<RevokedPartition>>>,
+    fetching: Arc<FetchingPartitions>,
 ) -> PartitionHook {
     Box::new(move |partitions| {
         settlement.forget_partitions(partitions);
+        fetching.revoked(partitions);
         let pairs: Vec<(String, i32)> = partitions
             .iter()
             .map(|tp| (tp.topic.clone(), tp.partition))
@@ -256,11 +321,13 @@ fn revoke_hook(
 
 fn assign_hook(
     settlement: Arc<dyn Settlement>,
+    fetching: Arc<FetchingPartitions>,
     assignment_epoch: AssignmentEpoch,
 ) -> PartitionHook {
     Box::new(move |partitions| {
         // Also covers a loss with no revoke callback (an error rebalance, a fenced member).
         settlement.forget_partitions(partitions);
+        fetching.assigned(partitions);
         assignment_epoch.bump();
     })
 }
@@ -271,16 +338,22 @@ fn wire_rebalance_hooks(
     ledger: &Arc<TopicOffsetLedger>,
     settlement: &Arc<dyn Settlement>,
     assignment_epoch: AssignmentEpoch,
-) -> Arc<Mutex<Vec<RevokedPartition>>> {
+) -> (Arc<Mutex<Vec<RevokedPartition>>>, Arc<FetchingPartitions>) {
     let revoked_partitions = Arc::new(Mutex::new(Vec::new()));
+    let fetching = Arc::new(FetchingPartitions::default());
     context.set_on_revoke(revoke_hook(
         revoker,
         Arc::clone(ledger),
         Arc::clone(settlement),
         Arc::clone(&revoked_partitions),
+        Arc::clone(&fetching),
     ));
-    context.set_on_assign(assign_hook(Arc::clone(settlement), assignment_epoch));
-    revoked_partitions
+    context.set_on_assign(assign_hook(
+        Arc::clone(settlement),
+        Arc::clone(&fetching),
+        assignment_epoch,
+    ));
+    (revoked_partitions, fetching)
 }
 
 /// Remove revoked partitions from in-flight polls, and remove polls left
@@ -412,6 +485,18 @@ fn pop_committable(in_flight: &mut VecDeque<InFlightPoll>) -> anyhow::Result<InF
     Ok(poll)
 }
 
+fn commit_tick(granularity: CompletionGranularity, commit_interval: Duration) -> Duration {
+    const HEALTH_TICK: Duration = Duration::from_secs(1);
+    // A commit can resume a partition, so a tick longer than the commit
+    // interval delays the resume.
+    match granularity {
+        CompletionGranularity::Group if !commit_interval.is_zero() => {
+            commit_interval.min(HEALTH_TICK)
+        }
+        _ => HEALTH_TICK,
+    }
+}
+
 /// Options for constructing an [`IngestionConsumer`] from pre-built parts.
 /// Used in integration tests where the Kafka consumer is created externally.
 pub struct IngestionConsumerOptions {
@@ -427,6 +512,7 @@ pub struct IngestionConsumerOptions {
     pub completion_granularity: CompletionGranularity,
     pub commit_interval: Duration,
     pub ledger: Arc<TopicOffsetLedger>,
+    pub partition_budget: BudgetLimits,
 }
 
 /// The main consumer loop: reads from Kafka, demuxes each poll into groups,
@@ -443,6 +529,7 @@ pub struct IngestionConsumer {
     batch_size_bytes: usize,
     batch_timeout: Duration,
     max_in_flight_batches: usize,
+    commit_tick: Duration,
     handle: Handle,
     group_id: String,
     /// Debug event recorder; `None` unless `DEBUG_API_ENABLED`.
@@ -451,6 +538,7 @@ pub struct IngestionConsumer {
     /// Partitions revoked since the loop last looked, fed by the rebalance
     /// callback.
     revoked_partitions: Arc<Mutex<Vec<RevokedPartition>>>,
+    fetching: Arc<FetchingPartitions>,
     settlement: Arc<dyn Settlement>,
 }
 
@@ -471,8 +559,9 @@ impl IngestionConsumer {
             options.completion_granularity,
             Arc::clone(&topic_offset_ledger),
             options.commit_interval,
+            options.partition_budget,
         );
-        let revoked_partitions = wire_rebalance_hooks(
+        let (revoked_partitions, fetching) = wire_rebalance_hooks(
             consumer.context(),
             batcher.revoker(),
             &topic_offset_ledger,
@@ -484,6 +573,7 @@ impl IngestionConsumer {
             debug_recorder: options.debug_recorder,
             topic_offset_ledger,
             revoked_partitions,
+            fetching,
             settlement,
             consumer,
             batcher,
@@ -494,6 +584,7 @@ impl IngestionConsumer {
             batch_size_bytes: options.batch_size_bytes,
             batch_timeout: options.batch_timeout,
             max_in_flight_batches: options.max_in_flight_batches.max(1),
+            commit_tick: commit_tick(options.completion_granularity, options.commit_interval),
             handle,
             group_id: options.group_id,
         }
@@ -534,9 +625,12 @@ impl IngestionConsumer {
             config.consumer_completion_granularity,
             Arc::clone(&topic_offset_ledger),
             Duration::from_millis(config.consumer_commit_interval_ms),
+            config
+                .partition_budget()
+                .map_err(|err| anyhow::anyhow!("invalid partition budget: {err}"))?,
         );
         let context = RebalanceContext::new();
-        let revoked_partitions = wire_rebalance_hooks(
+        let (revoked_partitions, fetching) = wire_rebalance_hooks(
             &context,
             batcher.revoker(),
             &topic_offset_ledger,
@@ -563,6 +657,7 @@ impl IngestionConsumer {
             debug_recorder,
             topic_offset_ledger,
             revoked_partitions,
+            fetching,
             settlement,
             batcher,
             outputs: Some(outputs),
@@ -572,6 +667,10 @@ impl IngestionConsumer {
             batch_size_bytes: config.consumer_batch_size_kb.saturating_mul(1024),
             batch_timeout: Duration::from_millis(config.consumer_batch_timeout_ms),
             max_in_flight_batches: config.consumer_max_background_tasks.max(1),
+            commit_tick: commit_tick(
+                config.consumer_completion_granularity,
+                Duration::from_millis(config.consumer_commit_interval_ms),
+            ),
             handle,
             group_id: config.ingestion_consumer_group_id.clone(),
         })
@@ -639,7 +738,10 @@ impl IngestionConsumer {
                 return;
             }
 
-            if accepting_new_batches && in_flight_polls.len() < self.max_in_flight_batches {
+            let collect = accepting_new_batches
+                && in_flight_polls.len() < self.max_in_flight_batches
+                && (in_flight_polls.is_empty() || !self.every_partition_paused());
+            if collect {
                 tokio::select! {
                     _ = self.handle.shutdown_recv() => {
                         info!(
@@ -773,7 +875,10 @@ impl IngestionConsumer {
         completions: &mut mpsc::UnboundedReceiver<GroupCompletion>,
         errors: &mut mpsc::UnboundedReceiver<String>,
     ) -> Result<(), Failure> {
-        let mut heartbeat = tokio::time::interval(Duration::from_secs(1));
+        let mut heartbeat = tokio::time::interval_at(
+            tokio::time::Instant::now() + self.commit_tick,
+            self.commit_tick,
+        );
         loop {
             // A rebalance can drop the front poll (its partitions were
             // revoked and its purged messages will never complete), so
@@ -792,7 +897,10 @@ impl IngestionConsumer {
                             self.settlement.settle_run(tp, generation, run)
                         })
                         .map_err(Failure::Batch)?;
-                        self.commit_due().map_err(Failure::Commit)?;
+                        // A resumed partition can fill a poll, so collect instead of waiting here.
+                        if self.commit_due().map_err(Failure::Commit)? {
+                            return Ok(());
+                        }
                     }
                     None => return Err(Failure::Batch(anyhow::anyhow!(
                         "batcher completion channel closed"
@@ -806,7 +914,12 @@ impl IngestionConsumer {
                 },
                 _ = heartbeat.tick() => {
                     self.handle.report_healthy();
-                    self.commit_due().map_err(Failure::Commit)?;
+                    if self.commit_due().map_err(Failure::Commit)?
+                        || (in_flight_polls.len() < self.max_in_flight_batches
+                            && !self.every_partition_paused())
+                    {
+                        return Ok(());
+                    }
                 }
             }
         }
@@ -852,18 +965,67 @@ impl IngestionConsumer {
         }
     }
 
-    fn commit_due(&self) -> anyhow::Result<()> {
-        match self.settlement.take_due(Instant::now()) {
-            Some(offsets) => self.commit_offsets(&offsets),
-            None => Ok(()),
+    /// Paused partitions fill no poll, so a collection would wait out the batch
+    /// timeout before the completions whose commits resume them.
+    fn every_partition_paused(&self) -> bool {
+        self.fetching.all_paused()
+    }
+
+    fn pause_partition(&self, topic_partition: &TopicPartition) {
+        let tpl = partition_list(topic_partition);
+        match self
+            .consumer
+            .pause(&tpl)
+            .and_then(|()| partition_error(&tpl))
+        {
+            Ok(()) => self.fetching.paused(topic_partition),
+            Err(err) => error!(
+                topic = %topic_partition.topic,
+                partition = topic_partition.partition,
+                error = %err,
+                "Could not pause a partition at its budget"
+            ),
         }
     }
 
-    fn commit_all(&self) -> anyhow::Result<()> {
-        match self.settlement.take_all() {
-            Some(offsets) => self.commit_offsets(&offsets),
-            None => Ok(()),
+    fn resume_partition(&self, topic_partition: &TopicPartition) {
+        let tpl = partition_list(topic_partition);
+        match self
+            .consumer
+            .resume(&tpl)
+            .and_then(|()| partition_error(&tpl))
+        {
+            Ok(()) => self.fetching.resumed(topic_partition),
+            Err(err) => error!(
+                topic = %topic_partition.topic,
+                partition = topic_partition.partition,
+                error = %err,
+                "Could not resume a partition under its budget"
+            ),
         }
+    }
+
+    /// Returns whether the commit resumed a partition.
+    fn commit_due(&self) -> anyhow::Result<bool> {
+        match self.settlement.take_due(Instant::now()) {
+            Some(commit) => self.commit(commit),
+            None => Ok(false),
+        }
+    }
+
+    fn commit_all(&self) -> anyhow::Result<bool> {
+        match self.settlement.take_all() {
+            Some(commit) => self.commit(commit),
+            None => Ok(false),
+        }
+    }
+
+    fn commit(&self, commit: Commit) -> anyhow::Result<bool> {
+        self.commit_offsets(&commit.offsets)?;
+        for topic_partition in &commit.resume {
+            self.resume_partition(topic_partition);
+        }
+        Ok(!commit.resume.is_empty())
     }
 
     fn fail_batch_processing(&self, err: anyhow::Error) {
@@ -1031,16 +1193,18 @@ impl IngestionConsumer {
         for (topic_partition, partition) in &partitions {
             // The ledger counts a rejection; it is logged here, where the
             // slice is still known.
-            if let Err(rejection) =
-                self.settlement
-                    .charge(topic_partition, partition.generation, &partition.charges)
+            match self
+                .settlement
+                .charge(topic_partition, partition.generation, &partition.charges)
             {
-                report_rejection(
+                Ok(Some(Pause)) => self.pause_partition(topic_partition),
+                Ok(None) => {}
+                Err(rejection) => report_rejection(
                     "charge",
                     topic_partition,
                     rejection,
                     RejectedSlice::charged(&partition.charges),
-                )?;
+                )?,
             }
         }
 
@@ -1050,6 +1214,12 @@ impl IngestionConsumer {
             stats,
         })
     }
+}
+
+fn partition_list(topic_partition: &TopicPartition) -> TopicPartitionList {
+    let mut tpl = TopicPartitionList::new();
+    tpl.add_partition(&topic_partition.topic, topic_partition.partition);
+    tpl
 }
 
 /// Emit the per-poll parity metrics (received counts, batch sizes,
@@ -1197,6 +1367,8 @@ fn emit_latest_processed_timestamp_metrics(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::num::NonZeroU64;
+
     use crate::settlement::{charge_offsets, GroupSettlement};
     use common_kafka_consumer::Offset as MessageOffset;
 
@@ -1243,26 +1415,107 @@ mod tests {
         apply_completion(in_flight, &completion, |_, _, _| Ok(())).unwrap();
     }
 
+    fn partitions(numbers: &[i32]) -> Vec<TopicPartition> {
+        numbers
+            .iter()
+            .map(|&number| TopicPartition::new("events", number))
+            .collect()
+    }
+
+    #[rstest::rstest]
+    #[case::group_below_a_second(CompletionGranularity::Group, 200, 200)]
+    #[case::group_above_a_second(CompletionGranularity::Group, 5_000, 1_000)]
+    #[case::group_immediate(CompletionGranularity::Group, 0, 1_000)]
+    #[case::poll(CompletionGranularity::Poll, 200, 1_000)]
+    fn the_commit_tick_follows_the_commit_interval(
+        #[case] granularity: CompletionGranularity,
+        #[case] commit_interval_ms: u64,
+        #[case] expected_ms: u64,
+    ) {
+        assert_eq!(
+            commit_tick(granularity, Duration::from_millis(commit_interval_ms)),
+            Duration::from_millis(expected_ms)
+        );
+    }
+
+    #[test]
+    fn every_partition_is_paused_only_while_none_is_fetching() {
+        let fetching = FetchingPartitions::default();
+        assert!(!fetching.all_paused(), "nothing is assigned");
+
+        fetching.assigned(&partitions(&[0, 1]));
+        fetching.paused(&TopicPartition::new("events", 0));
+        assert!(!fetching.all_paused(), "partition 1 still fetches");
+
+        fetching.paused(&TopicPartition::new("events", 1));
+        assert!(fetching.all_paused());
+
+        fetching.resumed(&TopicPartition::new("events", 1));
+        assert!(!fetching.all_paused());
+    }
+
+    #[test]
+    fn a_rebalance_changes_which_partitions_must_be_paused() {
+        let fetching = FetchingPartitions::default();
+        fetching.assigned(&partitions(&[0, 1]));
+        fetching.paused(&TopicPartition::new("events", 0));
+
+        fetching.revoked(&partitions(&[1]));
+        assert!(fetching.all_paused(), "only the paused partition is left");
+
+        fetching.assigned(&partitions(&[0]));
+        assert!(
+            !fetching.all_paused(),
+            "a reassigned partition starts fetching"
+        );
+    }
+
+    #[test]
+    fn a_partition_that_is_not_assigned_neither_pauses_nor_resumes() {
+        let fetching = FetchingPartitions::default();
+
+        fetching.paused(&TopicPartition::new("events", 0));
+        assert!(!fetching.all_paused());
+
+        fetching.resumed(&TopicPartition::new("events", 0));
+        assert!(!fetching.all_paused());
+    }
+
     #[test]
     fn an_assignment_without_a_revoke_drops_the_partitions_pending_frontier() {
         let ledger = Arc::new(TopicOffsetLedger::new());
         let settlement: Arc<dyn Settlement> = Arc::new(GroupSettlement::new(
             Arc::clone(&ledger),
             Duration::from_secs(3600),
+            BudgetLimits::new(NonZeroU64::new(1), None, 0.5).expect("valid limits"),
         ));
         let epoch = AssignmentEpoch::new();
-        let on_assign = assign_hook(Arc::clone(&settlement), epoch.clone());
+        let on_assign = assign_hook(
+            Arc::clone(&settlement),
+            Arc::new(FetchingPartitions::default()),
+            epoch.clone(),
+        );
         let p0 = TopicPartition::new("events", 0);
-        charge_offsets(&ledger, &p0, ledger.generation(&p0), &[10]);
-        settlement
-            .settle_run(&p0, ledger.generation(&p0), &[MessageOffset(10)])
-            .unwrap();
+        let one_event = [(
+            MessageOffset(10),
+            Charge {
+                events: 1,
+                bytes: 0,
+            },
+        )];
+        assert_eq!(settlement.charge(&p0, 0, &one_event), Ok(Some(Pause)));
+        settlement.settle_run(&p0, 0, &[MessageOffset(10)]).unwrap();
 
         on_assign(std::slice::from_ref(&p0));
 
         assert!(settlement.take_all().is_none());
         assert_eq!(ledger.generation(&p0), 1);
         assert_eq!(epoch.current(), 2);
+        assert_eq!(
+            settlement.charge(&p0, 1, &one_event),
+            Ok(Some(Pause)),
+            "the regained partition starts unpaused"
+        );
     }
 
     fn regained_poll(charged: i64, span_last: i64, delivered: u32) -> InFlightPoll {
@@ -1309,7 +1562,8 @@ mod tests {
     #[test]
     fn a_completion_spanning_two_polls_commits_once_the_prefix_is_whole() {
         let ledger = Arc::new(TopicOffsetLedger::new());
-        let settlement = GroupSettlement::new(Arc::clone(&ledger), Duration::ZERO);
+        let settlement =
+            GroupSettlement::new(Arc::clone(&ledger), Duration::ZERO, BudgetLimits::unset());
         let partition = TopicPartition::new("test", 0);
         charge_offsets(&ledger, &partition, 0, &[0, 1, 2, 3, 4, 5, 6, 7]);
         let mut in_flight = VecDeque::from([poll(1, 0, 0, 3, 4), poll(1, 0, 4, 7, 4)]);
@@ -1335,7 +1589,9 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            settlement.take_due(Instant::now()),
+            settlement
+                .take_due(Instant::now())
+                .map(|commit| commit.offsets),
             Some(HashMap::from([(partition, MessageOffset(8))]))
         );
     }
@@ -1641,7 +1897,8 @@ mod tests {
     #[test]
     fn a_covered_head_is_popped_before_a_redelivered_offset_is_matched() {
         let ledger = Arc::new(TopicOffsetLedger::new());
-        let settlement = GroupSettlement::new(Arc::clone(&ledger), Duration::ZERO);
+        let settlement =
+            GroupSettlement::new(Arc::clone(&ledger), Duration::ZERO, BudgetLimits::unset());
         let partition = TopicPartition::new("test", 0);
         ledger.forget_partitions([("test", 0)]);
         charge_offsets(&ledger, &partition, 1, &[0, 1]);
@@ -1671,7 +1928,9 @@ mod tests {
         assert_eq!(in_flight[0].poll_id, "replay");
         assert!(in_flight[0].is_complete());
         assert_eq!(
-            settlement.take_due(Instant::now()),
+            settlement
+                .take_due(Instant::now())
+                .map(|commit| commit.offsets),
             Some(HashMap::from([(partition, MessageOffset(2))]))
         );
     }
