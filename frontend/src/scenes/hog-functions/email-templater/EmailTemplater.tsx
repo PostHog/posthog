@@ -42,6 +42,7 @@ import { MessageTemplateCard } from 'products/workflows/frontend/TemplateLibrary
 import { collapseToolsPanelCustomJs } from './custom-tools/collapseToolsPanel'
 import { previewLinkTargetCustomJs } from './custom-tools/previewLinkTarget'
 import { unsubscribeLinkToolCustomJs } from './custom-tools/unsubscribeLinkTool'
+import { EmailSenderSummary } from './EmailSenderSummary'
 import { EMAIL_TYPE_SUPPORTED_FIELDS, EmailTemplaterLogicProps, emailTemplaterLogic } from './emailTemplaterLogic'
 import { EmailFieldErrors, EmailTemplateFrom, MAX_WORKFLOW_EMAIL_SENDERS } from './types'
 
@@ -254,7 +255,7 @@ function DestinationEmailTemplaterForm({
                                     srcDoc={value}
                                     sandbox=""
                                     title="Email template preview"
-                                    className="flex-1 min-h-40"
+                                    className="flex-1 min-h-80"
                                 />
                             </>
                         )}
@@ -553,8 +554,11 @@ function NativeEmailTemplaterForm({
     const { sceneIntegrationEnabled } = useValues(sceneAgentPanelLogic)
 
     // The template editor has only subject + preheader, so they share one row with the
-    // visual/plain-text switch to keep vertical space for the canvas.
-    const compactHeader = logicProps.type === 'native_email_template' && mode === 'full'
+    // visual/plain-text switch to keep vertical space for the canvas. A transactional template adds its
+    // sender as one summary line above.
+    const compactHeader =
+        (logicProps.type === 'native_email_template' || logicProps.type === 'native_email_transactional_template') &&
+        mode === 'full'
     const preheaderVisible = visibleFields.some((field) => field.key === 'preheader')
     // Preheaders see almost no use, so don't advertise the field unless this team already uses it.
     const offerPreheader = templates.some((template) => !!template.content?.email?.preheader)
@@ -569,65 +573,68 @@ function NativeEmailTemplaterForm({
             >
                 <div className={fieldsHidden ? 'h-0 overflow-hidden' : ''}>
                     {compactHeader ? (
-                        <div className="flex gap-2 items-center pl-2 pr-1 py-0.5 border-b shrink-0">
-                            <LemonField name="subject" className="flex-2 min-w-40" renderError={() => null}>
-                                {({ value, onChange, error }: ChildFunctionProps) => (
-                                    <div className="flex gap-2 items-center flex-1">
-                                        <LemonLabel className={error ? 'text-danger' : ''}>Subject</LemonLabel>
-                                        <LiquidSupportedText
-                                            value={value}
-                                            onChange={onChange}
-                                            globals={logicProps.variables}
-                                        />
-                                    </div>
-                                )}
-                            </LemonField>
-                            {preheaderVisible ? (
-                                <LemonField name="preheader" className="flex-1 min-w-40" renderError={() => null}>
-                                    {({ value, onChange }: ChildFunctionProps) => (
+                        <>
+                            {logicProps.type === 'native_email_transactional_template' && <EmailSenderSummary />}
+                            <div className="flex gap-2 items-center pl-2 pr-1 py-0.5 border-b shrink-0">
+                                <LemonField name="subject" className="flex-2 min-w-40" renderError={() => null}>
+                                    {({ value, onChange, error }: ChildFunctionProps) => (
                                         <div className="flex gap-2 items-center flex-1">
-                                            <LemonLabel info="This is the preview text that appears below the subject line in an inbox.">
-                                                Preheader
-                                            </LemonLabel>
+                                            <LemonLabel className={error ? 'text-danger' : ''}>Subject</LemonLabel>
                                             <LiquidSupportedText
                                                 value={value}
                                                 onChange={onChange}
                                                 globals={logicProps.variables}
                                             />
-                                            <LemonButton
-                                                size="xsmall"
-                                                type="tertiary"
-                                                icon={<IconX />}
-                                                onClick={() => {
-                                                    onChange('')
-                                                    hideAdvancedField('preheader')
-                                                }}
-                                                tooltip="Remove field"
-                                            />
                                         </div>
                                     )}
                                 </LemonField>
-                            ) : offerPreheader ? (
-                                <LemonButton
-                                    size="xsmall"
-                                    type="secondary"
-                                    icon={<IconPlus />}
-                                    onClick={() => revealAdvancedField('preheader')}
-                                >
-                                    Preheader
-                                </LemonButton>
-                            ) : null}
-                            <LemonSegmentedButton
-                                size="small"
-                                className="ml-2 shrink-0"
-                                value={activeContentTab}
-                                onChange={(tab) => setActiveContentTab(tab as 'visual' | 'plaintext')}
-                                options={[
-                                    { value: 'visual', label: 'Visual' },
-                                    { value: 'plaintext', label: 'Plain text' },
-                                ]}
-                            />
-                        </div>
+                                {preheaderVisible ? (
+                                    <LemonField name="preheader" className="flex-1 min-w-40" renderError={() => null}>
+                                        {({ value, onChange }: ChildFunctionProps) => (
+                                            <div className="flex gap-2 items-center flex-1">
+                                                <LemonLabel info="This is the preview text that appears below the subject line in an inbox.">
+                                                    Preheader
+                                                </LemonLabel>
+                                                <LiquidSupportedText
+                                                    value={value}
+                                                    onChange={onChange}
+                                                    globals={logicProps.variables}
+                                                />
+                                                <LemonButton
+                                                    size="xsmall"
+                                                    type="tertiary"
+                                                    icon={<IconX />}
+                                                    onClick={() => {
+                                                        onChange('')
+                                                        hideAdvancedField('preheader')
+                                                    }}
+                                                    tooltip="Remove field"
+                                                />
+                                            </div>
+                                        )}
+                                    </LemonField>
+                                ) : offerPreheader ? (
+                                    <LemonButton
+                                        size="xsmall"
+                                        type="secondary"
+                                        icon={<IconPlus />}
+                                        onClick={() => revealAdvancedField('preheader')}
+                                    >
+                                        Preheader
+                                    </LemonButton>
+                                ) : null}
+                                <LemonSegmentedButton
+                                    size="small"
+                                    className="ml-2 shrink-0"
+                                    value={activeContentTab}
+                                    onChange={(tab) => setActiveContentTab(tab as 'visual' | 'plaintext')}
+                                    options={[
+                                        { value: 'visual', label: 'Visual' },
+                                        { value: 'plaintext', label: 'Plain text' },
+                                    ]}
+                                />
+                            </div>
+                        </>
                     ) : (
                         visibleFields.map((field) => {
                             const fieldError = fieldErrorFor(field.key, logicProps.fieldErrors)
@@ -803,7 +810,7 @@ function NativeEmailTemplaterForm({
                                     srcDoc={value}
                                     sandbox=""
                                     title="Email template preview"
-                                    className="flex-1 min-h-40"
+                                    className="flex-1 min-h-80"
                                 />
                             </>
                         )}
@@ -857,6 +864,7 @@ function EmailTemplaterForm({ mode, fieldsHidden }: { mode: EmailEditorMode; fie
         case 'email':
             return <DestinationEmailTemplaterForm mode={mode} fieldsHidden={fieldsHidden} />
         case 'native_email_template':
+        case 'native_email_transactional_template':
         case 'native_email':
             return <NativeEmailTemplaterForm mode={mode} fieldsHidden={fieldsHidden} />
     }
