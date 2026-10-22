@@ -74,6 +74,17 @@ type Story = StoryObj<typeof TraceOperationsTab>
 
 export const WholeTrace: Story = {}
 
+/** The inspector at its narrowest, 320px less its 16px left padding. Share stays in view, and long names truncate. */
+export const Narrowest: Story = {
+    decorators: [
+        (Story) => (
+            <div className="w-[304px]">
+                <Story />
+            </div>
+        ),
+    ],
+}
+
 /** One SELECT and the cache reads under it. */
 export const ThisSpan: Story = {
     args: { span: SELECTS[0] },

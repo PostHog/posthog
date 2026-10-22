@@ -10,6 +10,7 @@ import {
     VirtualizedTableColumn,
     virtualizedTableHeight,
 } from '../../VirtualizedTable'
+import { MIN_COLUMN_WIDTH } from '../TableColumns/columnWidths'
 
 // The table lists the main contributors and the span tree shows every span, so the table shows only the top 5
 // operations by the sorted column. The note under the table says how many operations there are in all.
@@ -62,7 +63,9 @@ function withTimings(title: string, operation: TraceOperation, compact: boolean)
 // The service name shares the Operation cell instead of a column of its own. Together the default widths
 // fit in 520px, the width of the drawer next to an open side panel. The compact set drops Avg and p50, so
 // that Share stays in view in the span inspector, which is narrower. Operation grows into the width the
-// numeric columns leave, and a person can drag it wider to read a long name.
+// numeric columns leave, and a person can drag it wider to read a long name. In the compact set it starts
+// at the narrowest width a column can have. The numeric columns then fit the inspector at its narrowest,
+// and Operation gives up width instead of pushing Share out of view.
 const SPANS_COLUMN: VirtualizedTableColumn<TraceOperation> = {
     key: 'count',
     title: 'Spans',
@@ -136,7 +139,7 @@ export const TraceOperationsTable = memo(function TraceOperationsTable({
             {
                 key: 'name',
                 title: 'Operation',
-                width: 144,
+                width: compact ? MIN_COLUMN_WIDTH : 144,
                 grow: true,
                 sorter: (a, b) => a.name.localeCompare(b.name),
                 render: (row) => {

@@ -208,12 +208,20 @@ export function TraceDialogSpanTree({
     // Keep each span J and K step to in view. While the opened span still waits for its centred reveal
     // above, this leaves it alone.
     const selectedSpanId = missingParentSpanId ?? selectedSpan?.span_id ?? null
+    const lastSelectionInputsRef = useRef({ spanTree, selectedSpanId })
     useEffect(() => {
+        const last = lastSelectionInputsRef.current
+        lastSelectionInputsRef.current = { spanTree, selectedSpanId }
+        // A page of spans loads when the person scrolls near the end of the list. It changes the rows but not
+        // the selection, so the list stays where the person scrolled it, or where an operation highlight put it.
+        if (spanTree !== last.spanTree && selectedSpanId === last.selectedSpanId) {
+            return
+        }
         const index = spanRows.findIndex((row) => rowSpanNode(row)?.span.span_id === selectedSpanId)
         if (index >= 0 && (selectedSpanId !== openedSpanId || revealedIndexRef.current !== null)) {
             listRef.current?.scrollToRow({ index, align: 'smart' })
         }
-    }, [spanRows, selectedSpanId, openedSpanId, listRef])
+    }, [spanRows, spanTree, selectedSpanId, openedSpanId, listRef])
     // The first span of a large operation often sits far down the tree, so a click on the operations table
     // scrolls to it. The logic has already opened what hid it, so it is the first row of the operation. The
     // `start` alignment puts it at the top, so the rest of the operation's spans fill the list below it. The
