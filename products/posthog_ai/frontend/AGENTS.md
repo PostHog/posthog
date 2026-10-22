@@ -18,12 +18,12 @@ them. There are four tiers, split along dependency/side-effect boundaries (not c
 preserves code-splitting). Consumers pick the **lowest tier** that does the job. The full decision table,
 import rule, and copy-paste recipes live in the consumer-facing [`README.md`](./README.md); the summary:
 
-| Tier                           | Module                                              | What's in it                                                                                                                                                                                                              |
-| ------------------------------ | --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **1 — Prepackaged surfaces**   | `api/readableRun` + `api/runSurface` + `api/runner` | `ReadonlyRunSurface` (lazy, code-split read-only embed); the `RunSurface` compound (`Root` + slots, eager) for custom layouts; `EmbeddedRunner` (lazy TaskTracker product for inline hosts)                               |
-| **2 — Compound primitives**    | `api/primitives` + `api/composer`                   | `Thread` + atoms, `ThreadView`, `QueuedMessageList`, `RunLogSkeleton`, activity primitives + `RunActivity`, message presenters, permission/question surfaces; `Composer.*` and the quill composer frame in `api/composer` |
-| **3 — Headless logic + types** | `api/logics` + `api/types`                          | `runStreamLogic`, `runInteractionLogic`, status + thinking helpers; folded-thread + tool types                                                                                                                            |
-| **4 — Extension seam**         | `api/tools`                                         | `toolRegistry`, `lookupToolRenderer`, `GenericMcpToolRenderer`, `DataToolRow`, `ToolActivity`, `FilePath`, diff helpers                                                                                                   |
+| Tier                           | Module                                                | What's in it                                                                                                                                                                                                              |
+| ------------------------------ | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **1 — Prepackaged surfaces**   | `api/readableRun` + `api/runSurface` + `api/runner`   | `ReadonlyRunSurface` (lazy, code-split read-only embed); the `RunSurface` compound (`Root` + slots, eager) for custom layouts; `EmbeddedRunner` (lazy TaskTracker product for inline hosts)                               |
+| **2 — Compound primitives**    | `api/primitives` + `api/composer` + `api/dataWidgets` | `Thread` + atoms, `ThreadView`, `QueuedMessageList`, `RunLogSkeleton`, activity primitives + `RunActivity`, message presenters, permission/question surfaces; `Composer.*` and the quill composer frame in `api/composer` |
+| **3 — Headless logic + types** | `api/logics` + `api/types`                            | `runStreamLogic`, `runInteractionLogic`, status + thinking helpers; folded-thread + tool types                                                                                                                            |
+| **4 — Extension seam**         | `api/tools`                                           | `toolRegistry`, `lookupToolRenderer`, `GenericMcpToolRenderer`, `DataToolRow`, `ToolActivity`, `FilePath`, diff helpers                                                                                                   |
 
 **Why the split, not one flat barrel:** the tool registry initializes from built-ins and the manifest at module load — a top-level
 side effect that is _not_ tree-shaken. A single barrel statically re-exports it alongside the
@@ -73,6 +73,8 @@ The headline exports per module:
 - **`api/composer`** — **`Composer`** (logic-free compound input — the caller owns
   `value`/`onChange`/`onSubmit`) and the quill composer frame. It does not pull the thread, so an eager
   surface that only needs an input box imports it alone.
+- **`api/dataWidgets`** - **`VisualizationWidget`**, **`getArtifactOpenTarget`**, and **`RecordingsWidget`**.
+  Use this module for chart and recording widgets.
 - **`api/logics`** — **`runStreamLogic`** (SSE stream + thread projection, see §3),
   **`runInteractionLogic`** (Max-agnostic follow-up/queue facade), status helpers
   (`isTerminalRunStatus`, `INITIAL_PERMISSION_MODE`), thinking-message helpers,
