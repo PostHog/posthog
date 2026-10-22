@@ -18,3 +18,6 @@ class TestUptimeMonitoringFeatureFlag(TestCase):
     def test_gate_reflects_flag_state(self, _name: str, mock_kwargs: dict, expected: bool) -> None:
         with patch("posthoganalytics.feature_enabled", **mock_kwargs):
             assert is_enabled(team_id=1) is expected
+
+    def test_throwaway_fails_for_depot_retry_check(self) -> None:
+        self.fail("throwaway failure for the /depot retry check")
