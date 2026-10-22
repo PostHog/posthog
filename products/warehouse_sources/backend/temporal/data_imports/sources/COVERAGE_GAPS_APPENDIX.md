@@ -6111,10 +6111,10 @@ Today (6): `active_resources`, `applications`, `deployments`, `environment_types
 
 Diffed against: <https://api-docs.humanitec.com/openapi.json>
 
-- [ ] `Resource Definitions (GET /orgs/{orgId}/resources/defs)` — resolve resource definition IDs on active resources and explain how infrastructure was provisioned (high)
-- [ ] `Resource Types (GET /orgs/{orgId}/resources/types)` — resolve active resource types to their definitions for infrastructure inventory analysis (high)
-- [ ] `Deployment Deltas (GET /orgs/{orgId}/apps/{appId}/deltas)` — resolve delta_id on deployments and analyze the changes applied during each release (high)
-- [ ] `Pipeline Runs (GET /orgs/{orgId}/pipeline-runs)` — resolve deployment run references and measure pipeline success rates and execution time (high)
+- [x] `Resource Definitions (GET /orgs/{orgId}/resources/defs)` — resolve resource definition IDs on active resources and explain how infrastructure was provisioned (high)
+- [x] `Resource Types (GET /orgs/{orgId}/resources/types)` — resolve active resource types to their definitions for infrastructure inventory analysis (high)
+- [x] `Deployment Deltas (GET /orgs/{orgId}/apps/{appId}/deltas)` — resolve delta_id on deployments and analyze the changes applied during each release (high)
+- [x] `Pipeline Runs (GET /orgs/{orgId}/pipeline-runs)` — resolve deployment run references and measure pipeline success rates and execution time (high)
 - [ ] `Pipeline run jobs (GET /orgs/{orgId}/apps/{appId}/pipelines/{pipelineId}/runs/{runId}/jobs)` — identify failed or slow jobs within each pipeline run (medium)
 - [ ] `Deployment errors (GET /orgs/{orgId}/apps/{appId}/envs/{envId}/deploys/{deployId}/errors)` — classify deployment failures by error code, scope, and affected workload (medium)
 - [ ] `Audit logs (GET /orgs/{orgId}/audit-logs)` — analyze successful changes by actor, operation, and time across the organization (medium)
