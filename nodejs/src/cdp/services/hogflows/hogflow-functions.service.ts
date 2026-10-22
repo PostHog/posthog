@@ -161,7 +161,11 @@ export class HogFlowFunctionsService {
             ...invocation,
             hogFunction: {
                 ...hogFunction,
-                metadata: { ...hogFunction.metadata, capture_engagement: send?.tracking.captureEngagement ?? null },
+                metadata: {
+                    ...hogFunction.metadata,
+                    capture_engagement: send?.tracking.captureEngagement ?? null,
+                    attachments: send?.attachments ?? null,
+                },
             },
             state: invocation.state.currentAction?.hogFunctionState ?? {
                 globals: await this.buildInputsWithGlobals(hogFunction, globalsWithSource, send),

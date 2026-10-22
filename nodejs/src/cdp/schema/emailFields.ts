@@ -56,3 +56,42 @@ export const EmailTagSchema = z.object({
 
 export type EmailHeader = z.infer<typeof EmailHeaderSchema>
 export type EmailTag = z.infer<typeof EmailTagSchema>
+
+export const MAX_EMAIL_ATTACHMENTS = 10
+export const MAX_EMAIL_ATTACHMENTS_BYTES = 512 * 1024
+
+export const EmailAttachmentSchema = z
+    .object({
+        filename: z
+            .string()
+            .min(1)
+            .max(255)
+            .regex(/^[^\x00-\x1f\x7f/\\]+$/),
+        content: z
+            .string()
+            .min(1)
+            .regex(/^[A-Za-z0-9+/]+={0,2}$/),
+        contentType: z
+            .string()
+            .max(255)
+            .regex(/^[!-~]+\/[!-~]+(;[ -~]*)?$/)
+            .optional(),
+        contentId: z
+            .string()
+            .max(128)
+            .regex(/^[!-;=?-~]+$/)
+            .optional(),
+    })
+    .readonly()
+
+export const EmailAttachmentsSchema = z
+    .array(EmailAttachmentSchema)
+    .max(MAX_EMAIL_ATTACHMENTS)
+    .refine(
+        (attachments) =>
+            attachments.reduce((total, { content }) => total + Buffer.byteLength(content, 'base64'), 0) <=
+            MAX_EMAIL_ATTACHMENTS_BYTES,
+        `Attachments can hold ${MAX_EMAIL_ATTACHMENTS_BYTES / 1024}KB in total`
+    )
+
+export type EmailAttachment = z.infer<typeof EmailAttachmentSchema>

@@ -4,7 +4,7 @@ import { SendMailOptions } from 'nodemailer'
 import { Counter, Histogram } from 'prom-client'
 
 import { CyclotronInvocationQueueParametersEmailType } from '~/cdp/schema/cyclotron'
-import { EmailTag } from '~/cdp/schema/emailFields'
+import { EmailAttachment, EmailAttachmentsSchema, EmailTag } from '~/cdp/schema/emailFields'
 import { HogFlowEmailSendingRateLimit, HogFlowEmailSendingRateLimitSchema } from '~/cdp/schema/hogflow'
 import {
     CyclotronJobInvocationHogFunction,
@@ -32,6 +32,7 @@ import {
 } from './email-tracking.service'
 import { mailDevTransport, mailDevWebUrl } from './helpers/maildev'
 import { maybeAddPreheaderToEmail } from './helpers/preheader'
+import { composeRawEmail, toMailAttachment } from './helpers/raw-mime'
 import { SES_SENSITIVE_TAG } from './helpers/ses'
 import { EmailTrackingCodeSigner, TRACKING_CODE_HEADER_NAME } from './helpers/tracking-code'
 import { addUtmTagsToEmail, renderUtmOverrides, resolveUtmTags } from './helpers/utm'
@@ -319,6 +320,12 @@ export function formatMailbox(name: string | undefined, email: string): string {
 
 export function emailTagProperties(tags: readonly EmailTag[]): Record<string, string> {
     return Object.fromEntries(tags.map((tag) => [tag.name, tag.value]))
+}
+
+// The workflow puts a code send's attachments on the email step's hog function. Checked again here so
+// an attachment from any path reaches the provider only in a shape the send route accepts.
+function codeSendAttachments(invocation: CyclotronJobInvocationHogFunction): EmailAttachment[] {
+    return EmailAttachmentsSchema.parse(invocation.hogFunction.metadata?.attachments ?? [])
 }
 
 export function parseAddressList(value?: string): string[] | undefined {
@@ -995,7 +1002,13 @@ export class EmailService {
         const ccAddresses = parseAddressList(params.cc)
         const bccAddresses = parseAddressList(params.bcc)
         const replyToAddresses = parseAddressList(params.replyTo)
+        const attachments = codeSendAttachments(result.invocation)
 
+        if (attachments.length) {
+            mailOptions.attachments = attachments.map(toMailAttachment)
+            mailOptions.disableFileAccess = true
+            mailOptions.disableUrlAccess = true
+        }
         if (ccAddresses) {
             mailOptions.cc = ccAddresses
         }
@@ -1041,43 +1054,73 @@ export class EmailService {
         )
         const shortTrackingCode = this.trackingCodeSigner.generateShort(result.invocation)
 
-        const htmlBody = params.html
+        const html = params.html
+            ? maybeAddPreheaderToEmail(
+                  trackingEnabled
+                      ? addTrackingToEmail(params.html, result.invocation, this.trackingCodeSigner, isTest, 'ses')
+                      : params.html,
+                  params.preheader
+              )
+            : undefined
+        const subject = sanitizeEmailSubject(params.subject)
+        const to = formatMailbox(params.to.name, params.to.email)
+        const replyToAddresses = parseAddressList(params.replyTo)
+        const ccAddresses = parseAddressList(params.cc)
+        const bccAddresses = parseAddressList(params.bcc)
+
+        // Authoritative tracking-code carrier: a custom MIME header. Header values aren't
+        // 256-char-bounded the way SES tag values are, so they safely carry the signed code
+        // (with distinct_id). The configuration set's event destination needs
+        // `IncludeOriginalHeaders: true` for the webhook to surface this header.
+        const trackingHeader: MessageHeader = { Name: TRACKING_CODE_HEADER_NAME, Value: trackingCode }
+        const isTransactionalEmail = result.invocation.hogFunction?.metadata?.message_category_type === 'transactional'
+        const unsubscribeHeaders = !isTransactionalEmail
+            ? this.generateUnsubscribeHeaders({
+                  team_id: result.invocation.teamId,
+                  identifier: params.to.email,
+              })
+            : []
+        const codeSendHeaders = (params.headers ?? []).map((header) => ({ Name: header.name, Value: header.value }))
+        const headers = [...codeSendHeaders, ...unsubscribeHeaders, trackingHeader, AUTO_SUBMITTED_HEADER]
+
+        const attachments = codeSendAttachments(result.invocation)
+        const content: SendEmailCommandInput['Content'] = attachments.length
             ? {
-                  Html: {
-                      Data: maybeAddPreheaderToEmail(
-                          trackingEnabled
-                              ? addTrackingToEmail(
-                                    params.html,
-                                    result.invocation,
-                                    this.trackingCodeSigner,
-                                    isTest,
-                                    'ses'
-                                )
-                              : params.html,
-                          params.preheader
-                      ),
-                      Charset: 'UTF-8',
+                  Raw: {
+                      Data: await composeRawEmail({
+                          from: formatMailbox(from.name, from.email),
+                          to,
+                          cc: ccAddresses,
+                          replyTo: replyToAddresses,
+                          subject,
+                          text: params.text,
+                          html,
+                          headers,
+                          attachments,
+                      }),
                   },
               }
-            : {}
+            : {
+                  Simple: {
+                      Subject: { Data: subject, Charset: 'UTF-8' },
+                      Body: {
+                          ...(params.text ? { Text: { Data: params.text, Charset: 'UTF-8' } } : {}),
+                          ...(html ? { Html: { Data: html, Charset: 'UTF-8' } } : {}),
+                      },
+                      Headers: headers,
+                  },
+              }
 
         const sendEmailParams: SendEmailCommandInput = {
             FromEmailAddress: formatMailbox(from.name, from.email),
             Destination: {
-                ToAddresses: [formatMailbox(params.to.name, params.to.email)],
+                ToAddresses: [to],
+                ...(ccAddresses ? { CcAddresses: ccAddresses } : {}),
+                ...(bccAddresses ? { BccAddresses: bccAddresses } : {}),
             },
-            Content: {
-                Simple: {
-                    Subject: {
-                        Data: sanitizeEmailSubject(params.subject),
-                        Charset: 'UTF-8',
-                    },
-                    Body: {
-                        ...(params.text ? { Text: { Data: params.text, Charset: 'UTF-8' } } : {}),
-                        ...htmlBody,
-                    },
-                },
-            },
+            Content: content,
+            // A raw message carries its own Reply-To header.
+            ...(replyToAddresses && content.Simple ? { ReplyToAddresses: replyToAddresses } : {}),
             ConfigurationSetName: this.resolveConfigurationSetName(trackingEnabled, result.invocation),
             // Short unsigned tag kept as a backwards-compat carrier for in-flight messages and
             // environments where the configuration set isn't yet emitting original headers.
@@ -1102,43 +1145,6 @@ export class EmailService {
         // attribution; test volume is far below the representative volume AWS needs for a
         // reputation finding.
         sendEmailParams.TenantName = `team-${result.invocation.teamId}`
-
-        // Authoritative tracking-code carrier: a custom MIME header. Header values aren't
-        // 256-char-bounded the way SES tag values are, so they safely carry the signed code
-        // (with distinct_id). The configuration set's event destination needs
-        // `IncludeOriginalHeaders: true` for the webhook to surface this header.
-        const trackingHeader: MessageHeader = { Name: TRACKING_CODE_HEADER_NAME, Value: trackingCode }
-
-        const isTransactionalEmail = result.invocation.hogFunction?.metadata?.message_category_type === 'transactional'
-        if (sendEmailParams.Content?.Simple) {
-            const unsubscribeHeaders = !isTransactionalEmail
-                ? this.generateUnsubscribeHeaders({
-                      team_id: result.invocation.teamId,
-                      identifier: params.to.email,
-                  })
-                : []
-            const codeSendHeaders = (params.headers ?? []).map((header) => ({ Name: header.name, Value: header.value }))
-            sendEmailParams.Content.Simple.Headers = [
-                ...codeSendHeaders,
-                ...unsubscribeHeaders,
-                trackingHeader,
-                AUTO_SUBMITTED_HEADER,
-            ]
-        }
-
-        const replyToAddresses = parseAddressList(params.replyTo)
-        const ccAddresses = parseAddressList(params.cc)
-        const bccAddresses = parseAddressList(params.bcc)
-
-        if (replyToAddresses) {
-            sendEmailParams.ReplyToAddresses = replyToAddresses
-        }
-        if (ccAddresses) {
-            sendEmailParams.Destination!.CcAddresses = ccAddresses
-        }
-        if (bccAddresses) {
-            sendEmailParams.Destination!.BccAddresses = bccAddresses
-        }
 
         try {
             const response = await this.sesV2Client.send(new SendEmailCommand(sendEmailParams))

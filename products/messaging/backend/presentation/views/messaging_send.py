@@ -20,6 +20,7 @@ from products.messaging.backend.facade.contracts import ContentHashState, Queued
 from products.messaging.backend.facade.templates import MessageTemplateMissing, find_template_to_send
 from products.messaging.backend.facade.transactional_email import (
     AcceptedSend,
+    EmailAttachment,
     EmailField,
     EmailSendCommand,
     RenderedContent,
@@ -30,6 +31,7 @@ from products.messaging.backend.facade.transactional_email import (
     code_send_from,
     rendered_content,
 )
+from products.messaging.backend.presentation.views.send_email_attachments import attachments_field
 from products.messaging.backend.presentation.views.send_email_fields import (
     MAX_COPIES,
     MAX_HEADER_VALUE_LENGTH,
@@ -79,7 +81,7 @@ class TemplateReferenceSerializer(serializers.Serializer):
 
 
 CODE_FORM_FIELDS = ("subject", "html", "text")
-CODE_SEND_FIELDS = ("from", "reply_to", "cc", "bcc", "headers", "tags")
+CODE_SEND_FIELDS = ("from", "reply_to", "cc", "bcc", "headers", "tags", "attachments")
 
 
 class SendEmailSerializer(SendTransactionalEmailSerializer):
@@ -143,6 +145,7 @@ class SendEmailSerializer(SendTransactionalEmailSerializer):
         help_text=f"Name and value pairs, at most {MAX_TAGS}, that PostHog adds to the email's engagement events "
         "as `$email_tags`. Not with `template.id`.",
     )
+    attachments = attachments_field()
     capture_engagement = serializers.BooleanField(
         required=False,
         help_text="Whether the email's engagement events (sent, delivered, opened, clicked, bounced) are captured "
@@ -458,6 +461,7 @@ class MessagingSendViewSet(TransactionalEmailViewSetMixin, viewsets.ViewSet):
             bcc=tuple(data.get("bcc", ())),
             headers=tuple(EmailField(name=name, value=value) for name, value in data.get("headers", {}).items()),
             tags=tuple(EmailField(name=tag["name"], value=tag["value"]) for tag in data.get("tags", ())),
+            attachments=tuple(EmailAttachment(**attachment) for attachment in data.get("attachments", ())),
         )
 
     @staticmethod

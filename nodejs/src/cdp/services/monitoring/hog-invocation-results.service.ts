@@ -249,6 +249,20 @@ const sendsSensitiveEmail = (invocation: CyclotronJobInvocationHogFlow): boolean
     return hasSensitiveEmailStep(invocation.hogFlow)
 }
 
+// A code send's attachments can hold the send route's whole size cap, so a snapshot lists each file
+// without its content.
+const describeAttachments = (state: CyclotronJobInvocationHogFlow['state']): object => {
+    const send = state?.send
+    if (!send?.attachments) {
+        return state ?? {}
+    }
+    const attachments = send.attachments.map(({ content, ...file }) => ({
+        ...file,
+        size: Buffer.byteLength(content, 'base64'),
+    }))
+    return { ...state, send: { ...send, attachments } }
+}
+
 const serializeInvocationGlobals = (invocation: CyclotronJobInvocation): string => {
     if (isHogFunctionInvocation(invocation)) {
         const { groups: _groups, person: _person, ...globals } = invocation.state.globals
@@ -257,13 +271,14 @@ const serializeInvocationGlobals = (invocation: CyclotronJobInvocation): string 
     if (isHogFlowInvocation(invocation)) {
         // Hog flow state can carry a per-action `currentAction.hogFunctionState.globals.inputs`
         // — `stripKeys` walks the tree and removes those too.
+        const state = describeAttachments(invocation.state)
         if (sendsSensitiveEmail(invocation)) {
             return JSON.stringify({
-                ...stripKeys(invocation.state ?? {}, SENSITIVE_KEYS),
+                ...stripKeys(state, SENSITIVE_KEYS),
                 [SENSITIVE_VARIABLES_OMITTED]: true,
             })
         }
-        return JSON.stringify(stripKeys(invocation.state ?? {}, INPUT_KEYS))
+        return JSON.stringify(stripKeys(state, INPUT_KEYS))
     }
     return '{}'
 }

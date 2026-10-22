@@ -594,6 +594,33 @@ class TestTransactionalEmail(APIBaseTest):
                 },
             ),
             (
+                "rendered_content_with_attachments",
+                {
+                    "text": "Hi",
+                    "attachments": [
+                        {
+                            "filename": "invite.ics",
+                            "content": "QkVHSU46VkNBTEVOREFS",
+                            "content_type": "text/calendar; method=REQUEST",
+                        },
+                        {"filename": "logo.png", "content": "iVBORw0KGgo=", "content_id": "logo"},
+                    ],
+                },
+                {
+                    "content": {"subject": "Welcome, Jane", "html": "<p>Hi {{ variables.name }}</p>", "text": "Hi"},
+                    "from": {"integrationId": "sender"},
+                    "attachments": [
+                        {
+                            "filename": "invite.ics",
+                            "content": "QkVHSU46VkNBTEVOREFS",
+                            "contentType": "text/calendar; method=REQUEST",
+                        },
+                        {"filename": "logo.png", "content": "iVBORw0KGgo=", "contentId": "logo"},
+                    ],
+                    "tracking": {"captureEngagement": True},
+                },
+            ),
+            (
                 "template_by_key_with_a_copy",
                 {"bcc": ["audit@example.com"]},
                 {"bcc": ["audit@example.com"], "tracking": {"captureEngagement": True}},

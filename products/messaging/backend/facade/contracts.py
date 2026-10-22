@@ -101,6 +101,17 @@ class EmailField:
 
 
 @frozen
+class EmailAttachment:
+    """A file a code send attaches to its email."""
+
+    filename: str
+    content: bytes
+    content_type: str | None = None
+    # Shows the file inline, where the HTML references it as `cid:<content_id>`.
+    content_id: str | None = None
+
+
+@frozen
 class AcceptedSend:
     """What a code send sets on its own, over what its workflow's email step holds."""
 
@@ -112,6 +123,7 @@ class AcceptedSend:
     bcc: tuple[str, ...] = ()
     headers: tuple[EmailField, ...] = ()
     tags: tuple[EmailField, ...] = ()
+    attachments: tuple[EmailAttachment, ...] = ()
 
 
 class SendRoute(LabeledStrEnum):

@@ -2,6 +2,7 @@
 per send, so sends get the workflow's metrics, run history and versions."""
 
 import re
+import base64
 from email.utils import parseaddr
 from typing import Any
 from uuid import UUID
@@ -18,6 +19,7 @@ from posthog.plugins.plugin_server_api import (
 
 from products.messaging.backend.facade.contracts import (
     AcceptedSend,
+    EmailAttachment,
     EmailSendCommand,
     EmailSendOutcome,
     MarketingTemplate,
@@ -426,7 +428,20 @@ def _send_payload(send: AcceptedSend) -> dict[str, Any]:
         payload["headers"] = [{"name": header.name, "value": header.value} for header in send.headers]
     if send.tags:
         payload["tags"] = [{"name": tag.name, "value": tag.value} for tag in send.tags]
+    if send.attachments:
+        payload["attachments"] = [_attachment_payload(attachment) for attachment in send.attachments]
     return payload
+
+
+def _attachment_payload(attachment: EmailAttachment) -> dict[str, Any]:
+    return _without_empty(
+        {
+            "filename": attachment.filename,
+            "content": base64.b64encode(attachment.content).decode(),
+            "contentType": attachment.content_type,
+            "contentId": attachment.content_id,
+        }
+    )
 
 
 def _without_empty(fields: dict[str, Any]) -> dict[str, Any]:
