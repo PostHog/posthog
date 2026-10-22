@@ -1,63 +1,46 @@
-import { useActions, useValues } from 'kea'
-import { type CSSProperties, useCallback, useRef, useState } from 'react'
+import { BindLogic, useActions, useValues } from 'kea'
+import { useCallback, useState } from 'react'
 
 import { IconCollapse45, IconExpand45, IconExternal, IconSidebarClose, IconSidebarOpen } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonModal, LemonTag, Spinner } from '@posthog/lemon-ui'
 
-import { Resizer } from 'lib/components/Resizer/Resizer'
-import { type ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { RecordingPlayerType } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { traceUrl } from 'lib/components/ViewTraceButton/traceUrl'
 import { FloatingContainerContext } from 'lib/hooks/useFloatingContainerContext'
 import { cn } from 'lib/utils/css-classes'
 import { pluralize } from 'lib/utils/strings'
 
-import { SpanInspector } from 'products/tracing/frontend/components/SpanInspector/SpanInspector'
-import { MissingParentSpanNotice } from 'products/tracing/frontend/components/TraceDrawer/MissingParentSpanNotice'
 import { TraceIdentityChips } from 'products/tracing/frontend/components/TraceDrawer/TraceIdentityChips'
 import { TraceLoadErrorNotice } from 'products/tracing/frontend/components/TraceDrawer/TraceLoadErrorNotice'
 import { TraceUnavailableNotice } from 'products/tracing/frontend/components/TraceDrawer/TraceUnavailableNotice'
 import { formatDuration } from 'products/tracing/frontend/TraceWaterfallView'
 
-import { TRACE_DIALOG_DATA_ATTR, traceDialogLogic } from './traceDialogLogic'
+import { TraceView } from '../TraceView/TraceView'
+import { traceViewLogic } from '../TraceView/traceViewLogic'
+import { TRACE_DIALOG_DATA_ATTR, TRACE_DIALOG_VIEW_ID, traceDialogLogic } from './traceDialogLogic'
 import { TraceDialogOpenedFromLog } from './TraceDialogOpenedFromLog'
 import { TraceDialogShortcuts } from './TraceDialogShortcuts'
-import { TraceDialogSpanTree } from './TraceDialogSpanTree'
 
-// Below this the attribute tables stop being readable, so a drag can't crush the inspector.
-const MIN_INSPECTOR_WIDTH = 320
+const TRACE_VIEW_PROPS = { id: TRACE_DIALOG_VIEW_ID }
 
 export function TraceDialog(): JSX.Element | null {
-    // Persisted under its own key: the dialog is wider than the drawer, so a split the person
-    // picked in one would be wrong in the other.
-    const inspectorRef = useRef<HTMLDivElement>(null)
-    const inspectorResizerProps: ResizerLogicProps = {
-        logicKey: 'trace-dialog-span-inspector',
-        placement: 'left',
-        containerRef: inspectorRef,
-        persistent: true,
-    }
-    const { desiredSize: inspectorWidth } = useValues(resizerLogic(inspectorResizerProps))
     const {
         isOpen,
         trace,
         traceSpans,
         traceSpansLoading,
         traceSpansFailed,
-        summary,
-        timeline,
-        selectedSpan,
-        missingParentSpanId,
-        serviceColorMap,
-        activeInspectorTab,
         sessionErrorBadgesEnabled,
         traceIdentity,
         traceSessionId,
         inspectorOpen,
         isFullscreen,
+        openedFrom,
+        openedAtUs,
     } = useValues(traceDialogLogic)
-    const { closeTraceDialog, loadTraceSpans, setInspectorTab, openInTracing, toggleInspector, toggleFullscreen } =
+    const { closeTraceDialog, loadTraceSpans, openInTracing, toggleInspector, toggleFullscreen } =
         useActions(traceDialogLogic)
+    const { summary, timeline } = useValues(traceViewLogic(TRACE_VIEW_PROPS))
     // The dialog sits above popovers, so the inspector's menus and drawers, and the person popover,
     // portal inside it instead.
     const [floatingContainer, setFloatingContainer] = useState<HTMLDivElement | null>(null)
@@ -154,61 +137,16 @@ export function TraceDialog(): JSX.Element | null {
                         // The dialog has no filters, and Open in Tracing below covers spans outside its time window.
                         <TraceUnavailableNotice traceId={trace.traceId} filtersActive={false} surface="trace_dialog" />
                     ) : (
-                        <div className="@container/trace-dialog flex flex-1 min-h-0">
-                            <div className="flex flex-1 min-w-0 min-h-0 flex-col @min-[56rem]/trace-dialog:flex-row">
-                                <div className="flex-1 min-w-0 min-h-0">
-                                    <TraceDialogSpanTree />
-                                </div>
-                                {inspectorOpen && (missingParentSpanId || selectedSpan) && (
-                                    <div
-                                        ref={inspectorRef}
-                                        // Half the body at most side by side, so the span tree keeps room for its timeline bars.
-                                        className="relative flex-1 min-h-0 border-t pt-4 @min-[56rem]/trace-dialog:flex-none @min-[56rem]/trace-dialog:w-(--trace-dialog-inspector-width) @min-[56rem]/trace-dialog:max-w-1/2 @min-[56rem]/trace-dialog:border-t-0 @min-[56rem]/trace-dialog:border-l @min-[56rem]/trace-dialog:pt-0"
-                                        // The dragged width applies only side by side; stacked, the inspector is full width.
-                                        // eslint-disable-next-line react/forbid-dom-props
-                                        style={
-                                            {
-                                                '--trace-dialog-inspector-width':
-                                                    inspectorWidth != null
-                                                        ? `${Math.max(MIN_INSPECTOR_WIDTH, inspectorWidth)}px`
-                                                        : '40%',
-                                            } as CSSProperties
-                                        }
-                                        data-attr="trace-dialog-inspector"
-                                    >
-                                        <Resizer
-                                            {...inspectorResizerProps}
-                                            className="hidden @min-[56rem]/trace-dialog:block"
-                                        />
-                                        {/* Scrolls inside the sized box, so the drag handle stays put. */}
-                                        <div className="h-full overflow-y-auto @min-[56rem]/trace-dialog:pl-4">
-                                            {missingParentSpanId ? (
-                                                <MissingParentSpanNotice
-                                                    traceId={trace.traceId}
-                                                    parentSpanId={missingParentSpanId}
-                                                />
-                                            ) : selectedSpan ? (
-                                                <SpanInspector
-                                                    span={selectedSpan}
-                                                    serviceColorMap={serviceColorMap}
-                                                    traceTimestamp={
-                                                        summary.rootSpan?.timestamp ?? selectedSpan.timestamp
-                                                    }
-                                                    sessionId={traceSessionId}
-                                                    showErrorsTab={sessionErrorBadgesEnabled}
-                                                    errorsScope="span"
-                                                    resolving={false}
-                                                    tab={activeInspectorTab}
-                                                    onSelectTab={setInspectorTab}
-                                                    // The dialog has no span list for an attribute filter to narrow.
-                                                    showFilterActions={false}
-                                                />
-                                            ) : null}
-                                        </div>
-                                    </div>
-                                )}
-                            </div>
-                        </div>
+                        <BindLogic logic={traceViewLogic} props={TRACE_VIEW_PROPS}>
+                            <TraceView
+                                traceId={trace.traceId}
+                                inspectorOpen={inspectorOpen}
+                                sessionId={traceSessionId}
+                                showErrorsTab={sessionErrorBadgesEnabled}
+                                openedFrom={openedFrom}
+                                openedAtUs={openedAtUs}
+                            />
+                        </BindLogic>
                     )}
                 </div>
                 <div ref={floatingContainerRef} />

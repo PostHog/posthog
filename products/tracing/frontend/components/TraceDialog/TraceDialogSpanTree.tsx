@@ -8,7 +8,8 @@ import { SizeProps } from 'lib/components/AutoSizer/AutoSizer'
 import { getTimelineTicks } from 'products/tracing/frontend/spanTree'
 import { formatDuration } from 'products/tracing/frontend/TraceWaterfallView'
 
-import { traceDialogLogic, type TraceDialogSource, type TraceDialogTimeline } from './traceDialogLogic'
+import { traceViewLogic, type TraceViewTimeline } from '../TraceView/traceViewLogic'
+import type { TraceDialogSource } from './traceDialogLogic'
 import { TraceDialogMoreSpansRow } from './TraceDialogMoreSpansRow'
 import { rowSpanNode, type TraceDialogRow } from './traceDialogRows'
 import { TraceDialogSpanRow } from './TraceDialogSpanRow'
@@ -19,7 +20,7 @@ interface SpanListRowData {
     spanRows: TraceDialogRow[]
     descendantCounts: Map<string, number>
     collapsedSpanIds: Set<string>
-    timeline: TraceDialogTimeline
+    timeline: TraceViewTimeline
     serviceColorMap: Map<string, number>
     selectedSpanId: string | null
     openedSpanId: string | null
@@ -121,7 +122,12 @@ function rowLabel(row: TraceDialogRow): string {
 
 const MAX_PINNED_ANCESTORS = 4
 
-export function TraceDialogSpanTree(): JSX.Element {
+export interface TraceDialogSpanTreeProps {
+    openedFrom: TraceDialogSource | null
+    openedAtUs: number | null
+}
+
+export function TraceDialogSpanTree({ openedFrom, openedAtUs }: TraceDialogSpanTreeProps): JSX.Element {
     const {
         spanRows,
         spanTree,
@@ -130,14 +136,11 @@ export function TraceDialogSpanTree(): JSX.Element {
         serviceColorMap,
         selectedSpan,
         missingParentSpanId,
-        trace,
-        openedAtUs,
-        openedFrom,
-    } = useValues(traceDialogLogic)
-    const { selectSpan, toggleSpanCollapsed, toggleChain, showAllChildren } = useActions(traceDialogLogic)
+        pinnedSpanId: openedSpanId,
+    } = useValues(traceViewLogic)
+    const { selectSpan, toggleSpanCollapsed, toggleChain, showAllChildren } = useActions(traceViewLogic)
     const [topIndex, setTopIndex] = useState(0)
     const listRef = useListRef(null)
-    const openedSpanId = trace?.spanId ?? null
 
     const openedIndex = useMemo(
         () =>
