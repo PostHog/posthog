@@ -106,6 +106,12 @@ BEHAVIORAL_BACKFILL_PERSON_READINESS_ENABLED: bool = get_from_env(
 BEHAVIORAL_BACKFILL_FINALIZER_MAX_RUNS_PER_PASS: int = get_from_env(
     "BEHAVIORAL_BACKFILL_FINALIZER_MAX_RUNS_PER_PASS", 500, type_cast=int
 )
+# Read-only DSN for the behavioral cohorts database that holds `cohort_membership`. Only the
+# `manage_cohort_backfill_runs audit` command reads it, through its own short-lived psycopg
+# connection, so Django never routes ORM queries there. Point it at a reader endpoint with a role
+# that can only SELECT `cohort_membership`. Unset means the audit refuses to run. The name matches
+# the flags service's reader setting, so one secret can serve both.
+BEHAVIORAL_COHORTS_READ_DATABASE_URL: str = os.getenv("BEHAVIORAL_COHORTS_READ_DATABASE_URL", "")
 # Kill switch for incremental cohort dependency cache maintenance. Off, every cohort create, delete,
 # and dependency change rescans the whole team, which is the cost the incremental path removes. The
 # fallback exists because a wrong incremental update only shows up as a shorter recalculation chain,

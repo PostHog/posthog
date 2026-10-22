@@ -181,7 +181,7 @@ Only a direct call to a creator function, for example from a shell, writes a `bl
 
 ## Operator tools
 
-Two management commands cover operator work.
+Two management commands cover operator work, and `manage_cohort_backfill_runs` has three subcommands.
 
 - `create_cohort_backfill_run` creates team-scoped runs, behavioral or person, including disaster-recovery runs with a pinned boundary.
   It can narrow the run to chosen cohorts, which is how an operator re-drives one cohort whose trigger was lost.
@@ -194,6 +194,28 @@ Two management commands cover operator work.
 - `manage_cohort_backfill_runs inventory` lists and classifies active runs.
   `manage_cohort_backfill_runs terminalize` cancels chosen runs.
   It is a dry run unless told otherwise, and it never cancels a run that already stamped.
+- `manage_cohort_backfill_runs audit --team-id N` finds cohorts stamped ready over a membership table that does not hold their members.
+  A stamp does not prove the table is populated, as [completion and readiness](completion-and-readiness.md#what-a-stamp-does-not-mean) explains, so readers can treat real members as non-members without any error.
+  For each realtime cohort of the team with any readiness stamp, including the legacy calculation stamp, it counts the `in_cohort = true` rows in `cohort_membership` and compares that with `Cohort.count`, the batch population at the cohort's `version`.
+  A cohort is `zero_members` when the batch has members and the table has none, `divergent` when the two differ by more than `--threshold` of the batch count (0.5 by default), and `ok` otherwise.
+  `no_batch` means no batch calculation has finished, and `unreadable` means the count ran past its statement timeout.
+  Only `zero_members` and `divergent` are flagged.
+  The `composed` column marks cohorts with two or more leaves or a cohort reference, the shapes most exposed to a missed recomposition.
+  The batch count is only as fresh as `last_calculation`, so check the age column before you act on a small divergence.
+  `--cohort-ids` narrows the audit.
+  `--clear-stamps` nulls every readiness stamp of the flagged cohorts, and invalidates the same caches the finalizer invalidates after it stamps.
+  The flags service then evaluates those cohorts dynamically instead of from the table, and Django stops treating them as flag-compatible.
+  The write fences on the stamps the audit read, so a stamp written in the meantime stays.
+  It bypasses `Cohort.save()`, so it supersedes no run and moves no shape hash.
+  `--rerun` creates one team-scoped `team_enablement` run per kind the flagged cohorts need, through the same creators as `create_cohort_backfill_run`.
+  It refuses when an attestation is missing, a flagged cohort already has an open participation, or the team's run slot for that kind is taken, and prints the reason.
+  A person run uses `--person-horizon-days`, or `BEHAVIORAL_BACKFILL_PERSON_DEFAULT_HORIZON_DAYS` when it is not passed.
+  It does not run the behavioral scan estimate, so on a busy team run `create_cohort_backfill_run --dry-run` with the same cohorts first.
+  Both changes ask for confirmation unless `--yes` is passed.
+  Clearing stamps without `--rerun` leaves the cohorts out of flags until some run stamps them.
+  The audit reads the behavioral cohorts database through `BEHAVIORAL_COHORTS_READ_DATABASE_URL`, its own read-only psycopg connection outside Django's `DATABASES`.
+  Each count runs in a read-only transaction with a short statement timeout.
+  When the setting is unset, the command stops with an error that names it.
 
 ## When things go wrong
 

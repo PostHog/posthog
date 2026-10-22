@@ -136,6 +136,15 @@ def _dispatch_flags_cache_update(team_id: int) -> None:
     current_app.send_task(FLAGS_CACHE_TASK, args=(team_id,), queue=CeleryQueue.FEATURE_FLAGS.value)
 
 
+def invalidate_team_readiness_caches(team_id: int) -> None:
+    """Drop the team's cached cohort readiness after a stamp write that bypassed model signals.
+
+    Call it only after the stamp write has committed, or a rebuild can cache the old stamps again.
+    """
+    invalidate_team_behavioral_cohort_cache(team_id)
+    _dispatch_flags_cache_update(team_id)
+
+
 def finalize_backfill_runs() -> FinalizerPass:
     """One finalizer pass. Returns a summary so callers/tests can assert without scraping logs."""
     result = FinalizerPass()
@@ -214,8 +223,7 @@ def finalize_backfill_runs() -> FinalizerPass:
     # after the per-run transactions have committed.
     for team_id in teams_to_invalidate:
         try:
-            invalidate_team_behavioral_cohort_cache(team_id)
-            _dispatch_flags_cache_update(team_id)
+            invalidate_team_readiness_caches(team_id)
         except Exception:
             logger.exception("cohort_backfill_finalizer_cache_invalidation_failed", team_id=team_id)
             continue

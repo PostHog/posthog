@@ -6,6 +6,10 @@ the finalizer would stamp. `terminalize` cancels the ones that can never finish,
 uniqueness slot that otherwise blocks their cohort or team from backfilling again. Mutating actions
 are dry run by default.
 
+`audit` compares each stamped realtime cohort of one team against its batch population and flags the
+ones whose `cohort_membership` rows are missing or far off. `--clear-stamps` takes them out of flag
+routing and `--rerun` rebuilds them. It reads `BEHAVIORAL_COHORTS_READ_DATABASE_URL`.
+
 Order matters when turning the finalizer on, because a readiness stamp cannot be undone:
 
   1. Deploy with `BEHAVIORAL_BACKFILL_FINALIZER_RUN_ALLOWLIST` set to a verified list or `none`.
@@ -31,6 +35,16 @@ from django.core.serializers.json import DjangoJSONEncoder
 import structlog
 
 from products.cohorts.backend.backfill.allowlist import parse_run_allowlist
+from products.cohorts.backend.backfill.audit import (
+    DEFAULT_DIVERGENCE_THRESHOLD,
+    CohortMembershipAuditRow,
+    MembershipAuditReport,
+    MembershipStoreNotConfigured,
+    audit_team_membership,
+    clear_readiness_stamps,
+    create_rebuild_runs,
+    open_realtime_membership_reader,
+)
 from products.cohorts.backend.backfill.inventory import (
     AGE_GATED_TERMINALIZE_CLASSIFICATIONS,
     DEFAULT_MAX_CHUNK_ATTEMPTS,
@@ -56,7 +70,10 @@ DRY_RUN_MESSAGE = "Dry run, nothing written. Re-run with --live-run to apply."
 
 
 class Command(BaseCommand):
-    help = "Inventory the active cohort backfill runs, and cancel the ones that can never finish."
+    help = (
+        "Inventory the active cohort backfill runs, cancel the ones that can never finish, "
+        "and audit stamped cohorts against their batch population."
+    )
 
     def add_arguments(self, parser: CommandParser) -> None:
         subparsers = parser.add_subparsers(dest="action", required=True)
@@ -82,6 +99,33 @@ class Command(BaseCommand):
         terminalize.add_argument("--live-run", action="store_true")
         terminalize.add_argument("--yes", action="store_true", help="Skip the confirmation prompt.")
         terminalize.add_argument("--max-runs", type=int, default=MAX_RUNS_DEFAULT)
+
+        audit = subparsers.add_parser(
+            "audit", help="Find stamped realtime cohorts whose realtime membership is empty or far from batch."
+        )
+        audit.add_argument("--team-id", type=int, required=True)
+        audit.add_argument("--cohort-ids", type=int, nargs="+", default=None)
+        audit.add_argument(
+            "--threshold",
+            type=float,
+            default=DEFAULT_DIVERGENCE_THRESHOLD,
+            help="Flag a cohort when |realtime - batch| / batch is above this.",
+        )
+        audit.add_argument(
+            "--clear-stamps",
+            action="store_true",
+            help="Null the flagged cohorts' readiness stamps, so flags stop reading their membership table.",
+        )
+        audit.add_argument(
+            "--rerun", action="store_true", help="Create one team backfill run per kind the flagged cohorts need."
+        )
+        audit.add_argument(
+            "--person-horizon-days",
+            type=int,
+            default=None,
+            help="Horizon of a person-property rebuild run. Defaults to BEHAVIORAL_BACKFILL_PERSON_DEFAULT_HORIZON_DAYS.",
+        )
+        audit.add_argument("--yes", action="store_true", help="Skip the confirmation prompt.")
 
     def _add_target_args(self, parser: CommandParser) -> None:
         parser.add_argument("--team-id", type=int, default=None)
@@ -114,6 +158,9 @@ class Command(BaseCommand):
     def handle(self, *args: Any, **options: Any) -> None:
         if options["action"] == "inventory":
             self._inventory(options)
+            return
+        if options["action"] == "audit":
+            self._audit(options)
             return
         self._terminalize(options)
 
@@ -269,6 +316,95 @@ class Command(BaseCommand):
             )
         )
 
+    # -- audit ------------------------------------------------------------------
+
+    def _audit(self, options: dict[str, Any]) -> None:
+        team_id: int = options["team_id"]
+        if options["threshold"] < 0:
+            raise CommandError("--threshold must be 0 or more")
+        person_horizon_days: int = (
+            settings.BEHAVIORAL_BACKFILL_PERSON_DEFAULT_HORIZON_DAYS
+            if options["person_horizon_days"] is None
+            else options["person_horizon_days"]
+        )
+
+        try:
+            with open_realtime_membership_reader() as reader:
+                report = audit_team_membership(
+                    team_id, reader=reader, cohort_ids=options["cohort_ids"], threshold=options["threshold"]
+                )
+        except MembershipStoreNotConfigured as error:
+            raise CommandError(str(error)) from error
+
+        self._print_audit(report)
+        clear_stamps: bool = options["clear_stamps"]
+        rerun: bool = options["rerun"]
+        if not clear_stamps and not rerun:
+            if report.flagged:
+                self.stdout.write(
+                    "Pass --clear-stamps and --rerun to take the flagged cohorts out of flags and rebuild them."
+                )
+            return
+        if not report.flagged:
+            self.stdout.write("Nothing flagged, nothing to change.")
+            return
+
+        actions = [label for label, wanted in (("clear the stamps of", clear_stamps), ("rebuild", rerun)) if wanted]
+        self._confirm(
+            f"{' and '.join(actions).capitalize()} {len(report.flagged)} cohort(s) of team {team_id}? "
+            "Type 'apply' to continue: ",
+            "apply",
+            yes=options["yes"],
+        )
+
+        # Stamps first, so readers stop routing the cohorts to the table before the rebuild starts.
+        if clear_stamps:
+            cleared = clear_readiness_stamps(report)
+            self.stdout.write(
+                self.style.SUCCESS(f"Cleared the readiness stamps of {len(cleared.cleared_cohort_ids)} cohort(s).")
+            )
+            if cleared.moved_cohort_ids:
+                self.stdout.write(
+                    self.style.WARNING(
+                        f"  Left {list(cleared.moved_cohort_ids)} alone, because their stamps changed after the audit."
+                    )
+                )
+            if not rerun:
+                self.stdout.write(
+                    self.style.WARNING(
+                        "  No run was created, so these cohorts stay out of flags until a run stamps them. "
+                        "Run the audit with --rerun when the pipeline can rebuild them."
+                    )
+                )
+
+        if rerun:
+            for outcome in create_rebuild_runs(report, person_horizon_days=person_horizon_days):
+                cohorts = list(outcome.cohort_ids)
+                if outcome.run_id is not None:
+                    self.stdout.write(self.style.SUCCESS(f"Created {outcome.kind} run {outcome.run_id} for {cohorts}."))
+                else:
+                    self.stdout.write(self.style.WARNING(f"No {outcome.kind} run for {cohorts}: {outcome.refusal}"))
+
+    def _print_audit(self, report: MembershipAuditReport) -> None:
+        self.stdout.write(
+            self.style.MIGRATE_HEADING(
+                f"Stamped realtime cohorts of team {report.team_id}: {len(report.rows)}, "
+                f"{len(report.flagged)} flagged at threshold {report.threshold}"
+            )
+        )
+        header = ("cohort", "classification", "composed", "realtime", "batch", "batch_age", "needs", "stamps", "name")
+        lines = [header, *(_audit_cells(row) for row in report.rows)]
+        widths = [max(len(line[index]) for line in lines) for index in range(len(header))]
+        for line in lines:
+            self.stdout.write("  " + "  ".join(cell.ljust(width) for cell, width in zip(line, widths)).rstrip())
+        for row in report.rows:
+            if row.detail:
+                self.stdout.write(f"  cohort {row.cohort_id}: {row.detail}")
+        if report.skipped_cohort_ids:
+            self.stdout.write(
+                f"Not audited, because they are not stamped realtime cohorts of the team: {list(report.skipped_cohort_ids)}"
+            )
+
     # -- shared -----------------------------------------------------------------
 
     def _collect(self, options: dict[str, Any]) -> list[RunInventoryRow]:
@@ -323,6 +459,20 @@ def _parse_run_ids(raw_ids: list[str] | None) -> list[UUID] | None:
         return [UUID(raw) for raw in raw_ids]
     except ValueError as error:
         raise CommandError(f"--run-id must be a UUID: {error}")
+
+
+def _audit_cells(row: CohortMembershipAuditRow) -> tuple[str, ...]:
+    return (
+        str(row.cohort_id),
+        row.classification,
+        "yes" if row.composed else "no",
+        "-" if row.realtime_members is None else str(row.realtime_members),
+        "-" if row.batch_members is None else str(row.batch_members),
+        "-" if row.batch_calculated_at is None else _age(row.batch_calculated_at),
+        ",".join(row.needed_kinds) or "-",
+        ",".join(name.removeprefix("last_").removesuffix("_at") for name in row.stamps.set_names()),
+        row.name,
+    )
 
 
 def _age(moment: datetime) -> str:
