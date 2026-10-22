@@ -1,6 +1,7 @@
 import re
 import html
 import uuid
+import hashlib
 import smtplib
 import datetime
 import dataclasses
@@ -54,9 +55,9 @@ def inline_css(value: str) -> str:
 def is_http_email_service_available() -> bool:
     """
     Returns whether HTTP email services are available on this instance (i.e. settings are in place).
-    This currently only supports Customer.io.
+    These are Customer.io and the Workflows transactional email API.
     """
-    return bool(settings.CUSTOMER_IO_API_KEY)
+    return bool(settings.CUSTOMER_IO_API_KEY or settings.WORKFLOWS_TRANSACTIONAL_EMAIL_API_KEY)
 
 
 def is_smtp_email_service_available() -> bool:
@@ -164,6 +165,24 @@ CUSTOMER_IO_TEMPLATE_ID_MAP = {
     "loop_run_summary": "77",
 }
 
+# Message template ids in the US project, for templates that can send through Workflows instead of Customer.io.
+# A template sends through Workflows only for recipients the flag below matches.
+WORKFLOWS_TEMPLATE_ID_MAP: dict[str, str] = {
+    "approval_requested": "01a16311-33e6-0000-c533-f383fd8e70f0",
+    "password_reset": "01a1597a-5d91-0000-99fa-9eeb18d293c5",
+    "proxy_provisioned": "01a16311-b3de-0000-8aec-7c865f3e5432",
+}
+
+# Release conditions match the `email` and `transactional_email_template` person properties passed at evaluation,
+# so one flag picks both the recipients and the templates that move.
+WORKFLOWS_TRANSACTIONAL_EMAIL_FLAG = "transactional-emails-via-workflows"
+
+EMAIL_WORKFLOWS_FALLBACK_COUNTER = Counter(
+    "posthog_email_workflows_fallback_total",
+    "Emails that Workflows refused and Customer.io sent instead, by template.",
+    labelnames=["template_name"],
+)
+
 
 def get_email_team_and_org_context(
     team: Optional["Team"] = None,
@@ -204,24 +223,144 @@ def get_customer_io_template_id(template_name: str) -> str:
     return template_id
 
 
-# Note: this http sender is only configure for customer.io right now and it's set up to send
-# via templates so all the configuration is done in the customer.io - i.e. no subject, body, etc.
+class WorkflowsSendRejected(Exception):
+    """Workflows did not take the email, so another provider can send it without a duplicate."""
+
+
+def get_workflows_template_id(template_name: str, dest: dict[str, str]) -> str | None:
+    """The message template to send this email with through Workflows, or None to send it through Customer.io."""
+    template_id = {**WORKFLOWS_TEMPLATE_ID_MAP, **settings.WORKFLOWS_TRANSACTIONAL_EMAIL_TEMPLATE_IDS}.get(
+        template_name
+    )
+    if not template_id or not settings.WORKFLOWS_TRANSACTIONAL_EMAIL_API_KEY:
+        return None
+    try:
+        enabled = posthoganalytics.feature_enabled(
+            WORKFLOWS_TRANSACTIONAL_EMAIL_FLAG,
+            dest.get("distinct_id") or dest["raw_email"],
+            person_properties={"email": dest["raw_email"], "transactional_email_template": template_name},
+            send_feature_flag_events=False,
+        )
+    except Exception as err:
+        logger.warning("email_workflows_flag_check_failed", template_name=template_name, error=str(err))
+        return None
+    return template_id if enabled else None
+
+
+def _unescape_for_liquid(value: Any, key: Any = None) -> Any:
+    """Undo the html.escape in sanitize_email_properties, and keep the URL defang.
+
+    Customer.io outputs Liquid values as they are, so the properties arrive pre-escaped. Workflows escapes Liquid
+    output itself, so a pre-escaped value renders as `&amp;amp;` and shows the entity to the reader.
+    """
+    if key is not None and _classify_key(key) == "passthrough":
+        return value
+    if isinstance(value, str):
+        return html.unescape(value)
+    if isinstance(value, dict):
+        return {k: _unescape_for_liquid(v, key=k) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_unescape_for_liquid(item) for item in value]
+    return value
+
+
+def _send_one_via_workflows(
+    dest: dict[str, str], campaign_key: str, template_id: str, properties: dict
+) -> dict[str, Any]:
+    # Workflows templates read only `variables.*`, so the Customer.io `customer.*` attributes travel in the data.
+    customer = {"email": dest["raw_email"]}
+    if dest.get("distinct_id"):
+        customer["id"] = dest["distinct_id"]
+    if dest.get("first_name"):
+        customer["first_name"] = sanitize_email_string(dest["first_name"])
+    payload: dict[str, Any] = {
+        "to": dest["raw_email"],
+        "message_data": _unescape_for_liquid({**properties, "customer": customer}),
+    }
+    if dest.get("distinct_id"):
+        payload["identifiers"] = {"distinct_id": dest["distinct_id"]}
+
+    # A retry after a read timeout must not send the email twice.
+    idempotency_key = hashlib.sha256(f"{campaign_key}\n{dest['raw_email']}".encode()).hexdigest()
+    try:
+        response = requests.post(
+            f"{settings.WORKFLOWS_TRANSACTIONAL_EMAIL_API_URL}/api/projects/"
+            f"{settings.WORKFLOWS_TRANSACTIONAL_EMAIL_PROJECT_ID}/messaging_templates/{template_id}/send/",
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {settings.WORKFLOWS_TRANSACTIONAL_EMAIL_API_KEY}",
+                "Idempotency-Key": idempotency_key,
+            },
+            json=payload,
+            timeout=30,
+        )
+    except requests.ConnectionError as err:
+        # The request never reached Workflows. A read timeout is not caught here, because Workflows can have
+        # queued the email before it timed out.
+        raise WorkflowsSendRejected(str(err)) from err
+
+    if response.status_code == 409:
+        # An earlier attempt with this key is still in flight and can still send.
+        raise Exception(f"Workflows API error: {response.status_code} - {response.text}")
+    if response.status_code != 202:
+        raise WorkflowsSendRejected(f"{response.status_code} - {response.text}")
+    return response.json()
+
+
+def _send_one_via_customer_io(dest: dict[str, str], template_name: str, properties: dict) -> dict[str, Any]:
+    if not settings.CUSTOMER_IO_API_KEY:
+        raise Exception("Missing Customer.io API key")
+
+    identifiers: dict[str, str] = {"email": dest["raw_email"]}
+    if dest.get("distinct_id"):
+        identifiers["id"] = dest["distinct_id"]
+
+    payload = {
+        "transactional_message_id": get_customer_io_template_id(template_name),
+        "to": dest["raw_email"],
+        "identifiers": identifiers,
+        "message_data": properties,
+    }
+
+    response = requests.post(
+        f"{settings.CUSTOMER_IO_API_URL}/v1/send/email",
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {settings.CUSTOMER_IO_API_KEY}",
+        },
+        json=payload,
+        timeout=30,
+    )
+
+    if response.status_code != 200:
+        raise Exception(f"Customer.io API error: {response.status_code} - {response.text}")
+
+    return response.json()
+
+
+def _send_one(dest: dict[str, str], campaign_key: str, template_name: str, properties: dict) -> tuple[str, dict]:
+    """Send one email and return the provider that sent it with the provider's response."""
+    workflows_template_id = get_workflows_template_id(template_name, dest)
+    if workflows_template_id:
+        try:
+            return "workflows", _send_one_via_workflows(dest, campaign_key, workflows_template_id, properties)
+        except WorkflowsSendRejected as err:
+            logger.warning("email_workflows_send_rejected", template_name=template_name, error=str(err))
+            EMAIL_WORKFLOWS_FALLBACK_COUNTER.labels(template_name=template_name).inc()
+    return "customer_io", _send_one_via_customer_io(dest, template_name, properties)
+
+
+# Note: this http sender is set up to send via templates, so all the configuration is done in Customer.io or in
+# the Workflows message template - i.e. no subject, body, etc.
 def _send_via_http(
     to: list[dict[str, str]],
     campaign_key: str,
     template_name: str,
     properties: dict,
 ) -> None:
-    """Sends emails using Customer.io API"""
-    customerio_api_key = settings.CUSTOMER_IO_API_KEY
-
-    if not customerio_api_key:
-        raise Exception("Missing Customer.io API key")
-
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {customerio_api_key}",
-    }
+    """Sends emails using the Customer.io API, or the Workflows transactional email API where the flag matches"""
+    if not is_http_email_service_available():
+        raise Exception("Missing Customer.io and Workflows API keys")
 
     sent_count = 0
     already_sent_count = 0  # delivered in a prior run — not a failure if the batch later aborts
@@ -237,25 +376,7 @@ def _send_via_http(
                     already_sent_count += 1
                     continue
 
-                identifiers: dict[str, str] = {"email": dest["raw_email"]}
-                if dest.get("distinct_id"):
-                    identifiers["id"] = dest["distinct_id"]
-
-                payload = {
-                    "transactional_message_id": get_customer_io_template_id(template_name),
-                    "to": dest["raw_email"],
-                    "identifiers": identifiers,
-                    "message_data": properties,
-                }
-
-                response = requests.post(
-                    f"{settings.CUSTOMER_IO_API_URL}/v1/send/email", headers=headers, json=payload, timeout=30
-                )
-
-                if response.status_code != 200:
-                    raise Exception(f"Customer.io API error: {response.status_code} - {response.text}")
-
-                provider_response = response.json()
+                provider, provider_response = _send_one(dest, campaign_key, template_name, properties)
 
                 # Mark delivery before any non-essential step so a delivered email is never
                 # recorded as rejected (raise_if_delivery_rejected keys off sent_at). Analytics
@@ -271,6 +392,7 @@ def _send_via_http(
                             "template_name": template_name,
                             "campaign_key": campaign_key,
                             "recipient_email": dest["raw_email"],
+                            "provider": provider,
                             **provider_response,
                         },
                     )
@@ -584,6 +706,8 @@ class EmailMessage:
         }
         if distinct_id:
             recipient_data["distinct_id"] = distinct_id
+        if name:
+            recipient_data["first_name"] = name
         self.to.append(recipient_data)
 
     def add_user_recipient(self, user: "User", email_override: Optional[str] = None) -> None:

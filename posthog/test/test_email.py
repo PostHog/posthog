@@ -339,6 +339,7 @@ class TestEmail(BaseTest):
                     "template_name": "2fa_enabled",
                     "campaign_key": "test_campaign",
                     "recipient_email": "test@posthog.com",
+                    "provider": "customer_io",
                     "delivery_id": "test_delivery_id",
                     "queued_at": 1604977406,
                 },
@@ -398,6 +399,94 @@ class TestEmail(BaseTest):
             # Verify the message wasn't marked as sent
             record = MessagingRecord.objects.filter(campaign_key="test_campaign").first()
             self.assertIsNone(record)
+
+    @parameterized.expand(
+        [
+            ("workflows_accepts", True, [202], ["workflows"], "workflows"),
+            ("workflows_rejects_falls_back", True, [400, 200], ["workflows", "customer_io"], "customer_io"),
+            ("workflows_in_flight_sends_nothing", True, [409], ["workflows"], None),
+            ("flag_off_uses_customer_io", False, [200], ["customer_io"], "customer_io"),
+        ]
+    )
+    @patch("posthoganalytics.capture")
+    @patch("posthog.email.posthoganalytics.feature_enabled")
+    @patch("posthog.email.requests.post")
+    def test_send_via_http_routes_through_workflows_when_flag_matches(
+        self,
+        _name: str,
+        flag_enabled: bool,
+        status_codes: list[int],
+        expected_providers: list[str],
+        sent_by: str | None,
+        mock_post: MagicMock,
+        mock_feature_enabled: MagicMock,
+        mock_capture: MagicMock,
+    ) -> None:
+        mock_feature_enabled.return_value = flag_enabled
+        responses = []
+        for status_code in status_codes:
+            response = MagicMock(status_code=status_code, text="error")
+            response.json.return_value = {"message_id": "m1"} if status_code == 202 else {"delivery_id": "d1"}
+            responses.append(response)
+        mock_post.side_effect = responses
+
+        with (
+            override_instance_config("EMAIL_HOST", "localhost"),
+            self.settings(
+                CUSTOMER_IO_API_KEY="cio-key",
+                WORKFLOWS_TRANSACTIONAL_EMAIL_API_KEY="phs_test",
+                WORKFLOWS_TRANSACTIONAL_EMAIL_API_URL="https://us.posthog.com",
+                WORKFLOWS_TRANSACTIONAL_EMAIL_PROJECT_ID=2,
+                WORKFLOWS_TRANSACTIONAL_EMAIL_TEMPLATE_IDS={"2fa_enabled": "tmpl-1"},
+            ),
+        ):
+            message = EmailMessage(
+                campaign_key="routing_campaign",
+                subject="Test subject",
+                template_name="2fa_enabled",
+                template_context={"team_name": "O'Brien & Co", "url": "https://app.posthog.com/r?a=1&b=2"},
+                use_http=True,
+            )
+            message.add_recipient("test@posthog.com", "Test", distinct_id="user-1")
+            message.send(send_async=False)
+
+        providers = [
+            "workflows" if call.args[0].startswith("https://us.posthog.com") else "customer_io"
+            for call in mock_post.call_args_list
+        ]
+        self.assertEqual(providers, expected_providers)
+        mock_feature_enabled.assert_called_once_with(
+            "transactional-emails-via-workflows",
+            "user-1",
+            person_properties={"email": "test@posthog.com", "transactional_email_template": "2fa_enabled"},
+            send_feature_flag_events=False,
+        )
+
+        workflows_call = next((c for c in mock_post.call_args_list if c.args[0].startswith("https://us.")), None)
+        if workflows_call is not None:
+            self.assertEqual(
+                workflows_call.args[0], "https://us.posthog.com/api/projects/2/messaging_templates/tmpl-1/send/"
+            )
+            self.assertEqual(workflows_call.kwargs["headers"]["Authorization"], "Bearer phs_test")
+            self.assertIn("Idempotency-Key", workflows_call.kwargs["headers"])
+            payload = workflows_call.kwargs["json"]
+            self.assertEqual(payload["identifiers"], {"distinct_id": "user-1"})
+            # Workflows escapes Liquid output itself, so values must arrive unescaped or they render as &amp;amp;
+            self.assertEqual(payload["message_data"]["team_name"], "O'Brien & Co")
+            self.assertEqual(payload["message_data"]["url"], "https://app.posthog.com/r?a=1&b=2")
+            self.assertEqual(
+                payload["message_data"]["customer"],
+                {"email": "test@posthog.com", "id": "user-1", "first_name": "Test"},
+            )
+
+        record = MessagingRecord.objects.filter(campaign_key="routing_campaign").first()
+        if sent_by is None:
+            self.assertTrue(record is None or record.sent_at is None)
+            mock_capture.assert_not_called()
+        else:
+            assert record is not None
+            self.assertIsNotNone(record.sent_at)
+            self.assertEqual(mock_capture.call_args.kwargs["properties"]["provider"], sent_by)
 
     def test_sanitize_email_properties(self) -> None:
         # Test with various types of input including potential HTML injection
