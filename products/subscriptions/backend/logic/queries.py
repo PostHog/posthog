@@ -36,8 +36,8 @@ def subscription_ids_in_team(*, team_id: int, subscription_ids: Collection[int])
 
 
 def _active_subscriptions() -> QuerySet[Subscription]:
-    # Callers pass the id of an artifact they already scoped to their team; ids are unique, so the
-    # lookup needs no team filter, and a subscription may live in any environment of the project.
+    # Callers pass the id of an artifact they already scoped to their team, and ids are unique, so
+    # the lookup needs no team filter.
     # nosemgrep: idor-lookup-without-team
     return Subscription.objects.filter(deleted=False, enabled=True)
 

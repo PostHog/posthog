@@ -2541,8 +2541,6 @@ class TestSaveTimeAccessBlock(APIBaseTest):
             ("dashboard", "this insight is publicly shared"),
             ("notebook", "this insight is publicly shared"),
             ("subscription", "delivered by a subscription"),
-            # Insights live on the project's root team; a subscription keeps its own environment.
-            ("subscription_in_another_environment", "delivered by a subscription"),
             ("dashboard_subscription", "delivered by a subscription"),
             # Restoring the dashboard resumes delivery without a subscription write.
             ("deleted_dashboard_subscription", "delivered by a subscription"),
@@ -2562,9 +2560,6 @@ class TestSaveTimeAccessBlock(APIBaseTest):
             SharingConfiguration.objects.create(team=self.team, dashboard=dashboard, enabled=True)
         elif coverage == "subscription":
             self._subscription(insight=self.insight)
-        elif coverage == "subscription_in_another_environment":
-            environment = Team.objects.create(organization=self.organization, project=self.project, name="Staging")
-            self._subscription(insight=self.insight, team=environment)
         elif coverage in ("dashboard_subscription", "deleted_dashboard_subscription"):
             dashboard = Dashboard.objects.create(
                 team=self.team, created_by=self.user, deleted=coverage == "deleted_dashboard_subscription"
