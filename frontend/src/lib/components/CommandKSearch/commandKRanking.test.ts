@@ -1,4 +1,4 @@
-import { compareRanks, highlightSegments, rankLocalItem, strictLocalMatches } from './commandKRanking'
+import { compareRanks, freeWords, highlightSegments, rankLocalItem, strictLocalMatches } from './commandKRanking'
 
 const marked = (name: string, words: string[]): string =>
     highlightSegments(name, words)
@@ -6,6 +6,19 @@ const marked = (name: string, words: string[]): string =>
         .join('')
 
 describe('commandKRanking', () => {
+    test.each([
+        { query: '-name:"old report"', words: [] },
+        { query: '!path:"Quarterly reports" revenue', words: ['revenue'] },
+        { query: 'name:"old report" rev', words: ['rev'] },
+        { query: '-in:x revenue', words: ['revenue'] },
+    ])('finds the free words $words in $query', ({ query, words }) => {
+        expect(freeWords(query)).toEqual(words)
+    })
+
+    it('ranks a pasted wall of text without failing', () => {
+        expect(rankLocalItem(`experiments ${'x'.repeat(35000)}`, 'Experiments')).not.toBeNull()
+    })
+
     test.each([
         {
             name: 'Revenue: signup to first paid invoice',
