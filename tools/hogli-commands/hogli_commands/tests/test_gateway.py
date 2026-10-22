@@ -33,7 +33,7 @@ def _run(post: MagicMock, *args: str) -> tuple[Any, list[str]]:
     opened: list[str] = []
 
     def browser(url: str) -> bool:
-        # Stands in for the settings page: approve, then redirect to the port and state the URL names.
+        # Plays the settings page approving the request.
         opened.append(url)
         query = parse_qs(urlparse(url).query)
         params = {"code": "one-time-code", "state": query["cli_state"][0]}
@@ -43,7 +43,7 @@ def _run(post: MagicMock, *args: str) -> tuple[Any, list[str]]:
     with (
         patch.object(posthog_auth.webbrowser, "open", browser),
         patch.object(posthog_auth, "_readable_terminal", lambda: False),
-        # A broken port or state fails the test at this deadline rather than hanging it.
+        # A broken port fails the test at this deadline instead of hanging it.
         patch.object(posthog_auth, "_LOGIN_TIMEOUT_SECONDS", 5.0),
         patch.object(gateway.requests, "post", post),
     ):
