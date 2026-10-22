@@ -84,6 +84,15 @@ _OK_RUN = PlanExecution(
     diagnostics=[QueryStepDiagnostic("s", "SELECT count() FROM events", True, None)],
     charts=[],
 )
+_NO_ROWS_STEP = f"### s0\n\n_{QUERY_RETURNED_NO_ROWS}._"
+_FAILED_STEP = f"### s1\n\n_{QUERY_FAILED_PREFIX} — metric not computed, not empty data._"
+_ALL_EMPTY_RUN = PlanExecution(
+    rendered=[_NO_ROWS_STEP],
+    failed_count=0,
+    diagnostics=[QueryStepDiagnostic("s0", "SELECT 1", True, None)],
+    charts=[],
+    empty_count=1,
+)
 
 
 def _spec(steps: int = 1) -> EnrichedPromptSpec:
@@ -390,6 +399,7 @@ async def test_run_steps_non_retryable_error_degrades_to_placeholder(mock_execut
         _spec(steps=1), MagicMock(), MagicMock(), _test_window(), None, charts_enabled_for_team=True
     )
     assert execution.failed_count == 1
+    assert execution.empty_count == 0
     assert "Query failed to run" in execution.rendered[0]
     assert execution.diagnostics[0].ok is False
     assert execution.diagnostics[0].error_type == "RuntimeError"
@@ -499,24 +509,15 @@ async def test_run_steps_marks_a_step_that_returned_no_rows(
     assert execution.failed_count == 0
 
 
-_NO_ROWS_STEP = f"### s0\n\n_{QUERY_RETURNED_NO_ROWS}._"
-_FAILED_STEP = f"### s1\n\n_{QUERY_FAILED_PREFIX} — metric not computed, not empty data._"
-
-
 @pytest.mark.parametrize(
-    "run_result,include_manage_link,expected_report",
+    "run_result,include_manage_link,expected_report,synthesizes",
     [
         pytest.param(
-            PlanExecution(
-                rendered=[_NO_ROWS_STEP],
-                failed_count=0,
-                diagnostics=[QueryStepDiagnostic("s0", "SELECT 1", True, None)],
-                charts=[],
-                empty_count=1,
-            ),
+            _ALL_EMPTY_RUN,
             True,
-            "> ⚠️ None of the queries in this report returned any rows for this period, so there is nothing to "
+            "> ⚠️ None of the queries in this report found any data for this period, so there is nothing to "
             "summarize. Use the Manage subscription link to review the generated queries.\n\n" + _NO_ROWS_STEP,
+            False,
             id="every_step_empty",
         ),
         pytest.param(
@@ -531,9 +532,26 @@ _FAILED_STEP = f"### s1\n\n_{QUERY_FAILED_PREFIX} — metric not computed, not e
                 empty_count=1,
             ),
             False,
-            "> ⚠️ None of the queries in this report returned any rows for this period, so there is nothing to "
+            "> ⚠️ None of the queries in this report found any data for this period, so there is nothing to "
             "summarize.\n\n" + _NO_ROWS_STEP + "\n\n" + _FAILED_STEP,
+            False,
             id="empty_and_failed_without_manage_link",
+        ),
+        pytest.param(
+            PlanExecution(
+                rendered=["### s0\n\nok", _NO_ROWS_STEP],
+                failed_count=0,
+                diagnostics=[
+                    QueryStepDiagnostic("s0", "SELECT 1", True, None),
+                    QueryStepDiagnostic("s1", "SELECT 2", True, None),
+                ],
+                charts=[],
+                empty_count=1,
+            ),
+            True,
+            "# Report",
+            True,
+            id="one_step_with_rows_still_synthesizes",
         ),
     ],
 )
@@ -541,17 +559,19 @@ _FAILED_STEP = f"### s1\n\n_{QUERY_FAILED_PREFIX} — metric not computed, not e
 @patch(f"{_RP}.MaxChatOpenAI")
 @patch(f"{_RP}._run_steps", new_callable=AsyncMock)
 @patch(f"{_RP}.build_enriched_prompt")
-async def test_a_report_without_any_rows_skips_synthesis(
+async def test_synthesis_runs_only_when_a_step_returned_rows(
     mock_bep: MagicMock,
     mock_run: AsyncMock,
     mock_chat: MagicMock,
-    _mock_capture: MagicMock,
+    mock_capture: MagicMock,
     run_result: PlanExecution,
     include_manage_link: bool,
     expected_report: str,
+    synthesizes: bool,
 ) -> None:
     mock_bep.return_value = _spec(steps=len(run_result.rendered))
     mock_run.return_value = run_result
+    mock_chat.return_value.invoke.return_value = MagicMock(content="# Report")
 
     result = await generate_ai_report(
         team=MagicMock(),
@@ -562,7 +582,8 @@ async def test_a_report_without_any_rows_skips_synthesis(
     )
 
     assert result.markdown == expected_report
-    mock_chat.return_value.invoke.assert_not_called()
+    assert mock_chat.return_value.invoke.called is synthesizes
+    assert _slo_completed(mock_capture)["empty_steps"] == run_result.empty_count
 
 
 @patch(f"{_RP}._arequest_hogql_fix", new_callable=AsyncMock)
@@ -913,6 +934,7 @@ async def test_run_steps_substitutes_fresh_window_into_placeholder_sql(mock_exec
         pytest.param(_spec_with_window_placeholder(), _ALL_FAILED_RUN, id="all_failed"),
         # No window placeholder: freezing would cement an unbounded, window-less scan forever.
         pytest.param(_spec(steps=1), _OK_RUN, id="missing_window_placeholder"),
+        pytest.param(_spec_with_window_placeholder(), _ALL_EMPTY_RUN, id="no_step_found_data"),
     ],
 )
 @patch(_SLO_CAPTURE)

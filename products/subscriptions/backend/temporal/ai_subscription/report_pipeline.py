@@ -93,7 +93,7 @@ _MIN_STEP_RESULT_CHARS = _SYNTHESIS_RESULTS_CHAR_BUDGET // MAX_QUERY_PLAN_STEPS
 # instead of "no data"; it's injected into that prompt (the {{{failure_marker}}} placeholder) from this
 # same constant in `_synthesize`, so the rendered marker and the prompt instruction can't drift apart.
 QUERY_FAILED_PREFIX = "Query failed to run"
-QUERY_RETURNED_NO_ROWS = "The query ran and returned no rows for this period"
+QUERY_RETURNED_NO_ROWS = "The query ran but found no data for this period"
 
 # Per-step query-fix budget: the planner occasionally emits HogQL that fails to parse, so we feed the
 # error back and ask for a rewrite rather than dropping the step. Worst case per step is one original
@@ -128,9 +128,7 @@ def _all_queries_failed_notice(total_steps: int, *, include_manage_link: bool = 
 
 
 def _no_rows_notice(*, include_manage_link: bool = True) -> str:
-    notice = (
-        "> ⚠️ None of the queries in this report returned any rows for this period, so there is nothing to summarize."
-    )
+    notice = "> ⚠️ None of the queries in this report found any data for this period, so there is nothing to summarize."
     if include_manage_link:
         notice += " Use the Manage subscription link to review the generated queries."
     return notice + "\n\n"
@@ -193,8 +191,8 @@ class QueryStepDiagnostic:
 class StepOutcome:
     rendered: str
     diagnostic: QueryStepDiagnostic
+    returned_rows: bool
     chart: Optional[ValidatedChart] = None
-    returned_rows: bool = True
 
 
 @dataclass(frozen=True)
@@ -323,6 +321,7 @@ async def generate_ai_report(
             failed_steps=failed_count,
             query_coverage=(total_steps - failed_count) / total_steps if total_steps else 0.0,
             degraded=bool(failed_count),
+            empty_steps=execution.empty_count,
             charts_requested=len(charts),
             charts_rendered=len(rendered_charts),
             chart_failures=len(chart_failures),
@@ -351,6 +350,7 @@ async def generate_ai_report(
             relevant_events=spec.relevant_events,
             trace_correlation_id=trace_correlation_id,
             chart_failure_count=chart_spec_failures,
+            empty_count=execution.empty_count,
         )
         query_plan_status = resolve_ai_query_plan_status(
             initial_status=initial_query_plan_status,
@@ -393,6 +393,7 @@ def _plan_to_freeze(
     relevant_events: Sequence[str],
     trace_correlation_id: Optional[Union[int, str]],
     chart_failure_count: int = 0,
+    empty_count: int = 0,
 ) -> Optional[dict]:
     # Steps already carry their final HogQL by this point — see the write-back in `run_step`.
     # Never freeze a plan the next delivery is better off re-planning: a plan with any failed step would
@@ -409,6 +410,15 @@ def _plan_to_freeze(
             "ai_report.plan_had_failures_not_frozen",
             trace_correlation_id=trace_correlation_id,
             failed_count=failed_count,
+            total_steps=total_steps,
+        )
+        return None
+    # When no step finds data, the plan can filter on an event or value the project never sends. A frozen
+    # copy would then send the no-data notice on every delivery until the prompt changes.
+    if total_steps and empty_count == total_steps:
+        logger.warning(
+            "ai_report.plan_found_no_data_not_frozen",
+            trace_correlation_id=trace_correlation_id,
             total_steps=total_steps,
         )
         return None
@@ -661,6 +671,7 @@ async def _run_steps(
                 error_code=error_details["code"] if error_details else None,
                 human_readable_error=error_details["message"] if error_details else None,
             ),
+            returned_rows=False,
         )
 
     async def run_step_bounded(step: QueryPlanStep, step_index: int) -> StepOutcome:
