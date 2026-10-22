@@ -46,6 +46,7 @@ from posthog.api.github_callback.types import (
     is_valid_github_installation_id,
 )
 from posthog.api.integration_email_status_serializers import (
+    EmailDomainConnectCheckQuerySerializer,
     EmailDomainConnectCheckSerializer,
     EmailDomainDnsHostSerializer,
     EmailDomainStatusQuerySerializer,
@@ -2764,25 +2765,27 @@ class IntegrationViewSet(
 
         return Response(IntegrationSerializer(email.integration).data)
 
-    @extend_schema(responses={200: EmailDomainConnectCheckSerializer})
+    @validated_request(
+        query_serializer=EmailDomainConnectCheckQuerySerializer,
+        responses={200: EmailDomainConnectCheckSerializer},
+    )
     # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(methods=["GET"], detail=False, url_path="domain-connect/check")
-    def domain_connect_check(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        domain = request.query_params.get("domain", "")
-        if not domain:
-            raise ValidationError("domain query parameter is required")
-
+    def domain_connect_check(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
         # Extract root domain so subdomains (e.g. ph.example.com) resolve correctly
-        domain_parts = extract_root_domain_and_host(domain)
+        domain_parts = extract_root_domain_and_host(request.validated_query_data["domain"])
         result = discover_domain_connect(domain_parts.root_domain)
-        dns_host = lookup_dns_host(domain_parts.root_domain)
+        include_email_setup = request.validated_query_data["include_email_setup"]
+        dns_host = lookup_dns_host(domain_parts.root_domain) if include_email_setup else None
         return Response(
             {
                 "supported": result is not None,
                 "provider_name": result["provider_name"] if result else None,
                 "available_providers": get_available_providers() if result is None else [],
                 "dns_host": EmailDomainDnsHostSerializer(dns_host).data if dns_host else None,
-                "existing_email_tools": lookup_existing_email_tools(domain_parts.root_domain),
+                "existing_email_tools": lookup_existing_email_tools(domain_parts.root_domain)
+                if include_email_setup
+                else [],
             }
         )
 

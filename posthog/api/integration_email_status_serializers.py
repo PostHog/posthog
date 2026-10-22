@@ -107,6 +107,15 @@ class EmailDomainConnectProviderSerializer(serializers.Serializer):
     name = serializers.CharField(help_text="Display name of the provider.")
 
 
+class EmailDomainConnectCheckQuerySerializer(serializers.Serializer):
+    domain = serializers.CharField(help_text="Domain to check, such as mail.example.com. Its root domain is checked.")
+    include_email_setup = serializers.BooleanField(
+        default=False,
+        help_text="Also look up the DNS host and the email tools that already send for the domain. Email domain "
+        "setup needs these. Leave it off for other setups, because the lookups add DNS queries.",
+    )
+
+
 class EmailDomainConnectCheckSerializer(serializers.Serializer):
     supported = serializers.BooleanField(
         help_text="Whether the domain's DNS provider supports automatic setup through Domain Connect."
@@ -124,5 +133,5 @@ class EmailDomainConnectCheckSerializer(serializers.Serializer):
     existing_email_tools = serializers.ListField(
         child=serializers.CharField(),
         help_text="Email tools that already send for the root domain, detected from SPF and DKIM records. Best "
-        "effort, empty when none are found.",
+        "effort, empty when none are found or when include_email_setup is off.",
     )
