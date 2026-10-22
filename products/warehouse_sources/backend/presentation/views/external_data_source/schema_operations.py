@@ -14,6 +14,8 @@ from rest_framework.exceptions import APIException, PermissionDenied, Validation
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.hogql.direct_sql.capability import is_direct_capable
+
 from posthog.api.utils import action
 from posthog.permissions import is_service_auth
 
@@ -235,7 +237,7 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
                     source_model=instance,
                     fallback=instance.connection_metadata,
                 )
-                if instance.is_direct_query
+                if is_direct_capable(instance)
                 else instance.connection_metadata
             )
             schema_names = {s.name: s.label for s in schemas}
@@ -274,7 +276,7 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
         descriptions = {s.name: s.description for s in schemas}
         with transaction.atomic():
             ExternalDataSource._base_manager.filter(pk=instance.pk).select_for_update().get()
-            if instance.is_direct_query and connection_metadata != instance.connection_metadata:
+            if connection_metadata != instance.connection_metadata:
                 instance.connection_metadata = connection_metadata
                 instance.save(update_fields=["connection_metadata", "updated_at"])
             # Migrate/dedupe legacy rows before sync_old_schemas; non-Postgres only once namespace cleared.
@@ -368,6 +370,11 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
                 data={"message": f"Unknown source_type '{source_type}'"},
             )
         source = base.SourceRegistry.get_source(source_type_model)
+        if helpers.source_feature_flag_missing(source, self.team):
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": helpers._source_unavailable_message(source_type)},
+            )
         is_valid, errors = source.validate_config(request.data)
         if not is_valid:
             return Response(
@@ -453,6 +460,7 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
                 "rows": schema.row_count,
                 "supports_webhooks": schema.supports_webhooks,
                 "webhook_only": schema.webhook_only,
+                "prefers_full_refresh": schema.prefers_full_refresh,
                 "description": schema.description,
                 "should_sync_default": schema.should_sync_default,
                 "available_columns": [

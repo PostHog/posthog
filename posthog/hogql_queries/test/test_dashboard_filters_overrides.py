@@ -153,16 +153,28 @@ class TestDashboardFiltersCompareFilterOverride(BaseTest):
 
 
 class TestDashboardPropertyOverrides(BaseTest):
-    def test_warehouse_insight_property_is_kept_when_dashboard_properties_are_ignored(self) -> None:
+    @parameterized.expand(
+        [
+            ("other_warehouse_table_ignores_dashboard_property", "warehouse_table", ["US"], []),
+            ("flag_calls_apply_dashboard_property", "posthog.flag_evaluations", [], ["EU"]),
+        ]
+    )
+    def test_dashboard_property_conflicting_with_a_warehouse_series_property(
+        self,
+        _name: str,
+        table_name: str,
+        expected_series_values: list[str],
+        expected_query_values: list[str],
+    ) -> None:
         insight_property = {"key": "region", "value": "US", "operator": "exact", "type": "data_warehouse"}
         dashboard_property = {"key": "region", "value": "EU", "operator": "exact", "type": "data_warehouse"}
         query = TrendsQuery(
             series=[
                 DataWarehouseNode(
-                    id="warehouse_table",
+                    id=table_name,
                     id_field="id",
                     distinct_id_field="distinct_id",
-                    table_name="warehouse_table",
+                    table_name=table_name,
                     timestamp_field="timestamp",
                     properties=[insight_property],
                 )
@@ -172,4 +184,5 @@ class TestDashboardPropertyOverrides(BaseTest):
         effective = resolve_effective_dashboard_filters(query, {"properties": [dashboard_property]}, None)
         result = apply_dashboard_filters_to_dict(effective.query, effective.filters, self.team)
 
-        assert [prop["value"] for prop in result["series"][0]["properties"]] == ["US"]
+        assert [prop["value"] for prop in result["series"][0]["properties"]] == expected_series_values
+        assert [prop["value"] for prop in result["properties"] or []] == expected_query_values

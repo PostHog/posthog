@@ -1,18 +1,16 @@
 import { useMountedLogic, useValues } from 'kea'
 import { Fragment, JSX, memo, useCallback, useEffect, useRef } from 'react'
 
-import { IconNotebook } from '@posthog/icons'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 
 import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import { isRankingSortField } from '../../filterOptions'
 import { captureInboxViewed } from '../../inboxAnalytics'
 import { inboxSceneLogic } from '../../inboxSceneLogic'
 import { inboxTaskKickoffLogic } from '../../inboxTaskKickoffLogic'
+import { inboxActivationVisibilityLogic } from '../../logics/inboxActivationVisibilityLogic'
 import { inboxFiltersLogic, isDefaultStateFilter } from '../../logics/inboxFiltersLogic'
 import type { InboxRankingSortField } from '../../logics/inboxFiltersLogic'
 import { reportListLogic, sectionListLogicProps } from '../../logics/reportListLogic'
@@ -30,7 +28,7 @@ import { ReportCard } from '../cards/ReportCard'
 import { ReportContextMenu } from '../cards/ReportContextMenu'
 import { InboxWaitingForWork } from '../emptyState/InboxWaitingForWork'
 import { InboxMcpBanner } from '../InboxMcpBanner'
-import { SelfDrivingInstallingHint } from '../SelfDrivingInstallingHint'
+import { InboxActivationPanel } from '../onboarding/InboxActivationPanel'
 import { InboxBulkSelectionBar } from '../shell/InboxBulkSelectionBar'
 import { InboxReportFilters } from '../shell/InboxReportFilters'
 import { InboxScopeFilter } from '../shell/InboxScopeFilter'
@@ -178,7 +176,6 @@ const ReportRow = memo(function ReportRow({
         <ReportContextMenu report={report} sectionKey={sectionKey}>
             <ReportCard
                 report={report}
-                sectionKey={sectionKey}
                 selectable
                 rankingSortField={rankingSortField}
                 timestampField={timestampField}
@@ -189,29 +186,6 @@ const ReportRow = memo(function ReportRow({
         </ReportContextMenu>
     )
 })
-
-/** Nothing has reached the inbox yet — the whole list is empty, not just one state. */
-function ReportsEmptyState(): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
-    if (featureFlags[FEATURE_FLAGS.INBOX_SELF_DRIVING_EMPTY_STATE] === 'empty-state') {
-        return <InboxWaitingForWork />
-    }
-    return (
-        <div className="mx-auto flex max-w-md flex-col items-center gap-2 py-12 text-center">
-            <div className="mb-1 flex h-12 w-12 items-center justify-center rounded-full bg-fill-primary text-secondary">
-                <IconNotebook className="text-2xl" />
-            </div>
-            <h3 className="m-0 text-base font-semibold">Nothing in your inbox yet</h3>
-            <p className="m-0 text-sm text-tertiary">
-                Agents file what they find here: reports waiting on a pull request, pull requests for you to review, and
-                the work already resolved.
-            </p>
-            <SelfDrivingInstallingHint>
-                Reports will start arriving as soon as live data comes in.
-            </SelfDrivingInstallingHint>
-        </div>
-    )
-}
 
 function emptyListCopy(scope: InboxScope, narrowed: boolean): string {
     if (narrowed) {
@@ -231,6 +205,7 @@ function emptyListCopy(scope: InboxScope, narrowed: boolean): string {
  * selection are shared across all of them.
  */
 export function ReportsTab(): JSX.Element {
+    const { showActivationPanel: showActivation } = useValues(inboxActivationVisibilityLogic)
     const { isStaff } = useValues(inboxSceneLogic)
     // The row context menus dispatch to this logic and unmount when a menu closes; pinning it here
     // keeps an in-flight create-PR listener alive past the click that closed the menu.
@@ -374,9 +349,12 @@ export function ReportsTab(): JSX.Element {
             </div>
             <InboxBulkSelectionBar reports={rows.map(({ report }) => report)} />
             <InboxMcpBanner />
+            {showActivation && <InboxActivationPanel hasReports={!inboxIsEmpty && rows.length > 0} />}
 
             {inboxIsEmpty ? (
-                <ReportsEmptyState />
+                showActivation ? null : (
+                    <InboxWaitingForWork />
+                )
             ) : showFirstLoadSkeleton ? (
                 // Hold the rows until every selected state's first page has settled: the states
                 // load in parallel, and painting the fastest one first would let the slower ones

@@ -34,7 +34,8 @@ export function BIChartTypes(): JSX.Element {
                             active={selected}
                             icon={option.icon}
                             size="small"
-                            className={!fits && !selected ? 'justify-center opacity-40' : 'justify-center'}
+                            center
+                            className={!fits && !selected ? 'opacity-40' : undefined}
                             tooltip={option.label}
                             aria-label={option.label}
                             aria-pressed={selected}

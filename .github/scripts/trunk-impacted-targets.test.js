@@ -530,6 +530,8 @@ test('the paths-filter action and its CI share the ci-tooling lane', () => {
     for (const file of [
         '.github/actions/paths-filter/src/filter.ts',
         '.github/actions/paths-filter/dist/index.js',
+        '.github/actions/shared-image-releases/src/inspect.ts',
+        '.github/actions/shared-image-releases/dist/index.js',
         '.github/workflows/ci-paths-filter.yml',
         '.depot/actions/paths-filter/src/filter.ts',
     ]) {
@@ -831,12 +833,6 @@ test('the proto workflow claims every proto tree rather than everything', () => 
 test('the cli workflow and the reusable release plan share the cli lane', () => {
     for (const file of ['.github/workflows/ci-cli.yml', '.github/workflows/release.yml']) {
         assert.deepEqual(computeTargets([file], CONTEXT), computeTargets(['cli/src/main.rs'], CONTEXT), file)
-    }
-})
-
-test('the hogbox preview workflows keep the hogbox tooling lane', () => {
-    for (const file of ['.github/workflows/hogbox-preview-env.yml', '.github/workflows/hogbox-preview-cleanup.yml']) {
-        assert.deepEqual(computeTargets([file], CONTEXT), ['tools:hogbox-preview'], file)
     }
 })
 
@@ -1343,7 +1339,6 @@ test('every target the rules can emit appears in the enumerated universe', () =>
         '.github/workflows/ci-hobby.yml',
         '.github/workflows/ci-oauth-proxy.yml',
         '.github/workflows/ci-agent-skills.yml',
-        '.github/workflows/hogbox-preview-env.yml',
         '.github/workflows/ci-cli.yml',
         'bin/hobby-ci.py',
         'Dockerfile.llm-analytics',

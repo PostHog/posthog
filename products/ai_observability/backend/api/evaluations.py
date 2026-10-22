@@ -31,7 +31,6 @@ from posthog.hogql_queries.ai.ai_table_resolver import AIEventsUnavailableError,
 from posthog.hogql_queries.ai.utils import HEAVY_COLUMN_NAMES, merge_heavy_properties
 from posthog.models.team import Team
 from posthog.permissions import AccessControlPermission
-from posthog.temporal.ai_observability.eval_reports.output_types import get_outcome_definition
 from posthog.temporal.ai_observability.message_utils import extract_text_from_messages
 from posthog.temporal.ai_observability.model_resolution import active_key_fallback
 from posthog.temporal.ai_observability.run_evaluation import extract_event_io, run_hog_eval
@@ -42,12 +41,14 @@ from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
     UserAccessControlSerializerMixin,
 )
+from products.ai_observability.backend.models.evaluation_outcomes import get_outcome_definition
 
 from ..evaluation_conditions import build_condition_filter
 from ..hog import compile_ai_observability_hog
 from ..llm import DEFAULT_MODEL_BY_PROVIDER
 from ..llm.decisions import decision_evaluations_enabled, is_decision_model
 from ..llm.errors import ProviderConnectionError
+from ..llm.providers.openai import OPENAI_DECISIONS_BASE_URL, OpenAIConfig
 from ..llm.providers.openrouter import OPENROUTER_BASE_URL, is_non_chat_model
 from ..models.evaluation_config import EvaluationConfig
 from ..models.evaluation_configs import (
@@ -102,7 +103,13 @@ logger = structlog.get_logger(__name__)
                         "type": "string",
                         "description": "Evaluation criteria for the LLM judge. Describe what makes a good vs bad response.",
                         "minLength": 1,
-                    }
+                    },
+                    "judge_method": {
+                        "type": "string",
+                        "enum": ["llm", "decision"],
+                        "nullable": True,
+                        "description": "Judge method. Omit to keep the saved method; null restores automatic routing.",
+                    },
                 },
                 "additionalProperties": False,
             },
@@ -161,6 +168,13 @@ class _EvaluationConfigField(serializers.JSONField):
                 "evaluations, where a true result satisfied the criteria. "
                 "Set it to true for detector-style evaluations, so a true "
                 "result is counted and labeled as a fail.",
+            },
+            "decision_threshold": {
+                "type": "number",
+                "nullable": True,
+                "minimum": 0,
+                "maximum": 1,
+                "description": "Boolean decision-model judges only. Minimum probability of true required for a true result, inclusive. Omit or set null to use 0.5. Applies to new runs; historical results are unchanged.",
             },
             "min": {
                 "type": "number",
@@ -253,75 +267,62 @@ class _OutputConfigField(serializers.DictField):
     child = serializers.JSONField(allow_null=True)
 
 
+# One object rather than a `oneOf` per strategy: a generated zod union strips the keys a branch does not
+# declare, so a payload that matches the wrong branch loses its settings, and the empty config of a
+# generation target matches no branch. `validate_target_config` checks the per-strategy combination.
 @extend_schema_field(
     {
-        "oneOf": [
-            {
-                "type": "object",
-                "title": "Fixed window settle config",
-                "required": ["strategy"],
-                "properties": {
-                    "strategy": {
-                        "type": "string",
-                        "enum": ["fixed_window"],
-                        "description": "Wait a fixed window after the first matching generation, then evaluate.",
-                    },
-                    "window_seconds": {
-                        "type": "integer",
-                        "description": (
-                            "Seconds to wait after the first matching generation before evaluating the whole "
-                            "unit. Captured when the run is scheduled — editing it does not change runs "
-                            "already in flight. The accepted range depends on `target`: "
-                            f"{TRACE_EVAL_MIN_WINDOW_SECONDS}–{TRACE_EVAL_MAX_WINDOW_SECONDS} for 'trace', "
-                            f"{SESSION_EVAL_MIN_WINDOW_SECONDS}–{SESSION_EVAL_MAX_WINDOW_SECONDS} for 'session'. "
-                            "The default also depends on `target`; see the field-level help_text."
-                        ),
-                        "minimum": min(TRACE_EVAL_MIN_WINDOW_SECONDS, SESSION_EVAL_MIN_WINDOW_SECONDS),
-                        "maximum": max(TRACE_EVAL_MAX_WINDOW_SECONDS, SESSION_EVAL_MAX_WINDOW_SECONDS),
-                    },
-                },
-                "additionalProperties": False,
+        "type": "object",
+        "title": "Settle config",
+        "properties": {
+            "strategy": {
+                "type": "string",
+                "enum": ["fixed_window", "inactivity"],
+                "description": (
+                    "'fixed_window' waits a fixed window after the first matching generation, then evaluates. "
+                    "'inactivity' evaluates once the unit has had no new activity for the quiet period. "
+                    "Omit it to use the target's default: 'fixed_window' for 'trace', 'inactivity' for 'session'."
+                ),
             },
-            {
-                "type": "object",
-                "title": "Inactivity settle config",
-                "required": ["strategy"],
-                "properties": {
-                    "strategy": {
-                        "type": "string",
-                        "enum": ["inactivity"],
-                        "description": "Evaluate once the unit has had no new activity for the quiet period.",
-                    },
-                    "quiet_period_seconds": {
-                        "type": "integer",
-                        "description": (
-                            "Seconds without new activity before the unit counts as settled. The accepted "
-                            f"range depends on `target`: {TRACE_EVAL_MIN_QUIET_PERIOD_SECONDS}–"
-                            f"{TRACE_EVAL_MAX_QUIET_PERIOD_SECONDS} for 'trace', "
-                            f"{SESSION_EVAL_MIN_QUIET_PERIOD_SECONDS}–{SESSION_EVAL_MAX_QUIET_PERIOD_SECONDS} "
-                            "for 'session'. The default also depends on `target`; see the field-level help_text."
-                        ),
-                        "minimum": min(TRACE_EVAL_MIN_QUIET_PERIOD_SECONDS, SESSION_EVAL_MIN_QUIET_PERIOD_SECONDS),
-                        "maximum": max(TRACE_EVAL_MAX_QUIET_PERIOD_SECONDS, SESSION_EVAL_MAX_QUIET_PERIOD_SECONDS),
-                    },
-                    "max_age_seconds": {
-                        "type": "integer",
-                        "description": (
-                            "Hard cap in seconds on the total wait from the first matching generation, even "
-                            "if the unit stays active. Must be at least quiet_period_seconds. The accepted "
-                            f"range depends on `target`: {TRACE_EVAL_MIN_MAX_AGE_SECONDS}–"
-                            f"{TRACE_EVAL_MAX_MAX_AGE_SECONDS} for 'trace', "
-                            f"{SESSION_EVAL_MIN_MAX_AGE_SECONDS}–{SESSION_EVAL_MAX_MAX_AGE_SECONDS} for 'session'. "
-                            "The default also depends on `target`; see the field-level help_text."
-                        ),
-                        "minimum": min(TRACE_EVAL_MIN_MAX_AGE_SECONDS, SESSION_EVAL_MIN_MAX_AGE_SECONDS),
-                        "maximum": max(TRACE_EVAL_MAX_MAX_AGE_SECONDS, SESSION_EVAL_MAX_MAX_AGE_SECONDS),
-                    },
-                },
-                "additionalProperties": False,
+            "window_seconds": {
+                "type": "integer",
+                "description": (
+                    "fixed_window only. Seconds to wait after the first matching generation before evaluating "
+                    "the whole unit. Captured when the run is scheduled — editing it does not change runs "
+                    "already in flight. The accepted range depends on `target`: "
+                    f"{TRACE_EVAL_MIN_WINDOW_SECONDS}–{TRACE_EVAL_MAX_WINDOW_SECONDS} for 'trace', "
+                    f"{SESSION_EVAL_MIN_WINDOW_SECONDS}–{SESSION_EVAL_MAX_WINDOW_SECONDS} for 'session'. "
+                    "The default also depends on `target`; see the field-level help_text."
+                ),
+                "minimum": min(TRACE_EVAL_MIN_WINDOW_SECONDS, SESSION_EVAL_MIN_WINDOW_SECONDS),
+                "maximum": max(TRACE_EVAL_MAX_WINDOW_SECONDS, SESSION_EVAL_MAX_WINDOW_SECONDS),
             },
-        ],
-        "discriminator": {"propertyName": "strategy"},
+            "quiet_period_seconds": {
+                "type": "integer",
+                "description": (
+                    "inactivity only. Seconds without new activity before the unit counts as settled. The "
+                    f"accepted range depends on `target`: {TRACE_EVAL_MIN_QUIET_PERIOD_SECONDS}–"
+                    f"{TRACE_EVAL_MAX_QUIET_PERIOD_SECONDS} for 'trace', "
+                    f"{SESSION_EVAL_MIN_QUIET_PERIOD_SECONDS}–{SESSION_EVAL_MAX_QUIET_PERIOD_SECONDS} "
+                    "for 'session'. The default also depends on `target`; see the field-level help_text."
+                ),
+                "minimum": min(TRACE_EVAL_MIN_QUIET_PERIOD_SECONDS, SESSION_EVAL_MIN_QUIET_PERIOD_SECONDS),
+                "maximum": max(TRACE_EVAL_MAX_QUIET_PERIOD_SECONDS, SESSION_EVAL_MAX_QUIET_PERIOD_SECONDS),
+            },
+            "max_age_seconds": {
+                "type": "integer",
+                "description": (
+                    "inactivity only. Hard cap in seconds on the total wait from the first matching generation, "
+                    "even if the unit stays active. Must be at least quiet_period_seconds. The accepted range "
+                    f"depends on `target`: {TRACE_EVAL_MIN_MAX_AGE_SECONDS}–{TRACE_EVAL_MAX_MAX_AGE_SECONDS} "
+                    f"for 'trace', {SESSION_EVAL_MIN_MAX_AGE_SECONDS}–{SESSION_EVAL_MAX_MAX_AGE_SECONDS} for "
+                    "'session'. The default also depends on `target`; see the field-level help_text."
+                ),
+                "minimum": min(TRACE_EVAL_MIN_MAX_AGE_SECONDS, SESSION_EVAL_MIN_MAX_AGE_SECONDS),
+                "maximum": max(TRACE_EVAL_MAX_MAX_AGE_SECONDS, SESSION_EVAL_MAX_MAX_AGE_SECONDS),
+            },
+        },
+        "additionalProperties": False,
     }
 )
 class _TargetConfigField(serializers.JSONField):
@@ -431,6 +432,7 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
         help_text=(
             "Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and "
             "{true_is_failure} to declare that a true result means the evaluation found a problem. "
+            "For boolean decision-model judges, decision_threshold is a probability from 0 to 1 (default 0.5). "
             "For 'numeric': only min/max/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. "
             "For 'categorical': options [{key, label}], selection_mode (single or multiple), allows_na, and optional passing_rule {categories: [key]}. Do not send true_is_failure for numeric or categorical output. For 'sentiment': {}."
         ),
@@ -438,11 +440,10 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
     target_config = _TargetConfigField(
         required=False,
         help_text=(
-            "Target-specific config. For 'trace' and 'session' targets: a settle config discriminated on "
-            "`strategy`, either 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, "
-            "max_age_seconds}. Send `strategy` explicitly. The server fills in any other field you omit, "
-            "using per-target defaults, and the accepted bounds also depend on `target`. "
-            "Empty for 'generation'."
+            "Target-specific config. Send {} or omit it for 'generation'. For 'trace' and 'session' targets: a "
+            "settle config, either 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, "
+            "max_age_seconds}. Omit `strategy` to use the target's default. The server fills in any other "
+            "field you omit, using per-target defaults, and the accepted bounds also depend on `target`."
         ),
     )
     conditions = EvaluationConditionSerializer(
@@ -523,29 +524,69 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
         }
 
     def _uses_decision_model(self, data: dict[str, object]) -> bool:
+        evaluation_type = data.get("evaluation_type") or getattr(self.instance, "evaluation_type", None)
+        if evaluation_type != EvaluationType.LLM_JUDGE.value:
+            return False
+
+        stored_config = getattr(self.instance, "evaluation_config", {})
+        evaluation_config = data.get("evaluation_config", stored_config)
+        judge_method = evaluation_config.get("judge_method") if isinstance(evaluation_config, dict) else None
+        method_changed = judge_method != stored_config.get("judge_method")
         should_validate_model = (
             self.instance is None
             or bool({"model_configuration", "evaluation_type", "output_type", "output_config"} & data.keys())
             or data.get("enabled", False)
+            or method_changed
         )
         if not should_validate_model:
             return False
 
         model_configuration = self._effective_model_configuration(data) or {}
+        if judge_method is not None and not model_configuration:
+            raise serializers.ValidationError(
+                {"model_configuration": "Select a provider and model for this LLM judge evaluation."}
+            )
         model_provider = model_configuration.get("provider")
+        if judge_method == "llm":
+            if model_provider == "system_one":
+                raise serializers.ValidationError({"model_configuration": "Select a model that supports LLM judging."})
+            return False
         try:
-            return is_decision_model(
+            supports_decisions = is_decision_model(
                 model_provider,
                 model_configuration.get("model"),
+                decision_only=judge_method is None,
                 openrouter_enabled=model_provider == "openrouter"
                 and decision_evaluations_enabled(self.context["get_team"]().id, base_url=OPENROUTER_BASE_URL),
+                openai_enabled=judge_method == "decision"
+                and model_provider == LLMProvider.OPENAI
+                and model_configuration.get("model") in OpenAIConfig.DECISION_MODELS
+                and decision_evaluations_enabled(self.context["get_team"]().id, base_url=OPENAI_DECISIONS_BASE_URL),
             )
         except ProviderConnectionError as e:
             raise serializers.ValidationError({"model_configuration": str(e)}) from e
+        if judge_method == "decision" and not supports_decisions:
+            raise serializers.ValidationError(
+                {"model_configuration": "Select an available decision model for this judge method."}
+            )
+        return supports_decisions
 
     def validate(self, data):
         evaluation_type = data.get("evaluation_type") or getattr(self.instance, "evaluation_type", None)
         output_type = data.get("output_type") or getattr(self.instance, "output_type", None)
+        if "evaluation_config" in data:
+            config = data["evaluation_config"]
+            if not isinstance(config, dict):
+                raise serializers.ValidationError({"evaluation_config": "Must be an object."})
+            if (
+                self.partial
+                and self.instance is not None
+                and evaluation_type == EvaluationType.LLM_JUDGE.value
+                and "judge_method" not in config
+                and "judge_method" in self.instance.evaluation_config
+            ):
+                # A prompt-only PATCH must not reset the saved routing choice.
+                data["evaluation_config"] = {"judge_method": self.instance.evaluation_config["judge_method"], **config}
         if (
             self.instance
             and output_type != self.instance.output_type
@@ -580,7 +621,10 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
                     {"model_configuration": "Select a provider and model for this LLM judge evaluation."}
                 )
 
-        if data.get("model_configuration") or data.get("enabled"):
+        method_changed = "evaluation_config" in data and data["evaluation_config"].get("judge_method") != getattr(
+            self.instance, "evaluation_config", {}
+        ).get("judge_method")
+        if data.get("model_configuration") or data.get("enabled") or method_changed:
             self._validate_chat_model(data, uses_decision_model=uses_decision_model)
 
         should_validate_configs = (
@@ -614,6 +658,20 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
                 raise serializers.ValidationError(
                     {
                         "output_config": "Numeric evaluations with decision models require a minimum score below the maximum score."
+                    }
+                )
+
+        if uses_decision_model and output_type == "categorical":
+            model_configuration = self._effective_model_configuration(data) or {}
+            config = data.get("output_config", getattr(self.instance, "output_config", {}))
+            if (
+                model_configuration.get("provider") == LLMProvider.OPENAI
+                and config.get("selection_mode", "single") == "single"
+                and len(config.get("options", [])) < 2
+            ):
+                raise serializers.ValidationError(
+                    {
+                        "output_config": "OpenAI decision models require at least two options for single-selection categories."
                     }
                 )
 

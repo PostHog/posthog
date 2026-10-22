@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import time_machine
@@ -1483,13 +1483,30 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
 
     @parameterized.expand(
         [
-            ("first_day", "2024-01-01T23:00:00Z", []),
-            ("after_a_day", "2024-01-02T01:00:00Z", [ExperimentExposureHealthFindingCode.ZERO_EXPOSURES]),
+            ("first_day", "2024-01-01T23:00:00Z", None, []),
+            (
+                "after_a_day",
+                "2024-01-02T01:00:00Z",
+                None,
+                [(ExperimentExposureHealthFindingCode.ZERO_EXPOSURES, "flag_not_called")],
+            ),
+            (
+                "after_a_day_with_flag_calls",
+                "2024-01-02T01:00:00Z",
+                datetime(2024, 1, 1, 12, tzinfo=UTC),
+                [(ExperimentExposureHealthFindingCode.ZERO_EXPOSURES, "calls_not_counted")],
+            ),
         ]
     )
-    def test_zero_exposures_finding_waits_a_day_after_launch(
-        self, _name: str, now: str, expected_codes: list[ExperimentExposureHealthFindingCode]
+    def test_zero_exposures_finding_waits_a_day_and_names_the_flag_calls(
+        self,
+        _name: str,
+        now: str,
+        last_called_at: datetime | None,
+        expected: list[tuple[ExperimentExposureHealthFindingCode, str]],
     ) -> None:
+        self.feature_flag.last_called_at = last_called_at
+        self.feature_flag.save()
         query = ExperimentExposureQuery(
             kind="ExperimentExposureQuery",
             experiment_id=self.experiment.id,
@@ -1504,7 +1521,7 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
             response = ExperimentExposuresQueryRunner(team=self.team, query=query).calculate()
 
         self.assertEqual(response.total_exposures, {"control": 0, "test": 0})
-        self.assertEqual([finding.code for finding in response.health_findings or []], expected_codes)
+        self.assertEqual([(finding.code, finding.subcode) for finding in response.health_findings or []], expected)
 
     @parameterized.expand([("direct", False), ("precomputed", True)])
     @time_machine.travel("2024-01-07T12:00:00Z", tick=False)

@@ -97,7 +97,10 @@ from products.customer_analytics.backend.events import emit_account_tags_added, 
 from products.customer_analytics.backend.facade.contracts import (
     InvalidCustomPropertyOptions as InvalidCustomPropertyOptions,
 )
-from products.customer_analytics.backend.facade.email_matching import schedule_email_thread_link_recalculation
+from products.customer_analytics.backend.facade.email_matching import (
+    schedule_email_thread_link_recalculation,
+    schedule_email_thread_link_recalculation_for_account_properties,
+)
 from products.customer_analytics.backend.facade.enums import (
     AccountPropertyPinKind,
     AccountRelationshipSource,
@@ -114,6 +117,7 @@ from products.customer_analytics.backend.logic import (
     customer_tasks as _customer_tasks_logic,
     feature_request_github as _feature_request_github_logic,
     feature_requests as _feature_requests_logic,
+    key_metrics as _key_metrics_logic,
     ownership as _ownership,
     relationships as _relationships_logic,
     user_customer_analytics_config as _user_customer_analytics_config_logic,
@@ -125,6 +129,7 @@ from products.customer_analytics.backend.logic.account_filters import (
     parse_email_search,
 )
 from products.customer_analytics.backend.logic.account_logo import resolve_logo_domain
+from products.customer_analytics.backend.logic.account_member_search import get_account_users_organization_id
 from products.customer_analytics.backend.logic.custom_property_definitions import (
     apply_option_side_effects,
     coerce_is_big_number,
@@ -388,6 +393,11 @@ def _resolve_accessible_account(
         return _accounts_queryset(team_id, user_access_control).filter(**lookup).first()
     except (ValidationError, ValueError):
         return None
+
+
+def validate_account_users_access(team: Team, user: "User | None", account_id: str) -> None:
+    """Raise `UserAccessControlError` unless `user` may read the users of this account."""
+    get_account_users_organization_id(team=team, user=user, account_id=account_id)
 
 
 def get_account(
@@ -1837,19 +1847,9 @@ def _resolve_saved_query(team_id: int, saved_query_id: Any, user_access_control:
 
 def _saved_query_meta(saved_query: Any) -> _ProfileWarehouseMeta:
     """Display metadata for a view-bound source. A view's name is already its HogQL name, so it needs
-    no table-name resolution. ``sync_frequency_interval`` is null once the view's DAG runs on a shared
-    schedule (the frequency lives on the DAG node), which leaves the next run unknown rather than
-    guessable — so both schedule fields stay None."""
-    interval = saved_query.sync_frequency_interval
-    next_sync_at = (
-        saved_query.last_run_at + interval if interval is not None and saved_query.last_run_at is not None else None
-    )
-    return _ProfileWarehouseMeta(
-        table_name=saved_query.name,
-        sync_frequency_interval_seconds=interval.total_seconds() if interval is not None else None,
-        next_sync_at=next_sync_at,
-        saved_query_name=saved_query.name,
-    )
+    no table-name resolution. A view's frequency lives on its DAG node, which leaves the next run
+    unknown rather than guessable — so both schedule fields stay None."""
+    return _ProfileWarehouseMeta(table_name=saved_query.name, saved_query_name=saved_query.name)
 
 
 def _resolve_profile_warehouse_meta(
@@ -3804,14 +3804,22 @@ def update_account(
     returns the model, so it must not be called across the product boundary."""
     update_fields: list[str] = []
     matching_expanded = False
+    matching_changed = False
+    external_id_changed = False
+    previous_known_emails: list[str] = []
+    previous_email_domains: list[str] = []
     if not isinstance(name, _Unset):
         account.name = _cap_to_field_length("name", name)
         update_fields.append("name")
     if not isinstance(external_id, _Unset):
-        account.external_id = _cap_to_field_length("external_id", external_id) if external_id is not None else None
+        next_external_id = _cap_to_field_length("external_id", external_id) if external_id is not None else None
+        external_id_changed = next_external_id != account.external_id
+        account.external_id = next_external_id
         update_fields.append("external_id")
     if not isinstance(properties, _Unset):
         previous_properties = account.properties
+        previous_known_emails = previous_properties.known_emails
+        previous_email_domains = previous_properties.email_domains
         validated_properties = _ModelAccountProperties.from_input(properties)
         known_emails_added = set(validated_properties.known_emails) - set(previous_properties.known_emails)
         email_domains_added = set(validated_properties.email_domains) - set(previous_properties.email_domains)
@@ -3836,8 +3844,15 @@ def update_account(
         account.save(update_fields=update_fields)
     if matching_expanded:
         transaction.on_commit(lambda: _enqueue_meeting_rematch(account.team_id, str(account.id)))
-    if "external_id" in update_fields or "_properties" in update_fields:
+    if external_id_changed:
         schedule_email_thread_link_recalculation(account.team_id)
+    elif matching_changed:
+        schedule_email_thread_link_recalculation_for_account_properties(
+            account.team_id,
+            str(account.id),
+            previous_known_emails=previous_known_emails,
+            previous_email_domains=previous_email_domains,
+        )
     return account
 
 
@@ -5752,3 +5767,8 @@ def list_announcement_channels(team_id: int) -> list[contracts.AnnouncementChann
     except SupportSlackChannelsUnavailable:
         logger.warning("announcement_channels_unavailable", team_id=team_id)
         return []
+
+
+def get_key_metrics(*, team: Team, user: "User") -> list[contracts.KeyMetric] | None:
+    """The key metrics, or None while a background calculation is still running."""
+    return _key_metrics_logic.key_metrics(team, user)

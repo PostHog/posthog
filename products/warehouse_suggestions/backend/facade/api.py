@@ -1,7 +1,6 @@
 """Facade for warehouse_suggestions."""
 
 from collections.abc import Sequence
-from datetime import timedelta
 from typing import TYPE_CHECKING
 from uuid import UUID
 
@@ -13,6 +12,7 @@ from ..logic.payloads import payload_from_json, payload_view, source_table_ids
 from ..logic.rules import RULES
 from ..models import WarehouseSuggestion, WarehouseSuggestionTeamConfig
 from .contracts import (
+    AcceptOptions,
     CatalogEditAccessRequiredError,
     SubjectEditAccessRequiredError,
     SubjectKinds,
@@ -142,7 +142,7 @@ def accept_suggestion(
     suggestion_id: UUID,
     *,
     user: "User",
-    refresh_interval: timedelta | None,
+    options: AcceptOptions,
     was_impersonated: bool,
     subject_kinds: SubjectKinds,
 ) -> Suggestion:
@@ -151,12 +151,16 @@ def accept_suggestion(
     outcome = accept.accept(
         team.pk,
         row.id,
-        accept.AcceptRequest(
-            team=team, user=user, refresh_interval=refresh_interval, was_impersonated=was_impersonated
-        ),
+        accept.AcceptRequest(team=team, user=user, options=options, was_impersonated=was_impersonated),
     )
     if outcome.newly_accepted:
-        report_outcomes(SuggestionOutcome.ACCEPTED, [outcome.suggestion], team=team, user=user)
+        report_outcomes(
+            SuggestionOutcome.ACCEPTED,
+            [outcome.suggestion],
+            team=team,
+            user=user,
+            properties={"changed_fields": list(outcome.changed_fields)},
+        )
     return _single_contract(team.pk, user_access_control, outcome.suggestion, access)
 
 
@@ -226,7 +230,6 @@ def _to_contract(row: WarehouseSuggestion, access: SubjectAccess, payload: Sugge
         evidence_window_start=row.evidence_window_start,
         evidence_window_end=row.evidence_window_end,
         last_seen_at=row.last_seen_at,
-        score=row.score,
         status=WarehouseSuggestionStatus(row.status),
         surfaced_at=row.surfaced_at,
         reviewed_by=_to_reviewer(row),

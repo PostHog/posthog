@@ -134,7 +134,7 @@ function environmentOf(
   return mode === "cloud" ? "cloud" : "local";
 }
 
-function sourceOf(task: Task): string | null {
+export function sourceOf(task: Task): string | null {
   if (task.origin_product === "posthog_ai") {
     return WEB_SOURCE;
   }
@@ -336,6 +336,14 @@ export function migrateLegacySources(sources: SourceFilter): string[] {
   );
 }
 
+function uniqueSources(sources: Iterable<string | null>): string[] {
+  const unique = new Set<string>();
+  for (const source of sources) {
+    if (source) unique.add(source);
+  }
+  return [...unique].sort();
+}
+
 /**
  * The sources present in a list, so the menu only offers the ones that can
  * actually match. Keyed by `origin_product`; sorted so the menu is stable
@@ -344,11 +352,12 @@ export function migrateLegacySources(sources: SourceFilter): string[] {
 export function channelItemSources(
   items: readonly ChannelItemModel[],
 ): string[] {
-  const sources = new Set<string>();
-  for (const item of items) {
-    if (item.source) sources.add(item.source);
-  }
-  return [...sources].sort();
+  return uniqueSources(items.map((item) => item.source));
+}
+
+/** The sources of a task list, in the source filter's words. Sorted so the menu is stable. */
+export function taskSources(tasks: readonly Task[]): string[] {
+  return uniqueSources(tasks.map(sourceOf));
 }
 
 export function filterChannelItems(

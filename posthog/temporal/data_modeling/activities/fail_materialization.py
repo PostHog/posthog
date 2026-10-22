@@ -19,13 +19,14 @@ from products.data_modeling.backend.facade.models import (
 )
 
 from ..metrics import get_node_suspended_metric
-from .notify_materialization_failure import maybe_notify_materialization_failure
+from .notify_materialization_failure import maybe_notify_materialization_failure, notify_node_suspended
 from .utils import (
     CONSECUTIVE_FAILURES_TO_SUSPEND,
     bind_data_modeling_log_context,
     maybe_suspend_node_for_engine,
     strip_hostname_from_error,
     update_node_system_properties,
+    was_suspended_by_job,
 )
 
 LOGGER = get_logger(__name__)
@@ -102,8 +103,11 @@ def _revert_materialization_on_unknown_table(job: DataModelingJob, saved_query: 
 
 
 @activity.defn
-async def fail_materialization_activity(inputs: FailMaterializationInputs) -> None:
-    """Mark materialization as failed and update node properties."""
+async def fail_materialization_activity(inputs: FailMaterializationInputs) -> str | None:
+    """Mark materialization as failed and update node properties.
+
+    Returns the job's run mode, or None when the run failed before choosing one.
+    """
     bind_contextvars(team_id=inputs.team_id)
     logger = LOGGER.bind()
     _, job = await _fail_node_and_data_modeling_job(inputs)
@@ -119,13 +123,14 @@ async def fail_materialization_activity(inputs: FailMaterializationInputs) -> No
     await logger.aerror(f"Failed materialization job: {job_context} error={inputs.error}", write_only=True)
     # error-specific recovery: revert on unknown table, else suspend the node after repeated failures
     if not inputs.update_node:
-        return
+        return job.run_mode
     error = inputs.error
     saved_query = None
+    suspended = False
     try:
         saved_query = await _get_saved_query_for_job(job)
         if saved_query is None:
-            return
+            return job.run_mode
 
         if "Unknown table" in error:
             await logger.ainfo(
@@ -133,7 +138,7 @@ async def fail_materialization_activity(inputs: FailMaterializationInputs) -> No
             )
             await _revert_materialization_on_unknown_table(job, saved_query)
         else:
-            suspended = await maybe_suspend_node_for_engine(
+            if await maybe_suspend_node_for_engine(
                 node_id=inputs.node_id,
                 team_id=inputs.team_id,
                 dag_id=inputs.dag_id,
@@ -141,11 +146,20 @@ async def fail_materialization_activity(inputs: FailMaterializationInputs) -> No
                 engine=DataModelingJobEngine.CLICKHOUSE,
                 reason=strip_hostname_from_error(error),
                 job_id=inputs.job_id,
-            )
-            if suspended:
+            ):
+                suspended = True
                 get_node_suspended_metric(DataModelingJobEngine.CLICKHOUSE.value).add(1)
                 await logger.ainfo(
                     f"Suspended node {inputs.node_id} (clickhouse) after {CONSECUTIVE_FAILURES_TO_SUSPEND} consecutive failures",
+                )
+            else:
+                # A retry after the marker was saved but before anyone was told still owes the notice.
+                suspended = await was_suspended_by_job(
+                    node_id=inputs.node_id,
+                    team_id=inputs.team_id,
+                    dag_id=inputs.dag_id,
+                    engine=DataModelingJobEngine.CLICKHOUSE,
+                    job_id=inputs.job_id,
                 )
 
     except Exception as e:
@@ -158,7 +172,12 @@ async def fail_materialization_activity(inputs: FailMaterializationInputs) -> No
     # needs telling, so it must not take the notification down with it.
     if saved_query is not None and not inputs.cancelled:
         try:
-            notified = await maybe_notify_materialization_failure(job, saved_query, inputs.team_id)
+            if suspended:
+                # Replaces the failure notification for this run, so nobody gets two for one event.
+                await notify_node_suspended(job, saved_query, inputs.team_id, strip_hostname_from_error(error))
+                notified = True
+            else:
+                notified = await maybe_notify_materialization_failure(job, saved_query, inputs.team_id)
             if notified:
                 await logger.ainfo(f"Sent materialization failure notification for node {inputs.node_id}")
         except Exception as e:
@@ -166,3 +185,4 @@ async def fail_materialization_activity(inputs: FailMaterializationInputs) -> No
             await logger.aexception(
                 f"Failed to notify materialization failure for node {inputs.node_id}: {strip_hostname_from_error(str(e))}"
             )
+    return job.run_mode

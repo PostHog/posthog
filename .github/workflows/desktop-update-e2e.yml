@@ -33,6 +33,8 @@ env:
 
 jobs:
     update-e2e-macos:
+        # The private mirror has no signing or AWS config, so a run there fails at setup and pages a false alarm.
+        if: github.repository == 'PostHog/posthog'
         runs-on: depot-macos-26
         timeout-minutes: 90
         defaults:

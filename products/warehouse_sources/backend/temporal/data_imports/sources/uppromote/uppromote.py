@@ -20,10 +20,17 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     RESTAPIConfig,
     rest_api_resource,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    DependentEndpointConfig,
+    build_dependent_resource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     PageNumberPaginator,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    ClientConfig,
+    EndpointResource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
@@ -176,6 +183,58 @@ def _build_resource(
     }
 
 
+def _client_config(api_key: str) -> ClientConfig:
+    return {
+        "base_url": UPPROMOTE_BASE_URL,
+        "auth": {
+            "type": "api_key",
+            "name": "Authorization",
+            "location": "header",
+            "api_key": api_key,
+        },
+        # Sync responses carry affiliate/referral PII (emails, addresses, payment
+        # details), so reuse the capture-disabled, key-redacting tracked session
+        # rather than letting RESTClient build its default capturing one.
+        "session": _make_session(api_key),
+        # No pagination metadata in responses — iterate pages until an empty one.
+        "paginator": PageNumberPaginator(base_page=1, page_param="page", stop_after_empty_page=True),
+    }
+
+
+def _fanout_source(
+    api_key: str,
+    config: UpPromoteEndpointConfig,
+    fanout: DependentEndpointConfig,
+    team_id: int,
+    job_id: str,
+) -> SourceResponse:
+    child = build_dependent_resource(
+        endpoint_configs=UPPROMOTE_ENDPOINTS,
+        child_endpoint=config.name,
+        fanout=fanout,
+        client_config=_client_config(api_key),
+        path_format_values={},
+        team_id=team_id,
+        job_id=job_id,
+        # The child endpoints have no date filter, so the fan-out is always a full refresh.
+        db_incremental_field_last_value=None,
+        parent_endpoint_extra={"data_selector": "data"},
+        # The child returns one unpaginated object per parent.
+        child_endpoint_extra={"data_selector": "data", "paginator": "single_page"},
+        # Page size is in the parent's `parent_params`; the child takes no `per_page`.
+        page_size_param=None,
+    )
+
+    return SourceResponse(
+        name=config.name,
+        items=lambda: child,
+        primary_keys=config.primary_keys,
+        sort_mode="asc",
+        # The fan-out saves no checkpoint, so every retry restarts the full refresh.
+        supports_resume=False,
+    )
+
+
 def _make_webhook_table_transformer(primary_key: str) -> Callable[[pa.Table], pa.Table]:
     """Collapse a webhook batch to the latest version of each object.
 
@@ -208,6 +267,9 @@ def uppromote_source(
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = UPPROMOTE_ENDPOINTS[endpoint]
+    if config.fanout is not None:
+        return _fanout_source(api_key, config, config.fanout, team_id, job_id)
+
     webhook_enabled = async_to_sync(webhook_source_manager.webhook_enabled)()
 
     resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
@@ -222,21 +284,7 @@ def uppromote_source(
             )
 
         rest_config: RESTAPIConfig = {
-            "client": {
-                "base_url": UPPROMOTE_BASE_URL,
-                "auth": {
-                    "type": "api_key",
-                    "name": "Authorization",
-                    "location": "header",
-                    "api_key": api_key,
-                },
-                # Sync responses carry affiliate/referral PII (emails, addresses, payment
-                # details), so reuse the capture-disabled, key-redacting tracked session
-                # rather than letting RESTClient build its default capturing one.
-                "session": _make_session(api_key),
-                # No pagination metadata in responses — iterate pages until an empty one.
-                "paginator": PageNumberPaginator(base_page=1, page_param="page", stop_after_empty_page=True),
-            },
+            "client": _client_config(api_key),
             "resource_defaults": {},
             "resources": [
                 _build_resource(config, should_use_incremental_field, db_incremental_field_last_value, window_end)

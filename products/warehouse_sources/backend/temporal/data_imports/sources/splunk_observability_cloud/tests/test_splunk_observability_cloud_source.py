@@ -21,10 +21,6 @@ class TestSplunkObservabilityCloudSource:
         # changing it must force the token to be re-entered.
         assert self.source.connection_host_fields == ["realm"]
 
-    def test_get_schemas_filtered_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["detectors"])
-        assert [s.name for s in schemas] == ["detectors"]
-
     def test_source_for_pipeline_drops_watermark_for_full_refresh(self) -> None:
         # A leftover watermark from a previous incremental config must not narrow a
         # full-refresh run.

@@ -19,6 +19,7 @@ from posthog.redis import get_client
 from posthog.slack.formatting import channel_id_from_target, escape_slack_mrkdwn
 from posthog.slack.markdown import SLACK_MARKDOWN_TEXT_MAX_LEN, slack_markdown_block
 
+from products.signals.backend.assignment_flags import assignment_side_effects_allowed
 from products.signals.backend.models import SignalReport, SignalReportSlackThread, SignalScoutEmission, SignalScoutRun
 from products.signals.backend.report_urls import ReportLinkSource, build_report_url
 from products.signals.backend.scout_harness.slack_charts import (
@@ -187,6 +188,7 @@ def _prettify_scout_name(skill_name: str) -> str:
 
 
 def _slack_integration_for_project(*, integration_id: int, project_id: int) -> Integration:
+    # nosemgrep: environment-model-scoped-by-project -- scout configs are project-level, so a Slack integration from any environment of the project is valid
     integration = Integration.objects.filter(
         id=integration_id,
         team__project_id=project_id,
@@ -767,6 +769,9 @@ def post_scout_report_to_slack(
             report_id=str(report.id),
             delivery_id=delivery_id,
         )
+        return
+
+    if not assignment_side_effects_allowed(team_id=report.team_id, report_id=str(report.id)):
         return
 
     # The build can hold the worker for the whole render budget, long enough for the workspace to be

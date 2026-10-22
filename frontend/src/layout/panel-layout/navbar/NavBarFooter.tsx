@@ -1,5 +1,3 @@
-import { useValues } from 'kea'
-
 import { IconGear } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
 
@@ -12,14 +10,10 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { cn } from 'lib/utils/css-classes'
 import { urls } from 'scenes/urls'
 
-import { uiCustomizationLogic } from '~/layout/uiCustomizationLogic'
-
-import { InstallationStatusNavButton } from '../InstallationStatusNavButton'
 import { PostHogTeamCohortBanner } from './PostHogTeamCohortBanner'
 
 export function NavBarFooter({ isLayoutNavCollapsed }: { isLayoutNavCollapsed: boolean }): JSX.Element {
     const isNotificationsEnabled = useFeatureFlag('REAL_TIME_NOTIFICATIONS')
-    const { isSidebarItemShown } = useValues(uiCustomizationLogic)
 
     return (
         <div className="p-1 flex flex-col gap-px items-start pb-2">
@@ -39,10 +33,7 @@ export function NavBarFooter({ isLayoutNavCollapsed }: { isLayoutNavCollapsed: b
                     'items-center': isLayoutNavCollapsed,
                 })}
             >
-                {isNotificationsEnabled && isSidebarItemShown('notifications') && (
-                    <NotificationsMenu iconOnly={isLayoutNavCollapsed} />
-                )}
-                <InstallationStatusNavButton iconOnly={isLayoutNavCollapsed} />
+                {isNotificationsEnabled && <NotificationsMenu iconOnly={isLayoutNavCollapsed} />}
                 <Link
                     to={urls.settings('project')}
                     buttonProps={{ menuItem: isLayoutNavCollapsed ? false : true }}
@@ -53,7 +44,7 @@ export function NavBarFooter({ isLayoutNavCollapsed }: { isLayoutNavCollapsed: b
                     <IconGear />
                     {!isLayoutNavCollapsed && 'Settings'}
                 </Link>
-                {isSidebarItemShown('help') && <HelpMenu iconOnly={isLayoutNavCollapsed} />}
+                <HelpMenu iconOnly={isLayoutNavCollapsed} />
                 <PosthogStatusShownOnlyIfNotOperational iconOnly={isLayoutNavCollapsed} />
             </div>
         </div>

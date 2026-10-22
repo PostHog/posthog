@@ -54,7 +54,7 @@ class CrispSource(ResumableSource[CrispSourceConfig, CrispResumeConfig]):
         pub=("crisp_chat",),
         rubygems=("crisp-api",),
         swiftpm=("github.com/crisp-im/crisp-sdk-ios",),
-        competes_with=(ProductKey.CONVERSATIONS,),
+        alternative_to=(ProductKey.CONVERSATIONS,),
     )
 
     lists_tables_without_credentials = True
@@ -180,5 +180,5 @@ class CrispSource(ResumableSource[CrispSourceConfig, CrispResumeConfig]):
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
         )

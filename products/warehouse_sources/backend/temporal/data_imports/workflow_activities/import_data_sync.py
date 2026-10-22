@@ -37,6 +37,7 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     UnsupportedSyncTypeError,
     apply_incremental_lookback,
     get_schema_if_exists,
+    prefix_promotion_rows_synced,
     process_incremental_value,
     resolve_sync_type,
     staged_handoff_resume_point,
@@ -67,6 +68,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
     SchemaColumnTypeChangedException,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
+    is_invalid_version_race,
     is_transient_delta_maintenance_error,
     is_transient_object_store_error,
 )
@@ -513,6 +515,7 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
         processed_incremental_earliest_value = None
         # The cursor as stored, before the lookback shift below moves it back.
         incremental_last_value_before_lookback = None
+        kept_rows_synced: int | None = None
 
         # A pending corrupt-delta revive rebuilds this table inside this run: handle_corrupted_delta_log
         # resets the Delta table before extraction, so the loader overwrites it from batch 0. The
@@ -524,6 +527,8 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
 
         use_stored_cursors = reset_pipeline is not True and not delta_rebuild_pending
         if use_stored_cursors:
+            # Read from the same config as the watermark, so the count matches the rows this attempt skips.
+            kept_rows_synced = prefix_promotion_rows_synced(schema.sync_type_config, str(model.id))
             processed_incremental_last_value = process_incremental_value(
                 schema.sync_type_config.get("incremental_field_last_value"),
                 schema.sync_type_config.get("incremental_field_type"),
@@ -773,6 +778,7 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
                 resumed_incremental_run_uuid=resumed_incremental_run_uuid,
                 resumed_incremental_value=resumed_incremental_value,
                 preemption=preemption,
+                kept_rows_synced=kept_rows_synced,
             )
         else:
             raise ValueError(f"Source type {model.pipeline.source_type} not supported")
@@ -1064,6 +1070,17 @@ async def _handle_import_error(
         await logger.adebug("Transient Delta maintenance/reset race - re-raising for Temporal retry")
         raise NonReportableError(error_msg) from error
 
+    # execute_with_conflict_retry (ops.py) already refreshes the table handle and retries this exact
+    # race a bounded number of times - sustained contention (most commonly a heartbeat-timed-out
+    # zombie attempt still committing against the same table during a rolling deploy, see
+    # batch_consumer.py's MAX_INTERRUPTIONS comment) can still exhaust that budget. The race is
+    # self-healing on the next attempt, same as the maintenance-path race above, so it must not be
+    # captured as a bug either.
+    if is_invalid_version_race(error):
+        await logger.awarning(error_msg)
+        await logger.adebug("Delta commit-conflict race exhausted its internal retries - re-raising for Temporal retry")
+        raise NonReportableError(error_msg) from error
+
     # DATA_WAREHOUSE_REDIS backs resumable-source checkpoints, row tracking, and sync locks — it's
     # PostHog's own instance, never anything a customer's source touches. A connectivity blip there
     # (unreachable, refusing connections while restarting) clears on its own once the instance is
@@ -1149,9 +1166,12 @@ async def _run(
     resumed_incremental_value: Any = None,
     preemption: PreemptionConfig | None = None,
     on_resumable_retry_budget: bool = False,
+    kept_rows_synced: int | None = None,
 ) -> PipelineResult:
     try:
-        reset_pipeline = reset_pipeline or source_response.destination_reset_required
+        reset_pipeline = (
+            reset_pipeline or source_response.destination_reset_required
+        ) and not source_response.reset_handed_over
         models = await _get_models(job_inputs.run_id)
 
         pipeline = v3_pipeline_class(source_response)(
@@ -1167,6 +1187,7 @@ async def _run(
             resumed_incremental_run_uuid=resumed_incremental_run_uuid,
             resumed_incremental_value=resumed_incremental_value,
             preemption=preemption,
+            kept_rows_synced=kept_rows_synced,
         )
 
         result = await pipeline.run()

@@ -306,7 +306,7 @@ Tokens from the development app cannot be transferred to the production app.
   you and shows the response. A `202` here means the event arrived and the problem is downstream;
   this is how we confirmed delivery during setup.
 - **Temporal Web** (`http://localhost:8233`, filter workflow type
-  `posthog-code-slack-mention-processing`) — shows which activity the run reached. The happy path
+  `slack-app-mention-processing`) — shows which activity the run reached. The happy path
   ends at `create_posthog_code_task_for_repo_activity`.
 - Going deeper, the `django` / `temporal-django-worker` logs carry `posthog_code_*` structlog
   lines, and Slack's app **Event Deliveries** page shows delivery failures — neither was needed in

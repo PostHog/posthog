@@ -58,6 +58,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     UNKNOWN_RESOURCE_PREFIX,
     UnknownResourceError,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.util import (
     NonRetryableException,
     PostHogInternalDatabaseError,
@@ -866,6 +867,31 @@ async def test_transient_delta_maintenance_error_reraised_as_non_reportable():
     error = deltalake.exceptions.DeltaError(
         "Kernel error: File not found: dlt/team_1_stripe_source/customer/_delta_log/00000000000000000017.json"
     )
+    source = mock.MagicMock(spec=SimpleSource)
+    source.get_non_retryable_errors.return_value = {}
+    source.get_retryable_errors.return_value = set()
+
+    logger = mock.MagicMock()
+    logger.awarning = mock.AsyncMock()
+    logger.aexception = mock.AsyncMock()
+    logger.adebug = mock.AsyncMock()
+
+    with mock.patch.object(module.SourceRegistry, "get_source", return_value=source):
+        with pytest.raises(NonReportableError) as exc_info:
+            await module._handle_import_error(mock.MagicMock(), logger, error)
+
+    assert exc_info.value.__cause__ is error
+    logger.awarning.assert_awaited_once()
+    logger.aexception.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_invalid_version_race_reraised_as_non_reportable():
+    # execute_with_conflict_retry (ops.py) already retries this exact race a bounded number of
+    # times; sustained contention (a zombie attempt still committing during a rolling deploy) can
+    # exhaust that budget and let the raw DeltaError escape here. Self-healing on the next Temporal
+    # attempt, same as the maintenance-path race above, so it must not be captured as a bug either.
+    error = deltalake.exceptions.DeltaError("Invalid table version: 124")
     source = mock.MagicMock(spec=SimpleSource)
     source.get_non_retryable_errors.return_value = {}
     source.get_retryable_errors.return_value = set()
@@ -1696,6 +1722,44 @@ def test_a_scheduled_full_refresh_resets_only_while_the_schema_is_due(
         )
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "run_reset,destination_reset_required,reset_handed_over,expected",
+    [
+        pytest.param(True, False, False, True, id="run_asked_for_a_reset"),
+        pytest.param(False, True, False, True, id="source_asked_for_a_reset"),
+        pytest.param(True, True, True, False, id="source_handed_the_reset_over"),
+    ],
+)
+async def test_the_pipeline_deletes_the_table_only_for_a_reset_the_source_kept(
+    run_reset: bool, destination_reset_required: bool, reset_handed_over: bool, expected: bool
+) -> None:
+    source_response = SourceResponse(
+        name="users",
+        items=lambda: iter(()),
+        primary_keys=["id"],
+        destination_reset_required=destination_reset_required,
+        reset_handed_over=reset_handed_over,
+    )
+    pipeline_cls = mock.MagicMock()
+    pipeline_cls.return_value.run = mock.AsyncMock()
+
+    with (
+        mock.patch.object(module, "_get_models", new=mock.AsyncMock()),
+        mock.patch.object(module, "v3_pipeline_class", return_value=pipeline_cls),
+    ):
+        await module._run(
+            mock.MagicMock(),
+            source_response,
+            mock.AsyncMock(),
+            reset_pipeline=run_reset,
+            shutdown_monitor=mock.MagicMock(),
+            resumable_source_manager=None,
+        )
+
+    assert pipeline_cls.call_args.args[3] is expected
+
+
 _STORED_WATERMARK = datetime(2026, 6, 14, 15, 33, 31, 802833)
 _QUEUED_UP_TO = datetime(2026, 6, 20, 8, 0, 0)
 
@@ -1706,7 +1770,11 @@ _QUEUED_UP_TO = datetime(2026, 6, 20, 8, 0, 0)
     [
         pytest.param(
             True,
-            {"run_uuid": "wfrun-1-a1", "last_value": "2026-06-21T00:00:00", "resume_value": "2026-06-20T08:00:00"},
+            {
+                "run_uuid": "wfrun-1-a1",
+                "last_value": "2026-06-21T00:00:00",
+                "ordered_resume_value": "2026-06-20T08:00:00",
+            },
             False,
             _QUEUED_UP_TO,
             _QUEUED_UP_TO,
@@ -1715,7 +1783,11 @@ _QUEUED_UP_TO = datetime(2026, 6, 20, 8, 0, 0)
         # The lookback of one hour applies to a run that starts from the stored watermark.
         pytest.param(
             False,
-            {"run_uuid": "wfrun-1-a1", "last_value": "2026-06-21T00:00:00", "resume_value": "2026-06-20T08:00:00"},
+            {
+                "run_uuid": "wfrun-1-a1",
+                "last_value": "2026-06-21T00:00:00",
+                "ordered_resume_value": "2026-06-20T08:00:00",
+            },
             False,
             _STORED_WATERMARK - timedelta(hours=1),
             None,
@@ -1723,7 +1795,11 @@ _QUEUED_UP_TO = datetime(2026, 6, 20, 8, 0, 0)
         ),
         pytest.param(
             True,
-            {"run_uuid": "wfrun-0-a1", "last_value": "2026-06-21T00:00:00", "resume_value": "2026-06-20T08:00:00"},
+            {
+                "run_uuid": "wfrun-0-a1",
+                "last_value": "2026-06-21T00:00:00",
+                "ordered_resume_value": "2026-06-20T08:00:00",
+            },
             False,
             _STORED_WATERMARK - timedelta(hours=1),
             None,
@@ -1739,7 +1815,11 @@ _QUEUED_UP_TO = datetime(2026, 6, 20, 8, 0, 0)
         ),
         pytest.param(
             True,
-            {"run_uuid": "wfrun-1-a1", "last_value": "2026-06-21T00:00:00", "resume_value": "2026-06-20T08:00:00"},
+            {
+                "run_uuid": "wfrun-1-a1",
+                "last_value": "2026-06-21T00:00:00",
+                "ordered_resume_value": "2026-06-20T08:00:00",
+            },
             True,
             None,
             None,
