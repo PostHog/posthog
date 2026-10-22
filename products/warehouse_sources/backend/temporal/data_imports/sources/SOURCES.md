@@ -77,6 +77,7 @@ the row lists both.
 | alpha_vantage                    | HTTP                        | requests                                                        | ✅                          |
 | amazon_ads                       | HTTP                        | requests                                                        | ✅                          |
 | amazon_s3                        | HTTP (vendor SDK)           | boto3 (listing), s3fs (reads), deltalake (Delta tables)         | ⚠️                          |
+| amazon_selling_partner           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | amplemarket                      | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | amplitude                        | HTTP                        | requests                                                        | ✅                          |
 | anthropic                        | HTTP                        | requests                                                        | ✅                          |
@@ -1038,7 +1039,6 @@ doesn't conflict with concurrent PRs.
 - amazon_cloudwatch
 - amazon_eventbridge
 - amazon_kinesis
-- amazon_selling_partner
 - amazon_sns
 - amazon_sqs
 - anodot_cost
