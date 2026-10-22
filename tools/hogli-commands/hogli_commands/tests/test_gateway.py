@@ -7,8 +7,9 @@ from urllib.parse import parse_qs, urlparse
 
 from unittest.mock import MagicMock, patch
 
+import requests
 from click.testing import CliRunner
-from hogli_commands import gateway
+from hogli_commands import gateway, posthog_auth
 
 _HOST = "https://us.posthog.com"
 _MINTED = {
@@ -22,39 +23,48 @@ _MINTED = {
 
 
 def _response(status_code: int, payload: Any) -> MagicMock:
-    response = MagicMock(status_code=status_code, text=str(payload))
+    # `text` differs from the payload so an assertion on `detail` can't pass on the raw body.
+    response = MagicMock(status_code=status_code, text="<html>proxy page</html>")
     response.json.return_value = payload
     return response
 
 
-def _run(post: MagicMock, *args: str) -> tuple[Any, dict[str, list[str]]]:
-    approval: dict[str, list[str]] = {}
+def _run(post: MagicMock, *args: str) -> tuple[Any, list[str]]:
+    opened: list[str] = []
 
-    def approve(url_for_port: Any, *, state: str) -> str:
-        approval.update(parse_qs(urlparse(url_for_port(54321)).query))
-        assert approval["cli_state"] == [state]
-        return "one-time-code"
+    def browser(url: str) -> bool:
+        # Stands in for the settings page: approve, then redirect to the port and state the URL names.
+        opened.append(url)
+        query = parse_qs(urlparse(url).query)
+        params = {"code": "one-time-code", "state": query["cli_state"][0]}
+        requests.get(f"http://127.0.0.1:{query['cli_port'][0]}/callback", params=params, timeout=5)
+        return True
 
     with (
-        patch.object(gateway.posthog_auth, "approve_in_browser", approve),
+        patch.object(posthog_auth.webbrowser, "open", browser),
+        patch.object(posthog_auth, "_readable_terminal", lambda: False),
+        # A broken port or state fails the test at this deadline rather than hanging it.
+        patch.object(posthog_auth, "_LOGIN_TIMEOUT_SECONDS", 5.0),
         patch.object(gateway.requests, "post", post),
     ):
-        result = CliRunner(mix_stderr=False).invoke(gateway.gateway_token, ["--host", _HOST, *args])
-    return result, approval
+        result = CliRunner(mix_stderr=False).invoke(gateway.gateway_token, ["--host", f"{_HOST}/", *args])
+    return result, opened
 
 
 def test_the_exchanged_verifier_matches_the_approved_challenge_and_stdout_holds_only_the_token() -> None:
     post = MagicMock(return_value=_response(201, _MINTED))
 
-    result, approval = _run(post)
+    result, opened = _run(post)
 
     assert result.exit_code == 0, result.output
     assert result.stdout == "phe_minted\n"
-    assert approval["cli_port"] == ["54321"]
+    approval = urlparse(opened[0])
+    assert f"{approval.scheme}://{approval.netloc}{approval.path}" == f"{_HOST}/settings/user-ai-gateway-dev-mode"
+    assert post.call_args.args[0] == f"{_HOST}/api/ai_gateway/dev_tokens/cli_exchange/"
     sent = post.call_args.kwargs["json"]
     assert sent["code"] == "one-time-code"
     challenge = base64.urlsafe_b64encode(hashlib.sha256(sent["code_verifier"].encode()).digest()).rstrip(b"=")
-    assert approval["cli_challenge"] == [challenge.decode()]
+    assert parse_qs(approval.query)["cli_challenge"] == [challenge.decode()]
 
 
 def test_a_refused_exchange_reports_the_server_detail_and_prints_no_token() -> None:
