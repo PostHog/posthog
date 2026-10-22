@@ -87,17 +87,15 @@ from products.subscriptions.backend.facade.api import (
     TEAMS_WEBHOOK_URL_ERROR,
     TEAMS_WEBHOOK_URL_MASKED_ERROR,
     ai_query_plan_status,
+    blocked_access_for_subscription,
     sanitize_prompt,
+    should_check_table_access,
     validate_re_enable,
 )
 from products.subscriptions.backend.facade.contracts import (
     ProcessSubscriptionWorkflowInputs,
     PromptRejectedError,
     SubscriptionTriggerType,
-)
-from products.subscriptions.backend.logic.subscription_query_access import (
-    blocked_access_for_subscription,
-    should_check_table_access,
 )
 from products.subscriptions.backend.models.subscription import (
     AIQueryPlanStatus,
@@ -1023,7 +1021,9 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
     def _check_query_access(self, attrs: dict, resource_type: str) -> None:
         if resource_type == Subscription.ResourceType.AI_PROMPT:
             return
-        if not should_check_table_access(self.instance, attrs):
+        team = self.context["get_team"]()
+        subscription_id = self.instance.id if self.instance else None
+        if not should_check_table_access(team_id=team.id, subscription_id=subscription_id, attrs=attrs):
             return
         user = self.context["request"].user
         # Compiling the queries as the requester needs a real user.
@@ -1031,9 +1031,9 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
             return
         blocked_names = blocked_access_for_subscription(
             user=user,
-            team=self.context["get_team"](),
+            team=team,
             user_access_control=self.context["view"].user_access_control,
-            instance=self.instance,
+            subscription_id=subscription_id,
             attrs=attrs,
         )
         if blocked_names:

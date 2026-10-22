@@ -53,6 +53,7 @@ __all__ = [
     "TEAMS_WEBHOOK_URL_MASKED_ERROR",
     "ai_query_plan_status",
     "blocked_access_for_subscribed_dashboard_tile",
+    "blocked_access_for_subscription",
     "dashboard_has_active_full_subscription",
     "dashboard_ids_with_subscriptions",
     "delete_insight_subscriptions",
@@ -61,6 +62,7 @@ __all__ = [
     "insight_ids_with_subscriptions",
     "render_shared_insight_image",
     "sanitize_prompt",
+    "should_check_table_access",
     "subscription_ids_in_team",
     "unsubscribe",
     "validate_re_enable",
@@ -159,4 +161,27 @@ def blocked_access_for_subscribed_dashboard_tile(
     subscription delivers in full, when the editor cannot run the query. None when the tile may be added."""
     return subscription_query_access.blocked_access_for_subscribed_dashboard_tile(
         user, team, dashboard_id, query, user_access_control
+    )
+
+
+def should_check_table_access(*, team_id: int, subscription_id: int | None, attrs: dict[str, Any]) -> bool:
+    """Whether a subscription write must pass the table-access check: a create, a change to what
+    is delivered or to who receives it, or a write that enables or restores the subscription."""
+    return subscription_query_access.should_check_table_access(
+        team_id=team_id, subscription_id=subscription_id, attrs=attrs
+    )
+
+
+def blocked_access_for_subscription(
+    *,
+    user: User,
+    team: Team,
+    user_access_control: UserAccessControl,
+    subscription_id: int | None,
+    attrs: dict[str, Any],
+) -> list[str]:
+    """Names of the tables and query resources the requester cannot read among the queries the
+    subscription delivers after this write. Empty when the write passes the check."""
+    return subscription_query_access.blocked_access_for_subscription(
+        user=user, team=team, user_access_control=user_access_control, subscription_id=subscription_id, attrs=attrs
     )
