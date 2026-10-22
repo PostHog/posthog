@@ -147,7 +147,7 @@ def score_series(
     """
     if len(values) != len(buckets):
         raise ValueError("Each value needs a bucket")
-    completed = [i for i, start in enumerate(buckets) if _bucket_end(start, interval) <= now]
+    completed = [i for i, start in enumerate(buckets) if bucket_end(start, interval) <= now]
     returned = [i for i in completed if after is None or buckets[i] > after][-limits.max_backfill_buckets :]
     detector = get_detector(scoring.detector)
     data = np.array(values, dtype=float)
@@ -262,7 +262,7 @@ def _interval(query: TrendsQuery) -> IntervalType:
     return query.interval or IntervalType.DAY
 
 
-def _bucket_end(start: datetime, interval: IntervalType) -> datetime:
+def bucket_end(start: datetime, interval: IntervalType) -> datetime:
     if interval == IntervalType.HOUR:
         # An hour is elapsed time, so step in UTC to stay one hour long across DST changes.
         return (start.astimezone(UTC) + timedelta(hours=1)).astimezone(start.tzinfo)
