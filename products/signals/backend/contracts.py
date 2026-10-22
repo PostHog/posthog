@@ -1381,6 +1381,63 @@ class BigeyeIssueSignalInput(SignalInputBase):
     extra: BigeyeIssueSignalExtra
 
 
+# ── Incident monitoring ────────────────────────────────────────────────────────
+
+
+class DynatraceIncidentSignalExtra(SignalExtraBase):
+    display_id: str | None
+    status: str | None
+    severity_level: str | None
+    impact_level: str | None
+    start_time: str | None
+    root_cause_entity: str | None
+    affected_entities: list[str]
+
+
+class DynatraceIncidentSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.INCIDENT]
+    source_product: Literal[SignalSourceProduct.DYNATRACE]
+    extra: DynatraceIncidentSignalExtra
+
+
+class StatuspageIncidentSignalExtra(SignalExtraBase):
+    status: str | None
+    impact: str | None
+    shortlink: str | None
+    created_at: str | None
+
+
+class StatuspageIncidentSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.INCIDENT]
+    source_product: Literal[SignalSourceProduct.STATUSPAGE]
+    extra: StatuspageIncidentSignalExtra
+
+
+class CronitorIncidentSignalExtra(SignalExtraBase):
+    severity: str | None
+    state: str | None
+    created: str | None
+    started: str | None
+
+
+class CronitorIncidentSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.INCIDENT]
+    source_product: Literal[SignalSourceProduct.CRONITOR]
+    extra: CronitorIncidentSignalExtra
+
+
+class InstatusIncidentSignalExtra(SignalExtraBase):
+    status: str | None
+    started: str | None
+    components: list[str]
+
+
+class InstatusIncidentSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.INCIDENT]
+    source_product: Literal[SignalSourceProduct.INSTATUS]
+    extra: InstatusIncidentSignalExtra
+
+
 # ── Error monitors ─────────────────────────────────────────────────────────────
 
 
@@ -1503,6 +1560,10 @@ SignalInput = Annotated[
     | AzureDevopsIssueSignalInput
     | MonteCarloAlertSignalInput
     | BigeyeIssueSignalInput
+    | DynatraceIncidentSignalInput
+    | StatuspageIncidentSignalInput
+    | CronitorIncidentSignalInput
+    | InstatusIncidentSignalInput
     | LaceworkScannerFindingSignalInput
     | OrcaSecurityScannerFindingSignalInput
     | TenableVulnerabilityManagementScannerFindingSignalInput
@@ -1584,6 +1645,10 @@ SIGNAL_INPUT_VARIANTS: tuple[type[SignalInputBase], ...] = (
     AzureDevopsIssueSignalInput,
     MonteCarloAlertSignalInput,
     BigeyeIssueSignalInput,
+    DynatraceIncidentSignalInput,
+    StatuspageIncidentSignalInput,
+    CronitorIncidentSignalInput,
+    InstatusIncidentSignalInput,
     LaceworkScannerFindingSignalInput,
     OrcaSecurityScannerFindingSignalInput,
     TenableVulnerabilityManagementScannerFindingSignalInput,
