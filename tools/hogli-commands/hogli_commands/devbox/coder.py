@@ -1751,7 +1751,13 @@ def logs_replace(name: str, follow: bool) -> None:
 PREVIEW_APP_SLUG = "app"
 
 
-def get_preview_app(workspace: dict[str, Any]) -> tuple[str, str] | None:
+@dataclass(frozen=True)
+class PreviewApp:
+    url: str
+    health: str
+
+
+def get_preview_app(workspace: dict[str, Any]) -> PreviewApp | None:
     for agent in _agents(workspace):
         for app in agent.get("apps") or []:
             if app.get("slug") != PREVIEW_APP_SLUG:
@@ -1759,12 +1765,12 @@ def get_preview_app(workspace: dict[str, Any]) -> tuple[str, str] | None:
             health = str(app.get("health") or "unknown")
             if app.get("subdomain") is False:
                 path = f"@{workspace.get('owner_name')}/{workspace.get('name')}.{agent.get('name')}"
-                return f"{get_coder_url().rstrip('/')}/{path}/apps/{PREVIEW_APP_SLUG}/", health
+                return PreviewApp(url=f"{get_coder_url().rstrip('/')}/{path}/apps/{PREVIEW_APP_SLUG}/", health=health)
             host = urllib.parse.urlparse(get_coder_url()).hostname
             subdomain = app.get("subdomain_name") or (
                 f"{PREVIEW_APP_SLUG}--{workspace.get('name')}--{workspace.get('owner_name')}"
             )
-            return f"https://{subdomain}.{host}", health
+            return PreviewApp(url=f"https://{subdomain}.{host}", health=health)
     return None
 
 

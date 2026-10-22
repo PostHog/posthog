@@ -211,9 +211,8 @@ def _print_preview_url(workspace: dict[str, Any]) -> None:
     preview = get_preview_app(workspace)
     if preview is None:
         return
-    url, health = preview
-    note = "" if health == "healthy" else f" ({health}. The app may not be running yet.)"
-    click.echo(f"  App      {url}{note}")
+    note = "" if preview.health == "healthy" else f" ({preview.health}. The app may not be running yet.)"
+    click.echo(f"  App      {preview.url}{note}")
 
 
 @click.command(

@@ -6,6 +6,7 @@ import re
 import hashlib
 import subprocess
 import urllib.parse
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -88,14 +89,20 @@ def _app_url(workspace_name: str) -> str:
     return f"https://app--{workspace_name}--{get_username()}.{host}"
 
 
+@dataclass(frozen=True)
+class _WorktreeTarget:
+    workspace_name: str
+    label: str
+
+
 def _resolve_target(
     root: Path,
     label: str | None,
     cloning: bool,
     clone_source: str | None,
     workspaces: list[dict[str, Any]],
-) -> tuple[str, str]:
-    """Return ``(workspace_name, label)`` for this worktree.
+) -> _WorktreeTarget:
+    """Return the devbox this worktree uses.
 
     A worktree that already has a registered box keeps it, even after a branch
     rename, so a re-run never creates a second box.
@@ -103,7 +110,7 @@ def _resolve_target(
     registered = load_worktree_boxes().get(str(root))
     registered_label = extract_workspace_label(registered) if registered is not None else None
     if registered is not None and registered_label is not None and label in (None, registered_label):
-        return registered, registered_label
+        return _WorktreeTarget(workspace_name=registered, label=registered_label)
 
     if cloning:
         region = region_from_workspace_name(resolve_workspace_name(clone_source)[0])
@@ -125,7 +132,7 @@ def _resolve_target(
             f"A devbox named '{name}' already exists and is not tied to this worktree. "
             f"Pass `--label {resolved_label}` to use it anyway, or `--label <other>` for a new box."
         )
-    return name, resolved_label
+    return _WorktreeTarget(workspace_name=name, label=resolved_label)
 
 
 @click.command(name="devbox:worktree", help="Give this worktree its own devbox and sync mirror")
@@ -173,17 +180,23 @@ def devbox_worktree(
     workspaces = list_user_workspaces()
     cloning = clone_from is not None
     clone_source = None if clone_from in (None, "default") else clone_from
-    name, resolved_label = _resolve_target(root, label, cloning, clone_source, workspaces)
-    existing = get_workspace(name, workspaces)
-    has_sync = bool(mutagen.sync_list(label_selector=mutagen.workspace_label_selector(name)))
+    target = _resolve_target(root, label, cloning, clone_source, workspaces)
+    existing = get_workspace(target.workspace_name, workspaces)
+    has_sync = bool(mutagen.sync_list(label_selector=mutagen.workspace_label_selector(target.workspace_name)))
 
     if existing is None:
-        box_step = f"Clone '{clone_from}' into '{name}'" if cloning else f"Create '{name}'"
+        box_step = (
+            f"Clone '{clone_from}' into '{target.workspace_name}'" if cloning else f"Create '{target.workspace_name}'"
+        )
     elif get_workspace_status(existing) == "running":
-        box_step = f"Use running devbox '{name}'"
+        box_step = f"Use running devbox '{target.workspace_name}'"
     else:
-        box_step = f"Start devbox '{name}' ({get_workspace_status(existing)})"
-    sync_step = "Keep the existing sync mirror" if has_sync else f"Mirror {root} to coder.{name}:{_REMOTE_REPO_PATH}"
+        box_step = f"Start devbox '{target.workspace_name}' ({get_workspace_status(existing)})"
+    sync_step = (
+        "Keep the existing sync mirror"
+        if has_sync
+        else f"Mirror {root} to coder.{target.workspace_name}:{_REMOTE_REPO_PATH}"
+    )
 
     click.echo(f"Worktree: {root}")
     click.echo(f"  1. {box_step}")
@@ -194,20 +207,20 @@ def devbox_worktree(
         click.echo("[DRY-RUN] Nothing changed.")
         return
 
-    record_worktree_box(root, name)
+    record_worktree_box(root, target.workspace_name)
     if on_clean == "keep":
         clear_worktree_box_cleanup()
     elif on_clean is not None:
         save_worktree_box_cleanup(on_clean)
 
-    region = region_from_workspace_name(name)
+    region = region_from_workspace_name(target.workspace_name)
     if existing is None and cloning:
-        ctx.invoke(devbox_clone, workspace=clone_source, new_label=resolved_label, yes=yes, verbose=verbose)
+        ctx.invoke(devbox_clone, workspace=clone_source, new_label=target.label, yes=yes, verbose=verbose)
     elif existing is None:
-        ctx.invoke(devbox_start, workspace=resolved_label, region=region, start_app=start_app, verbose=verbose)
+        ctx.invoke(devbox_start, workspace=target.label, region=region, start_app=start_app, verbose=verbose)
     else:
-        ctx.invoke(devbox_start, workspace=resolved_label, region=region, verbose=verbose)
+        ctx.invoke(devbox_start, workspace=target.label, region=region, verbose=verbose)
 
-    ensure_sync_session(name, list_user_workspaces(), root, verbose=verbose)
+    ensure_sync_session(target.workspace_name, list_user_workspaces(), root, verbose=verbose)
     click.echo()
-    click.echo(f"App URL, once the stack runs on the box: {_app_url(name)}")
+    click.echo(f"App URL, once the stack runs on the box: {_app_url(target.workspace_name)}")

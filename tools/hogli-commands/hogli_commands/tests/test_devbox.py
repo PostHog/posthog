@@ -1096,7 +1096,7 @@ class TestPreviewApp:
             "latest_build": {"resources": [{"agents": [{"name": "dev", "apps": [app]}]}]},
         }
 
-        assert coder.get_preview_app(workspace) == (expected_url, "healthy")
+        assert coder.get_preview_app(workspace) == coder.PreviewApp(url=expected_url, health="healthy")
 
 
 def _parse_parameter_flags(args: list[str]) -> dict[str, str]:
