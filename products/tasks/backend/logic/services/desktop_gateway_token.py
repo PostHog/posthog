@@ -193,15 +193,12 @@ def posthog_code_billing_synced(organization: "Organization") -> bool:
     return bool(usage.get("period")) and isinstance(entry, dict) and ("usage" in entry or "limit" in entry)
 
 
-# Billing's SUBSCRIBED_PAYING_TRUSTED: the org has paid an invoice. Org age and score 3
-# (SUBSCRIBED_NEVER_PAID_UNTRUSTED, set when a card subscribes) do not count, so an aged org
-# with an unpaid card stays provisional.
+# Billing's SUBSCRIBED_PAYING_TRUSTED (a paid invoice). Billing sets score 3 when a card subscribes, before any payment.
 _PAID_TRUST_MINIMUM = 7.0
 
 
 def posthog_code_trusted(organization: "Organization") -> bool:
-    """Whether the org's best product trust score shows a paid invoice; a missing or malformed
-    score counts as zero."""
+    """Whether the org's best trust score shows a paid invoice; a missing or malformed score counts as zero."""
     scores = organization.customer_trust_scores or {}
     best = max((float(v) for v in scores.values() if isinstance(v, int | float)), default=0.0)
     return best >= _PAID_TRUST_MINIMUM
