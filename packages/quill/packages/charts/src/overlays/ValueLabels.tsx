@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react'
 
 import { useChartHover, useChartLayout } from '../core/chart-context'
-import { barColorAt, perceivedLuminance } from '../core/color-utils'
+import { barColorAt, DARK_FILL_LUMINANCE, perceivedLuminance } from '../core/color-utils'
 import { resolveYScaleForSeries } from '../core/scales'
 import type { ChartDimensions, ChartScales, ResolvedSeries, ResolveValueFn } from '../core/types'
 import { getTextMeasureCtx } from '../utils/text-measure'
@@ -592,7 +592,7 @@ export function ValueLabels({
                                 fontSize: resolvedFontSize,
                                 color:
                                     background || c.centerAnchor
-                                        ? perceivedLuminance(c.color) < 0.5
+                                        ? perceivedLuminance(c.color) < DARK_FILL_LUMINANCE
                                             ? 'white'
                                             : 'black'
                                         : theme.axisColor,

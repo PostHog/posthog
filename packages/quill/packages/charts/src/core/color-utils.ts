@@ -74,6 +74,9 @@ export function toSrgbColor(color: string): string {
     return a === 0 ? color : d3Rgb(r, g, b, a / 255).toString()
 }
 
+// Below this the fill is dark enough for white text; at or above it, dark text stays readable.
+export const DARK_FILL_LUMINANCE = 0.55
+
 /** Perceived luminance of a color, 0 (black) to 1 (white), on the ITU-R BT.601 weighting.
  *  Use it to pick light or dark text over a fill. Unparseable input returns 1, so a caller
  *  falls back to dark text. */
