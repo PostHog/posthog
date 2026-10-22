@@ -2934,12 +2934,15 @@ class TestAssociatedTaskRunsForReports(APIBaseTest):
 class TestSignalReportSuppressionAPI(APIBaseTest):
     @parameterized.expand(
         [
-            (bulk, reason)
+            (bulk, reason, 0)
             for bulk in (False, True)
             for reason in (None, "verified_manually", "no_action_needed", "already_fixed", "other")
         ]
+        + [(bulk, "verified_manually", note_length) for bulk in (False, True) for note_length in (4000, 4001)]
     )
-    def test_manual_monitoring_preserves_period_and_records_completion(self, bulk: bool, reason: str | None) -> None:
+    def test_manual_monitoring_preserves_period_and_records_completion(
+        self, bulk: bool, reason: str | None, note_length: int
+    ) -> None:
         report = self._create_report()
         with patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=True):
             report.save(
@@ -2976,8 +2979,25 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
                 "state": "resolved",
                 **({"ids": [str(report.id)]} if bulk else {}),
                 **({"dismissal_reason": reason} if reason else {}),
+                **({"dismissal_note": "x" * note_length} if note_length else {}),
             }
             finished = self.client.post(url, body, format="json")
+            if note_length > 4000:
+                assert finished.status_code == status.HTTP_400_BAD_REQUEST, finished.json()
+                report.refresh_from_db()
+                assert report.status == SignalReport.Status.MONITORING
+                for check in checks:
+                    check.refresh_from_db()
+                assert [check.status for check in checks] == [
+                    SignalReportCheck.Status.PENDING,
+                    SignalReportCheck.Status.ACTIVE,
+                    SignalReportCheck.Status.PASSED,
+                ]
+                assert not SignalReportArtefact.objects.filter(
+                    report=report, type__in=["note", "check_cancelled"]
+                ).exists()
+                assert SignalReportArtefact.objects.filter(report=report, type="dismissal").count() == 1
+                return
             assert finished.status_code == status.HTTP_200_OK, finished.json()
             report.refresh_from_db()
             assert report.status == SignalReport.Status.RESOLVED
@@ -2986,6 +3006,7 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
             content = json.loads(feedback.content)
             assert content["state"] == "resolved"
             assert content["reason"] == reason
+            assert content["note"] == ("x" * note_length if note_length else None)
             for check in checks:
                 check.refresh_from_db()
             assert [check.status for check in checks] == [
@@ -2998,13 +3019,16 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
             assert set(cancellations.values_list("created_by_id", flat=True)) == {self.user.id}
             assert content["user_id"] == self.user.id
             assert feedback.created_by_id == self.user.id
+            annotation = SignalReportArtefact.objects.get(report=report, type="note")
+            assert annotation.created_by_id == self.user.id
             assert (
-                content["note"]
+                json.loads(annotation.content)["note"]
                 == "Monitoring stopped manually. Automatic verification and an evidence amendment were not performed."
             )
             assert self.client.post(url, body, format="json").status_code == status.HTTP_200_OK
             assert SignalReportArtefact.objects.filter(report=report, type="dismissal").count() == (3 if reason else 2)
             assert cancellations.count() == 2
+            assert SignalReportArtefact.objects.filter(report=report, type="note").count() == 1
 
     @parameterized.expand([("disabled", False), ("unavailable", RuntimeError("flag service unavailable"))])
     def test_monitoring_entry_fails_closed_and_existing_rows_use_resolved_actions(

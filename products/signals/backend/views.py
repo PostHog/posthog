@@ -93,6 +93,7 @@ from products.signals.backend.artefact_schemas import (
     ArtefactContentValidationError,
     ChannelAssignment,
     Dismissal,
+    NoteArtefact,
     RelevantCommit,
     ReviewerEdit,
     ReviewerProposal,
@@ -3770,14 +3771,8 @@ class SignalReportViewSet(
                     )
                 )
             )
-            if stopping_monitoring:
-                manual_note = (
-                    "Monitoring stopped manually. Automatic verification and an evidence amendment were not performed."
-                )
-                dismissal_note = f"{manual_note}\n\n{dismissal_note}" if dismissal_note else manual_note
-
             writes_dismissal_feedback = target in ("suppressed", "potential", "resolved") and bool(
-                dismissal_reason or dismissal_note
+                dismissal_reason or dismissal_note or stopping_monitoring
             )
             feedback_state = (
                 None
@@ -3821,6 +3816,16 @@ class SignalReportViewSet(
                 report._newly_suppressed = target_status == SignalReport.Status.SUPPRESSED  # type: ignore[attr-defined]
 
                 report.save(update_fields=updated_fields)
+
+                if stopping_monitoring:
+                    SignalReportArtefact.add_log(
+                        team_id=self.team.id,
+                        report_id=str(report.id),
+                        content=NoteArtefact(
+                            note="Monitoring stopped manually. Automatic verification and an evidence amendment were not performed."
+                        ),
+                        attribution=self._request_attribution(),
+                    )
 
             # Persist the dismissal feedback as its own artefact so it survives status changes
             # and so multiple dismissals (with different rationales) can stack over time.
