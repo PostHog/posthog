@@ -44,19 +44,20 @@ def test_parse_housekeeping_output(stdout: str, expected: tuple) -> None:
 
 
 @pytest.mark.parametrize(
-    ("stdout", "expected_version"),
+    ("execute_outcome", "expected_version"),
     [
-        ('agent_manifest:{"version": "1.2.3"}\n', "1.2.3"),
-        ("", None),
+        (ExecutionResult(stdout='agent_manifest:{"version": "1.2.3"}\n', stderr="", exit_code=0), "1.2.3"),
+        (ExecutionResult(stdout="", stderr="", exit_code=0), None),
+        (TimeoutError("housekeeping timed out"), None),
     ],
 )
-def test_docker_housekeeping_reads_only_the_agent_version(stdout: str, expected_version: str | None) -> None:
+def test_docker_housekeeping_reads_only_the_agent_version(
+    execute_outcome: ExecutionResult | Exception, expected_version: str | None
+) -> None:
     sandbox = DockerSandbox.__new__(DockerSandbox)
     sandbox.id = "docker-sandbox"
 
-    with patch.object(
-        sandbox, "execute", return_value=ExecutionResult(stdout=stdout, stderr="", exit_code=0)
-    ) as execute:
+    with patch.object(sandbox, "execute", side_effect=[execute_outcome]) as execute:
         housekeeping = sandbox.run_post_create_housekeeping()
 
     assert CPU_BILLING_SAMPLER_PATH not in execute.call_args.args[0]

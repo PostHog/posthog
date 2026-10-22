@@ -769,7 +769,13 @@ class SandboxBase(ABC):
 
     def run_post_create_housekeeping(self) -> SandboxHousekeeping:
         request_cores = self._cpu_billing_request_cores()
-        result = self.execute(build_housekeeping_script(request_cores), timeout_seconds=HOUSEKEEPING_TIMEOUT_SECONDS)
+        try:
+            result = self.execute(
+                build_housekeeping_script(request_cores), timeout_seconds=HOUSEKEEPING_TIMEOUT_SECONDS
+            )
+        except Exception as e:
+            _logger.warning("sandbox_housekeeping_failed", sandbox_id=self.id, error=str(e))
+            return parse_housekeeping_output("", request_cores, timezone.now())
         return parse_housekeeping_output(result.stdout, request_cores, timezone.now())
 
     def _read_health_session_init_ms(self, port: int) -> int | None:
