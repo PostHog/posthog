@@ -34,6 +34,7 @@ use ingestion_consumer::batcher::BatcherObserver;
 use ingestion_consumer::charge_limit::ChargeLimit;
 use ingestion_consumer::config::{CompletionGranularity, Polling};
 use ingestion_consumer::consumer::{IngestionConsumer, IngestionConsumerOptions};
+use ingestion_consumer::debug_recorder::{DebugEventKind, DebugRecorder};
 use ingestion_consumer::discovery::reconcile_membership;
 use ingestion_consumer::grpc_transport::{GrpcPort, GrpcTransport};
 use ingestion_consumer::partition_budget::BudgetLimits;
@@ -584,6 +585,7 @@ struct Harness {
     topic: String,
     group_id: String,
     pub ledger: Arc<TopicOffsetLedger>,
+    debug_recorder: Arc<DebugRecorder>,
     max_in_flight: usize,
     deferred_flush_timeout: Duration,
     pack_targets: PackTargets,
@@ -1013,6 +1015,7 @@ impl Harness {
 
         let group_id = format!("e2e-{}", Uuid::new_v4());
         let ledger = Arc::new(TopicOffsetLedger::new());
+        let debug_recorder = DebugRecorder::new(10_000, Duration::from_secs(3600));
         let kafka_consumer =
             make_kafka_consumer_with_context(topic, &group_id, None, RebalanceContext::new());
 
@@ -1036,7 +1039,7 @@ impl Harness {
                 batch_timeout: Duration::from_millis(100),
                 max_in_flight_batches: max_in_flight,
                 group_id: "e2e-test".to_string(),
-                debug_recorder: None,
+                debug_recorder: Some(Arc::clone(&debug_recorder)),
                 completion_granularity,
                 commit_interval,
                 ledger: Arc::clone(&ledger),
@@ -1070,6 +1073,7 @@ impl Harness {
             topic: topic.to_string(),
             group_id,
             ledger,
+            debug_recorder,
             max_in_flight,
             deferred_flush_timeout,
             pack_targets,
@@ -1079,6 +1083,18 @@ impl Harness {
             polling,
             in_flight_limit,
         }
+    }
+
+    /// Message count of each poll the consumer dispatched, before the packer merges any.
+    fn poll_sizes(&self) -> Vec<usize> {
+        self.debug_recorder
+            .backlog()
+            .into_iter()
+            .filter_map(|event| match event.kind {
+                DebugEventKind::BatchDispatched { messages, .. } => Some(messages),
+                _ => None,
+            })
+            .collect()
     }
 
     /// Abort the consumer task: no shutdown, no drain, no final commit.
@@ -1614,16 +1630,16 @@ async fn byte_bound_caps_batches_below_the_count_bound(#[case] polling: Polling)
 
     harness.wait_for(12, Duration::from_secs(20)).await;
 
-    let sizes = harness.workers[0].batch_sizes();
+    let sizes = harness.poll_sizes();
     assert_eq!(
         sizes.iter().sum::<usize>(),
         12,
-        "every message must still be delivered, got batches {sizes:?}"
+        "every message must still be polled, got polls {sizes:?}"
     );
-    // A batch timeout only shrinks batches, so producer timing cannot break this.
+    // A batch timeout only shrinks polls, so producer timing cannot break this.
     assert!(
         sizes.iter().all(|&n| n <= 2),
-        "no batch may exceed the byte bound by more than one message, got {sizes:?}"
+        "no poll may exceed the byte bound by more than one message, got {sizes:?}"
     );
 
     harness.stop().await;
