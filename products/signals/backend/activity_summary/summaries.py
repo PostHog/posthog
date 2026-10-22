@@ -93,7 +93,7 @@ def summarize(
     """One summary. Tokens and latency add up over the attempts, because the retry costs too."""
     messages: list[ChatCompletionMessageParam] = [
         {"role": "system", "content": system_prompt(profile_max_chars)},
-        {"role": "user", "content": user_message(rendered_input, previous_summary, as_of)},
+        {"role": "user", "content": user_message(rendered_input, previous_summary, as_of, profile_max_chars)},
     ]
     tokens_in: int | None = None
     tokens_out: int | None = None

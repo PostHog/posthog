@@ -89,36 +89,6 @@ class MalformedSummaryError(ValueError):
     """The model's answer cannot be turned into a summary. The message never quotes the answer."""
 
 
-def _previous(previous_summary: dict[str, Any]) -> dict[str, Any]:
-    # A summary stored before prompt version 3 has a `summary` and no `headline` or `profile`.
-    return {
-        "headline": previous_summary.get("headline") or previous_summary.get("summary"),
-        "profile": previous_summary.get("profile"),
-        "focus_areas": previous_summary.get("focus_areas"),
-        "products": previous_summary.get("products"),
-    }
-
-
-def user_message(rendered_input: str, previous_summary: dict[str, Any] | None, as_of: datetime.date) -> str:
-    """The user turn: the day the activity ends, the previous summary and the rendered input.
-
-    The rendered input comes from `build_input` as is, and the previous summary is this pipeline's
-    own stored output, so no other text reaches the model."""
-    previous = (
-        json.dumps(_previous(previous_summary), ensure_ascii=False, sort_keys=True) if previous_summary else "None"
-    )
-    return f"Today is {as_of.isoformat()}.\n\nPrevious summary:\n{previous}\n\nRecent activity:\n{rendered_input}"
-
-
-def _clean(value: Any, max_chars: int | None = None) -> str | None:
-    if not isinstance(value, str):
-        return None
-    text = " ".join(value.split())
-    if text.lower() in _NULL_STRINGS:
-        return None
-    return cap_line(text, max_chars) if max_chars is not None else text
-
-
 def _profile(value: Any, max_chars: int) -> str | None:
     """The markdown profile with its line breaks, cut at a word boundary when it is longer than `max_chars`."""
     if not isinstance(value, str):
@@ -131,6 +101,44 @@ def _profile(value: Any, max_chars: int) -> str | None:
     cut = text[: max_chars - 1]
     boundary = max(cut.rfind(" "), cut.rfind("\n"))
     return (cut[:boundary] if boundary > 0 else cut).rstrip() + "…"
+
+
+def _previous(previous_summary: dict[str, Any], profile_max_chars: int) -> dict[str, Any]:
+    # A summary stored before prompt version 3 has a `summary` and no `headline` or `profile`.
+    # A profile stored under a larger limit gets cut to the current one, so the input stays inside the cost bound.
+    return {
+        "headline": previous_summary.get("headline") or previous_summary.get("summary"),
+        "profile": _profile(previous_summary.get("profile"), profile_max_chars),
+        "focus_areas": previous_summary.get("focus_areas"),
+        "products": previous_summary.get("products"),
+    }
+
+
+def user_message(
+    rendered_input: str,
+    previous_summary: dict[str, Any] | None,
+    as_of: datetime.date,
+    profile_max_chars: int = PROFILE_MAX_CHARS,
+) -> str:
+    """The user turn: the day the activity ends, the previous summary and the rendered input.
+
+    The rendered input comes from `build_input` as is, and the previous summary is this pipeline's
+    own stored output, so no other text reaches the model."""
+    previous = (
+        json.dumps(_previous(previous_summary, profile_max_chars), ensure_ascii=False, sort_keys=True)
+        if previous_summary
+        else "None"
+    )
+    return f"Today is {as_of.isoformat()}.\n\nPrevious summary:\n{previous}\n\nRecent activity:\n{rendered_input}"
+
+
+def _clean(value: Any, max_chars: int | None = None) -> str | None:
+    if not isinstance(value, str):
+        return None
+    text = " ".join(value.split())
+    if text.lower() in _NULL_STRINGS:
+        return None
+    return cap_line(text, max_chars) if max_chars is not None else text
 
 
 def _last_seen(value: Any) -> str | None:

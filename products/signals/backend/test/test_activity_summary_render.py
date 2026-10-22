@@ -698,3 +698,23 @@ def test_summarize_reports_null_tokens_when_the_response_has_no_usage() -> None:
     )
     assert outcome.summary is not None
     assert (outcome.tokens_in, outcome.tokens_out) == (None, None)
+
+
+def test_summarize_cuts_a_previous_profile_to_a_lowered_limit() -> None:
+    stored_profile = "## Funnels\n" + "Builds the signup funnel. " * 230
+    assert len(stored_profile) > 5000
+    llm = FakeLLM([_answer()])
+
+    summarize(
+        llm,  # type: ignore[arg-type]
+        rendered_input="- a line",
+        previous_summary={**PREVIOUS, "profile": stored_profile},
+        model="gpt-6-luna",
+        as_of=datetime.date(2026, 10, 18),
+        profile_max_chars=500,
+    )
+
+    user_turn = llm.requests[0]["messages"][1]["content"]
+    previous = json.loads(user_turn.split("Previous summary:\n", 1)[1].split("\n\nRecent activity:", 1)[0])
+    assert len(previous["profile"]) <= 500
+    assert previous["profile"].startswith("## Funnels\nBuilds the signup funnel.")

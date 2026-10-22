@@ -57,7 +57,7 @@ class DailyUsage:
 
 def max_update_cost_usd(limits: RenderLimits = DEFAULT_LIMITS, model: str = DEFAULT_MODEL) -> float:
     """The most one update can cost: every attempt with the largest input and output."""
-    # The previous summary is a profile plus fields that `MAX_SUMMARY_CHARS` covers.
+    # The previous summary is a profile, cut to `limits.profile_max_chars`, plus fields that `MAX_SUMMARY_CHARS` covers.
     input_chars = (
         limits.sections_max_chars
         + limits.profile_max_chars
