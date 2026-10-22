@@ -3,7 +3,6 @@ import json
 import hashlib
 from datetime import datetime, timedelta
 from typing import Any, cast
-from uuid import UUID
 
 import pytest
 import time_machine
@@ -15,14 +14,14 @@ from django.contrib.auth.models import AnonymousUser
 from django.core.cache import cache
 from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
 from django.test import (
+    AsyncClient,
     Client as DjangoClient,
     RequestFactory,
     SimpleTestCase,
 )
-from django.urls import reverse
+from django.urls import path, reverse
 
 import structlog
-from django_structlog.middlewares import RequestMiddleware
 from loginas import settings as la_settings
 from parameterized import parameterized
 from prometheus_client import REGISTRY
@@ -32,11 +31,10 @@ from social_core.exceptions import AuthCanceled, AuthFailed, AuthMissingParamete
 
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
-from posthog.clickhouse.query_tagging import get_query_tags, reset_query_tags
+from posthog.clickhouse.query_tagging import get_query_tags
 from posthog.constants import AvailableFeature
 from posthog.middleware import (
     ActivityLoggingMiddleware,
-    CHQueries,
     Fix204Middleware,
     ManagedProxyClientIPMiddleware,
     SignedClientIPOutcome,
@@ -2644,28 +2642,28 @@ def test_chqueries_middleware_tags_source(user_agent, expected_source):
     assert captured["feature"] is None
 
 
-@parameterized.expand(
+def _http_request_id_probe(request: HttpRequest) -> HttpResponse:
+    return HttpResponse(str(get_query_tags().http_request_id))
+
+
+urlpatterns = [path("api/_http_request_id_probe/", _http_request_id_probe)]
+
+
+@pytest.mark.parametrize(
+    "header_value,expected_tag",
     [
-        ("uuid", "0b8a6a4e-4c1f-4d2e-9a57-3f6f0f6c2b11", UUID("0b8a6a4e-4c1f-4d2e-9a57-3f6f0f6c2b11")),
+        pytest.param("0b8a6a4e-4c1f-4d2e-9a57-3f6f0f6c2b11", "0b8a6a4e-4c1f-4d2e-9a57-3f6f0f6c2b11", id="uuid"),
         # django-structlog binds the client's X-Request-ID header without checking that it is a UUID.
-        ("not_a_uuid", "not-a-uuid", None),
-    ]
+        pytest.param("not-a-uuid", "None", id="not_a_uuid"),
+    ],
 )
-def test_chqueries_middleware_tags_http_request_id_from_request_middleware(name, header_value, expected_tag):
-    reset_query_tags()
-    captured: dict = {}
+@override_settings(ROOT_URLCONF=__name__)
+async def test_chqueries_middleware_tags_http_request_id_under_asgi(header_value, expected_tag):
+    # AsyncClient runs settings.MIDDLEWARE through the ASGI handler, as production does.
+    # There, django-structlog binds request_id on the event loop. CHQueries reads it from a worker thread.
+    response = await AsyncClient().get("/api/_http_request_id_probe/", headers={"X-Request-ID": header_value})
 
-    def get_response(req):
-        captured["http_request_id"] = get_query_tags().http_request_id
-        return HttpResponse("ok")
-
-    request = RequestFactory().get("/api/projects/@current/query/", HTTP_X_REQUEST_ID=header_value)
-    request.user = MagicMock(pk=1, is_authenticated=False)
-    request.session = MagicMock(session_key="abc123")
-
-    RequestMiddleware(CHQueries(get_response))(request)
-
-    assert captured["http_request_id"] == expected_tag
+    assert response.content.decode() == expected_tag
 
 
 @parameterized.expand(
