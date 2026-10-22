@@ -268,6 +268,7 @@ mod tests {
 
     use common_kafka_consumer::{Charge, Offset as MessageOffset, Partition, TopicOffsetLedger};
 
+    use super::super::harness::{p, Harness};
     use super::*;
     use crate::order_sentinel::OffsetSpan;
     use crate::partition_budget::BudgetLimits;
@@ -527,5 +528,25 @@ mod tests {
 
         assert_eq!(in_flight[0].covered, 0);
         assert_eq!(in_flight[1].covered, 4);
+    }
+
+    fn capped(max_in_flight_polls: usize) -> Harness<CappedPolling> {
+        Harness::new(|parts| CappedPolling::new(parts, max_in_flight_polls))
+    }
+
+    #[test]
+    fn the_capped_strategy_stops_reading_at_its_cap_until_the_oldest_poll_is_covered() {
+        let mut harness = capped(1);
+        assert!(harness.poller.reading());
+
+        harness.receive(0, &[0, 1]);
+        assert!(harness.step().is_none(), "the poll is still collecting");
+        harness.after_the_batch_timeout();
+        harness.submit();
+        assert!(!harness.poller.reading());
+
+        harness.complete(0, &[0, 1]);
+        assert_eq!(harness.commit(), HashMap::from([(p(0), Offset(2))]));
+        assert!(harness.poller.reading());
     }
 }

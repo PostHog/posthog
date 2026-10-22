@@ -241,3 +241,151 @@ impl UncommittedCharges {
         self.total = self.total - previous.unwrap_or(Charge::ZERO) + charge;
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+    use std::num::NonZeroU64;
+
+    use common_kafka_consumer::Offset;
+    use metrics_util::debugging::{DebugValue, DebuggingRecorder};
+
+    use super::super::harness::{completion, p, Harness};
+    use super::*;
+
+    fn continuous(in_flight_events: u64) -> Harness<ContinuousPolling> {
+        Harness::new(|parts| {
+            ContinuousPolling::new(
+                parts,
+                ChargeLimit::new(NonZeroU64::new(in_flight_events), None),
+            )
+        })
+    }
+
+    #[test]
+    fn the_continuous_strategy_stops_reading_one_poll_past_its_limit_until_a_commit() {
+        let mut harness = continuous(1);
+
+        harness.receive(0, &[0, 1]);
+        assert!(
+            harness.poller.reading(),
+            "the poll in progress is not counted"
+        );
+        harness.after_the_batch_timeout();
+        assert_eq!(harness.submit(), HashMap::from([(p(0), (0, 1))]));
+        assert!(!harness.poller.reading());
+
+        harness.complete(0, &[0, 1]);
+        assert!(
+            !harness.poller.reading(),
+            "a completion frees no room before its commit"
+        );
+        assert_eq!(harness.commit(), HashMap::from([(p(0), Offset(2))]));
+        assert!(harness.poller.reading());
+    }
+
+    #[test]
+    fn a_revoke_removes_the_partitions_messages_received_before_it() {
+        let mut harness = continuous(1_000);
+        harness.receive(0, &[10, 11]);
+        harness.receive(1, &[20]);
+
+        harness.poller.revoked(&[p(0)]);
+        harness.receive(0, &[10]);
+        harness.after_the_batch_timeout();
+
+        assert_eq!(
+            harness.submit(),
+            HashMap::from([(p(0), (10, 10)), (p(1), (20, 20))]),
+            "the redelivery after the revoke stays"
+        );
+    }
+
+    #[test]
+    fn a_completion_from_before_a_revoke_settles_nothing_in_the_next_assignment() {
+        let mut harness = continuous(1_000);
+        harness.receive(0, &[0, 1]);
+        harness.after_the_batch_timeout();
+        harness.submit();
+        let before = harness.ledger.generation(&p(0));
+
+        harness.revoke(0);
+        harness.receive(0, &[0, 1]);
+        harness.after_the_batch_timeout();
+        harness.submit();
+
+        harness.complete_under(before, 0, &[0, 1]);
+        harness.poller.ticked();
+        assert!(
+            harness.step().is_none(),
+            "the old assignment's completion is stale"
+        );
+        harness.complete(0, &[0, 1]);
+        assert_eq!(harness.commit(), HashMap::from([(p(0), Offset(2))]));
+    }
+
+    #[test]
+    fn a_completion_a_worker_did_not_accept_in_full_fails() {
+        let mut harness = continuous(1_000);
+        harness.receive(0, &[0, 1]);
+        harness.after_the_batch_timeout();
+        harness.submit();
+        let mut short = completion(harness.ledger.generation(&p(0)), 0, &[0, 1]);
+        short.accepted = 1;
+
+        let error = harness
+            .poller
+            .completed(&short)
+            .expect_err("a dropped message must not commit");
+        assert!(error.to_string().contains("accepted 1/2"), "{error}");
+    }
+
+    #[test]
+    fn a_commit_reports_the_newest_kafka_timestamp_it_passed() {
+        let recorder = DebuggingRecorder::new();
+        let snapshotter = recorder.snapshotter();
+        let _guard = metrics::set_default_local_recorder(&recorder);
+        let latest_processed = || {
+            snapshotter
+                .snapshot()
+                .into_vec()
+                .into_iter()
+                .find_map(|(key, _, _, value)| match value {
+                    DebugValue::Gauge(ts)
+                        if key.key().name() == "latest_processed_timestamp_ms" =>
+                    {
+                        Some(ts.into_inner())
+                    }
+                    _ => None,
+                })
+        };
+        let mut harness = continuous(1_000);
+        harness.receive(0, &[0, 1]);
+        harness.after_the_batch_timeout();
+        harness.submit();
+        assert_eq!(latest_processed(), None);
+
+        harness.complete(0, &[0, 1]);
+        harness.commit();
+
+        assert_eq!(latest_processed(), Some(1_000.0));
+    }
+
+    #[test]
+    fn shutdown_drops_the_poll_in_progress_and_stops_once_in_flight_work_drains() {
+        let mut harness = continuous(1_000);
+        harness.receive(0, &[0]);
+        harness.after_the_batch_timeout();
+        harness.submit();
+        harness.receive(0, &[1]);
+
+        harness.poller.shutdown();
+        assert!(!harness.poller.reading());
+        assert_eq!(harness.poller.deadline(), None);
+        assert!(harness.step().is_none(), "offset 0 is still in flight");
+
+        harness.complete(0, &[0]);
+        assert_eq!(harness.commit(), HashMap::from([(p(0), Offset(1))]));
+        assert!(matches!(harness.step(), Some(Step::Stop)));
+    }
+}
