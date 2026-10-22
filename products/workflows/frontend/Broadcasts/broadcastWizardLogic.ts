@@ -62,6 +62,7 @@ import {
     requestAiEmailDraft,
 } from '../MessageAudience/aiEmailDraft'
 import type { AiEmailDraftStatusProps } from '../MessageAudience/AiEmailDraftStatus'
+import { EmailBrand, applyEmailBrand, loadEmailBrand } from '../MessageAudience/emailBrand'
 import {
     EMAIL_PREFILL_PARAM,
     MessageDraft,
@@ -284,6 +285,8 @@ export interface broadcastWizardLogicValues {
     duplicating: boolean
     effectiveTimezone: string
     email: BroadcastEmailValue
+    emailBrand: EmailBrand | null
+    emailBrandLoading: boolean
     emailRateLimit: HogFlowEmailSendingRateLimitApi | null
     emailSettings: BroadcastEmailSettings
     entrySource: string | null
@@ -339,6 +342,9 @@ export interface broadcastWizardLogicActions {
     }
     archiveBroadcast: () => {
         value: true
+    }
+    brandApplied: (content: Pick<BroadcastEmailValue, 'design' | 'html'>) => {
+        content: Pick<BroadcastEmailValue, 'design' | 'html'>
     }
     collapseRun: (runId: string) => {
         runId: string
@@ -440,6 +446,21 @@ export interface broadcastWizardLogicActions {
         payload?: any
     ) => {
         broadcast: HogFlowApi | null
+        payload?: any
+    }
+    loadEmailBrand: () => any
+    loadEmailBrandFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadEmailBrandSuccess: (
+        emailBrand: EmailBrand | null,
+        payload?: any
+    ) => {
+        emailBrand: EmailBrand | null
         payload?: any
     }
     loadExternalEdit: () => {
@@ -697,6 +718,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
         setEmailRateLimit: (emailRateLimit: HogFlowEmailSendingRateLimitApi | null) => ({ emailRateLimit }),
         setEmailSettings: (settings: Partial<BroadcastEmailSettings>) => ({ settings }),
         setEmail: (email: BroadcastEmailValue) => ({ email }),
+        brandApplied: (content: Pick<BroadcastEmailValue, 'html' | 'design'>) => ({ content }),
         applyAiEmailDraft: (draft: MessageDraft) => ({ draft }),
         applyDefaultSender: true,
         defaultSenderApplied: (integrationId: number) => ({ integrationId }),
@@ -796,6 +818,17 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                         // A failed check must not block the send; it only drops the warning.
                         return null
                     }
+                },
+            },
+        ],
+        emailBrand: [
+            null as EmailBrand | null,
+            {
+                loadEmailBrand: async () => {
+                    if (!values.currentProjectId) {
+                        return null
+                    }
+                    return await loadEmailBrand(String(values.currentProjectId), values.email)
                 },
             },
         ],
@@ -979,6 +1012,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             DEFAULT_BROADCAST_EMAIL,
             {
                 setEmail: (_, { email }) => email,
+                brandApplied: (state, { content }) => ({ ...state, ...content }),
                 prefillFromLink: (state, { prefill }) =>
                     prefill.email ? { ...state, ...messageDraftEmail(prefill.email) } : state,
                 applyAiEmailDraft: (state, { draft }) => ({ ...state, ...messageDraftEmail(draft) }),
@@ -1461,6 +1495,15 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                     actions.applyAiEmailDraft(aiEmailDraft.draft)
                     cache.prefilledEmail = { ...DEFAULT_BROADCAST_EMAIL, ...messageDraftEmail(aiEmailDraft.draft) }
                     cache.prefilledEmailGeneratedBy = 'ai'
+                    // The draft arrives unstyled, so it takes the brand the template already had.
+                    const branded = values.emailBrand ? applyEmailBrand(values.email, values.emailBrand) : null
+                    if (branded) {
+                        actions.brandApplied(branded)
+                        cache.prefilledEmail = { ...cache.prefilledEmail, ...branded }
+                    } else if (cache.brandAwaitsAiDraft) {
+                        cache.brandAwaitsAiDraft = false
+                        actions.loadEmailBrand()
+                    }
                 }
             }
             captureAiEmailDraft('broadcast', request, aiEmailDraft, skipped)
@@ -1472,6 +1515,25 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 actions.loadBlastRadius()
             }
             actions.reportReviewVisit()
+        },
+        loadEmailBrandSuccess: ({ emailBrand }) => {
+            // Only a draft nobody has touched yet takes the brand, so it never overwrites an edit.
+            if (
+                !emailBrand ||
+                cache.brandClosed ||
+                !cache.prefilledEmail ||
+                !prefilledEmailUnchanged(cache.prefilledEmail, values.email)
+            ) {
+                return
+            }
+            const branded = applyEmailBrand(values.email, emailBrand)
+            if (!branded) {
+                return
+            }
+            actions.brandApplied(branded)
+            cache.prefilledEmail = { ...cache.prefilledEmail, ...branded }
+            // pinned: analytics event name
+            posthog.capture('broadcast email branded', { source: emailBrand.source })
         },
         expandRun: ({ runId }) => {
             actions.setExpandedRunOverride([...values.expandedRunIds.filter((id) => id !== runId), runId])
@@ -1813,6 +1875,8 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             }
         },
         launchBroadcast: async (_, breakpoint) => {
+            // Launch sends the email as saved, so a brand that arrives after this click must not change the preview.
+            cache.brandClosed = true
             if (!values.currentProjectId) {
                 actions.launchBroadcastFinished()
                 return
@@ -2232,6 +2296,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             cache.prefilledName = values.name
             if (email) {
                 cache.prefilledEmail = { ...DEFAULT_BROADCAST_EMAIL, ...messageDraftEmail(email) }
+                actions.loadEmailBrand()
             }
             if (properties) {
                 cache.landOnPrefilledStep = true
@@ -2252,6 +2317,10 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
         const draftSource = parseEmailDraftSource(draftSourceParam)
         if (draftSource && values.featureFlags[FEATURE_FLAGS.WORKFLOWS_AI_EMAIL_DRAFT]) {
             actions.loadAiEmailDraft(draftSource)
+            if (!email) {
+                // The lookup checks each brand against the draft's text, so it waits until the draft exists.
+                cache.brandAwaitsAiDraft = true
+            }
         }
     }),
 ])
