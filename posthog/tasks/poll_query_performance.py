@@ -14,7 +14,7 @@ from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.client.execute_async import QueryStatusManager
 from posthog.clickhouse.native_metadata import POLL_DEADLINE_SECONDS, submit_legacy_metadata, submit_native_metadata
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
-from posthog.models.event.new_events_schema import get_new_events_cluster_host_or_none
+from posthog.models.event.new_events_schema import get_new_events_cluster_host_or_none, native_events_async_enabled
 from posthog.settings import CLICKHOUSE_CLUSTER
 from posthog.utils import UUID_REGEX
 
@@ -62,7 +62,7 @@ def get_query_result_batches() -> Iterator[list[dict[str, Any]]]:
         SETTINGS skip_unavailable_shards=1
         """
 
-    native_host = get_new_events_cluster_host_or_none()
+    native_host = get_new_events_cluster_host_or_none() if native_events_async_enabled() else None
 
     native = None
     if native_host:

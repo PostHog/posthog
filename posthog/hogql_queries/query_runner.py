@@ -194,11 +194,11 @@ from posthog.hogql_queries.validation.validation import (
 )
 from posthog.models import Team, User
 from posthog.models.event.new_events_schema import (
+    EVENTS_ROUTE_MODIFIER_KEYS,
     events_route_cache_modifiers,
     events_route_is_explicit,
     events_route_scope,
     get_new_events_cluster_host,
-    get_new_events_cluster_host_or_none,
     native_events_async_enabled,
     new_events_cluster_host_scope,
     strip_events_route_modifiers,
@@ -404,6 +404,34 @@ NEVER_ENQUEUED_EXECUTION_MODES: frozenset[ExecutionMode] = frozenset(
 def native_route_can_run(execution_mode: ExecutionMode) -> bool:
     return execution_mode in NEVER_ENQUEUED_EXECUTION_MODES or native_events_async_enabled()
 
+
+NATIVE_EVENTS_CLUSTER_QUERY_TYPES = (
+    HogQLQuery,
+    TrendsQuery,
+    FunnelsQuery,
+    RetentionQuery,
+    PathsQuery,
+    PathsV2Query,
+    StickinessQuery,
+    LifecycleQuery,
+    EventsQuery,
+    ActorsQuery,
+    InsightActorsQuery,
+    InsightActorsQueryOptions,
+    PropertyValuesQuery,
+    ExperimentQuery,
+    ExperimentExposureQuery,
+    WebOverviewQuery,
+    WebPageURLSearchQuery,
+    WebStatsTableQuery,
+    WebGoalsQuery,
+    WebVitalsQuery,
+)
+
+NATIVE_EVENTS_CLUSTER_SYNC_ONLY_ERROR = (
+    "Native cluster comparisons require synchronous execution until async support is enabled. "
+    "Use refresh=blocking or force_blocking with async=false."
+)
 
 _REFRESH_TO_EXECUTION_MODE: dict[str | bool, ExecutionMode] = {  # ty: ignore[invalid-assignment]
     **ExecutionMode._value2member_map_,  # type: ignore
@@ -1901,30 +1929,6 @@ def team_configs_for_cache_key(team: Team) -> dict[str, dict | str]:
     }
 
 
-NATIVE_EVENTS_CLUSTER_QUERY_TYPES = (
-    HogQLQuery,
-    TrendsQuery,
-    FunnelsQuery,
-    RetentionQuery,
-    PathsQuery,
-    PathsV2Query,
-    StickinessQuery,
-    LifecycleQuery,
-    EventsQuery,
-    ActorsQuery,
-    InsightActorsQuery,
-    InsightActorsQueryOptions,
-    PropertyValuesQuery,
-    ExperimentQuery,
-    ExperimentExposureQuery,
-    WebOverviewQuery,
-    WebPageURLSearchQuery,
-    WebStatsTableQuery,
-    WebGoalsQuery,
-    WebVitalsQuery,
-)
-
-
 def _pin_events_route(run: _RunMethod) -> _RunMethod:
     @wraps(run)
     def pinned(self: "QueryRunner", *args: Any, **kwargs: Any) -> Any:
@@ -1978,6 +1982,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         self.workload = workload
         self.ch_user = ch_user
         self._modifiers_override_provided = modifiers is not None
+        self._modifiers_override = modifiers
 
         if not self.is_query_node(query):
             if isinstance(self.query_type, UnionType):
@@ -2035,14 +2040,10 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     def _should_pin_events_route(self) -> bool:
         """The worker must rebuild the request's resolved events route and cache payload.
 
-        A legacy query with no route choice stays unpinned while no native host is set, so its payload
-        stays identical to what workers without native routing expect.
+        A legacy query with no route choice stays unpinned, so its payload stays identical to what workers
+        without native routing expect.
         """
-        if not self._reads_events_route():
-            return False
-        return bool(
-            self.modifiers.useNewEventsSchema or self._explicit_events_route or get_new_events_cluster_host_or_none()
-        )
+        return self._reads_events_route() and bool(self.modifiers.useNewEventsSchema or self._explicit_events_route)
 
     @property
     def user_access_control(self) -> Optional[UserAccessControl]:
@@ -2164,9 +2165,19 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         """
         return True
 
+    def _override_affects_events_route(self) -> bool:
+        if self._modifiers_override is None:
+            return False
+        if self._modifiers_override.model_fields_set & set(EVENTS_ROUTE_MODIFIER_KEYS):
+            return True
+        query_modifiers = query_node_modifiers(self.query)
+        return query_modifiers is not None and any(
+            getattr(query_modifiers, key) is not None for key in EVENTS_ROUTE_MODIFIER_KEYS
+        )
+
     def _async_task_payload(self) -> tuple[dict[str, Any], dict[str, Any] | None]:
         query_json = self.query.model_dump()
-        if not self._modifiers_override_provided:
+        if not self._override_affects_events_route():
             if self._should_pin_events_route():
                 query_json = with_pinned_events_route(query_json, self.modifiers)
             return query_json, None
@@ -2187,10 +2198,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         analytics_props: Optional[AnalyticsProps] = None,
     ) -> QueryStatus:
         if self.modifiers.useNewEventsCluster and not native_route_can_run(ExecutionMode.CALCULATE_ASYNC_ALWAYS):
-            raise ExposedHogQLError(
-                "Native events cluster queries require synchronous execution until async support is enabled. "
-                "Use refresh=force_blocking."
-            )
+            raise ExposedHogQLError(NATIVE_EVENTS_CLUSTER_SYNC_ONLY_ERROR)
 
         posthoganalytics.capture(
             distinct_id=user.distinct_id if user else str(self.team.uuid),
@@ -2501,6 +2509,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         if self.modifiers.useNewEventsCluster:
             if not isinstance(self.query, NATIVE_EVENTS_CLUSTER_QUERY_TYPES):
                 raise ExposedHogQLError(f"Native cluster comparisons do not support {self.query.__class__.__name__}.")
+            if not native_route_can_run(execution_mode):
+                raise ExposedHogQLError(NATIVE_EVENTS_CLUSTER_SYNC_ONLY_ERROR)
 
         # Set user for access control during query execution. Some subclasses
         # (e.g. QueryRunnerWithHogQLContext) construct user-dependent state in

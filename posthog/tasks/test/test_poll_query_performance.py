@@ -25,9 +25,14 @@ from posthog.tasks.tasks import Polling
 
 class TestPollQueryPerformance(SimpleTestCase):
     def setUp(self) -> None:
+        self.native_async = True
         patcher = patch(
             "posthog.models.event.new_events_schema.get_instance_setting",
-            side_effect=lambda key: getattr(settings, "CLICKHOUSE_NATIVE_EVENTS_HOST", ""),
+            side_effect=lambda key: (
+                self.native_async
+                if key == "CLICKHOUSE_NATIVE_EVENTS_ASYNC"
+                else getattr(settings, "CLICKHOUSE_NATIVE_EVENTS_HOST", "")
+            ),
         )
         patcher.start()
         self.addCleanup(patcher.stop)
@@ -69,6 +74,20 @@ class TestPollQueryPerformance(SimpleTestCase):
         tcp.assert_not_called()
         self.assertNotIn("transport", get_client.call_args.kwargs)
         self.assertEqual(get_client.call_args.kwargs["host"], CLICKHOUSE_HOST)
+
+    @override_settings(CLICKHOUSE_NATIVE_EVENTS_HOST="native.example.com")
+    def test_native_host_without_async_keeps_the_in_process_legacy_probe(self) -> None:
+        self.native_async = False
+        with (
+            patch("posthog.tasks.poll_query_performance.sync_execute", return_value=[]) as execute,
+            patch("posthog.tasks.poll_query_performance.submit_legacy_metadata") as legacy,
+            patch("posthog.tasks.poll_query_performance.submit_native_metadata") as native,
+            patch("posthog.tasks.poll_query_performance.QueryStatusManager"),
+        ):
+            poll_query_performance()
+        legacy.assert_not_called()
+        native.assert_not_called()
+        self.assertEqual(execute.call_args.kwargs["workload"], Workload.ONLINE)
 
     @override_settings(CLICKHOUSE_NATIVE_EVENTS_HOST="native.example.com")
     def test_healthy_native_progress_survives_stalled_legacy_probe(self) -> None:

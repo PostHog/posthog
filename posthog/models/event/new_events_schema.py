@@ -103,7 +103,7 @@ def new_events_cluster_host_scope() -> Iterator[None]:
         _query_host.reset(token)
 
 
-def events_route_is_explicit(team_modifiers: object, modifiers: "HogQLQueryModifiers | None") -> bool:
+def events_route_is_explicit(team_modifiers: dict[str, Any] | None, modifiers: "HogQLQueryModifiers | None") -> bool:
     """Whether the query or its project chose the events route, instead of leaving it to the rollout settings.
 
     A project's stored modifiers can choose the events table, but never the cluster.
