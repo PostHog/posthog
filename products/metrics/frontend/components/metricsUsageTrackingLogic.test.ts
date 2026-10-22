@@ -230,6 +230,8 @@ describe('metricsUsageTrackingLogic', () => {
             ],
         } as any)
         metricsViewerLogic.actions.setMetricName(SECRET_METRIC)
+        // A series row with no metric is not part of the request.
+        metricsViewerLogic.actions.addClause()
         metricsViewerLogic.actions.fetchQueryResults({})
         await expectLogic(metricsViewerLogic).toDispatchActions(['fetchQueryResultsSuccess'])
 
