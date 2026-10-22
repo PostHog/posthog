@@ -25,4 +25,28 @@ describe('commandKSearchLogic', () => {
 
         expect(logic.values.highlightedKey).toBeNull()
     })
+
+    test.each([
+        ['retries a query whose request failed', true, undefined],
+        ['reuses a query whose request answered', false, []],
+    ])('%s when it is searched again', (_, failed, cached) => {
+        logic.actions.remoteLoaded('ada', { persons: [] }, failed)
+
+        logic.actions.requestStarted('persons', 'ada')
+
+        expect(logic.values.remote.persons.cache['ada']).toEqual(cached)
+    })
+
+    it('a See all row narrows the search to its type and keeps the words', () => {
+        logic.actions.inputChanged('revenue', 7, false)
+
+        logic.actions.activateRow(
+            { kind: 'scope', key: 'group-insight/see-all', type: 'insight', label: 'See all insights' },
+            false,
+            'click'
+        )
+
+        expect(logic.values.chips).toEqual([expect.objectContaining({ key: 'is', value: 'insight', negated: false })])
+        expect(logic.values.text).toEqual('revenue')
+    })
 })

@@ -53,6 +53,8 @@ class TestPlatformCutover(APIBaseTest):
     @parameterized.expand(
         [
             ("quiet", {}, "not_firing"),
+            ("firing", {"state": State.FIRING}, "firing"),
+            ("pending_resolve", {"state": State.PENDING_RESOLVE}, "firing"),
             (
                 "snoozed_keeps_checking_muted",
                 {"state": State.SNOOZED, "snooze_until": NOW + timedelta(hours=1)},
@@ -88,16 +90,15 @@ class TestPlatformCutover(APIBaseTest):
             max(alert.next_check_at or NOW, NOW + timedelta(minutes=1)),
         )
         assert instance is not None
-        assert (instance.state, instance.last_notified_at, instance.snooze_until) == (
+        assert (instance.state, instance.firing_started_at, instance.last_notified_at, instance.snooze_until) == (
             platform_state,
+            None,
             alert.last_notified_at,
             alert.snooze_until,
         )
 
     @parameterized.expand(
         [
-            ("firing", {"state": State.FIRING}, CutoverSkip.FIRING),
-            ("pending_resolve", {"state": State.PENDING_RESOLVE}, CutoverSkip.FIRING),
             ("check_due", {"next_check_at": NOW}, CutoverSkip.CHECK_DUE),
             ("never_scheduled", {"next_check_at": None}, CutoverSkip.CHECK_DUE),
         ]
@@ -123,12 +124,15 @@ class TestPlatformCutover(APIBaseTest):
         alert.refresh_from_db()
         assert alert.owner == "source"
 
-    def test_a_refused_cutover_leaves_the_firing_platform_copy_as_it_was(self) -> None:
-        alert = self._alert()
+    @parameterized.expand([("quiet", State.NOT_FIRING), ("firing", State.FIRING)])
+    def test_a_refused_cutover_leaves_the_firing_platform_copy_as_it_was(self, _name: str, state: str) -> None:
+        alert = self._alert(state=state)
         upsert_configuration(platform_upsert_of(alert))
         with team_scope(self.team.id):
             copy = platform_testing.copy_of(alert.id)
-            platform_testing.start_firing(copy.id, team_id=self.team.id, at=NOW - timedelta(hours=1))
+            platform_testing.start_firing(
+                copy.id, team_id=self.team.id, at=NOW - timedelta(hours=1), sent_natively=True
+            )
         LogsAlertConfiguration.objects.filter(id=alert.id).update(enabled=False, next_check_at=None)
 
         (result,) = cut_over_team(self.team.id, now=NOW)

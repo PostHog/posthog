@@ -111,6 +111,7 @@ from .aws_connect.source import AwsConnectSource
 from .aws_cost_and_usage_report.source import AwsCostAndUsageReportSource
 from .aws_cost_anomaly_detection.source import AwsCostAnomalyDetectionSource
 from .aws_cost_explorer.source import AwsCostExplorerSource
+from .aws_documentdb.source import AwsDocumentDBSource
 from .aws_glue_data_catalog.source import AwsGlueDataCatalogSource
 from .aws_guardduty.source import AwsGuarddutySource
 from .aws_health.source import AwsHealthSource
@@ -280,6 +281,7 @@ from .close.source import CloseSource
 from .cloudability.source import CloudabilitySource
 from .cloudbeds.source import CloudbedsSource
 from .cloudflare.source import CloudflareSource
+from .cloudflare_d1.source import CloudflareD1Source
 from .cloudflare_r2.source import CloudflareR2Source
 from .cloudinary.source import CloudinarySource
 from .cloudsmith.source import CloudsmithSource
@@ -443,6 +445,7 @@ from .featurebase.source import FeaturebaseSource
 from .feishu.source import FeishuSource
 from .fieldpulse.source import FieldpulseSource
 from .fieldwire.source import FieldwireSource
+from .file_upload.source import FileUploadSource
 from .filevine.source import FilevineSource
 from .fillout.source import FilloutSource
 from .finage.source import FinageSource

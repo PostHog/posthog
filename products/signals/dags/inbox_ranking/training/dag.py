@@ -73,6 +73,12 @@ from products.signals.dags.inbox_ranking.training.examples import (
     Snapshot,
     assemble_snapshot,
 )
+from products.signals.dags.inbox_ranking.training.families import (
+    MODEL_FAMILIES,
+    ModelFamily,
+    experiment_names,
+    serving_families,
+)
 from products.signals.dags.inbox_ranking.training.heads import (
     ACTION_LABEL_COLUMNS,
     HEADS,
@@ -93,10 +99,8 @@ from products.signals.dags.inbox_ranking.training.telemetry import (
 )
 from products.signals.dags.inbox_ranking.training.train import HoldoutGrade
 from products.signals.dags.inbox_ranking.training.unseen import (
-    MODEL_FAMILIES,
     SERVED_SCORES_TABLE,
     HeadGrade,
-    ModelFamily,
     calibration_rows,
     graded_rows,
     head_grades,
@@ -436,7 +440,7 @@ def _publish_manifest(context: RunContext, partition_key: str, run_id: str) -> d
             name=family.name,
             champion=_read_json_if_exists(client, bucket, champion_object_key(prefix, family.name)),
         )
-        for family in MODEL_FAMILIES
+        for family in serving_families(MODEL_FAMILIES)
     ]
     recent_versions = settings.INBOX_RANKING_SERVING_RECENT_VERSIONS
     recent = (
@@ -449,7 +453,7 @@ def _publish_manifest(context: RunContext, partition_key: str, run_id: str) -> d
     challengers = (
         [
             metadata
-            for family in MODEL_FAMILIES
+            for family in serving_families(MODEL_FAMILIES)
             if family.name != served["model_name"]
             for metadata in _recent_models(context, client, bucket, prefix, family.name, partition_key, 1)
         ]
@@ -642,8 +646,16 @@ def _recent_models(
 
 
 def _pin_metadata(client, bucket: str, prefix: str, key: str) -> tuple[dict[str, Any] | None, str | None]:
-    """The metadata of one pinned model, or None and the reason it cannot be served."""
+    """The metadata of one pinned model, or None and the reason it cannot be served.
+
+    The promote job, the served pointer, the pins and the recent and challenger reads all pass this
+    check, so an experiment family is refused here once for every path."""
     model_name, model_version = key.split("@", 1)
+    if model_name in experiment_names(MODEL_FAMILIES):
+        return None, (
+            f"{model_name} is an experiment family, and an experiment never serves. To serve this "
+            "recipe, register it as a serving family under a new model_name"
+        )
     metadata = _read_json_if_exists(client, bucket, model_object_key(prefix, model_name, model_version, METADATA_FILE))
     if metadata is None:
         return None, f"no {METADATA_FILE} in the dataset bucket"

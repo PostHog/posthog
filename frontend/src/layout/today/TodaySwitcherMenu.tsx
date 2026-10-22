@@ -29,6 +29,8 @@ export interface TodaySwitcherRow {
     label: string
     leading?: React.ReactNode
     trailing?: React.ReactNode
+    /** A muted second line under the label. */
+    description?: React.ReactNode
     dataAttr: string
     /** Disables the row and says why. */
     disabledReason?: string | null
@@ -170,6 +172,7 @@ export function TodaySwitcherMenu({
                                             value={value}
                                             action={group.value === null}
                                             disabledReason={row.disabledReason}
+                                            description={row.description}
                                             data-attr={row.dataAttr}
                                         >
                                             {row.leading}

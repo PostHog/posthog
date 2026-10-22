@@ -3,8 +3,9 @@
 import datetime
 import dataclasses
 from enum import StrEnum
-from typing import Any
+from typing import Any, Protocol
 
+from django.db import transaction
 from django.db.models import Value
 from django.db.models.functions import Coalesce
 from django.utils import timezone
@@ -28,13 +29,19 @@ from products.signals.backend.activity_summary.summaries import (
     gateway_client,
     summarize,
 )
-from products.signals.backend.models import UserActivitySummary
+from products.signals.backend.models import UserActivitySummary, UserActivitySummaryVersion
 
 # Fewer rendered lines than this since the last update say too little to change the summary.
 MIN_UNITS = 3
 MIN_UPDATE_INTERVAL = datetime.timedelta(days=1)
+# The `UserActivitySummaryVersion` rows kept per summary. An update deletes the older ones.
+MAX_VERSIONS = 30
 # A pair that skipped or failed waits this long, so it does not take the queue head on every tick.
+# Each further skip since the last good update doubles the wait, up to the `max_skip_backoff` of the update.
 RETRY_BACKOFF = datetime.timedelta(hours=6)
+MAX_SKIP_BACKOFF = datetime.timedelta(hours=72)
+# Enough doublings to pass any sane maximum, and a small enough exponent for `timedelta`.
+_MAX_SKIP_DOUBLINGS = 16
 # The error prefixes of an update that raised before it stored a result, before and after the model call.
 EXCEPTION_ERROR_PREFIX = "exception: "
 EXCEPTION_AFTER_MODEL_CALL_ERROR_PREFIX = "exception_after_model_call: "
@@ -70,6 +77,35 @@ class ActivitySummaryUpdate:
     error: str | None = None
     inputs_used: dict[str, Any] | None = None
     input_watermark: datetime.datetime | None = None
+    rebuilt: bool = False
+
+
+class StoredSummaryVersion(Protocol):
+    @property
+    def prompt_version(self) -> int | None: ...
+
+    @property
+    def render_version(self) -> int | None: ...
+
+    @property
+    def generated_at(self) -> datetime.datetime | None: ...
+
+
+def is_stale(stored: StoredSummaryVersion | None, rebuild_before: datetime.datetime | None) -> bool:
+    """True when a stored summary came from an older prompt or render, or before `rebuild_before`.
+
+    A stale summary is rebuilt from the full window, so a version change reaches every input.
+    """
+    if stored is None or stored.generated_at is None:
+        return False
+    if (stored.prompt_version, stored.render_version) != (PROMPT_VERSION, RENDER_VERSION):
+        return True
+    return rebuild_before is not None and stored.generated_at < rebuild_before
+
+
+def skip_backoff(consecutive_skips: int, max_skip_backoff: datetime.timedelta) -> datetime.timedelta:
+    """The wait after a skip for too few units, when `consecutive_skips` skips came before it."""
+    return max(RETRY_BACKOFF, min(RETRY_BACKOFF * 2 ** min(consecutive_skips, _MAX_SKIP_DOUBLINGS), max_skip_backoff))
 
 
 def _input_start(watermark: datetime.datetime | None, now: datetime.datetime, window_days: int) -> datetime.datetime:
@@ -78,17 +114,68 @@ def _input_start(watermark: datetime.datetime | None, now: datetime.datetime, wi
 
 
 def _back_off(
-    team_id: int, user_id: int, stored: UserActivitySummary | None, next_eligible_at: datetime.datetime
+    team_id: int,
+    user_id: int,
+    stored: UserActivitySummary | None,
+    now: datetime.datetime,
+    max_skip_backoff: datetime.timedelta,
 ) -> None:
+    skips = stored.consecutive_skips if stored is not None else 0
+    next_eligible_at = now + skip_backoff(skips, max_skip_backoff)
     # `update()` leaves `updated_at` alone, so the daily caps do not count a skip as a model call.
     if stored is not None:
-        UserActivitySummary.objects.for_team(team_id).filter(id=stored.id).update(next_eligible_at=next_eligible_at)
+        UserActivitySummary.objects.for_team(team_id).filter(id=stored.id).update(
+            next_eligible_at=next_eligible_at, consecutive_skips=min(skips + 1, _MAX_SKIP_DOUBLINGS)
+        )
         return
     UserActivitySummary.objects.for_team(team_id).get_or_create(
         team_id=team_id,
         user_id=user_id,
-        defaults={"status": UserActivitySummary.Status.SKIPPED, "next_eligible_at": next_eligible_at},
+        defaults={
+            "status": UserActivitySummary.Status.SKIPPED,
+            "next_eligible_at": next_eligible_at,
+            "consecutive_skips": 1,
+        },
     )
+
+
+# The fields of a successful update that `UserActivitySummaryVersion` keeps.
+_VERSION_FIELDS = (
+    "summary",
+    "summary_text",
+    "generated_at",
+    "model",
+    "prompt_version",
+    "render_version",
+    "input_watermark",
+    "inputs_used",
+    "tokens_in",
+    "tokens_out",
+    "cost_usd",
+)
+
+
+def _store_version(team_id: int, user_id: int, fields: dict[str, Any], max_versions: int) -> None:
+    """Write a successful update to the summary row and append it as the next version, in one transaction."""
+    with transaction.atomic():
+        # The row lock orders concurrent updates of one pair, so each one takes the next version number.
+        row, _ = (
+            UserActivitySummary.objects.for_team(team_id)
+            .select_for_update()
+            .get_or_create(team_id=team_id, user_id=user_id, defaults={"status": UserActivitySummary.Status.OK})
+        )
+        for name, value in fields.items():
+            setattr(row, name, value)
+        row.version += 1
+        row.save()
+        versions = UserActivitySummaryVersion.objects.for_team(team_id)
+        versions.create(
+            team_id=team_id,
+            summary_row=row,
+            version=row.version,
+            **{name: fields[name] for name in _VERSION_FIELDS},
+        )
+        versions.filter(summary_row=row, version__lte=row.version - max_versions).delete()
 
 
 def record_update_exception(team_id: int, user_id: int, error: BaseException) -> ActivitySummaryUpdate:
@@ -150,13 +237,19 @@ def update_activity_summary(
     min_units: int = MIN_UNITS,
     min_update_interval: datetime.timedelta = MIN_UPDATE_INTERVAL,
     limits: RenderLimits = DEFAULT_LIMITS,
+    rebuild_before: datetime.datetime | None = None,
+    max_versions: int = MAX_VERSIONS,
+    max_skip_backoff: datetime.timedelta = MAX_SKIP_BACKOFF,
 ) -> ActivitySummaryUpdate:
     """Update the stored activity summary of one user in one project.
 
     Reads only the inputs newer than the stored watermark, or the last `limits.window_days` on a first
-    run. A failed update records the error and keeps the stored summary and the watermark. With
-    `dry_run`, the model is still called but nothing is written. `force` ignores `next_eligible_at`.
-    A skip for too few units and a failed update set `next_eligible_at` to `RETRY_BACKOFF` from now.
+    run or for a stale summary (see `is_stale`). A stale summary is not sent to the model. A failed
+    update records the error and keeps the stored summary and the watermark. With `dry_run`, the
+    model is still called but nothing is written. `force` ignores `next_eligible_at`.
+    A failed update sets `next_eligible_at` to `RETRY_BACKOFF` from now. A skip for too few units sets it
+    to `skip_backoff` from now, which doubles with each skip until a good update resets it.
+    A successful update also appends a `UserActivitySummaryVersion` and keeps the latest `max_versions`.
     """
     team = Team.objects.select_related("organization").get(id=team_id)
     if team.organization.is_ai_data_processing_approved is not True:
@@ -167,7 +260,8 @@ def update_activity_summary(
     if not force and stored is not None and stored.next_eligible_at is not None and stored.next_eligible_at > now:
         return ActivitySummaryUpdate(status=UpdateStatus.SKIPPED_NOT_ELIGIBLE_YET)
 
-    start = _input_start(stored.input_watermark if stored else None, now, limits.window_days)
+    rebuild = is_stale(stored, rebuild_before)
+    start = _input_start(stored.input_watermark if stored and not rebuild else None, now, limits.window_days)
     tasks = user_tasks(team_id, user_id, start, now)
     activity = user_activity(team_id, user_id, start, now)
     views = user_views(team_id, user_id, start, now)
@@ -182,7 +276,7 @@ def update_activity_summary(
     )
     if rendered is None or rendered.units < min_units:
         if not dry_run:
-            _back_off(team_id, user_id, stored, now + RETRY_BACKOFF)
+            _back_off(team_id, user_id, stored, now, max_skip_backoff)
         return ActivitySummaryUpdate(
             status=UpdateStatus.SKIPPED_TOO_FEW_UNITS,
             rendered_input=rendered.text if rendered else None,
@@ -198,7 +292,7 @@ def update_activity_summary(
         "limits": dataclasses.asdict(limits),
     }
     watermark = max([task.at for task in tasks] + [item.at for item in activity] + [view.at for view in views])
-    previous = stored.summary if stored is not None else None
+    previous = stored.summary if stored is not None and not rebuild else None
     model = DEFAULT_MODEL
     outcome = summarize(
         gateway_client(team_id, user_id, now.date()),
@@ -207,7 +301,7 @@ def update_activity_summary(
         model=model,
         as_of=now.date(),
         max_completion_tokens=limits.max_completion_tokens,
-        summary_max_words=limits.summary_max_words,
+        profile_max_chars=limits.profile_max_chars,
     )
     cost = cost_usd(outcome.tokens_in, outcome.tokens_out, MODEL_PRICES.get(model))
     result = ActivitySummaryUpdate(
@@ -221,6 +315,7 @@ def update_activity_summary(
         error=outcome.error,
         inputs_used=inputs_used,
         input_watermark=watermark if outcome.summary is not None else None,
+        rebuilt=rebuild,
     )
     if dry_run:
         return result
@@ -246,10 +341,10 @@ def update_activity_summary(
             )
             return result
 
-        UserActivitySummary.objects.for_team(team_id).update_or_create(
-            team_id=team_id,
-            user_id=user_id,
-            defaults={
+        _store_version(
+            team_id,
+            user_id,
+            {
                 **accounting,
                 "status": UserActivitySummary.Status.OK,
                 "summary": outcome.summary,
@@ -260,7 +355,9 @@ def update_activity_summary(
                 "render_version": RENDER_VERSION,
                 "input_watermark": watermark,
                 "next_eligible_at": now + min_update_interval,
+                "consecutive_skips": 0,
             },
+            max_versions,
         )
         return result
     except Exception as error:

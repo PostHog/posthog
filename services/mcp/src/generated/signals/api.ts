@@ -3,10 +3,47 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 68 enabled ops
+ * PostHog API - MCP 70 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
+
+/**
+ * @summary Get your activity summary
+ */
+export const SignalsActivitySummaryListParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * @summary List your activity summary versions
+ */
+export const SignalsActivitySummaryVersionsRetrieveParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const signalsActivitySummaryVersionsRetrieveQueryLimitDefault = 5
+
+export const SignalsActivitySummaryVersionsRetrieveQueryParams = () => zod.object({
+    limit: zod
+        .number()
+        .min(1)
+        .default(signalsActivitySummaryVersionsRetrieveQueryLimitDefault)
+        .describe('The most versions to return, newest first. Capped at the number of versions kept.'),
+    version: zod
+        .number()
+        .min(1)
+        .optional()
+        .describe('Return only this version, with its full profile. Returns 404 when the version does not exist.'),
+})
 
 /**
  * Team-level signal autonomy config (singleton per team).

@@ -23,7 +23,7 @@ from products.alerts_platform.backend.delivery.dispatch import deliver
 from products.alerts_platform.backend.delivery.email import EmailTransport
 from products.alerts_platform.backend.delivery.in_app import InAppTransport
 from products.alerts_platform.backend.delivery.message import AlertMessage
-from products.alerts_platform.backend.delivery.pagerduty import PagerDutyTransport
+from products.alerts_platform.backend.delivery.pagerduty import PagerDutyTransport, source_incident_key
 from products.alerts_platform.backend.delivery.slack import SlackTransport
 from products.alerts_platform.backend.delivery.team_flags import team_flag_enabled
 from products.alerts_platform.backend.delivery.teams import TeamsTransport
@@ -246,9 +246,17 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
                     evaluation_key=request.evaluation_key,
                     target=target,
                     destination_id=subscribed_destination.id,
-                    announcement=replace(announced, transitions=transitions, overflowed=overflowed),
+                    announcement=replace(
+                        announced,
+                        transitions=transitions,
+                        overflowed=overflowed,
+                        overflow_is_lower_bound=request.overflow_is_lower_bound,
+                    ),
                     incident_action=action_by_event_id.get(event_id),
                     source_alert_url=request.source_alert_url,
+                    source_incident_key=source_incident_key(request.destination_alert_id)
+                    if request.owned_by_platform
+                    else None,
                 )
             except ThreadBusy as error:
                 busy.append(str(error))

@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
-from products.alerts_platform.backend.delivery import delivery_paths, legacy_webhook
+from products.alerts_platform.backend.delivery import delivery_paths, describers, legacy_webhook
 from products.alerts_platform.backend.delivery.destinations import list_alert_destination_groups
 from products.alerts_platform.backend.delivery.evaluation import LIVE_DELIVERY_FLAG, deliver_evaluation
 from products.alerts_platform.backend.delivery.legacy_webhook import LEGACY_WEBHOOK_BODY_FLAG
@@ -107,6 +107,7 @@ def _request(
     incident_actions: dict[str, IncidentAction] | None = None,
     owned_by_platform: bool = False,
     overflowed: int = 0,
+    overflow_is_lower_bound: bool = False,
     parts: int = 1,
     part: int = 0,
 ) -> AlertDeliveryRequest:
@@ -122,6 +123,7 @@ def _request(
         event_ids_by_incident_action={"trigger": OPENED_EVENT, "resolve": CLOSED_EVENT},
         owned_by_platform=owned_by_platform,
         overflowed=overflowed,
+        overflow_is_lower_bound=overflow_is_lower_bound,
         parts=parts,
         part=part,
     )
@@ -174,6 +176,7 @@ class TestDeliverEvaluation(APIBaseTest):
         incident_actions: dict[str, IncidentAction] | None = None,
         owned_by_platform: bool = False,
         overflowed: int = 0,
+        overflow_is_lower_bound: bool = False,
         parts: int = 1,
         part: int = 0,
         kinds: dict[str, AlertEventKind] | None = None,
@@ -208,6 +211,7 @@ class TestDeliverEvaluation(APIBaseTest):
                     incident_actions=incident_actions,
                     owned_by_platform=owned_by_platform,
                     overflowed=overflowed,
+                    overflow_is_lower_bound=overflow_is_lower_bound,
                     parts=parts,
                     part=part,
                 )
@@ -251,22 +255,38 @@ class TestDeliverEvaluation(APIBaseTest):
             [str(firing_function), str(resolved_function)]
         )
 
-    def test_a_destination_subscribed_to_both_hears_about_both(self) -> None:
+    @parameterized.expand(
+        [
+            ("exact", False, "3 more groups not tracked because this alert is at its group limit"),
+            ("lower_bound", True, "At least 3 more groups not tracked because this alert is at its group limit"),
+        ]
+    )
+    def test_a_destination_subscribed_to_both_hears_about_both(
+        self, _name: str, overflow_is_lower_bound: bool, notice: str
+    ) -> None:
         announced = _announcement(
             _transition(AlertEventKind.FIRING, "checkout"),
             _transition(AlertEventKind.RESOLVED, "search"),
         )
 
-        self._run(announced, {FIRING_EVENT: [_group(SLACK)], RESOLVED_EVENT: [_group(SLACK)]}, overflowed=3)
+        self._run(
+            announced,
+            {FIRING_EVENT: [_group(SLACK)], RESOLVED_EVENT: [_group(SLACK)]},
+            overflowed=3,
+            overflow_is_lower_bound=overflow_is_lower_bound,
+        )
 
         assert sorted(m.headline for _, m in RecordingTransport.sends) == [
             "Log alert 'API errors' is firing",
             "Log alert 'API errors' is resolved",
         ]
         overflow_notices = [
-            detail for _, m in RecordingTransport.sends for detail in m.details if detail.label == "Untracked groups"
+            detail.value
+            for _, m in RecordingTransport.sends
+            for detail in m.details
+            if detail.label == "Untracked groups"
         ]
-        assert len(overflow_notices) == 1
+        assert overflow_notices == [notice]
 
     def test_each_destination_hears_the_overflow_once_across_the_parts_of_a_split_delivery(self) -> None:
         # Sorted by key, the firing lands in part 0 and the resolve in part 1, so a destination
@@ -344,6 +364,19 @@ class TestDeliverEvaluation(APIBaseTest):
 
         assert [m.headline for channel, m in RecordingTransport.sends if channel == "C-1"] == chat_headlines
         assert [m.incident_action for channel, m in RecordingTransport.sends if channel == "R-1"] == [action]
+
+    @parameterized.expand([("owned_by_the_platform", True, "posthog-alert-legacy-1"), ("live_delivery", False, None)])
+    def test_only_an_alert_the_platform_owns_resolves_under_its_source_incident_key(
+        self, _name: str, owned_by_platform: bool, expected: str | None
+    ) -> None:
+        self._run(
+            _announcement(_transition(AlertEventKind.RESOLVED)),
+            {CLOSED_EVENT: [_group(PAGERDUTY)]},
+            incident_actions={"": IncidentAction.RESOLVE},
+            owned_by_platform=owned_by_platform,
+        )
+
+        assert [m.source_incident_key for channel, m in RecordingTransport.sends if channel == "R-1"] == [expected]
 
     def test_a_destination_with_no_transport_is_skipped_rather_than_failing_the_send(self) -> None:
         outcome = self._run(
@@ -515,6 +548,10 @@ class TestDeliverEvaluation(APIBaseTest):
     def test_the_destination_owner_registers_its_lookup_at_startup(self) -> None:
         # Every other case here patches the lookup, so none of them notices a missing registration.
         assert delivery_paths._chooser is not None
+        # Without it an insight alert on the HogFunction path sends nothing at all.
+        assert delivery_paths.emitter_for(SourceKind.INSIGHT) is not None
+        # Without it a native insight message carries only the platform's "Value" line.
+        assert SourceKind.INSIGHT in describers._describers
         assert (
             list_alert_destination_groups(team_id=self.team.id, alert_id="unknown", allowed_event_ids=[FIRING_EVENT])
             == []

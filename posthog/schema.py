@@ -20521,7 +20521,6 @@ class MaxBillingContext(BaseModel):
     billing_period: MaxBillingContextBillingPeriod | None = None
     billing_plan: str | None = None
     has_active_subscription: bool
-    is_deactivated: bool | None = None
     products: list[MaxProductInfo]
     projected_total_amount_usd: str | None = None
     projected_total_amount_usd_after_discount: str | None = None
@@ -26427,6 +26426,18 @@ class WebVitalsQueryResponse(BaseModel):
     )
 
 
+class AccountUsersQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    accountId: str = Field(..., description="ID of the account whose users to list.")
+    kind: Literal["AccountUsersQuery"] = "AccountUsersQuery"
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    response: ActorsQueryResponse | None = None
+    tags: QueryLogTags | None = None
+    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+
+
 class AccountsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -29242,7 +29253,15 @@ class MetricsHistogramQuery(BaseModel):
         description=("Defaults to the last 24 hours when omitted; dashboard date filters override it"),
     )
     filters: list[MetricsQueryFilter] | None = None
-    interval: str | None = Field(default=None, description="Bucket size; auto-picked from the range when omitted")
+    interval: str | None = Field(
+        default=None,
+        description=(
+            "Bucket size; auto-picked from the range when omitted. A dashboard variable"
+            " reference such as `$window` pins the interval to its single duration"
+            " value (15s, 30s, 1m, 5m, 15m, 30m, 1h, 6h, 1d, 1w). Variable intervals"
+            " that exceed 500 buckets require a larger value or shorter date range."
+        ),
+    )
     kind: Literal["MetricsHistogramQuery"] = "MetricsHistogramQuery"
     metricName: str
     metricType: MetricsOtelType | None = Field(
@@ -29262,7 +29281,7 @@ class MetricsHistogramQuery(BaseModel):
     )
     variables: dict[str, MetricsVariableValue] | None = Field(
         default=None,
-        description=("Values of the dashboard variables that the filters refer to as `$name`."),
+        description=("Values of the dashboard variables that the filters or interval refer to as `$name`."),
     )
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
@@ -29289,7 +29308,12 @@ class MetricsQuery(BaseModel):
         description=(
             "Bucket size, one of: second_15, second_30, minute, minute_5, minute_15,"
             " minute_30, hour, hour_6, day, week; auto-picked from the range when"
-            " omitted. Coarsened when the range would need more than 10,000 buckets."
+            " omitted. Fixed intervals are coarsened above 500 buckets. A dashboard"
+            " variable reference such as `$window` pins the interval to its single"
+            " duration value (15s, 30s, 1m, 5m, 15m, 30m, 1h, 6h, 1d, 1w). Variable"
+            " intervals that exceed 500 buckets require a larger value or shorter date"
+            " range, so the step stays consistent with PromQL lookbacks using that"
+            " variable."
         ),
     )
     kind: Literal["MetricsQuery"] = "MetricsQuery"
@@ -29314,7 +29338,9 @@ class MetricsQuery(BaseModel):
     tags: QueryLogTags | None = None
     variables: dict[str, MetricsVariableValue] | None = Field(
         default=None,
-        description=("Values of the dashboard variables that the PromQL, SQL or filters refer to as `$name`."),
+        description=(
+            "Values of the dashboard variables that the PromQL, SQL, filters or interval refer to as `$name`."
+        ),
     )
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
@@ -32039,6 +32065,10 @@ class DatabaseSchemaQuery(BaseModel):
         default=None,
         description="Optional direct external data source id for schema introspection",
     )
+    executionTarget: ExecutionTarget | None = Field(
+        default=None,
+        description=("Select the native managed Trino catalog instead of the default PostHog catalog."),
+    )
     includeFields: bool | None = Field(
         default=None,
         description=("When false, skip serializing each table's fields (`fields` comes back empty). Defaults to true."),
@@ -33056,6 +33086,7 @@ class ActorsQuery(BaseModel):
         | ExperimentActorsQuery
         | StickinessActorsQuery
         | PathsV2ActorsQuery
+        | AccountUsersQuery
         | HogQLQuery
         | None
     ) = None
