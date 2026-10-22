@@ -165,6 +165,44 @@ class TestAnalyticsEndpoints:
         ]
         assert all(row["conversationStart"] == "2026-03-10T11:00:00.000Z" for row in result.rows)
 
+    def test_user_status_records_are_emitted_once_per_run(self):
+        start = NOW - timedelta(hours=30)
+        second_window = start + genesys_cloud.ANALYTICS_WINDOW
+
+        def record(at: datetime, **fields: Any) -> dict[str, Any]:
+            return {"startTime": at.strftime("%Y-%m-%dT%H:%M:%S.000Z"), **fields}
+
+        long_offline = record(start - timedelta(days=3), systemPresence="OFFLINE")
+        spans_windows = record(second_window - timedelta(hours=1), routingStatus="IDLE")
+        windows = [
+            {
+                "userId": "u1",
+                "primaryPresence": [long_offline, record(start + timedelta(hours=1), systemPresence="AVAILABLE")],
+                "routingStatus": [spans_windows, record(second_window + timedelta(hours=1), routingStatus="IDLE")],
+            },
+            {
+                "userId": "u1",
+                "primaryPresence": [record(second_window + timedelta(hours=2), systemPresence="BUSY")],
+                "routingStatus": [spans_windows, {"routingStatus": "OFF_QUEUE"}],
+            },
+        ]
+
+        result = _driver().run(
+            "user_status_history",
+            [TOKEN, *[ScriptedResponse(json={"totalHits": 1, "userDetails": [detail]}) for detail in windows]],
+            resume_state=GenesysCloudResumeConfig(window_start=start.isoformat()),
+        )
+
+        assert result.raised is None
+        assert result.response is not None and result.response.sort_mode is None
+        assert [request.path for request in result.requests[1:]] == ["/api/v2/analytics/users/details/query"] * 2
+        assert [(row["userId"], row["recordType"], row["startTime"]) for row in result.rows] == [
+            ("u1", "presence", "2026-03-06T06:00:00.000Z"),
+            ("u1", "presence", "2026-03-09T07:00:00.000Z"),
+            ("u1", "routing_status", "2026-03-10T05:00:00.000Z"),
+            ("u1", "presence", "2026-03-10T08:00:00.000Z"),
+        ]
+
 
 class TestListingEndpoints:
     @pytest.mark.parametrize(
@@ -194,27 +232,34 @@ class TestListingEndpoints:
         assert result.final_state is None
 
     @pytest.mark.parametrize(
-        "resume,expected_cursors",
+        "endpoint,cursor_param,first_page,resume,expected_cursors",
         [
-            (None, [None, "after-1"]),
-            (GenesysCloudResumeConfig(cursor="after-1"), ["after-1"]),
+            ("external_organizations", "cursor", {"cursors": {"after": "after-1"}}, None, [None, "after-1"]),
+            (
+                "external_organizations",
+                "cursor",
+                {"cursors": {"after": "after-1"}},
+                GenesysCloudResumeConfig(cursor="after-1"),
+                ["after-1"],
+            ),
+            ("teams", "after", {"nextUri": "/api/v2/teams?pageSize=100&after=after-1"}, None, [None, "after-1"]),
         ],
     )
-    def test_scan_pages_until_cursor_runs_out(self, resume, expected_cursors):
+    def test_scan_pages_until_cursor_runs_out(self, endpoint, cursor_param, first_page, resume, expected_cursors):
         pages = {
-            None: ScriptedResponse(json={"entities": [{"id": "o1"}], "cursors": {"after": "after-1"}}),
+            None: ScriptedResponse(json={"entities": [{"id": "o1"}], **first_page}),
             "after-1": ScriptedResponse(json={"entities": [{"id": "o2"}], "cursors": {}}),
         }
 
         def respond(request: RecordedRequest) -> ScriptedResponse:
             if request.path == "/oauth/token":
                 return TOKEN
-            return pages[request.param("cursor")]
+            return pages[request.param(cursor_param)]
 
-        result = _driver().run("external_organizations", respond, resume_state=resume)
+        result = _driver().run(endpoint, respond, resume_state=resume)
 
         assert result.raised is None
-        assert result.params("cursor")[1:] == expected_cursors
+        assert result.params(cursor_param)[1:] == expected_cursors
         assert [row["id"] for row in result.rows] == ["o1", "o2"][-len(expected_cursors) :]
         assert result.saved_states == ([GenesysCloudResumeConfig(cursor="after-1")] if resume is None else [])
         assert result.final_state is None
@@ -237,6 +282,12 @@ class TestValidateCredentials:
         [
             (None, 200, True, None),
             ("external_organizations", 200, True, None),
+            (
+                "user_status_history",
+                403,
+                False,
+                "The OAuth client's role is missing the `analytics:userDetail:view` permission, which the user_status_history table needs.",
+            ),
         ],
     )
     def test_maps_probe_status(self, endpoint, status_code, expected_valid, expected_message):
@@ -258,6 +309,7 @@ class TestValidateCredentials:
                 "users": "/api/v2/users",
                 "queues": "/api/v2/routing/queues",
                 "external_organizations": "/api/v2/externalcontacts/scan/organizations",
+                "user_status_history": "/api/v2/analytics/users/details/query",
             }[endpoint]
         )
 
