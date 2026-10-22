@@ -49,6 +49,7 @@ A request may send the previous base branch or a branch that run worked on; any 
 The bootstrap endpoint, `POST .../tasks/{task_id}/runs/`, does not accept the agent source.
 Agent-sourced runs use the read-only MCP permission preset.
 Run state updates cannot change or remove the run source or base branch.
+The Slack actor fields `interaction_origin`, `slack_actor_user_id`, and `slack_actor_slack_user_id` are server-owned and cannot be changed, removed, or appended through run state updates.
 The `state` field must be a JSON object.
 
 Run responses omit internal cost accounting, including gateway request IDs.

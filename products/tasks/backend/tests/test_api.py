@@ -7709,6 +7709,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                 "prior_run_tags": ["prior-tag"],
                 "interaction_origin": "slack",
                 "slack_actor_user_id": self.user.id,
+                "slack_actor_slack_user_id": "U_ORIGINAL_ACTOR",
                 "run_source": "manual",
             },
         )
@@ -7804,6 +7805,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "prior_run_tags": ["forged-prior-tag"],
                     "interaction_origin": "desktop",
                     "slack_actor_user_id": credential_target.id,
+                    "slack_actor_slack_user_id": "U_OTHER_ACTOR",
                     "run_source": "signal_report",
                     "dev_stack_preview": {"port": 8080, "sandbox_id": "sb-real"},
                     "scratch": "ok",
@@ -7874,6 +7876,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["prior_run_tags"] == ["prior-tag"]
         assert run.state["interaction_origin"] == "slack"
         assert run.state["slack_actor_user_id"] == self.user.id
+        assert run.state["slack_actor_slack_user_id"] == "U_ORIGINAL_ACTOR"
         assert run.state["run_source"] == "manual"
         assert run.state["scratch"] == "ok"  # non-protected keys still merge
         assert run.state["systemPrompt"] == system_prompt
@@ -7940,6 +7943,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "prior_run_tags",
                     "interaction_origin",
                     "slack_actor_user_id",
+                    "slack_actor_slack_user_id",
                     "run_source",
                     "scratch",
                 ],
@@ -7994,6 +7998,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["prior_run_tags"] == ["prior-tag"]
         assert run.state["interaction_origin"] == "slack"
         assert run.state["slack_actor_user_id"] == self.user.id
+        assert run.state["slack_actor_slack_user_id"] == "U_ORIGINAL_ACTOR"
         assert run.state["run_source"] == "manual"
         assert "scratch" not in run.state  # non-protected key removed
         assert run.state["systemPrompt"] == system_prompt
@@ -8016,6 +8021,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "task_management_ci_idle_skips": 0,
                     "task_management_ci_wait_checks": 0,
                     "pending_external_followups_checkpoint": {"generation": 99},
+                    "slack_actor_slack_user_id": ["U_OTHER_ACTOR"],
                     "scratch": "ok",
                 }
             },
@@ -8034,6 +8040,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["task_management_ci_idle_skips"] == 1
         assert run.state["task_management_ci_wait_checks"] == 10
         assert run.state["pending_external_followups_checkpoint"] == {"generation": 8}
+        assert run.state["slack_actor_slack_user_id"] == "U_ORIGINAL_ACTOR"
 
     @patch("products.tasks.backend.facade.api.signal_workflow_completion")
     def test_update_run_status_to_completed_signals_workflow(self, mock_signal):
