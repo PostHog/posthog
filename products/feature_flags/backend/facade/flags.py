@@ -65,8 +65,10 @@ def is_flag_evaluations_table_enabled(team: "Team") -> bool:
     Reads true when the flag_evaluations mode of the team's organization reads that table. A self-hosted
     production instance reads false by default. Local dev and end-to-end tests are the exception and read true.
     """
+    # Local and E2E organizations start on EVENTS because FLAG_EVALUATIONS_NEW_ORG_MODE defaults to 0.
+    # Returning True keeps the table queryable there without setting a mode first.
     if settings.DEBUG or settings.E2E_TESTING:
         return True
-    # The Usage tab reads flag_evaluations for any mode above EVENTS, and its query fails when the
-    # table is missing from the catalog, so the mode alone has to be enough.
+    # The Usage tab reads flag_evaluations for any mode above EVENTS. Its query fails when the table
+    # is missing from the catalog.
     return get_organization_flag_evaluations_mode(team.organization_id) != FlagEvaluationsMode.EVENTS

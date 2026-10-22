@@ -2380,8 +2380,8 @@ class Database(BaseModel):
                 if posthog_node is not None:
                     posthog_node.children.pop("billing_usage_records", None)
 
-        # Removing the node, rather than denying the table at query time, is what keeps an org that
-        # lacks the flag from learning it exists: serialize(), information_schema and get_table()
+        # Removing the node, rather than denying the table at query time, keeps an org whose mode
+        # hides the table from learning that it exists. serialize(), information_schema and get_table()
         # all read this tree. Must run before apply_schema_scope(), which snapshots the table names.
         # The "posthog" node is absent on a direct-connection catalog.
         if not sources.include_flag_evaluations_table:
