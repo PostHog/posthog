@@ -322,6 +322,17 @@ export const PullRequestCards: Story = {
     ),
 }
 
+export const PullRequestCardsPlainTitles: Story = {
+    parameters: { featureFlags: [FEATURE_FLAGS.SIGNALS_PLAIN_REPORT_TITLES] },
+    render: () => (
+        <Stack>
+            {pullRequestReports.map((r) => (
+                <ReportCard key={r.id} report={r} />
+            ))}
+        </Stack>
+    ),
+}
+
 export const AgentRunCards: Story = {
     render: () => (
         <Stack>
