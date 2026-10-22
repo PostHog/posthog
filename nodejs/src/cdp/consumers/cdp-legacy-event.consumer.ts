@@ -28,7 +28,7 @@ import type {
 import { convertToHogFunctionInvocationGlobals } from '../utils'
 import { createInvocation } from '../utils/invocation-utils'
 import { CdpConsumerBase, CdpConsumerBaseConfig, CdpConsumerBaseDeps } from './cdp-base.consumer'
-import { assertTeamId, skipIfMalformed } from './message-parsing'
+import { parseBatch } from './message-parsing'
 
 export type LightweightPluginConfig = {
     id: number
@@ -382,41 +382,40 @@ export class CdpLegacyEventsConsumer extends CdpConsumerBase<CdpLegacyEventsCons
     // This consumer always parses from kafka
     @instrumented('cdpConsumer.handleEachBatch.parseKafkaMessages')
     public async _parseKafkaBatch(messages: Message[]): Promise<HogFunctionInvocationGlobals[]> {
-        const events: HogFunctionInvocationGlobals[] = []
+        const pluginConfigsByTeamId = new Map<number, PluginConfigHogFunction[]>()
 
-        await Promise.all(
-            messages.map(async (message) => {
-                const clickHouseEvent = skipIfMalformed('Error parsing message', () =>
-                    assertTeamId(parseJSON(message.value!.toString()) as RawClickHouseEvent)
-                )
-                if (!clickHouseEvent) {
-                    return
+        return await parseBatch(messages, {
+            errorLog: 'Error parsing message',
+            parse: (message) => {
+                const clickHouseEvent = parseJSON(message.value!.toString()) as RawClickHouseEvent
+                return {
+                    teamId: clickHouseEvent.team_id,
+                    toGlobals: (team) => {
+                        const globals = convertToHogFunctionInvocationGlobals(
+                            clickHouseEvent,
+                            team,
+                            this.config.SITE_URL
+                        )
+                        // parseBatch calls toGlobals only after loadTeam returns this team, so the map holds
+                        // its configs.
+                        this.pluginConfigsByGlobals.set(globals, pluginConfigsByTeamId.get(team.id)!)
+                        return globals
+                    },
                 }
-
-                // Outside skipIfMalformed: a lookup error fails the batch, so the consumer reads the batch again.
-                const team = await this.deps.teamManager.getTeam(clickHouseEvent.team_id)
-
+            },
+            loadTeam: async (teamId) => {
+                const team = await this.deps.teamManager.getTeam(teamId)
                 if (!team) {
-                    return
+                    return null
                 }
-
                 const pluginConfigHogFunctions = await this.pluginConfigsLoader.get(team.id.toString())
-
                 if (!pluginConfigHogFunctions?.length) {
-                    return
+                    return null
                 }
-
-                const globals = skipIfMalformed('Error parsing message', () =>
-                    convertToHogFunctionInvocationGlobals(clickHouseEvent, team, this.config.SITE_URL)
-                )
-                if (globals) {
-                    this.pluginConfigsByGlobals.set(globals, pluginConfigHogFunctions)
-                    events.push(globals)
-                }
-            })
-        )
-
-        return events
+                pluginConfigsByTeamId.set(team.id, pluginConfigHogFunctions)
+                return team
+            },
+        })
     }
 
     private async getLegacyPluginHogFunctionInvocations(
