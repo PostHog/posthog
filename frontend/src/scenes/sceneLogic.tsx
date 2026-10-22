@@ -19,6 +19,7 @@ import { useEffect, useState } from 'react'
 import api from 'lib/api'
 import type { SupportTicketExceptionEvent } from 'lib/components/Support/supportLogic'
 import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
+import { playGoldRings, shouldPlayGoldRings } from 'lib/holidayGoldRings'
 import { trackFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Spinner } from 'lib/lemon-ui/Spinner'
@@ -910,6 +911,30 @@ export const sceneLogic = kea<sceneLogicType>([
             if (!lastTracked || lastTracked.sceneId !== sceneId || lastTracked.sceneKey !== sceneKey) {
                 trackFileSystemLogView({ type: 'scene', ref: sceneId })
                 cache.lastTrackedScene = { sceneId, sceneKey }
+            }
+
+            if (exportedScene) {
+                const navigation = router.values.location.pathname + router.values.location.search
+                if (cache.lastGoldRingsNavigation !== navigation) {
+                    cache.lastGoldRingsNavigation = navigation
+                    window.requestAnimationFrame(() => {
+                        if (router.values.location.pathname + router.values.location.search !== navigation) {
+                            return
+                        }
+
+                        const mainContent = document.getElementById('main-content')
+                        const pageContent = mainContent?.querySelector<HTMLElement>('.scene-content') ?? mainContent
+                        if (
+                            shouldPlayGoldRings(
+                                new Date(),
+                                values.featureFlags[FEATURE_FLAGS.CHRISTMAS_GOLD_RINGS] === true,
+                                pageContent?.innerText ?? ''
+                            )
+                        ) {
+                            playGoldRings()
+                        }
+                    })
+                }
             }
         },
         openScene: ({ sceneId, sceneKey, params, method }) => {
