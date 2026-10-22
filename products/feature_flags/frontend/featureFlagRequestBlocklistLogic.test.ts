@@ -50,7 +50,7 @@ describe('featureFlagRequestBlocklistLogic', () => {
         logic.actions.setBlockedHosts(['saved.example.com', 'draft.example.com'])
 
         await expectLogic(logic, () => {
-            teamLogic.actions.updateCurrentTeam({ capture_dead_clicks: true })
+            teamLogic.actions.updateCurrentTeam({ feature_flag_policy_config: { require_tags: true } })
         })
             .toDispatchActions(['updateCurrentTeamSuccess'])
             .toFinishAllListeners()

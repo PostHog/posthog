@@ -104,7 +104,8 @@ export const featureFlagRequestBlocklistLogic = kea<featureFlagRequestBlocklistL
         updateCurrentTeamSuccess: ({ payload }) => {
             // Only a successful blocklist save clears the drafts. A save of another team setting keeps
             // them, and a failed save keeps them too, so the admin can fix the entry the API rejected.
-            if (payload?.feature_flag_policy_config?.blocked_hosts !== undefined) {
+            const config = payload?.feature_flag_policy_config
+            if (config?.blocked_hosts !== undefined || config?.blocked_ips !== undefined) {
                 actions.clearDrafts()
             }
         },
