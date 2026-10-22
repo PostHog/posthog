@@ -5,10 +5,9 @@ from uuid import UUID
 
 from pydantic import JsonValue
 
-from posthog.cdp.filters import compile_filters_bytecode
-from posthog.cdp.validation import compile_hog
-
 from products.cdp.backend.facade.models import HogFunction, HogFunctionType
+from products.cdp.backend.filters import compile_filters_bytecode
+from products.cdp.backend.validation import compile_hog
 from products.posthog_ai.eval_harness.environment.guard import assert_local_databases
 from products.posthog_ai.eval_harness.environment.schema import EnvironmentModel
 
