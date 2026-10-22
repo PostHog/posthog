@@ -482,11 +482,7 @@ def build_ai_gateway_openai_client(
     properties: Mapping[str, str] | None = None,
     distinct_id: str | None = None,
 ) -> OpenAI:
-    """OpenAI client for the Go ai-gateway that authenticates with the caller's own credential.
-
-    For callers holding a per-user or per-run bearer (``pha_`` OAuth, ``phe_`` scoped token)
-    instead of ``AI_GATEWAY_API_KEY``. There is no Python-gateway fallback.
-    """
+    """Go ai-gateway client on the caller's own bearer (``pha_``, ``phe_``); no Python-gateway fallback."""
     url = settings.AI_GATEWAY_URL
     if not url:
         raise GatewayNotConfiguredError("AI_GATEWAY_URL is not set")
