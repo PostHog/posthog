@@ -201,6 +201,10 @@ export { themeDefaultsFromCssVars, themeFromCssVars, useChartTheme, DEFAULT_CHAR
 export { applyChartDefaults, DEFAULT_CHART_CONFIG } from './core/chart-config'
 export type { ThemeFromCssOptions } from './core/theme'
 
+// Grid and axis lines, for chart types built on the Chart core
+export { drawAxes, drawGrid, resolveAxisLineColor } from './core/canvas-renderer'
+export type { DrawAxesOptions, DrawGridOptions } from './core/canvas-renderer'
+
 // Built-in tooltip (for reference or extension)
 export { DefaultTooltip, type DefaultTooltipProps } from './overlays/DefaultTooltip'
 // Shared tooltip surface — reuse to build custom tooltips with the quill look

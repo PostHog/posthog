@@ -671,7 +671,10 @@ export interface DrawAxesOptions {
 
 /** Draws just the L-shaped axis baselines — the left value axis and the bottom category axis —
  *  without any interior grid lines. For charts that want axis framing but a clean, grid-free plot. */
-export function drawAxes(drawCtx: DrawContext, options: DrawAxesOptions = {}): void {
+export function drawAxes(
+    drawCtx: { ctx: CanvasRenderingContext2D; dimensions: ChartDimensions },
+    options: DrawAxesOptions = {}
+): void {
     const { ctx, dimensions } = drawCtx
     const { xLine = true, yLine = true } = options
     ctx.strokeStyle = options.axisColor ?? 'rgba(0, 0, 0, 0.15)'
@@ -760,6 +763,8 @@ export interface DrawGridOptions {
     orientation?: 'vertical' | 'horizontal'
     /** Cross-axis grid line positions (x-pixels in vertical mode, y-pixels in horizontal). */
     categoryTicks?: number[]
+    /** Value-axis ticks for a `yScale` with no `.ticks()`, such as the core's `ChartScales.y`. */
+    valueTicks?: number[]
 }
 
 /** Draws the grid lines and the full plot-area frame.
@@ -771,14 +776,18 @@ export interface DrawGridOptions {
  * In both modes, `yScale` maps a value to a pixel on the value axis — for vertical that's a y-pixel,
  * for horizontal that's an x-pixel. The function uses `dimensions` to size the perpendicular axis.
  */
-export function drawGrid(drawCtx: DrawContext, options: DrawGridOptions = {}): void {
+export function drawGrid(
+    drawCtx: { ctx: CanvasRenderingContext2D; dimensions: ChartDimensions; yScale: (value: number) => number },
+    options: DrawGridOptions = {}
+): void {
     const { ctx, yScale, dimensions } = drawCtx
     const gridColor = options.gridColor ?? 'rgba(0, 0, 0, 0.1)'
     const orientation = options.orientation ?? 'vertical'
     const tickAxisLength = orientation === 'horizontal' ? dimensions.plotWidth : dimensions.plotHeight
     const categoryTicks = options.categoryTicks ?? []
 
-    const valueTicks = (yScale as ScaleLinear<number, number>).ticks?.(yTickCountForHeight(tickAxisLength)) ?? []
+    const valueTicks =
+        options.valueTicks ?? (yScale as ScaleLinear<number, number>).ticks?.(yTickCountForHeight(tickAxisLength)) ?? []
     const frame = options.frame ?? true
 
     ctx.strokeStyle = gridColor
