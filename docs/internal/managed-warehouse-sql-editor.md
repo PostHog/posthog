@@ -63,7 +63,12 @@ Each connection uses a short-lived hosted Trino service credential with a projec
 
 Staff can select **Internal testing** at `/admin/managed_warehouse/duckgresserver/provision/` to provision and load a warehouse without enabling either customer feature flag.
 The organization lifecycle records this mode before the provisioning call, so customer provisioning, status, hosted Trino queries, and managed SQL-editor source creation stay blocked throughout setup.
-Customer flags do not override internal testing mode.
+Keep `managed-warehouse-trino-query` off while staging the warehouse.
+Enabling that organization flag promotes the existing warehouse on the next Data ops, hosted Trino query, or SQL-editor connection check.
+Promotion preserves the warehouse, credentials, loaded data, and lifecycle generation; it does not call the provision API.
+The ready warehouse status read schedules the normal SQL-editor connection and catalog discovery for onboarded teams.
+Background loading remains enabled independently of customer access, including work queued before promotion.
+The legacy `data-warehouse-scene` flag does not promote an internal warehouse.
 Existing customer warehouses must be deprovisioned before switching modes.
 
 The provisioning team and any teams added through **Enable backfill for a team** use the existing events and persons backfill sensors.
@@ -75,4 +80,4 @@ Loading dispatch retries transient failures and readiness waits with backoff; fa
 Deprovisioning or replacing the warehouse makes old queued dispatch tasks no-ops.
 
 Infrastructure readiness and loading completion are separate: inspect the Dagster events/persons backfills and Temporal copy/registration workflows before treating the warehouse as fully loaded.
-Internal testing warehouses cannot be promoted by changing a feature flag; deprovision them before provisioning a customer warehouse.
+Promotion is a transition to the normal customer lifecycle. Turning the Trino flag off afterward restores the existing customer flag behavior; it does not restore internal testing mode.

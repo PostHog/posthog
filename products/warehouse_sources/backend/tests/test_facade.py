@@ -252,6 +252,24 @@ class TestWarehouseSourcesFacade(BaseTest):
         results = api.list_schemas_for_source(self.source.id, self.team.pk)
         assert [r.id for r in results] == [self.schema.id]
 
+    @parameterized.expand(["active", "deleted_schema", "deleted_source", "deleted_table", "other_team", "direct"])
+    def test_list_imported_schema_snapshots_filters_unavailable_imports(self, state: str) -> None:
+        self.table.queryable_folder = "queryable_2026_01_01"
+        self.table.deleted = state == "deleted_table"
+        self.table.save()
+        self.source.deleted = state == "deleted_source"
+        if state == "direct":
+            self.source.access_method = "direct"
+        self.source.save()
+        self.schema.deleted = state == "deleted_schema"
+        self.schema.save()
+        results = api.list_imported_schema_snapshots(self.team.pk + (1 if state == "other_team" else 0))
+        assert results == (
+            [contracts.ImportedSchemaSnapshot(schema_id=self.schema.id, queryable_folder=self.table.queryable_folder)]
+            if state == "active"
+            else []
+        )
+
     def test_get_table_maps_to_contract(self) -> None:
         result = api.get_table(self.table.id, self.team.pk)
         assert isinstance(result, contracts.DataWarehouseTable)

@@ -18,14 +18,15 @@ from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.managed_warehouse.backend.models import DuckgresServer, ManagedWarehouseSourceLifecycle
 from products.managed_warehouse.backend.presentation import views
 from products.managed_warehouse.backend.trino_target import get_ready_trino_connection_target
-from products.warehouse_sources.backend.facade.models import ExternalDataSchema
+from products.warehouse_sources.backend.facade.api import list_imported_schema_snapshots
+from products.warehouse_sources.backend.facade.contracts import ImportedSchemaSnapshot
 
 logger = structlog.get_logger(__name__)
 
 
 def load_internal_team(organization_id: str, team_id: int, generation: int) -> None:
     lifecycle = ManagedWarehouseSourceLifecycle.objects.filter(
-        organization_id=organization_id, generation=generation, desired_active=True, internal_only=True
+        organization_id=organization_id, generation=generation, desired_active=True, background_loading_enabled=True
     ).first()
     if (
         lifecycle is None
@@ -42,19 +43,7 @@ def load_internal_team(organization_id: str, team_id: int, generation: int) -> N
     if row is None or not row.get("backfill_enabled"):
         raise RuntimeError("Internal warehouse team backfill is not enabled")
 
-    schemas = list(
-        ExternalDataSchema.objects.filter(
-            team_id=team_id,
-            deleted=False,
-            source__deleted=False,
-            source__team_id=team_id,
-            source__access_method="warehouse",
-            table__deleted=False,
-            table__team_id=team_id,
-        )
-        .select_related("table", "source")
-        .order_by("id")
-    )
+    schemas = list_imported_schema_snapshots(team_id)
     models = list(
         DataWarehouseSavedQuery.objects.filter(team_id=team_id, is_materialized=True, deleted=False)
         .exclude(table=None)
@@ -68,7 +57,7 @@ def load_internal_team(organization_id: str, team_id: int, generation: int) -> N
 async def _start_loads(
     team_id: int,
     generation: int,
-    schemas: list[ExternalDataSchema],
+    schemas: list[ImportedSchemaSnapshot],
     models: list[DataWarehouseSavedQuery],
     model_uris: dict[UUID, str | None],
 ) -> None:
@@ -83,20 +72,17 @@ async def _start_loads(
     temporal = await async_connect()
     job_id = f"internal-warehouse-{team_id}-{generation}"
     for schema in schemas:
-        table = schema.table
-        if table is None:
-            continue
-        if table.queryable_folder:
+        if schema.queryable_folder:
             await _start_load(
                 temporal,
                 "ducklake-register.data-imports",
                 DuckLakeRegisterDataImportsInputs(
                     team_id=team_id,
                     job_id=job_id,
-                    schema_id=schema.id,
-                    prepared_queryable_folder=table.queryable_folder,
+                    schema_id=schema.schema_id,
+                    prepared_queryable_folder=schema.queryable_folder,
                 ),
-                id=build_register_data_imports_workflow_id(team_id=team_id, schema_id=str(schema.id)),
+                id=build_register_data_imports_workflow_id(team_id=team_id, schema_id=str(schema.schema_id)),
                 retry_completed=True,
             )
         else:
@@ -104,9 +90,9 @@ async def _start_loads(
                 temporal,
                 "ducklake-copy.data-imports",
                 DataImportsDuckLakeCopyInputs(
-                    team_id=team_id, job_id=job_id, schema_ids=[schema.id], internal_bootstrap=True
+                    team_id=team_id, job_id=job_id, schema_ids=[schema.schema_id], internal_bootstrap=True
                 ),
-                id=f"internal-warehouse-import/{team_id}/{generation}/{schema.id}",
+                id=f"internal-warehouse-import/{team_id}/{generation}/{schema.schema_id}",
             )
     for model in models:
         if uri := model_uris[model.id]:

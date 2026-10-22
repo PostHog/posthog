@@ -177,6 +177,12 @@ class DataWarehouseTable:
     created_at: datetime
 
 
+@dataclass(frozen=True, kw_only=True)
+class ImportedSchemaSnapshot:
+    schema_id: UUID
+    queryable_folder: str | None
+
+
 @dataclass(frozen=True)
 class DuckLakeImportedTable:
     logical_table_names: tuple[str, ...]

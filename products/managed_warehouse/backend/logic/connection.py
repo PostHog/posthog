@@ -306,8 +306,9 @@ def reserve_internal_warehouse(*, organization_id: str | UUID) -> bool:
         ):
             return False
         lifecycle.internal_only = True
+        lifecycle.background_loading_enabled = True
         lifecycle.desired_active = True
-        lifecycle.save(update_fields=["internal_only", "desired_active"])
+        lifecycle.save(update_fields=["internal_only", "background_loading_enabled", "desired_active"])
         return True
 
 
@@ -338,8 +339,17 @@ def activate_managed_warehouse_source_lifecycle(
         lifecycle.generation += 1
         lifecycle.desired_active = True
         lifecycle.internal_only = internal_only
+        lifecycle.background_loading_enabled = internal_only
         lifecycle.legacy_conversion_generation = lifecycle.generation if was_inactive else None
-        lifecycle.save(update_fields=["generation", "desired_active", "internal_only", "legacy_conversion_generation"])
+        lifecycle.save(
+            update_fields=[
+                "generation",
+                "desired_active",
+                "internal_only",
+                "background_loading_enabled",
+                "legacy_conversion_generation",
+            ]
+        )
         return lifecycle.generation
 
 

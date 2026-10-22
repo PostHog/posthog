@@ -7,7 +7,7 @@
             (first team <code>{{ team_id }}</code>).
         </p>
         {% if internal_only %}
-            <p>Internal testing mode is enabled. Data loading starts when the warehouse is ready. Customer access is disabled.</p>
+            <p>Background loading is enabled. Data loading starts when the warehouse is ready. Customer access follows the <code>managed-warehouse-trino-query</code> flag.</p>
         {% endif %}
         <p style="background: #fff3cd;
                   border: 1px solid #ffe69c;

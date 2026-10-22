@@ -27,7 +27,11 @@ from rest_framework.response import Response
 
 from posthog.security.outbound_proxy import internal_requests
 
-from products.managed_warehouse.backend.facade.access import is_internal_warehouse
+from products.managed_warehouse.backend.facade.access import (
+    background_loading_configured,
+    enable_customer_warehouse_access,
+    is_internal_warehouse,
+)
 from products.managed_warehouse.backend.facade.feature_flags import DATA_WAREHOUSE_SCENE_FLAG, MANAGED_TRINO_QUERY_FLAG
 from products.managed_warehouse.backend.presentation import hogtower
 
@@ -153,7 +157,7 @@ def data_ops_variant(organization_id: UUID | str) -> DataOpsVariant | None:
     """
     variant: DataOpsVariant | None = None
     if _organization_flag_enabled(MANAGED_TRINO_QUERY_FLAG, organization_id):
-        variant = "trino"
+        return "trino" if enable_customer_warehouse_access(organization_id, trino_enabled=True) else None
     elif _organization_flag_enabled(DATA_WAREHOUSE_SCENE_FLAG, organization_id):
         variant = "duckdb"
     return None if variant is not None and is_internal_warehouse(organization_id) else variant
@@ -488,13 +492,13 @@ def _register_provisioning_team(organization_id: UUID | str, team_id: int, sourc
 
 def _finish_team_loading_setup(organization_id: UUID | str, team_id: int, source_generation: int) -> None:
     _schedule_earliest_event_date_sync(team_id)
-    if is_internal_warehouse(organization_id):
+    if background_loading_configured(organization_id):
         from django.db import transaction  # noqa: PLC0415
 
         from products.managed_warehouse.backend.facade.tasks import load_internal_warehouse  # noqa: PLC0415
 
         transaction.on_commit(lambda: load_internal_warehouse.delay(str(organization_id), team_id, source_generation))
-    else:
+    if not is_internal_warehouse(organization_id):
         _ensure_direct_source(team_id, organization_id, source_generation)
 
 

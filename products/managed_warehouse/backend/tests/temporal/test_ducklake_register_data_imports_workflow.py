@@ -69,7 +69,10 @@ async def test_registration_gate_accepts_either_managed_warehouse_flag(
 ):
     if internal_only:
         await ManagedWarehouseSourceLifecycle.objects.acreate(
-            organization_id=ateam.organization_id, internal_only=True, desired_active=active
+            organization_id=ateam.organization_id,
+            internal_only=True,
+            background_loading_enabled=True,
+            desired_active=active,
         )
     calls: list[dict[str, object]] = []
 

@@ -118,7 +118,10 @@ async def test_ducklake_copy_data_imports_gate_respects_feature_flag(
 
     if optin:
         await ManagedWarehouseSourceLifecycle.objects.acreate(
-            organization_id=ateam.organization_id, internal_only=True, desired_active=active
+            organization_id=ateam.organization_id,
+            internal_only=True,
+            background_loading_enabled=True,
+            desired_active=active,
         )
     captured = {}
 

@@ -84,6 +84,7 @@ __all__ = [
     "list_revenue_source_settings",
     "get_schema",
     "list_schemas_for_source",
+    "list_imported_schema_snapshots",
     "source_locations_for_tables",
     "get_table",
     "get_queryable_table",
@@ -376,6 +377,21 @@ def get_schema(schema_id: UUID, team_id: int) -> contracts.ExternalDataSchema:
 def list_schemas_for_source(source_id: UUID, team_id: int) -> list[contracts.ExternalDataSchema]:
     qs = _ExternalDataSchema.objects.select_related("source").filter(team_id=team_id, source_id=source_id)
     return [_to_schema(s) for s in qs]
+
+
+def list_imported_schema_snapshots(team_id: int) -> list[contracts.ImportedSchemaSnapshot]:
+    rows = _ExternalDataSchema.objects.filter(
+        team_id=team_id,
+        deleted=False,
+        source__deleted=False,
+        source__team_id=team_id,
+        source__access_method="warehouse",
+        table__deleted=False,
+        table__team_id=team_id,
+    ).values_list("id", "table__queryable_folder")
+    return [
+        contracts.ImportedSchemaSnapshot(schema_id=schema_id, queryable_folder=folder) for schema_id, folder in rows
+    ]
 
 
 def source_locations_for_tables(team_id: int, table_ids: Collection[UUID]) -> dict[UUID, contracts.TableSourceLocation]:

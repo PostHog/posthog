@@ -106,11 +106,11 @@ async def ducklake_copy_workflow_gate_activity(inputs: DuckLakeCopyWorkflowGateI
         return False
 
     from products.managed_warehouse.backend.facade.access import (  # noqa: PLC0415
+        background_loading_configured,
         internal_loading_enabled,
-        is_internal_warehouse,
     )
 
-    if await database_sync_to_async(is_internal_warehouse)(team.organization_id):
+    if await database_sync_to_async(background_loading_configured)(team.organization_id):
         return await database_sync_to_async(internal_loading_enabled)(team.organization_id)
 
     try:
