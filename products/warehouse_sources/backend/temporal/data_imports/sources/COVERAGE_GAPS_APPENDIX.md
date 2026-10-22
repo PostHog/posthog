@@ -6175,7 +6175,7 @@ Note: Enumerated the API reference from https://docs.hyperspell.com/llms.txt, th
 
 ## Hyros — gaps
 
-Today (8): `Calls`, `Keywords`, `Leads`, `Sales`, `Sources`, `Stages`, `Subscriptions`, `Tags`
+Today (14): `AdAccounts`, `Ads`, `CallConversionPaths`, `Calls`, `Keywords`, `LeadConversionPaths`, `Leads`, `Products`, `SaleConversionPaths`, `Sales`, `Sources`, `Stages`, `Subscriptions`, `Tags`
 
 Diffed against: <https://api-docs.hyros.com/ai-context/rest-api.txt>
 

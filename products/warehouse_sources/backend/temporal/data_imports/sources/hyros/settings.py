@@ -127,8 +127,8 @@ HYROS_ENDPOINTS: dict[str, HyrosEndpointConfig] = {
             name=name,
             path="/api/v1.0/conversion-paths",
             primary_keys=["id"],
-            # `fromDate` filters on the sale date for SALE/CALL and the join date for LEAD, which is
-            # what `creationDate` holds for each type.
+            # `fromDate` filters on the sale date, which is what `creationDate` holds. The path only
+            # covers touches up to that date, so a synced row doesn't change later.
             incremental_query_param="fromDate",
             incremental_fields=_incremental_field("creationDate"),
             partition_key="creationDate",
@@ -139,9 +139,17 @@ HYROS_ENDPOINTS: dict[str, HyrosEndpointConfig] = {
         for name, conversion_type in (
             ("SaleConversionPaths", "SALE"),
             ("CallConversionPaths", "CALL"),
-            ("LeadConversionPaths", "LEAD"),
         )
     },
+    "LeadConversionPaths": HyrosEndpointConfig(
+        name="LeadConversionPaths",
+        path="/api/v1.0/conversion-paths",
+        primary_keys=["id"],
+        # Full refresh only: `fromDate` filters on the join date, but `path` is the lead's full touch
+        # list and keeps growing after it joins.
+        partition_key="creationDate",
+        params={"conversionType": "LEAD"},
+    ),
 }
 
 ENDPOINTS = tuple(HYROS_ENDPOINTS.keys())

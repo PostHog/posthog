@@ -101,13 +101,13 @@ class TestHyrosSourcePagination:
 
     @parameterized.expand(
         [
-            ("sale_full_refresh", "SaleConversionPaths", "SALE", False),
-            ("call_incremental", "CallConversionPaths", "CALL", True),
-            ("lead_incremental", "LeadConversionPaths", "LEAD", True),
+            ("sale_full_refresh", "SaleConversionPaths", "SALE", False, False),
+            ("call_incremental", "CallConversionPaths", "CALL", True, True),
+            ("lead_never_filters_by_join_date", "LeadConversionPaths", "LEAD", True, False),
         ]
     )
     def test_conversion_paths_send_conversion_type(
-        self, _name: str, endpoint: str, conversion_type: str, incremental: bool
+        self, _name: str, endpoint: str, conversion_type: str, incremental: bool, expect_from_date: bool
     ) -> None:
         result = _driver().run(
             endpoint,
@@ -119,7 +119,7 @@ class TestHyrosSourcePagination:
         assert result.raised is None
         assert result.paths == ["/v1/api/v1.0/conversion-paths"] * 2
         expected: dict[str, tuple[str, ...]] = {"conversionType": (conversion_type,), "pageSize": ("250",)}
-        if incremental:
+        if expect_from_date:
             expected["fromDate"] = ("2026-03-04T00:00:00+00:00",)
         assert result.queries == [expected, {**expected, "pageId": ("cursor-1",)}]
 
