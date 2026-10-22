@@ -336,15 +336,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                   }
                 : dateAxis,
         }
-    }, [
-        effectiveVisualizationType,
-        chartData,
-        biConfig,
-        dateAxis,
-        isDateXAxis,
-        timezone,
-        dateBucket,
-    ])
+    }, [effectiveVisualizationType, chartData, biConfig, dateAxis, isDateXAxis, timezone, dateBucket])
 
     const pieDisplayData = useMemo(() => {
         if (!PART_OF_WHOLE_DISPLAY_TYPES.includes(effectiveVisualizationType)) {
