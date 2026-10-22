@@ -95,7 +95,7 @@ export function EvaluationModelPicker(): JSX.Element {
                                     ? 'This decision model selects categories without written reasoning. For multiple selections, each category is included when its probability is 50% or higher.'
                                     : evaluation.output_type === 'numeric'
                                       ? 'This decision model estimates a score between your minimum and maximum without written reasoning. Define what low and high scores mean in your evaluation prompt. Scores can be fractional.'
-                                      : 'This decision model returns a probability without written reasoning. A probability of 50% or higher produces a true result.'}
+                                      : 'This decision model returns a probability without written reasoning. The decision threshold determines whether the result is true.'}
                             </p>
                         )}
                         {modelSelectionRequired && !selectedModel && (

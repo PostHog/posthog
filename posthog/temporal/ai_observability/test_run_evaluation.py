@@ -412,6 +412,18 @@ def test_legacy_and_explicit_llm_methods_use_chat_for_a_dual_capability_model(
             {"verdict": True, "probability": 0.5},
         ),
         (
+            "boolean",
+            {"decision_threshold": 0.8},
+            [{"name": "verdict", "type": "predicate", "probability": 0.7}],
+            {"verdict": False, "probability": 0.7},
+        ),
+        (
+            "boolean",
+            {"decision_threshold": 0.35},
+            [{"name": "verdict", "type": "predicate", "probability": 0.35}],
+            {"verdict": True, "probability": 0.35},
+        ),
+        (
             "categorical",
             {
                 "selection_mode": "single",
@@ -625,8 +637,20 @@ def test_openrouter_decision_model_with_disabled_flag_skips_without_disabling(fl
     ],
 )
 @pytest.mark.parametrize(
-    "probability,applicability,allows_na,verdict",
-    [(0.49, 1.0, False, False), (0.5, 1.0, False, True), (0.9, 0.1, True, None), (0.0, 0.9, True, False)],
+    "probability,applicability,allows_na,threshold,verdict",
+    [
+        (0.49, 1.0, False, None, False),
+        (0.5, 1.0, False, None, True),
+        (0.9, 0.1, True, None, None),
+        (0.0, 0.9, True, None, False),
+        (0.7, 1.0, False, 0.8, False),
+        (0.35, 1.0, False, 0.35, True),
+        (0.0, 1.0, False, 0.0, True),
+        (1.0, 1.0, False, 1.0, True),
+        (0.7, 0.6, True, 0.8, False),
+        (0.8, 0.6, True, 0.8, True),
+        (0.9, 0.4, True, 0.2, None),
+    ],
 )
 @pytest.mark.parametrize("judge_method", [None, "decision"])
 def test_system_one_judge_emits_boolean_probability_without_reasoning(
@@ -634,6 +658,7 @@ def test_system_one_judge_emits_boolean_probability_without_reasoning(
     probability: float,
     applicability: float,
     allows_na: bool,
+    threshold: float | None,
     verdict: bool | None,
     provider: str,
     connection_config: dict[str, str],
@@ -657,6 +682,7 @@ def test_system_one_judge_emits_boolean_probability_without_reasoning(
         "id": "test-evaluation",
         "name": "Politeness",
         "team_id": 1,
+        "output_config": {"decision_threshold": threshold} if threshold is not None else {},
         "evaluation_config": {
             "prompt": prompt,
             **({"judge_method": judge_method} if judge_method else {}),

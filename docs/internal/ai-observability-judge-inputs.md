@@ -146,7 +146,10 @@ API compatibility does not guarantee equivalent judgments or calibration across 
 Compare results on representative inputs when changing models.
 
 For boolean evaluations, the prompt becomes a [Noul question](https://docs.typesafe.ai/primitives/noul).
-A probability of at least 0.5 produces `true`; the evaluation's existing pass/fail polarity still applies.
+A probability at or above `output_config.decision_threshold` produces `true`; the evaluation's existing pass/fail polarity still applies.
+The threshold accepts finite numbers from 0 to 1, inclusive, and defaults to 0.5 when omitted or null.
+The editor displays this setting as a percentage under **Decision threshold** for boolean decision model judges.
+Changing the threshold affects new runs only; historical verdicts remain unchanged.
 The raw probability is stored in `$ai_evaluation_probability` when the criteria apply, with available token usage and the configured model ID.
 Missing or invalid token counts remain unknown and do not discard a valid answer.
 Ingestion estimates cost from the configured model and token usage when the model appears in the existing pricing catalog.

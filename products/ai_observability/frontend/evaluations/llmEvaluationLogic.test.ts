@@ -726,6 +726,27 @@ return result`,
             })
 
             it.each([
+                [undefined, true],
+                [0, true],
+                [0.35, true],
+                [1, true],
+                [-0.01, false],
+                [1.01, false],
+                [NaN, false],
+                [Infinity, false],
+            ])('validates a decision threshold of %s as %s', async (threshold, valid) => {
+                await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+                logic.actions.loadEvaluationSuccess({
+                    ...mockEvaluation,
+                    output_config: {},
+                    model_configuration: { provider: 'system_one', model: 'custom-model', provider_key_id: 'key-1' },
+                })
+                logic.actions.patchOutputConfig({ decision_threshold: threshold })
+                expect(logic.values.evaluation?.output_config.decision_threshold).toBe(threshold)
+                expect(logic.values.formValid).toBe(valid)
+            })
+
+            it.each([
                 ['system_one', false, true],
                 ['openrouter', true, true],
                 ['openrouter', false, false],

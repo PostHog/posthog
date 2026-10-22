@@ -37,6 +37,7 @@ import {
     evaluationPassedHogQL,
     evaluationPassRateHogQL,
     evaluationIsDetector,
+    booleanOutputConfigError,
     numericOutputConfigError,
     numericScorePasses,
     categoricalResultPasses,
@@ -938,7 +939,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     return { ...state, output_type: outputType, output_config }
                 },
                 patchOutputConfig: (state, { patch }) => {
-                    if (state?.output_type !== 'numeric' && state?.output_type !== 'categorical') {
+                    if (!state || state.output_type === 'sentiment') {
                         return state
                     }
                     const output_config = { ...state.output_config, ...patch }
@@ -1688,6 +1689,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     return false
                 }
                 if (
+                    (evaluation.output_type === 'boolean' && booleanOutputConfigError(evaluation.output_config)) ||
                     (evaluation.output_type === 'numeric' &&
                         numericOutputConfigError(evaluation.output_config, numericBoundsRequired)) ||
                     (evaluation.output_type === 'categorical' && categoricalOutputConfigError(evaluation.output_config))

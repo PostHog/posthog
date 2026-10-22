@@ -47,7 +47,12 @@ import { EvaluationReportsTab } from './components/EvaluationReportsTab'
 import { EvaluationRunsTable } from './components/EvaluationRunsTable'
 import { EvaluationTriggers } from './components/EvaluationTriggers'
 import { NumericEvaluationConfig } from './components/NumericEvaluationConfig'
-import { formatNumericEvaluationScore, numericOutputConfigError, categoricalOutputConfigError } from './constants'
+import {
+    formatNumericEvaluationScore,
+    booleanOutputConfigError,
+    numericOutputConfigError,
+    categoricalOutputConfigError,
+} from './constants'
 import {
     evaluationOffersSessionTarget,
     evaluationSupportsReportHistory,
@@ -180,7 +185,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
               ? (categoricalOutputConfigError(evaluation.output_config) ?? undefined)
               : evaluation.output_type === 'numeric'
                 ? (numericOutputConfigError(evaluation.output_config, numericBoundsRequired) ?? undefined)
-                : undefined
+                : (booleanOutputConfigError(evaluation.output_config) ?? undefined)
 
     const focusTriggers = (): void => {
         setActiveTab('configuration')
@@ -742,6 +747,41 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                     requiresBounds={numericBoundsRequired}
                                                 />
                                             )}
+                                            {isBooleanOutput &&
+                                                evaluation.evaluation_type === 'llm_judge' &&
+                                                usesDecisionModel && (
+                                                    <LemonField.Pure
+                                                        label="Decision threshold"
+                                                        htmlFor="llma-evaluation-decision-threshold"
+                                                        error={booleanOutputConfigError(evaluation.output_config)}
+                                                    >
+                                                        <LemonInput
+                                                            id="llma-evaluation-decision-threshold"
+                                                            type="number"
+                                                            value={Number(
+                                                                (
+                                                                    (evaluation.output_config.decision_threshold ??
+                                                                        0.5) * 100
+                                                                ).toPrecision(15)
+                                                            )}
+                                                            onChange={(percentage) =>
+                                                                patchOutputConfig({
+                                                                    decision_threshold:
+                                                                        percentage == null ? NaN : percentage / 100,
+                                                                })
+                                                            }
+                                                            min={0}
+                                                            max={100}
+                                                            step="any"
+                                                            suffix={<span>%</span>}
+                                                            data-attr="llma-evaluation-decision-threshold"
+                                                        />
+                                                        <p className="text-muted text-sm">
+                                                            A probability at or above this threshold produces a true
+                                                            result. Applies to new runs; past results stay unchanged.
+                                                        </p>
+                                                    </LemonField.Pure>
+                                                )}
                                             <LemonField.Pure label="Description (optional)">
                                                 <LemonTextArea
                                                     value={evaluation.description || ''}
