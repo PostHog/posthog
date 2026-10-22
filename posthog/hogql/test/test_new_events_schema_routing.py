@@ -143,7 +143,7 @@ class TestNewEventsClusterRouting(SimpleTestCase):
 
     def test_override_without_an_events_route_keeps_the_legacy_payload(self) -> None:
         query = HogQLQuery(query="SELECT 1", modifiers=self.modifiers)
-        override = HogQLQueryModifiers(sessionTableVersion=SessionTableVersion.V2)
+        override = self.modifiers.model_copy(update={"sessionTableVersion": SessionTableVersion.V2})
         runner = HogQLQueryRunner(query=query, team=self.team, modifiers=override)
         self.assertEqual(self._enqueue(runner), query.model_dump())
         self.assertIsNone(self.runner_state)
