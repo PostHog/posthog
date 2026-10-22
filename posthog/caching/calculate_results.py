@@ -4,7 +4,7 @@ import orjson
 import structlog
 from pydantic import BaseModel
 
-from posthog.schema import CacheMissResponse, DashboardFilter, HogQLQueryModifiers
+from posthog.schema import CacheMissResponse, DashboardFilter
 
 from posthog.hogql.constants import LimitContext
 
@@ -21,6 +21,8 @@ from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.product_analytics.backend.facade.models import Insight
 
 if TYPE_CHECKING:
+    from django.contrib.auth.models import AnonymousUser
+
     from posthog.caching.insight_result import InsightResult
 
     from products.access_control.backend.facade.user_access_control import UserAccessControl
@@ -81,7 +83,7 @@ def calculate_for_query_based_insight(
     execution_mode: ExecutionMode,
     user: Optional[User],
     user_access_control: Optional["UserAccessControl"] = None,
-    modifiers: Optional[HogQLQueryModifiers] = None,
+    native_events_flag_user: Optional["User | AnonymousUser"] = None,
     filters_override: Optional[dict] = None,
     variables_override: Optional[dict] = None,
     tile_filters_override: Optional[dict] = None,
@@ -116,7 +118,7 @@ def calculate_for_query_based_insight(
     process_response = process_query_dict(
         team,
         query_json,
-        modifiers=modifiers,
+        native_events_flag_user=native_events_flag_user,
         dashboard_filters_json=dashboard_filters_json,
         variables_override_json=variables_override_json,
         execution_mode=execution_mode,

@@ -509,7 +509,7 @@ class TestTrendsQueryRunnerSeriesFanOut(BaseTest):
             patch("posthog.hogql_queries.query_runner.enqueue_process_query_task") as enqueue,
         ):
             modifiers = native_events_cluster_modifiers_for_user(
-                self.team, self.user, query, is_query_service=False, execution_mode=ExecutionMode.CALCULATE_ASYNC_ALWAYS
+                self.team, self.user, query, execution_mode=ExecutionMode.CALCULATE_ASYNC_ALWAYS
             )
             request = InsightActorsQueryRunner(query=query, team=self.team, user=self.user, modifiers=modifiers)
             request.enqueue_async_calculation(cache_manager=cache_manager, user=self.user)
