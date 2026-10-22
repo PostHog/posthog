@@ -44,7 +44,7 @@ export const ScoutRosterCard = memo(function ScoutRosterCard({ row }: { row: Sco
     const { config, group } = row
     const { rollups, updatingScoutIds, scoutRunsLoadedOnce, scoutRunsCoverFleet, scoutCostRollups } =
         useValues(scoutFleetLogic)
-    const { updateScoutConfig } = useActions(scoutFleetLogic)
+    const { setScoutEnabledFromRoster } = useActions(scoutFleetLogic)
     const { currentTeam } = useValues(teamLogic)
     const now = new Date()
     const rollup = rollups.get(config.skill_name)
@@ -121,7 +121,7 @@ export const ScoutRosterCard = memo(function ScoutRosterCard({ row }: { row: Sco
                 </div>
                 <ScoutEnabledSwitch
                     config={config}
-                    onUpdate={updateScoutConfig}
+                    onUpdate={(configId, updates) => setScoutEnabledFromRoster(configId, !!updates.enabled)}
                     updating={updatingScoutIds.includes(config.id)}
                 />
             </div>
