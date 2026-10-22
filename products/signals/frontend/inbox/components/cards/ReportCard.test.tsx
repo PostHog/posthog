@@ -224,13 +224,13 @@ describe('ReportCard', () => {
     })
 
     it.each([
-        ['hides', 'a report without a pull request', null, false, false],
-        ['shows', 'a report with a pull request', 'https://github.com/example/repo/pull/123', false, true],
-        ['hides', 'a pull request with plain titles enabled', 'https://github.com/example/repo/pull/123', true, false],
-    ])('%s a conventional commit tag for %s', (_verb, _name, implementationPrUrl, plainTitles, showsTag) => {
+        ['hides', 'a report without a pull request', null, 'control', false],
+        ['shows', 'a pull request in the control variant', 'https://github.com/example/repo/pull/123', 'control', true],
+        ['hides', 'a pull request in the test variant', 'https://github.com/example/repo/pull/123', 'test', false],
+    ])('%s a conventional commit tag for %s', (_verb, _name, implementationPrUrl, titleVariant, showsTag) => {
         cleanup()
-        featureFlagLogic.actions.setFeatureFlags(plainTitles ? [FEATURE_FLAGS.SIGNALS_PLAIN_REPORT_TITLES] : [], {
-            [FEATURE_FLAGS.SIGNALS_PLAIN_REPORT_TITLES]: plainTitles,
+        featureFlagLogic.actions.setFeatureFlags([], {
+            [FEATURE_FLAGS.SIGNALS_PLAIN_REPORT_TITLES]: titleVariant,
         })
         render(
             <ReportCard
