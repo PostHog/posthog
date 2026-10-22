@@ -5,6 +5,7 @@ import hashlib
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
+import pytest
 from unittest.mock import MagicMock, patch
 
 import requests
@@ -29,7 +30,7 @@ def _response(status_code: int, payload: Any) -> MagicMock:
     return response
 
 
-def _run(post: MagicMock, *args: str) -> tuple[Any, list[str]]:
+def _run(post: MagicMock, *args: str, host: str = f"{_HOST}/") -> tuple[Any, list[str]]:
     opened: list[str] = []
 
     def browser(url: str) -> bool:
@@ -47,7 +48,7 @@ def _run(post: MagicMock, *args: str) -> tuple[Any, list[str]]:
         patch.object(posthog_auth, "_LOGIN_TIMEOUT_SECONDS", 5.0),
         patch.object(gateway.requests, "post", post),
     ):
-        result = CliRunner(mix_stderr=False).invoke(gateway.gateway_token, ["--host", f"{_HOST}/", *args])
+        result = CliRunner(mix_stderr=False).invoke(gateway.gateway_token, ["--host", host, *args])
     return result, opened
 
 
@@ -75,3 +76,31 @@ def test_a_refused_exchange_reports_the_server_detail_and_prints_no_token() -> N
     assert result.exit_code == 1
     assert result.stdout == ""
     assert "code is expired or used" in result.stderr
+
+
+@pytest.mark.parametrize(
+    "host,args,expected_origin",
+    [
+        ("https://EU.posthog.com/", (), "https://eu.posthog.com"),
+        ("http://localhost:8010", (), "http://localhost:8010"),
+        ("https://attacker.example", (), None),
+        ("https://us.posthog.com.attacker.example", (), None),
+        ("http://us.posthog.com", (), None),
+        ("https://attacker.example", ("--allow-any-host",), "https://attacker.example"),
+    ],
+)
+def test_host_allowlist(host: str, args: tuple[str, ...], expected_origin: str | None) -> None:
+    post = MagicMock(return_value=_response(201, _MINTED))
+
+    result, opened = _run(post, *args, host=host)
+
+    if expected_origin is None:
+        assert result.exit_code == 2
+        assert opened == []
+        post.assert_not_called()
+        assert "--host" in result.stderr and "--allow-any-host" in result.stderr
+    else:
+        assert result.exit_code == 0, result.output
+        assert opened[0].startswith(f"{expected_origin}/settings/")
+        assert post.call_args.args[0].startswith(f"{expected_origin}/api/")
+        assert post.call_args.kwargs["allow_redirects"] is False

@@ -12,7 +12,7 @@ import base64
 import hashlib
 import secrets
 from typing import Any
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 
 import click
 import requests
@@ -22,6 +22,10 @@ from hogli_commands import posthog_auth
 _SETTINGS_PATH = "/settings/user-ai-gateway-dev-mode"
 _EXCHANGE_PATH = "/api/ai_gateway/dev_tokens/cli_exchange/"
 _HTTP_TIMEOUT_SECONDS = 30.0
+# An approved code plus its verifier is a token, so the CLI only sends them to hosts staff
+# actually approve on. Local dev hosts match on any port.
+_ALLOWED_HOSTS = ("https://us.posthog.com", "https://eu.posthog.com")
+_LOCAL_HOSTNAMES = ("localhost", "127.0.0.1")
 
 
 @click.command(name="gateway:token", help="Get a short-lived AI gateway token after you approve it in your browser.")
@@ -31,9 +35,14 @@ _HTTP_TIMEOUT_SECONDS = 30.0
     show_default=True,
     help="PostHog host that mints the token (e.g. https://eu.posthog.com).",
 )
+@click.option(
+    "--allow-any-host",
+    is_flag=True,
+    help="Skip the --host allowlist. Only use this for a host you run yourself.",
+)
 @click.option("--json", "as_json", is_flag=True, help="Print the full token response as JSON.")
-def gateway_token(host: str, as_json: bool) -> None:
-    host = host.rstrip("/")
+def gateway_token(host: str, allow_any_host: bool, as_json: bool) -> None:
+    host = host.rstrip("/") if allow_any_host else _allowed_host(host)
     verifier = secrets.token_urlsafe(64)
     challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
     state = secrets.token_urlsafe(24)
@@ -61,12 +70,34 @@ def gateway_token(host: str, as_json: bool) -> None:
     )
 
 
+def _allowed_host(host: str) -> str:
+    try:
+        parts = urlsplit(host.strip())
+        port = parts.port
+    except ValueError:
+        parts, port = None, None
+    if parts is not None and parts.hostname:
+        hostname = parts.hostname.lower()
+        if parts.scheme == "http" and hostname in _LOCAL_HOSTNAMES:
+            return f"http://{hostname}" + (f":{port}" if port else "")
+        if parts.scheme == "https" and port in (None, 443):
+            origin = f"https://{hostname}"
+            if origin in _ALLOWED_HOSTS:
+                return origin
+    allowed = ", ".join([*_ALLOWED_HOSTS, "http://localhost:<port>", "http://127.0.0.1:<port>"])
+    raise click.BadParameter(
+        f"{host} is not an allowed host. Allowed values: {allowed}. Pass --allow-any-host to use another host.",
+        param_hint="'--host'",
+    )
+
+
 def _exchange(host: str, *, code: str, verifier: str) -> dict[str, Any]:
     try:
         response = requests.post(
             f"{host}{_EXCHANGE_PATH}",
             json={"code": code, "code_verifier": verifier},
             timeout=_HTTP_TIMEOUT_SECONDS,
+            allow_redirects=False,
         )
     except requests.RequestException as error:
         raise click.ClickException(f"Could not reach {host}: {error}")
