@@ -53,6 +53,9 @@ export function initAnalytics(): void {
     const posthog = new PostHog(apiKey, {
         host: process.env.EXPO_PUBLIC_POSTHOG_HOST || DEFAULT_HOST,
         captureAppLifecycleEvents: true,
+        capturePushNotificationSubscriptions: false,
+        capturePushNotificationOpened: false,
+        rageClickConfig: { enabled: false },
         enableSessionReplay: false,
         enablePersistSessionIdAcrossRestart: isInternalBuild && process.env.EXPO_PUBLIC_POSTHOG_HANDOFF === '1',
         sessionReplayConfig: DEMO_REPLAY_CONFIG,

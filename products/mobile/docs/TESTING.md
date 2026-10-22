@@ -166,7 +166,9 @@ Enable **Record user sessions** in the project receiving the app's own usage ana
 Use a dedicated test project and fixture data for validation.
 
 The SDK configuration masks text, inputs, images and sandboxed iOS views, disables touch
-coordinates, and disables recording logs and network telemetry. Remote project settings still
+coordinates, and disables recording logs and network telemetry. Native push autocapture and
+rage-click capture are also off; the app keeps its existing Expo notification integration. The
+iOS Info.plist switch disables the SDK push-open hook before JavaScript starts. Remote project settings still
 control whether recording starts. `startSessionRecording()` resolving does not prove recording
 is active: the SDK can retry while waiting for remote configuration. Check the received recording.
 

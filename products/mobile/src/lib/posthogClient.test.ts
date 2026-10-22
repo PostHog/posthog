@@ -98,6 +98,9 @@ describe('mobile replay integration', () => {
             'phc_example',
             expect.objectContaining({
                 enableSessionReplay: false,
+                capturePushNotificationSubscriptions: false,
+                capturePushNotificationOpened: false,
+                rageClickConfig: { enabled: false },
                 sessionReplayConfig: expect.objectContaining({
                     maskAllTextInputs: true,
                     maskAllImages: true,
