@@ -19,7 +19,6 @@ class AlertsConfig(AppConfig):
         # an insight alert on the HogFunction path, here.
         from products.alerts.backend.facade.destinations import (  # noqa: PLC0415
             choose_delivery_path,
-            emit_alert_transition_events,
             list_delivery_destination_groups,
         )
         from products.alerts.backend.platform_hooks import emit_insight_legacy_events  # noqa: PLC0415
@@ -29,7 +28,6 @@ class AlertsConfig(AppConfig):
             register_delivery_path_chooser,
             register_destination_resolver,
             register_legacy_event_emitter,
-            register_transition_event_producer,
         )
         from products.alerts_platform.backend.facade.source_configs import register_source_config  # noqa: PLC0415
 
@@ -37,4 +35,3 @@ class AlertsConfig(AppConfig):
         register_delivery_path_chooser(choose_delivery_path)
         register_legacy_event_emitter(SourceKind.INSIGHT, emit_insight_legacy_events)
         register_source_config(SourceKind.INSIGHT, load_insight_source_config)
-        register_transition_event_producer(emit_alert_transition_events)
