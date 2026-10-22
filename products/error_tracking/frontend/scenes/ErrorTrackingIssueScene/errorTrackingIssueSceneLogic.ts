@@ -95,13 +95,13 @@ export interface errorTrackingIssueSceneLogicValues {
     breadcrumbs: Breadcrumb[]
     eventsQuery: EventsQuery
     eventsQueryKey: string
-    issueEventsQuery: ErrorTrackingIssueEventsQuery
-    issueEventsQueryKey: string
     firstSeen: Dayjs | null
     initialEvent: ErrorEventType | null
     initialEventLoading: boolean
     initialEventTimestamp: string | null
     issue: ErrorTrackingRelationalIssue | null
+    issueEventsQuery: ErrorTrackingIssueEventsQuery
+    issueEventsQueryKey: string
     issueFingerprints: ErrorTrackingFingerprint[]
     issueFingerprintsLoading: boolean
     issueId: string
@@ -193,10 +193,10 @@ export interface errorTrackingIssueSceneLogicActions {
     setSearchQuery: (searchQuery: string) => {
         searchQuery: string
     } // issueFiltersLogic
-    loadLinkedReports: () => any // linkedReportsLogic
     setOnlyWithRecording: (onlyWithRecording: boolean) => {
         onlyWithRecording: boolean
     } // issueRecordingFilterLogic
+    loadLinkedReports: () => any // linkedReportsLogic
     createExternalReference: (
         integrationId: IntegrationType['id'],
         config: Record<string, string>,
