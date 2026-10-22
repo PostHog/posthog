@@ -48,12 +48,12 @@ fn row_group_spans(meta: &ParquetMetaData) -> Vec<Range<u64>> {
 }
 
 /// Compressed bytes a reader with read-ahead holds at most: the largest sum of two
-/// consecutive row groups, or the one row group of a single-row-group file.
+/// consecutive row group spans, or the one span of a single-row-group file. Spans, not
+/// column chunk lengths, because the read ahead fetches and holds the whole span.
 pub(crate) fn max_row_group_pair_fetch_bytes(meta: &ParquetMetaData) -> usize {
-    let sizes: Vec<usize> = meta
-        .row_groups()
+    let sizes: Vec<usize> = row_group_spans(meta)
         .iter()
-        .map(|rg| rg.columns().iter().map(|c| c.byte_range().1 as usize).sum())
+        .map(|g| (g.end - g.start) as usize)
         .collect();
     if sizes.len() < 2 {
         return sizes.first().copied().unwrap_or(0);
@@ -174,7 +174,8 @@ impl ObjectStore for ReadAheadStore {
         location: &Path,
         ranges: &[Range<u64>],
     ) -> object_store::Result<Vec<Bytes>> {
-        let group = match (location == &self.path).then(|| self.group_of(ranges)) {
+        let valid = ranges.iter().all(|r| r.start <= r.end);
+        let group = match (valid && location == &self.path).then(|| self.group_of(ranges)) {
             Some(Some(group)) => group,
             _ => return self.inner.get_ranges(location, ranges).await,
         };
@@ -188,7 +189,18 @@ impl ObjectStore for ReadAheadStore {
                             store: "deltalite",
                             source: Box::new(e),
                         })??;
-                let base = self.groups[group].start;
+                let Range { start: base, end } = self.groups[group].clone();
+                if span.len() as u64 != end - base {
+                    return Err(object_store::Error::Generic {
+                        store: "deltalite",
+                        source: format!(
+                            "read ahead of {} for bytes {base}..{end} returned {} bytes",
+                            self.path,
+                            span.len()
+                        )
+                        .into(),
+                    });
+                }
                 ranges
                     .iter()
                     .map(|r| span.slice((r.start - base) as usize..(r.end - base) as usize))

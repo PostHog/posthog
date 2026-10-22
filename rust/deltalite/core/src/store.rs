@@ -35,13 +35,13 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use deltalake::kernel::transaction::TransactionError;
 use deltalake::logstore::{CommitOrBytes, LogStore, LogStoreConfig};
-use futures::stream::{BoxStream, StreamExt, TryStreamExt};
+use futures::stream::{BoxStream, FuturesUnordered, StreamExt, TryStreamExt};
 use futures::FutureExt;
 use metrics::counter;
 use object_store::path::Path;
 use object_store::{
-    GetOptions, GetRange, GetResult, ListResult, MultipartUpload, ObjectMeta, ObjectStore,
-    ObjectStoreExt, PutMode, PutMultipartOptions, PutOptions, PutPayload, PutResult,
+    GetOptions, GetRange, GetResult, GetResultPayload, ListResult, MultipartUpload, ObjectMeta,
+    ObjectStore, ObjectStoreExt, PutMode, PutMultipartOptions, PutOptions, PutPayload, PutResult,
 };
 use uuid::Uuid;
 
@@ -133,16 +133,34 @@ impl MultipartPutStore {
     /// Upload every part with at most `concurrency` in flight. The part number of each
     /// part is fixed when `put_part` is called, in payload order, so the completion
     /// order does not change the assembled object.
+    ///
+    /// After a part fails no new part starts, and the parts already started run to the
+    /// end: S3 may still store a part whose request was dropped, after the abort.
     async fn upload_parts(
         &self,
         upload: &mut Box<dyn MultipartUpload>,
         parts: Vec<PutPayload>,
     ) -> object_store::Result<()> {
-        futures::stream::iter(parts)
-            .map(|part| upload.put_part(part))
-            .buffer_unordered(self.config.concurrency)
-            .try_collect::<()>()
-            .await
+        let mut parts = parts.into_iter();
+        let mut in_flight = FuturesUnordered::new();
+        let mut first_error = None;
+        loop {
+            while first_error.is_none() && in_flight.len() < self.config.concurrency {
+                let Some(part) = parts.next() else { break };
+                in_flight.push(upload.put_part(part));
+            }
+            match in_flight.next().await {
+                Some(Err(e)) => {
+                    first_error.get_or_insert(e);
+                }
+                Some(Ok(())) => {}
+                None => break,
+            }
+        }
+        match first_error {
+            Some(e) => Err(e),
+            None => Ok(()),
+        }
     }
 
     /// Whether ranged reads of `location` may be split: data files only. Log files keep
@@ -151,30 +169,42 @@ impl MultipartPutStore {
         self.config.range_concurrency > 1 && !location.parts().any(|p| p.as_ref() == "_delta_log")
     }
 
-    /// Read `range` of `location` as concurrent requests of `range_part_size` bytes, each
-    /// streamed into its own slice of one buffer.
-    async fn get_split(&self, location: &Path, range: Range<u64>) -> object_store::Result<Bytes> {
-        let len =
-            usize::try_from(range.end - range.start).map_err(|e| object_store::Error::Generic {
-                store: "deltalite",
-                source: Box::new(e),
-            })?;
+    /// Read each range of `ranges` as requests of at most `range_part_size` bytes, each
+    /// streamed into its own slice of the buffer of its range. The requests of all the
+    /// ranges share one queue of `range_concurrency`.
+    async fn get_split(
+        &self,
+        location: &Path,
+        ranges: &[Range<u64>],
+    ) -> object_store::Result<Vec<Bytes>> {
         let piece = self.config.range_part_size;
-        let mut buf = vec![0u8; len];
-        let reads: Vec<_> = buf
-            .chunks_mut(piece)
-            .enumerate()
-            .map(|(i, dst)| {
-                let start = range.start + (i * piece) as u64;
-                self.read_into(location, start..start + dst.len() as u64, dst)
-                    .boxed()
+        let mut bufs = ranges
+            .iter()
+            .map(|r| {
+                usize::try_from(r.end - r.start)
+                    .map(|len| vec![0u8; len])
+                    .map_err(|e| object_store::Error::Generic {
+                        store: "deltalite",
+                        source: Box::new(e),
+                    })
+            })
+            .collect::<object_store::Result<Vec<Vec<u8>>>>()?;
+        let reads: Vec<_> = ranges
+            .iter()
+            .zip(bufs.iter_mut())
+            .flat_map(move |(range, buf)| {
+                buf.chunks_mut(piece).enumerate().map(move |(i, dst)| {
+                    let start = range.start + (i * piece) as u64;
+                    self.read_into(location, start..start + dst.len() as u64, dst)
+                        .boxed()
+                })
             })
             .collect();
         futures::stream::iter(reads)
             .buffer_unordered(self.config.range_concurrency)
             .try_collect::<()>()
             .await?;
-        Ok(Bytes::from(buf))
+        Ok(bufs.into_iter().map(Bytes::from).collect())
     }
 
     async fn read_into(
@@ -187,7 +217,17 @@ impl MultipartPutStore {
             range: Some(GetRange::Bounded(range.clone())),
             ..Default::default()
         };
-        let mut stream = self.inner.get_opts(location, options).await?.into_stream();
+        let result = self.inner.get_opts(location, options).await?;
+        // A local file streams in small blocking reads; one read of the range is faster.
+        if matches!(result.payload, GetResultPayload::File(..)) {
+            let bytes = result.bytes().await?;
+            if bytes.len() != dst.len() {
+                return Err(short_read(location, &range, bytes.len()));
+            }
+            dst.copy_from_slice(&bytes);
+            return Ok(());
+        }
+        let mut stream = result.into_stream();
         let mut filled = 0usize;
         while let Some(chunk) = stream.next().await {
             let chunk = chunk?;
@@ -269,8 +309,8 @@ impl ObjectStore for MultipartPutStore {
         let parts = self.split_parts(&payload);
         if let Err(e) = self.upload_parts(&mut upload, parts).await {
             // Best-effort cleanup of the incomplete upload; the original error is what
-            // the caller needs to see. The parts still in flight were dropped above, and
-            // without `complete` no object is created.
+            // the caller needs to see. The parts in flight finished above, and without
+            // `complete` no object is created.
             drop(upload.abort().await);
             return Err(e);
         }
@@ -304,7 +344,7 @@ impl ObjectStore for MultipartPutStore {
         location: &Path,
         ranges: &[std::ops::Range<u64>],
     ) -> object_store::Result<Vec<Bytes>> {
-        if !self.splits_reads_of(location) {
+        if !self.splits_reads_of(location) || ranges.iter().any(|r| r.start > r.end) {
             return self.inner.get_ranges(location, ranges).await;
         }
         let merged = merge_ranges(ranges);
@@ -312,16 +352,7 @@ impl ObjectStore for MultipartPutStore {
         if merged.iter().all(|m| m.end - m.start <= split_above) {
             return self.inner.get_ranges(location, ranges).await;
         }
-        // The merged ranges are read one after another so that one call never has more
-        // than `range_concurrency` requests in flight.
-        let mut fetched: Vec<Bytes> = Vec::with_capacity(merged.len());
-        for m in &merged {
-            fetched.push(if m.end - m.start > split_above {
-                self.get_split(location, m.clone()).await?
-            } else {
-                self.inner.get_range(location, m.clone()).await?
-            });
-        }
+        let fetched = self.get_split(location, &merged).await?;
         Ok(ranges
             .iter()
             .map(|r| {
@@ -860,6 +891,11 @@ mod tests {
                 "{err}"
             );
             assert!(store.probe.aborted(), "the upload must be aborted");
+            assert_eq!(
+                store.probe.in_flight.load(std::sync::atomic::Ordering::SeqCst),
+                0,
+                "parts already started must finish before the abort (part {fail_part}, concurrency {concurrency})"
+            );
             assert!(
                 matches!(store.inner.head(&path).await, Err(object_store::Error::NotFound { .. })),
                 "no object may exist after a failed upload (part {fail_part}, concurrency {concurrency})"
