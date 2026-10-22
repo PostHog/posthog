@@ -20,6 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.gainsight_
     GainsightCsResumeConfig,
     _normalize_row,
     _parse_fields,
+    _picklist_rows,
     _read_capped_json,
     _rows_from_body,
     normalize_domain,
@@ -189,6 +190,132 @@ class TestPagination:
 
         assert isinstance(result.raised, GainsightCsHostNotAllowedError)
         assert result.requests == []
+
+
+class TestCtaConfiguration:
+    def test_flattens_each_category_and_drops_repeats(self) -> None:
+        status = {"gsid": "s1", "name": "New", "picklistCategory": "CTA_STATUS"}
+        body = {
+            "result": True,
+            "data": {
+                "CTA_STATUS": [status, status],
+                "CTA_PRIORITY": [{"gsid": "p1", "name": "High"}],
+                "CTA_REASON": [{"name": "no id"}],
+            },
+        }
+
+        assert _picklist_rows(body) == [status, {"gsid": "p1", "name": "High", "picklistCategory": "CTA_PRIORITY"}]
+
+    def test_requests_every_category_for_companies(self) -> None:
+        driver = SourceDriver(GainsightCsSource(), GainsightCsSourceConfig(domain=DOMAIN, access_key="key"))
+        result = driver.run(
+            "cta_configuration",
+            [ScriptedResponse(json={"result": True, "data": {"CTA_TYPE": [{"gsid": "t1", "name": "Risk"}]}})],
+        )
+
+        assert result.raised is None
+        assert result.paths == ["/v2/cockpit/admin/picklist/lite"]
+        assert result.params("category") == ["CTA_TYPE,CTA_STATUS,CTA_PRIORITY,CTA_REASON"]
+        assert result.params("et") == ["COMPANY"]
+        assert result.rows == [{"gsid": "t1", "name": "Risk", "picklistCategory": "CTA_TYPE"}]
+
+
+class TestCtaTasks:
+    @staticmethod
+    def _driver() -> SourceDriver:
+        return SourceDriver(GainsightCsSource(), GainsightCsSourceConfig(domain=DOMAIN, access_key="key"))
+
+    @staticmethod
+    def _page(rows: list[dict[str, Any]]) -> ScriptedResponse:
+        return ScriptedResponse(json={"result": True, "data": rows})
+
+    def test_walks_every_cta_and_pages_through_its_tasks(self) -> None:
+        describe = ScriptedResponse(json=_describe_body([_field("Gsid")], "call_to_action"))
+        with mock.patch(PAGE_SIZE_PATCH, 3), mock.patch(f"{GAINSIGHT_MODULE}.TASK_PAGE_SIZE", 2):
+            result = self._driver().run(
+                "cta_task",
+                [
+                    describe,
+                    self._page([{"Gsid": "ctaA"}, {"Gsid": "../x"}, {"Gsid": "ctaB"}]),
+                    self._page([{"Gsid": "t1"}, {"Gsid": "t2"}]),
+                    self._page([{"Gsid": "t3"}]),
+                    self._page([]),
+                    self._page([{"Gsid": "ctaC"}]),
+                    self._page([{"Gsid": "t4"}]),
+                ],
+            )
+
+        assert result.raised is None
+        assert result.paths == [
+            "/v1/meta/services/objects/call_to_action/describe",
+            "/v1/data/objects/query/call_to_action",
+            "/v2/cockpit/task/list/ctaA",
+            "/v2/cockpit/task/list/ctaA",
+            "/v2/cockpit/task/list/ctaB",
+            "/v1/data/objects/query/call_to_action",
+            "/v2/cockpit/task/list/ctaC",
+        ]
+        assert result.requests[1].json() == {
+            "select": ["Gsid"],
+            "limit": 3,
+            "offset": 0,
+            "orderBy": {"Gsid": "asc"},
+        }
+        assert result.requests[5].json()["offset"] == 3
+        assert result.params("pn") == [None, None, "1", "2", "1", None, "1"]
+        assert result.rows == [
+            {"Gsid": "t1", "CtaId": "ctaA"},
+            {"Gsid": "t2", "CtaId": "ctaA"},
+            {"Gsid": "t3", "CtaId": "ctaA"},
+            {"Gsid": "t4", "CtaId": "ctaC"},
+        ]
+        assert result.saved_states == [
+            GainsightCsResumeConfig(offset=0, task_page=2),
+            GainsightCsResumeConfig(offset=1),
+            GainsightCsResumeConfig(offset=3),
+            GainsightCsResumeConfig(offset=4),
+        ]
+        assert result.final_state == GainsightCsResumeConfig(offset=4)
+        assert result.completed_state is None
+
+    def test_resumes_mid_way_through_a_ctas_tasks(self) -> None:
+        with mock.patch(f"{GAINSIGHT_MODULE}.TASK_PAGE_SIZE", 2):
+            result = self._driver().run(
+                "cta_task",
+                [
+                    ScriptedResponse(json=_describe_body([_field("Gsid")], "call_to_action")),
+                    self._page([{"Gsid": "ctaD"}, {"Gsid": "ctaE"}]),
+                    self._page([{"Gsid": "t9"}]),
+                    self._page([{"Gsid": "t10"}]),
+                ],
+                resume_state=GainsightCsResumeConfig(offset=7, task_page=3),
+            )
+
+        assert result.raised is None
+        assert result.requests[1].json()["offset"] == 7
+        assert result.params("pn") == [None, None, "3", "1"]
+        assert result.rows == [{"Gsid": "t9", "CtaId": "ctaD"}, {"Gsid": "t10", "CtaId": "ctaE"}]
+
+    def test_checkpoints_the_next_task_page_when_a_cta_exhausts_its_budget(self) -> None:
+        full_page = self._page([{"Gsid": "t1"}, {"Gsid": "t2"}])
+        with (
+            mock.patch(f"{GAINSIGHT_MODULE}.TASK_PAGE_SIZE", 2),
+            mock.patch(f"{GAINSIGHT_MODULE}.MAX_TASK_PAGES_PER_CTA", 2),
+        ):
+            result = self._driver().run(
+                "cta_task",
+                [
+                    ScriptedResponse(json=_describe_body([_field("Gsid")], "call_to_action")),
+                    self._page([{"Gsid": "ctaA"}]),
+                    full_page,
+                    full_page,
+                ],
+                resume_state=GainsightCsResumeConfig(offset=5, task_page=4),
+            )
+
+        assert isinstance(result.raised, GainsightCsPageBudgetExhaustedError)
+        assert result.params("pn") == [None, None, "4", "5"]
+        assert result.final_state == GainsightCsResumeConfig(offset=5, task_page=6)
 
 
 class TestCappedResponses:

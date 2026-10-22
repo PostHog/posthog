@@ -32,6 +32,7 @@ from posthog.permissions import (
     APIScopePermission,
     PostHogFeatureFlagPermission,
     TeamMemberAccessPermission,
+    get_authenticator_client,
 )
 from posthog.rate_limit import PersonalApiKeyOrUserRateThrottle
 
@@ -69,6 +70,7 @@ from products.ai_observability.backend.dataset_service import (
     archive_dataset_item,
     create_dataset,
     create_dataset_item,
+    max_datasets_for_team,
     restore_dataset,
     restore_dataset_item,
     update_dataset,
@@ -738,11 +740,17 @@ class DatasetViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, GenericV
         serializer = DatasetCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
+        max_datasets = max_datasets_for_team(
+            team=self.team,
+            user=cast(User, request.user),
+            caller_properties=get_authenticator_client(request.successful_authenticator),
+        )
         try:
             with transaction.atomic():
                 dataset = create_dataset(
                     team=self.team,
                     created_by=cast(User, request.user),
+                    max_datasets=max_datasets,
                     name=data["name"],
                     description=data["description"],
                     metadata=data["metadata"],

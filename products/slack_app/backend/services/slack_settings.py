@@ -41,26 +41,55 @@ def resolve_untagged_followup_mode(integration: Integration, slack_user_id: str 
     to `ASK`, so the replier chooses whether to send the message. An unknown
     value resolves to `NEVER`.
     """
+    return _resolve_untagged_mode(integration.integration_id, slack_user_id, "untagged_followup_mode")
 
+
+def resolve_untagged_question_mode(slack_workspace_id: str, slack_user_id: str | None) -> UntaggedFollowupMode:
+    """Resolve what PostHog does with this Slack user's top-level channel questions that do not tag it.
+
+    Read from the author's own row, so one person's choice never changes what happens
+    to anyone else's messages. An absent row or empty column resolves to `ASK`: PostHog
+    offers privately and answers only after the author confirms. An unknown value
+    resolves to `NEVER`.
+    """
+    return _resolve_untagged_mode(slack_workspace_id, slack_user_id, "untagged_question_mode")
+
+
+def _resolve_untagged_mode(slack_workspace_id: str, slack_user_id: str | None, column: str) -> UntaggedFollowupMode:
     if not slack_user_id:
         return UntaggedFollowupMode.NEVER
 
     from products.slack_app.backend.models import SlackSettings
 
     row = (
-        SlackSettings.objects.filter(
-            slack_workspace_id=integration.integration_id,
-            slack_user_id=slack_user_id,
-        )
-        .values("untagged_followup_mode")
+        SlackSettings.objects.filter(slack_workspace_id=slack_workspace_id, slack_user_id=slack_user_id)
+        .values(column)
         .first()
     )
-    stored = row["untagged_followup_mode"] if row else None
+    stored = row[column] if row else None
     if stored is None:
         return UntaggedFollowupMode.ASK
     if stored in UntaggedFollowupMode.values:
         return UntaggedFollowupMode(stored)
     return UntaggedFollowupMode.NEVER
+
+
+def set_untagged_followup_mode(slack_workspace_id: str, slack_user_id: str, mode: UntaggedFollowupMode) -> None:
+    _set_untagged_mode(slack_workspace_id, slack_user_id, "untagged_followup_mode", mode)
+
+
+def set_untagged_question_mode(slack_workspace_id: str, slack_user_id: str, mode: UntaggedFollowupMode) -> None:
+    _set_untagged_mode(slack_workspace_id, slack_user_id, "untagged_question_mode", mode)
+
+
+def _set_untagged_mode(slack_workspace_id: str, slack_user_id: str, column: str, mode: UntaggedFollowupMode) -> None:
+    from products.slack_app.backend.models import SlackSettings
+
+    SlackSettings.objects.update_or_create(
+        slack_workspace_id=slack_workspace_id,
+        slack_user_id=slack_user_id,
+        defaults={column: mode.value},
+    )
 
 
 def resolve_channel_welcome_mode(slack_workspace_id: str) -> ChannelWelcomeMode:
@@ -124,7 +153,10 @@ __all__ = [
     "AIPreferences",
     "resolve_auto_model_choice",
     "resolve_channel_welcome_mode",
+    "resolve_untagged_question_mode",
     "set_auto_model_choice",
+    "set_untagged_followup_mode",
+    "set_untagged_question_mode",
     "set_channel_welcome_mode",
     "resolve_untagged_followup_mode",
 ]
