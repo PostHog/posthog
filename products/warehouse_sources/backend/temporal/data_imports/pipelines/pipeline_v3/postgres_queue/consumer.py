@@ -1105,6 +1105,10 @@ class DeltaBatchConsumerAdapter:
         only promotes on a Completed job (``load/processor.py``). The job stays Failed here,
         so the cursor does not advance, the next run re-extracts the same window, and its
         primary key makes that merge idempotent. Loading is therefore strictly progress.
+
+        The exception is a job that worker restarts stopped: the next job continues its source
+        cursor and does not read those rows again, so this drain is the only way they land. That
+        job may not complete while one of these batches is unloaded (``continued_job_ids``).
         """
         if batch.sync_type != "incremental":
             return False
