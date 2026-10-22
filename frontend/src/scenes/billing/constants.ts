@@ -62,7 +62,7 @@ export const SPEND_TYPES = [
 
 export const USAGE_ONLY_TYPES = [
     { label: 'Logs ingested (MB)', value: 'logs_mb_in_period' },
-    { label: 'APM traces ingested (MB)', value: 'apm_tracing_mb_in_period' },
+    { label: 'Traces ingested (MB)', value: 'apm_tracing_mb_in_period' },
     { label: 'PostHog Desktop token spend (USD)', value: 'posthog_code_token_credits_used_in_period' },
     { label: 'Cloud compute spend (USD)', value: 'sandbox_compute_credits_used_in_period' },
     { label: 'Cloud compute CPU (core-seconds)', value: 'sandbox_compute_cpu_millicore_seconds_in_period' },

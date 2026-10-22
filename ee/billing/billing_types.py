@@ -83,7 +83,7 @@ USAGE_TYPE_OPTIONS: tuple[UsageTypeOption, ...] = (
     {"label": "Workflow destinations", "value": "workflow_billable_invocations_in_period"},
     {"label": "Logs and traces ingested (MB)", "value": "logs_and_traces_mb_in_period"},
     {"label": "Logs ingested (MB)", "value": "logs_mb_in_period"},
-    {"label": "APM traces ingested (MB)", "value": "apm_tracing_mb_in_period"},
+    {"label": "Traces ingested (MB)", "value": "apm_tracing_mb_in_period"},
     {"label": "Logs 30-day retention (MB)", "value": "logs_retention_30d_mb_in_period"},
     {"label": "Logs retention (MB-days)", "value": "logs_retention_mb_days_in_period"},
 )
