@@ -2,7 +2,7 @@ from datetime import timedelta
 from uuid import uuid4
 
 import time_machine
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import patch
 
 from django.utils import timezone
@@ -762,6 +762,7 @@ class TestSourceMapsExamplesAPI(_StackFrameFactory, ClickhouseTestMixin, APIBase
         )
         self._issue("Cannot read properties of undefined", "fp-type-error")
         self._exception("fp-type-error", "Cannot read properties of undefined", [frame])
+        flush_persons_and_events()
 
         response = self.client.get(
             f"/api/environments/{self.team.id}/error_tracking/recommendations/source_maps_examples/?platform=javascript"
@@ -769,6 +770,9 @@ class TestSourceMapsExamplesAPI(_StackFrameFactory, ClickhouseTestMixin, APIBase
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(
-            [(r["frames"], r["issues"], r["issue_count"], r["example_exception"]) for r in response.json()["results"]],
-            [(1, [], 0, None)],
+            [
+                (r["frames"], r["location"], r["symbol_id"], r["issues"], r["issue_count"], r["example_exception"])
+                for r in response.json()["results"]
+            ],
+            [(1, None, None, [], 0, None)],
         )

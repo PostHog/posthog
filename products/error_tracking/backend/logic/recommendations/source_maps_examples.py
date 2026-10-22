@@ -22,6 +22,10 @@ from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
 
+from products.access_control.backend.facade.api import (
+    get_restricted_properties_with_group_type_index_for_team,
+    split_restricted_property_names,
+)
 from products.error_tracking.backend.facade.contracts import (
     MissingSymbolsExample,
     MissingSymbolsExampleException,
@@ -118,9 +122,16 @@ def missing_symbols_examples(team_id: int, platform: SymbolsPlatform, user: User
     since = timezone.now() - timedelta(hours=LOOKBACK_HOURS)
     groups = _example_groups(team_id, platform, since)
     team = Team.objects.get(id=team_id)
+    # Frames come from `$exception_list`. A user who cannot read it sees no paths or build IDs, and the
+    # scans run as that user, so they would find no exceptions either.
+    frames_hidden = _exception_list_restricted(team_id, user)
 
     try:
-        scan = _exceptions_containing(team, user, [group.raw_ids for group in groups], since)
+        scan = (
+            _Scan(matches=[], stopped_early=False)
+            if frames_hidden
+            else _exceptions_containing(team, user, [group.raw_ids for group in groups], since)
+        )
         representatives = _representatives(scan.matches)
         payloads = _exception_lists(team, user, list(representatives.values()))
         exceptions_loaded = True
@@ -149,8 +160,8 @@ def missing_symbols_examples(team_id: int, platform: SymbolsPlatform, user: User
         results.append(
             MissingSymbolsExample(
                 reason=group.key.reason,
-                location=group.key.location,
-                symbol_id=group.key.symbol_id,
+                location=None if frames_hidden else group.key.location,
+                symbol_id=None if frames_hidden else group.key.symbol_id,
                 http_status=group.key.http_status,
                 frames=group.frames,
                 issues=example_issues.top,
@@ -162,6 +173,11 @@ def missing_symbols_examples(team_id: int, platform: SymbolsPlatform, user: User
     return MissingSymbolsExamples(
         platform=platform, lookback_hours=LOOKBACK_HOURS, exceptions_loaded=exceptions_loaded, results=results
     )
+
+
+def _exception_list_restricted(team_id: int, user: User) -> bool:
+    restrictions = get_restricted_properties_with_group_type_index_for_team(user=user, team_id=team_id)
+    return "$exception_list" in split_restricted_property_names(restrictions).event
 
 
 def _example_groups(team_id: int, platform: SymbolsPlatform, since: datetime) -> list[_ExampleGroup]:
