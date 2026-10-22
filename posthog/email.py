@@ -338,6 +338,17 @@ def _send_one_via_customer_io(dest: dict[str, str], template_name: str, properti
     return response.json()
 
 
+def _capture_email_event(dest: dict[str, str], event: str, properties: dict[str, Any]) -> None:
+    try:
+        posthoganalytics.capture(
+            distinct_id=dest.get("distinct_id") or dest["raw_email"],
+            event=event,
+            properties={"recipient_email": dest["raw_email"], **properties},
+        )
+    except Exception as analytics_err:
+        logger.warning("email_send_analytics_capture_failed", error=str(analytics_err))
+
+
 def _send_one(dest: dict[str, str], campaign_key: str, template_name: str, properties: dict) -> tuple[str, dict]:
     """Send one email and return the provider that sent it with the provider's response."""
     workflows_template_id = get_workflows_template_id(template_name, dest)
@@ -347,6 +358,11 @@ def _send_one(dest: dict[str, str], campaign_key: str, template_name: str, prope
         except WorkflowsSendRejected as err:
             logger.warning("email_workflows_send_rejected", template_name=template_name, error=str(err))
             EMAIL_WORKFLOWS_FALLBACK_COUNTER.labels(template_name=template_name).inc()
+            _capture_email_event(
+                dest,
+                "transactional email workflows rejected",
+                {"template_name": template_name, "campaign_key": campaign_key, "error": str(err)[:500]},
+            )
     return "customer_io", _send_one_via_customer_io(dest, template_name, properties)
 
 
@@ -364,6 +380,7 @@ def _send_via_http(
 
     sent_count = 0
     already_sent_count = 0  # delivered in a prior run — not a failure if the batch later aborts
+    dest: dict[str, str] | None = None
     try:
         for dest in to:
             with transaction.atomic():
@@ -384,26 +401,34 @@ def _send_via_http(
                 record.sent_at = timezone.now()
                 record.save()
 
-                try:
-                    posthoganalytics.capture(
-                        distinct_id=dest.get("distinct_id") or dest["raw_email"],
-                        event="transactional email triggered",
-                        properties={
-                            "template_name": template_name,
-                            "campaign_key": campaign_key,
-                            "recipient_email": dest["raw_email"],
-                            "provider": provider,
-                            **provider_response,
-                        },
-                    )
-                except Exception as analytics_err:
-                    logger.warning("email_send_analytics_capture_failed", error=str(analytics_err))
+                _capture_email_event(
+                    dest,
+                    "transactional email triggered",
+                    {
+                        "template_name": template_name,
+                        "campaign_key": campaign_key,
+                        "provider": provider,
+                        **provider_response,
+                    },
+                )
 
                 EMAIL_SEND_COUNTER.labels(outcome="sent", transport="http").inc()
                 sent_count += 1
 
     except Exception as err:
         capture_exception(err)  # already logs the traceback via logger.exception
+        # The exception carries no template name, so this event is what lets a dashboard count failures per template.
+        if dest:
+            _capture_email_event(
+                dest,
+                "transactional email failed",
+                {
+                    "template_name": template_name,
+                    "campaign_key": campaign_key,
+                    "error_type": type(err).__name__,
+                    "error": str(err)[:500],
+                },
+            )
         # Count every recipient that did not get through (the failing one + any not yet attempted),
         # so `failed` shares the per-recipient unit with `sent` instead of registering once per batch.
         EMAIL_SEND_COUNTER.labels(outcome="failed", transport="http").inc(len(to) - already_sent_count - sent_count)

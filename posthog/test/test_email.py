@@ -402,10 +402,24 @@ class TestEmail(BaseTest):
 
     @parameterized.expand(
         [
-            ("workflows_accepts", True, [202], ["workflows"], "workflows"),
-            ("workflows_rejects_falls_back", True, [400, 200], ["workflows", "customer_io"], "customer_io"),
-            ("workflows_in_flight_sends_nothing", True, [409], ["workflows"], None),
-            ("flag_off_uses_customer_io", False, [200], ["customer_io"], "customer_io"),
+            ("workflows_accepts", True, [202], ["workflows"], "workflows", ["transactional email triggered"]),
+            (
+                "workflows_rejects_falls_back",
+                True,
+                [400, 200],
+                ["workflows", "customer_io"],
+                "customer_io",
+                ["transactional email workflows rejected", "transactional email triggered"],
+            ),
+            ("workflows_in_flight_sends_nothing", True, [409], ["workflows"], None, ["transactional email failed"]),
+            (
+                "flag_off_uses_customer_io",
+                False,
+                [200],
+                ["customer_io"],
+                "customer_io",
+                ["transactional email triggered"],
+            ),
         ]
     )
     @patch("posthoganalytics.capture")
@@ -418,6 +432,7 @@ class TestEmail(BaseTest):
         status_codes: list[int],
         expected_providers: list[str],
         sent_by: str | None,
+        expected_events: list[str],
         mock_post: MagicMock,
         mock_feature_enabled: MagicMock,
         mock_capture: MagicMock,
@@ -479,10 +494,13 @@ class TestEmail(BaseTest):
                 {"email": "test@posthog.com", "id": "user-1", "first_name": "Test"},
             )
 
+        self.assertEqual([c.kwargs["event"] for c in mock_capture.call_args_list], expected_events)
+        self.assertTrue(
+            all(c.kwargs["properties"]["template_name"] == "2fa_enabled" for c in mock_capture.call_args_list)
+        )
         record = MessagingRecord.objects.filter(campaign_key="routing_campaign").first()
         if sent_by is None:
             self.assertTrue(record is None or record.sent_at is None)
-            mock_capture.assert_not_called()
         else:
             assert record is not None
             self.assertIsNotNone(record.sent_at)
