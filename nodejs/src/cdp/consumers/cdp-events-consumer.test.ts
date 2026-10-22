@@ -133,7 +133,6 @@ describe('CdpEventsConsumer', () => {
             })
         })
 
-        // handlePostgresError does not mark this transient replica error as retriable.
         const lookupError = new Error('canceling statement due to conflict with recovery')
 
         it.each([

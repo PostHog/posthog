@@ -28,7 +28,7 @@ import type {
 import { convertToHogFunctionInvocationGlobals } from '../utils'
 import { createInvocation } from '../utils/invocation-utils'
 import { CdpConsumerBase, CdpConsumerBaseConfig, CdpConsumerBaseDeps } from './cdp-base.consumer'
-import { counterParseError } from './metrics'
+import { assertTeamId, readMessage } from './message-parsing'
 
 export type LightweightPluginConfig = {
     id: number
@@ -72,6 +72,9 @@ export class CdpLegacyEventsConsumer extends CdpConsumerBase<CdpLegacyEventsCons
     protected kafkaConsumer: KafkaConsumerInterface
 
     private pluginConfigsLoader: LazyLoader<PluginConfigHogFunction[]>
+    // Execution reads the plugin configs that _parseKafkaBatch loaded. A second lookup could fail after this
+    // batch's webhooks start, and reading the batch again would then send those webhooks twice.
+    private pluginConfigsByGlobals = new WeakMap<HogFunctionInvocationGlobals, PluginConfigHogFunction[]>()
     private legacyPluginExecutor: LegacyPluginExecutorService
     private legacyWebhookService: LegacyWebhookService
 
@@ -382,25 +385,32 @@ export class CdpLegacyEventsConsumer extends CdpConsumerBase<CdpLegacyEventsCons
 
         await Promise.all(
             messages.map(async (message) => {
-                try {
-                    const clickHouseEvent = parseJSON(message.value!.toString()) as RawClickHouseEvent
+                const clickHouseEvent = readMessage('Error parsing message', () =>
+                    assertTeamId(parseJSON(message.value!.toString()) as RawClickHouseEvent)
+                )
+                if (!clickHouseEvent) {
+                    return
+                }
 
-                    const team = await this.deps.teamManager.getTeam(clickHouseEvent.team_id)
+                // Outside readMessage: a lookup error fails the batch, so the consumer reads the batch again.
+                const team = await this.deps.teamManager.getTeam(clickHouseEvent.team_id)
 
-                    if (!team) {
-                        return
-                    }
+                if (!team) {
+                    return
+                }
 
-                    const pluginConfigHogFunctions = await this.pluginConfigsLoader.get(team.id.toString())
+                const pluginConfigHogFunctions = await this.pluginConfigsLoader.get(team.id.toString())
 
-                    if (!pluginConfigHogFunctions?.length) {
-                        return
-                    }
+                if (!pluginConfigHogFunctions?.length) {
+                    return
+                }
 
-                    events.push(convertToHogFunctionInvocationGlobals(clickHouseEvent, team, this.config.SITE_URL))
-                } catch (e) {
-                    logger.error('Error parsing message', e)
-                    counterParseError.labels({ error: e.message }).inc()
+                const globals = readMessage('Error parsing message', () =>
+                    convertToHogFunctionInvocationGlobals(clickHouseEvent, team, this.config.SITE_URL)
+                )
+                if (globals) {
+                    this.pluginConfigsByGlobals.set(globals, pluginConfigHogFunctions)
+                    events.push(globals)
                 }
             })
         )
@@ -411,7 +421,9 @@ export class CdpLegacyEventsConsumer extends CdpConsumerBase<CdpLegacyEventsCons
     private async getLegacyPluginHogFunctionInvocations(
         invocation: HogFunctionInvocationGlobals
     ): Promise<{ invocation: CyclotronJobInvocationHogFunction; pluginConfigId: number | null }[]> {
-        const pluginConfigHogFunctions = await this.pluginConfigsLoader.get(invocation.project.id.toString())
+        const pluginConfigHogFunctions =
+            this.pluginConfigsByGlobals.get(invocation) ??
+            (await this.pluginConfigsLoader.get(invocation.project.id.toString()))
 
         if (!pluginConfigHogFunctions) {
             return []
@@ -451,10 +463,14 @@ export class CdpLegacyEventsConsumer extends CdpConsumerBase<CdpLegacyEventsCons
             })
 
             return await instrumentFn('cdpLegacyConsumer.handleEachBatch', async () => {
-                const [webhookBatch, pluginBatch] = await Promise.all([
-                    this.legacyWebhookService.processBatch(messages),
-                    this._parseKafkaBatch(messages).then((invocations) => this.processBatch(invocations)),
+                // Both parses finish before either side sends. A parse lookup error then fails the batch
+                // before it sends a webhook or a plugin call, so reading the batch again does not repeat one.
+                const [webhookEvents, invocations] = await Promise.all([
+                    this.legacyWebhookService.parseBatch(messages),
+                    this._parseKafkaBatch(messages),
                 ])
+                const webhookBatch = this.legacyWebhookService.processEvents(webhookEvents)
+                const pluginBatch = await this.processBatch(invocations)
                 return {
                     backgroundTask: Promise.all([webhookBatch.backgroundTask, pluginBatch.backgroundTask]).then(() =>
                         this.invocationResultsService.flush()
