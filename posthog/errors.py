@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Optional
 
-from clickhouse_driver.errors import NetworkError, ServerException, SocketTimeoutError
+from clickhouse_driver.errors import NetworkError, ServerException, SocketTimeoutError, UnknownTypeError
 
 from posthog.hogql.errors import ExposedHogQLError
 
@@ -125,8 +125,35 @@ def _wrap_bad_get_error(err: ServerException) -> "CHQueryErrorBadGet":
     return CHQueryErrorBadGet(message, code=err.code, code_name="bad_get")
 
 
+def _unreadable_type_advice(unreadable_type: str) -> str:
+    if unreadable_type.startswith("AggregateFunction("):
+        return (
+            "The column holds a stored aggregate state. "
+            "Wrap it in the matching -Merge function, for example `argMinMerge(column)`, to get the final value."
+        )
+    if unreadable_type.startswith("Variant("):
+        return (
+            "The column mixes value types. This usually comes from `UNION ALL` branches, `coalesce()` or "
+            "`ifNull()` arguments, or `if()` branches that return different types. "
+            "Make them return one type, for example with `toString()` or `toFloat()`."
+        )
+    return "Convert the column to a basic type such as a string, number, or date, or leave it out of the results."
+
+
+def _wrap_unknown_type_error(err: UnknownTypeError) -> "CHQueryErrorUnknownType":
+    unreadable_type = err.message.removeprefix("Unknown type ")
+    advice = _unreadable_type_advice(unreadable_type)
+    return CHQueryErrorUnknownType(
+        f"This query returns a column of type `{unreadable_type}`, which PostHog can't send back in results. {advice}",
+        code=err.code,
+        code_name="unknown_type",
+    )
+
+
 def wrap_clickhouse_query_error(err: Exception) -> Exception:
     "Beautifies clickhouse client errors, using custom error classes for every code"
+    if isinstance(err, UnknownTypeError):
+        return _wrap_unknown_type_error(err)
     if not isinstance(err, ServerException):
         return err
 
@@ -296,6 +323,10 @@ class CHQueryErrorIllegalTypeOfArgument(ExposedCHQueryError):
 
 
 class CHQueryErrorBadGet(ExposedCHQueryError):
+    pass
+
+
+class CHQueryErrorUnknownType(ExposedCHQueryError):
     pass
 
 

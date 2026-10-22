@@ -52,6 +52,7 @@ from posthog.schema_enums import DatabaseSerializedFieldType
 from posthog.settings import TEST
 from posthog.sync import database_sync_to_async
 
+from products.warehouse_sources.backend.file_uploads import HostedUpload, parse_hosted_upload
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.util import (
     CLICKHOUSE_HOGQL_MAPPING,
@@ -75,6 +76,8 @@ if TYPE_CHECKING:
     from posthog.schema import HogQLQueryModifiers
 
     from posthog.models import User
+
+    from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING: dict[DatabaseSerializedFieldType, str] = {
     DatabaseSerializedFieldType.INTEGER: "Int64",
@@ -270,6 +273,10 @@ _CHDB_SUBPROCESS_EXCLUDED_ENV_VARS = frozenset({"LD_PRELOAD", "MALLOC_CONF"})
 # credentials when a read carries none.
 _CHDB_SUBPROCESS_FORCED_ENV_VARS = {"AWS_EC2_METADATA_DISABLED": "true"}
 
+# The deployment sets the egress proxy in the uppercase variables, and chdb reads only the lowercase
+# ones. Without a lowercase copy, chdb connects directly and its reads skip the proxy's address checks.
+_CHDB_SUBPROCESS_PROXY_ENV_VARS = ("HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY")
+
 # A table's URL is customer input, and URL validation only sees the first host. The S3 client follows
 # redirects by default, so a URL that passes validation can send chdb to an internal address. The
 # ClickHouse cluster checks every hop against remote_url_allow_hosts. chdb has no such list, so it
@@ -290,6 +297,7 @@ def run_chdb_query(query: str, timeout: float = CHDB_QUERY_TIMEOUT_SECONDS) -> s
             timeout=timeout,
             env={
                 **{name: value for name, value in os.environ.items() if name not in _CHDB_SUBPROCESS_EXCLUDED_ENV_VARS},
+                **{name.lower(): os.environ[name] for name in _CHDB_SUBPROCESS_PROXY_ENV_VARS if name in os.environ},
                 **_CHDB_SUBPROCESS_FORCED_ENV_VARS,
             },
         )
@@ -552,6 +560,27 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
     @property
     def csv_allow_double_quotes(self) -> bool | None:
         return self.options.get("csv_allow_double_quotes")
+
+    @property
+    def hosted_upload(self) -> HostedUpload | None:
+        """The file this team uploaded that a credential-less table reads in place, if it reads one."""
+        if self.credential_id is not None:
+            return None
+        return parse_hosted_upload(self.team_id, self.url_pattern or "")
+
+    def adopt_into_source(self, source: "ExternalDataSource") -> list[str]:
+        """Make a self-managed table one that `source` syncs. Returns the fields this changed.
+
+        The caller saves these fields together with the new `url_pattern` and `format`: the
+        customer's key can't read PostHog's bucket, and PostHog's key can't read the customer's, so
+        a row that has only some of these changes can't be read at all. The row id and the name stay,
+        so joins, views and saved queries that refer to the table keep working.
+        """
+        self.external_data_source = source
+        self.credential = None
+        # A CSV setting for the customer's files. The table now reads Parquet files PostHog wrote.
+        self.options = {key: value for key, value in (self.options or {}).items() if key != "csv_allow_double_quotes"}
+        return ["external_data_source", "credential", "options"]
 
     def soft_delete(self):
         from products.data_tools.backend.models.join import DataWarehouseJoin
