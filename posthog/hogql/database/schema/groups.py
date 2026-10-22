@@ -58,7 +58,7 @@ GROUPS_TABLE_FIELDS: dict[str, FieldOrTable] = {
 
 def select_from_groups_table(
     requested_fields: dict[str, list[str | int]], keys: ast.SelectQuery | ast.SelectSetQuery | None = None
-):
+) -> ast.SelectQuery:
     """``keys`` selects ``(index, key)`` pairs. When it is given, the dedup reads only those groups."""
     select = argmax_select(
         table_name="raw_groups",

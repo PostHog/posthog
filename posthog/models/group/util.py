@@ -307,11 +307,15 @@ def list_groups(
             "limit": ast.Constant(value=limit + 1),
         },
     )
-    query = select_from_groups_table({"created_at": ["created_at"], "properties": ["properties"]}, keys=page_keys)
-    query.order_by = [
-        ast.OrderExpr(expr=ast.Field(chain=["created_at"]), order="DESC"),
-        ast.OrderExpr(expr=ast.Field(chain=["key"]), order="DESC"),
-    ]
+    query = parse_select(
+        "SELECT key, created_at, properties FROM {latest_groups} ORDER BY created_at DESC, key DESC LIMIT {limit}",
+        placeholders={
+            "latest_groups": select_from_groups_table(
+                {"created_at": ["created_at"], "properties": ["properties"]}, keys=page_keys
+            ),
+            "limit": ast.Constant(value=limit + 1),
+        },
+    )
 
     response = execute_hogql_query(query, team=team, query_type="groups_list")
 
@@ -332,6 +336,6 @@ def list_groups(
             ),
             created_at=created_at,
         )
-        for created_at, group_properties, _index, group_key in rows
+        for group_key, created_at, group_properties in rows
     ]
     return ListGroupsResult(groups=groups, has_more=has_more)

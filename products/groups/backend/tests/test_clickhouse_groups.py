@@ -2491,23 +2491,41 @@ class TestListGroupsFunction(ClickhouseTestMixin, APIBaseTest):
         with time_machine.travel("2021-05-03", tick=False):
             create_group(team_id=self.team.pk, group_type_index=0, group_key="org:3", properties={})
 
-        result = list_groups(team_id=self.team.pk, group_type_index=0, limit=2)
+        with self.capture_select_queries() as queries:
+            result = list_groups(team_id=self.team.pk, group_type_index=0, limit=2)
 
         assert len(result.groups) == 2
         assert result.groups[0].group_key == "org:3"
         assert result.groups[1].group_key == "org:2"
         assert result.has_more is True
+        # Results alone cannot show that the query reads properties only for the page's keys.
+        assert any("globalIn(tuple(" in query for query in queries)
 
-    @time_machine.travel("2021-05-04", tick=False)
+    @time_machine.travel("2021-05-03", tick=False)
+    def test_has_more_at_default_limit(self):
+        for i in range(101):
+            raw_create_group_ch(
+                team_id=self.team.pk, group_type_index=0, group_key=f"org:{i:03d}", properties={}, created_at=now()
+            )
+
+        result = list_groups(team_id=self.team.pk, group_type_index=0)
+
+        assert len(result.groups) == 100
+        assert result.has_more is True
+
+    @time_machine.travel("2021-05-06", tick=False)
     def test_pagination_cursor_returns_next_page(self):
-        with time_machine.travel("2021-05-01", tick=False):
-            create_group(team_id=self.team.pk, group_type_index=0, group_key="org:1", properties={})
-        with time_machine.travel("2021-05-02", tick=False):
-            create_group(team_id=self.team.pk, group_type_index=0, group_key="org:2", properties={})
-        with time_machine.travel("2021-05-03", tick=False):
-            create_group(team_id=self.team.pk, group_type_index=0, group_key="org:3", properties={})
+        for day in range(1, 6):
+            with time_machine.travel(f"2021-05-0{day}", tick=False):
+                create_group(
+                    team_id=self.team.pk,
+                    group_type_index=0,
+                    group_key=f"org:{day}",
+                    properties={"plan": "pro" if day % 2 else "free"},
+                )
 
         page1 = list_groups(team_id=self.team.pk, group_type_index=0, limit=2)
+        assert [g.group_key for g in page1.groups] == ["org:5", "org:4"]
         last = page1.groups[-1]
 
         page2 = list_groups(
@@ -2518,9 +2536,21 @@ class TestListGroupsFunction(ClickhouseTestMixin, APIBaseTest):
             limit=2,
         )
 
-        assert len(page2.groups) == 1
-        assert page2.groups[0].group_key == "org:1"
-        assert page2.has_more is False
+        assert [g.group_key for g in page2.groups] == ["org:3", "org:2"]
+        assert page2.has_more is True
+
+        first = page1.groups[0]
+        searched = list_groups(
+            team_id=self.team.pk,
+            group_type_index=0,
+            search="pro",
+            cursor_created_at_us=int(first.created_at.timestamp() * 1_000_000),
+            cursor_group_key=first.group_key,
+            limit=1,
+        )
+
+        assert [g.group_key for g in searched.groups] == ["org:3"]
+        assert searched.has_more is True
 
     @time_machine.travel("2021-05-04", tick=False)
     def test_pagination_cursor_breaks_created_at_ties_on_group_key(self):
