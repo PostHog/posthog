@@ -146,19 +146,27 @@ def build_tiles(panels: Sequence[TemplatePanel], catalog: MetricCatalog, *, refi
     )
 
 
-def attribute_variable(*, name: str, label: str, attribute: str, multi: bool = False) -> dict[str, Any]:
+def _sql_string(value: str) -> str:
+    return "'" + value.replace("\\", "\\\\").replace("'", "\\'") + "'"
+
+
+def attribute_variable(
+    *, name: str, label: str, attribute: str, multi: bool = False, metric_names: Iterable[str] = ()
+) -> dict[str, Any]:
     """A dashboard variable whose options are the values of one attribute in the team that opens the dashboard.
 
-    It selects All, so its filters match everything until the user picks a value.
+    With `metric_names`, the options are only the values of those metrics, so the variable does not list the values
+    of other systems in the team. It selects All, so its filters match everything until the user picks a value.
     """
+    names = sorted(set(metric_names))
+    metric_filter = f" AND metric_name IN ({', '.join(map(_sql_string, names))})" if names else ""
     if attribute in SERVICE_ATTRIBUTES:
         # The name table has far fewer rows than the attribute table, and holds every service too.
-        query = f"SELECT DISTINCT service_name FROM posthog.metric_names WHERE {OPTIONS_RANGE}"
+        query = f"SELECT DISTINCT service_name FROM posthog.metric_names WHERE {OPTIONS_RANGE}{metric_filter}"
     else:
-        key = attribute.replace("\\", "\\\\").replace("'", "\\'")
         query = (
             "SELECT DISTINCT attribute_value FROM posthog.metric_attributes "
-            f"WHERE attribute_key = '{key}' AND {OPTIONS_RANGE}"
+            f"WHERE attribute_key = {_sql_string(attribute)} AND {OPTIONS_RANGE}{metric_filter}"
         )
     return MetricsDashboardVariable(
         name=name,
