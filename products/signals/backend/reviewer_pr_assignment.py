@@ -12,8 +12,8 @@ nobody picks up, and a wrong owner costs one reassignment.
 Without the flag the older rule stands: every suggested reviewer who opted in through
 `SignalUserAutonomyConfig.github_assign_on_pull_request` is added, and there is no DRI.
 
-Suggested reviewers with a connected GitHub account receive review requests. The pull request
-author, assignees, and existing requested reviewers are left alone.
+Assignees and suggested reviewers with a connected GitHub account receive review requests. The
+pull request author and existing requested reviewers are left alone.
 
 Best effort throughout: a GitHub failure must never break the claim, sync, or reviewer edit that
 triggered it.
@@ -334,12 +334,9 @@ def _request_reviews(
     pr: dict[str, Any],
     reviewers: list[str],
 ) -> list[str]:
-    existing = {
-        str(login).lower()
-        for login in [pr.get("author"), *(pr.get("assignees") or []), *(pr.get("requested_reviewers") or [])]
-        if login
-    }
-    wanted = [login for login in reviewers if login.lower() not in existing]
+    existing = {str(login).lower() for login in [pr.get("author"), *(pr.get("requested_reviewers") or [])] if login}
+    candidates = [str(login).lower() for login in [*(pr.get("assignees") or []), *reviewers] if login]
+    wanted = [login for login in dict.fromkeys(candidates) if login not in existing]
     if not wanted:
         return []
 
