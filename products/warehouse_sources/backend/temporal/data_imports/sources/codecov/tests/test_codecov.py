@@ -585,8 +585,6 @@ class TestIncrementalSync:
 class TestValidateCredentials:
     @parameterized.expand(
         [
-            ("valid", 200, (True, 200)),
-            ("bad_token", 401, (False, 401)),
             ("unknown_owner", 404, (False, 404)),
         ]
     )

@@ -64,12 +64,14 @@ from posthog.hogql_queries.query_runner import (
     QueryResponse,
     QueryRunner,
     get_query_runner_or_none,
+    unwrapped_source,
 )
 from posthog.models import Team, User
 from posthog.schema_migrations.upgrade import upgrade
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl, UserAccessControlError
 from products.data_tools.backend.models.join import DataWarehouseJoin
+from products.managed_warehouse.backend.facade.query_execution import get_managed_trino_schema
 
 from common.hogvm.python.debugger import color_bytecode
 
@@ -466,6 +468,14 @@ def process_query_dict(
 def process_database_schema_query(
     team: Team, query: DatabaseSchemaQuery, *, user: Optional[User] = None
 ) -> DatabaseSchemaQueryResponse:
+    if query.executionTarget == "managed_trino":
+        try:
+            return get_managed_trino_schema(query, team=team, user=user)
+        except (APIException, ExposedHogQLError, UserAccessControlError):
+            raise
+        except Exception as error:
+            capture_exception(error, {"team_id": team.pk, "query_kind": "DatabaseSchemaQuery"})
+            raise DatabaseSchemaUnavailable() from error
     return _build_database_schema_query(team, query, user=user).response
 
 
@@ -683,7 +693,7 @@ def process_query_model(
     if hasattr(query, "source") and isinstance(query.source, BaseModel):
         return process_query_model(
             team,
-            query.source,
+            unwrapped_source(query, query.source),
             dashboard_filters=dashboard_filters,
             variables_override=variables_override,
             limit_context=limit_context,

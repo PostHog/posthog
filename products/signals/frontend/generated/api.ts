@@ -468,7 +468,7 @@ export const getSignalsReportsActionsListUrl = (projectId: string, id: string) =
 }
 
 /**
- * List the actions on this report that start an agent run, read from the report's current state. `get_it_merged` is available only while the report has an open, approved pull request. `suggested_prompt` has one entry per prompt the report suggests. Start one with the run endpoint.
+ * List the actions on this report that start an agent run, read from the report's current state. `get_it_merged` is available only while the report has an open, approved pull request. `make_it_green` is available only while CI fails on the report's open pull request. `suggested_prompt` has one entry per prompt the report suggests. Start one with the run endpoint.
  * @summary List the report actions that start an agent run
  */
 export const signalsReportsActionsList = async (
@@ -928,10 +928,7 @@ export const getSignalsReportsReviewersUpdateUrl = (projectId: string, id: strin
 }
 
 /**
- * Set a report's suggested reviewers (full-replacement PUT), whether or not the report already
- * has any. Appends a new latest-wins `suggested_reviewers` status row — the same write the artefact
- * PUT performs, but addressed by report so a report with zero reviewers (and thus no artefact yet)
- * can still be assigned one. App-only: agents append reviewers via the artefacts POST instead.
+ * Apply a human reviewer edit, including on reports without a reviewer artefact.
  * @summary Set a report's suggested reviewers
  */
 export const signalsReportsReviewersUpdate = async (
@@ -1157,7 +1154,7 @@ export const getSignalsReportArtefactsDestroyUrl = (projectId: string, reportId:
 }
 
 /**
- * Delete an artefact, addressed by id. Deleting the latest row of a status type reverts the report's canonical status to the previous version (latest-wins over what remains). `task_run` artefacts are an append-only work log and cannot be deleted. Neither can the types this API cannot write, which the pipeline owns: `autostart_skip`, `check_cancelled`, `check_expired`, `check_result`, `check_scheduled`, `code_review`, `impact_measurement_plan`, `implementation_decision`, `implementation_dispatch`, `implementation_handover`, `implementation_replacement`, `pull_request`, `ranking_score`, `report_link`, `summary_change`, `task_run`, `title_change`, `video_segment`, `work_claim`, `work_release`.
+ * Delete an artefact, addressed by id. Deleting the latest row of a status type reverts the report's canonical status to the previous version (latest-wins over what remains). `task_run` artefacts are an append-only work log and cannot be deleted. Neither can the types this API cannot write, which the pipeline owns: `autostart_skip`, `check_cancelled`, `check_expired`, `check_observation`, `check_result`, `check_scheduled`, `code_review`, `impact_measurement_plan`, `implementation_decision`, `implementation_dispatch`, `implementation_handover`, `implementation_replacement`, `pull_request`, `ranking_score`, `report_link`, `reviewer_corrections`, `summary_change`, `task_run`, `title_change`, `video_segment`, `work_claim`, `work_release`.
  * @summary Delete an artefact
  */
 export const signalsReportArtefactsDestroy = async (

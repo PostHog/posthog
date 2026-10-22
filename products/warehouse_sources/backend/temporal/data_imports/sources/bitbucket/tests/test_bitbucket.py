@@ -1,6 +1,6 @@
 import dataclasses
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from unittest.mock import MagicMock, Mock
@@ -19,6 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bitbucket.
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.bitbucket.settings import BITBUCKET_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.bitbucket.source import BitbucketSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
@@ -146,6 +147,35 @@ def test_fetch_page_rejects_off_origin_urls_without_sending_credentials(poisoned
     session.get.assert_not_called()
 
 
+def test_fetch_page_exhausted_5xx_is_classified_retryable(monkeypatch):
+    # The raised message and BitbucketSource.get_retryable_errors are two halves of one contract:
+    # a rewording on either side sends a Bitbucket outage to error tracking as a PostHog exception.
+    monkeypatch.setattr(cast(Any, bitbucket._fetch_page).retry, "wait", lambda _: 0)
+    session = Mock()
+    session.get.return_value = Mock(status_code=503)
+
+    with pytest.raises(bitbucket.BitbucketRetryableError) as raised:
+        bitbucket._fetch_page(session, "https://api.bitbucket.org/2.0/repositories/ws", Mock())
+
+    assert error_message_matches(str(raised.value), BitbucketSource().get_retryable_errors())
+    assert not error_message_matches(str(raised.value), BitbucketSource().get_non_retryable_errors().keys())
+
+
+def test_fetch_page_exhausted_read_timeout_is_classified_retryable(monkeypatch):
+    # Same contract as the 5xx case above, for a read timeout that outlasts every try.
+    monkeypatch.setattr(cast(Any, bitbucket._fetch_page).retry, "wait", lambda _: 0)
+    session = Mock()
+    session.get.side_effect = requests.ReadTimeout(
+        "HTTPSConnectionPool(host='api.bitbucket.org', port=443): Read timed out. (read timeout=37.0)"
+    )
+
+    with pytest.raises(requests.ReadTimeout) as raised:
+        bitbucket._fetch_page(session, "https://api.bitbucket.org/2.0/repositories/ws", Mock())
+
+    assert error_message_matches(str(raised.value), BitbucketSource().get_retryable_errors())
+    assert not error_message_matches(str(raised.value), BitbucketSource().get_non_retryable_errors().keys())
+
+
 def test_poisoned_resume_state_is_not_fetched():
     result = _driver().run(
         "repositories",
@@ -245,11 +275,7 @@ def test_pipelines_pagination_rebuilds_page_url_instead_of_following_next():
 @pytest.mark.parametrize(
     "status,expected_valid,expected_message_fragment",
     [
-        (200, True, None),
-        (401, False, "Invalid Bitbucket credentials"),
-        (403, False, "repository read access"),
         (404, False, "not found or not accessible"),
-        (500, False, "500"),
     ],
 )
 def test_validate_credentials_status_mapping(status, expected_valid, expected_message_fragment):

@@ -22,11 +22,7 @@ from posthoganalytics import Posthog
 
 from posthog.ph_client import get_client
 
-from products.tasks.backend.constants import (
-    MCP_EXEC_SKILLS_FEATURE_FLAG,
-    WORKFLOW_DISPATCH_ASYNC_FEATURE_FLAG,
-    WORKFLOW_DISPATCH_RESTART_FEATURE_FLAG,
-)
+from products.tasks.backend.constants import MCP_EXEC_SKILLS_FEATURE_FLAG
 from products.tasks.backend.temporal.process_task.utils import get_reasoning_effort_error
 
 from ..engines.base import EvalEngine
@@ -46,7 +42,7 @@ from .env_preflight import validate_eval_env
 from .kernel_sandboxes import reclaim_kernels
 from .live_server import EvalLiveServer
 from .offline_delivery import OfflineEvalDelivery
-from .ports import DJANGO_LIVE_PORT
+from .ports import AI_GATEWAY_REDIS_URL, DJANGO_LIVE_PORT
 from .providers import PreflightError, SandboxProviderStrategy, build_provider
 from .reporting import ProgressReporter, SuiteRunResult
 from .requirements import Infra, infra_union
@@ -54,11 +50,15 @@ from .requirements import Infra, infra_union
 if TYPE_CHECKING:
     from .dashboard import EvalDashboard
 from .services import (
+    EVAL_AI_PRODUCT,
     LONG_LIVED_SUBPROCESSES,
     build_local_skills,
+    ensure_ai_gateway_binary,
     ensure_personhog_binaries,
+    maintain_ai_gateway_mint_key,
     package_local_skills_archive,
-    start_llm_gateway,
+    provision_ai_gateway_mint_key,
+    start_ai_gateway,
     start_mcp_server,
     start_personhog,
     start_skill_archive_server,
@@ -74,17 +74,6 @@ from .temporal_env import (
 
 logger = logging.getLogger(__name__)
 
-# Exceptions to the blanket "every flag is on" stub the run installs below. These two hand a
-# task run to `run_task_workflow_dispatcher` instead of starting its Temporal workflow inline,
-# and the harness never starts that command — so a forced-on flag leaves every case parked in
-# QUEUED, with nothing to fail it, until the case's poll budget runs out.
-FORCED_OFF_FEATURE_FLAGS = frozenset(
-    {
-        WORKFLOW_DISPATCH_ASYNC_FEATURE_FLAG,
-        WORKFLOW_DISPATCH_RESTART_FEATURE_FLAG,
-    }
-)
-
 
 def eval_feature_enabled(
     key: str, *_args: object, skill_delivery: SkillDelivery = DEFAULT_SKILL_DELIVERY, **_kwargs: object
@@ -92,7 +81,7 @@ def eval_feature_enabled(
     """Stands in for `posthoganalytics.feature_enabled` so evals exercise flagged code paths."""
     if key == MCP_EXEC_SKILLS_FEATURE_FLAG:
         return skill_delivery == "exec"
-    return key not in FORCED_OFF_FEATURE_FLAGS
+    return True
 
 
 def _git(*args: str) -> str | None:
@@ -136,6 +125,7 @@ class SandboxedEvalHarness:
         self._posthog_client: Posthog | None = None
         self._demo_data: SandboxedDemoData | None = None
         self._offline_delivery: OfflineEvalDelivery | None = None
+        self._ai_gateway_mint_key: str | None = None
         # Capture the revision before any eval starts so every result describes the same run.
         self._git_sha = _git("rev-parse", "HEAD")
         self._git_dirty = _worktree_dirty()
@@ -175,7 +165,14 @@ class SandboxedEvalHarness:
             flags = ", ".join(self.options.sandbox_flags_set)
             raise PreflightError(f"{flags}: no selected suite is sandboxed, so sandbox flags have no effect")
 
-        reporter = ProgressReporter(total_suites=len(suites), verbose=self.options.verbose, dashboard=self._dashboard)
+        reporter = ProgressReporter(
+            total_suites=len(suites),
+            verbose=self.options.verbose,
+            dashboard=self._dashboard,
+            revision=self._git_sha,
+            worktree_dirty=self._git_dirty,
+        )
+        reporter.write_run_report(self.options, suites, exit_code=1, duration_seconds=0)
         reporter.print_run_header(
             provider=self.options.provider,
             agent_runtime=self.options.agent_runtime,
@@ -192,7 +189,11 @@ class SandboxedEvalHarness:
         with asyncio.Runner() as runner:
             try:
                 reporter.setup_started("check configuration")
-                validate_eval_env(self.options.agent_runtime, kinds=kinds, engine_env=self._engine.required_env())
+                validate_eval_env(
+                    self.options.agent_runtime,
+                    kinds=kinds,
+                    engine_env=self._engine.required_env(no_send_logs=all(suite.no_send_logs for suite in suites)),
+                )
                 if Infra.SANDBOX in required:
                     self.provider = build_provider(
                         self.options.provider,
@@ -201,9 +202,17 @@ class SandboxedEvalHarness:
                     )
                     self._validate_agent_options()
                     self.provider.preflight()
+                if self.options.check_only:
+                    reporter.write_run_report(
+                        self.options, suites, exit_code=0, duration_seconds=time.monotonic() - started
+                    )
+                    return 0
                 if Infra.PERSONHOG in required:
                     reporter.setup_started("build personhog")
                     ensure_personhog_binaries()
+                if Infra.AI_GATEWAY in required:
+                    reporter.setup_started("build ai-gateway")
+                    ensure_ai_gateway_binary()
                 reporter.setup_started("start shared services and prepare demo data")
                 self._bootstrap(required, reporter)
                 if self._dashboard:
@@ -235,15 +244,25 @@ class SandboxedEvalHarness:
                     except KeyboardInterrupt:
                         interrupted = True
                         runner.run(self._offline_delivery.cancel())
+                    finally:
+                        if not self.options.check_only:
+                            reporter.write_run_report(
+                                self.options,
+                                suites,
+                                exit_code=130 if interrupted else 1,
+                                duration_seconds=time.monotonic() - started,
+                            )
 
         duration_seconds = time.monotonic() - started
         if interrupted:
             reporter.print_incomplete_summary(status="INTERRUPTED", duration_seconds=duration_seconds)
+            reporter.write_run_report(self.options, suites, exit_code=130, duration_seconds=duration_seconds)
             return 130
         if results is None:
             raise RuntimeError("Sandboxed eval run finished without suite results")
 
         exit_code = self._exit_code(results, reporter)
+        reporter.write_run_report(self.options, suites, exit_code=exit_code, duration_seconds=duration_seconds)
         reporter.print_final_summary(
             results,
             exit_code=exit_code,
@@ -277,6 +296,7 @@ class SandboxedEvalHarness:
     def _bootstrap(self, required: frozenset[Infra], reporter: ProgressReporter) -> None:
         """Stand up everything the selected suites share. Teardown is registered in
         reverse on the stack, so what wasn't started is never torn down."""
+        self._stack.enter_context(override_settings(AI_GATEWAY_REDIS_URL=None))
         LONG_LIVED_SUBPROCESSES.startup_retries = self.options.infrastructure_retries
         # Belt and braces for the SIGINT / SIGTERM paths, where the ExitStack never unwinds.
         atexit.register(stop_all_subprocesses)
@@ -304,10 +324,27 @@ class SandboxedEvalHarness:
             self._stack.callback(live_server.stop)
             self._live_server = live_server
 
-        if Infra.LLM_GATEWAY in required:
-            reporter.setup_started("start LLM gateway")
-            assert self._live_server is not None
-            self._stack.callback(start_llm_gateway(self._live_server.url))
+        if Infra.AI_GATEWAY in required:
+            reporter.setup_started("start AI gateway")
+            self._stack.callback(start_ai_gateway())
+            self._stack.enter_context(override_settings(AI_GATEWAY_REDIS_URL=AI_GATEWAY_REDIS_URL))
+        # Seed before building skills: HogQL examples in skill templates render against a Team,
+        # and on a fresh test database the master team is the first one that exists.
+        if Infra.DEMO_DATA in required:
+            reporter.setup_started("prepare demo data")
+            assert self._database is not None
+            self._demo_data = ensure_demo_ready(
+                blocker=self._database.blocker,
+                agent_model=self.options.agent_model,
+                agent_runtime=self.options.agent_runtime,
+                reasoning_effort=self.options.reasoning_effort,
+                sandbox_timeout_seconds=(
+                    self.provider.sandbox_timeout_seconds(self.options.per_case_timeout_seconds)
+                    if self.provider is not None
+                    else None
+                ),
+            )
+
         if Infra.MCP_SERVER in required:
             reporter.setup_started("build skills and start MCP server")
             assert self._live_server is not None
@@ -341,25 +378,22 @@ class SandboxedEvalHarness:
         if self._posthog_client is not None:
             self._stack.callback(self._posthog_client.shutdown)
 
-        if Infra.DEMO_DATA in required:
-            reporter.setup_started("prepare demo data")
-            assert self._database is not None
-            self._demo_data = ensure_demo_ready(
-                blocker=self._database.blocker,
-                agent_model=self.options.agent_model,
-                agent_runtime=self.options.agent_runtime,
-                reasoning_effort=self.options.reasoning_effort,
-                sandbox_timeout_seconds=(
-                    self.provider.sandbox_timeout_seconds(self.options.per_case_timeout_seconds)
-                    if self.provider is not None
-                    else None
-                ),
-            )
+        if Infra.AI_GATEWAY in required:
+            assert self._demo_data is not None and self._database is not None
+            with self._database.blocker.unblock():
+                self._ai_gateway_mint_key = provision_ai_gateway_mint_key(
+                    self._demo_data.master_team_id, agent_model=self.options.agent_model
+                )
 
     async def _run_suites(
         self, suites: Sequence[EvalSuite], required: frozenset[Infra], reporter: ProgressReporter
     ) -> list[SuiteRunResult]:
         async with AsyncExitStack() as stack:
+            if Infra.AI_GATEWAY in required:
+                assert self._demo_data is not None and self._ai_gateway_mint_key is not None
+                await stack.enter_async_context(
+                    maintain_ai_gateway_mint_key(self._demo_data.master_team_id, self._ai_gateway_mint_key)
+                )
             overrides: dict[str, object] = {}
             if Infra.LIVE_SERVER in required:
                 overrides.update(
@@ -387,6 +421,13 @@ class SandboxedEvalHarness:
                     # the same per-process queue lets the single eval worker serve both, and keeps
                     # those workflows off a dev worker the same way.
                     GENERAL_PURPOSE_TASK_QUEUE=temporal_task_queue(),
+                    # The harness never starts run_task_workflow_dispatcher, so an outbox dispatch would
+                    # leave every case parked in QUEUED until the case's poll budget runs out.
+                    TASKS_WORKFLOW_DISPATCH_OUTBOX_ENABLED=False,
+                    # Only the eval product routes to the Go gateway. The worker mints each
+                    # run a capped scoped token with this key, as it does in production.
+                    SANDBOX_AI_GATEWAY_PRODUCTS=EVAL_AI_PRODUCT,
+                    SANDBOX_AI_GATEWAY_MINT_KEY=self._ai_gateway_mint_key,
                     **self.provider.settings_overrides(),
                 )
 
