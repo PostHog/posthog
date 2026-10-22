@@ -34,6 +34,7 @@ export interface metricsUsageTrackingLogicValues {
     dashboardImportStep: DashboardImportStep // metricsDashboardImportLogic
     isRestoringFromUrl: boolean // metricsSceneLogic
     aggregation: MetricAggregation | null // metricsViewerLogic
+    dateFrom: string | null // metricsViewerLogic
     displayType: MetricsDisplayType // metricsViewerLogic
     formula: string // metricsViewerLogic
     groupByKeys: string[] // metricsViewerLogic
@@ -216,6 +217,7 @@ export const metricsUsageTrackingLogic = kea<metricsUsageTrackingLogicType>([
             [
                 'hasMetricName',
                 'aggregation',
+                'dateFrom',
                 'rangeFunction',
                 'groupByKeys',
                 'queryFilters',
@@ -346,6 +348,10 @@ export const metricsUsageTrackingLogic = kea<metricsUsageTrackingLogicType>([
                 range_function: values.rangeFunction,
                 has_group_by: values.groupByKeys.length > 0,
                 has_filters: values.queryFilters.length > 0,
+                // The range and the clause shape let this event compare with `query completed` for MetricsQuery.
+                date_from: values.dateFrom,
+                clause_count: values.viewerClauses.length,
+                has_formula: values.formula.trim() !== '',
             })
             // Once per mount, not per query — live refresh re-runs the query every 15s,
             // and each intent call is an API request (the backend counts repeats itself).

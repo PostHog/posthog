@@ -244,6 +244,9 @@ describe('metricsUsageTrackingLogic', () => {
                     range_function: null,
                     has_group_by: false,
                     has_filters: false,
+                    date_from: '-1h',
+                    clause_count: 1,
+                    has_formula: false,
                 },
             ],
         ])
