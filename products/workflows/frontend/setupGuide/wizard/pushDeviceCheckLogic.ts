@@ -118,7 +118,9 @@ export const pushDeviceCheckLogic = kea<pushDeviceCheckLogicType>([
                     const prefixes = values.appIds.map((appId: string) => `${DEVICE_SUBSCRIPTION_PREFIX}${appId}`)
                     const response = await api.queryHogQL<[number][]>(
                         hogql`SELECT count() FROM persons WHERE arrayExists(key -> arrayExists(prefix -> startsWith(key, prefix), ${prefixes}), JSONExtractKeys(properties))`,
-                        { productKey: 'workflows', scene: 'Workflows', name: 'push_setup_registered_devices' }
+                        { productKey: 'workflows', scene: 'Workflows', name: 'push_setup_registered_devices' },
+                        // The default refresh mode serves a cached count for hours, so a new device would never show.
+                        { refresh: 'force_blocking' }
                     )
                     return response.results?.[0]?.[0] ?? 0
                 },
