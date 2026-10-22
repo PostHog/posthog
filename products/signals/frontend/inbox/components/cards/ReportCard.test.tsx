@@ -223,6 +223,24 @@ describe('ReportCard', () => {
         expect(logic.values.selectedReportIds).toEqual([])
     })
 
+    it.each([
+        ['hides', 'a report without a pull request', null, false],
+        ['shows', 'a report with a pull request', 'https://github.com/example/repo/pull/123', true],
+    ])('%s a conventional commit tag for %s', (_verb, _name, implementationPrUrl, showsTag) => {
+        cleanup()
+        render(
+            <ReportCard
+                report={makeReport('r-2', {
+                    title: 'note(example): Example report title',
+                    implementation_pr_url: implementationPrUrl,
+                })}
+            />
+        )
+
+        expect(screen.getByText('Example report title')).toBeInTheDocument()
+        expect(screen.queryByText('note(example)') !== null).toBe(showsTag)
+    })
+
     test.each([
         [
             "a person's reason",

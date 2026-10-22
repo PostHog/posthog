@@ -1,4 +1,14 @@
-import { parsePrUrlParts } from './reportPresentation'
+import { deriveHeadline, parsePrUrlParts } from './reportPresentation'
+
+describe('deriveHeadline', () => {
+    it('shows a markdown link label without its syntax or URL', () => {
+        expect(
+            deriveHeadline(
+                'Account: [Example workspace](https://example.com/accounts/example) | 12 active users need review. More detail follows.'
+            )
+        ).toBe('Account: Example workspace | 12 active users need review.')
+    })
+})
 
 describe('parsePrUrlParts', () => {
     it('parses a canonical GitHub PR URL', () => {

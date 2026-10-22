@@ -200,25 +200,23 @@ function ReportCardRaw({
     )
     const cardBody = (
         <>
-            {report.priority && (
-                <div className="shrink-0">
-                    <SignalReportPriorityBadge priority={report.priority} />
-                </div>
-            )}
+            <div className="w-6 shrink-0">
+                {report.priority && <SignalReportPriorityBadge priority={report.priority} />}
+            </div>
 
-            <div className={clsx('flex flex-col gap-2 min-w-0 flex-1', showImpactColumn && 'self-stretch')}>
+            <div className={clsx('flex flex-col gap-1.5 min-w-0 flex-1', showImpactColumn && 'self-stretch')}>
                 {/* Keep the title clear of the PR badge. With the impact column shown the badge sits
                     over that column from `@lg` up, so only the stacked width needs the reserved space. */}
                 <div
                     className={clsx(
-                        'min-w-0 break-words font-semibold text-sm leading-snug text-balance',
+                        'min-w-0 break-words font-semibold text-[15px] leading-snug text-balance',
                         // A CI glyph widens the pill, so the title gives back the space it takes.
                         // A state that draws no glyph keeps the pill at its plain width.
                         hasPr && (glyphStatus ? 'pr-24' : 'pr-14'),
                         hasPr && showImpactColumn && '@lg:pr-0'
                     )}
                 >
-                    {conventionalTitle && (
+                    {hasPr && conventionalTitle && (
                         <ConventionalCommitScopeTag type={conventionalTitle.type} scope={conventionalTitle.scope} />
                     )}
                     {cardTitle}
@@ -229,7 +227,7 @@ function ReportCardRaw({
                         className={clsx(
                             'min-w-0',
                             !hasPr && !isReady && 'opacity-80',
-                            'break-words line-clamp-2 text-xs text-secondary leading-snug m-0'
+                            'break-words line-clamp-2 text-sm text-secondary leading-snug m-0'
                         )}
                     >
                         {headline}
@@ -239,7 +237,7 @@ function ReportCardRaw({
                         className={clsx(
                             'min-w-0',
                             !isReady && 'opacity-80',
-                            'break-words line-clamp-2 text-xs text-tertiary italic leading-snug m-0'
+                            'break-words line-clamp-2 text-sm text-tertiary italic leading-snug m-0'
                         )}
                     >
                         No summary yet. Still collecting context.
@@ -288,7 +286,7 @@ function ReportCardRaw({
             {/* Reserved even with no figure to show: the fixed width keeps every row's figure and
                 timestamp on the same two vertical lines down the list. */}
             {showImpactColumn ? (
-                <div className="flex w-full items-center gap-3 @lg:relative @lg:w-auto @lg:min-h-23 @lg:min-w-39 @lg:flex-none @lg:justify-end">
+                <div className="flex w-full items-center gap-3 @lg:relative @lg:w-auto @lg:min-w-39 @lg:flex-none @lg:self-stretch @lg:justify-end">
                     <ReportCardImpactMetric metrics={report.metrics} />
                     <TZLabel
                         time={cardTime}
