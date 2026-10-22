@@ -2931,8 +2931,8 @@ class TestAssociatedTaskRunsForReports(APIBaseTest):
 
 
 class TestSignalReportSuppressionAPI(APIBaseTest):
-    @parameterized.expand([(False,), (True,)])
-    def test_manual_monitoring_preserves_period_and_records_completion(self, bulk: bool) -> None:
+    @parameterized.expand([(False, None), (True, None), (False, "verified_manually"), (True, "verified_manually")])
+    def test_manual_monitoring_preserves_period_and_records_completion(self, bulk: bool, reason: str | None) -> None:
         report = self._create_report()
         with patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=True):
             report.save(
@@ -2948,7 +2948,11 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
             url = (
                 f"/api/projects/{self.team.id}/signals/reports/bulk-state/" if bulk else self._state_url(str(report.id))
             )
-            body = {"state": "resolved", **({"ids": [str(report.id)]} if bulk else {})}
+            body = {
+                "state": "resolved",
+                **({"ids": [str(report.id)]} if bulk else {}),
+                **({"dismissal_reason": reason} if reason else {}),
+            }
             finished = self.client.post(url, body, format="json")
             assert finished.status_code == status.HTTP_200_OK, finished.json()
             report.refresh_from_db()
@@ -2957,14 +2961,15 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
             feedback = SignalReportArtefact.objects.filter(report=report, type="dismissal").latest("created_at")
             content = json.loads(feedback.content)
             assert content["state"] == "resolved"
+            assert content["reason"] == reason
             assert content["user_id"] == self.user.id
             assert feedback.created_by_id == self.user.id
             assert (
                 content["note"]
-                == "Monitoring finished manually. Automatic verification and an evidence amendment were not performed."
+                == "Monitoring stopped manually. Automatic verification and an evidence amendment were not performed."
             )
             assert self.client.post(url, body, format="json").status_code == status.HTTP_200_OK
-            assert SignalReportArtefact.objects.filter(report=report, type="dismissal").count() == 2
+            assert SignalReportArtefact.objects.filter(report=report, type="dismissal").count() == (3 if reason else 2)
 
     @parameterized.expand([("disabled", False), ("unavailable", RuntimeError("flag service unavailable"))])
     def test_monitoring_entry_fails_closed_and_existing_rows_use_resolved_actions(
@@ -2984,6 +2989,10 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
         ):
             rejected = self.client.post(self._state_url(str(report.id)), {"state": "monitoring"})
             assert rejected.status_code == status.HTTP_409_CONFLICT
+            verification = self.client.post(
+                self._state_url(str(report.id)), {"state": "resolved", "dismissal_reason": "verified_manually"}
+            )
+            assert verification.status_code == status.HTTP_409_CONFLICT
             repeated = self.client.post(self._state_url(str(report.id)), {"state": "resolved"})
             assert repeated.status_code == status.HTTP_200_OK
             assert repeated.json()["status"] == "resolved"
@@ -3000,6 +3009,33 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
             report.refresh_from_db()
             assert report.monitoring_started_at is None
         assert original_start is not None
+
+    def test_manual_verification_skips_reports_without_a_monitoring_period_in_bulk(self) -> None:
+        monitoring = self._create_report()
+        ready = self._create_report()
+        with patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=True):
+            monitoring.save(
+                update_fields=monitoring.transition_to(
+                    SignalReport.Status.MONITORING, monitoring_started_at=timezone.now()
+                )
+            )
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/signals/reports/bulk-state/",
+                {
+                    "ids": [str(monitoring.id), str(ready.id)],
+                    "state": "resolved",
+                    "dismissal_reason": "verified_manually",
+                },
+                format="json",
+            )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert {row["id"]: row["outcome"] for row in response.json()["results"]} == {
+            str(monitoring.id): "transitioned",
+            str(ready.id): "skipped",
+        }
+        ready.refresh_from_db()
+        assert ready.status == SignalReport.Status.READY
+        assert not SignalReportArtefact.objects.filter(report=ready, type="dismissal").exists()
 
     def _state_url(self, report_id: str) -> str:
         return f"/api/projects/{self.team.id}/signals/reports/{report_id}/state/"

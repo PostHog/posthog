@@ -1,9 +1,13 @@
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { LemonRadio, LemonRadioOption } from 'lib/lemon-ui/LemonRadio'
+import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 
-import { RESOLVE_REASON_OPTIONS, ResolveReasonValue } from '../../utils/dismissalReasons'
+import {
+    RESOLVE_REASON_OPTIONS,
+    STOP_MONITORING_REASON_OPTIONS,
+    ResolveReasonValue,
+} from '../../utils/dismissalReasons'
 import { HotkeyRadio } from './HotkeyRadio'
 
 export interface ResolveReportDialogResult {
@@ -18,6 +22,7 @@ interface OpenResolveReportDialogParams {
     selectedCount?: number
     /** Whether the report has an implementation PR that is still open. Resolving closes it, so the copy says so. */
     hasOpenPr?: boolean
+    isMonitoring?: boolean
     submitDataAttr?: string
     onAfterClose?: () => void
     /** Show a digit keycap on each reason and let 1..9 pick it. On for triage mode, where the whole flow is keyboard-driven. */
@@ -32,11 +37,6 @@ interface OpenResolveReportDialogParams {
     onConfirm: (result: ResolveReportDialogResult) => void | Promise<void>
 }
 
-const REASON_RADIO_OPTIONS: LemonRadioOption<ResolveReasonValue>[] = RESOLVE_REASON_OPTIONS.map((option) => ({
-    value: option.value,
-    label: option.label,
-}))
-
 /**
  * Opens the resolve dialog: pick why the report is done (canonical {@link RESOLVE_REASON_OPTIONS})
  * plus an optional note, then mark it resolved with Enter or the button. Same shape as
@@ -48,6 +48,7 @@ export function openResolveReportDialog({
     reportTitle,
     selectedCount,
     hasOpenPr = false,
+    isMonitoring = false,
     submitDataAttr,
     onAfterClose,
     hotkeys = false,
@@ -59,17 +60,31 @@ export function openResolveReportDialog({
     // report is selected. Every other caller names the report instead.
     const isSelection = selectedCount !== undefined
     const isPlural = (selectedCount ?? 1) > 1
-    const title = isSelection
-        ? `Resolve ${selectedCount} ${isPlural ? 'reports' : 'report'}?`
-        : `Resolve report "${reportTitle?.trim() ? reportTitle : 'Untitled report'}"?`
-    const description = isPlural
-        ? `Mark these useful reports as done. If an issue comes back, you get a new report linked to the old one.${hasOpenPr ? ' Any open pull request for these reports will be closed.' : ''}`
-        : `This marks a useful report as done. If the issue comes back, you get a new report linked to this one.${
-              hasOpenPr ? ' The pull request opened for this report will be closed.' : ''
-          }`
+    const reasonOptions = isMonitoring ? STOP_MONITORING_REASON_OPTIONS : RESOLVE_REASON_OPTIONS
+    const title = isMonitoring
+        ? 'Stop monitoring?'
+        : isSelection
+          ? `Resolve ${selectedCount} ${isPlural ? 'reports' : 'report'}?`
+          : `Resolve report "${reportTitle?.trim() ? reportTitle : 'Untitled report'}"?`
+    const description = isMonitoring
+        ? `This stops monitoring and resolves the report. PostHog will not record an automatic verification result or update the report's evidence.${hasOpenPr ? ' The pull request opened for this report will be closed.' : ''}`
+        : isPlural
+          ? `Mark these useful reports as done. If an issue comes back, you get a new report linked to the old one.${hasOpenPr ? ' Any open pull request for these reports will be closed.' : ''}`
+          : `This marks a useful report as done. If the issue comes back, you get a new report linked to this one.${
+                hasOpenPr ? ' The pull request opened for this report will be closed.' : ''
+            }`
     const primaryButtonProps = {
         children:
-            copy?.submitLabel ?? (hasOpenPr ? 'Resolve and close PR' : isPlural ? 'Resolve reports' : 'Resolve report'),
+            copy?.submitLabel ??
+            (isMonitoring
+                ? hasOpenPr
+                    ? 'Stop monitoring and close PR'
+                    : 'Stop monitoring'
+                : hasOpenPr
+                  ? 'Resolve and close PR'
+                  : isPlural
+                    ? 'Resolve reports'
+                    : 'Resolve report'),
         'data-attr': submitDataAttr,
     }
 
@@ -82,12 +97,15 @@ export function openResolveReportDialog({
         initialValues: { reason: initialReason ?? null, note: '' },
         content: (
             <div className="flex flex-col gap-3">
-                <LemonField name="reason" label="How was this report handled?">
+                <LemonField
+                    name="reason"
+                    label={isMonitoring ? 'Why are you stopping monitoring?' : 'How was this report handled?'}
+                >
                     {({ value, onChange }) =>
                         hotkeys ? (
-                            <HotkeyRadio value={value} onChange={onChange} options={RESOLVE_REASON_OPTIONS} />
+                            <HotkeyRadio value={value} onChange={onChange} options={reasonOptions} />
                         ) : (
-                            <LemonRadio value={value} onChange={onChange} options={REASON_RADIO_OPTIONS} />
+                            <LemonRadio value={value} onChange={onChange} options={[...reasonOptions]} />
                         )
                     }
                 </LemonField>

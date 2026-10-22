@@ -41,9 +41,12 @@ export function canResolveReport(report: SignalReport): boolean {
     )
 }
 
-export function canMonitorReport(report: SignalReport): boolean {
+export function canMonitorReport(report: SignalReport, hasFollowUpChecks: boolean): boolean {
     return (
-        'monitoring_started_at' in report && canResolveReport(report) && report.status !== SignalReportStatus.MONITORING
+        hasFollowUpChecks &&
+        'monitoring_started_at' in report &&
+        canResolveReport(report) &&
+        report.status !== SignalReportStatus.MONITORING
     )
 }
 

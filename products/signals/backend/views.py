@@ -696,6 +696,7 @@ SIGNAL_REPORT_DISMISSAL_REASON_CHOICES = [
     ("wontfix_intentional", "Won't fix - intentional behavior"),
     ("wontfix_irrelevant", "Won't fix - issue is real but insignificant"),
     ("fixed_outside_posthog", "Fixed outside PostHog"),
+    ("verified_manually", "Verified manually"),
     ("no_action_needed", "No action needed"),
     ("pr_merged", "PR was merged"),
     ("other", "Something else…"),
@@ -704,7 +705,7 @@ SIGNAL_REPORT_DISMISSAL_REASON_CHOICES = [
 _DISMISSAL_REASON_HELP_TEXT = (
     "Optional canonical reason code recorded with the transition. Must be one of: already_fixed, "
     "report_unclear, analysis_wrong, wrong_repo, wontfix_intentional, wontfix_irrelevant, "
-    "fixed_outside_posthog, no_action_needed, pr_merged, other — these match the inbox UI so the rationale renders as a "
+    "fixed_outside_posthog, verified_manually, no_action_needed, pr_merged, other — these match the inbox UI so the rationale renders as a "
     "labelled chip rather than a raw code. When the work this report asked for is done, the honest "
     "transition is state='resolved' with 'fixed_outside_posthog' (the fix landed without a pull request), "
     "'pr_merged' (a pull request with the fix was merged but did not resolve the report on its own), "
@@ -717,6 +718,9 @@ _DISMISSAL_REASON_HELP_TEXT = (
     "wrong_repo, wontfix_*) go with state='suppressed' and absorb later signals silently. Use "
     "'wrong_repo' when the agent picked the wrong repository for this report, ideally with "
     "corrected_repository naming the right one. "
+    "Use 'verified_manually' with state='resolved' to stop Monitoring after manual verification. "
+    "It requires Monitoring to be enabled and a report with a Monitoring period, and records no automatic "
+    "verification result or evidence amendment. "
     "Use 'other' together with a dismissal_note for anything that doesn't fit a code."
 )
 
@@ -820,6 +824,8 @@ class SignalReportStateRequestSerializer(serializers.Serializer):
         return value
 
     def validate(self, attrs: dict) -> dict:
+        if attrs.get("dismissal_reason") == "verified_manually" and attrs.get("state") != SignalReportState.RESOLVED:
+            raise serializers.ValidationError({"dismissal_reason": "Verified manually requires state 'resolved'."})
         if attrs.get("dismissal_reason") == "no_action_needed" and attrs.get("state") != SignalReportState.RESOLVED:
             raise serializers.ValidationError({"dismissal_reason": "No action needed requires state 'resolved'."})
         if (
@@ -3634,6 +3640,21 @@ class SignalReportViewSet(
             # already-refunded work.
             if SignalReport.objects.select_for_update().filter(id=report.id, team_id=self.team.id).first() is not None:
                 report.refresh_from_db()
+            if dismissal_reason == "verified_manually" and (
+                not self._report_monitoring_enabled
+                or report.monitoring_started_at is None
+                or not (
+                    report.status in {SignalReport.Status.MONITORING, SignalReport.Status.RESOLVED}
+                    or (
+                        report.status == SignalReport.Status.SUPPRESSED
+                        and report.status_before_suppression == SignalReport.Status.MONITORING
+                    )
+                )
+            ):
+                return (
+                    SignalReportBulkStateOutcome.SKIPPED,
+                    "Manual verification requires an enabled Monitoring period.",
+                )
             is_refunded = SignalReportRefund.objects.filter(report_id=report.id).exists()
 
             # Refund guard: a refunded report can never be billed again (see billing.py), so putting
@@ -3732,7 +3753,7 @@ class SignalReportViewSet(
                 )
             ):
                 manual_note = (
-                    "Monitoring finished manually. Automatic verification and an evidence amendment were not performed."
+                    "Monitoring stopped manually. Automatic verification and an evidence amendment were not performed."
                 )
                 dismissal_note = f"{manual_note}\n\n{dismissal_note}" if dismissal_note else manual_note
 

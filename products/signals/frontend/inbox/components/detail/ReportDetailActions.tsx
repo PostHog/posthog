@@ -41,7 +41,7 @@ export interface ReportDetailAction {
 export function useReportDetailActions(report: SignalReport): ReportDetailAction[] {
     const detailLogic = inboxReportDetailLogic({ reportId: report.id, report })
     const { changeReportState } = useActions(detailLogic)
-    const { reportStateSaving } = useValues(detailLogic)
+    const { reportStateSaving, reportChecks } = useValues(detailLogic)
     const { reportStateChanged } = useActions(inboxBulkActionsLogic)
     const { activeTab } = useValues(inboxSceneLogic)
     const { loadSelectedReport } = useActions(inboxSceneLogic)
@@ -168,7 +168,7 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
 
     const resolve: ReportDetailAction = {
         key: 'resolve',
-        label: report.status === SignalReportStatus.MONITORING ? 'Finish monitoring' : 'Resolve',
+        label: report.status === SignalReportStatus.MONITORING ? 'Stop monitoring' : 'Resolve',
         icon: <IconCheckCircle />,
         loading: isResolving,
         tooltip:
@@ -182,14 +182,14 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
     }
 
     const actions: ReportDetailAction[] = [
-        ...(canMonitorReport(report)
+        ...(canMonitorReport(report, (reportChecks?.length ?? 0) > 0)
             ? [
                   {
                       key: 'monitor',
-                      label: 'Mark as monitoring',
+                      label: 'Start monitoring',
                       icon: <IconClock />,
                       loading: reportStateSaving,
-                      tooltip: 'Implementation is complete; verify the outcome before resolving',
+                      tooltip: 'PostHog watches to make sure the fix works',
                       disabledReason: 'Implementation completion is not available yet.',
                       onClick: () => changeReportState('monitoring'),
                   },

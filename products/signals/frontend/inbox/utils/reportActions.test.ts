@@ -25,8 +25,17 @@ describe('canResolveReport', () => {
         [SignalReportStatus.RESOLVED, true, false],
         [SignalReportStatus.SUPPRESSED, true, false],
     ] as const)('gates manual Monitoring for %s with server capability %s: %s', (status, enabled, expected) => {
-        expect(canMonitorReport({ status, ...(enabled ? { monitoring_started_at: null } : {}) } as SignalReport)).toBe(
-            expected
-        )
+        expect(
+            canMonitorReport({ status, ...(enabled ? { monitoring_started_at: null } : {}) } as SignalReport, true)
+        ).toBe(expected)
+    })
+
+    it.each([false, true])('offers Monitoring only with follow-up checks: %s', (hasFollowUpChecks) => {
+        expect(
+            canMonitorReport(
+                { status: SignalReportStatus.READY, monitoring_started_at: null } as SignalReport,
+                hasFollowUpChecks
+            )
+        ).toBe(hasFollowUpChecks)
     })
 })
