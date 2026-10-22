@@ -72,7 +72,6 @@ class TestExperimentQueryRunnerSingleFlight(APIBaseTest):
     @override_settings(
         IN_UNIT_TESTING=True,
         CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False,
-        CLICKHOUSE_NATIVE_EVENTS_HOST="native.example.com",
     )
     def test_experiment_execution_preserves_selected_table_and_debug_sql(self, kind: str, native: bool) -> None:
         experiment, flag = self.experiment, self.feature_flag
@@ -111,8 +110,10 @@ class TestExperimentQueryRunnerSingleFlight(APIBaseTest):
                 assert isinstance(runner, ExperimentExposuresQueryRunner)
                 runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS, user=self.user)
             enqueue.assert_not_called()
-        self.assertEqual("events_json" in execute.call_args.args[0], native)
-        self.assertEqual(execute.call_args.kwargs["workload"] == Workload.NEW_EVENTS_CLUSTER, native)
+        self.assertTrue(execute.called)
+        for call in execute.call_args_list:
+            self.assertEqual("events_json" in call.args[0], native)
+            self.assertEqual(call.kwargs["workload"] == Workload.NEW_EVENTS_CLUSTER, native)
         self.assertEqual(runner.get_cache_key(), cache_key)
         if kind == "metric":
             assert isinstance(runner, ExperimentQueryRunner)

@@ -25,7 +25,6 @@ from typing import (
     get_origin,
 )
 
-from django.conf import settings
 from django.db import OperationalError
 
 import orjson
@@ -141,6 +140,7 @@ from posthog.hogql.query_stats import (
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql.warehouse_warnings import accumulator_scope
 
+from posthog import settings
 from posthog.api_queries_budget import (
     API_QUERIES_BUDGET_ERRORS_COUNTER,
     BudgetSpec,

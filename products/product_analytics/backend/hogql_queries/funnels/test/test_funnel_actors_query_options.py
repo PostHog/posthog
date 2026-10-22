@@ -120,7 +120,7 @@ class TestFunnelActorsQueryOptions(ClickhouseTestMixin, APIBaseTest):
         )
 
     @parameterized.expand([(False,), (True,)])
-    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False, CLICKHOUSE_NATIVE_EVENTS_HOST="native.example.com")
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
     def test_breakdown_options_execute_their_funnel_on_the_selected_cluster(self, native: bool) -> None:
         source = self._funnels_query(breakdown_filter=BreakdownFilter(breakdown="$browser", breakdown_type="event"))
         source.modifiers = HogQLQueryModifiers(useNewEventsCluster=native, useNewEventsSchema=native)
