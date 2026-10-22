@@ -4,7 +4,7 @@ import { loaders } from 'kea-loaders'
 
 import { performQuery } from '~/queries/query'
 import type { ExperimentMetric } from '~/queries/schema/schema-general'
-import { getEventCountQuery } from '~/scenes/experiments/utils'
+import { getEventCountQuery, getMetricCardKey } from '~/scenes/experiments/utils'
 
 export type MetricRecentActivityLogicProps = {
     metric: ExperimentMetric
@@ -50,7 +50,7 @@ export type metricRecentActivityLogicType = MakeLogicType<
 
 export const metricRecentActivityLogic = kea<metricRecentActivityLogicType>([
     props({} as MetricRecentActivityLogicProps),
-    key((props) => `${props.metric.uuid}`),
+    key((props) => getMetricCardKey(props.metric)),
     path((key) => ['scenes', 'experiments', 'create', 'metricRecentActivityLogic', key]),
     loaders(({ props }) => ({
         eventCount: [

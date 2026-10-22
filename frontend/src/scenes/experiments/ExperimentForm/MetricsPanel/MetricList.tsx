@@ -1,6 +1,7 @@
 import { clsx } from 'clsx'
 
 import { AddMetricButton } from 'scenes/experiments/Metrics/AddMetricButton'
+import { getMetricCardKey } from 'scenes/experiments/utils'
 
 import type { ExperimentMetric } from '~/queries/schema/schema-general'
 
@@ -30,7 +31,7 @@ export const MetricList = ({
             </span>
             {metrics.map((metric) => (
                 <MetricCard
-                    key={metric.uuid}
+                    key={getMetricCardKey(metric)}
                     metric={metric}
                     metricContext={metricContext}
                     onDelete={onDelete}
