@@ -2522,8 +2522,22 @@ class TestSaveTimeAccessBlock(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         assert "governed_view" in str(response.json())
 
-    @parameterized.expand([("direct",), ("dashboard",), ("notebook",)])
-    def test_query_update_blocked_when_insight_is_publicly_shared(self, coverage: str):
+    @parameterized.expand(
+        [
+            ("direct", "this insight is publicly shared"),
+            ("dashboard", "this insight is publicly shared"),
+            ("notebook", "this insight is publicly shared"),
+            ("subscription", "delivered by a subscription"),
+            ("dashboard_subscription", "delivered by a subscription"),
+            # Restoring the dashboard resumes delivery without a subscription write.
+            ("deleted_dashboard_subscription", "delivered by a subscription"),
+            # A selection whose insights are all deleted delivers every live tile.
+            ("dashboard_subscription_with_deleted_selection", "delivered by a subscription"),
+            # Deleting the dashboard hides its tiles; restoring it brings them back without a gate.
+            ("dashboard_subscription_with_hidden_tile", "delivered by a subscription"),
+        ]
+    )
+    def test_query_update_blocked_when_insight_is_shared_or_delivered(self, coverage: str, expected_reason: str):
         self._deny_editor()
         if coverage == "direct":
             SharingConfiguration.objects.create(team=self.team, insight=self.insight, enabled=True)
@@ -2531,6 +2545,25 @@ class TestSaveTimeAccessBlock(APIBaseTest):
             dashboard = Dashboard.objects.create(team=self.team, created_by=self.user)
             DashboardTile.objects.create(dashboard=dashboard, insight=self.insight)
             SharingConfiguration.objects.create(team=self.team, dashboard=dashboard, enabled=True)
+        elif coverage == "subscription":
+            create_subscription(team_id=self.team.id, insight_id=self.insight.id)
+        elif coverage in ("dashboard_subscription", "deleted_dashboard_subscription"):
+            dashboard = Dashboard.objects.create(
+                team=self.team, created_by=self.user, deleted=coverage == "deleted_dashboard_subscription"
+            )
+            DashboardTile.objects.create(dashboard=dashboard, insight=self.insight)
+            create_subscription(team_id=self.team.id, dashboard_id=dashboard.id)
+        elif coverage == "dashboard_subscription_with_hidden_tile":
+            dashboard = Dashboard.objects.create(team=self.team, created_by=self.user)
+            DashboardTile.objects.create(dashboard=dashboard, insight=self.insight, deleted=True)
+            create_subscription(team_id=self.team.id, dashboard_id=dashboard.id)
+        elif coverage == "dashboard_subscription_with_deleted_selection":
+            dashboard = Dashboard.objects.create(team=self.team, created_by=self.user)
+            DashboardTile.objects.create(dashboard=dashboard, insight=self.insight)
+            deleted_insight = Insight.objects.create(team=self.team, created_by=self.user, deleted=True)
+            create_subscription(
+                team_id=self.team.id, dashboard_id=dashboard.id, dashboard_export_insight_ids=[deleted_insight.id]
+            )
         else:
             notebook = Notebook.objects.create(
                 team=self.team,
@@ -2553,16 +2586,25 @@ class TestSaveTimeAccessBlock(APIBaseTest):
         response = self._patch_insight_query()
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
-        assert "publicly shared" in str(response.json())
+        assert expected_reason in str(response.json())
         self.insight.refresh_from_db()
         assert self.insight.query == {
             "kind": "DataTableNode",
             "source": {"kind": "HogQLQuery", "query": "SELECT 1 AS one"},
         }
 
-    @parameterized.expand([("no_share",), ("deleted_tile",)])
-    def test_query_update_allowed_when_not_shared(self, coverage: str):
+    @parameterized.expand(
+        [
+            ("no_share", {}),
+            ("deleted_tile", {}),
+            ("disabled_subscription", {"enabled": False}),
+            ("deleted_subscription", {"deleted": True}),
+        ]
+    )
+    def test_query_update_allowed_when_not_shared(self, coverage: str, subscription_fields: dict):
         self._deny_editor()
+        if subscription_fields:
+            create_subscription(team_id=self.team.id, insight_id=self.insight.id, **subscription_fields)
         if coverage == "deleted_tile":
             dashboard = Dashboard.objects.create(team=self.team, created_by=self.user)
             # The shared dashboard also carries a live tile for another insight. A share lookup
@@ -2580,6 +2622,25 @@ class TestSaveTimeAccessBlock(APIBaseTest):
         response = self._patch_insight_query()
 
         assert response.status_code == status.HTTP_200_OK, response.content
+
+    def test_restoring_shared_dashboard_blocked_when_a_hidden_insight_changed(self):
+        self._deny_editor()
+        dashboard = Dashboard.objects.create(team=self.team, created_by=self.user)
+        DashboardTile.objects.create(dashboard=dashboard, insight=self.insight)
+        SharingConfiguration.objects.create(team=self.team, dashboard=dashboard, enabled=True)
+        dashboard_url = f"/api/projects/{self.team.id}/dashboards/{dashboard.id}"
+        assert self.client.patch(dashboard_url, {"deleted": True}).status_code == status.HTTP_200_OK
+
+        # The tiles are hidden with the dashboard, so the insight is not shared at this moment.
+        assert self._patch_insight_query().status_code == status.HTTP_200_OK
+
+        response = self.client.patch(dashboard_url, {"deleted": False})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "publicly shared" in str(response.json())
+        dashboard.refresh_from_db()
+        assert dashboard.deleted is True
+        assert not DashboardTile.objects.filter(dashboard=dashboard, insight=self.insight).exists()
 
     @parameterized.expand([("stored_query",), ("query_in_same_patch",)])
     def test_adding_insight_to_shared_dashboard_blocked(self, coverage: str):
@@ -2606,6 +2667,41 @@ class TestSaveTimeAccessBlock(APIBaseTest):
                 "kind": "DataTableNode",
                 "source": {"kind": "HogQLQuery", "query": "SELECT 1 AS one"},
             }
+
+    @parameterized.expand(
+        [
+            ("whole_dashboard", status.HTTP_400_BAD_REQUEST),
+            ("insight_selection", status.HTTP_200_OK),
+        ]
+    )
+    def test_adding_insight_to_dashboard_with_subscription(self, coverage: str, expected_status: int):
+        self._deny_editor()
+        self.insight.query = self._DENIED_QUERY
+        self.insight.save()
+        dashboard = Dashboard.objects.create(team=self.team, created_by=self.user)
+        selected_insight_ids: list[int] = []
+        if coverage == "insight_selection":
+            selected_insight = Insight.objects.create(
+                team=self.team,
+                query={"kind": "DataTableNode", "source": {"kind": "HogQLQuery", "query": "SELECT 2 AS two"}},
+                created_by=self.user,
+            )
+            DashboardTile.objects.create(dashboard=dashboard, insight=selected_insight)
+            selected_insight_ids.append(selected_insight.id)
+        create_subscription(
+            team_id=self.team.id, dashboard_id=dashboard.id, dashboard_export_insight_ids=selected_insight_ids
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/insights/{self.insight.id}/", {"dashboards": [dashboard.id]}
+        )
+
+        assert response.status_code == expected_status, response.content
+        if expected_status == status.HTTP_400_BAD_REQUEST:
+            assert "delivered by a subscription" in str(response.json())
+        assert DashboardTile.objects.filter(dashboard=dashboard, insight=self.insight).exists() == (
+            expected_status == status.HTTP_200_OK
+        )
 
     def test_adding_insight_to_unshared_dashboard_allowed(self):
         self._deny_editor()

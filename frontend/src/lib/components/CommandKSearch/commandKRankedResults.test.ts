@@ -60,6 +60,20 @@ describe('buildRankedResults', () => {
             expected: ['Results: Session replay, Recordings funnel'],
         },
         {
+            name: 'a product leads a tab of another product with the same name, and they do not collapse',
+            query: 'playground',
+            results: [],
+            products: [
+                {
+                    ...product('Business knowledge Playground'),
+                    displayName: 'Playground',
+                    parentName: 'Business knowledge',
+                },
+                product('Playground'),
+            ],
+            expected: ['Results: Playground, Business knowledge Playground'],
+        },
+        {
             name: 'a product that matches fewer words than the saved objects stays out',
             query: 'flags billing',
             results: [result('1', 'Feature flags billing', 'insight', [-2, 0, 0, 0, -2, 0, 3, 0, -1])],

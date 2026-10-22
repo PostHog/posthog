@@ -610,6 +610,8 @@ test('a single-language workflow claims that language rather than everything', (
         '.github/scripts/optimize_test_durations.py',
         '.github/scripts/test_optimize_test_durations.py',
         '.github/scripts/check-idor-model-coverage.py',
+        // Only ci-backend's events_json leg reads the native-schema test list.
+        '.github/new-events-schema-targets.txt',
     ]) {
         assert.deepEqual(computeTargets([file], CONTEXT), computeTargets(['mypy.ini'], CONTEXT), file)
     }
