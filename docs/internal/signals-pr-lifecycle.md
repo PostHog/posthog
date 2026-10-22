@@ -162,6 +162,29 @@ The latest `suggested_reviewers` artefact remains the recipient list; `SignalRep
 Both use `(created_at, id)` to select the latest row.
 There is no separate assignment table, operation ledger, or writer service.
 
+### Assignment feedback loop
+
+The product goal is for human feedback to improve the next relevant assignment, including when another research or scout producer makes it.
+The shared write rules protect corrections on the current report. Existing notes, activity, and reviewer memory provide evidence for later selections.
+Research already reads recent corrections, and eligible reviewer edits can send notes to relevant scouts.
+Forwarding is best effort; permissions, identity coverage, retrieval, and agent judgment can each limit its effect.
+Saving feedback alone does not establish that the next selection uses it.
+
+The first milestone is to correct an assignment, explain the intended ownership, and run selection on a new, related report through another producer.
+Confirm that the agent uses the feedback and explains its effect, while an unrelated case stays unaffected.
+The original report must retain the correction. Repeat in both research-to-scout and scout-to-research directions, including members without GitHub accounts.
+Each correction should work through existing controls and steering tools, without a code change or separate edits to every scout.
+Selection guidance and scoped memory should remain inspectable and tunable; access and correction protection remain enforced in code.
+
+A current-report correction is binding. On another report, it is scoped evidence with its source, date, and reason where available.
+Self-removal alone does not establish an ownership change or a global exclusion.
+Agents must not turn their own repeated selections into ownership evidence.
+
+The complete-loop trial remains pending. Measure feedback availability before selection, retrieval, use, the applied result, and repeated assignment errors.
+Distinguish unavailable feedback from feedback the agent considered but did not apply. Recipient review supplies the suitability judgment.
+Existing notes do not guarantee an immediate rerun. Triggered reassessment remains separate work.
+The [feedback-loop milestone](https://github.com/PostHog/posthog/issues/121777) tracks the trial and any missing links before broader identity, team, preference, or reassessment work.
+
 ### Human corrections
 
 An add pins that person. A removal excludes that person.
@@ -228,7 +251,7 @@ A flag change cannot retract a sent message or stop an external call that alread
 After-commit scheduling is best effort. Suppressed actions are not queued for later delivery.
 
 Before rollout, test self-removal, self-addition, concurrent edits, explicit empty confirmation, stale results, retries, access loss, and failed selection.
-Evaluate recipient suitability separately: preserving corrections does not establish selection quality.
+Also test the assignment feedback loop above. Preserving a correction does not establish that later selections improve.
 The [system design](https://github.com/PostHog/posthog/issues/120572) describes selection, later roles, and delivery work.
 
 ## Report links
