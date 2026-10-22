@@ -6626,16 +6626,16 @@ Today (14): `boards`, `dashboards`, `fields`, `filters`, `issue_types`, `issues`
 
 Diffed against: <https://developer.atlassian.com/cloud/jira/platform/swagger-v3.v3.json>
 
-- [ ] `/rest/api/3/issue/{id}/changelog (and /changelog/bulkfetch)` — issue field transition history - the only source for cycle time, time-in-status and reopen rate (high)
+- [x] `/rest/api/3/issue/{id}/changelog (and /changelog/bulkfetch)` — issue field transition history - the only source for cycle time, time-in-status and reopen rate (high). Added as `issue_changelogs` via `/rest/api/3/search/jql` plus `POST /changelog/bulkfetch`, which avoids one request per issue.
 - [x] `/rest/agile/1.0/board/{boardId}/sprint` — sprints, the unit every agile velocity and commitment metric is built on (high)
 - [x] `/rest/agile/1.0/board` — boards lookup that scopes sprints and backlogs to teams (high)
 - [x] `/rest/agile/1.0/sprint/{sprintId}/issue` — sprint-to-issue membership edges needed for velocity and scope-change analysis (high). Added as `sprint_issues` from the Sprint field via `/rest/api/3/search/jql`, because the spec marks this endpoint and the other agile issue listings deprecated.
-- [ ] `/rest/api/3/issue/{id}/comment (or /rest/api/3/comment/list)` — comment volume and response latency, the main collaboration signal on an issue (high)
+- [x] `/rest/api/3/issue/{id}/comment (or /rest/api/3/comment/list)` — comment volume and response latency, the main collaboration signal on an issue (high). Added as `issue_comments` from the comment field of `/rest/api/3/search/jql`; only issues whose embedded list is truncated are read again through `/issue/{id}/comment`.
 - [x] `/rest/api/3/issue/{id}/worklog (with /worklog/updated for incrementals)` — logged time per issue and user, the basis for effort and cost reporting (high). Added as `worklogs` via `/worklog/updated` plus `POST /worklog/list`, which avoids one request per issue.
-- [ ] `/rest/api/3/project/{projectIdOrKey}/versions` — lookup resolving the fixVersions/affectedVersions IDs carried on synced issues (medium)
+- [x] `/rest/api/3/project/{projectIdOrKey}/versions` — lookup resolving the fixVersions/affectedVersions IDs carried on synced issues (medium). Added as `versions` via the paginated `/project/{projectIdOrKey}/version`.
 - [ ] `/rest/api/3/project/{projectIdOrKey}/components` — lookup resolving the component IDs carried on synced issues (medium)
 - [ ] `/rest/api/3/statuscategory` — lookup rolling the already-synced statuses into To Do / In Progress / Done buckets (medium)
-- [ ] `/rest/api/3/group/bulk and /rest/api/3/group/member` — group definitions plus user-to-group membership edges for team-level rollups (medium)
+- [x] `/rest/api/3/group/bulk and /rest/api/3/group/member` — group definitions plus user-to-group membership edges for team-level rollups (medium). Added as `groups` and `group_members`.
 - [ ] `/rest/agile/1.0/board/{boardId}/epic` — epic catalog for rolling issues up to initiatives (medium)
 - [ ] `/rest/api/3/issueLinkType (plus issue links)` — blocks/duplicates/relates edges between issues (low)
 
