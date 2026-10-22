@@ -121,11 +121,18 @@ def flatten_entity_row(row: dict[str, Any], day: str, currency_code: str) -> dic
     return flat
 
 
-def _without(columns: tuple[str, ...]) -> Callable[[dict[str, Any]], dict[str, Any]]:
-    def drop(row: dict[str, Any]) -> dict[str, Any]:
-        return {key: value for key, value in row.items() if key not in columns}
+def _row_map(
+    drop_columns: tuple[str, ...], float_columns: tuple[str, ...]
+) -> Callable[[dict[str, Any]], dict[str, Any]]:
+    def apply(row: dict[str, Any]) -> dict[str, Any]:
+        mapped = {key: value for key, value in row.items() if key not in drop_columns}
+        for column in float_columns:
+            value = mapped.get(column)
+            if isinstance(value, int) and not isinstance(value, bool):
+                mapped[column] = float(value)
+        return mapped
 
-    return drop
+    return apply
 
 
 def _api_key_auth(api_key: str) -> APIKeyAuth:
@@ -259,7 +266,11 @@ def everflow_source(
                     "data_selector": config.data_selector,
                 },
                 "table_format": "delta",
-                **({"data_map": _without(config.drop_columns)} if config.drop_columns else {}),
+                **(
+                    {"data_map": _row_map(config.drop_columns, config.float_columns)}
+                    if config.drop_columns or config.float_columns
+                    else {}
+                ),
             }
         ],
     }

@@ -37,6 +37,9 @@ class EverflowEndpointConfig:
     default_incremental_lookback_seconds: int | None = None
     # Columns that carry credentials and must never reach the warehouse.
     drop_columns: tuple[str, ...] = ()
+    # Amounts Everflow sends as a JSON integer when whole. Without the cast, a first batch of whole
+    # amounts creates the column as int64 and a later fractional amount fails the load.
+    float_columns: tuple[str, ...] = ()
 
 
 EVERFLOW_ENDPOINTS: dict[str, EverflowEndpointConfig] = {
@@ -64,6 +67,7 @@ EVERFLOW_ENDPOINTS: dict[str, EverflowEndpointConfig] = {
         primary_keys=("conversion_id",),
         page_size=CONVERSIONS_PAGE_SIZE,
         partition_key="conversion_unix_timestamp",
+        float_columns=("payout", "revenue", "sale_amount"),
         incremental_fields=(
             {
                 "label": "conversion_unix_timestamp",
