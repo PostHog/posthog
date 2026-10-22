@@ -54,7 +54,7 @@ from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.monitoring import Feature, monitor
 from posthog.api.openapi_parameters import make_filters_override_param, make_variables_override_param
 from posthog.api.property_filter_access_gate import table_blocking_property_filters
-from posthog.api.query_access_check import blocked_access_for_user
+from posthog.api.query_access_check import denied_query_resources
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
 from posthog.api.sharing_publish_gate import (
@@ -2731,7 +2731,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
             .values_list("query", flat=True)
             if isinstance(query, dict)
         ]
-        if blocked := blocked_access_for_user(user, instance.team, queries):
+        if blocked := denied_query_resources(user, instance.team, queries):
             blocked_list = ", ".join(f"`{name}`" for name in blocked)
             raise serializers.ValidationError(
                 f"Can't restore this dashboard: you don't have access to {blocked_list}, and this dashboard is {exposure}."

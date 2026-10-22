@@ -17,7 +17,7 @@ from posthog.models import Team, User
 from products.access_control.backend.facade.user_access_control import UserAccessControlError
 
 
-def blocked_access_for_user(user: User, team: Team, queries: list[dict[str, Any]]) -> list[str]:
+def denied_query_resources(user: User, team: Team, queries: list[dict[str, Any]]) -> list[str]:
     """Tables (and runner-level resources) the user can't access among everything the given
     queries read. Each query is compiled (resolved, not executed) as the user, the same resolution
     the read path uses. Non-access compile errors don't gate. Empty list = the user can run them all."""

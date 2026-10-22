@@ -16,7 +16,7 @@ from rest_framework import serializers
 from posthog.hogql.escape_sql import backquote_escape_chars_map
 
 from posthog.api.property_filter_access_gate import table_blocking_property_filters
-from posthog.api.query_access_check import blocked_access_for_user
+from posthog.api.query_access_check import denied_query_resources
 from posthog.constants import AvailableFeature
 from posthog.models import Team, User
 from posthog.models.sharing_configuration import SharingConfiguration
@@ -75,7 +75,7 @@ def insight_query_access_error(
     exposure = insight_shared_or_subscribed(insight)
     if exposure is None:
         return None
-    blocked = blocked_access_for_user(user, insight.team, [query])
+    blocked = denied_query_resources(user, insight.team, [query])
     if not blocked:
         return None
     blocked_list = ", ".join(f"`{name}`" for name in blocked)
@@ -103,7 +103,7 @@ def check_can_add_insight_to_dashboard(
     exposure = dashboard_shared_or_subscribed(dashboard)
     if exposure is None:
         return
-    blocked = blocked_access_for_user(user, dashboard.team, [query])
+    blocked = denied_query_resources(user, dashboard.team, [query])
     if blocked:
         blocked_list = ", ".join(f"`{name}`" for name in blocked)
         raise serializers.ValidationError(
@@ -118,7 +118,7 @@ def blocked_access_for_publisher(user: User, team: Team, config: SharingConfigur
     the same resolution the read path uses. Non-access compile errors don't gate.
     Empty list = safe to publish.
     """
-    blocked = blocked_access_for_user(user, team, _queries_exposed_by(config))
+    blocked = denied_query_resources(user, team, _queries_exposed_by(config))
     # A dashboard's own filters and tile overrides run inside every tile, and they could have
     # been saved before the dashboard was shared, when the save-time check did not apply.
     if config.dashboard is not None:
@@ -242,4 +242,4 @@ def blocked_access_in_notebook_edit(user: User, notebook: Any, new_content: dict
             ).values_list("query", flat=True)
             if isinstance(q, dict)
         )
-    return blocked_access_for_user(user, notebook.team, changed_queries)
+    return denied_query_resources(user, notebook.team, changed_queries)
