@@ -264,7 +264,9 @@ def revoke(user: User, token_id: str | None) -> int:
                 503,
             )
         revoked_at = timezone.now()
-        DevGatewayToken.objects.filter(id__in=[row.id for row in targets]).update(revoked_at=revoked_at)
+        DevGatewayToken.objects.filter(
+            user_id=user.pk, team_id=settings.DEV_GATEWAY_TEAM_ID, id__in=[row.id for row in targets]
+        ).update(revoked_at=revoked_at)
         # The bulk update skips save(), so each revoke is logged by hand.
         for row in targets:
             _log(
