@@ -1,19 +1,30 @@
+from contextlib import ExitStack
 from datetime import UTC, datetime, timedelta
+from typing import Any, Optional
 
 import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.core.cache import caches
+
+from parameterized import parameterized
+
 from posthog.hogql.errors import QueryError
 
+from posthog.caching.redis_cluster_connection_factory import QUERY_CACHE_ALIAS
 from posthog.caching.warming import (
     WARMING_CHAIN_LIFETIME,
     WARMING_START_WINDOW,
+    WarmingSelection,
     insights_to_keep_fresh,
+    load_warming_settings,
     schedule_warming_for_teams_task,
     warm_insight_cache_task,
 )
-from posthog.exceptions import ClickHouseAtCapacity
+from posthog.caching.warming_cost import get_warming_durations, record_warming_duration
+from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryTimeOut
+from posthog.models.instance_setting import override_instance_config
 from posthog.query_cache.freshness_index import update_target_age
 from posthog.scheduling.jitter import deterministic_offset
 
@@ -63,7 +74,7 @@ class TestWarming(APIBaseTest):
     @patch("posthog.caching.warming.get_stale_insights")
     def test_insights_to_keep_fresh_no_stale_insights(self, mock_get_stale_insights):
         mock_get_stale_insights.return_value = []
-        insights = list(insights_to_keep_fresh(self.team))
+        insights = insights_to_keep_fresh(self.team, settings=load_warming_settings()).insights
         self.assertEqual(insights, [])
 
     @patch("posthog.caching.warming.get_stale_insights")
@@ -71,7 +82,7 @@ class TestWarming(APIBaseTest):
         mock_get_stale_insights.return_value = [
             "2345:",
         ]
-        insights = list(insights_to_keep_fresh(self.team))
+        insights = insights_to_keep_fresh(self.team, settings=load_warming_settings()).insights
         exptected_results = [
             (2345, None),
         ]
@@ -83,7 +94,7 @@ class TestWarming(APIBaseTest):
             "1234:5678",
             "3456:7890",
         ]
-        insights = list(insights_to_keep_fresh(self.team))
+        insights = insights_to_keep_fresh(self.team, settings=load_warming_settings()).insights
         expected_results = [
             (3456, 7890),
         ]
@@ -97,7 +108,7 @@ class TestWarming(APIBaseTest):
             "3456:7890",
             "8888:7777",
         ]
-        insights = list(insights_to_keep_fresh(self.team))
+        insights = insights_to_keep_fresh(self.team, settings=load_warming_settings()).insights
         expected_results = [
             (3456, 7890),
         ]
@@ -106,13 +117,13 @@ class TestWarming(APIBaseTest):
     @patch("posthog.caching.warming.get_stale_insights")
     def test_insights_to_keep_fresh_insights_not_viewed_recently(self, mock_get_stale_insights):
         mock_get_stale_insights.return_value = ["4567:"]
-        insights = list(insights_to_keep_fresh(self.team))
+        insights = insights_to_keep_fresh(self.team, settings=load_warming_settings()).insights
         self.assertEqual(insights, [])
 
     @patch("posthog.caching.warming.get_stale_insights")
     def test_insights_to_keep_fresh_dashboards_not_accessed_recently(self, mock_get_stale_insights):
         mock_get_stale_insights.return_value = ["5678:8901"]
-        insights = list(insights_to_keep_fresh(self.team))
+        insights = insights_to_keep_fresh(self.team, settings=load_warming_settings()).insights
         self.assertEqual(insights, [])
 
     @patch("posthog.caching.warming.get_stale_insights")
@@ -123,12 +134,69 @@ class TestWarming(APIBaseTest):
             "3456:7890",
             "4567:",
         ]
-        insights = list(insights_to_keep_fresh(self.team))
+        insights = insights_to_keep_fresh(self.team, settings=load_warming_settings()).insights
         expected_results = [
             (2345, None),
             (3456, 7890),
         ]
         self.assertEqual(insights, expected_results)
+
+    @parameterized.expand(
+        [
+            ("expensive_insight_viewed_recently", False, 90.0, 2, {}, True, {}),
+            ("expensive_insight_not_viewed_recently", False, 90.0, 48, {}, False, {"expensive_not_recently_viewed": 1}),
+            ("expensive_tile_accessed_recently", True, 90.0, 2, {}, True, {}),
+            ("expensive_tile_not_accessed_recently", True, 90.0, 48, {}, False, {"expensive_not_recently_viewed": 1}),
+            ("cheap_insight_not_viewed_recently", False, 30.0, 48, {}, True, {}),
+            ("insight_without_a_recorded_warm", False, None, 48, {}, True, {}),
+            ("expensive_rule_turned_off", False, 90.0, 48, {"CACHE_WARMING_EXPENSIVE_SECONDS": 0}, True, {}),
+            (
+                "over_max_duration_even_when_viewed_recently",
+                True,
+                400.0,
+                2,
+                {"CACHE_WARMING_MAX_SECONDS": 300},
+                False,
+                {"over_max_duration": 1},
+            ),
+            ("under_max_duration_viewed_recently", True, 200.0, 2, {"CACHE_WARMING_MAX_SECONDS": 300}, True, {}),
+        ]
+    )
+    def test_insights_to_keep_fresh_skips_expensive_insights(
+        self,
+        _name: str,
+        on_dashboard: bool,
+        last_warm_seconds: Optional[float],
+        seen_hours_ago: int,
+        instance_settings: dict[str, Any],
+        expected_kept: bool,
+        expected_skipped: dict[str, int],
+    ) -> None:
+        caches[QUERY_CACHE_ALIAS].clear()
+        seen_at = datetime.now(UTC) - timedelta(hours=seen_hours_ago)
+        insight = Insight.objects.create(team=self.team)
+        dashboard_id: Optional[int] = None
+        if on_dashboard:
+            dashboard = Dashboard.objects.create(team=self.team, last_accessed_at=seen_at)
+            DashboardTile.objects.create(insight=insight, dashboard=dashboard)
+            dashboard_id = dashboard.pk
+        else:
+            record_insight_views(
+                team_id=self.team.id, user_id=self.user.id, last_viewed_at_by_insight_id={insight.id: seen_at}
+            )
+        if last_warm_seconds is not None:
+            record_warming_duration(
+                team_id=self.team.pk, insight_id=insight.pk, dashboard_id=dashboard_id, seconds=last_warm_seconds
+            )
+
+        with ExitStack() as stack, patch("posthog.caching.warming.get_stale_insights") as mock_get_stale_insights:
+            for key, value in instance_settings.items():
+                stack.enter_context(override_instance_config(key, value))
+            mock_get_stale_insights.return_value = [f"{insight.pk}:{dashboard_id or ''}"]
+            selection = insights_to_keep_fresh(self.team, settings=load_warming_settings())
+
+        self.assertEqual(selection.insights, [(insight.pk, dashboard_id)] if expected_kept else [])
+        self.assertEqual(selection.skipped, expected_skipped)
 
 
 class TestScheduleWarmingForTeamsTask(APIBaseTest):
@@ -147,12 +215,32 @@ class TestScheduleWarmingForTeamsTask(APIBaseTest):
         self, candidates: MagicMock, teams: MagicMock, _enabled: MagicMock, capture: MagicMock, _chain: MagicMock
     ) -> None:
         teams.return_value = [self.team1.pk]
-        candidates.return_value = iter([(1234, None), (1234, 5678), (2345, 5678)])
+        candidates.return_value = WarmingSelection(
+            insights=[(1234, None), (1234, 5678), (2345, 5678)], skipped={"expensive_not_recently_viewed": 4}
+        )
         schedule_warming_for_teams_task()
         properties = capture.return_value.__enter__.return_value.call_args.kwargs["properties"]
         assert properties["count"] == 3
         assert properties["standalone_count"] == 1
         assert properties["dashboard_count"] == 2
+        assert properties["skipped_expensive_not_recently_viewed"] == 4
+        assert properties["skipped_over_max_duration"] == 0
+
+    @patch("posthog.caching.warming.chain")
+    @patch("posthog.caching.warming.teams_enabled_for_cache_warming", return_value=[])
+    @patch("posthog.caching.warming.largest_teams")
+    @patch("posthog.caching.warming.insights_to_keep_fresh")
+    def test_excluded_teams_are_not_warmed(
+        self, candidates: MagicMock, teams: MagicMock, _enabled: MagicMock, _chain: MagicMock
+    ) -> None:
+        teams.return_value = [self.team1.pk, self.team2.pk]
+        candidates.return_value = WarmingSelection(insights=[], skipped={})
+
+        with override_instance_config("CACHE_WARMING_EXCLUDED_TEAMS", [self.team1.pk]):
+            schedule_warming_for_teams_task()
+
+        warmed_team_ids = {call.args[0].pk for call in candidates.call_args_list}
+        assert warmed_team_ids == {self.team2.pk}
 
     @patch("posthog.caching.warming.largest_teams")
     @patch("posthog.caching.warming.insights_to_keep_fresh")
@@ -161,7 +249,7 @@ class TestScheduleWarmingForTeamsTask(APIBaseTest):
         self, mock_warm_insight_cache_task_si, mock_insights_to_keep_fresh, mock_largest_teams
     ):
         mock_largest_teams.return_value = [self.team1.pk, self.team2.pk]
-        mock_insights_to_keep_fresh.return_value = iter([])
+        mock_insights_to_keep_fresh.return_value = WarmingSelection(insights=[], skipped={})
 
         schedule_warming_for_teams_task()
 
@@ -236,7 +324,17 @@ class TestWarmInsightCacheTask(APIBaseTest):
         )
         DashboardTile.objects.create(dashboard=dashboard, insight=insight)
 
+        caches[QUERY_CACHE_ALIAS].clear()
         warm_insight_cache_task(insight.pk, dashboard.pk)
+        assert (insight.pk, dashboard.pk) in get_warming_durations(
+            team_id=self.team.pk, contexts=[(insight.pk, dashboard.pk)]
+        )
+
+        record_warming_duration(team_id=self.team.pk, insight_id=insight.pk, dashboard_id=dashboard.pk, seconds=999.0)
+        warm_insight_cache_task(insight.pk, dashboard.pk)
+        assert get_warming_durations(team_id=self.team.pk, contexts=[(insight.pk, dashboard.pk)]) == {
+            (insight.pk, dashboard.pk): 999.0
+        }
 
         response = self.client.get(
             f"/api/environments/{self.team.pk}/insights/{insight.pk}/?from_dashboard={dashboard.pk}&refresh=force_cache"
@@ -256,6 +354,32 @@ class TestWarmInsightCacheTask(APIBaseTest):
             warm_insight_cache_task(insight.pk, None)
 
         mock_capture_exception.assert_not_called()
+
+    @parameterized.expand([("no_previous_record", None, 1.0), ("slower_previous_record", 600.0, 600.0)])
+    @patch("posthog.caching.warming.capture_exception")
+    @patch("posthog.caching.warming.perf_counter", side_effect=[0.0, 1.0])
+    @patch("posthog.caching.warming.calculate_for_query_based_insight", side_effect=ClickHouseQueryTimeOut())
+    def test_a_timed_out_warm_keeps_the_slowest_duration(
+        self,
+        _name: str,
+        previous_seconds: Optional[float],
+        expected_seconds: float,
+        _mock_calculate: MagicMock,
+        _mock_perf_counter: MagicMock,
+        _mock_capture_exception: MagicMock,
+    ) -> None:
+        caches[QUERY_CACHE_ALIAS].clear()
+        insight = Insight.objects.create(team=self.team, query={"kind": "TrendsQuery", "series": []})
+        if previous_seconds is not None:
+            record_warming_duration(
+                team_id=self.team.pk, insight_id=insight.pk, dashboard_id=None, seconds=previous_seconds
+            )
+
+        warm_insight_cache_task(insight.pk, None)
+
+        assert get_warming_durations(team_id=self.team.pk, contexts=[(insight.pk, None)]) == {
+            (insight.pk, None): expected_seconds
+        }
 
     @patch("posthog.caching.warming.capture_exception")
     @patch("posthog.caching.warming.ph_scoped_capture")
