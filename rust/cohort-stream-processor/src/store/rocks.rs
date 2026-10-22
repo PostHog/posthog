@@ -57,6 +57,12 @@ use crate::partitions::PartitionOwnership;
 /// (`store/durability/recovery.rs`) with the live store's rule: a mismatched checkpoint blocks the
 /// boot, unless `wipe_on_schema_mismatch` lets the restore pass over it as unusable. A future bump
 /// must keep both guards in mind.
+///
+/// Replay marks keyed by source topic do not bump this. A value whose marks all come from
+/// `clickhouse_events_json` keeps its version 3 bytes. A value that holds another topic's mark
+/// has a form that a build without topic ids cannot decode, so that build reads the row as corrupt.
+/// Such a build must not open a store that holds one, and nothing here refuses it. See "Running a
+/// shuffler on another topic" in `docs/internal/realtime-cohorts/event-routing.md`.
 pub const STORE_SCHEMA_VERSION: u32 = 3;
 
 const OP_OPEN: &str = "open";
