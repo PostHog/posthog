@@ -6,7 +6,6 @@ pub mod download;
 pub mod dsym;
 pub mod error;
 pub mod experimental;
-pub mod gateway;
 pub mod invocation_context;
 pub mod login;
 pub mod proguard;

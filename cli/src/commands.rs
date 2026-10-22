@@ -136,12 +136,6 @@ pub enum Commands {
     /// Update posthog-cli to the latest version
     Update,
 
-    /// AI gateway tools for PostHog staff
-    Gateway {
-        #[command(subcommand)]
-        cmd: GatewayCommand,
-    },
-
     /// Experimental commands, not quite ready for prime time
     Exp {
         #[command(subcommand)]
@@ -210,17 +204,6 @@ pub enum Commands {
     Api {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
-    },
-}
-
-#[derive(Subcommand)]
-pub enum GatewayCommand {
-    /// Get a short-lived AI gateway token after you approve it in your browser, and print it.
-    /// Requests made with it are attributed to you. PostHog staff only.
-    Token {
-        /// Print the token, its expiry, spend limit and gateway URL as JSON
-        #[arg(long, default_value = "false")]
-        json: bool,
     },
 }
 
@@ -298,9 +281,6 @@ impl Commands {
         match self {
             Commands::Login => "login",
             Commands::Update => "update",
-            Commands::Gateway { cmd } => match cmd {
-                GatewayCommand::Token { .. } => "gateway_token",
-            },
             Commands::Exp { cmd } => cmd.telemetry_command_name(),
             Commands::Sourcemap { cmd } => match cmd {
                 SourcemapCommand::Inject(_) => "sourcemap_inject",
@@ -424,8 +404,6 @@ impl Cli {
                 // Updating talks to the release bucket, never to PostHog, so
                 // requiring credentials would lock out anyone without a token.
                 | Commands::Update
-                // Developer mode tokens come from a browser approval, never stored credentials.
-                | Commands::Gateway { .. }
                 | Commands::Api { .. }
                 | Commands::SymbolSets {
                     cmd: SymbolSetsSubcommand::Extract(_)
@@ -449,11 +427,6 @@ impl Cli {
             Commands::Update => {
                 crate::update::update()?;
             }
-            Commands::Gateway { cmd } => match cmd {
-                GatewayCommand::Token { json } => {
-                    crate::gateway::token(self.host, json)?;
-                }
-            },
             Commands::Sourcemap { cmd } => match cmd {
                 SourcemapCommand::Inject(input_args) => {
                     crate::sourcemaps::plain::inject::inject(&input_args, None)?;
