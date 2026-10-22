@@ -28,7 +28,12 @@ function groupLabel(groupKey: string): string {
 
 function rankProducts(products: SearchItem[], query: string): RankedItem[] {
     return products.flatMap((item) => {
-        const ranked = rankLocalItem(query, String(item.displayName || item.name), item.searchKeywords)
+        const ranked = rankLocalItem(
+            query,
+            String(item.displayName || item.name),
+            item.searchKeywords,
+            !!item.parentName
+        )
         return ranked
             ? [
                   {
@@ -75,7 +80,7 @@ function collapseSameName(entries: RankedItem[]): CollapsedItem[] {
     const byName = new Map<string, CollapsedItem>()
     const collapsed: CollapsedItem[] = []
     for (const entry of entries) {
-        const key = `${entry.groupKey}|${normalizedName(entry.item)}`
+        const key = `${entry.groupKey}|${entry.item.parentName ?? ''}|${normalizedName(entry.item)}`
         const existing = byName.get(key)
         if (existing) {
             existing.duplicates++

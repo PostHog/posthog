@@ -56,6 +56,7 @@ const SKIP_REASONS: Record<InsightDataCheckSkipReasonEnumApi, string> = {
     filtered_by_traffic_type: 'this insight already filters on traffic type',
     hidden_property: 'a property it reads is hidden from you',
     invalid_filter: "the project's internal and test users filter cannot run",
+    on_request: 'it would read a lot of data, so it runs only in a full check',
 }
 
 function eventCount(check: InsightDataCheckApi): string {

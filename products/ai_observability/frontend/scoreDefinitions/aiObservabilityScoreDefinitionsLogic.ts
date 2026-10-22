@@ -60,7 +60,7 @@ const ALLOWED_ORDER_BY_VALUES = new Set([
 ])
 
 function cleanFilters(values: ScoreDefinitionFilterInput): ScoreDefinitionFilters {
-    const orderBy = values.order_by && ALLOWED_ORDER_BY_VALUES.has(values.order_by) ? values.order_by : 'name'
+    const orderBy = values.order_by && ALLOWED_ORDER_BY_VALUES.has(values.order_by) ? values.order_by : '-updated_at'
 
     return {
         ...cleanTagFilters(values),
@@ -95,7 +95,7 @@ function getUrlFilters(filters: ScoreDefinitionFilters): Record<string, unknown>
         created_by: filters.created_by || undefined,
         kind: filters.kind || undefined,
         archived: filters.archived === 'false' ? undefined : filters.archived === '' ? 'all' : 'true',
-        order_by: filters.order_by === 'name' ? undefined : filters.order_by,
+        order_by: filters.order_by === '-updated_at' ? undefined : filters.order_by,
     }
 }
 
@@ -302,8 +302,8 @@ export const aiObservabilityScoreDefinitionsLogic = kea<aiObservabilityScoreDefi
             (filters: ScoreDefinitionFilters): Sorting | null => {
                 if (!filters.order_by) {
                     return {
-                        columnKey: 'name',
-                        order: 1,
+                        columnKey: 'updated_at',
+                        order: -1,
                     }
                 }
 
