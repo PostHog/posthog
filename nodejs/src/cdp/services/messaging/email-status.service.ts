@@ -19,9 +19,9 @@ const emailStatusWriteFailed = new Counter({
     labelNames: ['status'],
 })
 
-const emailStatusMissingRecipientHash = new Counter({
+export const emailStatusMissingRecipientHash = new Counter({
     name: 'cdp_email_status_missing_recipient_hash',
-    help: 'Transactional emails with no recipient hash, so no status row was written. Jobs queued before the hash existed land here.',
+    help: 'Transactional emails with no recipient hash, so no status row was written. Jobs queued before the hash existed, and sends while no salt key is configured, land here.',
     labelNames: ['source'],
 })
 
@@ -79,7 +79,7 @@ const createdAtOf = (messageId: string): Date => new Date(parseInt(messageId.rep
 
 const clickhouseDateTime64 = (date: Date): string => date.toISOString().replace('T', ' ').replace('Z', '000')
 
-export type EmailStatusSource = 'worker' | 'janitor'
+export type EmailStatusSource = 'route' | 'worker' | 'janitor'
 
 /**
  * The recipient hash to write status rows with, or undefined when the run is not a transactional

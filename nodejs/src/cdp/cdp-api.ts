@@ -69,7 +69,7 @@ import { HogFunctionManagerService } from './services/managers/hog-function-mana
 import { EMAIL_QUEUE_PRIORITY } from './services/messaging/email-priority'
 import { emailRecipientHash } from './services/messaging/email-recipient-hash'
 import { EmailSendPolicy } from './services/messaging/email-send-policy'
-import { EmailStatusWriter } from './services/messaging/email-status.service'
+import { EmailStatusWriter, transactionalEmailRecipientHash } from './services/messaging/email-status.service'
 import { EmailTrackingService } from './services/messaging/email-tracking.service'
 import { EmailTrackingCodeSigner } from './services/messaging/helpers/tracking-code'
 import { RecipientTokensService } from './services/messaging/recipient-tokens.service'
@@ -1215,8 +1215,13 @@ export class CdpApi {
             if (send) {
                 invocation.state.send = send
             }
-            const recipientHash = emailRecipientHash(to, this.config.ENCRYPTION_SALT_KEYS)
-            invocation.state.emailRecipientHash = recipientHash
+            const recipientHash = transactionalEmailRecipientHash(
+                { triggerEvent: event.event, recipientHash: emailRecipientHash(to, this.config.ENCRYPTION_SALT_KEYS) },
+                'route'
+            )
+            if (recipientHash) {
+                invocation.state.emailRecipientHash = recipientHash
+            }
             // Straight to the email queue: the flow's only step is the email, so a hop through the
             // workflow queue would only add latency to a password reset or a verification code.
             invocation.queue = 'email'
@@ -1289,13 +1294,15 @@ export class CdpApi {
             if (idempotencyKey) {
                 await idempotencyKeys.markQueued(team.id, idempotencyKey, fingerprint, invocation.id)
             }
-            this.emailStatus.recordInBackground({
-                teamId: team.id,
-                messageId: invocation.id,
-                status: 'queued',
-                at: new Date(),
-                recipientHash,
-            })
+            if (recipientHash) {
+                this.emailStatus.recordInBackground({
+                    teamId: team.id,
+                    messageId: invocation.id,
+                    status: 'queued',
+                    at: new Date(),
+                    recipientHash,
+                })
+            }
             await this.invocationResultsService.invocationResultsRowsService.flush()
             // The run skips the trigger pipeline that counts runs for event-triggered workflows.
             this.hogFunctionMonitoringService.queueAppMetric(
