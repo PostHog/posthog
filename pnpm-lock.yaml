@@ -5875,6 +5875,9 @@ importers:
       prosemirror-transform:
         specifier: ^1.10.4
         version: 1.10.4
+      undici:
+        specifier: ^8.12.2
+        version: 8.12.2
       uuid:
         specifier: ^11.1.1
         version: 11.1.1
@@ -23216,6 +23219,10 @@ packages:
 
   undici@8.10.1:
     resolution: {integrity: sha512-YQ3WlbqjYMmNpdvDH64jAgLjxuAR9+649calDWhbshYaeQGO2bR4nI94ORJmwI3J9YhoKQnpyGOK+0zlWS5N5Q==}
+    engines: {node: '>=22.19.0'}
+
+  undici@8.12.2:
+    resolution: {integrity: sha512-XtuDWVdqTLr3NAxm2ly9/hU6kUsJOgGh1RASzMBbsw6aWCOaQzHdW+QQDfdERjfJ2V5vL5pRPa4RetO9UfivDg==}
     engines: {node: '>=22.19.0'}
 
   unenv@2.0.0-rc.24:
@@ -46058,6 +46065,8 @@ snapshots:
   undici@7.24.8: {}
 
   undici@8.10.1: {}
+
+  undici@8.12.2: {}
 
   unenv@2.0.0-rc.24:
     dependencies:
