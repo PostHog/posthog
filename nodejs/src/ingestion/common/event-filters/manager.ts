@@ -31,6 +31,8 @@ export class EventFilterManager {
     }
 
     async prime(): Promise<void> {
+        // Do not catch a first load error: startup must fail. A consumer without its filters
+        // ingests the events that a filter drops, and those events cannot be removed later.
         await this.refresher.get()
     }
 
