@@ -26,6 +26,7 @@ from products.signals.backend.activity_summary import (
     tick,
 )
 from products.signals.backend.activity_summary.config import ActivitySummaryConfig, parse_config
+from products.signals.backend.activity_summary.prompt import PROMPT_VERSION
 from products.signals.backend.activity_summary.queue import (
     ActivitySummaryPair,
     DailyUsage,
@@ -33,7 +34,7 @@ from products.signals.backend.activity_summary.queue import (
     max_update_cost_usd,
     select_pairs,
 )
-from products.signals.backend.activity_summary.render import DEFAULT_LIMITS, MAX_LIMITS, RenderLimits
+from products.signals.backend.activity_summary.render import DEFAULT_LIMITS, MAX_LIMITS, RENDER_VERSION, RenderLimits
 from products.signals.backend.activity_summary.schedule import (
     ACTIVITY_SUMMARY_TICK_SCHEDULE_ID,
     create_activity_summary_tick_schedule,
@@ -87,6 +88,7 @@ _CONFIG_CASES: list[tuple[str, Any, ActivitySummaryConfig]] = [
             "min_units": None,
             "min_update_interval_hours": 0,
             "emit_embeddings": "no",
+            "rebuild_before": "not a time",
         },
         ActivitySummaryConfig(enabled=True, organization_ids=("org-a",), skip_team_ids=(3,)),
     ),
@@ -98,6 +100,7 @@ _CONFIG_CASES: list[tuple[str, Any, ActivitySummaryConfig]] = [
             "max_cost_usd_per_day": 1,
             "min_update_interval_hours": 12,
             "capture_events": False,
+            "rebuild_before": "2026-10-01T00:00:00",
         },
         ActivitySummaryConfig(
             enabled=True,
@@ -105,6 +108,7 @@ _CONFIG_CASES: list[tuple[str, Any, ActivitySummaryConfig]] = [
             max_cost_usd_per_day=1.0,
             min_update_interval_hours=12.0,
             capture_events=False,
+            rebuild_before=datetime.datetime(2026, 10, 1, tzinfo=datetime.UTC),
         ),
     ),
     (
@@ -125,10 +129,16 @@ _CONFIG_CASES: list[tuple[str, Any, ActivitySummaryConfig]] = [
         ),
     ),
     ("limits that are not an object", {"enabled": True, "limits": [5]}, ActivitySummaryConfig(enabled=True)),
+    (
+        "a future rebuild_before waits",
+        {"enabled": True, "rebuild_before": "2026-10-20T00:00:00+00:00"},
+        ActivitySummaryConfig(enabled=True),
+    ),
 ]
 
 
 @parameterized.expand(_CONFIG_CASES)
+@time_machine.travel(NOW, tick=False)
 def test_parse_config(_name: str, payload: Any, expected: ActivitySummaryConfig) -> None:
     assert parse_config(payload) == expected
 
@@ -157,7 +167,10 @@ class TestActivitySummaryQueue(BaseTest):
 
     def _summary(self, user: User, **fields: Any) -> None:
         UserActivitySummary.objects.for_team(self.team.id).create(
-            team_id=self.team.id, user_id=user.id, status=UserActivitySummary.Status.OK, **fields
+            team_id=self.team.id,
+            user_id=user.id,
+            status=UserActivitySummary.Status.OK,
+            **({"prompt_version": PROMPT_VERSION, "render_version": RENDER_VERSION} | fields),
         )
 
     def _select(self, config: ActivitySummaryConfig | None = None, tasks: list[UserTaskTime] | None = None):
@@ -188,6 +201,29 @@ class TestActivitySummaryQueue(BaseTest):
             (self.team.id, busy.id),
             (self.team.id, stale.id),
             (self.team.id, fresh.id),
+        ]
+
+    def test_a_stale_summary_is_due_without_new_rows_and_ranks_with_cold_starts(self) -> None:
+        current, old_version, before_rebuild, busy = (
+            self._user(f"{name}@example.com") for name in ("current", "old", "rebuild", "busy")
+        )
+        summary_fields = {
+            "generated_at": NOW - datetime.timedelta(days=2),
+            "input_watermark": NOW - datetime.timedelta(days=2),
+        }
+        self._summary(current, **summary_fields)
+        self._summary(old_version, **(summary_fields | {"prompt_version": PROMPT_VERSION - 1}))
+        self._summary(before_rebuild, **(summary_fields | {"generated_at": NOW - datetime.timedelta(days=3)}))
+        self._summary(busy, **summary_fields)
+        for user in (current, old_version, before_rebuild):
+            self._changes(user, 1, days_ago=5)
+        self._changes(busy, 3)
+
+        config = self._config(rebuild_before=NOW - datetime.timedelta(days=2, hours=12))
+        assert self._select(config) == [
+            (self.team.id, before_rebuild.id),
+            (self.team.id, old_version.id),
+            (self.team.id, busy.id),
         ]
 
     def test_leaves_out_pairs_that_are_not_due_or_not_enrolled(self) -> None:
