@@ -334,11 +334,12 @@ def _request_reviews(
     pr: dict[str, Any],
     reviewers: list[str],
 ) -> list[str]:
-    existing = {
-        str(login).lower()
-        for login in [pr.get("author"), *(pr.get("assignees") or []), *(pr.get("requested_reviewers") or [])]
-        if login
-    }
+    # An existing request is a review decision made outside this worker. Adding another reviewer
+    # would turn a deliberate request into a growing queue every time report assignment reruns.
+    if pr.get("requested_reviewers") or pr.get("requested_teams"):
+        return []
+
+    existing = {str(login).lower() for login in [pr.get("author"), *(pr.get("assignees") or [])] if login}
     wanted = [login for login in reviewers if login.lower() not in existing]
     if not wanted:
         return []
@@ -356,6 +357,7 @@ def _request_reviews(
     wanted = [login for login in wanted if login.lower() not in existing]
     if not wanted:
         return []
+    wanted = wanted[:1]
 
     try:
         if not assignment_side_effects_allowed(team_id=team_id, report_id=report_id):

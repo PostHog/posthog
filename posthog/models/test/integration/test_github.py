@@ -1193,7 +1193,7 @@ class TestGitHubIntegrationModel(BaseTest):
         assert mock_post.call_args.args[0] == "https://api.github.com/repos/PostHog/posthog/issues/123/comments"
         assert mock_post.call_args.kwargs["json_body"] == {"body": "hello"}
 
-    def test_get_pull_request_includes_requested_reviewers(self):
+    def test_get_pull_request_includes_requested_reviewers_and_teams(self):
         integration = self.create_integration(
             config={"account": {"name": "PostHog"}}, sensitive_config={"access_token": "ACCESS_TOKEN"}
         )
@@ -1203,6 +1203,7 @@ class TestGitHubIntegrationModel(BaseTest):
             "number": 123,
             "assignees": [{"login": "alice"}],
             "requested_reviewers": [{"login": "bob"}],
+            "requested_teams": [{"slug": "team-signals"}],
         }
 
         with patch.object(github, "_installation_authenticated_get", return_value=mock_response):
@@ -1210,6 +1211,7 @@ class TestGitHubIntegrationModel(BaseTest):
 
         assert result["assignees"] == ["alice"]
         assert result["requested_reviewers"] == ["bob"]
+        assert result["requested_teams"] == ["team-signals"]
 
     def test_list_submitted_pull_request_reviewers_reads_every_page(self):
         integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})

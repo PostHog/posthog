@@ -1302,6 +1302,11 @@ class GitHubIntegrationBase:
                 for entry in (pr.get("requested_reviewers") or [])
                 if isinstance(entry, dict) and entry.get("login")
             ],
+            "requested_teams": [
+                entry["slug"]
+                for entry in (pr.get("requested_teams") or [])
+                if isinstance(entry, dict) and entry.get("slug")
+            ],
             "created_at": pr.get("created_at"),
             "updated_at": pr.get("updated_at"),
             "merged_at": pr.get("merged_at"),

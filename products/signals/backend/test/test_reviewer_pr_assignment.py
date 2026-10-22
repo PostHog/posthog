@@ -86,6 +86,7 @@ def _open_pr_github() -> MagicMock:
         "merged": False,
         "assignees": [],
         "requested_reviewers": [],
+        "requested_teams": [],
     }
     github.add_pull_request_assignees.return_value = {"success": True, "assignees": ["opted-in"]}
     github.request_pull_request_reviews.return_value = {
@@ -191,17 +192,15 @@ class TestAssignReviewersToPullRequest:
     @pytest.mark.django_db
     def test_suggested_reviewers_receive_review_requests(self, org_and_team):
         org, team = org_and_team
-        for login in ("author", "assigned", "requested", "completed", "new-reviewer"):
+        for login in ("author", "assigned", "completed", "new-reviewer", "lower-ranked"):
             _make_reviewer(org, login, opted_in=False)
-        report = _make_report(team, ["author", "assigned", "requested", "completed", "new-reviewer"])
+        report = _make_report(team, ["author", "assigned", "completed", "new-reviewer", "lower-ranked"])
         github = _open_pr_github()
-        github.get_pull_request.return_value.update(
-            {"author": "Author", "assignees": ["Assigned"], "requested_reviewers": ["Requested"]}
-        )
+        github.get_pull_request.return_value.update({"author": "Author", "assignees": ["Assigned"]})
         github.list_submitted_pull_request_reviewers.return_value = {"success": True, "reviewed_by": ["Completed"]}
         github.request_pull_request_reviews.return_value = {
             "success": True,
-            "requested_reviewers": ["requested", "new-reviewer"],
+            "requested_reviewers": ["new-reviewer"],
         }
 
         with patch(
@@ -214,6 +213,27 @@ class TestAssignReviewersToPullRequest:
         github.list_submitted_pull_request_reviewers.assert_called_once_with("PostHog/posthog", 123)
         github.request_pull_request_reviews.assert_called_once_with("PostHog/posthog", 123, ["new-reviewer"])
         github.add_pull_request_assignees.assert_not_called()
+
+    @pytest.mark.django_db
+    @pytest.mark.parametrize(
+        ("existing_field", "existing_value"),
+        [("requested_reviewers", ["human-choice"]), ("requested_teams", ["owning-team"])],
+    )
+    def test_an_existing_review_request_is_left_alone(self, org_and_team, existing_field, existing_value):
+        org, team = org_and_team
+        _make_reviewer(org, "suggested", opted_in=False)
+        report = _make_report(team, ["suggested"])
+        github = _open_pr_github()
+        github.get_pull_request.return_value[existing_field] = existing_value
+
+        with patch(
+            "products.signals.backend.reviewer_pr_assignment.GitHubIntegration.first_for_team_repository",
+            return_value=github,
+        ):
+            assign_reviewers_to_pull_request(team_id=team.id, report_id=str(report.id), pr_url=PR_URL)
+
+        github.list_submitted_pull_request_reviewers.assert_not_called()
+        github.request_pull_request_reviews.assert_not_called()
 
     @pytest.mark.django_db
     @pytest.mark.parametrize(
