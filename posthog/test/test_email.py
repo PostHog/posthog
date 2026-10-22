@@ -423,7 +423,9 @@ class TestEmail(BaseTest):
                 [
                     requests.ConnectionError(
                         urllib3.exceptions.MaxRetryError(
-                            None, "/", urllib3.exceptions.NewConnectionError(None, "refused")
+                            urllib3.HTTPConnectionPool("us.posthog.com"),
+                            "/",
+                            urllib3.exceptions.NewConnectionError(None, "refused"),
                         )
                     ),
                     200,
