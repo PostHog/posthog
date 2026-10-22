@@ -59,6 +59,7 @@ export function BroadcastScheduleStep(): JSX.Element {
         recurringRepeating,
         effectiveTimezone,
         stepValidationErrors,
+        channel,
     } = useValues(broadcastWizardLogic)
     const {
         setScheduleMode,
@@ -73,7 +74,9 @@ export function BroadcastScheduleStep(): JSX.Element {
     return (
         <div className="flex flex-col gap-4">
             <div>
-                <h2 className="m-0 text-xl font-semibold">When should this email go out?</h2>
+                <h2 className="m-0 text-xl font-semibold">
+                    When should this {channel === 'push' ? 'notification' : 'email'} go out?
+                </h2>
                 <p className="m-0 text-secondary">Send it right away, pick a time, or set up a repeating schedule.</p>
             </div>
 
