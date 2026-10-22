@@ -130,8 +130,8 @@ impl CappedPolling {
     }
 }
 
-/// The other partitions' slices stay, so their charges settle and the
-/// frontier never crosses a hole.
+/// Keeps the other partitions' slices: a dropped slice never settles, and
+/// its partition's commits stop at that hole.
 fn strip_revoked_partitions(
     in_flight_polls: &mut VecDeque<InFlightPoll>,
     revoked: &[TopicPartition],
@@ -164,10 +164,7 @@ fn strip_revoked_partitions(
 
 /// A key-table run can merge several polls into one send, so a completion
 /// can span polls. Within one epoch, spans are disjoint per partition, so an
-/// offset matches at most one poll. Acceptance credits the leading offsets,
-/// as [`send_group_completions`] splits it across groups.
-///
-/// [`send_group_completions`]: crate::batcher
+/// offset matches at most one poll.
 fn apply_completion(
     in_flight: &mut VecDeque<InFlightPoll>,
     completion: &GroupCompletion,
@@ -404,7 +401,6 @@ mod tests {
 
     #[test]
     fn apply_completion_spanning_two_polls_credits_each() {
-        // A key-table run merges consecutive polls into one send.
         let mut in_flight = VecDeque::from([poll(1, 0, 0, 3, 4), poll(1, 0, 4, 7, 4)]);
 
         credit(&mut in_flight, completion(1, 0, &[2, 3, 4, 5], 4));
@@ -444,7 +440,6 @@ mod tests {
 
     #[test]
     fn a_poll_whose_deliveries_span_an_offset_gap_commits() {
-        // A compacted or transactional topic skips offsets.
         let mut gapped = poll(1, 0, 0, 0, 2);
         let deliveries = gapped
             .partitions
@@ -464,7 +459,6 @@ mod tests {
 
     #[test]
     fn strip_revoked_partitions_keeps_the_other_partitions_slices() {
-        // A dropped kept slice never settles, and its commits stop at the hole.
         let mut two = poll(1, 0, 0, 1, 4);
         two.partitions.insert(
             TopicPartition::new("test", 1),
@@ -499,7 +493,6 @@ mod tests {
         assert_eq!(in_flight[0].covered, 0, "the revoked slice's credit goes");
         assert!(!in_flight[0].is_complete());
 
-        // A late completion for the revoked partition is discarded.
         credit(&mut in_flight, completion(1, 1, &[11], 1));
         assert_eq!(in_flight[0].covered, 0);
         credit(&mut in_flight, completion(1, 0, &[0, 1], 2));
@@ -521,7 +514,6 @@ mod tests {
 
     #[test]
     fn apply_completion_requires_a_matching_epoch() {
-        // A revoke, reassignment and replay put the same offsets in two polls.
         let mut in_flight = VecDeque::from([poll(1, 0, 0, 3, 4), poll(2, 0, 0, 3, 4)]);
 
         credit(&mut in_flight, completion(2, 0, &[0, 1, 2, 3], 4));

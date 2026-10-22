@@ -29,11 +29,9 @@ pub(crate) struct Delivery {
     pub(crate) lag_ms: Option<i64>,
 }
 
-/// What a batch saw delivered from one partition, folded in one map entry
-/// per message. The span bounds what the batch delivered; the stamped
-/// charges feed the ledger.
 pub(crate) struct PartitionDeliveries {
-    /// The offsets the batch delivered, first to last.
+    /// The first and last delivered offsets. A compacted or transactional topic
+    /// can skip offsets between them.
     pub(crate) span: OffsetSpan,
     /// The ledger generation, set when the poll is charged.
     pub(crate) generation: u64,
@@ -106,7 +104,6 @@ impl PartitionDeliveries {
     }
 }
 
-/// One collected poll, ready to charge and submit.
 pub(crate) struct CollectedBatch {
     /// The poll's messages, demuxed per partition and routing key.
     pub(crate) accumulator: Accumulator,
@@ -114,9 +111,6 @@ pub(crate) struct CollectedBatch {
     pub(crate) stats: BatchStats,
 }
 
-/// One submitted poll, awaiting its group completions. The consumer
-/// correlates completions to it by assignment epoch, partition, and offset;
-/// the poll retires only once completions cover every message.
 pub(crate) struct InFlightPoll {
     /// Consumer-side id for logs and debug events only; the batcher's
     /// internal batch id never crosses the boundary.
@@ -128,8 +122,7 @@ pub(crate) struct InFlightPoll {
     pub(crate) message_count: u32,
     /// Messages covered by completions so far, accepted or not.
     pub(crate) covered: u32,
-    /// Worker-accepted messages so far. The poll retires only when this
-    /// reaches `message_count`.
+    /// Worker-accepted messages so far.
     pub(crate) accepted: u32,
     pub(crate) dispatched_at: Instant,
 }

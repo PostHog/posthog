@@ -132,7 +132,7 @@ impl Collector {
         })
     }
 
-    /// Returns the messages removed.
+    /// Returns how many messages it removed.
     pub(crate) fn remove_partitions(&mut self, topic_partitions: &[TopicPartition]) -> usize {
         let mut removed = 0;
         for topic_partition in topic_partitions {
@@ -162,7 +162,7 @@ impl Collector {
 
     /// The byte bound counts only messages already added, so a poll always
     /// carries one message, even one larger than the bound. The overshoot is
-    /// at most one message, which `fetch.message.max.bytes` bounds.
+    /// at most one message, which the topic's `max.message.bytes` bounds.
     fn is_full(&self) -> bool {
         if self.accumulator.message_count() >= self.limits.batch_size {
             return true;
@@ -204,8 +204,6 @@ fn current_time_ms() -> i64 {
         .as_millis() as i64
 }
 
-/// Parse an ISO 8601 / RFC 3339 timestamp string into milliseconds since epoch.
-/// Returns `None` if the string is missing or unparseable.
 fn parse_now_ms(value: &str) -> Option<i64> {
     chrono::DateTime::parse_from_rfc3339(value)
         .ok()

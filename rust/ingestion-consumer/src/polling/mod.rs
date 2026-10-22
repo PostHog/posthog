@@ -50,8 +50,6 @@ pub(crate) struct Parts {
     pub(crate) debug_recorder: Option<Arc<DebugRecorder>>,
 }
 
-/// What the consumer loop asks of a polling strategy. The loop hands it each
-/// event and carries out the steps it returns.
 pub(crate) trait PollingStrategy {
     fn reading(&mut self) -> bool;
 
@@ -90,11 +88,11 @@ pub(crate) enum Selected {
     Continuous { in_flight: ChargeLimit },
 }
 
-/// Continuous polling needs `group` granularity, because at `poll` a commit
-/// waits for the whole oldest poll. It needs a budget and an in-flight limit,
-/// because without the admission cap they are the only bounds. Without all
-/// three the capped strategy runs, so a lane rolled back to `poll` needs no
-/// second setting changed.
+/// Continuous polling needs `group` granularity, because at `poll` only a
+/// retired poll settles, and continuous polling retires no poll. It needs a
+/// partition budget and an in-flight limit, because it has no in-flight poll
+/// cap. Without all three the capped strategy runs, so a lane rolled back to
+/// `poll` needs no second setting changed.
 pub(crate) fn select(
     polling: Polling,
     granularity: CompletionGranularity,

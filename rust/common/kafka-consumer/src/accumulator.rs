@@ -103,7 +103,7 @@ impl<K: Hash + Eq + Clone, M> Accumulator<K, M> {
         self.message_count
     }
 
-    /// Returns the messages removed.
+    /// Returns how many messages it removed.
     pub fn remove_partition(&mut self, partition: Partition) -> usize {
         let before = self.message_count;
         self.groups.retain(|group| {

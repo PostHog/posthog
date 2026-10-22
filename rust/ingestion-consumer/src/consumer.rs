@@ -486,8 +486,6 @@ impl IngestionConsumer {
         Ok(())
     }
 
-    /// Charges before it submits, so that no completion settles an uncharged
-    /// offset.
     fn submit_poll(&self, collected: CollectedBatch) -> anyhow::Result<InFlightPoll> {
         let CollectedBatch {
             accumulator,

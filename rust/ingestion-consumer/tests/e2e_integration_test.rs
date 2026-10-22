@@ -825,8 +825,6 @@ impl Harness {
         .await
     }
 
-    /// Like `start`, under the given polling strategy. The continuous
-    /// strategy gets its requirements with limits that do not bind.
     async fn start_polling(
         topic: &str,
         partitions: i32,
@@ -867,9 +865,6 @@ impl Harness {
         .await
     }
 
-    /// Bounds batch collection by payload bytes as well as count
-    /// (`CONSUMER_BATCH_SIZE_KB`). Single worker and partition, so each
-    /// sub-batch is one whole Kafka batch.
     async fn start_byte_capped(topic: &str, batch_size_bytes: usize, polling: Polling) -> Self {
         Self::start_polling(topic, 1, 1, 1, batch_size_bytes, polling).await
     }

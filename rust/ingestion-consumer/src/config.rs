@@ -309,9 +309,8 @@ pub struct Config {
 
     /// Uncommitted key-plus-value-plus-header bytes across all partitions at
     /// which the continuous strategy stops reading from Kafka. The poll in
-    /// progress still completes, so the total can pass it by one poll:
-    /// `CONSUMER_BATCH_SIZE_KB` plus one message. `0` (default) sets no byte
-    /// limit.
+    /// progress still completes, so the total can pass it by one poll. `0`
+    /// (default) sets no byte limit.
     #[envconfig(from = "CONSUMER_IN_FLIGHT_BYTES", default = "0")]
     pub consumer_in_flight_bytes: u64,
 
