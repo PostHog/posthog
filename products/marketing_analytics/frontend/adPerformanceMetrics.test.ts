@@ -79,7 +79,14 @@ describe('Ad performance sparklines', () => {
             const query = buildAdPerformanceTrendsQuery(
                 {
                     kind: NodeKind.MarketingAnalyticsAggregatedQuery,
-                    properties: [{ type: PropertyFilterType.HogQL, key: 'true' }],
+                    properties: [
+                        {
+                            type: PropertyFilterType.Event,
+                            key: 'browser',
+                            operator: PropertyOperator.Exact,
+                            value: 'Chrome',
+                        },
+                    ],
                     filterTestAccounts: true,
                     dateRange: { date_from: '-30d', date_to: null },
                     compareFilter: { compare: true },
