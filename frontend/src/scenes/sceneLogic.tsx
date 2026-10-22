@@ -19,13 +19,7 @@ import { useEffect, useState } from 'react'
 import api from 'lib/api'
 import type { SupportTicketExceptionEvent } from 'lib/components/Support/supportLogic'
 import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
-import {
-    isGoldRingsActive,
-    isGoldRingsMuted,
-    listenForGoldRingsOptOut,
-    playGoldRings,
-    watchForGoldRingsContent,
-} from 'lib/holidayGoldRings'
+import { listenForGoldRingsKeys } from 'lib/holidayGoldRings'
 import { trackFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Spinner } from 'lib/lemon-ui/Spinner'
@@ -82,40 +76,6 @@ interface MountedSceneLogic {
 }
 
 const generateTabId = (): string => crypto?.randomUUID?.()?.split('-')?.pop() || `${Date.now()}-${Math.random()}`
-
-function checkGoldRingsAfterScenePaint(
-    navigation: string,
-    isEnabled: () => boolean,
-    hasPlayed: () => boolean,
-    onMatch: () => void
-): () => void {
-    if (!isGoldRingsActive(new Date(), isEnabled()) || hasPlayed()) {
-        return () => undefined
-    }
-
-    let stopWatching = (): void => undefined
-    const animationFrame = window.requestAnimationFrame(() => {
-        if (router.values.location.pathname + router.values.location.search !== navigation) {
-            return
-        }
-
-        stopWatching = watchForGoldRingsContent(
-            () => {
-                const mainContent = document.getElementById('main-content')
-                return mainContent?.querySelector<HTMLElement>('.scene-content') ?? mainContent
-            },
-            isEnabled,
-            () => router.values.location.pathname + router.values.location.search === navigation,
-            hasPlayed,
-            onMatch
-        )
-    })
-
-    return () => {
-        window.cancelAnimationFrame(animationFrame)
-        stopWatching()
-    }
-}
 
 /**
  * Homepage snapshot for JSON persistence: strips `sceneParams` (deep/cyclic routing state) and
@@ -497,9 +457,8 @@ export const sceneLogic = kea<sceneLogicType>([
         cache.lastTrackedScene = null as { sceneId?: string; sceneKey?: string } | null
         cache.homepageSave = Promise.resolve()
         cache.homepageRequest = 0
-        cache.goldRingsSetup = null as (() => () => void) | null
         cache.disposables.add(() =>
-            listenForGoldRingsOptOut(
+            listenForGoldRingsKeys(
                 () => featureFlagLogic.values.featureFlags[FEATURE_FLAGS.CHRISTMAS_GOLD_RINGS] === true
             )
         )
@@ -957,30 +916,6 @@ export const sceneLogic = kea<sceneLogicType>([
             if (!lastTracked || lastTracked.sceneId !== sceneId || lastTracked.sceneKey !== sceneKey) {
                 trackFileSystemLogView({ type: 'scene', ref: sceneId })
                 cache.lastTrackedScene = { sceneId, sceneKey }
-            }
-
-            const navigation = router.values.location.pathname + router.values.location.search
-            if (cache.lastGoldRingsNavigation !== navigation) {
-                cache.lastGoldRingsNavigation = navigation
-                let played = false
-                cache.goldRingsSetup = () =>
-                    checkGoldRingsAfterScenePaint(
-                        navigation,
-                        () =>
-                            featureFlagLogic.values.featureFlags[FEATURE_FLAGS.CHRISTMAS_GOLD_RINGS] === true &&
-                            !isGoldRingsMuted(),
-                        () => played,
-                        () => {
-                            played = true
-                            playGoldRings()
-                        }
-                    )
-                cache.disposables.add(cache.goldRingsSetup, 'gold-rings')
-            }
-        },
-        [featureFlagLogic.actionTypes.setFeatureFlags]: () => {
-            if (cache.goldRingsSetup) {
-                cache.disposables.add(cache.goldRingsSetup, 'gold-rings')
             }
         },
         openScene: ({ sceneId, sceneKey, params, method }) => {

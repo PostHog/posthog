@@ -116,31 +116,24 @@ describe('sceneLogic', () => {
         })
     })
 
-    it('plays after the holiday flag arrives for an already loaded scene', () => {
+    it('plays when 5 is pressed after the holiday flag arrives', () => {
         jest.useFakeTimers()
         jest.setSystemTime(new Date(2026, 11, 25))
-        const content = document.createElement('div')
-        content.id = 'main-content'
-        content.innerText = '5 rows'
-        document.body.appendChild(content)
         const play = jest.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue()
         const pause = jest.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation()
         let playsBeforeFlag = 0
         let playsAfterFlag = 0
 
         try {
-            router.actions.push(urls.settings('user'))
-            logic.actions.setScene(Scene.Alerts, 'alerts', { params: {}, searchParams: {}, hashParams: {} })
-            jest.advanceTimersByTime(20)
+            window.dispatchEvent(new KeyboardEvent('keydown', { key: '5' }))
             playsBeforeFlag = play.mock.calls.length
 
             featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.CHRISTMAS_GOLD_RINGS], {
                 [FEATURE_FLAGS.CHRISTMAS_GOLD_RINGS]: true,
             })
-            jest.advanceTimersByTime(20)
+            window.dispatchEvent(new KeyboardEvent('keydown', { key: '5' }))
             playsAfterFlag = play.mock.calls.length
         } finally {
-            content.remove()
             play.mockRestore()
             pause.mockRestore()
             jest.useRealTimers()
