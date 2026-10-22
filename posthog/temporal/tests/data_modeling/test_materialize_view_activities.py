@@ -67,6 +67,7 @@ from products.data_modeling.backend.facade.api import (
     definition_fingerprint,
     get_incremental_config,
     get_incremental_state,
+    link_table_if_materializing,
     set_incremental_state,
 )
 from products.data_modeling.backend.facade.modeling import ResolutionCycleError, bounded_resolver_factory_for_view
@@ -87,6 +88,7 @@ from products.data_quality.backend.facade.enums import (
     SuiteRunTrigger,
 )
 from products.data_quality.backend.facade.models import DataQualityCheckRun, DataQualitySuiteRun
+from products.data_tools.backend.facade.models import DataWarehouseJoin
 from products.data_warehouse.backend.facade.api import CreateTableResult
 from products.managed_warehouse.backend.facade.contracts import DuckLakeTableResult, TrinoIncrementalWrite
 from products.notifications.backend.facade.api import NotificationType, Priority, TargetType
@@ -179,6 +181,14 @@ class TestMaterializeViewManagedWarehouseActivity:
         asaved_query.origin = DataWarehouseSavedQuery.Origin.ENDPOINT
         await database_sync_to_async(asaved_query.save)(update_fields=["origin"])
         executable_query = {"kind": "HogQLQuery", "query": "SELECT 2"}
+
+        def execute_trino_model(**kwargs: Any) -> DuckLakeTableResult:
+            kwargs["on_processed_bytes"](300)
+            kwargs["on_processed_bytes"](45)
+            if compile_fails:
+                raise ValueError("Trino compilation failed")
+            return DuckLakeTableResult(schema_name="shadow_models", table_name="test_model", row_count=12)
+
         with (
             unittest.mock.patch(
                 "products.managed_warehouse.backend.facade.client.request_model_alias_reconciliation",
@@ -186,8 +196,7 @@ class TestMaterializeViewManagedWarehouseActivity:
             ) as reconcile_aliases,
             unittest.mock.patch(
                 "products.managed_warehouse.backend.facade.client.execute_trino_model",
-                return_value=DuckLakeTableResult(schema_name="shadow_models", table_name="test_model", row_count=12),
-                side_effect=ValueError("Trino compilation failed") if compile_fails else None,
+                side_effect=execute_trino_model,
             ) as execute,
             unittest.mock.patch(
                 "products.managed_warehouse.backend.facade.client.execute_ducklake_create_table"
@@ -205,9 +214,11 @@ class TestMaterializeViewManagedWarehouseActivity:
             saved_query_id=asaved_query.id,
             source_query=executable_query,
             incremental=None,
+            on_processed_bytes=unittest.mock.ANY,
         )
         legacy_execute.assert_not_called()
         await database_sync_to_async(ajob.refresh_from_db)()
+        assert ajob.bytes_read == 345
         if compile_fails:
             reconcile_aliases.assert_not_awaited()
             assert result.error == "Trino compilation failed"
@@ -1443,6 +1454,8 @@ class TestPrepareQueryableTableActivity:
         await database_sync_to_async(warehouse_table.delete)()
 
     async def test_updates_saved_query_with_table_reference(self, activity_environment, ateam, asaved_query, ajob):
+        asaved_query.is_materialized = True
+        await database_sync_to_async(asaved_query.save)()
         inputs = PrepareQueryableTableInputs(
             team_id=ateam.pk,
             job_id=str(ajob.id),
@@ -1476,11 +1489,11 @@ class TestPrepareQueryableTableActivity:
         await database_sync_to_async(warehouse_table.delete)()
 
     @pytest.mark.parametrize(
-        "is_materialized,expected_type",
-        [(True, NodeType.MAT_VIEW), (False, NodeType.VIEW)],
+        "is_materialized,expected_type,keeps_table",
+        [(True, NodeType.MAT_VIEW, True), (False, NodeType.VIEW, False)],
     )
     async def test_linking_a_table_retypes_the_node_only_while_the_query_asks_to_materialize(
-        self, activity_environment, ateam, asaved_query, anode, ajob, is_materialized, expected_type
+        self, activity_environment, ateam, asaved_query, anode, ajob, is_materialized, expected_type, keeps_table
     ):
         # A node left typed VIEW is treated as ephemeral by every scheduled DAG run, which skips
         # materialization without recording a job. Linking a table is where that gets repaired —
@@ -1488,7 +1501,7 @@ class TestPrepareQueryableTableActivity:
         # the customer just turned off.
         anode.type = NodeType.VIEW
         await database_sync_to_async(anode.save)()
-        asaved_query.is_materialized = is_materialized
+        asaved_query.is_materialized = True
         await database_sync_to_async(asaved_query.save)()
 
         inputs = PrepareQueryableTableInputs(
@@ -1501,25 +1514,94 @@ class TestPrepareQueryableTableActivity:
         )
         warehouse_table = await database_sync_to_async(DataWarehouseTable.objects.create)(
             team=ateam,
-            name="test_warehouse_table",
+            name=asaved_query.name,
             format="Delta",
         )
+        view_join = await database_sync_to_async(DataWarehouseJoin.objects.create)(
+            team=ateam,
+            source_table_name=asaved_query.name,
+            source_table_key="id",
+            joining_table_name="events",
+            joining_table_key="distinct_id",
+            field_name="events",
+        )
+
+        async def publish_while_the_query_changes(*args, **kwargs):
+            await database_sync_to_async(DataWarehouseSavedQuery.objects.filter(id=asaved_query.id).update)(
+                is_materialized=is_materialized, table=warehouse_table
+            )
+            return CreateTableResult(table=warehouse_table, storage_delta_mib=None, total_storage_mib=None)
+
         with (
             unittest.mock.patch(
                 "posthog.temporal.data_modeling.activities.prepare_queryable_table.prepare_s3_files_for_querying"
             ) as mock_prepare,
             unittest.mock.patch(
-                "posthog.temporal.data_modeling.activities.prepare_queryable_table.create_table_from_saved_query"
-            ) as mock_create_table,
+                "posthog.temporal.data_modeling.activities.prepare_queryable_table.create_table_from_saved_query",
+                side_effect=publish_while_the_query_changes,
+            ),
         ):
             mock_prepare.return_value = "test-bucket/queryable_folder"
-            mock_create_table.return_value = CreateTableResult(
-                table=warehouse_table, storage_delta_mib=None, total_storage_mib=None
-            )
             await activity_environment.run(prepare_queryable_table_activity, inputs)
 
         await database_sync_to_async(anode.refresh_from_db)()
+        await database_sync_to_async(asaved_query.refresh_from_db)()
+        await database_sync_to_async(warehouse_table.refresh_from_db)()
+        await database_sync_to_async(view_join.refresh_from_db)()
         assert anode.type == expected_type
+        assert (asaved_query.table_id == warehouse_table.id) is keeps_table
+        assert bool(warehouse_table.deleted) is not keeps_table
+        assert not view_join.deleted
+        await database_sync_to_async(warehouse_table.delete)()
+
+    async def test_a_revert_that_lands_right_after_the_link_still_wins(
+        self, activity_environment, ateam, asaved_query, ajob
+    ):
+        asaved_query.is_materialized = True
+        await database_sync_to_async(asaved_query.save)()
+        inputs = PrepareQueryableTableInputs(
+            team_id=ateam.pk,
+            job_id=str(ajob.id),
+            saved_query_id=str(asaved_query.id),
+            table_uri="s3://test-bucket/test_table",
+            file_uris=["s3://test-bucket/test_file.parquet"],
+            row_count=10,
+        )
+        warehouse_table = await database_sync_to_async(DataWarehouseTable.objects.create)(
+            team=ateam,
+            name=asaved_query.name,
+            format="Delta",
+        )
+
+        def link_then_revert(team_id, saved_query_id, table_id):
+            loaded_before_the_link = DataWarehouseSavedQuery.objects.get(id=asaved_query.id)
+            linked = link_table_if_materializing(team_id, saved_query_id, table_id)
+            loaded_before_the_link.revert_materialization()
+            return linked
+
+        with (
+            unittest.mock.patch(
+                "posthog.temporal.data_modeling.activities.prepare_queryable_table.prepare_s3_files_for_querying",
+                return_value="test-bucket/queryable_folder",
+            ),
+            unittest.mock.patch(
+                "posthog.temporal.data_modeling.activities.prepare_queryable_table.create_table_from_saved_query",
+                return_value=CreateTableResult(table=warehouse_table, storage_delta_mib=None, total_storage_mib=None),
+            ),
+            unittest.mock.patch(
+                "posthog.temporal.data_modeling.activities.prepare_queryable_table.link_table_if_materializing",
+                side_effect=link_then_revert,
+            ),
+            unittest.mock.patch(
+                "products.data_modeling.backend.logic.schedule_reconcile.apply_saved_query_frequency_target"
+            ),
+        ):
+            await activity_environment.run(prepare_queryable_table_activity, inputs)
+
+        await database_sync_to_async(asaved_query.refresh_from_db)()
+        await database_sync_to_async(warehouse_table.refresh_from_db)()
+        assert (asaved_query.is_materialized, asaved_query.table_id) == (False, None)
+        assert warehouse_table.deleted
         await database_sync_to_async(warehouse_table.delete)()
 
 

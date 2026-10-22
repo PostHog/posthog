@@ -9,7 +9,8 @@ from typing import TYPE_CHECKING, Any, NoReturn, Optional
 
 from django.conf import settings
 from django.db import InterfaceError, InternalError, OperationalError
-from django.db.models import Prefetch
+from django.db.models import F, Prefetch
+from django.db.models.functions import Greatest
 
 import redis.exceptions as redis_exceptions
 from jsonpath_ng.exceptions import JSONPathError
@@ -33,6 +34,7 @@ from posthog.temporal.common.utils import is_stale_connection_read_only_error
 
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import (
+    WORKER_RESTART_ERROR_MESSAGE,
     ExternalDataSchema,
     UnsupportedSyncTypeError,
     apply_incremental_lookback,
@@ -203,6 +205,68 @@ def _has_completed_schema_job(schema_id: uuid.UUID, team_id: int) -> bool:
     return ExternalDataJob.objects.filter(
         schema_id=schema_id, team_id=team_id, status=ExternalDataJob.Status.COMPLETED
     ).exists()
+
+
+# The v3 pipeline queues these sync types as `incremental`, and the loader still loads the queued
+# batches of a failed `incremental` run (`_drainable_after_failure` in the v3 consumer). Only these
+# can continue a failed job's cursor without losing the rows that job extracted.
+CONTINUABLE_SYNC_TYPES = frozenset(
+    {
+        ExternalDataSchema.SyncType.INCREMENTAL,
+        ExternalDataSchema.SyncType.WEBHOOK,
+        ExternalDataSchema.SyncType.XMIN,
+    }
+)
+
+
+# Bounds the walk back over a chain of jobs that each continued the one before. The loader only sees
+# batches of the last 14 days anyway, which is a handful of jobs at the hand-off cap.
+MAX_CONTINUED_JOBS = 20
+
+
+@database_sync_to_async_pool
+def _jobs_to_continue(job: ExternalDataJob, schema: ExternalDataSchema) -> list[ExternalDataJob]:
+    """The jobs before this one that worker restarts stopped, newest first, when this job can continue their cursor.
+
+    This job continues the cursor of the first one. Each job of the chain continued the one before
+    it, so the rows before that cursor are in the queued batches of all of them. The job finalizer
+    leaves those batches to the loader (see `update_external_job_status`), and the loader does not
+    complete this job while one of them is unloaded (`continued_job_ids`).
+
+    A reset in the chain is not visible on the job row, so the chain can include jobs before it.
+    Their batches then only make the loader refuse to complete this job once, and the next job
+    reads the source from the start.
+    """
+    if schema.sync_type not in CONTINUABLE_SYNC_TYPES:
+        return []
+    previous_jobs = (
+        ExternalDataJob.objects.filter(team_id=job.team_id, schema_id=schema.id, created_at__lt=job.created_at)
+        .order_by("-created_at")
+        .only("id", "status", "latest_error", "schema_snapshot", "workflow_run_id", "rows_synced")[:MAX_CONTINUED_JOBS]
+    )
+    chain: list[ExternalDataJob] = []
+    for previous in previous_jobs:
+        if previous.status != ExternalDataJob.Status.FAILED or previous.latest_error != WORKER_RESTART_ERROR_MESSAGE:
+            break
+        # A cursor belongs to the query that wrote it, and another sync type reads the source with another query.
+        if (previous.schema_snapshot or {}).get("sync_type") != schema.sync_type:
+            break
+        chain.append(previous)
+    return chain
+
+
+@database_sync_to_async_pool
+def _carry_rows_synced(job: ExternalDataJob, continued: ExternalDataJob) -> None:
+    """Start the row count of `job` from the count of the job it continues.
+
+    Only a Completed job bills, and the continued job failed, so without this the rows it read
+    before the cursor never bill. `Greatest` keeps a repeated call from counting them twice.
+    """
+    carried = continued.rows_synced or 0
+    if carried <= 0:
+        return
+    ExternalDataJob.objects.filter(id=job.id).update(rows_synced=Greatest(F("rows_synced"), carried))
+    job.rows_synced = max(job.rows_synced or 0, carried)
 
 
 # An allow-list, not a deny-list: every sync type here leaves one row per key, and the reader
@@ -741,6 +805,8 @@ async def _import_data_with_reporting(
                     )
 
             resumable_source_manager: ResumableSourceManager | None = None
+            continued_workflow_run_id: str | None = None
+            continued_job_ids: tuple[str, ...] = ()
             try:
                 # Some source setup functions bridge back to async code. Keep their outer blocking
                 # call off the shared default executor so that nested work cannot deadlock behind it.
@@ -748,6 +814,22 @@ async def _import_data_with_reporting(
                 try:
                     if isinstance(new_source, ResumableSource):
                         resumable_source_manager = new_source.get_resumable_source_manager(source_inputs)
+                        jobs_to_continue = await _jobs_to_continue(model, schema) if use_stored_cursors else []
+                        if jobs_to_continue:
+                            job_to_continue = jobs_to_continue[0]
+                            continued_workflow_run_id = job_to_continue.workflow_run_id
+                            continued_job_ids = tuple(str(continued.id) for continued in jobs_to_continue)
+                            # The copy runs only while this job has no state of its own, so a later
+                            # execution never brings back a namespace this job already cleared.
+                            if await database_sync_to_async_pool(resumable_source_manager.continue_from_job)(
+                                str(job_to_continue.id)
+                            ):
+                                await _carry_rows_synced(model, job_to_continue)
+                                await logger.ainfo(
+                                    "Continuing the resumable cursor of the previous job, which stopped before it finished",
+                                    previous_job_id=str(job_to_continue.id),
+                                    continued_job_count=len(jobs_to_continue),
+                                )
                         source_response = await database_sync_to_async_pool(
                             new_source.source_for_pipeline, executor=executor
                         )(config, resumable_source_manager, source_inputs)
@@ -800,6 +882,8 @@ async def _import_data_with_reporting(
                 resumed_incremental_value=resumed_incremental_value,
                 preemption=preemption,
                 kept_rows_synced=kept_rows_synced,
+                continued_workflow_run_id=continued_workflow_run_id,
+                continued_job_ids=continued_job_ids,
                 ride_out=ride_out,
                 progress=progress,
             )
@@ -1190,6 +1274,8 @@ async def _run(
     preemption: PreemptionConfig | None = None,
     on_resumable_retry_budget: bool = False,
     kept_rows_synced: int | None = None,
+    continued_workflow_run_id: str | None = None,
+    continued_job_ids: tuple[str, ...] = (),
     ride_out: RideOutConfig | None = None,
     progress: DurableProgress | None = None,
 ) -> PipelineResult:
@@ -1213,6 +1299,8 @@ async def _run(
             resumed_incremental_value=resumed_incremental_value,
             preemption=preemption,
             kept_rows_synced=kept_rows_synced,
+            continued_workflow_run_id=continued_workflow_run_id,
+            continued_job_ids=continued_job_ids,
             ride_out=ride_out,
             progress=progress,
         )

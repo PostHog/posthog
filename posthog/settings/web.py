@@ -64,6 +64,7 @@ PRODUCTS_APPS = [
     "products.revenue_analytics.backend.apps.RevenueAnalyticsConfig",
     "products.user_interviews.backend.apps.UserInterviewsConfig",
     "products.ai_observability.backend.apps.AIObservabilityConfig",
+    "products.ai_gateway.backend.apps.AiGatewayConfig",
     "products.llm_analytics.backend.apps.LlmAnalyticsConfig",
     "products.skills.backend.apps.SkillsConfig",
     "products.endpoints.backend.apps.EndpointsConfig",
@@ -1346,6 +1347,9 @@ HOGQL_PROMPT_JEV_MODEL = get_from_env("HOGQL_PROMPT_JEV_MODEL", "posthog/hogfere
 # Each decision is a billed gateway call, so these bound the cost of one query.
 HOGQL_JEV_MAX_ROWS = get_from_env("HOGQL_JEV_MAX_ROWS", 1000, type_cast=int)
 HOGQL_JEV_MAX_DECISIONS = get_from_env("HOGQL_JEV_MAX_DECISIONS", 1000, type_cast=int)
+# Gateway requests one `jev` column keeps in flight. The model servers refuse prompt tokens past a
+# per-pod limit, so raise this only together with model capacity.
+HOGQL_JEV_CONCURRENCY = get_from_env("HOGQL_JEV_CONCURRENCY", 4, type_cast=int)
 
 # Projected into gateway_credential.json: a JSON team_id -> tier map
 # ("free"/"pro"/"enterprise") for the gateway's rate-limit bucket.
@@ -1413,6 +1417,19 @@ DESKTOP_GATEWAY_TOKEN_TTL_SECONDS = get_from_env("DESKTOP_GATEWAY_TOKEN_TTL_SECO
 # Per-user mint ceiling because OAuth callers skip DRF's default throttles. At the default TTL each
 # open project on each device mints about 13 times an hour.
 DESKTOP_GATEWAY_MINTS_PER_HOUR = get_from_env("DESKTOP_GATEWAY_MINTS_PER_HOUR", 120, type_cast=int)
+
+# AI gateway developer mode. DEV_GATEWAY_MINT_KEY is a phs_ key with llm_gateway:read on
+# DEV_GATEWAY_TEAM_ID, whose wallet pays.
+DEV_GATEWAY_URL = get_from_env("DEV_GATEWAY_URL", "")
+DEV_GATEWAY_MINT_KEY = get_from_env("DEV_GATEWAY_MINT_KEY", "")
+DEV_GATEWAY_TEAM_ID = get_from_env("DEV_GATEWAY_TEAM_ID", 0, type_cast=int)
+DEV_GATEWAY_TOKEN_CAP_USD = get_from_env("DEV_GATEWAY_TOKEN_CAP_USD", "25")
+DEV_GATEWAY_TOKEN_TTL_SECONDS = get_from_env("DEV_GATEWAY_TOKEN_TTL_SECONDS", 8 * 60 * 60, type_cast=int)
+# Caps minted in the trailing 24 hours count against this, so the gateway's reserved cap per token
+# makes it a hard ceiling on what one user can spend in a day.
+DEV_GATEWAY_DAILY_CAP_USD = get_from_env("DEV_GATEWAY_DAILY_CAP_USD", "50")
+DEV_GATEWAY_MINTS_PER_HOUR = get_from_env("DEV_GATEWAY_MINTS_PER_HOUR", 20, type_cast=int)
+
 # Users who joined PostHog at or after this ISO 8601 instant cannot use Desktop while the
 # posthog-desktop-signup-gate flag is on for them, unless posthog-desktop-access-override matches
 # them. An empty value turns the signup gate off.
