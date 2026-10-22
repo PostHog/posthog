@@ -1,12 +1,9 @@
 """Repository selection for Signals reports.
 
 Thin wrapper around `products.tasks.backend.logic.repo_selection.select_repository`.
-Renders `SignalData` to text and collapses both `RepoSelectionRejectedError`
-(LLM hallucination) and `RepoSelectionUnavailableError` (no eligible repos)
-into `RepoSelectionResult(repository=None, ...)` — Signals has no picker
-fallback, so the shared module's operational-vs-semantic distinction has
-nowhere to land; `summary.py` treats `repository=None` as
-``REQUIRES_HUMAN_INPUT``.
+Renders `SignalData` to text and returns a null repository when selection fails.
+Operational failures carry a blocker so report research can retry when access recovers.
+A semantic no-match still requires human input.
 """
 
 from __future__ import annotations
@@ -15,6 +12,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from posthog.egress.limiter.policies import Priority
+from posthog.models.integration.github_readiness import GitHubReadinessStatus
 from posthog.sync import database_sync_to_async
 
 from products.signals.backend.agent_runtime import STEP_REPO_SELECTION, resolve_agent_runtime
@@ -82,10 +80,9 @@ async def select_repository_for_team(
     """Select the most relevant repository for a free-form request against the team's repos.
 
     ``request_section`` is the caller-rendered string describing the request (e.g. rendered
-    signals or a custom agent's initial prompt). Both rejection (LLM hallucination) and
-    unavailability (no eligible repos) collapse into ``RepoSelectionResult(repository=None, ...)``
-    — Signals/custom agents have no picker fallback, so callers treat ``repository=None`` as
-    "no match / requires human input".
+    signals or a custom agent's initial prompt). Rejection (LLM hallucination) returns a null
+    repository for human review. Operational unavailability also carries ``blocked_reason``
+    so the report pipeline can defer research until GitHub access recovers.
 
     ``pinned_repository`` is a repository the request names itself (see
     :mod:`~products.signals.backend.report_generation.source_repository`). The shared selector
@@ -142,9 +139,10 @@ async def select_repository_for_team(
             ),
         )
     except RepoSelectionUnavailableError as exc:
-        # No picker fallback — collapse operational failure into a null result.
         logger.warning("repo selection unavailable: %s", exc.reason)
-        return RepoSelectionResult(repository=None, reason=exc.reason)
+        return RepoSelectionResult(
+            repository=None, reason=exc.reason, blocked_reason=GitHubReadinessStatus.TEMPORARILY_UNAVAILABLE
+        )
 
 
 async def select_repository_for_report(

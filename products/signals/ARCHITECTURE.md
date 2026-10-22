@@ -164,6 +164,7 @@ Defined in `backend/temporal/summary.py`.
    - Evaluates the underlying signals for prompt injection / manipulation attempts
    - Persists a `safety_judgment` artefact
 4. **Select repository** → `select_repository_activity` (`temporal/agentic/select_repository.py`) — see Repository Selection below
+   - Before research starts, GitHub readiness is verified. Missing access holds the report in `candidate` with `research_blocked_reason`; connection changes and a periodic recovery sweep retry these reports without publishing a placeholder. Recovery honors consent, quotas, and current source settings.
    - If no repository is selected, the workflow synthesizes a “repository selection required” title/summary and transitions to `pending_input`
 5. **Agentic research** → `run_agentic_report_activity` (`temporal/agentic/report.py`)
    - Sandbox-backed multi-turn research over the selected repository plus MCP data
