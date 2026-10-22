@@ -1784,9 +1784,7 @@ describe('PushNotificationService', () => {
                 })
             )
             expect(result.logs.filter((log) => log.level === 'warn')).toEqual([])
-            expect(result.invocation.state.vmState!.stack).toEqual([
-                { success: true, error: null, delivered: 1, skipped: 1, failed: 0 },
-            ])
+            expect(result.execResult).toEqual({ delivered: 1, skipped: 1, failed: 0 })
         })
 
         it('deduplicates repeated channel ids so a device is not notified twice', async () => {

@@ -534,14 +534,10 @@ export class PushNotificationService {
             result.error = firstError
         }
         // Surface the error to the hog template too, otherwise its failure message renders blank.
-        // The channel counts let a workflow store the outcome in an output variable and branch on it.
-        result.invocation.state.vmState!.stack.push({
-            success,
-            error: success ? null : (firstError ?? null),
-            delivered: successCount,
-            skipped: skippedCount,
-            failed: errorCount,
-        })
+        result.invocation.state.vmState!.stack.push({ success, error: success ? null : (firstError ?? null) })
+        // The template does not resume after this send, so the step's output is set here. It lets a workflow
+        // store the channel counts in an output variable and branch on them.
+        result.execResult = { delivered: successCount, skipped: skippedCount, failed: errorCount }
 
         return result
     }

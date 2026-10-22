@@ -58,11 +58,6 @@ let res := sendPushNotification({
 if (not res.success) {
     throw Error(f'Failed to send push notification: {res.error}')
 }
-return {
-    'delivered': res.delivered,
-    'skipped': res.skipped,
-    'failed': res.failed
-}
 `,
     inputs_schema: [
         {
