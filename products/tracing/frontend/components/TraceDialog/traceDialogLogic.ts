@@ -165,17 +165,21 @@ export interface traceDialogLogicActions {
         modalContext: SessionPlayerModalContext
         sessionRecording: Pick<SessionRecordingType, 'id' | 'matching_events'>
     } // sessionPlayerModalLogic
-    collapseSelectedSpan: () => {
-        value: true
+    collapseSelectedSpan: (surface: import('../TraceView/traceViewLogic').TraceViewSurface) => {
+        surface: import('../TraceView/traceViewLogic').TraceViewSurface
     } // traceViewLogic
     disableSpanKeys: () => {
         value: true
     } // traceViewLogic
-    enableSpanKeys: (containerSelector: string) => {
+    enableSpanKeys: (
+        containerSelector: string,
+        surface: import('../TraceView/traceViewLogic').TraceViewSurface
+    ) => {
         containerSelector: string
+        surface: import('../TraceView/traceViewLogic').TraceViewSurface
     } // traceViewLogic
-    expandSelectedSpan: () => {
-        value: true
+    expandSelectedSpan: (surface: import('../TraceView/traceViewLogic').TraceViewSurface) => {
+        surface: import('../TraceView/traceViewLogic').TraceViewSurface
     } // traceViewLogic
     selectNextSpan: () => {
         value: true
@@ -208,6 +212,15 @@ export interface traceDialogLogicActions {
     } // traceViewLogic
     toggleChain: (spanId: string) => {
         spanId: string
+    } // traceViewLogic
+    toggleRun: (
+        spanId: string,
+        method?: import('../TraceView/traceViewLogic').TraceRunToggleMethod | undefined,
+        surface?: import('../TraceView/traceViewLogic').TraceViewSurface | undefined
+    ) => {
+        method: null | import('../TraceView/traceViewLogic').TraceRunToggleMethod
+        spanId: string
+        surface: null | import('../TraceView/traceViewLogic').TraceViewSurface
     } // traceViewLogic
     toggleSpanCollapsed: (spanId: string) => {
         spanId: string
@@ -297,6 +310,7 @@ export const traceDialogLogic = kea<traceDialogLogicType>([
                 'setInspectorTab',
                 'toggleSpanCollapsed',
                 'toggleChain',
+                'toggleRun',
                 'spanStepped',
                 'selectNextSpan',
                 'selectPreviousSpan',
@@ -478,7 +492,7 @@ export const traceDialogLogic = kea<traceDialogLogicType>([
             })
             actions.showTrace(trace.spanId, null)
             actions.loadTraceSpans(trace)
-            actions.enableSpanKeys(TRACE_DIALOG_SELECTOR)
+            actions.enableSpanKeys(TRACE_DIALOG_SELECTOR, 'trace_dialog')
         },
         closeTraceDialog: ({ reason }) => {
             actions.disableSpanKeys()
@@ -534,6 +548,11 @@ export const traceDialogLogic = kea<traceDialogLogicType>([
             }
         },
         toggleChain: () => {
+            if (cache.session) {
+                cache.session.collapseToggles += 1
+            }
+        },
+        toggleRun: () => {
             if (cache.session) {
                 cache.session.collapseToggles += 1
             }
