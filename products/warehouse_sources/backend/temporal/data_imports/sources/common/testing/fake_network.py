@@ -241,6 +241,10 @@ class _MemoryRedis:
 _session_factory_alias_cache: tuple[int, list[tuple[Any, str]]] = (-1, [])
 
 
+def _is_session_factory(value: Any) -> bool:
+    return value is _REAL_MAKE_TRACKED_SESSION or getattr(value, "__wrapped__", None) is _REAL_MAKE_TRACKED_SESSION
+
+
 def _session_factory_aliases() -> list[tuple[Any, str]]:
     """Each binding of `make_tracked_session` in a loaded source module.
 
@@ -256,9 +260,7 @@ def _session_factory_aliases() -> list[tuple[Any, str]]:
         # This module keeps the real function, which the recording wrapper calls.
         if not module_name.startswith(_SOURCES_PACKAGE) or module_name == __name__:
             continue
-        aliases.extend(
-            (module, name) for name, value in list(vars(module).items()) if value is _REAL_MAKE_TRACKED_SESSION
-        )
+        aliases.extend((module, name) for name, value in list(vars(module).items()) if _is_session_factory(value))
     _session_factory_alias_cache = (loaded, aliases)
     return aliases
 
@@ -354,6 +356,7 @@ def fake_environment(responder: Responder, request_limit: int = _REQUEST_LIMIT) 
     def memory_redis(_manager: Any) -> Iterator[_MemoryRedis]:
         yield redis
 
+    @functools.wraps(_REAL_MAKE_TRACKED_SESSION)
     def recording_session(**kwargs: Any) -> Any:
         network.session_options.append(kwargs)
         return _REAL_MAKE_TRACKED_SESSION(**kwargs)
