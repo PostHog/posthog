@@ -30,8 +30,8 @@ pub fn consumer_client_config(kafka: &KafkaConfig, group: &str) -> ClientConfig 
         .set("group.id", group)
         .set("enable.auto.commit", "false")
         .set("enable.auto.offset.store", "false")
-        // A generation the group never committed on is read from its first record.
-        .set("auto.offset.reset", "earliest")
+        // A generation the group never committed on is read from its end.
+        .set("auto.offset.reset", "latest")
         // The leader produces transactionally; aborted windows must never reach ClickHouse.
         .set("isolation.level", "read_committed")
         .set("partition.assignment.strategy", "cooperative-sticky");
