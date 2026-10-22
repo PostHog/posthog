@@ -41,7 +41,15 @@ function ModalStep(): JSX.Element {
     }
 }
 
-function ModalSettings({ integrationId, onLeave }: { integrationId: number; onLeave: () => void }): JSX.Element {
+function ModalSettings({
+    integrationId,
+    openInNewTab,
+    onLeave,
+}: {
+    integrationId: number
+    openInNewTab: boolean
+    onLeave: () => void
+}): JSX.Element {
     return (
         <BindEmailDomainLogics id={String(integrationId)}>
             <div className="@container flex flex-col gap-6">
@@ -50,6 +58,7 @@ function ModalSettings({ integrationId, onLeave }: { integrationId: number; onLe
                     type="tertiary"
                     className="self-center"
                     to={urls.workflowsEmailDomain(integrationId)}
+                    targetBlank={openInNewTab}
                     onClick={onLeave}
                     sideIcon={<IconExternal />}
                 >
@@ -81,7 +90,13 @@ export function EmailDomainSetupModal({
             onClose={() => (integrationId ? onComplete(integrationId) : onClose())}
         >
             {integrationId ? (
-                <ModalSettings integrationId={integrationId} onLeave={() => onComplete(integrationId)} />
+                // A broadcast saves its new sender a moment after the modal hands it over, so leaving the
+                // page right away would drop it. The full page opens next to the broadcast instead.
+                <ModalSettings
+                    integrationId={integrationId}
+                    openInNewTab={entry === 'broadcast'}
+                    onLeave={() => onComplete(integrationId)}
+                />
             ) : (
                 <div className="@container">
                     <DomainStep logicKey="modal" onCreated={(created) => setIntegrationId(created.id)} />

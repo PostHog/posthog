@@ -146,9 +146,12 @@ describe('email domain setup entry points', () => {
         expect(integrationsLogic.values.setupModalOpen).toBe(false)
     })
 
-    it.each([['broadcast' as const], [undefined]])(
+    it.each([
+        ['broadcast' as const, '_blank'],
+        [undefined, null],
+    ])(
         'stays open for the settings after creating a sender, and reports it when closed (entry %s)',
-        async (entry) => {
+        async (entry, fullPageTarget) => {
             setWizardFlag(true)
             const onComplete = jest.fn()
             const onClose = jest.fn()
@@ -164,6 +167,7 @@ describe('email domain setup entry points', () => {
             expect(onComplete).not.toHaveBeenCalled()
             expect(screen.getByText('Verify your sending domain')).toBeInTheDocument()
             expect(screen.getByText('Add 8 settings at Cloudflare')).toBeInTheDocument()
+            expect(screen.getByText('Open full page').closest('a')?.getAttribute('target') ?? null).toBe(fullPageTarget)
 
             fireEvent.click(screen.getByLabelText('close'))
             await flush()
