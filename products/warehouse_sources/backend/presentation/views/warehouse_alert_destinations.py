@@ -5,7 +5,7 @@ destinations are HogFunctions this product owns, matched on the alert's anchor i
 managed here.
 """
 
-from typing import Any, cast
+from typing import Any, Literal, cast
 from uuid import UUID
 
 from django.db import models, transaction
@@ -55,18 +55,19 @@ from products.warehouse_sources.backend.facade.sync_alerts import (
 MAX_DESTINATION_IDS_PER_DELETE_REQUEST = 100
 WAREHOUSE_ALERT_KINDS = (SourceKind.WAREHOUSE_SOURCE.value, SourceKind.WAREHOUSE_DESTINATION.value)
 # The warehouse data an alert names is gated by the same resource as the sources page.
-WAREHOUSE_RESOURCE = "external_data_source"
+WAREHOUSE_RESOURCE: Literal["external_data_source"] = "external_data_source"
 _SLACK_CONTEXT_ELEMENTS = ("Project: <{project.url}|{project.name}>",)
 # Choices classes for the serializers below. Each label is its value, so the OpenAPI enums keep the
-# names their ENUM_NAME_OVERRIDES entries in posthog/settings/web.py give them.
-WarehouseAlertDestinationTypeChoices = models.TextChoices(
+# names their ENUM_NAME_OVERRIDES entries in posthog/settings/web.py give them. TextChoices supports
+# this functional API at runtime, but its type stubs only describe member construction.
+WarehouseAlertDestinationTypeChoices = cast(Any, models.TextChoices)(
     "WarehouseAlertDestinationTypeChoices",
     [(member.name, (member.value, member.value)) for member in WAREHOUSE_ALERT_DESTINATION_TYPES],
 )
-PagerDutySeverityChoices = models.TextChoices(
+PagerDutySeverityChoices = cast(Any, models.TextChoices)(
     "PagerDutySeverityChoices", [(member.name, (member.value, member.value)) for member in PagerDutySeverity]
 )
-PagerDutyRegionChoices = models.TextChoices(
+PagerDutyRegionChoices = cast(Any, models.TextChoices)(
     "PagerDutyRegionChoices", [(member.name, (member.value, member.value)) for member in PagerDutyRegion]
 )
 
@@ -179,7 +180,7 @@ class WarehouseAlertDestinationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericV
         return [f"alert:{access}", f"{WAREHOUSE_RESOURCE}:{access}"]
 
     def _alert(self, pk: str) -> PlatformAlertConfigurationView:
-        level = "viewer" if self.request.method in SAFE_METHODS else "editor"
+        level: Literal["viewer", "editor"] = "viewer" if self.request.method in SAFE_METHODS else "editor"
         if not self.user_access_control.check_access_level_for_resource(WAREHOUSE_RESOURCE, level):
             raise PermissionDenied("You don't have access to warehouse sources in this project.")
         alert = get_configuration(

@@ -134,7 +134,7 @@ class TestWarehouseAlerts(APIBaseTest):
     ) -> None:
         sources = {"a": self._source(prefix="prod"), "b": self._source()}
         ids = {name: str(source.id) for name, source in sources.items()}
-        for name, source_name, status_, fields in [
+        schemas: list[tuple[str, str, str, dict[str, Any]]] = [
             ("a_failed", "a", Status.FAILED, {}),
             ("a_completed", "a", Status.COMPLETED, {}),
             ("a_billing", "a", Status.BILLING_LIMIT_REACHED, {}),
@@ -142,7 +142,8 @@ class TestWarehouseAlerts(APIBaseTest):
             ("a_turned_off", "a", Status.FAILED, {"should_sync": False}),
             ("a_halted", "a", Status.FAILED, {"should_sync": False, "auto_disabled_at": timezone.now()}),
             ("b_failed", "b", Status.FAILED, {}),
-        ]:
+        ]
+        for name, source_name, status_, fields in schemas:
             ids[name] = str(self._schema(sources[source_name], name, status_, **fields).id)
         self._source(team=Team.objects.create(organization=self.organization), prefix="other")
         if "source_ids" in source_config:
