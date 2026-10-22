@@ -103,6 +103,7 @@ async fn the_watch_delivers_newer_epochs_and_retires_but_nothing_stale() {
         partitions: 128,
         epoch: 2,
         writer_group: String::new(),
+        retire_groups: vec![],
         draining: Vec::new(),
     };
     store.put_changelog_config(&flipped).await.unwrap();
@@ -191,6 +192,7 @@ async fn a_severed_watch_still_adopts_the_flip_through_reconcile() {
             partitions: 128,
             epoch: 2,
             writer_group: String::new(),
+            retire_groups: vec![],
             draining: Vec::new(),
         })
         .await
