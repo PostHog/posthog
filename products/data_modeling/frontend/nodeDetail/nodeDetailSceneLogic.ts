@@ -145,6 +145,9 @@ export interface nodeDetailSceneLogicActions {
     closeLineageModal: () => {
         value: true
     }
+    discardQueryEditorChanges: () => {
+        value: true
+    }
     lineageNodeDragStopped: (
         nodeId: string,
         position: XYPosition
@@ -258,12 +261,6 @@ export interface nodeDetailSceneLogicActions {
     setQueryEditorState: (state: NodeDetailQueryEditorState | null) => {
         state: NodeDetailQueryEditorState | null
     }
-    discardQueryEditorChanges: () => {
-        value: true
-    }
-    updateViewFromQueryEditor: () => {
-        value: true
-    }
     updateNodeDescription: (description: string) => {
         description: string
     }
@@ -284,6 +281,9 @@ export interface nodeDetailSceneLogicActions {
         payload?: {
             description: string
         }
+    }
+    updateViewFromQueryEditor: () => {
+        value: true
     }
 }
 
