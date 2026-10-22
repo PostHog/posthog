@@ -2140,11 +2140,33 @@ export interface SavedQueryResumeApi {
 }
 
 /**
+ * * `upstream` - Upstream
+ * * `downstream` - Downstream
+ */
+export type MaterializationRunDirectionEnumApi =
+    (typeof MaterializationRunDirectionEnumApi)[keyof typeof MaterializationRunDirectionEnumApi]
+
+export const MaterializationRunDirectionEnumApi = {
+    Upstream: 'upstream',
+    Downstream: 'downstream',
+} as const
+
+/**
  * Body of the `run` action.
  */
 export interface SavedQueryRunApi {
     /** Rebuild the whole table instead of updating it incrementally. Has no effect on a view that is not incremental. This is how you reprocess history after changing what the query means without changing its text, or after upstream data was corrected. */
     full_refresh?: boolean
+    /** Run this view with all upstream dependencies or all downstream dependents. Omit this field to run only this view. You cannot use it with full_refresh.
+     *
+     * * `upstream` - Upstream
+     * * `downstream` - Downstream */
+    direction?: MaterializationRunDirectionEnumApi
+}
+
+export interface SavedQueryRunResponseApi {
+    /** The data model nodes included in the run. */
+    node_ids: string[]
 }
 
 /**

@@ -68654,6 +68654,18 @@ export namespace Schemas {
     }
 
     /**
+     * * `upstream` - Upstream
+     * * `downstream` - Downstream
+     */
+    export type MaterializationRunDirectionEnum = typeof MaterializationRunDirectionEnum[keyof typeof MaterializationRunDirectionEnum];
+
+
+    export const MaterializationRunDirectionEnum = {
+      Upstream: 'upstream',
+      Downstream: 'downstream',
+    } as const;
+
+    /**
      * Input for materializing the labeled training feature matrix into the run's sandbox.
      */
     export interface MaterializeFeaturesRequest {
@@ -69833,6 +69845,19 @@ export namespace Schemas {
     export interface NodeResume {
       /** False when the node was not suspended to begin with. */
       resumed: boolean;
+    }
+
+    export interface NodeRun {
+      /** Run this view with all upstream dependencies or all downstream dependents.
+       *
+       * * `upstream` - Upstream
+       * * `downstream` - Downstream */
+      direction: MaterializationRunDirectionEnum;
+    }
+
+    export interface NodeRunResponse {
+      /** The nodes included in the dependency run. */
+      node_ids: string[];
     }
 
     /**
@@ -102182,6 +102207,16 @@ export namespace Schemas {
     export interface SavedQueryRun {
       /** Rebuild the whole table instead of updating it incrementally. Has no effect on a view that is not incremental. This is how you reprocess history after changing what the query means without changing its text, or after upstream data was corrected. */
       full_refresh?: boolean;
+      /** Run this view with all upstream dependencies or all downstream dependents. Omit this field to run only this view. You cannot use it with full_refresh.
+       *
+       * * `upstream` - Upstream
+       * * `downstream` - Downstream */
+      direction?: MaterializationRunDirectionEnum;
+    }
+
+    export interface SavedQueryRunResponse {
+      /** The data model nodes included in the run. */
+      node_ids: string[];
     }
 
     /**

@@ -17,6 +17,8 @@ import type {
     LineageResponseApi,
     NodeApi,
     NodeResumeApi,
+    NodeRunApi,
+    NodeRunResponseApi,
     PaginatedEdgeListApi,
     PaginatedNodeListApi,
     PatchedEdgeApi,
@@ -283,24 +285,19 @@ export const getDataModelingNodesRunCreateUrl = (projectId: string, id: string) 
 }
 
 /**
- * Run this node and its upstream or downstream dependencies.
- *
- * Request body:
- *     direction: "upstream" | "downstream" (required)
- *         - "upstream": Run all ancestors of this node, plus this node
- *         - "downstream": Run this node and all its descendants
+ * Run this node with its upstream dependencies or downstream dependents.
  */
 export const dataModelingNodesRunCreate = async (
     projectId: string,
     id: string,
-    nodeApi: NonReadonly<NodeApi>,
+    nodeRunApi: NodeRunApi,
     options?: RequestInit
-): Promise<NodeApi> => {
-    return apiMutator<NodeApi>(getDataModelingNodesRunCreateUrl(projectId, id), {
+): Promise<NodeRunResponseApi> => {
+    return apiMutator<NodeRunResponseApi>(getDataModelingNodesRunCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(nodeApi),
+        body: JSON.stringify(nodeRunApi),
     })
 }
 
