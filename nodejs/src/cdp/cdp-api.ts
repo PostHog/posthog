@@ -58,6 +58,7 @@ import {
     TransactionalEmailRequestSchema,
     transactionalEmailRequestsTotal,
     transactionalSendCandidate,
+    transactionalSendFingerprint,
 } from './services/hogflows/transactional-email'
 import { InvocationResultsService } from './services/invocation-results.service'
 import { JobQueue } from './services/job-queue/job-queue.interface'
@@ -1216,7 +1217,7 @@ export class CdpApi {
             invocation.queuePriority = EMAIL_QUEUE_PRIORITY.fast
 
             const idempotencyKeys = this.transactionalEmailIdempotencyKeys
-            const fingerprint = IdempotencyKeys.fingerprint([hogFlow.id, to, distinctId, variables])
+            const fingerprint = transactionalSendFingerprint(hogFlow.id, parsed.data)
             if (idempotencyKey) {
                 // Checked before the quota, so a retry of a send that went out gets its answer even
                 // when the team has hit its quota since.

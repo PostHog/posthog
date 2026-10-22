@@ -98,6 +98,13 @@ class AcceptedSend:
     capture_engagement: bool
 
 
+class SendRoute(LabeledStrEnum):
+    """The route a send came in on. An idempotency key used on one route is another request on the other."""
+
+    TEMPLATE_SEND = "template_send", "messaging_templates/{id}/send/"
+    SEND_EMAIL = "send_email", "messaging/send/email/"
+
+
 @frozen
 class StoredTemplate:
     """A template stored in PostHog, filled with `message_data`."""
@@ -127,6 +134,7 @@ class EmailSendCommand:
     source: StoredTemplate | RenderedEmail
     # Checked by the CDP service, so a retry with the same key queues nothing new.
     idempotency_key: str | None = None
+    route: SendRoute = SendRoute.TEMPLATE_SEND
 
 
 @frozen

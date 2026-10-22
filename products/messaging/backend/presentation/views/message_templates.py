@@ -79,6 +79,7 @@ from products.messaging.backend.facade.transactional_email import (
 )
 from products.messaging.backend.presentation.views.serializers import DesignOperationSerializer
 from products.messaging.backend.presentation.views.transactional_email_api import (
+    IDEMPOTENCY_KEY_PARAMETER,
     TRANSACTIONAL_EMAIL_THROTTLES,
     SendTransactionalEmailResponseSerializer,
     SendTransactionalEmailSerializer,
@@ -445,16 +446,6 @@ TEMPLATE_ID_PARAMETER = OpenApiParameter(
     type=OpenApiTypes.UUID,
     location=OpenApiParameter.PATH,
     description="A UUID string identifying this message template.",
-)
-
-IDEMPOTENCY_KEY_PARAMETER = OpenApiParameter(
-    name="Idempotency-Key",
-    type=OpenApiTypes.STR,
-    location=OpenApiParameter.HEADER,
-    required=False,
-    description="A unique key for this email, 1 to 255 visible ASCII characters. Retrying with the same key and "
-    "the same request within 24 hours sends nothing new and returns the first send's `message_id`. Reusing a key "
-    "for a different request returns a 422.",
 )
 
 
