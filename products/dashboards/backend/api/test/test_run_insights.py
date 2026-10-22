@@ -3,6 +3,7 @@ import json
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.test import override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -125,6 +126,7 @@ class TestDashboardRunInsights(APIBaseTest):
         if isinstance(result, str):
             self.assertIn("|", result)
 
+    @override_settings(IN_UNIT_TESTING=True)
     def test_optimized_format_labels_compared_totals_with_their_ranges_and_saved_series_names(self) -> None:
         action = Action.objects.create(team=self.team, name="Purchase made", steps_json=[{"event": "purchase"}])
         query = _trends_query_dict(
