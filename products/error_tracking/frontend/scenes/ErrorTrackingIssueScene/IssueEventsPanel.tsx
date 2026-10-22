@@ -51,14 +51,23 @@ function LoadedIssueEventsPanel(): JSX.Element {
 
         const queryChanged = previousEventsQueryKey.current !== issueEventsQueryKey
         previousEventsQueryKey.current = issueEventsQueryKey
-        const nextSelection = getListSelection(items, selectedEvent, canLoadNextData, queryChanged)
+        const nextSelection = getListSelection(items, selectedEvent, canLoadNextData, queryChanged, onlyWithRecording)
         if (nextSelection !== selectedEvent) {
             selectEvent(nextSelection)
         }
         if (!nextSelection) {
             setMobileDetailOpen(false)
         }
-    }, [items, itemsLoading, canLoadNextData, issueEventsQueryKey, selectEvent, selectedEvent, setMobileDetailOpen])
+    }, [
+        items,
+        itemsLoading,
+        canLoadNextData,
+        issueEventsQueryKey,
+        onlyWithRecording,
+        selectEvent,
+        selectedEvent,
+        setMobileDetailOpen,
+    ])
 
     return (
         <IssueEventsLayout
@@ -105,15 +114,19 @@ export function getListSelection(
     items: ErrorEventType[],
     selectedEvent: ErrorEventType | null,
     canLoadMore: boolean,
-    queryChanged: boolean
+    queryChanged: boolean,
+    onlyWithRecording: boolean = false
 ): ErrorEventType | null {
     const matchedEvent = selectedEvent ? items.find((item) => item.uuid === selectedEvent.uuid) : undefined
     if (matchedEvent) {
         return matchedEvent
     }
     // A later page of the same query may hold a timestamp-linked exception older than the first
-    // 100 rows. A new query cannot make that claim, so filter changes reconcile immediately.
-    if (selectedEvent && canLoadMore && !queryChanged) {
+    // 100 rows. A new query cannot make that claim, so filter changes reconcile immediately. With the
+    // recording filter on, only an exception known to have a recording can be on a later page: the
+    // exception the URL links to loads without the filter, so it can have none.
+    const canBeOnLaterPage = !onlyWithRecording || selectedEvent?.properties.$has_recording === true
+    if (selectedEvent && canLoadMore && !queryChanged && canBeOnLaterPage) {
         return selectedEvent
     }
     return items[0] ?? null

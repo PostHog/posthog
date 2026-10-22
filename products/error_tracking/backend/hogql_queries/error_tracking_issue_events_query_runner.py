@@ -85,6 +85,8 @@ class ErrorTrackingIssueEventsQueryRunner(
 
     def _calculate(self) -> ErrorTrackingIssueEventsQueryResponse:
         response = self._events_runner().calculate()
+        if self.query.onlyWithRecording and "*" in self.query.source.select:
+            self._mark_recordings(response.results, self.query.source.select.index("*"))
         return ErrorTrackingIssueEventsQueryResponse(
             results=response.results,
             columns=response.columns or [],
@@ -95,3 +97,12 @@ class ErrorTrackingIssueEventsQueryRunner(
             timings=self.timings.to_list(),
             modifiers=response.modifiers or self.modifiers,
         )
+
+    @staticmethod
+    def _mark_recordings(results: list[list], star_index: int) -> None:
+        # Every row passed the recording condition. The events runner's own `$has_recording` check reads replay
+        # rows only up to the page's cursor, so it misses a recording that starts later in the session.
+        for row in results:
+            event = row[star_index]
+            if isinstance(event, dict) and isinstance(event.get("properties"), dict):
+                event["properties"]["$has_recording"] = True
