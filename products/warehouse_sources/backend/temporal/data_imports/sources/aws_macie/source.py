@@ -116,15 +116,18 @@ class AwsMacieSource(ResumableSource[AwsMacieSourceConfig, AwsMacieResumeConfig]
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="AWS Macie",
             caption=(
-                "Sync Amazon Macie findings, S3 bucket inventory, discovery jobs, and member accounts. "
-                "Enable Macie in the region you select.\n\n"
+                "Sync Amazon Macie findings, S3 bucket inventory, bucket sensitivity profiles, discovery jobs, "
+                "member accounts, and usage. Enable Macie in the region you select.\n\n"
                 "Grant these IAM permissions for the tables you select: "
                 "`macie2:ListFindings`, `macie2:GetFindings`, `macie2:DescribeBuckets`, "
-                "`macie2:ListClassificationJobs`, and `macie2:ListMembers`. "
+                "`macie2:ListClassificationJobs`, `macie2:ListMembers`, `macie2:GetResourceProfile`, "
+                "`macie2:ListResourceProfileDetections`, `macie2:ListResourceProfileArtifacts`, and "
+                "`macie2:GetUsageStatistics`. "
+                "The resource profile tables need automated sensitive data discovery turned on. "
                 "Use credentials from the Macie administrator account to sync members."
             ),
             iconPath="/static/services/aws_macie.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["aws", "macie", "security", "s3"],
             fields=cast(
                 list[FieldType],

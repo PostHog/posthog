@@ -128,6 +128,8 @@ INTERACTIVE_RUN_SCOPE = "interactive_run:read"
 
 INTERNAL_SCOPES: list[str] = [
     "task:write",
+    # Inbox endpoints move from `task:*` to `inbox:*` scopes, so a run carries both until the move ends.
+    "inbox:write",
     "llm_gateway:read",
     # Provenance marker: proves a token was minted here (server-side), not obtained by a
     # user via the consent flow or a personal API key. `internal_run` is an internal scope,
@@ -176,11 +178,12 @@ CONTEXT_LAYER_INTERNAL_SCOPE = "context_layer_internal:write"
 # validated against this set where it is stored, and `resolve_scopes` intersects against it
 # again at mint time, so a stale or hand-edited grant cannot widen a token.
 #
-# Every entry is an artifact-shaped write, which is what makes an unattended agent holding one
-# acceptable at all. Kept out on purpose: `hog_function:write` and batch exports, because a
-# destination is arbitrary egress; `feature_flag:write`, `experiment:write` and `survey:write`,
-# because they change what end users see in production; `cohort:write` and `action:write` until
-# a scout needs them; and anything organization, user, member, or role shaped.
+# Every entry but `experiment:write` is an artifact-shaped write, which is what makes an unattended
+# agent holding one acceptable at all. Its entry below says why it is the exception. Kept out on
+# purpose: `hog_function:write` and batch exports, because a destination is arbitrary egress;
+# `feature_flag:write` and `survey:write`, because they change what end users see in production;
+# `cohort:write` and `action:write` until a scout needs them; and anything organization, user,
+# member, or role shaped.
 #
 # These scopes are object-level rather than tool-level, so each one carries update and delete of
 # every matching object the token can reach, not only the objects the scout created. The reach
@@ -242,6 +245,12 @@ CONTEXT_LAYER_INTERNAL_SCOPE = "context_layer_internal:write"
 #                          nothing in front of anyone. Creates only; a suggestion is resolved by
 #                          a person. A person grants it in the scout's write access settings, the
 #                          same way as every other scope here, so no scout holds it by default.
+#   ticket:write           Support ticket fields and saved ticket views, plus new private notes.
+#                          The API blocks scouts from public replies, outbound compose, customer
+#                          identity changes, existing-note changes, and generic ticket comments.
+#                          Ticket field changes can still start configured workflows that message
+#                          customers. Ticket delete is outside the scope. Saved view delete is
+#                          permanent and removes member pins; a view is a name and filter set.
 #   canvas:write           Every canvas in a public space of the scout's project, and every canvas
 #                          the acting user created in a space they can see (see
 #                          `authorized_canvases`): publish a new version, patch a grid layout, write
@@ -251,6 +260,21 @@ CONTEXT_LAYER_INTERNAL_SCOPE = "context_layer_internal:write"
 #                          recoverable soft-delete and only reaches canvases the acting user created.
 #                          A scout cannot create a canvas: a sandbox may only file one in its task's
 #                          space, and a scout task has none. It maintains one a person created.
+#   experiment:write       Every experiment in the scout's project, not only the ones the scout
+#                          created: create, update, duplicate, archive, and the lifecycle actions
+#                          launch, pause, resume, end, and reset. Launch and pause turn the linked
+#                          feature flag on and off, so unlike every other entry here this scope
+#                          CHANGES WHAT END USERS SEE. It is grantable because a person turns it on
+#                          for one scout on purpose, and the picker says so.
+#                          `products/experiments/backend/presentation/scout_writes.py` narrows it
+#                          for scouts: no delete (archive instead), no copy to another project, no
+#                          migration (it creates shared metrics), and no flag cleanup PR (a scout
+#                          already holds `task:write`). Without `feature_flag:write` a scout also
+#                          cannot ship a variant or change the variants, rollout, or holdout of a
+#                          launched experiment or a live flag, because each of those rewrites the
+#                          rollout. The extra scopes in `dangerously_get_required_scopes` still
+#                          apply, so the grant alone cannot disable a flag on archive or set the
+#                          team default repository. It can also create an exposure cohort.
 #
 # `annotation:write` and `alert:write` exceed the "recoverable, project-scoped" bar the other
 # scopes meet. They stay in the v1 set that #94263 puts to the team, because narrowing the set is
@@ -278,7 +302,9 @@ SCOUT_GRANTABLE_WRITE_SCOPES: frozenset[str] = frozenset(
         "warehouse_table:write",
         "replay_scanner:write",
         "hog_flow_proposal:write",
+        "ticket:write",
         "canvas:write",
+        "experiment:write",
     }
 )
 
@@ -346,12 +372,12 @@ MCP_SCOPE_PRESETS = (
 )
 
 # Withheld from `signals_research`, which is otherwise the `read_only` resolution.
-# `task:write` reaches every posture through `INTERNAL_SCOPES`, but it is inert wherever the
-# MCP server runs in read-only mode, which strips every tool not annotated read-only.
+# `task:write` and `inbox:write` reach every posture through `INTERNAL_SCOPES`, but they are inert
+# wherever the MCP server runs in read-only mode, which strips every tool not annotated read-only.
 # `signals_research` turns that mode off so its two scratchpad tools survive, and that alone
-# would hand the research stage the whole task-write toolset — including setting a report's
-# state. The stage reads data and returns findings; the pipeline persists them afterwards.
-RESEARCH_WITHHELD_SCOPES: frozenset[str] = frozenset({"task:write"})
+# would hand the research stage the whole task-write and inbox-write toolset — including setting
+# a report's state. The stage reads data and returns findings; the pipeline persists them afterwards.
+RESEARCH_WITHHELD_SCOPES: frozenset[str] = frozenset({"task:write", "inbox:write"})
 
 
 def scout_scope_posture(
@@ -442,7 +468,7 @@ def resolve_scopes(
             resolved = [*MCP_READ_SCOPES, *MCP_WRITE_SCOPES, *internal, *scratchpad]
         elif scopes == "signals_research":
             # The report research run: reads, plus durable memory, and nothing else. See
-            # `RESEARCH_WITHHELD_SCOPES` for why `task:write` comes back out.
+            # `RESEARCH_WITHHELD_SCOPES` for why `task:write` and `inbox:write` come back out.
             reads = [scope for scope in (*MCP_READ_SCOPES, *internal) if scope not in RESEARCH_WITHHELD_SCOPES]
             if include_internal_scopes:
                 reads.append("signal_scout_internal:read")

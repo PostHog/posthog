@@ -207,8 +207,15 @@ class TestSlackThreadHandler(SimpleTestCase):
 
         mock_client.chat_delete.assert_not_called()
 
+    @parameterized.expand(
+        [
+            ("mention_is_thread_root", "1234.5678"),
+            ("mention_is_thread_reply", "1234.9999"),
+            ("mention_unknown", None),
+        ]
+    )
     @patch.object(SlackThreadHandler, "_get_client")
-    def test_update_reaction_removes_eyes_then_adds_new(self, mock_get_client):
+    def test_update_reaction_targets_the_mention_message(self, _name, user_message_ts, mock_get_client):
         mock_client = MagicMock()
         mock_get_client.return_value = mock_client
 
@@ -216,15 +223,17 @@ class TestSlackThreadHandler(SimpleTestCase):
             integration_id=1,
             channel="C001",
             thread_ts="1234.5678",
-            user_message_ts="1234.5678",
+            user_message_ts=user_message_ts,
         )
         handler = SlackThreadHandler(context)
-        handler.update_reaction("hedgehog")
+        handler.update_reaction("x")
 
-        remove_calls = mock_client.reactions_remove.call_args_list
-        assert len(remove_calls) == 1
-        assert remove_calls[0].kwargs["name"] == "eyes"
-        mock_client.reactions_add.assert_called_once_with(channel="C001", timestamp="1234.5678", name="hedgehog")
+        if user_message_ts is None:
+            mock_client.reactions_remove.assert_not_called()
+            mock_client.reactions_add.assert_not_called()
+            return
+        mock_client.reactions_remove.assert_called_once_with(channel="C001", timestamp=user_message_ts, name="eyes")
+        mock_client.reactions_add.assert_called_once_with(channel="C001", timestamp=user_message_ts, name="x")
 
     @patch.object(SlackThreadHandler, "_get_client")
     def test_post_pr_opened_posts_buttons(self, mock_get_client):

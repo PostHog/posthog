@@ -13,6 +13,7 @@ interface FunnelStepsBarTooltipProps {
     breakdownFilter: BreakdownFilter | null | undefined
     groupTypeLabel: string
     showPersonsModal: boolean
+    isPartialBreakdownSelection: boolean
     resolvedDateRange?: Parameters<typeof funnelComparePeriodDateRange>[1]
     compareTo?: Parameters<typeof funnelComparePeriodDateRange>[2]
 }
@@ -23,6 +24,7 @@ export function FunnelStepsBarTooltip({
     breakdownFilter,
     groupTypeLabel,
     showPersonsModal,
+    isPartialBreakdownSelection,
     resolvedDateRange,
     compareTo,
 }: FunnelStepsBarTooltipProps): JSX.Element | null {
@@ -50,6 +52,7 @@ export function FunnelStepsBarTooltip({
         groupTypeLabel,
         breakdownFilter,
         aggregateConversionRate,
+        isPartialBreakdownSelection,
         comparePeriodDateRange,
     }
 

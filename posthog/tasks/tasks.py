@@ -13,7 +13,7 @@ from django.db.models import Model
 from django.utils import timezone
 
 import requests
-from celery import shared_task
+from celery import Task, shared_task
 from clickhouse_driver.errors import UnknownPacketFromServerError
 from prometheus_client import Counter, Gauge
 from redis import Redis
@@ -425,17 +425,22 @@ def _process_query_task_failure(
     if isinstance(exc, APIException):
         # User-safe message (e.g. ClickHouseAtCapacity's "try again later" copy)
         query_status.error_message = str(exc.detail)
+        codes = exc.get_codes()
+        if isinstance(codes, str):
+            query_status.error_code = codes
+    elif isinstance(exc, ConcurrencyLimitExceeded):
+        query_status.error_code = ClickHouseAtCapacity.default_code
     query_status.end_time = datetime.datetime.now(datetime.UTC)
     manager.store_query_status(query_status)
 
 
 @shared_task(
+    bind=True,
     ignore_result=True,
     queue=CeleryQueue.ANALYTICS_QUERIES.value,
     acks_late=True,
     autoretry_for=(
         # Important: Only retry for things that might be okay on the next try
-        ClickHouseAtCapacity,
         ConcurrencyLimitExceeded,
         QueryRanConcurrently,
     ),
@@ -450,10 +455,11 @@ def _process_query_task_failure(
 @limit_concurrency(150, limit_name="global")  # Do not go above what CH can handle (max_concurrent_queries)
 @limit_concurrency(
     10,
-    key=lambda *args, **kwargs: kwargs.get("team_id") or args[0],
+    key=lambda *args, **kwargs: kwargs.get("team_id") or args[1],
     limit_name="per_team",
 )  # Do not run too many queries at once for the same team
 def process_query_task(
+    self: Task,
     team_id: int,
     user_id: Optional[int],
     query_id: str,
@@ -477,16 +483,22 @@ def process_query_task(
     if is_query_service:
         tag_queries(chargeable=1)
 
-    execute_process_query(
-        team_id=team_id,
-        user_id=user_id,
-        query_id=query_id,
-        query_json=query_json,
-        limit_context=limit_context,
-        is_query_service=is_query_service,
-        analytics_props=analytics_props,
-        sharing_configuration_id=sharing_configuration_id,
-    )
+    try:
+        execute_process_query(
+            team_id=team_id,
+            user_id=user_id,
+            query_id=query_id,
+            query_json=query_json,
+            limit_context=limit_context,
+            is_query_service=is_query_service,
+            analytics_props=analytics_props,
+            sharing_configuration_id=sharing_configuration_id,
+        )
+    except ClickHouseAtCapacity as exc:
+        # A remote capacity failure can arrive after other shards have done expensive work.
+        if self.request.retries >= 4:
+            raise
+        raise self.retry(exc=exc, countdown=exc.wait)
 
 
 @shared_task(ignore_result=True)
@@ -1354,11 +1366,21 @@ def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
         "Seconds between checkpoint timestamp and current time",
         registry=self.metrics_registry,
     )
+    checkpoint_timestamp_gauge = Gauge(
+        "posthog_feature_flag_last_called_at_sync_checkpoint_timestamp_seconds",
+        "Unix time of the checkpoint the sync wrote to Redis",
+        registry=self.metrics_registry,
+    )
 
     run_failed = False
 
     try:
         redis_client = get_client()
+
+        def save_checkpoint(checkpoint: datetime) -> None:
+            redis_client.set(FEATURE_FLAG_LAST_CALLED_SYNC_KEY, checkpoint.isoformat())
+            checkpoint_lag_gauge.set((timezone.now() - checkpoint).total_seconds())
+            checkpoint_timestamp_gauge.set(checkpoint.timestamp())
 
         # Get last sync timestamp from Redis or use lookback. A Redis error on this read propagates so
         # that Celery retries the run. The lookback fallback would rescan up to
@@ -1482,7 +1504,14 @@ def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
                         "current_sync_timestamp": chunk_end_ts,
                         "limit": settings.FEATURE_FLAG_LAST_CALLED_AT_SYNC_CLICKHOUSE_LIMIT,
                     },
-                    settings={"max_execution_time": settings.FEATURE_FLAG_LAST_CALLED_AT_SYNC_QUERY_TIMEOUT_SECONDS},
+                    settings={
+                        "max_execution_time": settings.FEATURE_FLAG_LAST_CALLED_AT_SYNC_QUERY_TIMEOUT_SECONDS,
+                        # When every replica of a shard lags past max_replica_delay_for_distributed_queries,
+                        # the default fallback reads a stale replica and returns a result with rows missing.
+                        # The checkpoint would then move past those rows. With the fallback off, ClickHouse
+                        # fails the chunk, so the checkpoint stops before it.
+                        "fallback_to_stale_replicas_for_distributed_queries": 0,
+                    },
                 )
             except Exception as e:
                 # Transient errors are what autoretry_for is for. ClickHouseAtCapacity in
@@ -1557,13 +1586,12 @@ def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
         if not merged_results:
             # Advance the checkpoint even when no results, so the next run starts from the
             # end of the window that was read instead of rescanning it
-            redis_client.set(FEATURE_FLAG_LAST_CALLED_SYNC_KEY, checkpoint_timestamp.isoformat())
+            save_checkpoint(checkpoint_timestamp)
 
             # Emit metrics for no-results case
             updated_count_gauge.set(0)
             events_processed_gauge.set(0)
             clickhouse_results_gauge.set(0)
-            checkpoint_lag_gauge.set((timezone.now() - checkpoint_timestamp).total_seconds())
 
             logger.info(
                 "Feature flag sync completed with no events",
@@ -1581,7 +1609,7 @@ def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
                 flag_updates[(team_id, flag_key)] = ts
 
         if not flag_updates:
-            redis_client.set(FEATURE_FLAG_LAST_CALLED_SYNC_KEY, checkpoint_timestamp.isoformat())
+            save_checkpoint(checkpoint_timestamp)
             logger.info(
                 "Feature flag sync: no valid timestamps to update",
                 chunks_processed=len(chunks),
@@ -1589,7 +1617,6 @@ def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
             clickhouse_results_gauge.set(total_clickhouse_results)
             updated_count_gauge.set(0)
             events_processed_gauge.set(0)
-            checkpoint_lag_gauge.set((timezone.now() - checkpoint_timestamp).total_seconds())
             return
 
         # Fetch flags matching any (team_id, key) combination from updates.
@@ -1632,17 +1659,15 @@ def sync_feature_flag_last_called(self: PushGatewayTask) -> None:
                 raise
 
         # Set final checkpoint to the end of the last window that was read successfully
-        redis_client.set(FEATURE_FLAG_LAST_CALLED_SYNC_KEY, checkpoint_timestamp.isoformat())
+        save_checkpoint(checkpoint_timestamp)
 
         duration = (timezone.now() - start_time).total_seconds()
         processed_events = sum(count for _ts, count in merged_results.values())
 
         # Emit metrics for successful completion
-        checkpoint_lag_seconds = (timezone.now() - checkpoint_timestamp).total_seconds()
         updated_count_gauge.set(updated_count)
         events_processed_gauge.set(processed_events)
         clickhouse_results_gauge.set(total_clickhouse_results)
-        checkpoint_lag_gauge.set(checkpoint_lag_seconds)
 
         logger.info(
             "Feature flag sync completed",
@@ -1793,30 +1818,37 @@ def refresh_activity_log_fields_cache(flush: bool = False, hours_back: int = 14)
         )
 
 
-@shared_task(ignore_result=True)
+# Registered under the previous name, so messages queued by the previous deploy still run.
+@shared_task(ignore_result=True, name="posthog.tasks.tasks.sync_user_product_lists_for_new_team")
 @skip_team_scope_audit
-def sync_user_product_lists_for_new_team(team_id: int) -> None:
+def star_default_products_for_new_team(team_id: int) -> None:
     """
-    Sync UserProductList for all users who have access to a new team.
+    Star the default products for all users who have access to a new team.
     Called during project creation to avoid request timeouts for large organizations.
     """
-    from posthog.models.file_system.user_product_list import add_default_products_for_user
+    from posthog.models.file_system.starred_products import star_default_products
     from posthog.models.team import Team
 
     try:
         team = Team.objects.get(id=team_id)
     except Team.DoesNotExist:
-        logger.info("sync_user_product_lists_for_new_team: Team not found, skipping", team_id=team_id)
+        logger.info("star_default_products_for_new_team: Team not found, skipping", team_id=team_id)
+        return
+
+    # Environments of a project share its sidebar stars. Seeding a new environment would restore
+    # defaults that users of the project already removed.
+    if Team.objects.filter(project_id=team.project_id).exclude(id=team.id).exists():
+        logger.info("star_default_products_for_new_team: Team is a new environment, skipping", team_id=team_id)
         return
 
     users = list(team.all_users_with_access())
     logger.info(
-        "sync_user_product_lists_for_new_team: Starting sync",
+        "star_default_products_for_new_team: Starting",
         team_id=team_id,
         user_count=len(users),
     )
 
     for user in users:
-        add_default_products_for_user(user, team)
+        star_default_products(user, team)
 
-    logger.info("sync_user_product_lists_for_new_team: Completed", team_id=team_id)
+    logger.info("star_default_products_for_new_team: Completed", team_id=team_id)

@@ -22,6 +22,7 @@ from django.utils.timezone import now
 import posthoganalytics
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
+from rest_framework import serializers
 from rest_framework.request import Request
 
 from posthog.exceptions import RequestParsingError, UnspecifiedCompressionFallbackParsingError
@@ -1092,13 +1093,73 @@ class TestSharingOverrideProtection(SimpleTestCase):
 
         assert result == {"date_from": "-30d"}
 
-    def test_filters_override_allowed_for_normal_auth(self):
-        request = self._make_request(None, query_params={"filters_override": json.dumps({"date_from": "-7d"})})
+    @parameterized.expand(
+        [
+            ("date", {"date_from": "-7d"}),
+            (
+                "grouped_property_list",
+                {"properties": [{"type": "AND", "values": [{"type": "event", "key": "browser", "value": "Chrome"}]}]},
+            ),
+            (
+                "grouped_property_dict",
+                {"properties": {"type": "AND", "values": [{"type": "event", "key": "browser", "value": "Chrome"}]}},
+            ),
+        ]
+    )
+    def test_filters_override_allowed_for_normal_auth(self, _name: str, override: dict[str, Any]) -> None:
+        request = self._make_request(None, query_params={"filters_override": json.dumps(override)})
         dashboard = type("Dashboard", (), {"filters": {"date_from": "-30d"}})()
 
         result = filters_override_requested_by_client(request, dashboard)
 
-        assert result == {"date_from": "-7d"}
+        assert result == {"date_from": "-30d", **override}
+
+    def test_filters_override_gets_saved_metric_variable_definitions(self):
+        saved = {"name": "env", "source": "sql", "query": "SELECT 1", "current": {"values": ["a"]}}
+        compact = [{"name": "env", "current": {"values": ["b"]}}, {"name": "gone", "current": {"values": ["c"]}}]
+        request = self._make_request(None, query_params={"filters_override": json.dumps({"metricVariables": compact})})
+        dashboard = type("Dashboard", (), {"filters": {"metricVariables": [saved]}})()
+
+        result = filters_override_requested_by_client(request, dashboard)
+
+        assert result["metricVariables"] == [{**saved, "current": {"values": ["b"]}}]
+
+    def test_filters_override_rejects_a_metric_variable_name_that_is_not_a_string(self):
+        override: dict[str, list[dict[str, list[str]]]] = {"metricVariables": [{"name": []}]}
+        request = self._make_request(None, query_params={"filters_override": json.dumps(override)})
+        dashboard = type("Dashboard", (), {"filters": {}})()
+
+        with pytest.raises(serializers.ValidationError):
+            filters_override_requested_by_client(request, dashboard)
+
+    @parameterized.expand(
+        [
+            (
+                "unknown_keys",
+                {"date_from": "-7d", "display": "ActionsLineGraph"},
+                "Unknown key(s) in filters_override: display.",
+            ),
+            ("not_an_object", ["date_from"], "filters_override must be a JSON object."),
+            ("invalid_value", {"interval": "fortnight"}, "Invalid value in filters_override at 'interval'"),
+            (
+                "nested_unknown_key",
+                {"compareFilter": {"surprise": True}},
+                "Invalid value in filters_override at 'compareFilter.surprise': Extra inputs are not permitted.",
+            ),
+            (
+                "invalid_property_group",
+                {"properties": [{"type": "OR", "values": []}]},
+                "Invalid value in filters_override: Only AND property groups are supported.",
+            ),
+        ]
+    )
+    def test_filters_override_rejects_invalid_filters(self, _name: str, override: Any, expected_detail: str) -> None:
+        request = self._make_request(None, query_params={"filters_override": json.dumps(override)})
+
+        with pytest.raises(serializers.ValidationError) as exc_info:
+            filters_override_requested_by_client(request, None)
+
+        assert expected_detail in str(exc_info.value.detail)
 
     @parameterized.expand(
         [

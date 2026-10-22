@@ -1,10 +1,9 @@
-import { getQueryBasedDashboard } from '~/queries/nodes/InsightViz/utils'
 import { DashboardFilter } from '~/queries/schema/schema-general'
 import { DashboardTile, DashboardType, InsightModel } from '~/types'
 
 import _dashboardJson from './__mocks__/dashboard.json'
 
-const dashboardJson = getQueryBasedDashboard(_dashboardJson as any as DashboardType)!
+const dashboardJson = _dashboardJson as any as DashboardType
 
 export function insightOnDashboard(
     insightId: number,
@@ -21,7 +20,6 @@ export function insightOnDashboard(
     }
     return {
         ...tile.insight,
-        dashboards: dashboardsRelation,
         dashboard_tiles: dashboardsRelation.map((dashboardId) => ({ id: insight.id!, dashboard_id: dashboardId })),
         query: { ...tile.insight.query, ...insight.query, kind: (tile.insight.query?.kind || insight.query?.kind)! },
     }

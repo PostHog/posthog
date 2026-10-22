@@ -155,7 +155,7 @@ Reporting tables use daily granularity, which Apple serves for the last 90 days 
             permissionsCaption="""Assign the **API Account Read Only** role to the Apple Ads user who sets up the connection, under **Account settings > User management**. Apple attaches API roles to users, not to clients, so this applies to both authentication types. That role grants read access to the campaign data these tables are built from. Pick it rather than the campaign group **API Read Only**, which covers a single campaign group. The **API Account Manager** role also works if you already use it.""",
             iconPath="/static/services/apple_search_ads.png",
             docsUrl="https://posthog.com/docs/cdp/sources/apple-search-ads",
-            releaseStatus=ReleaseStatus.BETA,
+            releaseStatus=ReleaseStatus.GA,
             # "Apple Search Ads" is the former product name, kept so the catalog still finds
             # this source under what Apple used to call it.
             keywords=["apple search ads", "asa", "app store ads", "search ads", "apple maps ads"],

@@ -74,7 +74,7 @@ class UpPromoteSource(
             name=ExternalDataSourceType.UPPROMOTE,
             category=DataWarehouseSourceCategory.ADVERTISING,
             label="UpPromote",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption=(
                 "Enter your UpPromote API key to pull your affiliate programs, affiliates, "
                 "referrals, coupons, and payments into the PostHog Data warehouse.\n\n"
@@ -174,6 +174,10 @@ class UpPromoteSource(
                 "payments_unpaid": (
                     "Outstanding (approved but unpaid) commission per affiliate. An aggregated "
                     "snapshot, refreshed in full on every sync"
+                ),
+                "program_excluded": (
+                    "Products or collections excluded from commission, one row per program. "
+                    "Refreshed in full on every sync"
                 ),
             },
         )

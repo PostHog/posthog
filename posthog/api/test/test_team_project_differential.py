@@ -6,7 +6,7 @@ from unittest.mock import patch
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.api.team import TEAM_CONFIG_FIELDS
+from posthog.api.team.team_config import TEAM_CONFIG_FIELDS
 from posthog.models.organization import OrganizationMembership
 from posthog.models.project import Project
 from posthog.models.team.team import Team
@@ -158,7 +158,6 @@ FIELD_VALUES: dict[str, Any] = {
     "timezone": "America/New_York",
     "data_attributes": ["data-attr"],
     "person_display_name_properties": ["email"],
-    "correlation_config": {"excluded_person_property_names": ["foo"]},
     "autocapture_opt_out": True,
     "autocapture_exceptions_opt_in": True,
     "autocapture_web_vitals_opt_in": True,

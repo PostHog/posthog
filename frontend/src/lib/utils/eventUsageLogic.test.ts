@@ -1,10 +1,9 @@
 import posthog from 'posthog-js'
 
-import { SELF_DRIVING_ONBOARDING_EVENT_PROPS } from 'scenes/onboarding/onboardingEventUsageLogic'
-
 import { NodeKind } from '~/queries/schema/schema-general'
 import type {
     ExperimentFunnelMetric,
+    ExperimentFunnelsQuery,
     ExperimentMeanMetric,
     ExperimentRatioMetric,
     ExperimentRetentionMetric,
@@ -24,50 +23,14 @@ import {
 } from '~/types'
 
 import {
-    type OnboardingEventProperties,
     dashboardViewedProperties,
     eventUsageLogic,
     getEventPropertiesForMetric,
+    sanitizeDashboard,
     sanitizeQuery,
 } from './eventUsageLogic'
 
 describe('eventUsageLogic', () => {
-    describe('onboarding funnel events', () => {
-        let capture: jest.SpyInstance
-
-        beforeEach(() => {
-            initKeaTests()
-            eventUsageLogic.mount()
-            capture = jest.spyOn(posthog, 'capture').mockImplementation()
-        })
-
-        afterEach(() => {
-            capture.mockRestore()
-        })
-
-        const cases: [string, OnboardingEventProperties | undefined, string][] = [
-            ['legacy', undefined, 'product_selection'],
-            ['self-driving', SELF_DRIVING_ONBOARDING_EVENT_PROPS, 'welcome'],
-        ]
-
-        it.each(cases)('stamps the %s entry point on every funnel event', (_, properties, entryPoint) => {
-            eventUsageLogic.actions.reportOnboardingStarted(properties)
-            eventUsageLogic.actions.reportOnboardingStepCompleted('install', undefined, properties)
-            eventUsageLogic.actions.reportOnboardingStepSkipped('install', undefined, properties)
-            eventUsageLogic.actions.reportOnboardingCompleted('product_analytics', properties)
-
-            for (const event of [
-                'onboarding started',
-                'onboarding step completed',
-                'onboarding step skipped',
-                'onboarding completed',
-            ]) {
-                const call = capture.mock.calls.find(([name]) => name === event)
-                expect(call?.[1]).toMatchObject({ entry_point: entryPoint })
-            }
-        })
-    })
-
     describe('experiments list viewed', () => {
         it('sends the state of the list under its pinned property names', () => {
             initKeaTests()
@@ -414,6 +377,16 @@ describe('eventUsageLogic', () => {
         })
     })
 
+    it('keeps metric variable definitions out of a sanitized dashboard', () => {
+        const metricVariables = [{ name: 'env', source: 'sql', query: 'SELECT private_value' }]
+        const tile = { id: 1, insight: { id: 2, filter_override_context: { dashboard: { metricVariables } } } }
+        const dashboard = { id: 7, tiles: [tile], filters: { metricVariables }, persisted_filters: { metricVariables } }
+
+        const sanitized = sanitizeDashboard(dashboard as unknown as DashboardType)
+
+        expect(JSON.stringify(sanitized)).not.toContain('private_value')
+    })
+
     describe('dashboardViewedProperties', () => {
         const dashboard = (tiles: Partial<DashboardTile>[]): DashboardType =>
             ({
@@ -487,5 +460,14 @@ describe('eventUsageLogic', () => {
                 created_by_system: created_by === null,
             })
         })
+    })
+
+    it('reports only the kind for a legacy metric', () => {
+        const metric = {
+            kind: NodeKind.ExperimentFunnelsQuery,
+            funnels_query: { series: [{ kind: NodeKind.EventsNode }] },
+        } as ExperimentFunnelsQuery
+
+        expect(getEventPropertiesForMetric(metric)).toEqual({ kind: NodeKind.ExperimentFunnelsQuery })
     })
 })

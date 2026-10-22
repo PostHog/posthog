@@ -36,9 +36,10 @@ async def test_report_judge_runs_on_the_safety_model() -> None:
     cache_flags: list[bool] = []
 
     async def fake_call_llm(
-        *, model: str | None = None, cache_system_prompt: bool = False, **_kwargs: object
+        *, model: str | None = None, cache_system_prompt: bool = False, signal_id: str | None = None, **_kwargs: object
     ) -> SafetyJudgeResponse:
         captured["model"] = model
+        captured["signal_id"] = signal_id
         cache_flags.append(cache_system_prompt)
         return SafetyJudgeResponse(choice=True)
 
@@ -53,9 +54,10 @@ async def test_report_judge_runs_on_the_safety_model() -> None:
     )
 
     with patch(f"{MODULE_PATH}.call_llm", new=fake_call_llm):
-        result = await judge_report_safety(team_id=1, signals=[signal])
+        result = await judge_report_safety(team_id=1, signals=[signal], signal_id="driver-signal")
 
     assert result.choice is True
+    assert captured["signal_id"] == "driver-signal"
     assert captured["model"] == SAFETY_MODEL
     assert cache_flags == [True]
 

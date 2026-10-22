@@ -2,6 +2,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
     CanonicalDescriptions,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.youtube_analytics.settings import (
+    AUDIENCE_RETENTION,
     CHANNEL_DAILY,
     DEMOGRAPHICS,
     DEVICE_TYPES,
@@ -11,11 +12,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.youtube_an
     SHARING_SERVICES,
     SUBSCRIBED_STATUS,
     TOP_VIDEOS,
+    TRAFFIC_SOURCE_DETAILS,
     TRAFFIC_SOURCES,
+    VIDEOS,
 )
 
 _METRICS_DOCS_URL = "https://developers.google.com/youtube/analytics/metrics"
 _DIMENSIONS_DOCS_URL = "https://developers.google.com/youtube/analytics/dimensions"
+_VIDEOS_DOCS_URL = "https://developers.google.com/youtube/v3/docs/videos"
 
 _DAY = "The date the activity occurred, as UTC midnight."
 _VIEWS = "The number of times the channel's videos were viewed."
@@ -150,6 +154,53 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "subscribedStatus": "Whether the viewer was subscribed to the channel when the activity occurred.",
             "views": _VIEWS,
             "estimatedMinutesWatched": _ESTIMATED_MINUTES_WATCHED,
+        },
+    },
+    TRAFFIC_SOURCE_DETAILS: {
+        "description": (
+            "Daily top referrers within each traffic source type, such as the search terms, websites or "
+            "related videos that sent the most views. Up to 25 referrers per type per day."
+        ),
+        "docs_url": _DIMENSIONS_DOCS_URL,
+        "columns": {
+            "day": _DAY,
+            "insightTrafficSourceType": "The traffic source type the referrer belongs to, such as YT_SEARCH or EXT_URL.",
+            "insightTrafficSourceDetail": (
+                "The referrer within the traffic source type, such as a search term, a web page or a video ID."
+            ),
+            "views": _VIEWS,
+            "estimatedMinutesWatched": _ESTIMATED_MINUTES_WATCHED,
+        },
+    },
+    VIDEOS: {
+        "description": "Every video in the channel's uploads, with its metadata, content details and lifetime statistics.",
+        "docs_url": _VIDEOS_DOCS_URL,
+        "columns": {
+            "id": "The ID that YouTube uses to uniquely identify the video.",
+            "snippet": "Basic details about the video, such as its title, description, publish date and category.",
+            "contentDetails": "Information about the video content, such as its duration and definition.",
+            "statistics": "Lifetime statistics for the video, such as its view, like and comment counts.",
+            "status": "The upload, processing and privacy status of the video.",
+        },
+    },
+    AUDIENCE_RETENTION: {
+        "description": (
+            "Audience retention curves for the channel's top videos by views in the sync window, with "
+            "100 points per video."
+        ),
+        "docs_url": _METRICS_DOCS_URL,
+        "columns": {
+            "video": "The ID of the video the retention curve describes.",
+            "elapsedVideoTimeRatio": "The elapsed portion of the video, from 0.01 to 1.0, that the metrics describe.",
+            "audienceWatchRatio": (
+                "The number of times this portion of the video was watched, divided by the total views of the video."
+            ),
+            "relativeRetentionPerformance": (
+                "How well the video retains viewers at this point compared to YouTube videos of similar length, from 0 to 1."
+            ),
+            "startedWatching": "The number of times this segment was the first segment seen during a playback.",
+            "stoppedWatching": "The number of times this segment was the last segment seen during a playback.",
+            "totalSegmentImpressions": "The number of times this segment of the video was viewed.",
         },
     },
 }

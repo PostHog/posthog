@@ -91,6 +91,7 @@ function isCategoricalSelectionValid(
 
 function buildScoreDefinitionFromReviewScore(score: TraceReviewScore, teamId: number): ScoreDefinitionApi {
     return {
+        tags: [],
         id: score.definition_id,
         name: score.definition_name,
         description: score.definition_archived
@@ -103,6 +104,7 @@ function buildScoreDefinitionFromReviewScore(score: TraceReviewScore, teamId: nu
         config: score.definition_config,
         created_by: null,
         created_at: score.created_at,
+        updated_by: null,
         updated_at: score.updated_at,
         team: teamId,
     }

@@ -43,6 +43,7 @@ from posthog.temporal.ai_observability.evaluation_backfill import (
     EvaluationBackfillInputs,
     backfill_workflow_id,
     cancel_backfill,
+    interrupt_backfill,
     report_backfill_finished,
     settle_horizon,
 )
@@ -219,6 +220,7 @@ class EvaluationBackfillSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "status",
+            "status_reason",
             "target",
             "window_start",
             "window_end",
@@ -226,6 +228,8 @@ class EvaluationBackfillSerializer(serializers.ModelSerializer):
             "rerun_existing",
             "total_count",
             "dispatched_count",
+            "completed_count",
+            "evaluation_skipped_count",
             "skipped_count",
             "failed_count",
             "remaining_count",
@@ -236,7 +240,8 @@ class EvaluationBackfillSerializer(serializers.ModelSerializer):
         read_only_fields = fields
         extra_kwargs = {
             "id": {"help_text": "Backfill identifier."},
-            "status": {"help_text": "running while the walk is dispatching, then completed or cancelled."},
+            "status": {"help_text": "Running, completed, interrupted by an error, or cancelled by a user."},
+            "status_reason": {"help_text": "Reason an interrupted backfill stopped; empty otherwise."},
             "window_start": {"help_text": "Inclusive start of the window, by unit timestamp."},
             "window_end": {"help_text": "Exclusive end of the window."},
             "rerun_existing": {"help_text": "Whether units with an existing result are evaluated again."},
@@ -246,12 +251,11 @@ class EvaluationBackfillSerializer(serializers.ModelSerializer):
             "dispatched_count": {"help_text": "Units the backfill has started an evaluation for so far."},
             "skipped_count": {"help_text": "Units the live path had already covered, so nothing was dispatched."},
             "failed_count": {
-                "help_text": "Units whose evaluation failed to start. They have no result and count toward remaining_count."
+                "help_text": "Units whose evaluation failed to start or finish. Legacy runs only counted start failures."
             },
             "remaining_count": {
                 "help_text": (
-                    "Units still holding no result when the run finished, counted at that moment. "
-                    "Zero means the window is covered, whoever graded it."
+                    "Units left to retry after completion. Legacy runs estimated this before evaluations finished."
                 )
             },
             "created_at": {"help_text": "When the backfill was created."},
@@ -344,7 +348,11 @@ class EvaluationBackfillViewSet(
                     f"{_duration_label(settle_hold - timedelta(seconds=INGESTION_LAG_MARGIN_SECONDS))}, so a "
                     "backfill has to end before that. Try a range that ends earlier."
                 )
-        window_start: datetime = max(data["window_start"], now - timedelta(days=AI_EVENTS_RETENTION_DAYS))
+        # ai_events expires at toDate(timestamp) + retention_days, so exclude the whole expired day.
+        retention_start = now.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(
+            days=AI_EVENTS_RETENTION_DAYS - 1
+        )
+        window_start: datetime = max(data["window_start"], retention_start)
         if window_start >= window_end:
             raise ValidationError(
                 f"The range must end in the past and start within the last {AI_EVENTS_RETENTION_DAYS} days."
@@ -490,7 +498,6 @@ class EvaluationBackfillViewSet(
     def estimate(self, request: Request, **kwargs: Any) -> Response:
         """Count what a backfill over the given window would evaluate, without creating one."""
         evaluation = self._evaluation_for_url()
-        self._require_enabled(evaluation)
         data = self._validated_request(request)
         window = self._clamped_window(evaluation, data)
         conditions = self._conditions(evaluation, data)
@@ -536,7 +543,7 @@ class EvaluationBackfillViewSet(
             team_id=self.team_id,
             workflow_id=workflow_id,
         )
-        if cancel_backfill(self.team_id, backfill.pk):
+        if interrupt_backfill(self.team_id, backfill.pk, "workflow_not_running"):
             report_backfill_finished(
                 self.team_id, str(backfill.pk), status="failed", stop_reason="workflow_not_running"
             )
@@ -664,7 +671,7 @@ class EvaluationBackfillViewSet(
                 asyncio.run(client.get_workflow_handle(backfill_workflow_id(str(backfill.pk))).cancel())
             except Exception as error:
                 # The workflow reads the row's status at every tick and stops on a terminal one, so
-                # a failed handle costs nothing and does not need a stack trace.
+                # a failed handle only lets the current page finish and does not need a stack trace.
                 logger.warning("llma.evaluation_backfill_cancel_failed", backfill_id=str(backfill.pk), error=str(error))
             # The status and finished_at were written by the update, not on this instance.
             backfill.refresh_from_db()

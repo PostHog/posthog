@@ -275,7 +275,11 @@ const dataCatalogMetricApproveExecute = (): ToolBase<
 
 const DataCatalogMetricCreateSchema = () => {
     const DataCatalogMetricsCreateBody = orvalSchemas.DataCatalogMetricsCreateBody()
-    return DataCatalogMetricsCreateBody
+    return DataCatalogMetricsCreateBody.extend({
+        overwrite: DataCatalogMetricsCreateBody.shape['overwrite'].describe(
+            'Set to true only after the user explicitly agreed to overwrite the live metric that already holds this name. Leave it unset on the first call.'
+        ),
+    })
 }
 
 const dataCatalogMetricCreate = (): ToolBase<
@@ -313,6 +317,9 @@ const dataCatalogMetricCreate = (): ToolBase<
         }
         if (params.reasoning !== undefined) {
             body['reasoning'] = params.reasoning
+        }
+        if (params.overwrite !== undefined) {
+            body['overwrite'] = params.overwrite
         }
         body['created_source'] = 'ai_generated'
         const result = await context.api.request<Schemas.DataCatalogMetric>({
@@ -751,9 +758,11 @@ const metricList = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/data_catalog/metrics/`,
             query: {
+                definition_kind: params.definition_kind,
                 limit: params.limit,
                 offset: params.offset,
                 search: params.search,
+                status: params.status,
             },
         })
         const filtered = {

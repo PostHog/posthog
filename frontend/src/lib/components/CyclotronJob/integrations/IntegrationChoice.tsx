@@ -198,8 +198,8 @@ export function IntegrationChoice({
             ) : valueIsMissing ? (
                 <div className="flex flex-col gap-2">
                     <LemonBanner type="warning">
-                        The previously selected {kindName} connection (ID: {value}) is no longer available. Pick a
-                        different connection or clear the selection — this connection will fail at runtime otherwise.
+                        The previously selected {kindName} connection (ID: {value}) is no longer available, so this will
+                        fail when it runs. Pick a different connection or clear the selection.
                     </LemonBanner>
                     {button}
                 </div>

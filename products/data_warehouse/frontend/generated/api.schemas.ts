@@ -2391,6 +2391,7 @@ export interface CredentialApi {
  * * `Attio` - Attio
  * * `SnapchatAds` - SnapchatAds
  * * `Linear` - Linear
+ * * `LiteLLM` - LiteLLM
  * * `Intercom` - Intercom
  * * `Amplitude` - Amplitude
  * * `Mixpanel` - Mixpanel
@@ -2428,6 +2429,7 @@ export interface CredentialApi {
  * * `Square` - Square
  * * `Zoom` - Zoom
  * * `Trello` - Trello
+ * * `TrafficStars` - TrafficStars
  * * `Monday` - Monday
  * * `ClickUp` - ClickUp
  * * `Confluence` - Confluence
@@ -2437,6 +2439,7 @@ export interface CredentialApi {
  * * `Gong` - Gong
  * * `Calendly` - Calendly
  * * `Typeform` - Typeform
+ * * `UnityAds` - UnityAds
  * * `Iterable` - Iterable
  * * `ZohoCRM` - ZohoCRM
  * * `Close` - Close
@@ -2481,6 +2484,7 @@ export interface CredentialApi {
  * * `Plaid` - Plaid
  * * `SurveyMonkey` - SurveyMonkey
  * * `Eventbrite` - Eventbrite
+ * * `Everflow` - Everflow
  * * `RingCentral` - RingCentral
  * * `Twilio` - Twilio
  * * `Freshsales` - Freshsales
@@ -2550,6 +2554,8 @@ export interface CredentialApi {
  * * `CosmosDB` - CosmosDB
  * * `PlanetScaleMySQL` - PlanetScaleMySQL
  * * `PlanetScalePostgres` - PlanetScalePostgres
+ * * `Plane` - Plane
+ * * `Scarf` - Scarf
  * * `SapHana` - SapHana
  * * `Rippling` - Rippling
  * * `HiBob` - HiBob
@@ -2810,6 +2816,7 @@ export interface CredentialApi {
  * * `ReplyIo` - ReplyIo
  * * `RetailExpress` - RetailExpress
  * * `Retently` - Retently
+ * * `Retreaver` - Retreaver
  * * `RevolutMerchant` - RevolutMerchant
  * * `RocketChat` - RocketChat
  * * `Rocketlane` - Rocketlane
@@ -3076,6 +3083,7 @@ export interface CredentialApi {
  * * `LambdaLabs` - LambdaLabs
  * * `LangSmith` - LangSmith
  * * `Linode` - Linode
+ * * `Listmonk` - Listmonk
  * * `LlamaCloud` - LlamaCloud
  * * `Mem0` - Mem0
  * * `Metriport` - Metriport
@@ -3306,6 +3314,7 @@ export interface CredentialApi {
  * * `BlackboardLearn` - BlackboardLearn
  * * `Bling` - Bling
  * * `Bloomerang` - Bloomerang
+ * * `Blueshift` - Blueshift
  * * `Bluesky` - Bluesky
  * * `BolRetailer` - BolRetailer
  * * `Boulevard` - Boulevard
@@ -3456,6 +3465,7 @@ export interface CredentialApi {
  * * `LoopReturns` - LoopReturns
  * * `Mastodon` - Mastodon
  * * `Meetup` - Meetup
+ * * `Megaphone` - Megaphone
  * * `Memberful` - Memberful
  * * `MercadoPago` - MercadoPago
  * * `Meteostat` - Meteostat
@@ -3675,6 +3685,7 @@ export interface CredentialApi {
  * * `SimonData` - SimonData
  * * `CommissionJunction` - CommissionJunction
  * * `Liveblocks` - Liveblocks
+ * * `Livestorm` - Livestorm
  * * `NationBuilder` - NationBuilder
  * * `Tana` - Tana
  * * `Zenchef` - Zenchef
@@ -3735,6 +3746,18 @@ export interface CredentialApi {
  * * `Wise` - Wise
  * * `LaravelCloud` - LaravelCloud
  * * `Northbeam` - Northbeam
+ * * `NaverAds` - NaverAds
+ * * `ChannelIO` - ChannelIO
+ * * `Airship` - Airship
+ * * `Creem` - Creem
+ * * `Leantime` - Leantime
+ * * `Testomatio` - Testomatio
+ * * `GoogleAdMob` - GoogleAdMob
+ * * `Klar` - Klar
+ * * `ConectoCRM` - ConectoCRM
+ * * `CloudflareR2` - CloudflareR2
+ * * `Particle` - Particle
+ * * `FileUpload` - FileUpload
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -3778,6 +3801,7 @@ export const ExternalDataSourceTypeEnumApi = {
     Attio: 'Attio',
     SnapchatAds: 'SnapchatAds',
     Linear: 'Linear',
+    LiteLLM: 'LiteLLM',
     Intercom: 'Intercom',
     Amplitude: 'Amplitude',
     Mixpanel: 'Mixpanel',
@@ -3815,6 +3839,7 @@ export const ExternalDataSourceTypeEnumApi = {
     Square: 'Square',
     Zoom: 'Zoom',
     Trello: 'Trello',
+    TrafficStars: 'TrafficStars',
     Monday: 'Monday',
     ClickUp: 'ClickUp',
     Confluence: 'Confluence',
@@ -3824,6 +3849,7 @@ export const ExternalDataSourceTypeEnumApi = {
     Gong: 'Gong',
     Calendly: 'Calendly',
     Typeform: 'Typeform',
+    UnityAds: 'UnityAds',
     Iterable: 'Iterable',
     ZohoCRM: 'ZohoCRM',
     Close: 'Close',
@@ -3868,6 +3894,7 @@ export const ExternalDataSourceTypeEnumApi = {
     Plaid: 'Plaid',
     SurveyMonkey: 'SurveyMonkey',
     Eventbrite: 'Eventbrite',
+    Everflow: 'Everflow',
     RingCentral: 'RingCentral',
     Twilio: 'Twilio',
     Freshsales: 'Freshsales',
@@ -3937,6 +3964,8 @@ export const ExternalDataSourceTypeEnumApi = {
     CosmosDB: 'CosmosDB',
     PlanetScaleMySQL: 'PlanetScaleMySQL',
     PlanetScalePostgres: 'PlanetScalePostgres',
+    Plane: 'Plane',
+    Scarf: 'Scarf',
     SapHana: 'SapHana',
     Rippling: 'Rippling',
     HiBob: 'HiBob',
@@ -4197,6 +4226,7 @@ export const ExternalDataSourceTypeEnumApi = {
     ReplyIo: 'ReplyIo',
     RetailExpress: 'RetailExpress',
     Retently: 'Retently',
+    Retreaver: 'Retreaver',
     RevolutMerchant: 'RevolutMerchant',
     RocketChat: 'RocketChat',
     Rocketlane: 'Rocketlane',
@@ -4463,6 +4493,7 @@ export const ExternalDataSourceTypeEnumApi = {
     LambdaLabs: 'LambdaLabs',
     LangSmith: 'LangSmith',
     Linode: 'Linode',
+    Listmonk: 'Listmonk',
     LlamaCloud: 'LlamaCloud',
     Mem0: 'Mem0',
     Metriport: 'Metriport',
@@ -4693,6 +4724,7 @@ export const ExternalDataSourceTypeEnumApi = {
     BlackboardLearn: 'BlackboardLearn',
     Bling: 'Bling',
     Bloomerang: 'Bloomerang',
+    Blueshift: 'Blueshift',
     Bluesky: 'Bluesky',
     BolRetailer: 'BolRetailer',
     Boulevard: 'Boulevard',
@@ -4843,6 +4875,7 @@ export const ExternalDataSourceTypeEnumApi = {
     LoopReturns: 'LoopReturns',
     Mastodon: 'Mastodon',
     Meetup: 'Meetup',
+    Megaphone: 'Megaphone',
     Memberful: 'Memberful',
     MercadoPago: 'MercadoPago',
     Meteostat: 'Meteostat',
@@ -5062,6 +5095,7 @@ export const ExternalDataSourceTypeEnumApi = {
     SimonData: 'SimonData',
     CommissionJunction: 'CommissionJunction',
     Liveblocks: 'Liveblocks',
+    Livestorm: 'Livestorm',
     NationBuilder: 'NationBuilder',
     Tana: 'Tana',
     Zenchef: 'Zenchef',
@@ -5122,6 +5156,18 @@ export const ExternalDataSourceTypeEnumApi = {
     Wise: 'Wise',
     LaravelCloud: 'LaravelCloud',
     Northbeam: 'Northbeam',
+    NaverAds: 'NaverAds',
+    ChannelIO: 'ChannelIO',
+    Airship: 'Airship',
+    Creem: 'Creem',
+    Leantime: 'Leantime',
+    Testomatio: 'Testomatio',
+    GoogleAdMob: 'GoogleAdMob',
+    Klar: 'Klar',
+    ConectoCRM: 'ConectoCRM',
+    CloudflareR2: 'CloudflareR2',
+    Particle: 'Particle',
+    FileUpload: 'FileUpload',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {
@@ -5287,14 +5333,26 @@ export interface PatchedTableApi {
  * * `json` - json
  * * `parquet` - parquet
  */
-export type CreateTableFromUploadFileFormatEnumApi =
-    (typeof CreateTableFromUploadFileFormatEnumApi)[keyof typeof CreateTableFromUploadFileFormatEnumApi]
+export type UploadedFileFormatEnumApi = (typeof UploadedFileFormatEnumApi)[keyof typeof UploadedFileFormatEnumApi]
 
-export const CreateTableFromUploadFileFormatEnumApi = {
+export const UploadedFileFormatEnumApi = {
     Csv: 'csv',
     Json: 'json',
     Parquet: 'parquet',
 } as const
+
+export interface UploadedFileApi {
+    /** Id returned by upload_file for the stored file. */
+    upload_id: string
+    /** Sanitized filename returned by upload_file. */
+    filename: string
+    /** How the uploaded file is read: 'csv', 'json', or 'parquet'.
+     *
+     * * `csv` - csv
+     * * `json` - json
+     * * `parquet` - parquet */
+    file_format: UploadedFileFormatEnumApi
+}
 
 export interface CreateTableFromUploadApi {
     /** Id returned by upload_file for the stored file. */
@@ -5306,7 +5364,7 @@ export interface CreateTableFromUploadApi {
      * * `csv` - csv
      * * `json` - json
      * * `parquet` - parquet */
-    file_format: CreateTableFromUploadFileFormatEnumApi
+    file_format: UploadedFileFormatEnumApi
     /** Name the resulting table is queried by in HogQL. */
     table_name: string
 }

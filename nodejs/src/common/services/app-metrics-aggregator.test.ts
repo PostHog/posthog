@@ -1,3 +1,5 @@
+import { DateTime } from 'luxon'
+
 import { APP_METRICS_OUTPUT, AppMetricsOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { parseJSON } from '~/common/utils/json-parse'
@@ -128,5 +130,27 @@ describe('AppMetricsAggregator', () => {
 
         await agg.flush()
         expect(queueMessagesMock).not.toHaveBeenCalled()
+    })
+
+    it('writes an explicit timestamp truncated to the hour', async () => {
+        const agg = new AppMetricsAggregator(outputs)
+        agg.queue(input({ timestamp: DateTime.fromISO('2027-03-04T05:06:07.890Z') }))
+        await agg.flush()
+
+        expect(getRows()[0].timestamp).toBe('2027-03-04 05:00:00.000')
+    })
+
+    it('sums entries in the same hour and keeps different hours apart', async () => {
+        const agg = new AppMetricsAggregator(outputs)
+        agg.queue(input({ count: 1, timestamp: DateTime.fromISO('2027-03-04T05:10:00Z') }))
+        agg.queue(input({ count: 2, timestamp: DateTime.fromISO('2027-03-04T05:50:00Z') }))
+        agg.queue(input({ count: 4, timestamp: DateTime.fromISO('2027-04-03T05:10:00Z') }))
+        agg.queue(input({ count: 8 }))
+        await agg.flush()
+
+        const countsByTimestamp = Object.fromEntries(getRows().map((r) => [r.timestamp, r.count]))
+        expect(Object.keys(countsByTimestamp)).toHaveLength(3)
+        expect(countsByTimestamp['2027-03-04 05:00:00.000']).toBe(3)
+        expect(countsByTimestamp['2027-04-03 05:00:00.000']).toBe(4)
     })
 })

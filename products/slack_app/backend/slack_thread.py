@@ -15,10 +15,7 @@ from posthog.models.integration import Integration, SlackIntegration
 from posthog.slack.markdown import SLACK_MARKDOWN_TEXT_MAX_LEN, slack_markdown_block
 
 from products.slack_app.backend.analytics import capture_slack_event, slack_session_id
-from products.slack_app.backend.feature_flags import (
-    is_slack_app_forking_enabled,
-    is_slack_app_reply_suggestions_enabled,
-)
+from products.slack_app.backend.feature_flags import is_slack_app_forking_enabled
 from products.slack_app.backend.logic.reply_suggestions import (
     ReplySuggestionAttribution,
     SuggestedReply,
@@ -174,6 +171,8 @@ class SlackThreadContext:
     thread_ts: str
     user_message_ts: str | None = None
     mentioning_slack_user_id: str | None = None
+    # The mention that opened the run. Only the run's first turn answers it.
+    person_message: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {
@@ -185,6 +184,8 @@ class SlackThreadContext:
             d["user_message_ts"] = self.user_message_ts
         if self.mentioning_slack_user_id is not None:
             d["mentioning_slack_user_id"] = self.mentioning_slack_user_id
+        if self.person_message is not None:
+            d["person_message"] = self.person_message
         return d
 
     @classmethod
@@ -195,6 +196,7 @@ class SlackThreadContext:
             thread_ts=data["thread_ts"],
             user_message_ts=data.get("user_message_ts"),
             mentioning_slack_user_id=data.get("mentioning_slack_user_id"),
+            person_message=data.get("person_message"),
         )
 
     @classmethod
@@ -252,12 +254,15 @@ class SlackThreadHandler:
         run_footer: RunFooter | None = None,
         actor_slack_user_id: str | None = None,
         turn_trace_id: str | None = None,
+        turn_person_message: str | None = None,
     ) -> None:
         self.context = context
         self.run_footer = run_footer or RunFooter()
         # Beside the footer rather than in it: a trace id belongs to one turn, and the
         # next turn in the same thread has its own.
         self.turn_trace_id = turn_trace_id
+        # What the person said to start this turn, so reply suggestions know what they asked for.
+        self.turn_person_message = turn_person_message
         # Who this reply is for, which can differ from the task creator because a thread
         # outlives its opener.
         self.actor_slack_user_id = actor_slack_user_id or context.mentioning_slack_user_id
@@ -276,6 +281,7 @@ class SlackThreadHandler:
         *,
         actor_slack_user_id: str | None = None,
         turn_trace_id: str | None = None,
+        turn_person_message: str | None = None,
     ) -> "SlackThreadHandler":
         """A handler whose footer describes ``run_id``.
 
@@ -287,6 +293,7 @@ class SlackThreadHandler:
             load_run_footer(run_id, integration_id=context.integration_id),
             actor_slack_user_id=actor_slack_user_id,
             turn_trace_id=turn_trace_id,
+            turn_person_message=turn_person_message,
         )
 
     def _get_integration(self) -> Integration:
@@ -426,7 +433,9 @@ class SlackThreadHandler:
 
     def update_reaction(self, emoji: str) -> None:
         """Swap the reaction on the user's mention message."""
-        target_ts = self.context.user_message_ts or self.context.thread_ts
+        target_ts = self.context.user_message_ts
+        if not target_ts:
+            return
         try:
             client = self._get_client()
             try:
@@ -991,8 +1000,6 @@ class SlackThreadHandler:
 
     def _suggestions_block(self, answer_markdown: str) -> tuple[list[SuggestedReply], dict[str, Any]] | None:
         integration = self._get_integration()
-        if not is_slack_app_reply_suggestions_enabled(integration):
-            return None
         posthog_user = self._actor_posthog_user
         attribution = ReplySuggestionAttribution(
             trace_id=self.turn_trace_id,
@@ -1001,7 +1008,7 @@ class SlackThreadHandler:
             task_id=self.run_footer.task_id,
             run_id=self.run_footer.run_id,
         )
-        suggestions = suggest_replies(answer_markdown, attribution)
+        suggestions = suggest_replies(answer_markdown, attribution, self.turn_person_message)
         if not suggestions:
             return None
         return suggestions, reply_suggestions_block(integration.id, suggestions, self.turn_trace_id)
