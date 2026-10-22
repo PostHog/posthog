@@ -1307,6 +1307,10 @@ async def _drop_watermark_after(
         await logger.awarning(f"Rebuilding after schema drift: {err}")
 
 
+TOO_LARGE_FOR_ONE_QUERY_MESSAGE = (
+    f"This view took more than {HOGQL_INCREASED_MAX_EXECUTION_TIME // 60} minutes to rebuild in a single query. "
+    "Turn on incremental materialization so it can be built in smaller ranges."
+)
 KEY_RANGE_ALIAS = "__ph_key_range"
 HAS_ROWS_ALIAS = "__ph_has_rows"
 WINDOW_DEADLINE_MARGIN = dt.timedelta(minutes=5)
@@ -1859,6 +1863,12 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
             raise ApplicationError(
                 str(error), type=type(error).__name__, next_retry_delay=dt.timedelta(seconds=delay)
             ) from error
+        if (
+            isinstance(error, ClickHouseQueryTimeoutError)
+            and plan.config is None
+            and await database_sync_to_async_pool(windowed_materialization_enabled)(inputs.team_id)
+        ):
+            raise ApplicationError(TOO_LARGE_FOR_ONE_QUERY_MESSAGE, type=type(error).__name__) from error
         raise
     except (Exception, asyncio.CancelledError):
         if not published:

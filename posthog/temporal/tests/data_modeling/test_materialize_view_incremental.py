@@ -19,6 +19,7 @@ from django.test import override_settings
 import pyarrow as pa
 import deltalake
 import structlog
+from temporalio.exceptions import ApplicationError
 
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.clickhouse import ClickHouseQueryTimeoutError
@@ -1231,3 +1232,32 @@ class TestWindowedMaterialization:
 
         assert interrupted.watermark is None
         assert producer.staged_rows() == rows
+
+    async def test_a_full_refresh_timeout_points_to_incremental_materialization(
+        self, activity_environment, ateam, anode, asaved_query, ajob, bucket_name, adag
+    ):
+        class TimingOut:
+            def __aiter__(self) -> "TimingOut":
+                return self
+
+            async def __anext__(self) -> Any:
+                raise ClickHouseQueryTimeoutError("Code: 159. Timeout exceeded")
+
+        def timing_out(*args, **kwargs) -> TimingOut:
+            return TimingOut()
+
+        with (
+            _settings(bucket_name),
+            _windowing_enabled(),
+            unittest.mock.patch(f"{MATERIALIZE_VIEW}.hogql_table", timing_out),
+            pytest.raises(ApplicationError) as raised,
+        ):
+            await activity_environment.run(
+                materialize_view_activity,
+                MaterializeViewInputs(
+                    team_id=ateam.pk, dag_id=str(adag.id), node_id=str(anode.id), job_id=str(ajob.id)
+                ),
+            )
+
+        assert raised.value.type == "ClickHouseQueryTimeoutError"
+        assert isinstance(raised.value.__cause__, ClickHouseQueryTimeoutError)
