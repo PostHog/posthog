@@ -14,6 +14,7 @@
 //! the failure decision stays in the consumer loop.
 
 mod driver;
+pub mod governor;
 pub mod in_flight;
 pub mod key_queues;
 pub mod packer;
