@@ -623,12 +623,11 @@ pub const PERSON_SEED_REKEY_PRODUCE_FAILURE_TOTAL: &str =
 /// produce-failure counters before concluding produces are failing.**
 pub const SEED_REGISTER_REPAIRS_TOTAL: &str = "cohort_seed_register_repairs_total";
 
-/// Composed-cohort rows a person seed apply found missing for a person it evaluated, and so
-/// recomposed although the seed changed nothing, labelled by `found` (`absent`|`corrupt`) (counter).
-/// Attempt-based. `absent` is a cohort added over leaf state an earlier run already seeded, and also
-/// every non-member of a composed cohort, whose row stays absent, so expect a steady rate. A drop to
-/// zero on a team that adds composed cohorts means the repair is off.
-pub const SEED_COMPOSED_ROWS_MISSING_TOTAL: &str = "cohort_seed_composed_rows_missing_total";
+/// Composed-cohort membership changes a person seed apply emitted for a cohort it recomposed only
+/// because the cohort had no row for the person, labelled by `kind` (`entered`|`left`) (counter).
+/// Counted when the writes commit, like [`SEED_REGISTER_REPAIRS_TOTAL`]. Expect these in bulk on the
+/// first run of a composed cohort whose leaves earlier runs already seeded, and rarely after.
+pub const SEED_COMPOSED_ROW_REPAIRS_TOTAL: &str = "cohort_seed_composed_row_repairs_total";
 
 /// Persons whose Stage 2 inputs a seed apply read through shared store sections (counter).
 /// Attempt-based: a held run counts its persons, and so does the redelivery that replays it.
@@ -1103,8 +1102,8 @@ mod tests {
             "cohort_seed_register_repairs_total"
         );
         assert_eq!(
-            SEED_COMPOSED_ROWS_MISSING_TOTAL,
-            "cohort_seed_composed_rows_missing_total"
+            SEED_COMPOSED_ROW_REPAIRS_TOTAL,
+            "cohort_seed_composed_row_repairs_total"
         );
         assert_eq!(
             SEED_RECOMPUTE_PERSONS_TOTAL,

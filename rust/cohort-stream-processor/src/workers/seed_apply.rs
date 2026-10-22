@@ -52,7 +52,7 @@ use crate::workers::stage2_path::{
     commit_stage2_writes, composed_rows_missing, diff_single_leaf_registers, FoldedLeaf,
     RegisterDiff, Stage2Recompute,
 };
-use crate::workers::stage2_person_inputs::recompute_stage2_by_person;
+use crate::workers::stage2_person_inputs::{recompute_stage2_by_person, RecomposeGroup};
 use crate::workers::worker::{
     first_cascades, produce_cascades, produce_membership, transition_metric_label,
 };
@@ -452,14 +452,6 @@ struct PersonTouch {
     cohorts: BTreeSet<CohortId>,
 }
 
-/// One recompute call's input: the leaves whose every composed cohort recomposes, and single
-/// composed cohorts admitted without their leaves.
-#[derive(Debug, Default, PartialEq, Eq)]
-pub(crate) struct RecomposeGroup {
-    pub leaves: Vec<(LeafStateKey, Uuid)>,
-    pub cohorts: Vec<(CohortId, Uuid)>,
-}
-
 impl TouchedPersons {
     fn entry(&mut self, team_id: TeamId, person: Uuid, run: RunId) -> &mut PersonTouch {
         self.per_person
@@ -501,12 +493,6 @@ impl TouchedPersons {
         cohort: CohortId,
     ) {
         self.entry(team_id, person, run).cohorts.insert(cohort);
-    }
-
-    fn admits(&self, team_id: TeamId, person: Uuid, leaf: LeafStateKey) -> bool {
-        self.per_person
-            .get(&(team_id, person))
-            .is_some_and(|touch| touch.leaves.contains(&leaf))
     }
 
     fn is_empty(&self) -> bool {
@@ -720,6 +706,10 @@ pub(crate) struct Folded {
     pub leaves: BTreeMap<TeamId, Vec<FoldedLeaf>>,
     /// Persons whose composable cohorts must recompose, with the run that last touched them.
     pub recompose: TouchedPersons,
+    /// Folded leaves the fold did not recompose, whose composed cohorts may still lack a row for the
+    /// person; see [`composed_rows_missing`]. Only person runs fill it: a tile run recomposes every
+    /// tile it folds.
+    pub composed_row_candidates: BTreeMap<TeamId, Vec<FoldedLeaf>>,
     /// Final eviction deadline per touched behavioral key. Empty for person seeds.
     pub schedules: Vec<(BehavioralKey, i64)>,
     pub re_keys: ReKeys,
@@ -735,6 +725,7 @@ impl Folded {
             records: StagedBatch::default(),
             leaves: BTreeMap::new(),
             recompose: TouchedPersons::default(),
+            composed_row_candidates: BTreeMap::new(),
             schedules: Vec::new(),
             re_keys,
             tally,
@@ -786,19 +777,13 @@ impl Folded {
                     );
                 }
             }
-            if deps.merge.person_seed.repair_missing_composed_rows {
-                // Only leaves nothing above admitted, so a tile run, which recomposes every tile it
-                // folds, reads nothing more.
-                let unadmitted = leaves.iter().filter(|leaf| {
-                    !self
-                        .recompose
-                        .admits(team_id, leaf.person_id, leaf.leaf_state_key)
-                });
+            if let Some(candidates) = self.composed_row_candidates.get(&team_id) {
                 let missing = composed_rows_missing(
                     deps.partition_id,
                     deps.handle,
                     filters,
-                    unadmitted,
+                    candidates,
+                    leaves,
                     ReadLane::Maintenance,
                 )
                 .await
@@ -917,8 +902,7 @@ impl Scheduled {
                     deps.handle,
                     team_id,
                     filters,
-                    &group.leaves,
-                    &group.cohorts,
+                    &group,
                     stamp.now_ms,
                     &stamp.last_updated,
                 )

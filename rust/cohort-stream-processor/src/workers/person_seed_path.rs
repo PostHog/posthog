@@ -49,10 +49,6 @@ pub struct PersonSeedDeps {
     /// Covers ClickHouse replication lag plus client-clock skew; see
     /// [`crate::stage1::person_record::person_seed_verdict`].
     pub live_margin_ms: i64,
-    /// Recompose a composed cohort that has no row for a person the run evaluated, even when the
-    /// seed changed nothing. Off only as a kill switch: without it a cohort added over leaves an
-    /// earlier run seeded never gets rows, and its run completes with no members.
-    pub repair_missing_composed_rows: bool,
 }
 
 impl Default for PersonSeedDeps {
@@ -60,7 +56,6 @@ impl Default for PersonSeedDeps {
         Self {
             enabled: false,
             live_margin_ms: 900_000,
-            repair_missing_composed_rows: true,
         }
     }
 }
@@ -327,6 +322,7 @@ fn fold_person_seeds(
 
     let mut records = StagedBatch::default();
     let mut leaves: BTreeMap<TeamId, Vec<FoldedLeaf>> = BTreeMap::new();
+    let mut composed_row_candidates: BTreeMap<TeamId, Vec<FoldedLeaf>> = BTreeMap::new();
     for (key, touch) in &touches {
         let slot = overlay
             .slot(key)
@@ -359,13 +355,21 @@ fn fold_person_seeds(
                 .before()
                 .is_some_and(|record| record.matched.contains(hash));
             let minted_transition = before != in_cohort;
-            leaves.entry(touch.team_id).or_default().push(FoldedLeaf {
-                leaf_state_key: LeafStateKey::for_person_property(hash),
+            let leaf_state_key = LeafStateKey::for_person_property(hash);
+            let folded = FoldedLeaf {
+                leaf_state_key,
                 person_id: touch.person,
                 in_cohort,
                 minted_transition,
                 run_id,
-            });
+            };
+            leaves.entry(touch.team_id).or_default().push(folded);
+            if !touch.recompose.contains(&leaf_state_key) {
+                composed_row_candidates
+                    .entry(touch.team_id)
+                    .or_default()
+                    .push(folded);
+            }
             if minted_transition {
                 let kind = if in_cohort {
                     TransitionKind::Entered
@@ -390,6 +394,7 @@ fn fold_person_seeds(
         records,
         leaves,
         recompose,
+        composed_row_candidates,
         // Nothing to schedule: person-property membership has no window, so the sweep never owns
         // these leaves.
         schedules: Vec::new(),
@@ -721,7 +726,6 @@ mod tests {
                 person_seed: PersonSeedDeps {
                     enabled: true,
                     live_margin_ms: MARGIN_MS,
-                    ..PersonSeedDeps::default()
                 },
                 seed_budget: crate::workers::seed_run::RunBudget::default(),
             };
@@ -849,6 +853,18 @@ mod tests {
             };
             self.store
                 .write_batch(|b| b.put_stage2(&key, &state.encode()))
+                .unwrap();
+        }
+
+        fn put_raw_stage2(&self, partition_id: u16, person: Uuid, cohort_id: u64, bytes: &[u8]) {
+            let key = Stage2Key {
+                partition_id,
+                team_id: TEAM.0 as u64,
+                cohort_id,
+                person_id: person,
+            };
+            self.store
+                .write_batch(|b| b.put_stage2(&key, bytes))
                 .unwrap();
         }
 
@@ -1856,11 +1872,13 @@ mod tests {
     /// it the cohort's backfill completes with no members.
     #[tokio::test]
     async fn a_composed_cohort_added_over_an_existing_record_composes_on_the_next_unchanged_seed() {
-        for (member, repair, expected) in [
-            (true, true, Some(true)),
+        // (member, row before, change, row after)
+        for (member, corrupt_row, expected_change, expected_row) in [
+            (true, false, Some(MembershipStatus::Entered), Some(true)),
             // A non-member's row stays absent, so the next run reads it again and writes nothing.
-            (false, true, None),
-            (true, false, None),
+            (false, false, None, None),
+            // An unreadable row is rewritten with a readable bit even when nothing flips.
+            (false, true, None, Some(false)),
         ] {
             let (person, partition_id) = dormant_person();
             let single_leaf = vec![
@@ -1868,7 +1886,6 @@ mod tests {
                 (4, wrap(vec![behavioral_leaf()])),
             ];
             let mut shell = Shell::new(single_leaf.clone());
-            shell.deps.person_seed.repair_missing_composed_rows = repair;
             if member {
                 shell.live_pageview(partition_id, person, None);
             }
@@ -1888,6 +1905,9 @@ mod tests {
                 },
             );
             shell.put_register(partition_id, person, 1, true);
+            if corrupt_row {
+                shell.put_raw_stage2(partition_id, person, 2, b"not a stage 2 row");
+            }
 
             // Cohort 2 composes both leaves, neither of them new to the store.
             let mut cohorts = single_leaf;
@@ -1899,7 +1919,7 @@ mod tests {
             let seed = seed_for(person, &[PERSON_HASH], &[PERSON_HASH], now_ms());
             shell.run(partition_id, &seed, 0).await;
 
-            let case = format!("member={member} repair={repair}");
+            let case = format!("member={member} corrupt_row={corrupt_row}");
             assert_eq!(
                 shell
                     .sink
@@ -1907,8 +1927,8 @@ mod tests {
                     .iter()
                     .map(|change| (change.cohort_id, change.status))
                     .collect::<Vec<_>>(),
-                expected
-                    .map(|_| vec![(2, MembershipStatus::Entered)])
+                expected_change
+                    .map(|status| vec![(2, status)])
                     .unwrap_or_default(),
                 "{case}",
             );
@@ -1916,7 +1936,7 @@ mod tests {
                 shell
                     .stage2(partition_id, person, 2)
                     .map(|state| state.in_cohort),
-                expected,
+                expected_row,
                 "{case}",
             );
             assert_eq!(shell.committable(partition_id), Some(1), "{case}");

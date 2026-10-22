@@ -15,14 +15,14 @@ use crate::filters::reverse_index::TeamFilters;
 use crate::filters::tree::{CohortLeaf, CohortTree, FilterNode};
 use crate::filters::CohortId;
 use crate::observability::metrics::{
-    SEED_COMPOSED_ROWS_MISSING_TOTAL, SEED_REGISTER_REPAIRS_TOTAL, STAGE2_COHORTS_EVALUATED,
+    SEED_COMPOSED_ROW_REPAIRS_TOTAL, SEED_REGISTER_REPAIRS_TOTAL, STAGE2_COHORTS_EVALUATED,
     STAGE2_STATE_DECODE_ERROR, STAGE2_TRANSITIONS,
 };
 use crate::producer::{ChangeOrigin, CohortMembershipChange, MembershipStatus};
 use crate::stage1::key::LeafStateKey;
 use crate::stage1::person_record::PersonRecord;
 use crate::stage1::state::{Stage1State, StateVariant, StatefulRecord};
-use crate::stage2::evaluator::{evaluate_tree, leaf_membership};
+use crate::stage2::evaluator::{evaluate_known, evaluate_tree, leaf_membership};
 use crate::stage2::state::{Stage2Ownership, Stage2State};
 use crate::store::{
     BehavioralKey, PersonRecordKey, ReadLane, Stage2Key, StagedBatch, StoreError, StoreHandle,
@@ -70,6 +70,8 @@ pub(crate) struct Stage2Recompute {
     composed: StatusCounts,
     /// Single-leaf changes a register diff derived with no stage-1 transition behind them.
     repairs: RepairCounts,
+    /// Composed flips of cohorts recomposed only because their row was missing.
+    composed_repairs: StatusCounts,
 }
 
 impl Stage2Recompute {
@@ -78,6 +80,8 @@ impl Stage2Recompute {
         counter!(STAGE2_COHORTS_EVALUATED).increment(self.evaluated);
         self.composed.record(STAGE2_TRANSITIONS);
         self.repairs.record(SEED_REGISTER_REPAIRS_TOTAL);
+        self.composed_repairs
+            .record(SEED_COMPOSED_ROW_REPAIRS_TOTAL);
     }
 
     /// Fold a sibling recompute in, so one produce and one commit cover both halves.
@@ -87,6 +91,15 @@ impl Stage2Recompute {
         self.evaluated += other.evaluated;
         self.composed.add(other.composed);
         self.repairs.add(other.repairs);
+        self.composed_repairs.add(other.composed_repairs);
+    }
+
+    /// Count a flip of a cohort recomposed only because its row was missing, see
+    /// [`composed_rows_missing`]. Its own call, because the pair already went through `record_pair`.
+    pub(super) fn record_composed_repair(&mut self, diff: &RecomputeDiff) {
+        if diff.flipped() {
+            self.composed_repairs.count(diff.status());
+        }
     }
 
     /// Both recompute orders call this, so what a composed evaluation emits cannot depend on
@@ -443,27 +456,38 @@ pub(crate) async fn diff_single_leaf_registers(
     })
 }
 
-/// The composed cohorts among those keyed on `folded`'s leaves that hold no readable stage-2 row
-/// for the person, each with the run of the first leaf that reached it.
+/// The composed cohorts keyed on `candidates`' leaves that hold no readable stage-2 row for the
+/// person, each with the run of the first leaf that reached it.
 ///
 /// A composed cohort recomposes only when a seed touches one of its leaves, and a person seed that
 /// asserts what the record already holds touches nothing. A cohort added over leaves an earlier run
 /// already seeded would then never get a row, and reconcile, which walks only existing rows, would
 /// certify it with no members. So a missing row is its own reason to recompose that cohort, as a
-/// lagging register is for the single-leaf half. Only the cohort itself recomposes, not every cohort
-/// on its leaves: a non-member's row stays absent after the recompose, so each later run finds it
-/// again, and recomposing its leaf would re-evaluate every cohort sharing it on every run.
+/// lagging register is for the single-leaf half.
+///
+/// `candidates` are the leaves the fold did not recompose. `folded` is every leaf the run decided,
+/// whose truths make a cohort definitely false without a read: an absent row is already right for
+/// it, and a never-member's row stays absent, so recomposing it would repeat on every later run.
 ///
 /// One batched `cf_stage2` read on `lane`. Leaves with no composed cohort keyed on them cost nothing.
-pub(crate) async fn composed_rows_missing<'a>(
+pub(crate) async fn composed_rows_missing(
     partition_id: u16,
     handle: &StoreHandle,
     filters: &TeamFilters,
-    folded: impl IntoIterator<Item = &'a FoldedLeaf>,
+    candidates: &[FoldedLeaf],
+    folded: &[FoldedLeaf],
     lane: ReadLane,
 ) -> Result<BTreeMap<(Uuid, CohortId), RunId>, StoreError> {
-    let mut wanted: BTreeMap<Stage2Key, (Uuid, CohortId, RunId)> = BTreeMap::new();
+    let mut known: HashMap<Uuid, HashMap<LeafStateKey, bool>> = HashMap::new();
     for leaf in folded {
+        known
+            .entry(leaf.person_id)
+            .or_default()
+            .insert(leaf.leaf_state_key, leaf.in_cohort);
+    }
+
+    let mut wanted: BTreeMap<Stage2Key, (Uuid, CohortId, RunId)> = BTreeMap::new();
+    for leaf in candidates {
         let Some(cohort_ids) = filters
             .by_lsk_to_composable_cohorts
             .get(&leaf.leaf_state_key)
@@ -474,6 +498,10 @@ pub(crate) async fn composed_rows_missing<'a>(
             let Some(tree) = filters.cohorts.get(cohort_id) else {
                 continue;
             };
+            let truths = known.get(&leaf.person_id);
+            if truths.is_some_and(|truths| evaluate_known(&tree.root, truths) == Some(false)) {
+                continue;
+            }
             let key = Stage2Key {
                 partition_id,
                 team_id: tree.team_id.0 as u64,
@@ -493,18 +521,9 @@ pub(crate) async fn composed_rows_missing<'a>(
     let stored = handle.multi_get_stage2(keys, lane).await?;
 
     let mut missing = BTreeMap::new();
-    let (mut absent, mut corrupt) = (0u64, 0u64);
     for ((person_id, cohort_id, run_id), bytes) in wanted.into_values().zip(stored) {
-        match read_register(bytes) {
-            StoredRegister::Present(_) => continue,
-            StoredRegister::Absent => absent += 1,
-            StoredRegister::Corrupt => corrupt += 1,
-        }
-        missing.insert((person_id, cohort_id), run_id);
-    }
-    for (count, found) in [(absent, "absent"), (corrupt, "corrupt")] {
-        if count > 0 {
-            counter!(SEED_COMPOSED_ROWS_MISSING_TOTAL, "found" => found).increment(count);
+        if !matches!(read_register(bytes), StoredRegister::Present(_)) {
+            missing.insert((person_id, cohort_id), run_id);
         }
     }
     Ok(missing)
@@ -547,6 +566,7 @@ fn read_register(bytes: Option<Vec<u8>>) -> StoredRegister {
         Ok((state, ownership)) => StoredRegister::Present(PriorStage2State {
             in_cohort: state.in_cohort,
             ownership,
+            corrupt: false,
         }),
         Err(_) => {
             counter!(STAGE2_STATE_DECODE_ERROR).increment(1);
@@ -578,6 +598,8 @@ pub(crate) struct RecomputeDiff {
     pub prior_bit: bool,
     pub stage2_key: Stage2Key,
     settles_transfer_fallback: bool,
+    prior_corrupt: bool,
+    rewrites_corrupt: bool,
 }
 
 impl RecomputeDiff {
@@ -587,7 +609,17 @@ impl RecomputeDiff {
             prior_bit: prior.in_cohort,
             stage2_key,
             settles_transfer_fallback: prior.ownership == Stage2Ownership::TransferredFallback,
+            prior_corrupt: prior.corrupt,
+            rewrites_corrupt: false,
         }
+    }
+
+    /// Rewrite an undecodable prior row even when the bit does not flip, so later reads stop failing
+    /// on it. The seed path opts in, as its single-leaf diff does; reconcile does not, so its walk
+    /// writes only what it must.
+    pub(super) fn rewriting_corrupt(mut self) -> Self {
+        self.rewrites_corrupt = self.prior_corrupt;
+        self
     }
 
     pub fn flipped(&self) -> bool {
@@ -605,7 +637,7 @@ impl RecomputeDiff {
     /// A receiver evaluation must rewrite a transferred fallback even when the logical bit is
     /// unchanged, making source provenance observably stale without touching ordinary no-flip rows.
     pub fn requires_write(&self) -> bool {
-        self.flipped() || self.settles_transfer_fallback
+        self.flipped() || self.settles_transfer_fallback || self.rewrites_corrupt
     }
 }
 
@@ -874,6 +906,8 @@ pub(super) fn decode_stage1_state(bytes: Option<Vec<u8>>) -> Option<Stage1State>
 pub(super) struct PriorStage2State {
     pub in_cohort: bool,
     ownership: Stage2Ownership,
+    /// The row exists but did not decode.
+    corrupt: bool,
 }
 
 /// Decode both the logical prior bit and its ownership. Missing or corrupt rows keep the existing
@@ -886,10 +920,14 @@ pub(super) fn read_prior_stage2(bytes: Option<Vec<u8>>) -> PriorStage2State {
         Ok((state, ownership)) => PriorStage2State {
             in_cohort: state.in_cohort,
             ownership,
+            corrupt: false,
         },
         Err(_) => {
             counter!(STAGE2_STATE_DECODE_ERROR).increment(1);
-            PriorStage2State::default()
+            PriorStage2State {
+                corrupt: true,
+                ..PriorStage2State::default()
+            }
         }
     }
 }
@@ -2122,7 +2160,9 @@ mod tests {
     // Every test below holds `recompute_stage2_by_person` to the cohort-ordered path as an oracle
     // over the same store, then asserts what the shared read had to get right for the two to agree.
 
-    use crate::workers::stage2_person_inputs::{recompute_stage2_by_person, READ_CHUNK_KEYS};
+    use crate::workers::stage2_person_inputs::{
+        recompute_stage2_by_person, RecomposeGroup, READ_CHUNK_KEYS,
+    };
 
     /// Run both recompute orders over the same store and return the agreed result. Neither commits,
     /// so running them back to back reads the same durable state twice.
@@ -2149,8 +2189,10 @@ mod tests {
             &handle,
             TeamId(team_id),
             filters,
-            affected,
-            &[],
+            &RecomposeGroup {
+                leaves: affected.to_vec(),
+                cohorts: Vec::new(),
+            },
             EVENT_MS,
             TS,
         )
@@ -2727,14 +2769,17 @@ mod tests {
                     ReadLane::Maintenance,
                 )
             };
+            let group = RecomposeGroup {
+                leaves: affected.clone(),
+                cohorts: Vec::new(),
+            };
             let run_by_person = || {
                 recompute_stage2_by_person(
                     PARTITION,
                     &handle,
                     TeamId(TEAM as i32),
                     &filters,
-                    &affected,
-                    &[],
+                    &group,
                     EVENT_MS,
                     TS,
                 )

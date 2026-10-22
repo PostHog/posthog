@@ -134,8 +134,8 @@ Both kinds finish the same way, in an order the code enforces with types.
    A person is recomposed when the fold changed their state, or when a single-leaf row for them lagged in step 1.
    For a person seed, a composed cohort over one of their evaluated leaves that has no Stage 2 row for them also recomposes, on its own, without the other cohorts on its leaves.
    That case covers a cohort added over leaves an earlier run already seeded: the seed changes nothing, so without it the cohort never gets a row, and its reconcile certifies it with no members.
-   A non-member's row stays absent, so the next run reads it again and writes nothing, which is why only the cohort recomposes and not its leaves.
-   `COHORT_SEED_COMPOSED_ROW_REPAIR_ENABLED`, on by default, is the kill switch for this case.
+   A non-member's row stays absent, so a cohort the run's own leaf answers already make false is skipped without a read, and only the cohort recomposes, not its leaves.
+   The seed path also rewrites an unreadable Stage 2 row with a readable bit when it recomposes the cohort, as the single-leaf diff does.
 5. **Produce**, in parallel: the membership changes tagged `origin: seed` with the run id, first-hop cascades if enabled, and re-keyed seeds for merged persons.
 6. **Stage 2 commit.**
    Write the new truth into the Stage 2 rows.
