@@ -21,7 +21,7 @@ that belongs to the rule. Everything else the published contract describes (grou
 cohort/group/flag properties) is rejected with the ``unsupported`` code, so a canonical
 fixture is never relabelled as malformed and no partially checked document is accepted. Shape
 errors use the other codes. The canonical shape is the harness config schema in contract
-package 3.0.0; the semantic constraints (unique rule ids and variant keys, two decimal places,
+package 6.0.0; the semantic constraints (unique rule ids and variant keys, two decimal places,
 weights totalling 100, byte limits) come from its literal registry.
 """
 
