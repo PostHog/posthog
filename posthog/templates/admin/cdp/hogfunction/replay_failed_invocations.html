@@ -1,0 +1,215 @@
+{% extends "admin/base_site.html" %}
+{% load i18n admin_urls %}
+{% block extrastyle %}
+    {{ block.super }}
+    <style>
+        .replay-stats { display: flex; gap: 24px; flex-wrap: wrap; margin: 12px 0 20px; }
+        .replay-stat { border: 1px solid var(--hairline-color); border-radius: 4px; padding: 12px 16px; min-width: 140px; }
+        .replay-stat strong { display: block; font-size: 24px; line-height: 1.2; }
+        .replay-note { background: var(--message-info-bg, #eef6ff); padding: 10px 12px; border-radius: 4px; margin: 12px 0; }
+        .replay-danger { border: 2px solid var(--delete-button-bg, #ba2121); border-radius: 4px; padding: 12px 16px; margin: 20px 0; }
+        .replay-danger input[type=text] { width: 120px; }
+        .replay-actions { display: flex; gap: 8px; margin: 16px 0; flex-wrap: wrap; }
+        table.replay-table { width: 100%; margin-bottom: 20px; }
+        table.replay-table td.num, table.replay-table th.num { text-align: right; }
+        code.replay-id { font-size: 11px; }
+    </style>
+{% endblock %}
+{% block content %}
+    <div id="content-main">
+        {% if step == "form" %}
+            <p>
+                Re-sends failed destination runs from an incident window. The next page shows how many destinations,
+                teams and runs this covers. Nothing is sent until you confirm on the details page.
+            </p>
+            <form method="post">
+                {% csrf_token %}
+                {% if form.non_field_errors %}{{ form.non_field_errors }}{% endif %}
+                <fieldset class="module aligned">
+                    {% for field in form %}
+                        <div class="form-row">
+                            {{ field.errors }}
+                            {{ field.label_tag }} {{ field }}
+                            {% if field.help_text %}<div class="help">{{ field.help_text }}</div>{% endif %}
+                        </div>
+                    {% endfor %}
+                </fieldset>
+                <div class="submit-row">
+                    <button type="submit" name="action" value="preview" class="default">Preview</button>
+                </div>
+            </form>
+        {% else %}
+            <form method="post">
+                {% csrf_token %}
+                {% for field in form %}{{ field.as_hidden }}{% endfor %}
+                <input type="hidden" name="fingerprint" value="{{ plan.fingerprint }}">
+                {% if step != "results" %}
+                    <p class="replay-note">
+                        {% spaceless %}
+                            Nothing has been sent yet. Window {{ plan.criteria.window_start|date:"Y-m-d H:i:s" }} to {{ plan.criteria.window_end|date:"Y-m-d H:i:s" }} UTC{% if plan.criteria.error_message_contains %}, error contains "{{ plan.criteria.error_message_contains }}"{% endif %}{% if plan.criteria.error_kinds %}, error kinds {{ plan.criteria.error_kinds|join:", " }}{% endif %}.
+                        {% endspaceless %}
+                    </p>
+                {% endif %}
+                <div class="replay-stats">
+                    <div class="replay-stat"><strong>{{ plan.replayable_functions|length }}</strong>destinations</div>
+                    <div class="replay-stat"><strong>{{ plan.team_count }}</strong>teams</div>
+                    <div class="replay-stat"><strong>{{ plan.invocation_count }}</strong>runs to replay</div>
+                </div>
+                {% if plan.invocation_count == 0 %}
+                    <p>No failed runs match. Check the window and the error filter.</p>
+                {% endif %}
+                {% if step == "results" %}
+                    <h2>Requests sent</h2>
+                    <table class="replay-table">
+                        <thead>
+                            <tr>
+                                <th>Team</th>
+                                <th>Function</th>
+                                <th class="num">Runs</th>
+                                <th>HTTP status</th>
+                                <th>Response</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for result in results %}
+                                <tr>
+                                    <td>{{ result.team_id }}</td>
+                                    <td><code class="replay-id">{{ result.function_id }}</code></td>
+                                    <td class="num">{{ result.invocation_count }}</td>
+                                    <td>{{ result.status_code }}</td>
+                                    <td>{{ result.detail|truncatechars:160 }}</td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                {% else %}
+                    {% if plan.invocations_by_template %}
+                        <h2>Runs by template</h2>
+                        <table class="replay-table">
+                            <thead>
+                                <tr>
+                                    <th>Template</th>
+                                    <th class="num">Runs to replay</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for template_id, count in plan.invocations_by_template.items %}
+                                    <tr>
+                                        <td>{{ template_id|default:"(custom function)" }}</td>
+                                        <td class="num">{{ count }}</td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    {% endif %}
+                    {% if skipped_rows %}
+                        <h2>Not replayed</h2>
+                        <table class="replay-table">
+                            <thead>
+                                <tr>
+                                    <th>Reason</th>
+                                    <th class="num">Runs</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for label, count in skipped_rows %}
+                                    <tr>
+                                        <td>{{ label }}</td>
+                                        <td class="num">{{ count }}</td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    {% endif %}
+                    {% if step == "summary" %}
+                        {% if plan.teams %}
+                            <h2>Teams</h2>
+                            <table class="replay-table">
+                                <thead>
+                                    <tr>
+                                        <th>Team</th>
+                                        <th>Organization</th>
+                                        <th class="num">Destinations</th>
+                                        <th class="num">Runs to replay</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for team in plan.teams %}
+                                        <tr>
+                                            <td><a href="{% url 'admin:posthog_team_change' team.team_id %}">{{ team.team_id }}</a> {{ team.team_name }}</td>
+                                            <td>{{ team.organization_name }}</td>
+                                            <td class="num">{{ team.function_count }}</td>
+                                            <td class="num">{{ team.invocation_count }}</td>
+                                        </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        {% endif %}
+                        <div class="replay-actions">
+                            <button type="submit"
+                                    name="action"
+                                    value="details"
+                                    class="default"
+                                    {% if plan.invocation_count == 0 %} disabled{% endif %}>Show details</button>
+                            <button type="submit" name="action" value="edit">Change the filters</button>
+                        </div>
+                    {% endif %}
+                    {% if step == "details" %}
+                        <h2>Destinations</h2>
+                        <table class="replay-table">
+                            <thead>
+                                <tr>
+                                    <th>Team</th>
+                                    <th>Destination</th>
+                                    <th>Template</th>
+                                    <th class="num">Runs to replay</th>
+                                    <th>Not replayed</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for row in function_rows %}
+                                    <tr>
+                                        <td><a href="{% url 'admin:posthog_team_change' row.function.team_id %}">{{ row.function.team_id }}</a> {{ row.function.team_name }}</td>
+                                        <td>
+                                            <a href="{% url 'admin:cdp_hogfunction_change' row.function.function_id %}">{{ row.function.function_name|default:"(no name)" }}</a><br>
+                                            <code class="replay-id">{{ row.function.function_id }}</code>
+                                        </td>
+                                        <td>{{ row.function.template_id|default:"(custom function)" }}</td>
+                                        <td class="num">{{ row.function.invocation_ids|length }}</td>
+                                        <td>{% for label, count in row.skipped %}{{ count }}: {{ label }}<br>{% empty %}-{% endfor %}</td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                        <div class="replay-actions">
+                            <button type="submit" name="action" value="preview">Back to the summary</button>
+                            <button type="submit" name="action" value="edit">Change the filters</button>
+                        </div>
+                        {% if plan.invocation_count %}
+                            <div class="replay-danger">
+                                <h2>Send the replay</h2>
+                                <p>
+                                    This queues {{ plan.invocation_count }} runs for {{ plan.replayable_functions|length }} destinations
+                                    in {{ plan.team_count }} teams. The destinations receive these requests again. This cannot be undone.
+                                </p>
+                                <p>
+                                    <label for="confirm_count">Type {{ plan.invocation_count }} to confirm:</label>
+                                    <input type="text"
+                                           id="confirm_count"
+                                           name="confirm_count"
+                                           autocomplete="off">
+                                </p>
+                                <button type="submit"
+                                        name="action"
+                                        value="execute"
+                                        class="deletelink"
+                                        style="padding: 8px 16px">Send replay</button>
+                                <p class="help">Plan {{ plan.fingerprint }}. If the runs change before you send, nothing is sent and the new plan is shown.</p>
+                            </div>
+                        {% endif %}
+                    {% endif %}
+                {% endif %}
+            </form>
+        {% endif %}
+    </div>
+{% endblock %}

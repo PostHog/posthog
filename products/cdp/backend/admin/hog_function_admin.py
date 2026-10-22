@@ -1,9 +1,110 @@
+from datetime import UTC, datetime, timedelta
+from typing import Any
+
 from django import forms
-from django.contrib import admin
-from django.urls import reverse
+from django.contrib import admin, messages
+from django.core.exceptions import PermissionDenied
+from django.http import HttpRequest, HttpResponse
+from django.shortcuts import render
+from django.urls import path, reverse
 from django.utils.html import format_html
 
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction, HogFunctionState
+from products.cdp.backend.presentation.hog_invocations.rerun import RERUN_MAX_WINDOW_DAYS
+from products.cdp.backend.services.invocation_replay import (
+    DEFAULT_LATEST_PER_PERSON_TEMPLATE_IDS,
+    SKIP_REASON_LABELS,
+    ReplayCriteria,
+    execute_replay,
+    plan_replay,
+)
+
+REPLAY_TEMPLATE = "admin/cdp/hogfunction/replay_failed_invocations.html"
+
+
+def _split_list(raw: str) -> list[str]:
+    return [part.strip() for part in raw.replace("\n", ",").split(",") if part.strip()]
+
+
+def _as_utc(value: datetime) -> datetime:
+    return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
+
+
+class ReplayFailedInvocationsForm(forms.Form):
+    window_start = forms.DateTimeField(help_text="UTC, inclusive. For example 2026-10-22 11:30:00.")
+    window_end = forms.DateTimeField(
+        help_text=f"UTC, exclusive. At most {RERUN_MAX_WINDOW_DAYS} days after the start, because older runs are deleted."
+    )
+    error_message_contains = forms.CharField(
+        required=False,
+        help_text='Only runs whose latest error contains this text, ignoring case. For example "401".',
+    )
+    error_kinds = forms.CharField(
+        required=False,
+        help_text="Comma-separated, for example http_4xx. Set this or the error text, or both.",
+    )
+    team_ids = forms.CharField(required=False, help_text="Comma-separated. Leave empty for every team.")
+    template_ids = forms.CharField(
+        required=False, help_text="Comma-separated. Leave empty for every template, custom functions included."
+    )
+    exclude_template_ids = forms.CharField(
+        required=False,
+        help_text="Comma-separated. Use for destinations where a late send is noise, like template-github.",
+    )
+    latest_per_person_template_ids = forms.CharField(
+        required=False,
+        initial=", ".join(DEFAULT_LATEST_PER_PERSON_TEMPLATE_IDS),
+        help_text=(
+            "Comma-separated templates that write a person's current state, like a CRM contact sync. For these, "
+            "only the latest failed run per person is replayed, and not at all if a later run for that person succeeded."
+        ),
+    )
+    require_success_since_window = forms.BooleanField(
+        required=False,
+        initial=True,
+        label="Skip functions with no success since the window",
+        help_text="A function that still fails, for example because its integration is disconnected, would only fail again.",
+    )
+    skip_already_rerun = forms.BooleanField(required=False, initial=True, label="Skip runs that were already re-run")
+
+    def clean_team_ids(self) -> list[int]:
+        try:
+            return [int(part) for part in _split_list(self.cleaned_data.get("team_ids") or "")]
+        except ValueError:
+            raise forms.ValidationError("Team IDs must be whole numbers.")
+
+    def clean(self) -> dict[str, Any]:
+        cleaned = super().clean() or {}
+        start, end = cleaned.get("window_start"), cleaned.get("window_end")
+        if start and end:
+            start, end = _as_utc(start), _as_utc(end)
+            cleaned["window_start"], cleaned["window_end"] = start, end
+            if end <= start:
+                raise forms.ValidationError("The window end must be after the window start.")
+            if end - start > timedelta(days=RERUN_MAX_WINDOW_DAYS):
+                raise forms.ValidationError(f"The window cannot be longer than {RERUN_MAX_WINDOW_DAYS} days.")
+        if not (cleaned.get("error_message_contains") or "").strip() and not _split_list(
+            cleaned.get("error_kinds") or ""
+        ):
+            raise forms.ValidationError(
+                "Set the error text or the error kinds, so the replay only includes failures from the incident."
+            )
+        return cleaned
+
+    def to_criteria(self) -> ReplayCriteria:
+        data = self.cleaned_data
+        return ReplayCriteria(
+            window_start=data["window_start"],
+            window_end=data["window_end"],
+            error_message_contains=(data.get("error_message_contains") or "").strip(),
+            error_kinds=tuple(_split_list(data.get("error_kinds") or "")),
+            team_ids=tuple(data["team_ids"]),
+            template_ids=tuple(_split_list(data.get("template_ids") or "")),
+            exclude_template_ids=tuple(_split_list(data.get("exclude_template_ids") or "")),
+            latest_per_person_template_ids=tuple(_split_list(data.get("latest_per_person_template_ids") or "")),
+            require_success_since_window=bool(data.get("require_success_since_window")),
+            skip_already_rerun=bool(data.get("skip_already_rerun")),
+        )
 
 
 class HogFunctionAdminForm(forms.ModelForm):
@@ -23,6 +124,7 @@ class HogFunctionAdminForm(forms.ModelForm):
 @admin.register(HogFunction)
 class HogFunctionAdmin(admin.ModelAdmin):
     form = HogFunctionAdminForm
+    change_list_template = "admin/cdp/hogfunction/change_list.html"
     list_select_related = ("team",)
     list_display = ("id", "name", "enabled")
     list_filter = (
@@ -73,3 +175,72 @@ class HogFunctionAdmin(admin.ModelAdmin):
         if "state" in form.changed_data:
             state = int(form.cleaned_data["state"])
             obj.set_function_status(state)
+
+    def get_urls(self):
+        custom_urls = [
+            path(
+                "replay-failed-invocations/",
+                self.admin_site.admin_view(self.replay_failed_invocations_view),
+                name="cdp-replay-failed-invocations",
+            ),
+        ]
+        return custom_urls + super().get_urls()
+
+    def replay_failed_invocations_view(self, request: HttpRequest) -> HttpResponse:
+        # Every step sends the form again and computes the plan again, so no step
+        # acts on a plan held from an earlier request. The send step also checks
+        # the fingerprint the operator reviewed, and refuses when the plan changed.
+        if not self.has_change_permission(request):
+            raise PermissionDenied
+        context: dict[str, Any] = {**self.admin_site.each_context(request), "title": "Replay failed invocations"}
+
+        def respond(step: str) -> HttpResponse:
+            context["step"] = step
+            return render(request, REPLAY_TEMPLATE, context)
+
+        if request.method != "POST":
+            context["form"] = ReplayFailedInvocationsForm()
+            return respond("form")
+
+        form = ReplayFailedInvocationsForm(request.POST)
+        context["form"] = form
+        if not form.is_valid() or request.POST.get("action") == "edit":
+            return respond("form")
+
+        plan = plan_replay(form.to_criteria())
+        context["plan"] = plan
+        context["skipped_rows"] = [(SKIP_REASON_LABELS[reason], count) for reason, count in plan.skipped.items()]
+        context["function_rows"] = [
+            {
+                "function": function,
+                "skipped": [(SKIP_REASON_LABELS[reason], count) for reason, count in function.skipped.items()],
+            }
+            for function in plan.functions
+        ]
+
+        action = request.POST.get("action", "preview")
+        if action != "execute":
+            return respond("details" if action == "details" else "summary")
+
+        if request.POST.get("fingerprint") != plan.fingerprint:
+            messages.error(request, "The runs changed since you reviewed them, so nothing was sent. Review them again.")
+            return respond("details")
+        if request.POST.get("confirm_count", "").strip() != str(plan.invocation_count):
+            messages.error(request, f"Type {plan.invocation_count} to confirm. Nothing was sent.")
+            return respond("details")
+        if plan.invocation_count == 0:
+            messages.info(request, "There is nothing to replay.")
+            return respond("summary")
+
+        results = execute_replay(plan, actor=f"admin:{request.user.pk}")
+        failed = [r for r in results if r.status_code != 200]
+        if failed:
+            messages.warning(
+                request,
+                f"{len(failed)} of {len(results)} requests failed. Review again and send: runs that went through "
+                "are no longer failed, so only the rest are sent.",
+            )
+        else:
+            messages.success(request, f"Queued {plan.invocation_count} runs in {len(results)} requests.")
+        context["results"] = results
+        return respond("results")
