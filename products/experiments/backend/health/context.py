@@ -487,7 +487,8 @@ def _exposure_events(experiment: Experiment) -> ExposureEvents | None:
         criteria = normalize_to_exposure_criteria(experiment.exposure_criteria)
     except pydantic.ValidationError:
         return None
-    flag_key = experiment.feature_flag.key if experiment.feature_flag_id else None
+    # A deleted flag carries a tombstone in its key, and the exposure query reads the key without it.
+    flag_key = experiment.feature_flag.key_without_tombstone() if experiment.feature_flag_id else None
     event, variant_property = get_exposure_event_and_property(
         flag_key or "", criteria, default_exposure_event=DEFAULT_EXPOSURE_EVENT
     )

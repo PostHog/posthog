@@ -4,6 +4,7 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFindingCode,
     ExperimentHealthFindingSeverity,
 )
+from products.experiments.backend.health.checks.exposure_criteria import exposure_criteria_cannot_match
 from products.experiments.backend.health.context import HealthContext
 from products.experiments.backend.health.delays import LAST_CALLED_AT_LAG, ZERO_EXPOSURES_GRACE_HOURS
 from products.experiments.backend.health.skips import RUNS_AFTER_LAUNCH, CheckSkip, not_applicable
@@ -21,6 +22,8 @@ def zero_exposures_skip(ctx: HealthContext) -> CheckSkip | None:
         return not_applicable(RUNS_AFTER_LAUNCH)
     if exposures.hours_since_launch < ZERO_EXPOSURES_GRACE_HOURS:
         return not_applicable(f"Runs {ZERO_EXPOSURES_GRACE_HOURS} hours after launch")
+    if exposure_criteria_cannot_match(ctx) is not None:
+        return not_applicable("The exposure criteria check reports why no users are exposed")
     return None
 
 
@@ -30,12 +33,16 @@ def zero_exposures(ctx: HealthContext) -> ExperimentHealthFinding | None:
         return None
     if exposures.hours_since_launch < ZERO_EXPOSURES_GRACE_HOURS or sum(exposures.total_exposures.values()) > 0:
         return None
+    # Criteria that no event can match leave nobody exposed, and the exposure criteria check names that cause. This
+    # check calls it rather than repeating its rules, so exactly one of the two reports the experiment.
+    if exposure_criteria_cannot_match(ctx) is not None:
+        return None
     evidence = {"hours_since_launch": int(exposures.hours_since_launch)}
     # The cause reads the flag besides the cached exposure answer. The page recomputes that answer on each load while it
     # holds fewer than 50 exposures, so the cause is as fresh as the zero.
     flag = ctx.flag
-    # Deleting a flag changes its key, so its calls stop moving `last_called_at`, and a custom event's variant property
-    # names a key the flag no longer has. The flag-state check reports the deletion.
+    # Deleting a flag changes its key, so its calls stop moving `last_called_at`. The flag-state check reports the
+    # deletion.
     if flag is None or flag.deleted:
         return _cause_unknown(evidence)
     if ctx.is_paused:
