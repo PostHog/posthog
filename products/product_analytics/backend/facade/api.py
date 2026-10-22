@@ -19,7 +19,6 @@ from uuid import UUID
 from django.db import transaction
 from django.db.models import QuerySet
 
-from posthog.constants import AvailableFeature
 from posthog.models import Team, User
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
@@ -214,10 +213,7 @@ def user_can_view_insight(*, team: Team, user: User, insight_id: int) -> bool:
 def save_saved_insight_query(
     *, team: Team, user: User, insight_id: int, expected_query: dict[str, Any], query: dict[str, Any]
 ) -> str | None:
-    from posthog.api.query_access_check import blocked_access_for_user  # noqa: PLC0415, I001 — avoids HogQL import cycle
-    from posthog.api.sharing_publish_gate import is_publicly_shared  # noqa: PLC0415, I001 — avoids HogQL import cycle
-
-    from products.subscriptions.backend.facade.api import insight_has_active_subscription  # noqa: PLC0415, I001 — avoids HogQL import cycle
+    from posthog.api.sharing_publish_gate import blocked_insight_query_edit  # noqa: PLC0415, I001 — avoids HogQL import cycle
 
     with transaction.atomic():
         insight = Insight.objects.select_for_update().filter(team=team, pk=insight_id, deleted=False).first()
@@ -230,18 +226,8 @@ def save_saved_insight_query(
             "insight", "editor"
         ) or not access_control.check_access_level_for_object(insight, "editor"):
             return "You no longer have permission to edit this insight."
-        if (
-            insight.team.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL)
-            and not access_control.is_organization_admin
-            and (is_publicly_shared(insight) or insight_has_active_subscription(insight.id))
-        ):
-            blocked = blocked_access_for_user(user, insight.team, [query])
-            if blocked:
-                blocked_list = ", ".join(f"`{name}`" for name in blocked)
-                return (
-                    f"Can't save this query: you don't have access to {blocked_list}, and this insight is "
-                    "publicly shared or delivered by a subscription."
-                )
+        if error := blocked_insight_query_edit(user, insight, query, access_control):
+            return error
         insight.query = query
         insight.saved = True
         insight.last_modified_by = user

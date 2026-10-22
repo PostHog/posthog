@@ -44,10 +44,9 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.monitoring import Feature, monitor
 from posthog.api.openapi_parameters import make_filters_override_param, make_variables_override_param
-from posthog.api.query_access_check import blocked_access_for_user
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
-from posthog.api.sharing_publish_gate import is_publicly_shared
+from posthog.api.sharing_publish_gate import blocked_insight_query_edit
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import action
 from posthog.auth import (
@@ -60,7 +59,7 @@ from posthog.caching.insight_result import InsightResult
 from posthog.clickhouse.cancel import cancel_query_on_cluster
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import AccessMethod, get_query_tag_value, tag_queries, tags_context
-from posthog.constants import INSIGHT, AvailableFeature
+from posthog.constants import INSIGHT
 from posthog.errors import CHQueryErrorQueryWasCancelled, ExposedCHQueryError, QueryErrorCategory, classify_query_error
 from posthog.event_usage import EventSource, get_event_source, get_request_analytics_properties, report_user_action
 from posthog.exceptions import ClickHouseAtCapacity
@@ -198,7 +197,7 @@ from products.product_analytics.backend.presentation.insight_metadata import (
 from products.product_analytics.backend.presentation.insight_permissions import CanEditInsightDashboards
 from products.product_analytics.backend.presentation.insight_write_validation import validate_insight_write
 from products.product_analytics.backend.presentation.query_concurrency import query_concurrency_slots
-from products.subscriptions.backend.facade.api import delete_insight_subscriptions, insight_has_active_subscription
+from products.subscriptions.backend.facade.api import delete_insight_subscriptions
 
 from common.hogvm.python.utils import HogVMException
 
@@ -885,26 +884,15 @@ class InsightSerializer(InsightBasicSerializer):
             instance.last_modified_at = now()
             instance.last_modified_by = self.context["request"].user
 
-        # Shared links execute without access checks, so an edit that adds a table
-        # the editor can't run must not reach a publicly shared surface.
-        # The same holds for an insight that a subscription delivers.
-        # Other insights save without any access query.
+        # Shared links and subscription deliveries run without access checks, so an edit that adds
+        # a table the editor can't run must not reach them. Other insights save without any access query.
         new_query = validated_data.get("query")
-        if (
-            isinstance(new_query, dict)
-            and new_query != instance.query
-            and instance.team.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL)
-            # org admins have full access, so skip the gate for a faster save
-            and not (self.user_access_control and self.user_access_control.is_organization_admin)
-            and (is_publicly_shared(instance) or insight_has_active_subscription(instance.id))
+        if new_query != instance.query and (
+            error := blocked_insight_query_edit(
+                self.context["request"].user, instance, new_query, self.user_access_control
+            )
         ):
-            blocked = blocked_access_for_user(self.context["request"].user, instance.team, [new_query])
-            if blocked:
-                blocked_list = ", ".join(f"`{name}`" for name in blocked)
-                raise serializers.ValidationError(
-                    f"Can't save this query: you don't have access to {blocked_list}, and this insight is "
-                    "publicly shared or delivered by a subscription."
-                )
+            raise serializers.ValidationError(error)
 
         with transaction.atomic():
             if validated_data.get("deleted", False):

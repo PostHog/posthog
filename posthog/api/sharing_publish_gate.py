@@ -26,7 +26,10 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.notebooks.backend.facade.content import extract_inline_query_nodes, extract_referenced_insight_short_ids
 from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.facade.models import Insight
-from products.subscriptions.backend.facade.api import dashboard_has_active_full_subscription
+from products.subscriptions.backend.facade.api import (
+    dashboard_has_active_full_subscription,
+    insight_has_active_subscription,
+)
 
 
 def dashboard_shared_or_subscribed(dashboard: Dashboard) -> str | None:
@@ -38,6 +41,45 @@ def dashboard_shared_or_subscribed(dashboard: Dashboard) -> str | None:
     if dashboard_has_active_full_subscription(dashboard.id):
         return "delivered by a subscription"
     return None
+
+
+def insight_shared_or_subscribed(insight: Insight) -> str | None:
+    """How the insight reaches readers who never pass a table-access check: through a public
+    link (its own, or a shared dashboard or notebook that shows it), or through a subscription
+    that delivers it. None when neither applies, so a query edit needs no access check."""
+    if is_publicly_shared(insight):
+        return "publicly shared"
+    if insight_has_active_subscription(insight.id):
+        return "delivered by a subscription"
+    return None
+
+
+def blocked_insight_query_edit(
+    user: User,
+    insight: Insight,
+    query: Any,
+    user_access_control: UserAccessControl | None = None,
+) -> str | None:
+    """The validation message that stops saving this query on the insight, when the insight is
+    shared or subscribed and the editor can't run the query themselves. None when the save may
+    go ahead: nothing exposes the insight, the org lacks the access control entitlement, or the
+    editor is an org admin."""
+    if not isinstance(query, dict):
+        return None
+    if not insight.team.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL):
+        return None
+    uac = user_access_control or UserAccessControl(user=user, team=insight.team)
+    # org admins have full access, so skip the gate for a faster save
+    if uac.is_organization_admin:
+        return None
+    exposure = insight_shared_or_subscribed(insight)
+    if exposure is None:
+        return None
+    blocked = blocked_access_for_user(user, insight.team, [query])
+    if not blocked:
+        return None
+    blocked_list = ", ".join(f"`{name}`" for name in blocked)
+    return f"Can't save this query: you don't have access to {blocked_list}, and this insight is {exposure}."
 
 
 def check_can_add_insight_to_dashboard(
