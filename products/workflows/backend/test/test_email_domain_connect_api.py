@@ -18,10 +18,10 @@ from products.workflows.backend.test.email_domain_api_test_case import (
     ROOT_DOMAIN,
     EmailDomainApiTestCase,
 )
-from products.workflows.backend.test.fakes.fake_dns import dns_operation
-from products.workflows.backend.test.fakes.fake_domain_connect import SETTINGS_OPERATION
-from products.workflows.backend.test.fakes.faults import DnsFault, HttpFault
-from products.workflows.backend.test.fakes.world import EmailDomainWorld, domain_connect_signing_key_pem
+from products.workflows.backend.tests.fakes.fake_dns import dns_operation
+from products.workflows.backend.tests.fakes.fake_domain_connect import SETTINGS_OPERATION
+from products.workflows.backend.tests.fakes.faults import DnsFault, HttpFault
+from products.workflows.backend.tests.fakes.world import EmailDomainWorld, domain_connect_signing_key_pem
 
 CLOUDFLARE_NAMESERVERS = {"ana.ns.cloudflare.com": "172.64.32.1", "bob.ns.cloudflare.com": "108.162.192.1"}
 CLOUDFLARE_HOST = {
