@@ -308,6 +308,9 @@ class PersonPropertyBackfillActivityInputs:
     # Signal-with-start uses an empty workflow seed, then supplies the real activity input via its
     # start signal. The default preserves replay for executions started before that trigger existed.
     skip_initial_run: bool = False
+    # True when the workflow records a failed run itself. A workflow from before that change leaves it
+    # False, so the activity still records its own failure for it during a rolling deploy.
+    workflow_records_failure: bool = False
 
     @property
     def binding(self) -> WarehouseBinding:

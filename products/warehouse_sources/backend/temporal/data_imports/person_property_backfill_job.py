@@ -87,10 +87,21 @@ async def backfill_warehouse_person_properties_activity(inputs: PersonPropertyBa
         async with Heartbeater():
             result = await run_person_property_backfill(team_id=inputs.team_id, binding=binding, trigger=inputs.trigger)
     except Exception as e:
-        # The workflow records the failed run. A backfill run has no job_id, so a second failed
-        # record from here would reconcile a different running row instead of this one.
         log.exception("Person-property backfill failed")
         capture_exception(e)
+        # A backfill run has no job_id, so a second failed record would reconcile a different
+        # running row. Record here only when the workflow will not.
+        if not inputs.workflow_records_failure:
+            PERSON_PROPERTY_BACKFILL_TOTAL.labels(team_id=str(inputs.team_id), outcome="failed").inc()
+            await record_failed_runs(
+                team_id=inputs.team_id,
+                binding=binding,
+                job_id=None,
+                trigger=inputs.trigger,
+                started_at=started_at,
+                finished_at=datetime.now(UTC).isoformat(),
+                error=str(e),
+            )
         raise
 
     await record_completed_runs(
@@ -174,17 +185,18 @@ class BackfillWarehousePersonPropertiesWorkflow(PostHogWorkflow):
             self._pending_inputs = None
             assert activity_inputs is not None
             started_at = workflow.now()
+            records_failure = workflow.patched(RECORD_FAILED_RUN_PATCH)
             try:
                 await workflow.execute_activity(
                     backfill_warehouse_person_properties_activity,
-                    activity_inputs,
+                    dataclasses.replace(activity_inputs, workflow_records_failure=records_failure),
                     start_to_close_timeout=timedelta(hours=6),
                     heartbeat_timeout=timedelta(minutes=5),
                     # A one-off full-table read: don't silently re-scan the whole table on a transient error.
                     retry_policy=RetryPolicy(maximum_attempts=1),
                 )
             except ActivityError as e:
-                if workflow.patched(RECORD_FAILED_RUN_PATCH):
+                if records_failure:
                     await workflow.execute_activity(
                         record_failed_person_property_backfill_runs_activity,
                         PersonPropertyFailedRunInputs(
@@ -197,7 +209,9 @@ class BackfillWarehousePersonPropertiesWorkflow(PostHogWorkflow):
                             error=failed_run_error(e, INTERRUPTED_RUN_NEXT_STEP),
                         ),
                         start_to_close_timeout=timedelta(minutes=5),
-                        retry_policy=RetryPolicy(maximum_attempts=3),
+                        # The recorder swallows its own errors. A retry could only follow a write
+                        # that already landed, and without a job_id it would add a second failed row.
+                        retry_policy=RetryPolicy(maximum_attempts=1),
                     )
                 # A request that arrived while the activity ran was reported to its caller as
                 # queued, so serve that before giving up — a mapping edit must not die with the run

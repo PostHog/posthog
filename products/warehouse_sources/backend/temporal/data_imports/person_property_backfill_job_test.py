@@ -98,6 +98,22 @@ class TestBackfillWarehousePersonPropertiesActivity:
         assert stage_value("changed") == 0
         assert stage_value("produced") == 0
 
+    @pytest.mark.parametrize("workflow_records_failure,expected_records", [(False, 1), (True, 0)])
+    async def test_activity_records_its_own_failure_only_for_workflows_that_do_not(
+        self, workflow_records_failure: bool, expected_records: int
+    ) -> None:
+        inputs = dataclasses.replace(_inputs(900003), workflow_records_failure=workflow_records_failure)
+        with (
+            patch.object(bj, "run_person_property_backfill", AsyncMock(side_effect=RuntimeError("boom"))),
+            patch.object(bj, "record_started_runs", AsyncMock()),
+            patch.object(bj, "record_failed_runs", AsyncMock()) as mock_failed,
+            patch.object(bj, "capture_exception"),
+            pytest.raises(RuntimeError),
+        ):
+            await ActivityEnvironment().run(bj.backfill_warehouse_person_properties_activity, inputs)
+
+        assert mock_failed.await_count == expected_records
+
 
 @pytest.mark.asyncio
 async def test_in_flight_backfill_runs_one_follow_up_with_the_latest_request() -> None:

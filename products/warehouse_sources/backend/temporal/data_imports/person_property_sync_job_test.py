@@ -81,7 +81,8 @@ async def _sync_activity_killed_by_worker_shutdown(_inputs: PersonPropertySyncAc
 
 
 @activity.defn(name="backfill_warehouse_person_properties_activity")
-async def _backfill_activity_killed_by_worker_shutdown(_inputs: PersonPropertyBackfillActivityInputs) -> dict:
+async def _backfill_activity_killed_by_worker_shutdown(inputs: PersonPropertyBackfillActivityInputs) -> dict:
+    assert inputs.workflow_records_failure
     raise ApplicationError("Worker is shutting down", type="WorkerShutdown", non_retryable=True)
 
 
