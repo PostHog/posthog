@@ -17,12 +17,15 @@ export function NodeDetailQuery({ id }: { id: string }): JSX.Element {
         return <LemonSkeleton className="h-64 w-full" />
     }
 
-    if (savedQueryError) {
-        return (
-            <LemonBanner type="error" action={{ children: 'Retry', onClick: loadSavedQuery }}>
-                Couldn't load this model's query.
-            </LemonBanner>
-        )
+    const refreshErrorBanner = (
+        <LemonBanner type="error" action={{ children: 'Retry', onClick: loadSavedQuery }}>
+            Couldn't load this model's query.
+        </LemonBanner>
+    )
+
+    // With a cached query, keep the editor mounted so unsaved edits survive a failed refresh.
+    if (savedQueryError && !savedQuery) {
+        return refreshErrorBanner
     }
 
     const queryString = savedQuery?.query?.query
@@ -30,6 +33,7 @@ export function NodeDetailQuery({ id }: { id: string }): JSX.Element {
 
     return (
         <div className="flex flex-col gap-4">
+            {savedQueryError && refreshErrorBanner}
             <div className="flex flex-col gap-2">
                 {queryString && savedQuery && canEditQuery ? (
                     <NodeDetailQueryEditor key={savedQuery.id} id={id} savedQuery={savedQuery} />
