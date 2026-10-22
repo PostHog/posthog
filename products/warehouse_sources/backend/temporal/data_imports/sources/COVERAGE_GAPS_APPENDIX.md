@@ -5913,13 +5913,13 @@ Note: Parsed every GET operation in the official external API specification and 
 
 ## HeyReach — gaps
 
-Today (7): `campaign_leads`, `campaigns`, `conversations`, `linkedin_accounts`, `list_leads`, `lists`, `overall_stats`
+Today (10): `campaign_leads`, `campaign_stats`, `campaigns`, `conversations`, `linkedin_accounts`, `list_companies`, `list_leads`, `lists`, `overall_stats`, `sender_network`
 
 Diffed against: <https://documenter.gw.postman.com/api/collections/23808049/2sA2xb5F75?segregateAuth=true&versionTag=latest>
 
-- [ ] `GetOverallStatsByCampaign (POST /api/public/stats/GetOverallStatsByCampaign)` — compare daily reply rates, connection acceptance, and messages sent for each campaign instead of workspace totals (high)
-- [ ] `GetCompaniesFromList (POST /api/public/list/GetCompaniesFromList)` — analyze company audiences by industry, size, and location; current list_leads covers only lead lists (medium)
-- [ ] `GetMyNetworkForSender (POST /api/public/MyNetwork/GetMyNetworkForSender)` — measure sender network size and identify connections outside active campaigns and lead lists (medium)
+- [x] `GetOverallStatsByCampaign (POST /api/public/stats/GetOverallStatsByCampaign)` — compare daily reply rates, connection acceptance, and messages sent for each campaign instead of workspace totals (high)
+- [x] `GetCompaniesFromList (POST /api/public/list/GetCompaniesFromList)` — analyze company audiences by industry, size, and location; current list_leads covers only lead lists (medium)
+- [x] `GetMyNetworkForSender (POST /api/public/MyNetwork/GetMyNetworkForSender)` — measure sender network size and identify connections outside active campaigns and lead lists (medium)
 
 Note: Parsed all requests and response examples in the vendor's published Postman collection. Read-only POST endpoints are included because this API uses POST for lists. Conversations already contain messages and tags. Company lists and sender networks need fan-out; organization administration is excluded.
 
@@ -6111,10 +6111,10 @@ Today (6): `active_resources`, `applications`, `deployments`, `environment_types
 
 Diffed against: <https://api-docs.humanitec.com/openapi.json>
 
-- [ ] `Resource Definitions (GET /orgs/{orgId}/resources/defs)` — resolve resource definition IDs on active resources and explain how infrastructure was provisioned (high)
-- [ ] `Resource Types (GET /orgs/{orgId}/resources/types)` — resolve active resource types to their definitions for infrastructure inventory analysis (high)
-- [ ] `Deployment Deltas (GET /orgs/{orgId}/apps/{appId}/deltas)` — resolve delta_id on deployments and analyze the changes applied during each release (high)
-- [ ] `Pipeline Runs (GET /orgs/{orgId}/pipeline-runs)` — resolve deployment run references and measure pipeline success rates and execution time (high)
+- [x] `Resource Definitions (GET /orgs/{orgId}/resources/defs)` — resolve resource definition IDs on active resources and explain how infrastructure was provisioned (high)
+- [x] `Resource Types (GET /orgs/{orgId}/resources/types)` — resolve active resource types to their definitions for infrastructure inventory analysis (high)
+- [x] `Deployment Deltas (GET /orgs/{orgId}/apps/{appId}/deltas)` — resolve delta_id on deployments and analyze the changes applied during each release (high)
+- [x] `Pipeline Runs (GET /orgs/{orgId}/pipeline-runs)` — resolve deployment run references and measure pipeline success rates and execution time (high)
 - [ ] `Pipeline run jobs (GET /orgs/{orgId}/apps/{appId}/pipelines/{pipelineId}/runs/{runId}/jobs)` — identify failed or slow jobs within each pipeline run (medium)
 - [ ] `Deployment errors (GET /orgs/{orgId}/apps/{appId}/envs/{envId}/deploys/{deployId}/errors)` — classify deployment failures by error code, scope, and affected workload (medium)
 - [ ] `Audit logs (GET /orgs/{orgId}/audit-logs)` — analyze successful changes by actor, operation, and time across the organization (medium)
@@ -6626,16 +6626,16 @@ Today (14): `boards`, `dashboards`, `fields`, `filters`, `issue_types`, `issues`
 
 Diffed against: <https://developer.atlassian.com/cloud/jira/platform/swagger-v3.v3.json>
 
-- [ ] `/rest/api/3/issue/{id}/changelog (and /changelog/bulkfetch)` — issue field transition history - the only source for cycle time, time-in-status and reopen rate (high)
+- [x] `/rest/api/3/issue/{id}/changelog (and /changelog/bulkfetch)` — issue field transition history - the only source for cycle time, time-in-status and reopen rate (high). Added as `issue_changelogs` via `/rest/api/3/search/jql` plus `POST /changelog/bulkfetch`, which avoids one request per issue.
 - [x] `/rest/agile/1.0/board/{boardId}/sprint` — sprints, the unit every agile velocity and commitment metric is built on (high)
 - [x] `/rest/agile/1.0/board` — boards lookup that scopes sprints and backlogs to teams (high)
 - [x] `/rest/agile/1.0/sprint/{sprintId}/issue` — sprint-to-issue membership edges needed for velocity and scope-change analysis (high). Added as `sprint_issues` from the Sprint field via `/rest/api/3/search/jql`, because the spec marks this endpoint and the other agile issue listings deprecated.
-- [ ] `/rest/api/3/issue/{id}/comment (or /rest/api/3/comment/list)` — comment volume and response latency, the main collaboration signal on an issue (high)
+- [x] `/rest/api/3/issue/{id}/comment (or /rest/api/3/comment/list)` — comment volume and response latency, the main collaboration signal on an issue (high). Added as `issue_comments` from the comment field of `/rest/api/3/search/jql`; only issues whose embedded list is truncated are read again through `/issue/{id}/comment`.
 - [x] `/rest/api/3/issue/{id}/worklog (with /worklog/updated for incrementals)` — logged time per issue and user, the basis for effort and cost reporting (high). Added as `worklogs` via `/worklog/updated` plus `POST /worklog/list`, which avoids one request per issue.
-- [ ] `/rest/api/3/project/{projectIdOrKey}/versions` — lookup resolving the fixVersions/affectedVersions IDs carried on synced issues (medium)
+- [x] `/rest/api/3/project/{projectIdOrKey}/versions` — lookup resolving the fixVersions/affectedVersions IDs carried on synced issues (medium). Added as `versions` via the paginated `/project/{projectIdOrKey}/version`.
 - [ ] `/rest/api/3/project/{projectIdOrKey}/components` — lookup resolving the component IDs carried on synced issues (medium)
 - [ ] `/rest/api/3/statuscategory` — lookup rolling the already-synced statuses into To Do / In Progress / Done buckets (medium)
-- [ ] `/rest/api/3/group/bulk and /rest/api/3/group/member` — group definitions plus user-to-group membership edges for team-level rollups (medium)
+- [x] `/rest/api/3/group/bulk and /rest/api/3/group/member` — group definitions plus user-to-group membership edges for team-level rollups (medium). Added as `groups` and `group_members`.
 - [ ] `/rest/agile/1.0/board/{boardId}/epic` — epic catalog for rolling issues up to initiatives (medium)
 - [ ] `/rest/api/3/issueLinkType (plus issue links)` — blocks/duplicates/relates edges between issues (low)
 
@@ -9287,10 +9287,10 @@ Today (7): `articles`, `companies`, `journalists`, `people`, `sources`, `stories
 
 Diffed against: <https://storage.googleapis.com/stainless-sdk-openapi-specs/perigon/perigon-sdk-11255e240e6346feeab8ff10dddcfb4348205d0b8f69aaedc564ec7a637b85c2.yml>
 
-- [ ] `GET /v1/stories/history` — time-series evolution of the story clusters already synced (medium)
-- [ ] `GET /v1/stories/stats` — story count statistics bucketed by hour/day/week/month for volume trending (medium)
-- [ ] `GET /v1/api/sourceGroups` — named groupings of the sources already synced, useful as a source dimension (medium)
-- [ ] `GET /v1/wikipedia/all` — the Wikipedia corpus, a distinct queryable dataset alongside articles (low)
+- [x] `GET /v1/stories/history` — time-series evolution of the story clusters already synced (medium)
+- [x] `GET /v1/stories/stats` — story count statistics bucketed by hour/day/week/month for volume trending (medium)
+- [x] `GET /v1/api/sourceGroups` — named groupings of the sources already synced, useful as a source dimension (medium)
+- [x] `GET /v1/wikipedia/all` — the Wikipedia corpus, a distinct queryable dataset alongside articles (low)
 - [ ] `GET /v1/api/watchlists` — org watchlists of people and companies, a lookup over entities already synced (low)
 
 Note: docs.perigon.io is a client-rendered SPA that returns the same shell for every path (including llms.txt and sitemap.xml), so the doc URLs in the payload 404 to curl. I resolved the real spec via the vendor's official Go SDK (goperigon/perigon-go-sdk .stats.yml -> openapi_spec_url), which lists 20 paths. Coverage of the listable news/entity resources is nearly complete - all 7 synced tables map 1:1 to /v1/{articles,stories,journalists,sources,people,companies,topics}/all. Remaining endpoints are two story sub-resources, the Wikipedia corpus, and two org-owned saved-filter collections; the vector and summarize endpoints are query-time POSTs, not syncable tables.
