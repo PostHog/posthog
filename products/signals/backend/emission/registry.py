@@ -153,7 +153,9 @@ def _register_all_emitters() -> None:
     from products.signals.backend.emission.aha_ideas import AHA_CONFIG
     from products.signals.backend.emission.appfigures_reviews import APPFIGURES_CONFIG
     from products.signals.backend.emission.appfollow_reviews import APPFOLLOW_CONFIG
+    from products.signals.backend.emission.asana_tasks import ASANA_CONFIG
     from products.signals.backend.emission.asknicely_responses import ASKNICELY_CONFIG
+    from products.signals.backend.emission.azure_devops_work_item_revisions import AZURE_DEVOPS_CONFIG
     from products.signals.backend.emission.betterstack_incidents import BETTERSTACK_CONFIG
     from products.signals.backend.emission.bigeye_issues import BIGEYE_CONFIG
     from products.signals.backend.emission.bugsnag_errors import BUGSNAG_CONFIG
@@ -187,12 +189,14 @@ def _register_all_emitters() -> None:
     from products.signals.backend.emission.kustomer_conversations import KUSTOMER_CONFIG
     from products.signals.backend.emission.lacework_alerts import LACEWORK_CONFIG
     from products.signals.backend.emission.linear_issues import LINEAR_ISSUES_CONFIG
+    from products.signals.backend.emission.monday_items import MONDAY_CONFIG
     from products.signals.backend.emission.monte_carlo_alerts import MONTE_CARLO_CONFIG
     from products.signals.backend.emission.opsgenie_alerts import OPSGENIE_CONFIG
     from products.signals.backend.emission.orca_security_alerts import ORCA_SECURITY_CONFIG
     from products.signals.backend.emission.pagerduty_incidents import PAGERDUTY_CONFIG
     from products.signals.backend.emission.pganalyze_issues import PGANALYZE_ISSUES_CONFIG
     from products.signals.backend.emission.plain_threads import PLAIN_CONFIG
+    from products.signals.backend.emission.plane_work_items import PLANE_CONFIG
     from products.signals.backend.emission.productboard_notes import PRODUCTBOARD_CONFIG
 
     # Tier-2 security scanners
@@ -284,6 +288,11 @@ def _register_all_emitters() -> None:
     register_signal_source(ExternalDataSourceType.GRAFANAIRM, "incidents", GRAFANA_IRM_CONFIG)
     register_signal_source(ExternalDataSourceType.XMATTERS, "incidents", XMATTERS_CONFIG)
     register_signal_source(ExternalDataSourceType.BETTERSTACK, "incidents", BETTERSTACK_CONFIG)
+    # Work trackers (record kind: issue)
+    register_signal_source(ExternalDataSourceType.ASANA, "tasks", ASANA_CONFIG)
+    register_signal_source(ExternalDataSourceType.MONDAY, "items", MONDAY_CONFIG)
+    register_signal_source(ExternalDataSourceType.PLANE, "work_items", PLANE_CONFIG)
+    register_signal_source(ExternalDataSourceType.AZUREDEVOPS, "work_item_revisions", AZURE_DEVOPS_CONFIG)
     # Data quality / observability (record kind: incident)
     register_signal_source(ExternalDataSourceType.MONTECARLO, "alerts", MONTE_CARLO_CONFIG)
     register_signal_source(ExternalDataSourceType.BIGEYE, "Issues", BIGEYE_CONFIG)
