@@ -95,9 +95,12 @@ Most of these are not enforced by a single test, and a violation usually shows u
 **12. A redelivered event changes nothing.**
 
 - Why: input is at least once.
-- Kept by: per-row replay marks, the highest offset applied from each source partition, which is one partition of one topic a shuffler reads.
+- Kept by: per-row replay marks, the highest offset applied from each source partition.
 - Assumes: one person's events from one source partition arrive in offset order.
   An event overtaken by a later one from the same source partition is skipped as a replay.
+- Assumes: each event reaches the pipeline on only one input topic.
+  An event that arrives on two topics has a different source partition on each, so it is folded twice.
+- See [live evaluation](live-evaluation.md#replay-safety).
 - Limit: the marks live inside their row.
   Once the sweep deletes a row, or the person record time-to-live expires a record, a redelivered old event is folded again.
 

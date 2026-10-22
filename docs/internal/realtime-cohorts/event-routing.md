@@ -82,10 +82,8 @@ Each forwarded event becomes a slim JSON record on `cohort_stream_events`.
 - `source_topic_id`, `source_partition` and `source_offset` are the event's coordinates in the topic the shuffler read.
   The processor uses them to recognize an event it already applied.
 - `source_topic_id` comes from a fixed table in the shuffler: `clickhouse_events_json` is 0 and `realtime_only_events_json` is 1.
-  The shuffler refuses to start on an input topic that is not in the table, because under another topic's id the processor would drop that topic's events as replays.
   A message without `source_topic_id` came from `clickhouse_events_json`.
-- A shuffler on any topic other than `clickhouse_events_json` starts only after every processor pod runs a build that reads `source_topic_id`.
-  An older processor ignores the field, files the events under `clickhouse_events_json`, and drops most of them as replays.
+  [Running a shuffler on another topic](#running-a-shuffler-on-another-topic) explains why the id matters.
 - Events that the processor re-keys after a person merge also carry `redirected_from` and `redirect_hops`.
   The shuffler never sets them.
 
@@ -108,6 +106,27 @@ Other losses:
 The consumer group starts at the tail of the firehose when it has no committed offset, or when its committed offset has aged out of the firehose's retention.
 A shuffler outage longer than the retention silently skips the gap.
 History is the backfill's job, not the shuffler's.
+
+### Running a shuffler on another topic
+
+A second shuffler deployment can read another ingestion topic, such as `realtime_only_events_json`, into the same `cohort_stream_events`.
+Its offsets and partition numbers overlap the firehose's, so the processor tells the two apart only by `source_topic_id`.
+Under the wrong id, the processor drops most of the topic's events as replays.
+
+Starting one commits the pipeline to these conditions:
+
+- The topic is in the shuffler's `source_topic_id` table.
+  The shuffler refuses to start on a topic that is not.
+- The deployment has its own `KAFKA_CONSUMER_GROUP`.
+- Every processor pod already runs a build that reads `source_topic_id`.
+  An older processor ignores the field and files the events under `clickhouse_events_json`.
+- Each event reaches the pipeline on only one input topic.
+  The processor keeps separate replay marks per topic, so it folds an event that arrives on two topics twice.
+- The topic's retention is no longer than the firehose's.
+  The processor sizes its tombstone retention from the firehose's retention, and a straggler that outlives the tombstone is not redirected.
+- The processor cannot roll back to a build without topic ids.
+  Such a build reads every row that holds a mark from another topic as corrupt.
+  Rolling back is safe only after a wipe of the store and of every checkpoint taken since the shuffler started, because a restore brings those marks back.
 
 ## Partition affinity
 

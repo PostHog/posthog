@@ -109,8 +109,7 @@ An incompatible key or value change bumps the version, and the store is rebuilt 
 Replay marks from a topic other than `clickhouse_events_json` share this version.
 A row whose marks all come from `clickhouse_events_json` has the same bytes that a binary without topic ids writes.
 A row or merge transfer that holds another topic's mark uses a form that such a binary cannot decode, so it reads that row as corrupt.
-A rollback to a binary without topic ids is therefore safe only before a shuffler on another topic has run, or after a store wipe.
-Stopping that shuffler does not remove the marks it left.
+[Running a shuffler on another topic](event-routing.md#running-a-shuffler-on-another-topic) gives the rollback rule that follows.
 
 ## Restarting
 

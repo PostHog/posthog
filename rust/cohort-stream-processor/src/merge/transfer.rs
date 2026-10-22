@@ -510,6 +510,7 @@ mod tests {
                 applied_offsets: AppliedOffsets::from_sorted_entries(vec![
                     (SourcePartition::clickhouse_events_json(1), 100),
                     (SourcePartition::clickhouse_events_json(2), 200),
+                    (SourcePartition::new(1, 2), 50),
                 ]),
                 redirect_dedup,
             }),
