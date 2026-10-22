@@ -24,6 +24,15 @@ export const SOURCE_KINDS: Record<PlatformAlertConfigurationSourceKindEnumApi, S
         label: 'Insight',
         alertUrl: (legacyConfigurationId) => urls.alert(legacyConfigurationId),
     },
+    // A warehouse alert has no page of its own, so it links to the page that lists what it watches.
+    [PlatformAlertConfigurationSourceKindEnumApi.WarehouseSource]: {
+        label: 'Warehouse source',
+        alertUrl: () => urls.sources(),
+    },
+    [PlatformAlertConfigurationSourceKindEnumApi.WarehouseDestination]: {
+        label: 'Warehouse destination',
+        alertUrl: () => urls.warehouseDestinations(),
+    },
 }
 
 export function sourceAlertUrl(configuration: PlatformAlertConfigurationApi): string | null {

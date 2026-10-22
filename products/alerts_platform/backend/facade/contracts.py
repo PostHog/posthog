@@ -29,6 +29,8 @@ if TYPE_CHECKING:
 class SourceKind(StrEnum):
     LOGS = "logs"
     INSIGHT = "insight"
+    WAREHOUSE_SOURCE = "warehouse_source"
+    WAREHOUSE_DESTINATION = "warehouse_destination"
 
 
 @frozen
