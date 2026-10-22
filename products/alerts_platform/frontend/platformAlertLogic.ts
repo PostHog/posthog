@@ -91,9 +91,9 @@ export interface platformAlertLogicActions {
         snoozeUntil: string | null,
         duration: GroupSnoozeDuration | 'custom' | null
     ) => {
+        duration: GroupSnoozeDuration | 'custom' | null
         groupingKey: string
         snoozeUntil: string | null
-        duration: GroupSnoozeDuration | 'custom' | null
     }
     setGroupSnoozeFailure: () => {
         value: true
@@ -105,8 +105,8 @@ export interface platformAlertLogicActions {
         groupingKey: string,
         duration: GroupSnoozeDuration
     ) => {
-        groupingKey: string
         duration: GroupSnoozeDuration
+        groupingKey: string
     }
     snoozeGroupUntil: (
         groupingKey: string,
