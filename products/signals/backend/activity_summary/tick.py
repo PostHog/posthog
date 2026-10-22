@@ -27,6 +27,7 @@ from posthog.temporal.common.utils import close_db_connections
 
 from products.signals.backend.activity_summary.config import read_config
 from products.signals.backend.activity_summary.logic import (
+    MAX_VERSIONS,
     ActivitySummaryUpdate,
     UpdateAfterModelCallError,
     UpdateStatus,
@@ -89,6 +90,7 @@ class ActivitySummaryTickPlan:
     # A default, so a plan that a workflow history recorded before this field existed still decodes.
     limits: RenderLimits = DEFAULT_LIMITS
     rebuild_before: datetime.datetime | None = None
+    max_versions: int = MAX_VERSIONS
 
 
 @frozen
@@ -102,6 +104,8 @@ class ActivitySummaryPairInput:
     # A default, so a pair input that a tick queued before this field existed still decodes.
     limits: RenderLimits = DEFAULT_LIMITS
     rebuild_before: datetime.datetime | None = None
+    # Has a default, so the pair input of a workflow in flight during a deploy still decodes.
+    max_versions: int = MAX_VERSIONS
 
 
 @frozen
@@ -160,6 +164,7 @@ def plan_tick(limit: int | None, now: datetime.datetime) -> ActivitySummaryTickP
         limits=config.limits,
         stop_reason=stop_reason,
         rebuild_before=config.rebuild_before,
+        max_versions=config.max_versions,
     )
 
 
@@ -224,6 +229,7 @@ def run_pair(input: ActivitySummaryPairInput, *, last_attempt: bool = True) -> A
             min_update_interval=datetime.timedelta(hours=input.min_update_interval_hours),
             limits=input.limits,
             rebuild_before=input.rebuild_before,
+            max_versions=input.max_versions,
         )
         called_model = update.status in (UpdateStatus.OK, UpdateStatus.FAILED)
     except Exception as error:
@@ -339,6 +345,7 @@ class ActivitySummaryTickWorkflow:
                             capture_events=plan.capture_events,
                             limits=plan.limits,
                             rebuild_before=plan.rebuild_before,
+                            max_versions=plan.max_versions,
                         ),
                         start_to_close_timeout=_PAIR_TIMEOUT,
                         heartbeat_timeout=_PAIR_HEARTBEAT_TIMEOUT,

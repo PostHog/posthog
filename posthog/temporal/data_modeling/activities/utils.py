@@ -18,6 +18,7 @@ from products.data_modeling.backend.facade.api import (
     mark_node_suspended,
     query_fingerprint,
     suspension_reset_at,
+    suspension_state,
 )
 from products.data_modeling.backend.facade.models import (
     DataModelingJob,
@@ -243,6 +244,16 @@ def maybe_suspend_node_for_engine(
         job.error = f"{SUSPENDED_ERROR_PREFIX}{job.error}"
         job.save(update_fields=["error"])
     return True
+
+
+@database_sync_to_async_pool
+def was_suspended_by_job(*, node_id: str, team_id: int, dag_id: str, engine: str, job_id: str) -> bool:
+    """True when this job's failure is the one recorded as suspending the node.
+
+    A retry of the failing activity no longer sees the transition, so this is how it still knows.
+    """
+    node = Node.objects.get(id=node_id, team_id=team_id, dag_id=dag_id)
+    return (suspension_state(node).get(str(engine)) or {}).get("job_id") == job_id
 
 
 @database_sync_to_async_pool
