@@ -476,6 +476,9 @@ export class HogFlowExecutorService {
      * The membership change that started an enrolling cohort-triggered run, while the table has not
      * stored it yet. The membership writer reads the change in its own consumer group, so the table can
      * still hold the state from before it. Null once the stored row is as new as the change.
+     *
+     * Only a cohort trigger on that cohort and transition counts. Anyone can capture an event with this
+     * name, so for an event-triggered workflow the run event says nothing about membership.
      */
     private async pendingEnrollingChange(
         invocation: CyclotronJobInvocationHogFlow,
@@ -485,8 +488,12 @@ export class HogFlowExecutorService {
         const version = enrolledBy?.properties?.[COHORT_MEMBERSHIP_VERSION_PROPERTY]
         const cohortId = enrolledBy?.properties?.cohort_id
         const status = enrolledBy?.properties?.status
+        const trigger = invocation.hogFlow.trigger
         if (
             invocation.state.currentAction ||
+            trigger.type !== 'cohort' ||
+            trigger.cohort_id !== cohortId ||
+            trigger.transition !== status ||
             enrolledBy?.event !== COHORT_MEMBERSHIP_CHANGED_EVENT ||
             typeof version !== 'string' ||
             typeof cohortId !== 'number' ||

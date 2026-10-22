@@ -1809,6 +1809,16 @@ describe('Hogflow Executor', () => {
                     watchers: 1,
                     conversions: 0,
                 },
+                // Anyone can capture an event with the membership event's name.
+                {
+                    name: 'cohort goal, event-triggered run with a captured membership event',
+                    goal: cohortGoal,
+                    memberOf: [],
+                    enrolledBy: { inCohort: false, caughtUp: false },
+                    eventTriggered: true,
+                    watchers: 1,
+                    conversions: 0,
+                },
             ])('$name: writes $watchers watcher and counts $conversions conversion', async (params) => {
                 hogFlow.exit_condition = 'exit_only_at_end'
                 hogFlow.conversion = params.goal as any
@@ -1819,6 +1829,9 @@ describe('Hogflow Executor', () => {
                 }
                 if (params.enrolledBy) {
                     jest.spyOn(cohortMembershipRepository, 'getCohortMembership').mockResolvedValue(params.enrolledBy)
+                    if (!params.eventTriggered) {
+                        hogFlow.trigger = { type: 'cohort', cohort_id: 42, transition: 'entered' }
+                    }
                 }
 
                 const invocation = createExampleHogFlowInvocation(
