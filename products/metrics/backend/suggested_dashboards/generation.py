@@ -47,6 +47,7 @@ from products.metrics.backend.suggested_dashboards.dashboards import (
     attribute_variable,
     create_dashboard,
     drop_preview,
+    fill_rows,
 )
 from products.metrics.backend.suggested_dashboards.llm import MODEL, ask_model, image_block, text_block
 from products.metrics.backend.suggested_dashboards.matching import query_metric_names, template_metric_names
@@ -350,9 +351,11 @@ def _convert(
     boxes = place_screenshot_boxes(
         [RequestedBox(key=draft.key, layout=draft.layout, min_w=2, min_h=2) for draft in accepted]
     )
+    # A dropped panel leaves a hole in its row, so the rest of the row spreads across the full width again.
+    layouts = fill_rows([(index, boxes[draft.key]) for index, draft in enumerate(accepted)])
     panels = tuple(
-        TemplatePanel(key=draft.key, title=draft.title[:200], query=queries_by_key[draft.key], layout=boxes[draft.key])
-        for draft in accepted
+        TemplatePanel(key=draft.key, title=draft.title[:200], query=queries_by_key[draft.key], layout=layouts[index])
+        for index, draft in enumerate(accepted)
     )
     definitions = _variable_definitions(valid_variables, accepted, queries_by_key)
     kept_variables = tuple(variable for variable in valid_variables if variable.name in definitions)
