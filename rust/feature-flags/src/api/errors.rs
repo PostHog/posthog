@@ -121,6 +121,8 @@ pub enum FlagError {
     DependencyFailed(i64),
     #[error("Group type mapping lookup failed: {0}")]
     GroupTypeLookupFailed(Arc<FlagError>),
+    #[error("Flag evaluation DB preparation failed: {0}")]
+    DbPreparationFailed(Arc<FlagError>),
     #[error("Failed to parse cohort filters")]
     CohortFiltersParsingError,
     #[error("Dependency cycle detected: {0} id {1} starts the cycle")]
@@ -265,7 +267,9 @@ impl FlagError {
             FlagError::RowNotFound => ("row_not_found", 500),
             FlagError::DependencyNotFound(_, _) => ("dependency_not_found", 500),
             FlagError::DependencyFailed(_) => (CODE_DEPENDENCY_FAILED, 500),
-            FlagError::GroupTypeLookupFailed(cause) => cause.error_metadata(),
+            FlagError::GroupTypeLookupFailed(cause) | FlagError::DbPreparationFailed(cause) => {
+                cause.error_metadata()
+            }
             FlagError::CohortFiltersParsingError => ("cohort_filters_parsing_error", 500),
             FlagError::DependencyCycle(_, _) => ("dependency_cycle", 500),
             FlagError::HashKeyOverrideError => ("hash_key_override_error", 500),
@@ -338,7 +342,9 @@ impl FlagError {
             }
             FlagError::TimeoutError(Some(t)) => format!("timeout:{t}"),
             FlagError::TimeoutError(None) => "timeout_error".to_string(),
-            FlagError::GroupTypeLookupFailed(cause) => cause.evaluation_error_code(),
+            FlagError::GroupTypeLookupFailed(cause) | FlagError::DbPreparationFailed(cause) => {
+                cause.evaluation_error_code()
+            }
             FlagError::DependencyNotFound(dependency_type, _) => match dependency_type {
                 DependencyType::Cohort => "dependency_not_found_cohort".to_string(),
                 DependencyType::Flag => "dependency_not_found_flag".to_string(),
@@ -383,7 +389,9 @@ impl FlagError {
                 DependencyType::Flag => "Flag dependency not found".to_string(),
             },
             FlagError::DependencyFailed(_) => "Flag dependency failed to evaluate".to_string(),
-            FlagError::GroupTypeLookupFailed(cause) => cause.evaluation_error_description(),
+            FlagError::GroupTypeLookupFailed(cause) | FlagError::DbPreparationFailed(cause) => {
+                cause.evaluation_error_description()
+            }
             FlagError::DependencyCycle(dependency_type, _) => match dependency_type {
                 DependencyType::Cohort => "Cohort dependency cycle detected".to_string(),
                 DependencyType::Flag => "Flag dependency cycle detected".to_string(),
@@ -574,6 +582,14 @@ impl IntoResponse for FlagError {
                     StatusCode::from_u16(cause.status_code())
                         .unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
                     "Group type mapping lookup failed".to_string(),
+                )
+            }
+            FlagError::DbPreparationFailed(cause) => {
+                tracing::error!("Flag evaluation DB preparation failed: {cause:?}");
+                (
+                    StatusCode::from_u16(cause.status_code())
+                        .unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
+                    "Flag evaluation DB preparation failed".to_string(),
                 )
             }
             FlagError::CohortFiltersParsingError => {
