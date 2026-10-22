@@ -210,7 +210,7 @@ Each rule is tagged with what catches a violation.
 
 ### Configuration and secrets
 
-- **A key in `posthog/settings/dynamic_settings.py` exists only because ops must change its value live, without a deploy.** `[review]` These instance settings are Postgres rows that staff edit at runtime, and a stored row overrides the environment variable. Kill switches and tuning knobs for incidents qualify. Secrets and static config are environment variables read in `posthog/settings/`, with values from the deployment secret store and charts. Never store a secret as an instance setting, because the database keeps it as plain text. A per-team rollout or a team allowlist is a feature flag.
+- **A key in `posthog/settings/dynamic_settings.py` exists only because operators must change its value live, without a deploy.** `[review]` These instance settings are Postgres rows that staff edit at runtime, and a stored row overrides the environment variable. Kill switches and tuning knobs for incidents qualify. Secrets and static config are environment variables read in `posthog/settings/`, with values from the deployment secret store and charts. Never store a secret as an instance setting, because the database keeps it as plain text. A per-team rollout or a team allowlist is a feature flag.
 
 ### Django admin
 
