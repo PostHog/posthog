@@ -1,5 +1,4 @@
 import os
-import sys
 import subprocess
 from pathlib import Path
 
@@ -9,8 +8,12 @@ from unittest.mock import MagicMock, patch
 from products.tasks.backend.logic.services.modal_sandbox import ModalSandbox
 from products.tasks.backend.logic.services.sandbox import ExecutionResult, SandboxConfig, parse_clone_phases
 
-FAKE_DATE = f"""#!/bin/sh
-exec "{sys.executable}" -c 'import sys, time; print(int(time.time() * 1000) if sys.argv[1] == "+%s%3N" else int(time.time()))' "$1"
+FAKE_DATE = """#!/bin/sh
+if [ "$1" = "+%s%3N" ]; then
+    echo "$(/bin/date +%s)000"
+else
+    exec /bin/date "$@"
+fi
 """
 
 
