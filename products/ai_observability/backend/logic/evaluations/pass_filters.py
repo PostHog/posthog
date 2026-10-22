@@ -1,3 +1,5 @@
+from collections.abc import Sequence
+
 from django.db.models import Q
 
 from posthog.hogql.escape_sql import escape_hogql_string
@@ -14,21 +16,22 @@ from ...facade import contracts
 _DEFAULT_DEFINITION = get_outcome_definition(OutputType.BOOLEAN)
 
 
-def build_evaluation_pass_filters(team_id: int) -> contracts.EvaluationPassFilters:
+def build_evaluation_pass_filters(
+    team_id: int, evaluation_ids: Sequence[str] | None = None
+) -> contracts.EvaluationPassFilters:
+    """`evaluation_ids` limits the rules to the runs of those evaluations, for a read that filters on them."""
     graded_branches: list[str] = []
     passed_branches: list[str] = []
     # Every other evaluation falls through to the default rule. Soft-deleted evaluations stay in, because their past
     # events still need their own rule. Reads the writer, because a receiver of evaluation_output_changed calls this
     # right after the commit, before a replica can catch up.
-    evaluations_with_own_rule = (
-        Evaluation.objects.using("default")
-        .filter(team_id=team_id)
-        .filter(
-            Q(output_type__in=[OutputType.NUMERIC, OutputType.CATEGORICAL, OutputType.SENTIMENT])
-            | Q(output_config__true_is_failure=True)
-        )
-        .values_list("id", "output_type", "output_config")
-    )
+    evaluations = Evaluation.objects.using("default").filter(team_id=team_id)
+    if evaluation_ids is not None:
+        evaluations = evaluations.filter(id__in=evaluation_ids)
+    evaluations_with_own_rule = evaluations.filter(
+        Q(output_type__in=[OutputType.NUMERIC, OutputType.CATEGORICAL, OutputType.SENTIMENT])
+        | Q(output_config__true_is_failure=True)
+    ).values_list("id", "output_type", "output_config")
     for evaluation_id, output_type, output_config in evaluations_with_own_rule:
         try:
             definition = get_outcome_definition(

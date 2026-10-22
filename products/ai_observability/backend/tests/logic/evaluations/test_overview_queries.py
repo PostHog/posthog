@@ -3,6 +3,7 @@ from zoneinfo import ZoneInfo
 
 import time_machine
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
+from unittest.mock import patch
 
 from parameterized import parameterized
 
@@ -63,7 +64,8 @@ class TestEvaluationsOverviewQueries(ClickhouseTestMixin, BaseTest):
             properties={"$ai_evaluation_id": str(evaluation.id), **properties},
         )
 
-    def test_groups_runs_by_evaluation_day_and_period(self) -> None:
+    @parameterized.expand([("one page", 50_000), ("several pages", 2)])
+    def test_groups_runs_by_evaluation_day_and_period(self, _name: str, page_size: int) -> None:
         judge = Evaluation.objects.create(
             team=self.team,
             name="Judge",
@@ -120,6 +122,9 @@ class TestEvaluationsOverviewQueries(ClickhouseTestMixin, BaseTest):
         flush_persons_and_events()
 
         ids = [str(judge.id), str(topic.id)]
+        with patch("products.ai_observability.backend.logic.evaluations.overview_queries.PAGE_SIZE", page_size):
+            bucket_counts = load_bucket_counts(self.team, None, PERIOD, ids, get_evaluation_pass_filters(self.team.pk))
+            category_counts = load_category_counts(self.team, None, PERIOD, [str(topic.id)])
         counts = {
             (row.evaluation_id, row.bucket): (
                 row.passed,
@@ -128,10 +133,10 @@ class TestEvaluationsOverviewQueries(ClickhouseTestMixin, BaseTest):
                 row.skipped,
                 row.categorized,
             )
-            for row in load_bucket_counts(self.team, None, PERIOD, ids, get_evaluation_pass_filters(self.team.pk))
+            for row in bucket_counts
         }
         categories = sorted(
-            load_category_counts(self.team, None, PERIOD, [str(topic.id)]),
+            category_counts,
             key=lambda row: (row.bucket or datetime.min.replace(tzinfo=UTC), row.key),
         )
 
@@ -187,6 +192,35 @@ class TestEvaluationsOverviewQueries(ClickhouseTestMixin, BaseTest):
         assert overview.buckets[0] == datetime(2026, 3, 9, tzinfo=ZoneInfo("Asia/Tokyo"))
         assert [index for index, volume in enumerate(row.trend.volume) if volume] == [1, 25]
         assert row.previous_graded_count == 2
+
+    @time_machine.travel(datetime(2026, 3, 12, 12, 0, tzinfo=UTC), tick=False)
+    def test_days_follow_the_project_timezone_when_the_team_turns_off_converting_to_it(self) -> None:
+        self.team.timezone = "America/New_York"
+        self.team.modifiers = {"convertToProjectTimezone": False}
+        self.team.save()
+        judge = Evaluation.objects.create(
+            team=self.team,
+            name="Judge",
+            evaluation_type="hog",
+            evaluation_config={"source": "return true"},
+            output_type="boolean",
+            output_config={},
+        )
+        # 22:00 on March 9 in New York, already March 10 in UTC.
+        self._run(judge, "2026-03-10T02:00:00Z", **{"$ai_evaluation_result": True})
+        flush_persons_and_events()
+
+        overview = get_evaluations_overview(
+            self.team,
+            None,
+            [str(judge.id)],
+            period_bound(self.team, date(2026, 3, 8), is_end=False),
+            period_bound(self.team, date(2026, 3, 11), is_end=True),
+        )
+
+        [row] = overview.evaluations
+        assert overview.interval == "day"
+        assert row.trend.volume == [0, 1, 0, 0]
 
     @time_machine.travel(datetime(2026, 11, 1, 18, 0, tzinfo=UTC), tick=False)
     def test_runs_in_a_repeated_daylight_saving_hour_land_in_their_own_buckets(self) -> None:

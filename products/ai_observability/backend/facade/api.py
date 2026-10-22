@@ -12,6 +12,7 @@ from ..logic.evaluations.overview import (
     EvaluationMeta,
     SummaryKind,
     evaluation_result,
+    group_by_evaluation,
     overview_totals,
     pass_rate_overview,
 )
@@ -214,7 +215,7 @@ def get_evaluations_overview(
     team: Team, user: User | None, evaluation_ids: Sequence[str], start: datetime, end: datetime
 ) -> contracts.EvaluationsOverview:
     """Each evaluation's results from `start` to `end`, compared with the period of equal length before it, plus the
-    totals the overview cards show. Two ClickHouse reads, whatever the count.
+    totals the overview cards show. Two ClickHouse reads, unless one groups into more rows than a page holds.
 
     While the period still runs, the previous one stops at the same point, so a partial today is not compared with
     a full day."""
@@ -225,9 +226,16 @@ def get_evaluations_overview(
         .order_by("-created_at", "id")
     )
     metas = [_evaluation_meta(evaluation) for evaluation in evaluations]
-    counts = load_bucket_counts(team, user, period, [meta.id for meta in metas], build_evaluation_pass_filters(team.pk))
-    categories = load_category_counts(team, user, period, [meta.id for meta in metas if meta.kind == "categories"])
-    rows = [evaluation_result(meta, period.buckets, counts, categories) for meta in metas]
+    ids = [meta.id for meta in metas]
+    counts = group_by_evaluation(
+        load_bucket_counts(team, user, period, ids, build_evaluation_pass_filters(team.pk, evaluation_ids=ids))
+    )
+    categories = group_by_evaluation(
+        load_category_counts(team, user, period, [meta.id for meta in metas if meta.kind == "categories"])
+    )
+    rows = [
+        evaluation_result(meta, period.buckets, counts.get(meta.id, []), categories.get(meta.id, [])) for meta in metas
+    ]
     bucket_count = len(period.buckets)
     return contracts.EvaluationsOverview(
         start=period.start,
@@ -308,7 +316,9 @@ def get_evaluation_overview_details(
         evaluation_id=meta.id,
         start=start,
         end=end,
-        recent_failures=load_recent_failures(team, user, meta.id, window, build_evaluation_pass_filters(team.pk))
+        recent_failures=load_recent_failures(
+            team, user, meta.id, window, build_evaluation_pass_filters(team.pk, evaluation_ids=[meta.id])
+        )
         if meta.kind == "pass_rate"
         else None,
         score_distribution=load_score_distribution(team, user, meta.id, window, meta.scale, meta.score_step)

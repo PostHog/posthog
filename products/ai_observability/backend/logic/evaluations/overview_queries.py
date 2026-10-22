@@ -42,6 +42,9 @@ _GRADED_ANY = (
 )
 
 _BUCKET_FUNCTIONS: dict[Interval, str] = {"hour": "toStartOfHour", "day": "toStartOfDay"}
+# Many evaluations over a long period can group into more rows than one response returns, for example categorical
+# evaluations with many categories over 90 days, so a read pages until a page comes back short.
+PAGE_SIZE = MAX_SELECT_RETURNED_ROWS
 # A null bucket marks the previous period, which needs totals only, so it costs one row per evaluation.
 _BUCKET = "if(timestamp < {current_start}, NULL, {bucket_start})"
 _WHERE = (
@@ -68,7 +71,8 @@ SELECT
 FROM events
 WHERE {_WHERE}
 GROUP BY evaluation_id, bucket
-LIMIT {MAX_SELECT_RETURNED_ROWS}
+ORDER BY evaluation_id, bucket
+LIMIT {{limit}} OFFSET {{offset}}
 """
 
 # An empty category list becomes one '' row, so multiple-selection runs that chose nothing are counted too.
@@ -81,7 +85,8 @@ SELECT
 FROM events
 WHERE {_WHERE} AND {_CATEGORIZED}
 GROUP BY evaluation_id, bucket, category
-LIMIT {MAX_SELECT_RETURNED_ROWS}
+ORDER BY evaluation_id, bucket, category
+LIMIT {{limit}} OFFSET {{offset}}
 """
 
 
@@ -128,11 +133,29 @@ def _run(
         "previous_end": ast.Constant(value=period.previous_end),
         "current_start": ast.Constant(value=period.start),
         "end": ast.Constant(value=period.end),
-        "bucket_start": ast.Call(name=_BUCKET_FUNCTIONS[period.interval], args=[ast.Field(chain=["timestamp"])]),
+        # The project's timezone is explicit, because the team's modifiers can turn off the conversion to it, and
+        # `overview_period` builds its buckets in that timezone.
+        "bucket_start": ast.Call(
+            name=_BUCKET_FUNCTIONS[period.interval],
+            args=[
+                ast.Call(name="toTimeZone", args=[ast.Field(chain=["timestamp"]), ast.Constant(value=team.timezone)])
+            ],
+        ),
         "evaluation_ids": _tuple(evaluation_ids),
         **extra,
     }
-    return run_evaluation_query(name, query, team, user, placeholders)
+    rows: list[Sequence[Any]] = []
+    while True:
+        page = run_evaluation_query(
+            name,
+            query,
+            team,
+            user,
+            {**placeholders, "limit": ast.Constant(value=PAGE_SIZE), "offset": ast.Constant(value=len(rows))},
+        )
+        rows += page
+        if len(page) < PAGE_SIZE:
+            return rows
 
 
 def run_evaluation_query(

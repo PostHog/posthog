@@ -1055,20 +1055,31 @@ class EvaluationsOverviewPeriodSerializer(serializers.Serializer):
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         team = self.context["team"]
         date_to = attrs.get("date_to") or datetime.now(team.timezone_info).date()
-        end = facade.period_bound(team, date_to, is_end=True)
         date_from = attrs.get("date_from")
-        if date_from is None:
-            date_from = (
-                date_to - timedelta(days=OVERVIEW_DEFAULT_DAYS - 1)
-                if not isinstance(date_to, datetime)
-                else date_to - timedelta(days=OVERVIEW_DEFAULT_DAYS)
-            )
-        start = facade.period_bound(team, date_from, is_end=False)
-        # Both bounds share the project's tzinfo, which compares wall time, so this compares instants instead.
-        length = end.astimezone(UTC) - start.astimezone(UTC)
+        try:
+            if date_from is None:
+                date_from = (
+                    date_to - timedelta(days=OVERVIEW_DEFAULT_DAYS - 1)
+                    if not isinstance(date_to, datetime)
+                    else date_to - timedelta(days=OVERVIEW_DEFAULT_DAYS)
+                )
+            end = facade.period_bound(team, date_to, is_end=True)
+            start = facade.period_bound(team, date_from, is_end=False)
+            # Both bounds share the project's tzinfo, which compares wall time, so this compares instants instead.
+            length = end.astimezone(UTC) - start.astimezone(UTC)
+            # The overview also reads the period of equal length before this one.
+            start.astimezone(UTC) - length
+        except OverflowError:
+            raise serializers.ValidationError("The period is outside the supported date range.")
         if length <= timedelta(0):
             raise serializers.ValidationError({"date_from": "Must be before date_to."})
-        if length > timedelta(days=OVERVIEW_MAX_DAYS):
+        # Whole days count by the calendar, because a day across a daylight saving change is 23 or 25 hours long.
+        # An instant has no such change, so a period with one counts real time.
+        if not isinstance(date_from, datetime) and not isinstance(date_to, datetime):
+            too_long = (date_to - date_from).days + 1 > OVERVIEW_MAX_DAYS
+        else:
+            too_long = length > timedelta(days=OVERVIEW_MAX_DAYS)
+        if too_long:
             raise serializers.ValidationError({"date_from": f"The period can cover at most {OVERVIEW_MAX_DAYS} days."})
         return {**attrs, "start": start, "end": end}
 

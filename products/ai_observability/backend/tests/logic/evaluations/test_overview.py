@@ -186,6 +186,7 @@ def test_categories_summary_tracks_the_label_that_moved_most() -> None:
         CategoryBucketCount(evaluation_id="eval-1", bucket=BUCKETS[0], key="", runs=8),
         CategoryBucketCount(evaluation_id="eval-1", bucket=None, key="billing", runs=30),
         CategoryBucketCount(evaluation_id="eval-1", bucket=None, key="bug", runs=2),
+        CategoryBucketCount(evaluation_id="eval-1", bucket=None, key="refund", runs=4),
     ]
     result = _result(meta, [_bucket(BUCKETS[0], categorized=50), _bucket(None, categorized=40)], categories)
     assert result.summary == contracts.CategoriesSummary(
@@ -194,6 +195,7 @@ def test_categories_summary_tracks_the_label_that_moved_most() -> None:
         categories=[
             contracts.CategoryCount(key="billing", label="Billing", count=30, previous_share=75.0),
             contracts.CategoryCount(key="bug", label="Bug", count=12, previous_share=5.0),
+            contracts.CategoryCount(key="refund", label="refund", count=0, previous_share=10.0),
         ],
         no_categories_count=8,
     )

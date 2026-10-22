@@ -5,9 +5,9 @@ Pure functions over the grouped counts from `overview_queries`.
 
 import math
 from collections import defaultdict
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from datetime import UTC, datetime
-from typing import Literal
+from typing import Literal, TypeVar
 
 from posthog.dataclasses import frozen
 
@@ -25,6 +25,15 @@ DIP_PP = 3
 SCORE_SHIFT_SHARE = 0.05
 
 SummaryKind = Literal["pass_rate", "score", "categories", "sentiment"]
+
+_Row = TypeVar("_Row", EvaluationBucketCounts, CategoryBucketCount)
+
+
+def group_by_evaluation(rows: Iterable[_Row]) -> dict[str, list[_Row]]:
+    grouped: dict[str, list[_Row]] = defaultdict(list)
+    for row in rows:
+        grouped[row.evaluation_id].append(row)
+    return grouped
 
 
 @frozen
@@ -121,10 +130,10 @@ def _score(meta: EvaluationMeta, totals: _Totals) -> contracts.ScoreDistribution
     return contracts.ScoreDistribution(mean=totals.score_sum / totals.score_count, scale=meta.scale)
 
 
-def _category_counts(rows: Sequence[CategoryBucketCount], evaluation_id: str, current: bool) -> dict[str, int]:
+def _category_counts(rows: Sequence[CategoryBucketCount], current: bool) -> dict[str, int]:
     counts: dict[str, int] = defaultdict(int)
     for row in rows:
-        if row.evaluation_id == evaluation_id and (row.bucket is not None) == current:
+        if (row.bucket is not None) == current:
             counts[row.key] += row.runs
     return counts
 
@@ -153,11 +162,13 @@ def _summary(
                 previous_mean=previous.score_sum / previous.score_count if previous.score_count else None,
             )
         case "categories":
-            counts = _category_counts(categories, meta.id, current=True)
-            previous_counts = _category_counts(categories, meta.id, current=False)
+            counts = _category_counts(categories, current=True)
+            previous_counts = _category_counts(categories, current=False)
             options = list(meta.categories)
             known = {option.key for option in options}
-            options += [CategoryOption(key=key, label=key) for key in counts if key and key not in known]
+            # A category from the previous period only has dropped to zero, which can be the largest move.
+            unknown = dict.fromkeys(key for key in [*counts, *previous_counts] if key and key not in known)
+            options += [CategoryOption(key=key, label=key) for key in unknown]
             entries = [
                 contracts.CategoryCount(
                     key=option.key,
@@ -350,12 +361,12 @@ def evaluation_result(
     counts: Sequence[EvaluationBucketCounts],
     categories: Sequence[CategoryBucketCount],
 ) -> contracts.EvaluationResult:
-    own = [row for row in counts if row.evaluation_id == meta.id]
+    """`counts` and `categories` hold only this evaluation's rows, see `group_by_evaluation`."""
     # Keyed by UTC instant: in a repeated daylight saving hour, a local bucket never equals the same instant from
     # the ClickHouse driver, which uses another tzinfo.
-    by_bucket = {row.bucket.astimezone(UTC): row for row in own if row.bucket is not None}
+    by_bucket = {row.bucket.astimezone(UTC): row for row in counts if row.bucket is not None}
     current = _sum(list(by_bucket.values()))
-    previous = _sum([row for row in own if row.bucket is None])
+    previous = _sum([row for row in counts if row.bucket is None])
     previous_graded = _graded(meta.kind, previous)
     # A thin previous period is no fairer a baseline than a thin current one, so the summary leaves it out.
     baseline = previous if previous_graded >= LOW_EVIDENCE_GRADED_COUNT else _sum([])
@@ -366,14 +377,14 @@ def evaluation_result(
     tracked_key = tracked.key if tracked else None
     tracked_runs: dict[datetime, int] = defaultdict(int)
     for row in categories:
-        if row.evaluation_id == meta.id and row.bucket is not None and row.key == tracked_key:
+        if row.bucket is not None and row.key == tracked_key:
             tracked_runs[row.bucket.astimezone(UTC)] += row.runs
     instants = [bucket.astimezone(UTC) for bucket in buckets]
     trend = contracts.EvaluationResultTrend(
         values=[_bucket_value(meta, by_bucket.get(at), tracked_key, tracked_runs[at]) for at in instants],
         volume=[_graded(meta.kind, _sum([by_bucket[at]])) if at in by_bucket else 0 for at in instants],
     )
-    last_run_at = max((row.last_run_at for row in own if row.last_run_at is not None), default=None)
+    last_run_at = max((row.last_run_at for row in counts if row.last_run_at is not None), default=None)
     return contracts.EvaluationResult(
         id=meta.id,
         name=meta.name,

@@ -1,6 +1,8 @@
 import json
 from datetime import timedelta
+from types import SimpleNamespace
 from uuid import UUID, uuid4
+from zoneinfo import ZoneInfo
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import Mock, patch
@@ -21,6 +23,7 @@ from posthog.models import Organization, OrganizationMembership, Project, Team, 
 from products.access_control.backend.models.access_control import AccessControl
 from products.ai_observability.backend.api.evaluations import (
     EvaluationSerializer,
+    EvaluationsOverviewPeriodSerializer,
     ModelConfigurationSerializer,
     TestHogRequestSerializer as HogRequestSerializer,
     _TargetConfigField,
@@ -2754,3 +2757,25 @@ class TestEvaluationsOverviewAccessControl(ClickhouseTestMixin, _EvaluationAcces
         assert response.status_code == status.HTTP_200_OK
         assert [row["name"] for row in response.json()["evaluations"]] == ["Visible"]
         assert response.json()["totals"]["graded"] == 1
+
+
+class TestEvaluationsOverviewPeriod(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("end before start", {"date_from": "2026-03-10", "date_to": "2026-03-09"}, False),
+            ("91 days", {"date_from": "2026-08-04", "date_to": "2026-11-02"}, False),
+            ("last day of year 9999", {"date_to": "9999-12-31"}, False),
+            ("first day of year 1", {"date_to": "0001-01-01"}, False),
+            # Clocks fall back on November 1, so these 90 days are 2161 hours long.
+            ("90 days across daylight saving", {"date_from": "2026-08-05", "date_to": "2026-11-02"}, True),
+            ("90 days of instants", {"date_from": "2026-08-05T00:00:00Z", "date_to": "2026-11-03T00:00:00Z"}, True),
+            (
+                "an instant past 90 days",
+                {"date_from": "2026-08-05T00:00:00Z", "date_to": "2026-11-03T00:00:01Z"},
+                False,
+            ),
+        ]
+    )
+    def test_period_validation(self, _name: str, data: dict[str, str], valid: bool) -> None:
+        team = SimpleNamespace(timezone_info=ZoneInfo("America/New_York"))
+        assert EvaluationsOverviewPeriodSerializer(data=data, context={"team": team}).is_valid() is valid
