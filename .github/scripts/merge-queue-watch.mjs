@@ -2,10 +2,16 @@
 // SLACK_BOT_TOKEN and SLACK_CHANNEL are set and --dry is absent.
 //   node merge-queue-watch.mjs --dry [--at 2026-10-21T22:40:00Z]
 //
-// Fires when one PR sits in >= PR_FAILED_RUNS_THRESHOLD failed test runs inside the window, or when
-// failed runs per half hour reach FAILED_RUNS_PER_30M_THRESHOLD. The thresholds are untuned
-// starting values. The top PR is a candidate only: PRs batched with the real culprit fail in the
-// same runs, so a victim can tie with it or lead.
+// Three rules read one fetch of the last WINDOW_MINUTES of Trunk test runs:
+// - short window: a PR in >= PR_SHORT_THRESHOLD failed runs in the last SHORT_WINDOW_MINUTES.
+// - long window: a PR in >= PR_LONG_THRESHOLD failed runs in the last WINDOW_MINUTES.
+// - cycles: an unmerged PR that passed when Trunk tested it alone and then failed again in a later
+//   batch at least CYCLE_THRESHOLD times. Only PRs with enough failed runs get their timeline read.
+// A fourth signal fires on the overall failure rate. The thresholds are untuned starting values.
+//
+// A PR batched with the real culprit fails in the same runs, so the count rules can name a victim.
+// A culprit that passes when tested alone never gets isolated by the count rules, which is what the
+// cycle rule is for. The labels below say which case each PR looks like.
 
 import { readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
@@ -14,19 +20,39 @@ import { pathToFileURL } from 'node:url'
 const TRUNK_API = 'https://api.trunk.io/v1'
 const REPO = { host: 'github.com', owner: 'PostHog', name: 'posthog' }
 const BRANCH = 'master'
-const WINDOW_MINUTES = Number(process.env.WINDOW_MINUTES ?? 60)
-const PR_FAILED_RUNS_THRESHOLD = 4
+const WINDOW_MINUTES = 180
+const SHORT_WINDOW_MINUTES = 60
+const PR_SHORT_THRESHOLD = 4
+const PR_LONG_THRESHOLD = 6
+const CYCLE_THRESHOLD = 2
+// A PR needs this many failed runs in the long window before its timeline is read. This gates the
+// timeline calls, and it stops a PR with two unlucky flakes from reading as a cycle.
+const CYCLE_MIN_FAILED_RUNS = 4
 const FAILED_RUNS_PER_30M_THRESHOLD = 10
-// A repeat alert for the same top PR inside this window stays quiet.
+const TIMELINE_CONCURRENCY = 5
+// A repeat alert for the same labeled PR inside this window stays quiet.
 const COOLDOWN_MINUTES = 120
 const ALERT_EVENT_TYPE = 'merge_queue_loop_alert'
 const PAGE_SIZE = 100 // Trunk rejects take > 100
 // Slack rejects a section longer than 3000 characters, so the metrics line stays well under that.
 const MAX_METRIC_SERIES = 6
+const MAX_FINDINGS_SHOWN = 8
 const ALERT_OPENED_EVENT = 'merge_queue_loop_opened'
 const WEBHOOK_ATTEMPTS = 3
 const WEBHOOK_RETRY_DELAY_MS = 2000
 const WEBHOOK_TIMEOUT_MS = 10000
+
+export const LABELS = {
+    hidden: 'culprit hidden by bisection',
+    likely: 'likely culprit, fails alone',
+    recent: 'repeated in the last hour',
+    victim: 'possible victim',
+}
+// Most useful first, so the alert leads with the PR a person should look at.
+const LABEL_ORDER = ['hidden', 'likely', 'recent', 'victim']
+
+const MINUTE = 60 * 1000
+let trunkCalls = 0
 
 function trunkToken() {
     if (process.env.TRUNK_API_TOKEN) {
@@ -36,6 +62,7 @@ function trunkToken() {
 }
 
 async function trunk(path, body) {
+    trunkCalls++
     const res = await fetch(`${TRUNK_API}${path}`, {
         method: body ? 'POST' : 'GET',
         headers: { 'x-api-token': trunkToken(), 'Content-Type': 'application/json' },
@@ -67,7 +94,34 @@ export async function fetchResults(since, until) {
     }
 }
 
-// Pure: rows -> verdict. One row per (PR, test run).
+async function fetchTimeline(pr) {
+    const res = await trunk('/getSubmittedPullRequest', {
+        repo: REPO,
+        targetBranch: BRANCH,
+        pr: { number: pr },
+        includeTimeline: true,
+    })
+    return res.timeline ?? []
+}
+
+// A timeline outage for one PR must not stop the alert, so a failed read just drops that PR's cycles.
+async function fetchTimelines(prs) {
+    const timelines = new Map()
+    for (let i = 0; i < prs.length; i += TIMELINE_CONCURRENCY) {
+        await Promise.all(
+            prs.slice(i, i + TIMELINE_CONCURRENCY).map(async (pr) => {
+                try {
+                    timelines.set(pr, await fetchTimeline(pr))
+                } catch (err) {
+                    console.warn(`timeline unavailable for #${pr}: ${err.message}`)
+                }
+            })
+        )
+    }
+    return timelines
+}
+
+// Pure: rows -> counts. One row per (PR, test run).
 export function evaluate(rows, until) {
     const runs = new Map()
     for (const r of rows) {
@@ -78,31 +132,124 @@ export function evaluate(rows, until) {
         run.prs.add(r.prNumber)
         runs.set(r.testRunId, run)
     }
+    const endMs = until.getTime()
     const failed = [...runs.values()].filter((r) => r.outcome === 'failed')
-    const perPr = new Map()
-    for (const run of failed) {
-        for (const pr of run.prs) {
-            perPr.set(pr, (perPr.get(pr) ?? 0) + 1)
+    const countIn = (minutes) => {
+        const counts = new Map()
+        for (const run of failed) {
+            const t = run.endedAt.getTime()
+            if (t > endMs || t <= endMs - minutes * MINUTE) {
+                continue
+            }
+            for (const pr of run.prs) {
+                counts.set(pr, (counts.get(pr) ?? 0) + 1)
+            }
+        }
+        return counts
+    }
+    const short = countIn(SHORT_WINDOW_MINUTES)
+    const long = countIn(WINDOW_MINUTES)
+    const sorted = [...long.entries()].sort((a, b) => b[1] - a[1])
+    const failedLast30m = failed.filter((r) => r.endedAt.getTime() >= endMs - 30 * MINUTE).length
+    return {
+        short,
+        long,
+        top: sorted.slice(0, 5),
+        cycleCandidates: sorted.filter(([, n]) => n >= CYCLE_MIN_FAILED_RUNS).map(([pr]) => pr),
+        failedRuns: failed.length,
+        totalRuns: runs.size,
+        failedLast30m,
+        rateFires: failedLast30m >= FAILED_RUNS_PER_30M_THRESHOLD,
+    }
+}
+
+// Pure: one PR's timeline -> whether it has merged and how many cycles it ran in the long window.
+// A cycle is a pass when Trunk tested the PR alone, then a later failure in a batch of several PRs.
+export function analyzeTimeline(timeline, until) {
+    const endMs = until.getTime()
+    const events = timeline
+        .map((e) => ({ ...e, at: new Date(e.timestamp).getTime() }))
+        .filter((e) => e.at <= endMs)
+        .sort((a, b) => a.at - b.at)
+    if (events.some((e) => e.state === 'merged')) {
+        return { merged: true, cycles: 0 }
+    }
+    const inWindow = events.filter((e) => e.at > endMs - WINDOW_MINUTES * MINUTE)
+    let cycles = 0
+    inWindow.forEach((e, i) => {
+        if (e.state !== 'pending' || e.pending?.reason !== 'bisection_test_run_passed') {
+            return
+        }
+        const failedInBatchLater = inWindow
+            .slice(i + 1)
+            .some((later) => later.state === 'pending_failure' && (later.testRun?.testedPullRequests ?? []).length > 1)
+        if (failedInBatchLater) {
+            cycles++
+        }
+    })
+    return { merged: false, cycles }
+}
+
+// Pure: counts and cycles -> labeled PRs, most useful first.
+export function classify(counts, cyclesByPr) {
+    const prs = new Set()
+    for (const [pr, n] of counts.short) {
+        if (n >= PR_SHORT_THRESHOLD) {
+            prs.add(pr)
         }
     }
-    const top = [...perPr.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5)
-    const halfHourAgo = until.getTime() - 30 * 60 * 1000
-    const failedLast30m = failed.filter((r) => r.endedAt.getTime() >= halfHourAgo).length
-    const reasons = []
-    if (top[0] && top[0][1] >= PR_FAILED_RUNS_THRESHOLD) {
-        reasons.push(`#${top[0][0]} is in ${top[0][1]} failed runs in the last ${WINDOW_MINUTES} minutes`)
+    for (const [pr, n] of counts.long) {
+        if (n >= PR_LONG_THRESHOLD) {
+            prs.add(pr)
+        }
     }
-    if (failedLast30m >= FAILED_RUNS_PER_30M_THRESHOLD) {
-        reasons.push(`${failedLast30m} failed runs in the last 30 minutes`)
+    for (const [pr, cycles] of cyclesByPr) {
+        if (cycles >= CYCLE_THRESHOLD && (counts.long.get(pr) ?? 0) >= CYCLE_MIN_FAILED_RUNS) {
+            prs.add(pr)
+        }
     }
-    return { fire: reasons.length > 0, reasons, top, failedRuns: failed.length, totalRuns: runs.size, failedLast30m }
+    const findings = [...prs].map((pr) => {
+        const failed60 = counts.short.get(pr) ?? 0
+        const failed180 = counts.long.get(pr) ?? 0
+        const cycles = cyclesByPr.get(pr) ?? 0
+        const inShort = failed60 >= PR_SHORT_THRESHOLD
+        const inLong = failed180 >= PR_LONG_THRESHOLD
+        let label = 'recent'
+        if (cycles >= CYCLE_THRESHOLD && failed180 >= CYCLE_MIN_FAILED_RUNS) {
+            label = 'hidden'
+        } else if (inShort && inLong) {
+            label = 'likely'
+        } else if (inLong) {
+            label = 'victim'
+        }
+        return { pr, label, failed60, failed180, cycles }
+    })
+    return findings.sort(
+        (a, b) => LABEL_ORDER.indexOf(a.label) - LABEL_ORDER.indexOf(b.label) || b.failed180 - a.failed180
+    )
+}
+
+function alertKeys(findings, rateFires) {
+    const keys = findings.map((f) => `${f.label}:${f.pr}`)
+    return keys.length === 0 && rateFires ? ['rate'] : keys
+}
+
+function describe(findings, verdict) {
+    const lines = findings.map(
+        (f) =>
+            `#${f.pr}: ${LABELS[f.label]} (${f.failed60} failed runs in 60 min, ${f.failed180} in ${WINDOW_MINUTES} min, ${f.cycles} cycles)`
+    )
+    if (verdict.rateFires) {
+        lines.push(`${verdict.failedLast30m} failed runs in the last 30 minutes`)
+    }
+    return lines
 }
 
 function parseMetrics(text) {
     const pick = (name) =>
         text
             .split('\n')
-            .filter((l) => l.startsWith(name) && !l.includes('} 0') )
+            .filter((l) => l.startsWith(name) && !l.includes('} 0'))
             .map((l) => l.replace(/repo=".*?",branch="master",/, ''))
     return {
         restarts: pick('mq_pr_restarts_1h_total'),
@@ -118,22 +265,27 @@ function restartSummary(series) {
     return series.length > MAX_METRIC_SERIES ? `${shown} (+${series.length - MAX_METRIC_SERIES} more)` : shown
 }
 
-function slackMessage(verdict, metrics, investigation) {
+function slackMessage(findings, verdict, metrics, investigation) {
     const owner = process.env.ALERT_OWNER_SLACK_ID ? `<@${process.env.ALERT_OWNER_SLACK_ID}> ` : ''
-    const prs = verdict.top
-        .map(([pr, n]) => `<https://github.com/PostHog/posthog/pull/${pr}|#${pr}> (${n} failed runs)`)
-        .join(', ')
+    const hidden = findings.length - MAX_FINDINGS_SHOWN
+    const bullets = findings
+        .slice(0, MAX_FINDINGS_SHOWN)
+        .map(
+            (f) =>
+                `• <https://github.com/PostHog/posthog/pull/${f.pr}|#${f.pr}> ${LABELS[f.label]}: ${f.failed60} failed runs in 60 min, ${f.failed180} in ${WINDOW_MINUTES} min, ${f.cycles} cycles`
+        )
+        .concat(hidden > 0 ? [`• +${hidden} more PRs`] : [])
+        .concat(verdict.rateFires ? [`• ${verdict.failedLast30m} failed runs in the last 30 minutes`] : [])
+        .join('\n')
     return {
-        text: `${owner}Merge queue loop suspected: ${verdict.reasons.join('; ')}`,
+        text: `${owner}Merge queue loop suspected: ${describe(findings.slice(0, MAX_FINDINGS_SHOWN), verdict).join('; ')}`,
         blocks: [
             {
                 type: 'section',
                 text: {
                     type: 'mrkdwn',
                     text:
-                        `${owner}*Merge queue loop suspected* (prototype, may be wrong)\n` +
-                        verdict.reasons.map((r) => `• ${r}`).join('\n') +
-                        `\nMost repeated PRs: ${prs}\n` +
+                        `${owner}*Merge queue loop suspected* (prototype, may be wrong)\n${bullets}\n` +
                         `Failed ${verdict.failedRuns} of ${verdict.totalRuns} runs in the last ${WINDOW_MINUTES} minutes. ` +
                         `Restarts (1h): ${restartSummary(metrics.restarts)}`,
                 },
@@ -141,7 +293,7 @@ function slackMessage(verdict, metrics, investigation) {
         ],
         metadata: {
             event_type: ALERT_EVENT_TYPE,
-            event_payload: { top_pr: String(verdict.top[0]?.[0] ?? ''), investigation },
+            event_payload: { keys: alertKeys(findings, verdict.rateFires).join('|'), investigation },
         },
     }
 }
@@ -159,10 +311,11 @@ async function slack(method, body) {
     return json
 }
 
-// Slack is the only state. The newest alert for the same top PR inside the cooldown window keeps this
-// tick quiet. History is paged because a busy channel can push the alert past the first page.
-async function findRecentAlert(topPr, now) {
-    const oldest = String((now.getTime() - COOLDOWN_MINUTES * 60 * 1000) / 1000)
+// Slack is the only state. Every alert inside the cooldown window, newest first. History is paged
+// because a busy channel can push an alert past the first page.
+async function recentAlerts(now) {
+    const oldest = String((now.getTime() - COOLDOWN_MINUTES * MINUTE) / 1000)
+    const alerts = []
     let cursor = ''
     do {
         // Slack read methods take query parameters, not a JSON body.
@@ -182,15 +335,10 @@ async function findRecentAlert(topPr, now) {
         if (!history.ok) {
             throw new Error(`Slack conversations.history: ${history.error}`)
         }
-        const found = (history.messages ?? []).find(
-            (m) => m.metadata?.event_type === ALERT_EVENT_TYPE && m.metadata.event_payload?.top_pr === String(topPr)
-        )
-        if (found) {
-            return found
-        }
+        alerts.push(...(history.messages ?? []).filter((m) => m.metadata?.event_type === ALERT_EVENT_TYPE))
         cursor = history.has_more ? (history.response_metadata?.next_cursor ?? '') : ''
     } while (cursor)
-    return undefined
+    return alerts
 }
 
 // The workflow behind the webhook reads `properties.channel` and `properties.ts` to reply in the
@@ -217,7 +365,7 @@ async function startInvestigation(url, payload) {
     throw new Error(`Could not start the investigation after ${WEBHOOK_ATTEMPTS} attempts: ${lastError}`)
 }
 
-function investigationPayload(verdict, ts) {
+function investigationPayload(findings, verdict, ts) {
     return {
         event: ALERT_OPENED_EVENT,
         distinct_id: 'merge-queue-detector',
@@ -225,8 +373,15 @@ function investigationPayload(verdict, ts) {
             channel: process.env.SLACK_CHANNEL,
             ts,
             window_minutes: WINDOW_MINUTES,
-            reasons: verdict.reasons.join('; '),
+            reasons: describe(findings.slice(0, MAX_FINDINGS_SHOWN), verdict).join('; '),
             top_prs: verdict.top.map(([pr, failed_runs]) => ({ pr, failed_runs })),
+            verdicts: findings.slice(0, MAX_FINDINGS_SHOWN).map((f) => ({
+                pr: f.pr,
+                label: LABELS[f.label],
+                failed_runs_60m: f.failed60,
+                failed_runs_180m: f.failed180,
+                cycles: f.cycles,
+            })),
             failed_runs: verdict.failedRuns,
             total_runs: verdict.totalRuns,
             failed_last_30m: verdict.failedLast30m,
@@ -263,35 +418,72 @@ async function main() {
     const dry = argv.includes('--dry')
     const atIdx = argv.indexOf('--at')
     const now = atIdx >= 0 ? new Date(argv[atIdx + 1]) : new Date()
-    const since = new Date(now.getTime() - WINDOW_MINUTES * 60 * 1000)
+    const since = new Date(now.getTime() - WINDOW_MINUTES * MINUTE)
 
     const rows = await fetchResults(since, now)
     const verdict = evaluate(rows, now)
-    console.log(JSON.stringify({ at: now.toISOString(), calls: 'results pages only', ...verdict }, null, 1))
-    if (!verdict.fire) {
+    const timelines = await fetchTimelines(verdict.cycleCandidates)
+    const cyclesByPr = new Map()
+    const merged = new Set()
+    for (const [pr, timeline] of timelines) {
+        const result = analyzeTimeline(timeline, now)
+        if (result.merged) {
+            merged.add(pr)
+        } else {
+            cyclesByPr.set(pr, result.cycles)
+        }
+    }
+    // A PR that merged is out of the queue, so the count rules skip it too.
+    const unmerged = (counts) => new Map([...counts].filter(([pr]) => !merged.has(pr)))
+    const findings = classify({ short: unmerged(verdict.short), long: unmerged(verdict.long) }, cyclesByPr)
+    console.log(
+        JSON.stringify(
+            {
+                at: now.toISOString(),
+                trunkCalls,
+                fire: findings.length > 0 || verdict.rateFires,
+                findings,
+                rateFires: verdict.rateFires,
+                failedRuns: verdict.failedRuns,
+                totalRuns: verdict.totalRuns,
+                failedLast30m: verdict.failedLast30m,
+                cycleCandidates: verdict.cycleCandidates.length,
+            },
+            null,
+            1
+        )
+    )
+    if (findings.length === 0 && !verdict.rateFires) {
         return
     }
     const webhook = process.env.INVESTIGATION_WEBHOOK_URL
     const metrics = await fetchRestartMetrics()
-    const message = slackMessage(verdict, metrics, webhook ? 'pending' : 'off')
+    const message = slackMessage(findings, verdict, metrics, webhook ? 'pending' : 'off')
     if (dry || !process.env.SLACK_BOT_TOKEN || !process.env.SLACK_CHANNEL) {
         console.log('would post:\n' + message.blocks[0].text.text)
         return
     }
-    const recent = await findRecentAlert(verdict.top[0][0], now)
-    if (recent) {
+    const keys = alertKeys(findings, verdict.rateFires)
+    const recent = await recentAlerts(now)
+    const alerted = new Set(recent.flatMap((m) => (m.metadata.event_payload?.keys ?? '').split('|')))
+    if (keys.every((k) => alerted.has(k))) {
         // The alert posted but its webhook failed on an earlier tick. Retry on the same thread.
-        if (webhook && recent.metadata.event_payload.investigation === 'pending') {
-            await startInvestigation(webhook, investigationPayload(verdict, recent.ts))
-            await markInvestigationStarted(recent.ts, { text: recent.text, blocks: recent.blocks, metadata: recent.metadata })
+        const pending = recent.find((m) => webhook && m.metadata.event_payload?.investigation === 'pending')
+        if (pending) {
+            await startInvestigation(webhook, investigationPayload(findings, verdict, pending.ts))
+            await markInvestigationStarted(pending.ts, {
+                text: pending.text,
+                blocks: pending.blocks,
+                metadata: pending.metadata,
+            })
             return
         }
-        console.log('cooldown: same top PR already alerted')
+        console.log('cooldown: every labeled PR already alerted')
         return
     }
     const posted = await slack('chat.postMessage', { channel: process.env.SLACK_CHANNEL, unfurl_links: false, ...message })
     if (webhook) {
-        await startInvestigation(webhook, investigationPayload(verdict, posted.ts))
+        await startInvestigation(webhook, investigationPayload(findings, verdict, posted.ts))
         await markInvestigationStarted(posted.ts, message)
     }
 }
