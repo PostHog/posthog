@@ -318,8 +318,8 @@ export interface commandKSearchLogicMeta {
             viewAll: ViewAll | null
         ) => SectionsQuery
         displayedQuery: (
-            currentQuery: any,
-            shownQuery: any,
+            currentQuery: SectionsQuery,
+            shownQuery: SectionsQuery | null,
             remote: RemoteSlots
         ) => {
             query: SectionsQuery
@@ -331,7 +331,10 @@ export interface commandKSearchLogicMeta {
             suggestionsSection: CommandKSection | null,
             localLists: LocalLists,
             remote: RemoteSlots,
-            displayedQuery: any
+            displayedQuery: {
+                query: SectionsQuery
+                stale: boolean
+            }
         ) => CommandKSection[]
         selectableRows: (sections: CommandKSection[]) => CommandKRow[]
         highlightedRow: (selectableRows: CommandKRow[], highlightedKey: string | null) => CommandKRow | null
