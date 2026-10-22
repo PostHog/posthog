@@ -17199,6 +17199,7 @@
         "summary": "Make email template transactional (execute)",
         "title": "Make email template transactional (execute)",
         "required_scopes": ["hog_flow:write"],
+        "api_operations": ["POST /api/projects/{project_id}/messaging_templates/{id}/make_transactional/"],
         "annotations": {
             "destructiveHint": true,
             "idempotentHint": true,
