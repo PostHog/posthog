@@ -154,6 +154,9 @@ def _register_all_emitters() -> None:
     from products.signals.backend.emission.appfigures_reviews import APPFIGURES_CONFIG
     from products.signals.backend.emission.appfollow_reviews import APPFOLLOW_CONFIG
     from products.signals.backend.emission.asknicely_responses import ASKNICELY_CONFIG
+    from products.signals.backend.emission.aws_guardduty_findings import AWS_GUARDDUTY_CONFIG
+    from products.signals.backend.emission.aws_inspector_findings import AWS_INSPECTOR_CONFIG
+    from products.signals.backend.emission.aws_security_hub_findings import AWS_SECURITY_HUB_CONFIG
     from products.signals.backend.emission.betterstack_incidents import BETTERSTACK_CONFIG
     from products.signals.backend.emission.bigeye_issues import BIGEYE_CONFIG
     from products.signals.backend.emission.bugsnag_errors import BUGSNAG_CONFIG
@@ -187,6 +190,9 @@ def _register_all_emitters() -> None:
     from products.signals.backend.emission.kustomer_conversations import KUSTOMER_CONFIG
     from products.signals.backend.emission.lacework_alerts import LACEWORK_CONFIG
     from products.signals.backend.emission.linear_issues import LINEAR_ISSUES_CONFIG
+    from products.signals.backend.emission.microsoft_defender_cloud_apps_alerts import (
+        MICROSOFT_DEFENDER_CLOUD_APPS_CONFIG,
+    )
     from products.signals.backend.emission.monte_carlo_alerts import MONTE_CARLO_CONFIG
     from products.signals.backend.emission.opsgenie_alerts import OPSGENIE_CONFIG
     from products.signals.backend.emission.orca_security_alerts import ORCA_SECURITY_CONFIG
@@ -294,6 +300,13 @@ def _register_all_emitters() -> None:
         ExternalDataSourceType.TENABLEVULNERABILITYMANAGEMENT,
         "vulnerabilities",
         TENABLE_VULNERABILITY_MANAGEMENT_CONFIG,
+    )
+    # Cloud security (record kind: scanner_finding)
+    register_signal_source(ExternalDataSourceType.AWSSECURITYHUB, "findings", AWS_SECURITY_HUB_CONFIG)
+    register_signal_source(ExternalDataSourceType.AWSGUARDDUTY, "findings", AWS_GUARDDUTY_CONFIG)
+    register_signal_source(ExternalDataSourceType.AWSINSPECTOR, "findings", AWS_INSPECTOR_CONFIG)
+    register_signal_source(
+        ExternalDataSourceType.MICROSOFTDEFENDERCLOUDAPPS, "alerts", MICROSOFT_DEFENDER_CLOUD_APPS_CONFIG
     )
 
 
