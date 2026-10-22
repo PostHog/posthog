@@ -168,6 +168,12 @@ describe('buildSections', () => {
         expect(pickDisplayedQuery(current, shown, remote)).toEqual({ query: current, stale: false })
     })
 
+    it('shows the current query loading when the last loaded one had nothing to search', () => {
+        const current = query({ remoteQueries: { results: 'type:dashboard' } })
+
+        expect(pickDisplayedQuery(current, query({}), emptyRemoteSlots())).toEqual({ query: current, stale: false })
+    })
+
     it('keeps the last loaded query on screen until the current one loads', () => {
         const remote = emptyRemoteSlots()
         remote.results = { cache: { rev: [dashboard('a', '1')] } }

@@ -227,7 +227,7 @@ export function pickDisplayedQuery(
     shown: SectionsQuery | null,
     remote: RemoteSlots
 ): { query: SectionsQuery; stale: boolean } {
-    if (!shown || isSettled(remote.results, current.remoteQueries.results)) {
+    if (!shown?.remoteQueries.results || isSettled(remote.results, current.remoteQueries.results)) {
         return { query: current, stale: false }
     }
     if (isRanked(current) && !isRanked(shown)) {
