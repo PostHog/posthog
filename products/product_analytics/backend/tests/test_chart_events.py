@@ -117,9 +117,8 @@ class TestChartEventsCounts(ClickhouseTestMixin, BaseTest):
                 },
                 2,
             ),
-            ("trends_combined_series", {"kind": "TrendsQuery", "series": [COMBINED]}, 3),
             ("funnel_combined_step", {"kind": "FunnelsQuery", "series": [COMBINED, SERIES]}, 3),
-            ("trends_action_series", {"kind": "TrendsQuery", "series": [ACTION]}, 3),
+            ("stickiness_action_series", {"kind": "StickinessQuery", "series": [ACTION]}, 3),
             (
                 "funnel_action_in_a_combined_step",
                 {
@@ -139,6 +138,6 @@ class TestChartEventsCounts(ClickhouseTestMixin, BaseTest):
 
     @parameterized.expand([("combined_series", COMBINED, 4), ("action_series", ACTION, 4)])
     def test_sizes_a_series_by_its_event_names(self, _name: str, series: dict[str, Any], expected: int) -> None:
-        events = self._chart_events({"kind": "TrendsQuery", "series": [series]})
+        events = self._chart_events({"kind": "FunnelsQuery", "series": [series, SERIES]})
 
         assert self._count(events, events.sort_key_where) == expected
