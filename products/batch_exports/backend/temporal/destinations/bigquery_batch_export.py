@@ -39,6 +39,8 @@ from structlog.contextvars import bind_contextvars
 from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
 
+from posthog.credentials_service.callers import CredentialsCaller
+from posthog.credentials_service.settings_fallback import get_or_settings
 from posthog.models.integration import GoogleCloudServiceAccountIntegration, Integration
 from posthog.models.integration.google_cloud import InvalidGoogleTokenUriError, require_google_token_uri
 from posthog.models.team import Team
@@ -441,7 +443,7 @@ def get_our_google_cloud_credentials() -> google.auth.impersonated_credentials.C
             aws_security_credentials_supplier=Boto3CredentialsSupplier(),
             scopes=["https://www.googleapis.com/auth/cloud-platform"],
         ),
-        target_principal=settings.BATCH_EXPORT_BIGQUERY_SERVICE_ACCOUNT,
+        target_principal=get_or_settings("BATCH_EXPORT_BIGQUERY_SERVICE_ACCOUNT", CredentialsCaller.BATCH_EXPORTS),
         target_scopes=["https://www.googleapis.com/auth/cloud-platform"],
         lifetime=3600,
     )

@@ -3,7 +3,7 @@
 import time
 from collections.abc import Iterable
 from datetime import timedelta
-from typing import TYPE_CHECKING, Literal, Optional
+from typing import TYPE_CHECKING, Literal, Optional, cast
 
 from posthog.dataclasses import frozen
 
@@ -21,6 +21,7 @@ from slack_sdk.errors import SlackApiError
 
 from posthog.cache_utils import cache_for
 from posthog.credentials_service.callers import CredentialsCaller
+from posthog.credentials_service.errors import CredentialsServiceFailure
 from posthog.credentials_service.instance_settings import get_many_or_instance_settings
 from posthog.egress.slack.client import SlackWebClient as WebClient
 from posthog.ingress.slack.provider import build_slack_signature_scheme
@@ -416,14 +417,19 @@ class SlackIntegration:
     def slack_client_id(cls) -> str:
         """The app's public client id, for preflight.
 
-        Preflight runs on every page load. It reads the instance setting and never the credentials
-        service, so an outage of the service cannot break page loads for a value that is not secret.
+        Use the instance setting if the credentials service fails, so page loads still work.
         """
         # Span only fires on cache miss (cache_for is process-local in-memory).
         # If preflight.slack_config_main is fast in production traces, this span
-        # will be absent; if it appears, it tells us the DB hit was slow.
+        # will be absent; if it appears, it tells us the credential lookup was slow.
         with tracer.start_as_current_span("slack_integration.slack_client_id_db"):
-            return get_instance_settings(["SLACK_APP_CLIENT_ID"])["SLACK_APP_CLIENT_ID"] or ""
+            try:
+                return get_many_or_instance_settings(["SLACK_APP_CLIENT_ID"], CredentialsCaller.INTEGRATIONS)[
+                    "SLACK_APP_CLIENT_ID"
+                ]
+            except CredentialsServiceFailure:
+                logger.warning("slack_integration.credentials_service_unavailable", key="SLACK_APP_CLIENT_ID")
+                return cast(str, get_instance_settings(["SLACK_APP_CLIENT_ID"])["SLACK_APP_CLIENT_ID"] or "")
 
 
 @frozen

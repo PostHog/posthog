@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from datetime import timedelta
 from functools import wraps
 from html import escape
-from typing import Union
+from typing import Literal, Union, cast
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
 from django.apps import apps
@@ -28,7 +28,11 @@ from prometheus_client import REGISTRY, CollectorRegistry, generate_latest, mult
 
 from posthog.api.secret_revocation import NON_PERSONAL_SECRET_PREFIXES
 from posthog.auth import AUTH_BRAND_COOKIE, apply_auth_brand_cookie, normalize_auth_brand
+from posthog.cache_utils import cache_for
 from posthog.cloud_utils import is_cloud
+from posthog.credentials_service.callers import CredentialsCaller
+from posthog.credentials_service.errors import CredentialsServiceFailure
+from posthog.credentials_service.settings_fallback import get_or_settings
 from posthog.email import is_email_available
 from posthog.exceptions_capture import capture_exception
 from posthog.health import is_clickhouse_connected, is_kafka_connected
@@ -180,12 +184,21 @@ def render_query(request: HttpRequest) -> HttpResponse:
     return render_template("render_query.html", request, context={"render_query_payload": payload})
 
 
+@cache_for(timedelta(minutes=5))
+def _preflight_oauth_client_id(key: Literal["HUBSPOT_APP_CLIENT_ID", "SALESFORCE_CONSUMER_KEY"]) -> str:
+    try:
+        return get_or_settings(key, CredentialsCaller.INTEGRATIONS)
+    except CredentialsServiceFailure:
+        logger.warning("preflight.credentials_service_unavailable", key=key)
+        return cast(str, getattr(settings, key))
+
+
 @never_cache
 def preflight_check(request: HttpRequest) -> JsonResponse:
     with tracer.start_as_current_span("preflight.slack_config_main"):
         slack_client_id = SlackIntegration.slack_client_id()
-    hubspot_client_id = settings.HUBSPOT_APP_CLIENT_ID
-    salesforce_client_id = settings.SALESFORCE_CONSUMER_KEY
+    hubspot_client_id = _preflight_oauth_client_id("HUBSPOT_APP_CLIENT_ID")
+    salesforce_client_id = _preflight_oauth_client_id("SALESFORCE_CONSUMER_KEY")
 
     in_cloud = is_cloud()
 

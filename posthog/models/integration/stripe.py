@@ -12,6 +12,8 @@ from django.utils import timezone
 
 import structlog
 
+from posthog.credentials_service.callers import CredentialsCaller
+from posthog.credentials_service.settings_fallback import get_or_settings
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken, lock_oauth_connection
@@ -261,7 +263,9 @@ class StripeIntegration:
         Returns None when the setting is unset or names the orchestrator, rather than minting there.
         """
         client_id = settings.STRIPE_MARKETPLACE_OAUTH_CLIENT_ID
-        if not client_id or client_id == settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID:
+        if not client_id or client_id == get_or_settings(
+            "STRIPE_POSTHOG_OAUTH_CLIENT_ID", CredentialsCaller.INTEGRATIONS
+        ):
             # Minting on the orchestrator's application is the vulnerability, whether the setting
             # is unset or mapped to the orchestrator's own id, so both fail closed: a new install
             # gets no credential rather than a privileged one.
@@ -283,7 +287,12 @@ class StripeIntegration:
         Revocation has to span both or tokens issued before the application split survive it.
         """
         client_ids = [
-            cid for cid in (settings.STRIPE_MARKETPLACE_OAUTH_CLIENT_ID, settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID) if cid
+            cid
+            for cid in (
+                settings.STRIPE_MARKETPLACE_OAUTH_CLIENT_ID,
+                get_or_settings("STRIPE_POSTHOG_OAUTH_CLIENT_ID", CredentialsCaller.INTEGRATIONS),
+            )
+            if cid
         ]
         if not client_ids:
             return []
