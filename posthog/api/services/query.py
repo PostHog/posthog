@@ -53,7 +53,7 @@ from posthog.hogql.metadata import get_hogql_metadata
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.timings import HogQLTimings
 
-from posthog.clickhouse.query_tagging import tag_queries
+from posthog.clickhouse.query_tagging import get_query_tag_value, tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.dataclasses import frozen
 from posthog.event_usage import AnalyticsProps
@@ -500,7 +500,10 @@ def native_events_cluster_modifiers_for_user(
     # A queued query would fail while async native execution is off, so it keeps the legacy cluster.
     if execution_mode not in NEVER_ENQUEUED_EXECUTION_MODES and not native_events_async_enabled():
         return None
-    if not isinstance(query, NATIVE_EVENTS_CLUSTER_QUERY_TYPES):
+    runnable: object = query
+    while isinstance(runnable, BaseModel) and not isinstance(runnable, NATIVE_EVENTS_CLUSTER_QUERY_TYPES):
+        runnable = getattr(runnable, "source", None)
+    if not isinstance(runnable, NATIVE_EVENTS_CLUSTER_QUERY_TYPES):
         return None
     modifiers = query_node_modifiers(query)
     if events_route_is_explicit(team.modifiers, modifiers):
@@ -520,6 +523,24 @@ def native_events_cluster_modifiers_for_user(
     if not enabled:
         return None
     return modifiers.model_copy(update={"useNewEventsCluster": True, "useNewEventsSchema": True})
+
+
+def native_events_cluster_modifiers_for_insight(
+    team: Team, user: User | AnonymousUser, query_json: dict | None, *, execution_mode: ExecutionMode
+) -> HogQLQueryModifiers | None:
+    if not query_json or not isinstance(user, User) or native_events_cluster_ineligibility(team.pk) is not None:
+        return None
+    try:
+        query = QuerySchemaRoot.model_validate(upgrade(query_json)).root
+    except pydantic_core.ValidationError:
+        return None
+    return native_events_cluster_modifiers_for_user(
+        team,
+        user,
+        query,
+        is_query_service=get_query_tag_value("access_method") == "personal_api_key",
+        execution_mode=execution_mode,
+    )
 
 
 def process_database_schema_query(

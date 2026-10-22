@@ -33,6 +33,8 @@ from posthog.hogql_queries.query_runner import ExecutionMode, QueryRunner, get_q
 from posthog.models import Organization, Team, User
 from posthog.models.instance_setting import override_instance_config
 
+from products.product_analytics.backend.facade.models import Insight
+
 
 @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False, CLICKHOUSE_NATIVE_EVENTS_HOST="native.example.com")
 class TestNewEventsClusterRouting(SimpleTestCase):
@@ -539,6 +541,24 @@ class TestNewEventsClusterPilot(APIBaseTest):
         self.assertNotEqual(workloads[False], Workload.NEW_EVENTS_CLUSTER)
         self.assertEqual(workloads[True] == Workload.NEW_EVENTS_CLUSTER, native)
         self.assertEqual(responses[True].json()["cache_key"] != responses[False].json()["cache_key"], native)
+
+    @parameterized.expand([(False,), (True,)])
+    def test_rollout_flag_routes_saved_insights(self, flag: bool) -> None:
+        insight = Insight.objects.create(
+            team=self.team,
+            query={"kind": "DataTableNode", "source": {"kind": "EventsQuery", "select": ["count()"]}},
+        )
+        with (
+            patch(
+                "posthog.api.services.query.posthoganalytics.feature_enabled",
+                side_effect=lambda key, *args, **kwargs: flag and key == NATIVE_EVENTS_CLUSTER_USER_FLAG,
+            ),
+            patch("posthog.hogql.query.sync_execute", return_value=([], [])) as execute,
+        ):
+            response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight.id}/?refresh=force_blocking")
+        self.assertEqual(response.status_code, 200, response.json())
+        self.assertEqual("events_json" in execute.call_args.args[0], flag)
+        self.assertEqual(execute.call_args.kwargs["workload"] == Workload.NEW_EVENTS_CLUSTER, flag)
 
     @parameterized.expand([(False,), (True,)])
     def test_property_values_native_opt_in_bypasses_the_aggregate_table(self, native: bool) -> None:
