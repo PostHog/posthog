@@ -703,7 +703,15 @@ snapshots:
     components-command-k-search--empty--dark:
         hash: v1.k794b7964.4484e7d68af11aaef170ca21b18f643a52c0450fcccf7145858f42058f3a7274.o3_BNw21CY4AJQQyiGz6hgboSFv6n16lHhQwWdI6SA4
     components-command-k-search--empty--light:
-        hash: v1.k794b7964.fad5dab496146f2d1b2d91797627e8fb1561aa7ebfa136e797405d6e4ffc0a7f.XWb09o2rM_vyj5XpvqH59nnKZIdGRyV1LuxMzax6oLg
+        hash: v1.k794b7964.1d930eddcafd3da1dc745697ec13131f7c23c8e85d45c33dd7ec05572af9e099.ehdkX2oD0RewNHgJMCACOTqlWclPPF68BZVoa99w9nU
+    components-command-k-search-notice--close-spellings--dark:
+        hash: v1.k794b7964.ffa192d267350a8866038659a7415aed68505662d35ae38774d58f83d5836c77.mHzLJfwxAGLcu-XeF7aGcByPBoDWki0HcQVfD-vHjos
+    components-command-k-search-notice--close-spellings--light:
+        hash: v1.k794b7964.7a81581812a843af47069f7a86d3982f2a0ba8b9e4fec8804cb1a91779443e4a.Z8uer5AZh-Zy1wS_zU6OZUoaWYWb2GZrMRDM4sDzVU8
+    components-command-k-search-notice--dropped-words--dark:
+        hash: v1.k794b7964.259e4c3562a18454623215ebe36100a6129dc1c30987e6fe20cc0d6d43f24b60.Twr-9LR3ttpqe9iltZFbYAfhNlo0zNxq4xN-0FdGTfs
+    components-command-k-search-notice--dropped-words--light:
+        hash: v1.k794b7964.1fcbca111172c8a7ddfb791761d4d493d323a4412303c2c31f768791a024a8a7.zdSy2g93nROxW1XpRUe84P5EzQ0lPROjGfeFudKYEWE
     components-compact-list--compact-list--dark:
         hash: v1.k794b7964.59d9b22dc4c1fabb38cfa1c8072b3f6e3e4140bfddef6160e568f935c0ba7f29.aeZmv2PM9H27yaixZr0lFX-5hBEr1ET0-8F-DJP_QS4
     components-compact-list--compact-list--light:
