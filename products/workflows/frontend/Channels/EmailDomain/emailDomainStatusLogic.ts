@@ -81,6 +81,9 @@ export interface emailDomainStatusLogicActions {
     recheck: () => {
         value: true
     }
+    recordVerification: () => {
+        value: true
+    }
     restartVerification: () => any
     restartVerificationFailure: (
         error: string,
@@ -114,10 +117,10 @@ export interface emailDomainStatusLogicActions {
 export interface emailDomainStatusLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
-        allRecordsFound: (records: EmailDomainStatusRecordApi[], foundCount: number) => boolean
         integrationId: (arg: string) => number | null
         records: (status: EmailDomainStatusApi | null) => EmailDomainStatusRecordApi[]
         foundCount: (records: EmailDomainStatusRecordApi[]) => number
+        allRecordsFound: (records: EmailDomainStatusRecordApi[], foundCount: number) => boolean
         setupEvidenceFound: (records: EmailDomainStatusRecordApi[]) => boolean
         missingRecords: (
             records: EmailDomainStatusRecordApi[],
@@ -151,6 +154,7 @@ export const emailDomainStatusLogic = kea<emailDomainStatusLogicType>([
         stopPolling: true,
         recheck: true,
         checkAgain: true,
+        recordVerification: true,
     }),
     loaders(({ values, actions }) => ({
         status: [
@@ -284,6 +288,13 @@ export const emailDomainStatusLogic = kea<emailDomainStatusLogicType>([
                 actions.schedulePoll()
                 return
             }
+            // A browser poll only reports the provider's answer. email/verify records it, because that POST has a
+            // CSRF check. One try per mount keeps a provider that answers verified but never records out of a loop.
+            if (status?.status === 'verified' && !status.verified && !cache.verificationRecordTried) {
+                cache.verificationRecordTried = true
+                actions.recordVerification()
+                return
+            }
             if (status?.verified || status?.status === 'failed') {
                 cache.disposables.dispose('poll')
                 if (status.verified) {
@@ -297,6 +308,19 @@ export const emailDomainStatusLogic = kea<emailDomainStatusLogicType>([
                 actions.startPolling()
             }
             actions.schedulePoll()
+        },
+        recordVerification: async () => {
+            if (!values.integrationId) {
+                return
+            }
+            try {
+                // nosemgrep: prefer-codegen-api-namespaced-integrations -- the generated integrationsEmailVerifyCreate returns void and demands a config body the endpoint ignores
+                await api.integrations.verifyEmail(values.integrationId)
+            } catch {
+                actions.schedulePoll()
+                return
+            }
+            actions.loadStatus(true)
         },
         schedulePoll: () => {
             if (values.pollingStopped) {

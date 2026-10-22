@@ -138,6 +138,17 @@ describe('emailDomainStatusLogic', () => {
         expect(logic.values.status?.verified).toBe(true)
     })
 
+    it('records a verification the provider reports through email verify, once', async () => {
+        backend.verifyAtProviderOnly(DOMAIN)
+
+        await mountAndLoad()
+
+        expect(backend.requestsTo('email_verify')).toHaveLength(1)
+        expect(logic.values.status?.verified).toBe(true)
+        await jest.advanceTimersByTimeAsync(MINUTE)
+        expect(backend.requestsTo('email_verify')).toHaveLength(1)
+    })
+
     it('stops polling once the domain is verified and refreshes the channel list and the default sender', async () => {
         backend.verifyDomain(DOMAIN)
         await mountAndLoad()

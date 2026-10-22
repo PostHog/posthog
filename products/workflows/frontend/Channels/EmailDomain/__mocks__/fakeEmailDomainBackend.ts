@@ -60,6 +60,7 @@ interface FakeDomain {
     published: Set<string>
     preexisting: Set<RecordKind>
     confirmed: Set<RecordKind>
+    awaitingRecord: boolean
 }
 
 interface Hold {
@@ -210,6 +211,7 @@ export class FakeEmailDomainBackend {
                 published: new Set(),
                 preexisting: new Set(),
                 confirmed: new Set(),
+                awaitingRecord: false,
             })
         }
         return sender
@@ -257,6 +259,14 @@ export class FakeEmailDomainBackend {
     }
 
     /** SES confirmed the records and marked every sender on the domain as able to send. */
+    /** SES verifies the domain, but a browser poll cannot record it, so it waits for email/verify. */
+    verifyAtProviderOnly(domain: string): void {
+        this.publishRecords(domain)
+        const state = this.domainState(domain)
+        state.ses = 'verified'
+        state.awaitingRecord = true
+    }
+
     verifyDomain(domain: string): void {
         this.publishRecords(domain)
         this.domainState(domain).ses = 'verified'
@@ -317,7 +327,7 @@ export class FakeEmailDomainBackend {
         const status = this.overallStatus(state, allFound)
         return {
             status,
-            verified: state.ses === 'verified',
+            verified: state.ses === 'verified' && !state.awaitingRecord,
             checked_at: CHECKED_AT,
             steps: [
                 { key: 'domain_added', state: 'done' },
@@ -473,9 +483,11 @@ export class FakeEmailDomainBackend {
 
     private restartVerification(sender: IntegrationConfigApi): EmailSenderDomainStatus {
         const state = this.domainState((sender.config as EmailSenderConfig).domain)
-        if (state.ses !== 'verified') {
-            state.ses = 'pending'
+        if (state.ses === 'verified') {
+            state.awaitingRecord = false
+            return { status: 'success', dnsRecords: [] }
         }
+        state.ses = 'pending'
         return { status: 'pending', dnsRecords: [] }
     }
 
