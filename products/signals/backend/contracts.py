@@ -1301,6 +1301,59 @@ class BetterstackIncidentSignalInput(SignalInputBase):
     extra: BetterstackIncidentSignalExtra
 
 
+class AsanaIssueSignalExtra(SignalExtraBase):
+    url: str | None
+    resource_subtype: str | None
+    created_at: str | None
+    projects: list[str]
+    tags: list[str]
+
+
+class AsanaIssueSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.ISSUE]
+    source_product: Literal[SignalSourceProduct.ASANA]
+    extra: AsanaIssueSignalExtra
+
+
+class MondayIssueSignalExtra(SignalExtraBase):
+    state: str | None
+    group: str | None
+    board_id: str | None
+    created_at: str | None
+
+
+class MondayIssueSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.ISSUE]
+    source_product: Literal[SignalSourceProduct.MONDAY]
+    extra: MondayIssueSignalExtra
+
+
+class PlaneIssueSignalExtra(SignalExtraBase):
+    identifier: str | None
+    sequence_id: str | None
+    priority: str | None
+    created_at: str | None
+
+
+class PlaneIssueSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.ISSUE]
+    source_product: Literal[SignalSourceProduct.PLANE]
+    extra: PlaneIssueSignalExtra
+
+
+class AzureDevopsIssueSignalExtra(SignalExtraBase):
+    work_item_type: str | None
+    state: str | None
+    priority: str | None
+    created_at: str | None
+
+
+class AzureDevopsIssueSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.ISSUE]
+    source_product: Literal[SignalSourceProduct.AZURE_DEVOPS]
+    extra: AzureDevopsIssueSignalExtra
+
+
 class MonteCarloAlertSignalExtra(SignalExtraBase):
     type: str | None
     status: str | None
@@ -1444,6 +1497,10 @@ SignalInput = Annotated[
     | GrafanaIrmIncidentSignalInput
     | XmattersIncidentSignalInput
     | BetterstackIncidentSignalInput
+    | AsanaIssueSignalInput
+    | MondayIssueSignalInput
+    | PlaneIssueSignalInput
+    | AzureDevopsIssueSignalInput
     | MonteCarloAlertSignalInput
     | BigeyeIssueSignalInput
     | LaceworkScannerFindingSignalInput
@@ -1521,6 +1578,10 @@ SIGNAL_INPUT_VARIANTS: tuple[type[SignalInputBase], ...] = (
     GrafanaIrmIncidentSignalInput,
     XmattersIncidentSignalInput,
     BetterstackIncidentSignalInput,
+    AsanaIssueSignalInput,
+    MondayIssueSignalInput,
+    PlaneIssueSignalInput,
+    AzureDevopsIssueSignalInput,
     MonteCarloAlertSignalInput,
     BigeyeIssueSignalInput,
     LaceworkScannerFindingSignalInput,

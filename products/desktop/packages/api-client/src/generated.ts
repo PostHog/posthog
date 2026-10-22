@@ -9069,6 +9069,10 @@ export namespace Schemas {
                    */
                   true_is_failure: boolean;
                   /**
+                   * Boolean decision-model judges only. Minimum probability of true required for a true result, inclusive. Omit or set null to use 0.5. Applies to new runs; historical results are unchanged.
+                   */
+                  decision_threshold: number | null;
+                  /**
                    * Inclusive minimum numeric score. Omit for no lower bound. Required for numeric decision models.
                    */
                   min: number | null;
@@ -19194,6 +19198,7 @@ export namespace Schemas {
         output_config: Partial<{
             allows_na: boolean;
             true_is_failure: boolean;
+            decision_threshold: number | null;
             min: number | null;
             max: number | null;
             step: number | null;
