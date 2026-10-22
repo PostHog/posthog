@@ -182,6 +182,11 @@ The playground keeps the provider's explanation so users can correct the setting
 
 ## Backfill recovery
 
+Estimates and new backfills clamp their start to UTC midnight 29 days before the current UTC date.
+This excludes the calendar day whose AI payloads have expired under the 30-day retention policy.
+Ranges ending at or before that boundary are rejected.
+Existing backfills keep their stored windows; **Retry remaining** applies the boundary when it creates a new backfill.
+
 A backfill that stops on its own shows as **Interrupted**, with a stop reason.
 A backfill a user stops shows as **Cancelled**.
 Backfills read a page of units (500 by default, bounded between 1 and 1,000) and wait for every outcome before advancing progress.
