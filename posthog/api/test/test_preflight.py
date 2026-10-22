@@ -15,6 +15,7 @@ from rest_framework import status
 from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.helpers.dev_login import is_dev_login_allowed
 from posthog.models.instance_setting import set_instance_setting
+from posthog.models.integration import POSTHOG_SLACK_SCOPE
 from posthog.models.organization import Organization
 from posthog.models.organization_invite import OrganizationInvite
 
@@ -50,7 +51,7 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
             },
             "can_create_org": False,
             "email_service_available": False,
-            "slack_service": {"available": False, "client_id": None},
+            "slack_service": {"available": False, "client_id": None, "scopes": POSTHOG_SLACK_SCOPE.split(",")},
             "object_storage": False,
             "public_egress_ip_addresses": [],
             "wizard_cloud_run_available": False,
@@ -107,6 +108,14 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
                 assert response == self.preflight_authenticated_dict()
                 assert {"Europe/Moscow": 3, "UTC": 0}.items() <= available_timezones.items()
 
+    @override_settings(DEBUG=False, E2E_TESTING=True, CLOUD_DEPLOYMENT="E2E")
+    def test_preflight_reports_slack_oauth_scopes_when_e2e_sets_is_debug(self) -> None:
+        response = self.client.get("/_preflight/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["is_debug"] is True
+        assert response.json()["slack_service"]["scopes"] == POSTHOG_SLACK_SCOPE.split(",")
+
     @patch("posthog.storage.object_storage._client")
     def test_preflight_request_with_object_storage_available(self, patched_s3_client):
         patched_s3_client.head_bucket.return_value = True
@@ -156,6 +165,7 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
                         "slack_service": {
                             "available": True,
                             "client_id": "slack-client-id",
+                            "scopes": POSTHOG_SLACK_SCOPE.split(","),
                         },
                         "can_create_org": True,
                         "cloud": True,

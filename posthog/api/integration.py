@@ -20,7 +20,7 @@ import structlog
 from django_filters.rest_framework import DjangoFilterBackend
 from django_redis.cache import RedisCache
 from django_redis.exceptions import ConnectionInterrupted
-from drf_spectacular.utils import extend_schema, extend_schema_field, extend_schema_serializer
+from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field, extend_schema_serializer
 from prometheus_client import Counter
 from redis.exceptions import RedisError
 from rest_framework import mixins, serializers, status, viewsets
@@ -613,6 +613,21 @@ class SlackChannelsResponseSerializer(serializers.Serializer):
     )
 
 
+class SlackChannelJoinSerializer(serializers.Serializer):
+    channel_id = serializers.RegexField(
+        r"^[CG][A-Z0-9]{8,}$",
+        max_length=64,
+        help_text="ID of the selected public Slack channel to add PostHog to (e.g. C0123ABC456).",
+    )
+
+
+class SlackChannelJoinErrorSerializer(serializers.Serializer):
+    type = serializers.CharField(help_text="Error category.")
+    code = serializers.CharField(help_text="Machine-readable error code.")
+    detail = serializers.CharField(help_text="What failed and how to recover.")
+    attr = serializers.CharField(allow_null=True, help_text="Input field that caused the error, or null.")
+
+
 class SlackUserSerializer(serializers.Serializer):
     id = serializers.CharField(help_text="Slack member ID (e.g. U0123ABC) — post to it to open a direct message.")
     name = serializers.CharField(help_text="Slack username (handle) without the leading '@'.")
@@ -628,6 +643,9 @@ SLACK_CHANNELS_CACHE_SECONDS = 60 * 60
 # conversations.info endpoint, so distinct fabricated ids must not be able to drain the workspace
 # quota. A re-check spends one per channel it warned about, well inside the cap.
 SLACK_CHANNELS_INFO_LOOKUPS_PER_MINUTE = 30
+
+# Slack limits this method per app and workspace, even when several projects share the installation.
+SLACK_CHANNEL_JOINS_PER_MINUTE = 30
 
 # Server-side floor between forced member-list refreshes, matching the picker's visible cooldown.
 SLACK_USERS_MIN_REFRESH_SECONDS = 30
@@ -1499,6 +1517,7 @@ class IntegrationViewSet(
         "github_oauth_authorize",
         # Side-effecting POST (emails admins) — a read-only token must not be able to trigger it.
         "request_access",
+        "channels_join",
     ]
     permission_classes = [IntegrationManagementPermission, PersonalConnectionRecentAuthPermission]
     # LimitOffsetPagination needs a total order, or Postgres can return a row on neither side of a
@@ -1535,7 +1554,13 @@ class IntegrationViewSet(
         ]
         # Adding an integration only requires project membership. Every edit and removal uses the
         # viewset permission class, including the creator exception for Google account removal.
-        if self.action in ("create", "github_link_existing", "github_oauth_authorize", "request_access"):
+        if self.action in (
+            "create",
+            "github_link_existing",
+            "github_oauth_authorize",
+            "request_access",
+            "channels_join",
+        ):
             return base_permissions
         if self.action == "refresh_github_repos":
             return [*base_permissions, TeamMemberLightManagementPermission()]
@@ -1640,12 +1665,18 @@ class IntegrationViewSet(
                     capture_exception(e)
                     github_audit.record("personal_cleanup_failed", failure_type=type(e).__name__)
 
+        slack_revision_key = f"slack/{instance.id}/channels_join_revision"
         try:
             super().perform_destroy(instance)
         except Exception as exc:
             if github_audit:
                 github_audit.record("disconnect_failed", stage="project_deletion", failure_type=type(exc).__name__)
             raise
+        if instance.kind in SLACK_INTEGRATION_KINDS:
+            try:
+                cache.delete(slack_revision_key)
+            except (ConnectionInterrupted, RedisError, OSError):
+                logger.warning("slack_channel_cache_update_failed", cache_key=slack_revision_key, exc_info=True)
         if github_audit:
             github_audit.record("deleted", after_commit=True, customer_visible=True, outcome="disconnected")
 
@@ -1734,7 +1765,11 @@ class IntegrationViewSet(
         }
 
     @staticmethod
-    def _mutate_cached_slack_channels(key: str, mutate: Callable[[dict[str, dict]], bool]) -> None:
+    def _mutate_cached_slack_channels(
+        key: str,
+        mutate: Callable[[dict[str, dict]], bool],
+        join_revision: tuple[str, str | None] | None = None,
+    ) -> None:
         """Apply `mutate` to the cached list's channels, keyed by id, and write the result back.
 
         `mutate` returns False when it changed nothing, which skips the write.
@@ -1746,6 +1781,8 @@ class IntegrationViewSet(
             client = backend.client
             redis_client = client.get_client(write=True)
             redis_key = client.make_key(key)
+            revision_key = client.make_key(join_revision[0]) if join_revision else redis_key
+            revision = client.encode(join_revision[1]) if join_revision and join_revision[1] is not None else ""
             for _ in range(5):
                 previous = redis_client.get(redis_key)
                 if previous is None or redis_client.pttl(redis_key) <= 0:
@@ -1758,15 +1795,21 @@ class IntegrationViewSet(
                 # Compare the encoded value so concurrent lookups and list refreshes cannot lose writes.
                 if redis_client.eval(
                     """
+                    if ARGV[3] == '1' and (redis.call('GET', KEYS[2]) or '') ~= ARGV[4] then
+                        return true
+                    end
                     if redis.call('GET', KEYS[1]) == ARGV[1] and redis.call('PTTL', KEYS[1]) > 0 then
                         return redis.call('SET', KEYS[1], ARGV[2], 'XX', 'KEEPTTL')
                     end
                     return false
                     """,
-                    1,
+                    2,
                     redis_key,
+                    revision_key,
                     previous,
                     updated,
+                    "1" if join_revision else "0",
+                    revision,
                 ):
                     return
         except (ConnectionInterrupted, RedisError, OSError):
@@ -1775,15 +1818,17 @@ class IntegrationViewSet(
             logger.warning("slack_channel_cache_update_failed", cache_key=key, exc_info=True)
 
     @classmethod
-    def _cache_slack_channel(cls, key: str, channel: dict) -> None:
+    def _cache_slack_channel(cls, key: str, channel: dict, join_revision: tuple[str, str | None] | None = None) -> None:
         def merge(channels_by_id: dict[str, dict]) -> bool:
             channels_by_id[channel["id"]] = channel
             return True
 
-        cls._mutate_cached_slack_channels(key, merge)
+        cls._mutate_cached_slack_channels(key, merge, join_revision)
 
     @classmethod
-    def _drop_cached_slack_channel(cls, key: str, channel_id: str) -> None:
+    def _drop_cached_slack_channel(
+        cls, key: str, channel_id: str, join_revision: tuple[str, str | None] | None = None
+    ) -> None:
         """Remove a channel Slack no longer returns from the cached list.
 
         It is gone, or no longer visible to the app, so the list has to stop offering it for the
@@ -1793,7 +1838,34 @@ class IntegrationViewSet(
         def drop(channels_by_id: dict[str, dict]) -> bool:
             return channels_by_id.pop(channel_id, None) is not None
 
-        cls._mutate_cached_slack_channels(key, drop)
+        cls._mutate_cached_slack_channels(key, drop, join_revision)
+
+    @staticmethod
+    def _cache_slack_channel_list(key: str, data: dict, join_revision: tuple[str, str | None]) -> None:
+        backend = caches["default"]
+        revision_key, revision = join_revision
+        if not isinstance(backend, RedisCache):
+            if backend.get(revision_key) == revision:
+                backend.set(key, data, SLACK_CHANNELS_CACHE_SECONDS)
+            return
+        try:
+            client = backend.client
+            client.get_client(write=True).eval(
+                """
+                if (redis.call('GET', KEYS[2]) or '') == ARGV[2] then
+                    return redis.call('SET', KEYS[1], ARGV[1], 'EX', ARGV[3])
+                end
+                return false
+                """,
+                2,
+                client.make_key(key),
+                client.make_key(revision_key),
+                client.encode(data),
+                client.encode(revision) if revision is not None else "",
+                SLACK_CHANNELS_CACHE_SECONDS,
+            )
+        except (ConnectionInterrupted, RedisError, OSError):
+            logger.warning("slack_channel_cache_update_failed", cache_key=key, exc_info=True)
 
     @staticmethod
     def _filter_slack_channels_for_search(channels: list[dict], search: str) -> list[dict]:
@@ -1834,6 +1906,15 @@ class IntegrationViewSet(
         # integration_id (the Slack workspace id, shared across teams). Two teams that
         # install the same workspace must not share cached private-channel lists.
         key = f"slack/{instance.id}/{should_include_private_channels}/channels"
+        revision_key = f"slack/{instance.id}/channels_join_revision"
+        backend = caches["default"]
+        # Use the writer so a later membership removal is not rejected because a replica lags the join.
+        revision = (
+            backend.client.get(revision_key, client=backend.client.get_client(write=True))
+            if isinstance(backend, RedisCache)
+            else backend.get(revision_key)
+        )
+        join_revision = (revision_key, revision)
 
         channel_id = query_serializer.validated_data["channel_id"]
         if channel_id:
@@ -1856,11 +1937,11 @@ class IntegrationViewSet(
                 _reraise_slack_api_error(e)
             if channel:
                 serialized_channel = self._serialize_slack_channel(channel)
-                self._cache_slack_channel(key, serialized_channel)
+                self._cache_slack_channel(key, serialized_channel, join_revision)
                 return Response({"channels": [serialized_channel]})
             # Only a forced lookup reaches Slack for a channel the cached list still holds, so this
             # drops a channel the workspace no longer offers rather than leaving it pickable.
-            self._drop_cached_slack_channel(key, channel_id)
+            self._drop_cached_slack_channel(key, channel_id, join_revision)
             return Response({"channels": []})
 
         search = query_serializer.validated_data["search"]
@@ -1878,7 +1959,7 @@ class IntegrationViewSet(
                 "channels": [self._serialize_slack_channel(channel) for channel in channels],
                 "lastRefreshedAt": timezone.now().isoformat(),
             }
-            cache.set(key, data, SLACK_CHANNELS_CACHE_SECONDS)
+            self._cache_slack_channel_list(key, data, join_revision)
 
         filtered_channels = self._filter_slack_channels_for_search(data["channels"], search)
         page = filtered_channels[offset : offset + limit]
@@ -1891,6 +1972,77 @@ class IntegrationViewSet(
                 "has_more": has_more,
             }
         )
+
+    @extend_schema(
+        request=SlackChannelJoinSerializer,
+        responses={
+            200: SlackChannelsResponseSerializer,
+            400: OpenApiResponse(response=SlackChannelJoinErrorSerializer),
+            403: OpenApiResponse(response=SlackChannelJoinErrorSerializer),
+            404: OpenApiResponse(response=SlackChannelJoinErrorSerializer),
+            429: OpenApiResponse(response=SlackChannelJoinErrorSerializer),
+        },
+    )
+    @action(methods=["POST"], detail=True, url_path="channels/join")
+    def channels_join(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        instance = self.get_object()
+        if instance.kind not in SLACK_INTEGRATION_KINDS:
+            raise ValidationError("Channel joining is only supported for Slack integrations.")
+        serializer = SlackChannelJoinSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        slack = SlackIntegration(instance)
+        if slack.missing_scopes(["channels:join"]):
+            raise ValidationError(
+                "PostHog cannot join channels with this Slack connection. Invite it with /invite @PostHog in Slack, "
+                "then check again."
+            )
+        _take_slack_lookup_budget(
+            f"slack/{instance.integration_id}/channels_join_budget",
+            SLACK_CHANNEL_JOINS_PER_MINUTE,
+            "Too many Slack channel joins. Try again in a minute.",
+        )
+        client = slack.client
+        channel_id = serializer.validated_data["channel_id"]
+        try:
+            channel = client.conversations_info(channel=channel_id)["channel"]
+            if (
+                channel.get("is_channel") is not True
+                or channel.get("is_private") is not False
+                or channel.get("is_archived") is not False
+                or channel.get("is_im")
+                or channel.get("is_mpim")
+            ):
+                raise ValidationError(
+                    "PostHog can only join public, unarchived Slack channels. Choose another channel."
+                )
+            if not channel.get("is_member"):
+                client.conversations_join(channel=channel_id)
+        except SlackApiError as error:
+            error_code = error.response.get("error")
+            if error_code == "ratelimited":
+                headers = getattr(error.response, "headers", {})
+                retry_after = headers.get("Retry-After") or headers.get("retry-after")
+                raise Throttled(
+                    wait=int(retry_after) if retry_after else None,
+                    detail="Slack is rate limiting channel joins. Try again later.",
+                ) from error
+            if error_code in SLACK_AUTH_FAILURE_CODES:
+                _reraise_slack_api_error(error)
+            raise ValidationError(
+                "Slack could not add PostHog to this channel. Invite it with /invite @PostHog in Slack, then check again."
+            ) from error
+        channel["is_member"] = True
+        serialized_channel = self._serialize_slack_channel(channel)
+        revision_key = f"slack/{instance.id}/channels_join_revision"
+        try:
+            # Expiry could admit a slow read started before the first join.
+            cache.set(revision_key, uuid4().hex, timeout=None)
+        except (ConnectionInterrupted, RedisError, OSError):
+            logger.warning("slack_channel_cache_update_failed", cache_key=revision_key, exc_info=True)
+        else:
+            for private_access in (False, True):
+                self._cache_slack_channel(f"slack/{instance.id}/{private_access}/channels", serialized_channel)
+        return Response({"channels": [serialized_channel]})
 
     @staticmethod
     def _serialize_slack_user(member: dict) -> dict:
