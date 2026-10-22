@@ -16,6 +16,7 @@ from posthog.test.base import (
 )
 from unittest.mock import patch
 
+from django.conf import settings
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
@@ -44,6 +45,7 @@ from products.product_analytics.backend.facade.data_checks import run_insight_da
 from products.product_analytics.backend.facade.enums import (
     InsightDataCheckKey,
     InsightDataCheckLevel,
+    InsightDataChecksDepth,
     InsightDataCheckSkipReason,
 )
 from products.product_analytics.backend.facade.models import Insight
@@ -351,12 +353,15 @@ class TestInsightDataChecks(ClickhouseTestMixin, APIBaseTest):
             },
         }
 
-    def _check(self, query: dict[str, Any]) -> InsightDataChecks:
+    def _check(
+        self, query: dict[str, Any], depth: InsightDataChecksDepth = InsightDataChecksDepth.QUICK
+    ) -> InsightDataChecks:
         return run_insight_data_checks(
             query,
             team=self.team,
             user=self.user,
             email_access=TeamEmailAccess(member_emails=True, verified_domains=True, person_emails=True),
+            depth=depth,
         )
 
     def _internal_users(self, result: InsightDataChecks) -> InsightDataCheck:
@@ -776,26 +781,41 @@ class TestInsightDataChecks(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("unknown_event", [{"kind": "EventsNode", "event": "never sent"}], 1_000_000_000, "no_events"),
-            ("read_limit_reached_while_sizing", ONE_STEP, 1, "inconclusive"),
+            ("unknown_event", [{"kind": "EventsNode", "event": "never sent"}], 1_000_000_000, "quick", "no_events"),
+            ("read_limit_reached_while_sizing", ONE_STEP, 1, "quick", "inconclusive"),
+            ("full_check_past_its_deadline", ONE_STEP, 1_000_000_000, "full", "inconclusive"),
         ]
     )
+    @patch(f"{CHECKS_MODULE}.FULL_MAX_EXECUTION_SECONDS", 0)
     def test_reports_why_nothing_was_checked(
-        self, _name: str, series: list[dict[str, Any]], max_bytes_read: int, expected: str
+        self, _name: str, series: list[dict[str, Any]], max_bytes_read: int, depth: str, expected: str
     ) -> None:
         with patch(f"{CHECKS_MODULE}.MAX_BYTES_READ", max_bytes_read):
-            result = self._check(self._query(series))
+            result = self._check(self._query(series), InsightDataChecksDepth(depth))
 
         assert result.status == expected
         assert {check.level for check in result.checks} == {"skipped"}
 
+    # The native events table reads a property from a subcolumn of its own, so a property filter reads little there.
     @parameterized.expand(
         [
-            ("properties_with_columns_of_their_own", [], None, 10_000, "warning"),
-            ("a_filter_on_a_property_without_a_column", [SENT_WITHOUT_A_PLAN], None, 10_000, "on_request"),
-            ("too_few_events_to_read_a_lot_even_from_large_events", [SENT_WITHOUT_A_PLAN], None, 0, "warning"),
-            ("asked_for_in_the_request_body", [SENT_WITHOUT_A_PLAN], "body", 10_000, "warning"),
-            ("asked_for_on_a_saved_insight", [SENT_WITHOUT_A_PLAN], "saved_insight", 10_000, "warning"),
+            ("properties_with_columns_of_their_own", [], None, 10_000, ("warning", "warning")),
+            (
+                "a_filter_on_a_property_without_a_column",
+                [SENT_WITHOUT_A_PLAN],
+                None,
+                10_000,
+                ("on_request", "warning"),
+            ),
+            (
+                "too_few_events_to_read_a_lot_even_from_large_events",
+                [SENT_WITHOUT_A_PLAN],
+                None,
+                0,
+                ("warning", "warning"),
+            ),
+            ("asked_for_in_the_request_body", [SENT_WITHOUT_A_PLAN], "body", 10_000, ("warning", "warning")),
+            ("asked_for_on_a_saved_insight", [SENT_WITHOUT_A_PLAN], "saved_insight", 10_000, ("warning", "warning")),
         ]
     )
     @patch(f"{CHECKS_MODULE}.MAX_ESTIMATED_BYTES", 1)
@@ -805,8 +825,10 @@ class TestInsightDataChecks(ClickhouseTestMixin, APIBaseTest):
         properties: list[dict[str, Any]],
         asked_for: str | None,
         max_json_bytes_per_event: int,
-        expected_status: str,
+        status_by_events_schema: tuple[str, str],
     ) -> None:
+        legacy_status, native_status = status_by_events_schema
+        expected_status = native_status if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else legacy_status
         self.enterContext(patch(f"{CHECKS_MODULE}.MAX_JSON_BYTES_PER_EVENT", max_json_bytes_per_event))
         self.addCleanup(cleanup_materialized_columns)
         materialize("events", "email", table_column="person_properties")

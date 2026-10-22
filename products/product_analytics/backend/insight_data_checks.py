@@ -3,6 +3,7 @@
 import math
 from collections.abc import Mapping
 from datetime import date, datetime, time, timedelta
+from time import monotonic
 from typing import Any, cast
 from zoneinfo import ZoneInfo
 
@@ -88,7 +89,8 @@ MAX_ESTIMATED_BYTES = 10_000_000_000
 # Larger than the JSON of almost any event. Below it, the checks skip the size read, which can read hundreds of MB.
 # An event above it only makes a check stop at MAX_BYTES_READ, which offers the person the same button.
 MAX_JSON_BYTES_PER_EVENT = 10_000
-# A full check has the same time limit as the insight's own query, and no read limit.
+# A full check has the same time limit as the insight's own query, and no read limit. Its queries share the limit,
+# so the whole run answers before the page and the MCP client stop waiting at 120 seconds.
 FULL_MAX_EXECUTION_SECONDS = 60
 JSON_SIZE_SAMPLE = 1_000
 
@@ -224,12 +226,16 @@ class _Limits:
     max_execution_seconds: int
     max_bytes_read: int | None
     max_sample_bytes_read: int | None
+    deadline: float | None = None
 
 
 def _limits(depth: InsightDataChecksDepth) -> _Limits:
     if depth == InsightDataChecksDepth.FULL:
         return _Limits(
-            max_execution_seconds=FULL_MAX_EXECUTION_SECONDS, max_bytes_read=None, max_sample_bytes_read=None
+            max_execution_seconds=FULL_MAX_EXECUTION_SECONDS,
+            max_bytes_read=None,
+            max_sample_bytes_read=None,
+            deadline=monotonic() + FULL_MAX_EXECUTION_SECONDS,
         )
     return _Limits(
         max_execution_seconds=MAX_EXECUTION_SECONDS,
@@ -253,6 +259,11 @@ class _EventReader:
     def rows_within_limits(
         self, query: ast.SelectQuery, *, query_type: str, max_bytes_read: int | None, max_threads: int | None = None
     ) -> list[list[Any]] | Skipped:
+        max_execution_seconds = self.limits.max_execution_seconds
+        if self.limits.deadline is not None:
+            max_execution_seconds = min(max_execution_seconds, math.floor(self.limits.deadline - monotonic()))
+            if max_execution_seconds < 1:
+                return Skipped(reason=InsightDataCheckSkipReason.TIME_LIMIT)
         try:
             response = execute_hogql_query(
                 query=query,
@@ -261,7 +272,7 @@ class _EventReader:
                 query_type=query_type,
                 modifiers=self.modifiers,
                 context=self.context(),
-                settings=_query_settings(max_bytes_read, self.limits.max_execution_seconds, max_threads),
+                settings=_query_settings(max_bytes_read, max_execution_seconds, max_threads),
             )
         except CHQueryErrorTooManyBytes:
             return Skipped(reason=InsightDataCheckSkipReason.READ_LIMIT)
@@ -765,6 +776,10 @@ class _EventJsonReads(TraversingVisitor):
             if isinstance(column, DatabaseField) and column.name in _JSON_COLUMN_FIELDS:
                 self.columns.add(column.name)
         super().visit_field(node)
+
+    # A native JSON column stores each path as a subcolumn, so this read is narrow, however wide the document.
+    def visit_json_subcolumn_access(self, node: ast.JsonSubcolumnAccess) -> None:
+        return
 
 
 def _json_columns_read(query: ast.SelectQuery, reader: _EventReader) -> frozenset[str]:

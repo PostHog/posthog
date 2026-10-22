@@ -318,7 +318,7 @@ export type insightDataChecksLogicType = MakeLogicType<
 >
 
 const FORCED_REFRESHES: (RefreshType | undefined)[] = ['force_async', 'force_blocking']
-// The checks run up to four queries of 20 seconds each, after a wait for server slots.
+// A full check stops its queries after 60 seconds on the server, which leaves the rest for a wait for server slots.
 const DATA_CHECKS_TIMEOUT_MS = 120_000
 const LABEL_OPEN_MS = 2500
 const YIELDED_TO_CHART = 'yielded to chart'
