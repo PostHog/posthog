@@ -73,32 +73,11 @@ AI_DELIVERY_DISPLAY_FIELDS = frozenset(
     {"include_images", "include_feedback", "include_manage_link", "include_posthog_hint"}
 )
 
-# The write's field names, as the model and the rules below read them.
-_WRITE_FIELDS: dict[str, str] = {
+# The write fields whose model attribute has a different name. Every other field keeps its name.
+_MODEL_ATTRIBUTE_NAMES: dict[str, str] = {
     "dashboard_id": "dashboard",
     "insight_id": "insight",
     "dashboard_export_insight_ids": "dashboard_export_insights",
-    "prompt": "prompt",
-    "ai_prompt_config": "ai_prompt_config",
-    "contexts": "contexts",
-    "target_type": "target_type",
-    "target_value": "target_value",
-    "frequency": "frequency",
-    "interval": "interval",
-    "byweekday": "byweekday",
-    "bysetpos": "bysetpos",
-    "count": "count",
-    "start_date": "start_date",
-    "until_date": "until_date",
-    "deleted": "deleted",
-    "enabled": "enabled",
-    "title": "title",
-    "integration_id": "integration_id",
-    "invite_message": "invite_message",
-    "send_test_now": "send_test_now",
-    "summary_enabled": "summary_enabled",
-    "summary_prompt_guide": "summary_prompt_guide",
-    "delivery_config": "delivery_config",
 }
 
 
@@ -143,7 +122,7 @@ def _write_attrs(write: SubscriptionWrite) -> dict:
         value = getattr(write, field.name)
         if value is UNSET:
             continue
-        attrs[_WRITE_FIELDS[field.name]] = value
+        attrs[_MODEL_ATTRIBUTE_NAMES.get(field.name, field.name)] = value
     return attrs
 
 
