@@ -187,8 +187,7 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         # The group_type_index check mirrors the main runner: group builds always fail, because the
         # INSERT cannot resolve the materialized $group_N column on sharded_events.
         if (
-            not self.modifiers.useNewEventsCluster
-            and self.group_type_index is None
+            self.group_type_index is None
             and team_precompute_skip_reason(
                 self.team,
                 get_or_create_team_extension(self.team, TeamExperimentsConfig),

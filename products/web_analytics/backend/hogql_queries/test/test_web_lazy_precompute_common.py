@@ -1,7 +1,6 @@
 import json
 import time
 from datetime import UTC, datetime
-from types import ModuleType
 
 import time_machine
 from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin
@@ -25,7 +24,6 @@ from posthog.schema import (
     SessionPropertyFilter,
     WebAnalyticsPreComputeStrategy,
     WebOverviewQuery,
-    WebPageURLSearchQuery,
     WebStatsBreakdown,
     WebStatsTableQuery,
 )
@@ -34,19 +32,12 @@ from posthog.hogql import ast
 
 from posthog import redis
 from posthog.clickhouse.query_tagging import Feature, get_query_tag_value, reset_query_tags, tags_context
-from posthog.clickhouse.workload import Workload
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, ExecutionMode
-from posthog.models.instance_setting import override_instance_config
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
     LazyComputationResult,
     TtlSchedule,
 )
-from products.web_analytics.backend.hogql_queries import (
-    web_stats_frustration_lazy_precompute,
-    web_stats_paths_lazy_precompute,
-)
-from products.web_analytics.backend.hogql_queries.page_url_search_query_runner import PageUrlSearchQueryRunner
 from products.web_analytics.backend.hogql_queries.stats_table import WebStatsTableQueryRunner
 from products.web_analytics.backend.hogql_queries.web_analytics_lazy_precompute import can_use_lazy_precompute
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
@@ -150,75 +141,6 @@ class TestChannelModifiersShapeKey(BaseTest):
         override_key = channel_rules_shape_key(self._runner(HogQLQueryModifiers(bounceRateDurationSeconds=42)))
         assert override_key != default_key
 
-    @parameterized.expand(
-        [
-            (web_stats_paths_lazy_precompute, WebStatsBreakdown.PAGE),
-            (web_stats_frustration_lazy_precompute, WebStatsBreakdown.FRUSTRATION_METRICS),
-        ]
-    )
-    @override_settings(CLICKHOUSE_NATIVE_EVENTS_HOST="native.example.com", CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
-    def test_native_route_passed_to_the_runner_skips_stats_precompute(
-        self, precompute: ModuleType, breakdown: WebStatsBreakdown
-    ) -> None:
-        query = WebStatsTableQuery(
-            properties=[], breakdownBy=breakdown, dateRange=DateRange(date_from="2024-01-01", date_to="2024-01-07")
-        )
-        with (
-            override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[self.team.pk]),
-            override_instance_config("CLICKHOUSE_NATIVE_EVENTS_HOST", "native.example.com"),
-            override_instance_config("CLICKHOUSE_NATIVE_EVENTS_TEAMS", [self.team.pk]),
-        ):
-            legacy = WebStatsTableQueryRunner(team=self.team, query=query, user=self.user)
-            native = WebStatsTableQueryRunner(
-                team=self.team, query=query, user=self.user, modifiers=HogQLQueryModifiers(useNewEventsCluster=True)
-            )
-            assert precompute.can_use_lazy_precompute(legacy) is True
-            assert precompute.can_use_lazy_precompute(native) is False
-
-    @parameterized.expand([("overview", False), ("overview", True), ("url_search", False)])
-    @override_settings(CLICKHOUSE_NATIVE_EVENTS_HOST="native.example.com", CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
-    def test_force_blocking_native_web_queries_scan_events_with_precompute_enabled(
-        self, kind: str, use_aggregates: bool
-    ) -> None:
-        query = WebOverviewQuery(properties=[], dateRange=DateRange(date_from="2024-01-01", date_to="2024-01-07"))
-        with (
-            override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[self.team.pk]),
-            override_instance_config("CLICKHOUSE_NATIVE_EVENTS_HOST", "native.example.com"),
-            override_instance_config("CLICKHOUSE_NATIVE_EVENTS_TEAMS", [self.team.pk]),
-            mock.patch(
-                "products.analytics_platform.backend.lazy_computation.lazy_computation_executor.sync_execute",
-                return_value=0,
-            ) as insert,
-            mock.patch(
-                "products.web_analytics.backend.hogql_queries.web_overview_lazy_precompute.sync_execute",
-                return_value=[[0] * 10],
-            ) as aggregate,
-            mock.patch("posthog.hogql.query.sync_execute", return_value=([[0] * 10], [])) as execute,
-        ):
-            legacy = WebOverviewQueryRunner(team=self.team, query=query, user=self.user)
-            assert can_use_lazy_precompute(legacy, log_prefix="web_overview") is True
-            query.modifiers = HogQLQueryModifiers(
-                useNewEventsCluster=True, useWebAnalyticsPreAggregatedTables=use_aggregates
-            )
-            if kind == "overview":
-                runner: WebOverviewQueryRunner | PageUrlSearchQueryRunner = WebOverviewQueryRunner(
-                    team=self.team, query=query, user=self.user
-                )
-            else:
-                runner = PageUrlSearchQueryRunner(
-                    team=self.team,
-                    query=WebPageURLSearchQuery(properties=[], dateRange=query.dateRange, modifiers=query.modifiers),
-                    user=self.user,
-                )
-            runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS, user=self.user)
-        insert.assert_not_called()
-        aggregate.assert_not_called()
-        assert execute.called
-        for call in execute.call_args_list:
-            assert call.kwargs["workload"] == Workload.NEW_EVENTS_CLUSTER
-            assert "preaggregated" not in call.args[0]
-        assert "events_json" in execute.call_args.args[0]
-
 
 class TestLazyTtlSchedule(BaseTest):
     def test_schedule_caps_job_width_and_holds_old_days(self) -> None:
@@ -233,31 +155,24 @@ class TestLazyTtlSchedule(BaseTest):
 
 
 class TestCheckCommonEligibility(BaseTest):
-    def _check(self, *, use_precompute, properties=None, modifiers=None, use_new_events_cluster=False) -> None:
+    def _check(self, *, use_precompute, properties=None) -> None:
         check_common_eligibility(
             team=self.team,
             use_web_analytics_precompute=use_precompute,
             conversion_goal=None,
             sampling=None,
-            modifiers=modifiers,
-            use_new_events_cluster=use_new_events_cluster,
+            modifiers=None,
             properties=properties or [],
             resolve_date_range=_date_range,
         )
 
-    @parameterized.expand([(None,), (HogQLQueryModifiers(useNewEventsCluster=False),)])
-    def test_enrolled_team_untouched_toggle_defaults_on(self, modifiers: HogQLQueryModifiers | None) -> None:
+    def test_enrolled_team_untouched_toggle_defaults_on(self) -> None:
         # Re-introducing the old opt-in requirement would silently send every
         # enrolled team without the UI toggle back to the raw path.
         with override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[self.team.pk]):
-            self._check(use_precompute=None, modifiers=modifiers)
+            self._check(use_precompute=None)
             with self.assertRaises(PerQueryOptedOut):
                 self._check(use_precompute=False)
-
-    def test_native_cluster_opt_in_skips_precompute_for_enrolled_team(self) -> None:
-        with override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[self.team.pk]):
-            with self.assertRaises(PerQueryOptedOut):
-                self._check(use_precompute=True, use_new_events_cluster=True)
 
     @override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[])
     @mock.patch(f"{_COMMON}.is_org_feature_flag_enabled", return_value=True)
@@ -1185,7 +1100,6 @@ class TestVolumeFloor(BaseTest):
                     conversion_goal=None,
                     sampling=None,
                     modifiers=runner.modifiers,
-                    use_new_events_cluster=False,
                     properties=[],
                     resolve_date_range=lambda: (None, None),
                 )
@@ -1199,7 +1113,6 @@ class TestVolumeFloor(BaseTest):
                         conversion_goal=None,
                         sampling=None,
                         modifiers=runner.modifiers,
-                        use_new_events_cluster=False,
                         properties=[],
                         resolve_date_range=lambda: (None, None),
                     )

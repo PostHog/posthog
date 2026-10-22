@@ -14,19 +14,15 @@ from posthog.schema import (
     ExperimentMetricMathType,
     ExperimentQuery,
     HogQLQueryModifiers,
-    PrecomputationMode,
 )
 
 from posthog.clickhouse.workload import Workload
-from posthog.hogql_queries.query_runner import ExecutionMode, get_query_runner
+from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.instance_setting import override_instance_config
-from posthog.models.team.extensions import get_or_create_team_extension
 
-from products.analytics_platform.backend.models.preaggregation_job import PreaggregationJob
 from products.experiments.backend.hogql_queries.experiment_exposures_query_runner import ExperimentExposuresQueryRunner
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
 from products.experiments.backend.models.experiment import Experiment
-from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
@@ -72,40 +68,24 @@ class TestExperimentQueryRunnerSingleFlight(APIBaseTest):
             results_request.single_flight_variant(),
         )
 
-    @parameterized.expand(
-        [
-            (kind, native, existing_jobs)
-            for kind in ("metric", "exposures")
-            for native, existing_jobs in ((False, False), (True, False), (True, True))
-        ]
-    )
+    @parameterized.expand([(kind, native) for kind in ("metric", "exposures") for native in (False, True)])
     @override_settings(
         IN_UNIT_TESTING=True,
         CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False,
         CLICKHOUSE_NATIVE_EVENTS_HOST="native.example.com",
     )
-    def test_experiment_execution_preserves_selected_table_and_debug_sql(
-        self, kind: str, native: bool, existing_jobs: bool
-    ) -> None:
+    def test_experiment_execution_preserves_selected_table_and_debug_sql(self, kind: str, native: bool) -> None:
         experiment, flag = self.experiment, self.feature_flag
         experiment.start_date = datetime(2024, 1, 1, tzinfo=UTC)
         experiment.end_date = datetime(2024, 1, 7, tzinfo=UTC)
         experiment.save(update_fields=["start_date", "end_date"])
         assert experiment.start_date is not None and experiment.end_date is not None
-        config = get_or_create_team_extension(self.team, TeamExperimentsConfig)
-        config.experiment_precomputation_enabled = True
-        config.save()
         self.enterContext(override_instance_config("CLICKHOUSE_NATIVE_EVENTS_HOST", "native.example.com"))
         self.enterContext(override_instance_config("CLICKHOUSE_NATIVE_EVENTS_TEAMS", [self.team.pk]))
         modifiers = HogQLQueryModifiers(useNewEventsSchema=native, useNewEventsCluster=native)
         runner: ExperimentQueryRunner | ExperimentExposuresQueryRunner
         if kind == "metric":
-            runner = ExperimentQueryRunner(
-                query=self.query.model_copy(update={"precomputation_mode": PrecomputationMode.PRECOMPUTED}),
-                team=self.team,
-                user=self.user,
-                modifiers=modifiers,
-            )
+            runner = ExperimentQueryRunner(query=self.query, team=self.team, user=self.user, modifiers=modifiers)
         else:
             runner = ExperimentExposuresQueryRunner(
                 query=ExperimentExposureQuery(
@@ -119,32 +99,8 @@ class TestExperimentQueryRunnerSingleFlight(APIBaseTest):
                 user=self.user,
                 modifiers=modifiers,
             )
-        if existing_jobs:
-            seed = get_query_runner(
-                runner.query,
-                self.team,
-                user=self.user,
-                modifiers=HogQLQueryModifiers(useNewEventsSchema=False, useNewEventsCluster=False),
-            )
-            assert isinstance(seed, (ExperimentQueryRunner, ExperimentExposuresQueryRunner))
-            with patch(
-                "products.analytics_platform.backend.lazy_computation.lazy_computation_executor.sync_execute",
-                return_value=0,
-            ):
-                if isinstance(seed, ExperimentQueryRunner):
-                    seed._get_experiment_query()
-                else:
-                    seed._get_exposure_query()
-            self.assertTrue(
-                PreaggregationJob.objects.filter(team=self.team, status=PreaggregationJob.Status.READY).exists()
-            )
-        job_count = PreaggregationJob.objects.filter(team=self.team).count()
         cache_key = runner.get_cache_key()
         with (
-            patch(
-                "products.analytics_platform.backend.lazy_computation.lazy_computation_executor.sync_execute",
-                return_value=0,
-            ) as insert,
             patch("posthog.hogql.query.sync_execute", return_value=([], [])) as execute,
             patch("posthog.hogql_queries.query_runner.enqueue_process_query_task") as enqueue,
         ):
@@ -155,10 +111,6 @@ class TestExperimentQueryRunnerSingleFlight(APIBaseTest):
                 assert isinstance(runner, ExperimentExposuresQueryRunner)
                 runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS, user=self.user)
             enqueue.assert_not_called()
-        if native:
-            insert.assert_not_called()
-            self.assertEqual(PreaggregationJob.objects.filter(team=self.team).count(), job_count)
-            self.assertNotIn("preaggregated", execute.call_args.args[0])
         self.assertEqual("events_json" in execute.call_args.args[0], native)
         self.assertEqual(execute.call_args.kwargs["workload"] == Workload.NEW_EVENTS_CLUSTER, native)
         self.assertEqual(runner.get_cache_key(), cache_key)
