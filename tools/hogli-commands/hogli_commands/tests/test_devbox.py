@@ -6,6 +6,7 @@ import os
 import csv
 import json
 import errno
+import shutil
 import hashlib
 import subprocess
 from collections.abc import Callable
@@ -2328,11 +2329,122 @@ class TestDirectProxyScript:
         assert "@stranger not header Cookie *posthog_devbox_direct=$token*" in script
         assert "HttpOnly" in script
 
-    def test_script_checks_a_new_port_before_it_removes_the_running_proxy(self) -> None:
-        script = coder._DIRECT_PROXY_SCRIPT
-        assert script.index("is in use on the devbox") < script.index(
-            'docker rm -f "$container" >/dev/null 2>&1 || true\n    mv'
+
+# Stand-ins for the devbox's commands, so the devbox:direct script runs for real under bash. Each records what the
+# script asked for in $STUB_STATE.
+_STUB_COMMANDS = {
+    "docker": """#!/usr/bin/env bash
+echo "$*" >>"$STUB_STATE/docker.log"
+case "$1" in
+    inspect) [ -f "$STUB_STATE/running" ] && echo true || exit 1 ;;
+    rm) rm -f "$STUB_STATE/running" ;;
+    run) touch "$STUB_STATE/running" ;;
+    exec) [ "$3" = cat ] && echo PEM ;;
+esac
+exit 0
+""",
+    "ss": """#!/usr/bin/env bash
+for port in $(cat "$STUB_STATE/busy_ports" 2>/dev/null); do
+    case "$*" in *":$port )"*) echo "LISTEN 0 4096 10.0.0.5:$port 0.0.0.0:*" ;; esac
+done
+""",
+    "ip": """#!/usr/bin/env bash
+echo "1.1.1.1 via 10.0.0.1 dev eth0 src $(cat "$STUB_STATE/ip" 2>/dev/null || echo 10.0.0.5) uid 1000"
+""",
+}
+
+
+@pytest.mark.skipif(shutil.which("bash") is None or shutil.which("python3") is None, reason="needs bash and python3")
+class TestDirectProxyScriptRuns:
+    """Run the devbox:direct script under bash against stand-in docker, ss and ip commands."""
+
+    @pytest.fixture
+    def state(self, tmp_path: Path) -> Path:
+        bin_dir = tmp_path / "bin"
+        bin_dir.mkdir()
+        for name, body in _STUB_COMMANDS.items():
+            stub = bin_dir / name
+            stub.write_text(body)
+            stub.chmod(0o755)
+        (tmp_path / "state").mkdir()
+        (tmp_path / "home").mkdir()
+        return tmp_path / "state"
+
+    def _run(self, state: Path, *args: str) -> subprocess.CompletedProcess[str]:
+        root = state.parent
+        env = {
+            **os.environ,
+            "PATH": f"{root / 'bin'}{os.pathsep}{os.environ['PATH']}",
+            "HOME": str(root / "home"),
+            "STUB_STATE": str(state),
+        }
+        return subprocess.run(
+            ["bash", "-s", "--", *args],
+            input=coder._DIRECT_PROXY_SCRIPT,
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=60,
         )
+
+    def _docker_calls(self, state: Path, verb: str) -> int:
+        log = state / "docker.log"
+        lines = log.read_text().splitlines() if log.exists() else []
+        return sum(1 for line in lines if line.split(" ", 1)[0] == verb)
+
+    def test_first_run_starts_caddy_without_a_caddyfile(self, state: Path) -> None:
+        result = self._run(state, "up", "8411")
+
+        assert result.returncode == 0, result.stderr
+        payload = json.loads(result.stdout.splitlines()[-1])
+        assert payload["origin"] == "https://10.0.0.5:8411"
+        assert payload["ca_pem"] == "PEM"
+        assert len(payload["token"]) >= 40
+        assert self._docker_calls(state, "run") == 1
+        caddyfile = (state.parent / "home" / ".cache" / "hogli" / "devbox-direct" / "Caddyfile").read_text()
+        assert f"@stranger not header Cookie *posthog_devbox_direct={payload['token']}*" in caddyfile
+
+    def test_rerun_with_the_same_config_leaves_caddy_running(self, state: Path) -> None:
+        first = json.loads(self._run(state, "up", "8411").stdout.splitlines()[-1])
+        (state / "busy_ports").write_text("8411")
+
+        result = self._run(state, "up", "8411")
+
+        assert result.returncode == 0, result.stderr
+        assert json.loads(result.stdout.splitlines()[-1])["token"] == first["token"]
+        assert self._docker_calls(state, "run") == 1
+
+    def test_busy_new_port_keeps_the_running_proxy(self, state: Path) -> None:
+        self._run(state, "up", "8411")
+        (state / "busy_ports").write_text("8411 8443")
+        removals = self._docker_calls(state, "rm")
+
+        result = self._run(state, "up", "8443")
+
+        assert result.returncode == 1
+        assert "Port 8443 is in use" in result.stderr
+        assert self._docker_calls(state, "rm") == removals
+        assert (state / "running").exists()
+
+    def test_changed_config_on_its_own_port_restarts_caddy(self, state: Path) -> None:
+        self._run(state, "up", "8411")
+        (state / "busy_ports").write_text("8411")
+        (state / "ip").write_text("10.0.0.6")
+
+        result = self._run(state, "up", "8411")
+
+        assert result.returncode == 0, result.stderr
+        assert json.loads(result.stdout.splitlines()[-1])["origin"] == "https://10.0.0.6:8411"
+        assert self._docker_calls(state, "run") == 2
+
+    def test_down_removes_the_proxy(self, state: Path) -> None:
+        self._run(state, "up", "8411")
+
+        result = self._run(state, "down")
+
+        assert result.returncode == 0, result.stderr
+        assert json.loads(result.stdout) == {"stopped": True}
+        assert not (state / "running").exists()
 
 
 @pytest.fixture

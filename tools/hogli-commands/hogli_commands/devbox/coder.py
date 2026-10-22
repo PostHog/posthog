@@ -1782,7 +1782,10 @@ if [ "$running" = true ] && cmp -s "$dir/Caddyfile.next" "$dir/Caddyfile"; then
     rm -f "$dir/Caddyfile.next"
 else
     # A running proxy holds the port in its own Caddyfile. Check any other port before it removes the running proxy.
-    current_port=$(sed -n 's|^https://.*:\([0-9]*\) {$|\1|p' "$dir/Caddyfile" 2>/dev/null | head -n 1)
+    current_port=
+    if [ -f "$dir/Caddyfile" ]; then
+        current_port=$(sed -n 's|^https://.*:\([0-9]*\) {$|\1|p' "$dir/Caddyfile" | head -n 1)
+    fi
     if [ "$running" != true ] || [ "$port" != "$current_port" ]; then
         if [ -n "$(ss -Hltn "( sport = :$port )")" ]; then
             rm -f "$dir/Caddyfile.next"

@@ -418,6 +418,8 @@ def _vite_same_origin(request: HttpRequest) -> str | None:
     client that sets the header can only make its own page load modules from the host it already talks to."""
     from urllib.parse import urlsplit
 
+    from django.http.request import split_domain_port
+
     value = request.headers.get(VITE_SAME_ORIGIN_HEADER)
     if not value:
         return None
@@ -428,7 +430,10 @@ def _vite_same_origin(request: HttpRequest) -> str | None:
         return None
     if parsed.scheme not in ("http", "https") or parsed.path not in ("", "/") or parsed.query or parsed.fragment:
         return None
-    if not parsed.netloc or parsed.netloc.lower() != request.get_host().lower():
+    # The origin goes into an inline script, so it must be a plain host and port. get_host() checks the request's
+    # host the same way, but this function must not depend on that.
+    domain, _ = split_domain_port(parsed.netloc)
+    if not domain or parsed.netloc.lower() != request.get_host().lower():
         return None
     return f"{parsed.scheme}://{parsed.netloc}"
 

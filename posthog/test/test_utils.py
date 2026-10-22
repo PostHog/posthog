@@ -322,6 +322,21 @@ class TestGetJsUrl(SimpleTestCase):
             request = self.factory.get("/", HTTP_HOST=host, HTTP_X_POSTHOG_VITE_ORIGIN=header)
             self.assertEqual(expected, get_js_url(request))
 
+    @parameterized.expand(
+        [
+            ("quote", "h';alert(1)"),
+            ("quote_after_port", "10.0.0.5:8411'"),
+            ("angle_bracket", "h<script>"),
+        ]
+    )
+    def test_get_js_url_vite_same_origin_header_rejects_a_host_that_is_not_plain(self, _name: str, host: str) -> None:
+        # Django's get_host() refuses these hosts first. The header check must not depend on that, because the
+        # origin goes into an inline script.
+        with self.settings(DEBUG=True, JS_URL="https://frontend.devbox.example"):
+            request = self.factory.get("/", HTTP_HOST="10.0.0.5:8411", HTTP_X_POSTHOG_VITE_ORIGIN=f"https://{host}")
+            with patch.object(request, "get_host", return_value=host):
+                self.assertEqual("https://frontend.devbox.example", get_js_url(request))
+
     def test_get_js_url_without_vite_same_origin_header(self) -> None:
         with self.settings(DEBUG=True, JS_URL="https://frontend.devbox.example"):
             request = self.factory.get("/", HTTP_HOST="10.0.0.5:8411")
