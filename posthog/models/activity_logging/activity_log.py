@@ -49,6 +49,7 @@ ACTIVITY_LOG_WRITE_FAILURES = Counter(
 ActivityScope = Literal[
     "Cohort",
     "CrossProjectDashboard",
+    "DevGatewayToken",
     "FeatureFlag",
     "Person",
     "Group",
@@ -117,6 +118,7 @@ ActivityScope = Literal[
     "CustomerProfileConfig",
     "Log",
     "LogsAlertConfiguration",
+    "PlatformAlertConfiguration",
     "LogsExclusionRule",
     "LogsRetentionRule",
     "TracesRetentionRule",
@@ -254,6 +256,12 @@ class ActivityLog(UUIDTModel):
             models.Index(
                 fields=["team_id", "-created_at"],
                 name="idx_alog_team_created_at",
+            ),
+            # One user's rows in a time window, for the activity summary. Not partial, because the
+            # query keeps rows where `is_system` and `was_impersonated` are NULL.
+            models.Index(
+                fields=["team_id", "user", "-created_at"],
+                name="idx_alog_team_user_created_at",
             ),
         ]
 
@@ -562,6 +570,18 @@ vision_alert_machine_fields = [
     "updated_at",
 ]
 
+# Written by checks, ownership handovers and the logs route's snooze, never by a settings edit.
+platform_alert_runtime_fields = [
+    "next_check_at",
+    "snooze_until",
+    "consecutive_failures",
+    "check_status",
+    "owner",
+    "owner_changed_at",
+    "switched_off_at",
+    "updated_at",
+]
+
 # Fields that prevent activity signal triggering entirely when only these fields change
 signal_exclusions: dict[ActivityScope, list[str]] = {
     "DataQualityCheckSchedule": ["next_run_at", "last_run_at", "last_suite_run", "updated_at"],
@@ -582,6 +602,7 @@ signal_exclusions: dict[ActivityScope, list[str]] = {
         "consecutive_failures",
         "state",
     ],
+    "PlatformAlertConfiguration": platform_alert_runtime_fields,
     "PersonalAPIKey": [
         "last_used_at",
     ],
@@ -720,6 +741,8 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "alerts",
     ],
     "VisionAlertConfiguration": [*vision_alert_machine_fields, "events", "matches"],
+    # The reverse relations hold runtime state per group and per notification thread.
+    "PlatformAlertConfiguration": [*platform_alert_runtime_fields, "alerts", "threads", "delivery_paths"],
     "DataQualityCheckSchedule": ["subject_type", "subject_uuid", "next_run_at", "last_run_at", "last_suite_run"],
     # The pointer names the tagged object, which a row never changes, and content_type and team
     # are model objects the diff cannot serialize.

@@ -20,13 +20,7 @@ from products.experiments.backend.facade.contracts import (
 )
 from products.experiments.backend.health.checks.flag_state import is_single_variant_shipped, shipped_variant_key
 from products.experiments.backend.health.condition_changes import conditions_net_effect
-from products.experiments.backend.health.context import (
-    ConditionsChange,
-    FlagHistory,
-    HealthContext,
-    ReachableCondition,
-    VariantProperty,
-)
+from products.experiments.backend.health.context import FlagHistory, HealthContext, ReachableCondition, VariantProperty
 from products.experiments.backend.health.pinned_share import (
     PinnedConditions,
     PinnedShareGrade,
@@ -35,7 +29,9 @@ from products.experiments.backend.health.pinned_share import (
     pinned_share_severity,
     pinned_variant_keys,
 )
+from products.experiments.backend.health.skips import CheckSkip, flag_setup_skip
 from products.experiments.backend.health.split_changes import format_change_time
+from products.feature_flags.backend.facade.edits import ConditionsChange
 
 # pinned: the subcodes are sent as `finding_variant` on the health finding events, so insights group on them.
 # Every condition that includes users pins a variant, so no user is randomly assigned. One variant gets
@@ -64,6 +60,11 @@ def overrides_to_grade(ctx: HealthContext) -> PinnedConditions | None:
     if not ctx.is_launched or pins is None or pins.all_pinned:
         return None
     return pins.graded
+
+
+def forced_variant_skip(ctx: HealthContext) -> CheckSkip | None:
+    # The same states as `_pins`, which returns None for them.
+    return flag_setup_skip(ctx, before_launch=True)
 
 
 def forced_variant_release_condition(ctx: HealthContext) -> ExperimentHealthFinding | None:

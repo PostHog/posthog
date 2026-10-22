@@ -6,9 +6,17 @@ from types import MappingProxyType
 from typing import Any
 
 import time_machine
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    _create_event,
+    _create_person,
+    cleanup_materialized_columns,
+    flush_persons_and_events,
+)
 from unittest.mock import patch
 
+from django.conf import settings
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
@@ -37,6 +45,7 @@ from products.product_analytics.backend.facade.data_checks import run_insight_da
 from products.product_analytics.backend.facade.enums import (
     InsightDataCheckKey,
     InsightDataCheckLevel,
+    InsightDataChecksDepth,
     InsightDataCheckSkipReason,
 )
 from products.product_analytics.backend.facade.models import Insight
@@ -52,6 +61,8 @@ from products.product_analytics.backend.insight_data_check_results import (
     status_of,
 )
 from products.product_analytics.backend.insight_data_check_team_emails import TeamEmails, team_email_pattern
+
+from ee.clickhouse.materialized_columns.columns import materialize
 
 PASSED = InsightDataCheckLevel.PASSED
 WARNING = InsightDataCheckLevel.WARNING
@@ -78,6 +89,7 @@ FROM_A_BOT = {"key": "$raw_user_agent", "value": [BOT_USER_AGENT], "operator": "
 NOT_A_BOT = {"key": "$virt_traffic_type", "value": ["Bot"], "operator": "is_not", "type": "event"}
 IS_PAID = {"key": "plan", "value": ["paid"], "operator": "exact", "type": "event"}
 HAS_NO_PLAN_TODAY = {"key": "plan", "value": "is_not_set", "operator": "is_not_set", "type": "person"}
+SENT_WITHOUT_A_PLAN = {"key": "plan", "value": "is_not_set", "operator": "is_not_set", "type": "event"}
 ONE_STEP = [{"kind": "EventsNode", "event": EVENT}]
 TWO_STEPS = [{"kind": "EventsNode", "event": EVENT}, {"kind": "EventsNode", "event": EVENT}]
 SEVEN_DAYS = [date(2026, 3, 1) + timedelta(days=offset) for offset in range(7)]
@@ -215,16 +227,33 @@ class TestEvaluateDataChecks(SimpleTestCase):
         internal_users = next(check for check in checks if check.key == INTERNAL)
         assert (internal_users.events, internal_users.action) == (removed_by_filter + missed_by_filter, action)
 
-    def test_status_is_inconclusive_when_every_check_is_skipped(self) -> None:
-        checks = evaluate_data_checks(
-            CheckedEvents(
-                counted=Skipped(reason=InsightDataCheckSkipReason.TOO_MANY_EVENTS),
-                local=Skipped(reason=InsightDataCheckSkipReason.READ_LIMIT),
-                sample=Skipped(reason=InsightDataCheckSkipReason.READ_LIMIT),
-            )
-        )
-
-        assert status_of(checks) == "inconclusive"
+    @parameterized.expand(
+        [
+            (
+                "every_check_skipped",
+                CheckedEvents(
+                    counted=Skipped(reason=InsightDataCheckSkipReason.TOO_MANY_EVENTS),
+                    local=Skipped(reason=InsightDataCheckSkipReason.READ_LIMIT),
+                    sample=Skipped(reason=InsightDataCheckSkipReason.READ_LIMIT),
+                ),
+                "inconclusive",
+            ),
+            (
+                "sample_hit_the_read_limit",
+                replace(checked(1000), sample=Skipped(reason=InsightDataCheckSkipReason.READ_LIMIT)),
+                "partial",
+            ),
+            (
+                "bot_check_not_needed_because_the_insight_filters_on_traffic_type",
+                replace(checked(1000), insight_filters_traffic_type=True),
+                "passed",
+            ),
+        ]
+    )
+    def test_status_says_whether_every_check_ran(
+        self, _name: str, checked_events: CheckedEvents, expected: str
+    ) -> None:
+        assert status_of(evaluate_data_checks(checked_events)) == expected
 
 
 class TestNewestDaysWithin(SimpleTestCase):
@@ -324,12 +353,15 @@ class TestInsightDataChecks(ClickhouseTestMixin, APIBaseTest):
             },
         }
 
-    def _check(self, query: dict[str, Any]) -> InsightDataChecks:
+    def _check(
+        self, query: dict[str, Any], depth: InsightDataChecksDepth = InsightDataChecksDepth.QUICK
+    ) -> InsightDataChecks:
         return run_insight_data_checks(
             query,
             team=self.team,
             user=self.user,
             email_access=TeamEmailAccess(member_emails=True, verified_domains=True, person_emails=True),
+            depth=depth,
         )
 
     def _internal_users(self, result: InsightDataChecks) -> InsightDataCheck:
@@ -749,19 +781,72 @@ class TestInsightDataChecks(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("unknown_event", [{"kind": "EventsNode", "event": "never sent"}], 1_000_000_000, "no_events"),
-            ("action_series", [{"kind": "ActionsNode", "id": 1}], 1_000_000_000, "unsupported"),
-            ("read_limit_reached_while_sizing", ONE_STEP, 1, "inconclusive"),
+            ("unknown_event", [{"kind": "EventsNode", "event": "never sent"}], 1_000_000_000, "quick", "no_events"),
+            ("read_limit_reached_while_sizing", ONE_STEP, 1, "quick", "inconclusive"),
+            ("full_check_past_its_deadline", ONE_STEP, 1_000_000_000, "full", "inconclusive"),
         ]
     )
+    @patch(f"{CHECKS_MODULE}.FULL_MAX_EXECUTION_SECONDS", 0)
     def test_reports_why_nothing_was_checked(
-        self, _name: str, series: list[dict[str, Any]], max_bytes_read_per_shard: int, expected: str
+        self, _name: str, series: list[dict[str, Any]], max_bytes_read: int, depth: str, expected: str
     ) -> None:
-        with patch(f"{CHECKS_MODULE}.MAX_BYTES_READ_PER_SHARD", max_bytes_read_per_shard):
-            result = self._check(self._query(series))
+        with patch(f"{CHECKS_MODULE}.MAX_BYTES_READ", max_bytes_read):
+            result = self._check(self._query(series), InsightDataChecksDepth(depth))
 
         assert result.status == expected
         assert {check.level for check in result.checks} == {"skipped"}
+
+    # The native events table reads a property from a subcolumn of its own, so a property filter reads little there.
+    @parameterized.expand(
+        [
+            ("properties_with_columns_of_their_own", [], None, 10_000, ("warning", "warning")),
+            (
+                "a_filter_on_a_property_without_a_column",
+                [SENT_WITHOUT_A_PLAN],
+                None,
+                10_000,
+                ("on_request", "warning"),
+            ),
+            (
+                "too_few_events_to_read_a_lot_even_from_large_events",
+                [SENT_WITHOUT_A_PLAN],
+                None,
+                0,
+                ("warning", "warning"),
+            ),
+            ("asked_for_in_the_request_body", [SENT_WITHOUT_A_PLAN], "body", 10_000, ("warning", "warning")),
+            ("asked_for_on_a_saved_insight", [SENT_WITHOUT_A_PLAN], "saved_insight", 10_000, ("warning", "warning")),
+        ]
+    )
+    @patch(f"{CHECKS_MODULE}.MAX_ESTIMATED_BYTES", 1)
+    def test_runs_the_checks_that_would_read_a_lot_only_on_request(
+        self,
+        _name: str,
+        properties: list[dict[str, Any]],
+        asked_for: str | None,
+        max_json_bytes_per_event: int,
+        status_by_events_schema: tuple[str, str],
+    ) -> None:
+        legacy_status, native_status = status_by_events_schema
+        expected_status = native_status if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else legacy_status
+        self.enterContext(patch(f"{CHECKS_MODULE}.MAX_JSON_BYTES_PER_EVENT", max_json_bytes_per_event))
+        self.addCleanup(cleanup_materialized_columns)
+        materialize("events", "email", table_column="person_properties")
+        # A lifecycle chart filters on this property, which production reads from a column of its own.
+        materialize("events", "$process_person_profile")
+        query = self._query(
+            properties=properties, modifiers={"personsOnEventsMode": "person_id_override_properties_on_events"}
+        )
+
+        if asked_for == "saved_insight":
+            insight = Insight.objects.create(team=self.team, query=query)
+            response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight.id}/data_checks/?depth=full")
+        else:
+            body = {"query": query, "depth": "full"} if asked_for == "body" else {"query": query}
+            response = self.client.post(f"/api/projects/{self.team.id}/insights/data_checks/", body, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response.json()["status"] == expected_status
 
     def test_a_filter_that_cannot_run_raises_with_the_debug_modifier_on(self) -> None:
         query = self._query(properties=[{"type": "hogql", "key": "throwIf(1, 'stop') = 0"}], modifiers={"debug": True})

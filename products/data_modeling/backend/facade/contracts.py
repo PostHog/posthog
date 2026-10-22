@@ -60,6 +60,8 @@ class SavedQueryDefinition:
     is_managed: bool
     origin: str | None
     created_at: datetime
+    refreshes_incrementally: bool = False
+    calls_decision_functions: bool = False
 
 
 @dataclass(frozen=True)
@@ -99,6 +101,12 @@ class SavedQueryNodeState:
 
 class MaterializationRefusedError(Exception):
     pass
+
+
+class IncrementalConfigRefusedError(MaterializationRefusedError):
+    def __init__(self, message: str, refused_keys: tuple[str, ...] = ()) -> None:
+        super().__init__(message)
+        self.refused_keys = refused_keys
 
 
 class MaterializationForbiddenError(Exception):

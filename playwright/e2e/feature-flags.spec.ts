@@ -13,7 +13,7 @@ test.describe('Feature flags', () => {
         const flagKey = randomString('e2e-flag')
 
         await test.step('create a 100% rollout flag via the UI', async () => {
-            await page.goto('/feature_flags')
+            await page.goto('/feature-flags')
             await page.locator('[data-attr="new-feature-flag"]').click()
             await page.locator('[data-attr="blank-feature-flag-template"]').click()
             await page.locator('[data-attr="feature-flag-key"]').fill(flagKey)
@@ -21,11 +21,11 @@ test.describe('Feature flags', () => {
             const saveButton = page.locator('[data-attr="save-feature-flag"]').first()
             await expect(saveButton).toBeEnabled()
             await saveButton.click()
-            await page.waitForURL(/\/feature_flags\/\d+/)
+            await page.waitForURL(/\/feature-flags\/\d+/)
         })
 
         await test.step('the flag appears enabled in the flags list', async () => {
-            await page.goto('/feature_flags')
+            await page.goto('/feature-flags')
             const row = page.locator('table tbody tr').filter({ hasText: flagKey })
             await expect(row).toBeVisible()
             await expect(row).toContainText('100%')

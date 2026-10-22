@@ -24,9 +24,9 @@ if TYPE_CHECKING:
 COALESCABLE_SYNC_TYPES: frozenset[str] = frozenset({"incremental", "append", "full_refresh"})
 # A full refresh starts over at batch 0 and appends after it, so its runs never share a write.
 CROSS_RUN_SYNC_TYPES: frozenset[str] = frozenset({"incremental", "append"})
-# The loader holds a set decoded in Arrow, then copies it once more while it deduplicates and
-# partitions, so the memory a set takes is about twice its Arrow size.
-_ARROW_COPIES_HELD = 2
+# The loader holds a set decoded in Arrow through the upsert. Deduplication copies the rows only when
+# a key repeats, and the loader frees the set as read before the upsert, so one copy is held.
+_ARROW_COPIES_HELD = 1
 _MB = 1024 * 1024
 
 
@@ -52,6 +52,9 @@ class LoadShape:
     # batches bound for different destinations are written under different configurations and
     # must never share a set, the same as two batches with different primary keys.
     external_destination_ids: tuple[str, ...]
+    # A run's replace scope is applied by its first batch, so batches with different scopes, which
+    # are batches of different runs, never share a write.
+    replace_scope_manifest: str | None = None
 
 
 @frozen
@@ -95,6 +98,7 @@ class CoalesceMember:
                 is_first_ever_sync=batch.is_first_ever_sync,
                 cdc_write_mode=metadata.get("cdc_write_mode"),
                 external_destination_ids=_external_ids(metadata.get("external_destination_ids"), batch.destination_ids),
+                replace_scope_manifest=_manifest_path(metadata.get("replace_scope")),
             ),
         )
 
@@ -123,6 +127,7 @@ class CoalesceMember:
                 is_first_ever_sync=signal.is_first_ever_sync,
                 cdc_write_mode=signal.cdc_write_mode,
                 external_destination_ids=_external_ids(signal.external_destination_ids, signal.destination_ids),
+                replace_scope_manifest=signal.replace_scope.manifest_path if signal.replace_scope else None,
             ),
         )
 
@@ -164,6 +169,11 @@ def _arrow_bytes(value: object) -> int | None:
     if isinstance(value, bool) or not isinstance(value, int) or value < 0:
         return None
     return value
+
+
+def _manifest_path(raw: object) -> str | None:
+    path = raw.get("manifest_path") if isinstance(raw, dict) else None
+    return path if isinstance(path, str) else None
 
 
 def _key_tuple(keys: Sequence[str] | None) -> tuple[str, ...] | None:

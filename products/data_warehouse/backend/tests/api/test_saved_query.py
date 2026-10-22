@@ -33,8 +33,12 @@ from products.data_modeling.backend.facade.models import (
     Node,
     NodeType,
 )
+from products.data_tools.backend.facade.models import DataWarehouseJoin
 from products.data_tools.backend.models.datawarehouse_saved_query_folder import DataWarehouseSavedQueryFolder
-from products.data_warehouse.backend.presentation.views.saved_query.editing import DataWarehouseSavedQuerySerializer
+from products.data_warehouse.backend.presentation.views.saved_query.editing import (
+    INCREMENTAL_CONFIG_CHANGED_REFUSAL,
+    DataWarehouseSavedQuerySerializer,
+)
 from products.data_warehouse.backend.presentation.views.saved_query.viewset import (
     SavedQueryMaterializeSerializer,
     SavedQueryResumeSchedulesRequestSerializer,
@@ -2053,16 +2057,33 @@ class TestSavedQuery(APIBaseTest):
         db_saved_query.is_materialized = True
 
         mock_table = DataWarehouseTable.objects.create(
-            team=self.team, name="materialized_event_view", format="Parquet", url_pattern="s3://bucket/path"
+            team=self.team, name="event_view", format="Parquet", url_pattern="s3://bucket/path"
         )
         db_saved_query.table = mock_table
         db_saved_query.save()
+        Node.objects.filter(saved_query=db_saved_query).update(type=NodeType.MAT_VIEW)
+        view_join = DataWarehouseJoin.objects.create(
+            team=self.team,
+            source_table_name="event_view",
+            source_table_key="event",
+            joining_table_name="events",
+            joining_table_key="event",
+            field_name="events",
+        )
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query_id}/revert_materialization",
         )
 
         self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(
+            list(Node.objects.filter(saved_query=db_saved_query).values_list("type", flat=True)), [NodeType.VIEW]
+        )
+        self.assertTrue(
+            ActivityLog.objects.filter(
+                team_id=self.team.id, item_id=saved_query_id, activity="materialization_disabled"
+            ).exists()
+        )
 
         db_saved_query.refresh_from_db()
         self.assertIsNone(db_saved_query.sync_frequency_interval)
@@ -2075,6 +2096,8 @@ class TestSavedQuery(APIBaseTest):
         # Check the table has been deleted
         mock_table.refresh_from_db()
         self.assertTrue(mock_table.deleted)
+        view_join.refresh_from_db()
+        self.assertFalse(view_join.deleted)
 
     def test_create_with_existing_name(self):
         DataWarehouseTable.objects.create(
@@ -2636,6 +2659,36 @@ class TestSavedQuery(APIBaseTest):
                 from django.core.cache import cache
 
                 cache.clear()
+
+    def test_a_query_edit_is_refused_when_the_incremental_settings_changed_after_the_view_was_read(self) -> None:
+        stored_config = {"enabled": True, "incremental_key": "day", "unique_key": ["day"], "lookback_seconds": 0}
+        view = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="daily_counts",
+            query={
+                "kind": "HogQLQuery",
+                "query": "SELECT toStartOfDay(timestamp) AS day, count() AS c FROM events GROUP BY day",
+            },
+            created_by=self.user,
+        )
+        new_query = {
+            "kind": "HogQLQuery",
+            "query": "SELECT toStartOfDay(timestamp) AS day, event, count() AS c FROM events GROUP BY day, event",
+        }
+
+        def store_config_concurrently(*_args: object, **_kwargs: object) -> dict:
+            DataWarehouseSavedQuery.objects.filter(id=view.id).update(incremental_config=stored_config)
+            return {"day": {"hogql": "DateTimeDatabaseField", "clickhouse": "DateTime64(6, 'UTC')", "valid": True}}
+
+        with patch.object(DataWarehouseSavedQuery, "get_columns", side_effect=store_config_concurrently):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/warehouse_saved_queries/{view.id}",
+                {"query": new_query, "edited_history_id": str(view.query_revision)},
+            )
+
+        view.refresh_from_db()
+        assert (response.status_code, response.json()["detail"]) == (400, INCREMENTAL_CONFIG_CHANGED_REFUSAL)
+        assert view.query != new_query
 
 
 class TestSavedQueryNameValidation(SimpleTestCase):

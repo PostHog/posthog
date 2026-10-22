@@ -1394,6 +1394,7 @@ export type ActivityLogListParams = {
      *
      * * `Cohort` - Cohort
      * * `CrossProjectDashboard` - CrossProjectDashboard
+     * * `DevGatewayToken` - DevGatewayToken
      * * `FeatureFlag` - FeatureFlag
      * * `Person` - Person
      * * `Group` - Group
@@ -1462,6 +1463,7 @@ export type ActivityLogListParams = {
      * * `CustomerProfileConfig` - CustomerProfileConfig
      * * `Log` - Log
      * * `LogsAlertConfiguration` - LogsAlertConfiguration
+     * * `PlatformAlertConfiguration` - PlatformAlertConfiguration
      * * `LogsExclusionRule` - LogsExclusionRule
      * * `LogsRetentionRule` - LogsRetentionRule
      * * `TracesRetentionRule` - TracesRetentionRule
@@ -1504,6 +1506,7 @@ export type ActivityLogListScope = (typeof ActivityLogListScope)[keyof typeof Ac
 export const ActivityLogListScope = {
     Cohort: 'Cohort',
     CrossProjectDashboard: 'CrossProjectDashboard',
+    DevGatewayToken: 'DevGatewayToken',
     FeatureFlag: 'FeatureFlag',
     Person: 'Person',
     Group: 'Group',
@@ -1572,6 +1575,7 @@ export const ActivityLogListScope = {
     CustomerProfileConfig: 'CustomerProfileConfig',
     Log: 'Log',
     LogsAlertConfiguration: 'LogsAlertConfiguration',
+    PlatformAlertConfiguration: 'PlatformAlertConfiguration',
     LogsExclusionRule: 'LogsExclusionRule',
     LogsRetentionRule: 'LogsRetentionRule',
     TracesRetentionRule: 'TracesRetentionRule',
@@ -1601,6 +1605,7 @@ export const ActivityLogListScope = {
 /**
  * * `Cohort` - Cohort
  * * `CrossProjectDashboard` - CrossProjectDashboard
+ * * `DevGatewayToken` - DevGatewayToken
  * * `FeatureFlag` - FeatureFlag
  * * `Person` - Person
  * * `Group` - Group
@@ -1669,6 +1674,7 @@ export const ActivityLogListScope = {
  * * `CustomerProfileConfig` - CustomerProfileConfig
  * * `Log` - Log
  * * `LogsAlertConfiguration` - LogsAlertConfiguration
+ * * `PlatformAlertConfiguration` - PlatformAlertConfiguration
  * * `LogsExclusionRule` - LogsExclusionRule
  * * `LogsRetentionRule` - LogsRetentionRule
  * * `TracesRetentionRule` - TracesRetentionRule
@@ -1699,6 +1705,7 @@ export type ActivityLogListScopesItem = (typeof ActivityLogListScopesItem)[keyof
 export const ActivityLogListScopesItem = {
     Cohort: 'Cohort',
     CrossProjectDashboard: 'CrossProjectDashboard',
+    DevGatewayToken: 'DevGatewayToken',
     FeatureFlag: 'FeatureFlag',
     Person: 'Person',
     Group: 'Group',
@@ -1767,6 +1774,7 @@ export const ActivityLogListScopesItem = {
     CustomerProfileConfig: 'CustomerProfileConfig',
     Log: 'Log',
     LogsAlertConfiguration: 'LogsAlertConfiguration',
+    PlatformAlertConfiguration: 'PlatformAlertConfiguration',
     LogsExclusionRule: 'LogsExclusionRule',
     LogsRetentionRule: 'LogsRetentionRule',
     TracesRetentionRule: 'TracesRetentionRule',

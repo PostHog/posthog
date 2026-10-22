@@ -56,6 +56,7 @@ env:
 jobs:
     submit:
         name: Submit (${{ matrix.platform }})
+        if: github.repository == 'PostHog/posthog'
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 30
         strategy:

@@ -1,38 +1,68 @@
 from collections.abc import Callable, Mapping
 from datetime import timedelta
+from enum import Enum
+from typing import Any, Literal
 from uuid import UUID
+
+from django.db import transaction
+from django.db.models import Q, QuerySet
 
 import structlog
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models import User
-from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
+from posthog.models.activity_logging.activity_log import Change, Detail, Trigger, log_activity
 from posthog.rbac.query_access import assert_user_can_read_query
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.data_modeling.backend.facade.contracts import (
+    IncrementalConfigRefusedError,
     MaterializationFailedError,
     MaterializationForbiddenError,
     MaterializationRefusedError,
 )
 from products.data_modeling.backend.logic.freshness import UnsatisfiableFrequencyError, UnsupportedFrequencyTargetError
-from products.data_modeling.backend.logic.node_frequency import SavedQueryFrequencyBounds, saved_query_target_bounds
+from products.data_modeling.backend.logic.incremental import IncrementalConfig
+from products.data_modeling.backend.logic.incremental_eligibility import (
+    check_incremental_eligibility,
+    definition_database,
+)
+from products.data_modeling.backend.logic.node_frequency import (
+    SavedQueryFrequencyBounds,
+    declared_targets_from_nodes,
+    saved_query_target_bounds,
+)
 from products.data_modeling.backend.logic.node_materialization import SavedQueryNotFoundError
-from products.data_modeling.backend.logic.saved_query_dag_sync import update_node_type
+from products.data_modeling.backend.logic.saved_query_dag_sync import materializes, update_node_type
+from products.data_modeling.backend.logic.saved_query_reads import get_saved_query_columns
 from products.data_modeling.backend.logic.schedule_reconcile import check_saved_query_frequency_target
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
-from products.data_modeling.backend.models.node import NodeType
+from products.data_modeling.backend.models.node import Node, NodeType
 
 logger = structlog.get_logger(__name__)
 
 VisibleBlockerNames = Callable[[SavedQueryFrequencyBounds], Mapping[str, str]]
 
 MANAGED_VIEWSET_REFUSAL = "Cannot materialize a query from a managed viewset."
+MANAGED_VIEWSET_REVERT_REFUSAL = "Cannot revert materialization of a query from a managed viewset."
+STILL_MATERIALIZING_MESSAGE = (
+    "Materialization could not be fully turned off: the view is still scheduled to refresh. Try again."
+)
+MATERIALIZATION_DISABLED_ACTIVITY = "materialization_disabled"
 EDIT_ACCESS_REFUSAL = "You need edit access to this view to materialize it."
 LINEAGE_CHANGED_REFUSAL = "This view's lineage changed while we were setting it up. Reopen it and pick a cadence again."
 MATERIALIZATION_FAILED_MESSAGE = "Materialization failed. Please try again or contact support."
 MATERIALIZATION_ENABLED_ACTIVITY = "materialization_enabled"
 SAVED_QUERY_ACTIVITY_SCOPE = "DataWarehouseSavedQuery"
+VIEW_CHANGED_REFUSAL = "This view changed while we were setting it up. Try again."
+
+
+class KeepIncrementalConfig(Enum):
+    KEEP = "keep"
+
+
+KEEP_INCREMENTAL_CONFIG = KeepIncrementalConfig.KEEP
+IncrementalConfigUpdate = IncrementalConfig | None | Literal[KeepIncrementalConfig.KEEP]
 
 
 def enable_saved_query_materialization(
@@ -43,19 +73,83 @@ def enable_saved_query_materialization(
     sync_frequency_interval: timedelta | None,
     visible_blocker_names: VisibleBlockerNames,
     was_impersonated: bool,
+    incremental_config: IncrementalConfigUpdate = KEEP_INCREMENTAL_CONFIG,
+    trigger: Trigger | None = None,
 ) -> None:
     """Materialize a saved query at the given cadence and start its first run."""
-    saved_query = (
-        DataWarehouseSavedQuery.objects.filter(team_id=team_id, id=saved_query_id).exclude(deleted=True).first()
-    )
-    if saved_query is None:
-        raise SavedQueryNotFoundError(f"Saved query {saved_query_id} not found for team {team_id}")
+    saved_query = _live_saved_query(team_id, saved_query_id)
     _enable_materialization(
         saved_query,
         user=user,
         sync_frequency_interval=sync_frequency_interval,
         visible_blocker_names=visible_blocker_names,
         was_impersonated=was_impersonated,
+        incremental_config=incremental_config,
+        trigger=trigger,
+    )
+
+
+def disable_saved_query_materialization(
+    team_id: int, saved_query_id: UUID | str, *, user: User, was_impersonated: bool, trigger: Trigger | None = None
+) -> None:
+    """Turn a materialized saved query back into a plain view: drop its table and its refresh schedule."""
+    saved_query = _live_saved_query(team_id, saved_query_id)
+    if saved_query.managed_viewset_id is not None:
+        raise MaterializationRefusedError(MANAGED_VIEWSET_REVERT_REFUSAL)
+    _require_edit_access(saved_query, user)
+
+    with transaction.atomic():
+        saved_query.revert_materialization(delete_joins=False)
+        _mark_nodes_ephemeral(saved_query)
+        saved_query.refresh_from_db()
+        if _still_materializing(saved_query):
+            raise MaterializationFailedError(STILL_MATERIALIZING_MESSAGE)
+
+        log_activity(
+            organization_id=saved_query.team.organization_id,
+            team_id=saved_query.team_id,
+            user=user,
+            was_impersonated=was_impersonated,
+            item_id=saved_query.id,
+            scope=SAVED_QUERY_ACTIVITY_SCOPE,
+            activity=MATERIALIZATION_DISABLED_ACTIVITY,
+            detail=Detail(name=saved_query.name, trigger=trigger),
+        )
+
+
+def _live_saved_query(team_id: int, saved_query_id: UUID | str) -> DataWarehouseSavedQuery:
+    saved_query = (
+        DataWarehouseSavedQuery.objects.filter(team_id=team_id, id=saved_query_id).exclude(deleted=True).first()
+    )
+    if saved_query is None:
+        raise SavedQueryNotFoundError(f"Saved query {saved_query_id} not found for team {team_id}")
+    return saved_query
+
+
+def _mark_nodes_ephemeral(saved_query: DataWarehouseSavedQuery) -> None:
+    # set data modeling node type to view
+    try:
+        update_node_type(saved_query, NodeType.VIEW)
+    except Exception as e:
+        capture_exception(e)
+        logger.exception("Failed to update node type to view", saved_query_name=saved_query.name)
+        raise MaterializationFailedError(STILL_MATERIALIZING_MESSAGE) from e
+
+
+def saved_query_still_materializes(team_id: int, saved_query_id: UUID | str) -> bool:
+    """Whether the saved query asks to materialize, has a matview node, or keeps a frequency target."""
+    try:
+        return _still_materializing(_live_saved_query(team_id, saved_query_id))
+    except SavedQueryNotFoundError:
+        return False
+
+
+def _still_materializing(saved_query: DataWarehouseSavedQuery) -> bool:
+    nodes = list(Node.objects.filter(team_id=saved_query.team_id, saved_query=saved_query))
+    return (
+        materializes(saved_query)
+        or any(node.type == NodeType.MAT_VIEW for node in nodes)
+        or bool(declared_targets_from_nodes(nodes))
     )
 
 
@@ -66,6 +160,8 @@ def _enable_materialization(
     sync_frequency_interval: timedelta | None,
     visible_blocker_names: VisibleBlockerNames,
     was_impersonated: bool,
+    incremental_config: IncrementalConfigUpdate,
+    trigger: Trigger | None,
 ) -> None:
     if saved_query.managed_viewset_id is not None:
         raise MaterializationRefusedError(MANAGED_VIEWSET_REFUSAL)
@@ -81,6 +177,9 @@ def _enable_materialization(
 
     previous_interval = saved_query.sync_frequency_interval
     previously_materialized = saved_query.is_materialized
+    previous_incremental_config = saved_query.incremental_config
+    if incremental_config is not KEEP_INCREMENTAL_CONFIG:
+        _store_incremental_config(saved_query, incremental_config, user)
     _save_materialization(saved_query, is_materialized=True, sync_frequency_interval=sync_frequency_interval)
 
     # If this fails, it will set is_materialized = False
@@ -96,6 +195,8 @@ def _enable_materialization(
         _save_materialization(
             saved_query, is_materialized=previously_materialized, sync_frequency_interval=previous_interval
         )
+        if incremental_config is not KEEP_INCREMENTAL_CONFIG:
+            _restore_incremental_config(saved_query, previous_incremental_config)
         raise MaterializationRefusedError(LINEAGE_CHANGED_REFUSAL) from error
 
     # Refresh from DB to check if schedule_materialization set is_materialized = False on failure
@@ -110,6 +211,7 @@ def _enable_materialization(
         was_impersonated=was_impersonated,
         previous_interval=previous_interval,
         sync_frequency_interval=sync_frequency_interval,
+        trigger=trigger,
     )
 
 
@@ -133,6 +235,50 @@ def _refuse_a_cadence_the_lineage_forbids(
         )
     except (UnsatisfiableFrequencyError, UnsupportedFrequencyTargetError) as error:
         raise MaterializationRefusedError(str(error)) from error
+
+
+def _store_incremental_config(
+    saved_query: DataWarehouseSavedQuery, incremental_config: IncrementalConfig | None, user: User
+) -> None:
+    if incremental_config is not None:
+        _refuse_an_incremental_config_the_query_forbids(saved_query, incremental_config, user)
+    stored = None if incremental_config is None else _stored_incremental_config(incremental_config)
+    if not _unchanged_since_read(saved_query).update(incremental_config=stored):
+        raise IncrementalConfigRefusedError(VIEW_CHANGED_REFUSAL)
+    saved_query.incremental_config = stored
+
+
+def _restore_incremental_config(saved_query: DataWarehouseSavedQuery, previous: dict[str, Any] | None) -> None:
+    _unchanged_since_read(saved_query).update(incremental_config=previous)
+    saved_query.incremental_config = previous
+
+
+def _unchanged_since_read(saved_query: DataWarehouseSavedQuery) -> "QuerySet[DataWarehouseSavedQuery]":
+    config = saved_query.incremental_config
+    same_config = Q(incremental_config__isnull=True) if config is None else Q(incremental_config=config)
+    return DataWarehouseSavedQuery.objects.filter(same_config, pk=saved_query.pk, query=saved_query.query)
+
+
+def _refuse_an_incremental_config_the_query_forbids(
+    saved_query: DataWarehouseSavedQuery, incremental_config: IncrementalConfig, user: User
+) -> None:
+    result = check_incremental_eligibility(
+        (saved_query.query or {}).get("query") or "",
+        incremental_config,
+        column_types=get_saved_query_columns(saved_query.team_id, saved_query.pk),
+        database=definition_database(saved_query.team_id, user=user),
+    )
+    if not result.eligible:
+        raise IncrementalConfigRefusedError(" ".join(result.blockers), tuple(result.blocked_keys))
+
+
+def _stored_incremental_config(incremental_config: IncrementalConfig) -> dict[str, Any]:
+    return {
+        "enabled": True,
+        "incremental_key": incremental_config.incremental_key,
+        "unique_key": list(incremental_config.unique_key),
+        "lookback_seconds": incremental_config.lookback_seconds,
+    }
 
 
 def _save_materialization(
@@ -159,6 +305,7 @@ def _log_materialization_enabled(
     was_impersonated: bool,
     previous_interval: timedelta | None,
     sync_frequency_interval: timedelta | None,
+    trigger: Trigger | None,
 ) -> None:
     log_activity(
         organization_id=saved_query.team.organization_id,
@@ -179,5 +326,6 @@ def _log_materialization_enabled(
                     after=str(sync_frequency_interval),
                 ),
             ],
+            trigger=trigger,
         ),
     )

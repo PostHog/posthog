@@ -17,7 +17,6 @@ from posthog.hogql.database.database import Database
 
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import Detail, load_activity, log_activity
@@ -31,6 +30,7 @@ from products.data_modeling.backend.facade.api import (
     MaterializationForbiddenError,
     MaterializationRefusedError,
     SavedQueryNotFoundError,
+    disable_saved_query_materialization,
     enable_saved_query_materialization,
 )
 from products.data_modeling.backend.facade.flags import is_managed_viewset_enabled
@@ -315,7 +315,11 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         Parses the SQL only, so it is cheap enough to call from the editor as the user types. Lets
         the editor explain why the incremental option is unavailable before anything is saved.
         """
-        from products.data_modeling.backend.facade.api import IncrementalConfig, check_incremental_eligibility
+        from products.data_modeling.backend.facade.api import (
+            IncrementalConfig,
+            check_incremental_eligibility,
+            definition_database,
+        )
 
         body = incremental_config.CheckIncrementalSerializer(data=request.data)
         body.is_valid(raise_exception=True)
@@ -332,7 +336,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         result = check_incremental_eligibility(
             data["query"],
             config,
-            database=Database.create_for(team_id=self.team_id, user=cast(User, request.user)),
+            database=definition_database(self.team_id, user=cast(User, request.user)),
         )
         return response.Response(
             incremental_config.IncrementalEligibilitySerializer(
@@ -375,31 +379,19 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         """
         saved_query: DataWarehouseSavedQuery = self.get_object()
 
-        if saved_query.managed_viewset is not None:
-            raise serializers.ValidationError("Cannot revert materialization of a query from a managed viewset.")
-
-        saved_query.revert_materialization()
-
-        # set data modeling node type to view
         try:
-            from products.data_modeling.backend.facade.api import update_node_type
-            from products.data_modeling.backend.facade.models import NodeType
-
-            update_node_type(saved_query, NodeType.VIEW)
-        except Exception as e:
-            capture_exception(e)
-            logger.exception("Failed to update node type to view", saved_query_name=saved_query.name)
-
-        log_activity(
-            organization_id=self.team.organization_id,
-            team_id=self.team_id,
-            user=cast(User, request.user),
-            was_impersonated=is_impersonated(request),
-            item_id=saved_query.id,
-            scope="DataWarehouseSavedQuery",
-            activity="materialization_disabled",
-            detail=Detail(name=saved_query.name),
-        )
+            disable_saved_query_materialization(
+                self.team_id,
+                saved_query.id,
+                user=cast(User, request.user),
+                was_impersonated=is_impersonated(request),
+            )
+        except SavedQueryNotFoundError:
+            raise exceptions.NotFound()
+        except MaterializationForbiddenError as e:
+            raise exceptions.PermissionDenied(str(e))
+        except (MaterializationRefusedError, MaterializationFailedError) as e:
+            raise serializers.ValidationError(str(e))
 
         return response.Response(status=status.HTTP_200_OK)
 

@@ -25,7 +25,6 @@ from products.error_tracking.backend.models import (
 )
 from products.error_tracking.backend.temporal.fingerprint_embedding_result.judge import (
     DEFAULT_AUTO_MERGE_CONFIG,
-    JUDGE_MODEL,
     JUDGE_PROMPT_VERSION,
     AutoMergeConfig,
     JudgeUnavailableError,
@@ -363,7 +362,7 @@ def _judge(
     remaining_seconds = deadline - time.monotonic()
     if remaining_seconds <= 0:
         raise JudgeUnavailableError("judge_timeout")
-    return ask_judge(team.id, inputs.content, candidate_document, remaining_seconds)
+    return ask_judge(team.id, inputs.content, candidate_document, remaining_seconds, model=config.judge_model)
 
 
 def _judge_candidate(
@@ -397,7 +396,7 @@ def _judge_candidate(
             "judge_score": score,
             "judge_latency_ms": latency_ms,
             "judge_error": error,
-            "judge_model": JUDGE_MODEL,
+            "judge_model": config.judge_model,
             "judge_prompt_version": JUDGE_PROMPT_VERSION,
             "judge_cutoff": config.judge_cutoff,
             "judge_max_distance": config.judge_max_distance,
@@ -478,7 +477,7 @@ def _merge_fingerprint_into_closest_issue(
                 "merge_decision": "judge",
                 "judge_score": score,
                 "judge_cutoff": config.judge_cutoff,
-                "judge_model": JUDGE_MODEL,
+                "judge_model": config.judge_model,
                 "judge_prompt_version": JUDGE_PROMPT_VERSION,
             }
         else:
