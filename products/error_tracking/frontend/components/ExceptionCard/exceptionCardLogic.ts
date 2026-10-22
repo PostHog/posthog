@@ -54,7 +54,7 @@ export interface exceptionCardLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         issueId: (issueId: string) => string
         loading: (loading: boolean) => boolean
-        onShowOnlyWithRecording: (onShowOnlyWithRecording: (() => void) | undefined) => (() => void) | null
+        onShowOnlyWithRecording: (arg: any) => (() => void) | null
     }
 }
 
