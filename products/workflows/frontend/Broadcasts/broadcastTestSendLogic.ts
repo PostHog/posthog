@@ -445,6 +445,7 @@ async function sendTestPush(
             url: globals.person?.url ?? '',
         }
     }
+    // nosemgrep: prefer-codegen-api-namespaced-workflows -- The generated hogFlowsInvocationsCreate returns void, and this caller needs the test result.
     return await api.hogFlows.createTestInvocation('new', {
         configuration,
         globals,
