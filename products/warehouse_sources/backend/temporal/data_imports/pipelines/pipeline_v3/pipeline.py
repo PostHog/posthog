@@ -61,6 +61,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.p
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.safe_point import (
     PipelineSafePointHandler,
+    framework_cursor_covers_buffered_rows,
     source_items_are_framework_output,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
@@ -943,12 +944,18 @@ class PipelineV3(Generic[ResumableData]):
                         await self._commit_resume_state()
 
                     if should_check_shutdown(self._schema, self._resource, self._reset_pipeline, source_is_resumable):
-                        if self._handoff_checkpoint is not None and self._shutdown_monitor.is_worker_shutdown():
-                            # The next attempt continues after the last staged batch, so staging the
-                            # buffered rows now keeps it from extracting them again. A source with its
-                            # own cursor does not get this: its cursor can be behind the buffered rows,
-                            # and staging them would load them a second time after the resume.
-                            await stage_remaining_rows()
+                        if self._shutdown_monitor.is_worker_shutdown() and (
+                            self._handoff_checkpoint is not None
+                            or (source_is_resumable and framework_cursor_covers_buffered_rows(items))
+                        ):
+                            # Only when the confirmed cursor already covers the buffered rows; otherwise
+                            # the resume would load them twice. The cursor is not committed when the
+                            # staging fails, so the next attempt reads the rows again; a chunk staged
+                            # before the failure still loads. The hand-off happens either way.
+                            try:
+                                await stage_remaining_rows()
+                            except Exception:
+                                await self._logger.aexception("Failed to stage the rows buffered before the hand-off")
                         self._shutdown_monitor.raise_if_is_worker_shutdown()
                     awaiting_source = True
             except SourcePreemptedError:

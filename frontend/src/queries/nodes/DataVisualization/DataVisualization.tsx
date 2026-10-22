@@ -68,7 +68,7 @@ import { AddVariableButton } from './Components/Variables/AddVariableButton'
 import { variableModalLogic } from './Components/Variables/variableModalLogic'
 import { VariablesForInsight } from './Components/Variables/Variables'
 import { VariablesLogicProps, variablesLogic } from './Components/Variables/variablesLogic'
-import { DataVisualizationLogicProps, dataVisualizationLogic } from './dataVisualizationLogic'
+import { DataVisualizationLogicProps, SideBarTab, dataVisualizationLogic } from './dataVisualizationLogic'
 import { displayLogic } from './displayLogic'
 import { applyDataVisualizationQueryUpdate } from './queryUpdateUtils'
 
@@ -267,7 +267,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
         [biConfig, effectiveVisualizationType]
     )
 
-    const { toggleChartSettingsPanel } = useActions(dataVisualizationLogic)
+    const { toggleChartSettingsPanel, setSideBarTab } = useActions(dataVisualizationLogic)
 
     const { queryId, pollResponse } = useValues(dataNodeLogic)
 
@@ -701,6 +701,27 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                                 tooltip="Visualization settings"
                                 aria-label="Visualization settings"
                             />
+
+                            {query.kind === NodeKind.BIVisualizationNode &&
+                                effectiveVisualizationType === ChartDisplayType.ActionsTable && (
+                                    <LemonButton
+                                        size={controlSize}
+                                        type="secondary"
+                                        data-attr="bi-conditional-formatting"
+                                        onClick={() => {
+                                            setSideBarTab(SideBarTab.ConditionalFormatting)
+                                            if (settingsPanel) {
+                                                if (!settingsPanel.isOpen) {
+                                                    settingsPanel.onToggle()
+                                                }
+                                            } else {
+                                                toggleChartSettingsPanel(true)
+                                            }
+                                        }}
+                                    >
+                                        Conditional formatting
+                                    </LemonButton>
+                                )}
 
                             {props.exportContext && (
                                 <ExportButton
