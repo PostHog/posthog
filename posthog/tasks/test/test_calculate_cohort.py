@@ -21,7 +21,7 @@ from prometheus_client import REGISTRY
 from posthog.hogql.errors import QueryError
 
 from posthog.errors import CHQueryErrorQueryWasCancelled
-from posthog.exceptions import ClickHouseAtCapacity
+from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryTimeOut
 from posthog.tasks.calculate_cohort import (
     COHORT_BACKFILL_REFUSAL_OUTCOMES,
     COHORT_BACKFILL_TRIGGER_TASK_COUNTER,
@@ -2050,12 +2050,18 @@ class TestCohortCalculationTasks(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("lookup_fails", {"side_effect": ClickHouseAtCapacity()}, False),
-            ("rows_not_flushed_yet", {"return_value": []}, True),
+            ("lookup_times_out", {"side_effect": ClickHouseQueryTimeOut()}, None, False, 1),
+            ("lookup_has_a_bug", {"side_effect": ValueError("bad column")}, ValueError, False, 0),
+            ("rows_not_flushed_yet", {"return_value": []}, Retry, True, 0),
         ]
     )
     def test_collect_query_stats_retries_only_while_rows_are_missing(
-        self, _name: str, lookup: dict, should_retry: bool
+        self,
+        _name: str,
+        lookup: dict,
+        expected_exception: type[Exception] | None,
+        should_retry: bool,
+        metrics_recorded: int,
     ) -> None:
         cohort = Cohort.objects.create(team=self.team, name="stats cohort")
         history = CohortCalculationHistory.objects.create(
@@ -2066,16 +2072,14 @@ class TestCohortCalculationTasks(APIBaseTest):
         with (
             patch("products.cohorts.backend.models.util.sync_execute", **lookup),
             patch.object(collect_cohort_query_stats, "retry", side_effect=Retry()) as mock_retry,
+            self.assertRaises(expected_exception) if expected_exception else nullcontext(),
         ):
-            try:
-                collect_cohort_query_stats(
-                    "cohort_calc:abcd1234", cohort.pk, timezone.now().isoformat(), str(history.id), "SELECT 1"
-                )
-            except Retry:
-                pass
+            collect_cohort_query_stats(
+                "cohort_calc:abcd1234", cohort.pk, timezone.now().isoformat(), str(history.id), "SELECT 1"
+            )
 
         self.assertEqual(mock_retry.called, should_retry)
-        self.assertEqual(self._completed_successes() - completed_before, 0 if should_retry else 1)
+        self.assertEqual(self._completed_successes() - completed_before, metrics_recorded)
 
 
 class TestCalculateCohortFromListRetries(APIBaseTest):
