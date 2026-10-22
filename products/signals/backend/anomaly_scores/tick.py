@@ -23,7 +23,7 @@ from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
-from products.product_analytics.backend.facade.models import Insight
+from products.product_analytics.backend.facade.api import insights_including_soft_deleted_for_team
 from products.signals.backend.anomaly_scores.config import (
     ANOMALY_SCORING_FLAG_DISTINCT_ID,
     DEFAULT_LIMITS,
@@ -109,10 +109,13 @@ def plan_tick(limit: int | None, now: datetime.datetime) -> AnomalyScoringTickPl
 
 def run_insight(input: ScoreInsightInput, now: datetime.datetime) -> ScoreInsightResult:
     pick = input.pick
-    insight = (
-        Insight.objects.filter(team_id=pick.team_id, id=pick.insight_id, saved=True)
-        .select_related("created_by")
-        .first()
+    insight = next(
+        (
+            insight
+            for insight in insights_including_soft_deleted_for_team(team_id=pick.team_id, insight_ids=[pick.insight_id])
+            if insight.saved and not insight.deleted
+        ),
+        None,
     )
     if insight is None:
         return ScoreInsightResult(status=STATUS_MISSING, events=0)

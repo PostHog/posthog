@@ -309,8 +309,16 @@ class TestScoredBuckets(ClickhouseTestMixin, BaseTest):
         score(8, "c", datetime(2026, 10, 21, tzinfo=UTC))
         score(9, "d", datetime(2026, 10, 21, tzinfo=UTC), source="default")
         score(10, "e", datetime(2026, 1, 1, tzinfo=UTC))
+        # Any member can capture these: one names an insight of another team, one a bucket in the future.
+        score(11, "f", datetime(2026, 10, 21, tzinfo=UTC))
+        score(8, "c", datetime(2027, 1, 1, tzinfo=UTC))
 
-        state = scored_buckets(self.team, since=datetime(2026, 9, 1, tzinfo=UTC))
+        state = scored_buckets(
+            self.team,
+            insight_ids={7, 8, 9, 10},
+            since=datetime(2026, 9, 1, tzinfo=UTC),
+            now=datetime(2026, 10, 22, tzinfo=UTC),
+        )
 
         assert state == {
             7: {"a": datetime(2026, 10, 20, tzinfo=UTC), "b": datetime(2026, 10, 19, tzinfo=UTC)},

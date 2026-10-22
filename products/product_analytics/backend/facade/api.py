@@ -29,6 +29,7 @@ from products.product_analytics.backend.facade.contracts import (
     InsightSeries,
     InsightVariableDefinition,
     SavedInsightDefinition,
+    WatchedTrendsInsight,
 )
 from products.product_analytics.backend.models.insight import Insight
 from products.product_analytics.backend.models.insight_variable import InsightVariable
@@ -129,6 +130,22 @@ def recently_viewed_insights(*, team_id: int, user_id: int, limit: int) -> list[
 
 def insights_including_soft_deleted_for_team(*, team_id: int, insight_ids: Collection[int]) -> list[Insight]:
     return logic.insights_including_soft_deleted_for_team(team_id=team_id, insight_ids=insight_ids)
+
+
+def watched_trends_insights(
+    *,
+    team_ids: Collection[int],
+    intervals: Collection[str],
+    excluded_displays: Collection[str],
+    viewed_since: datetime,
+) -> list[WatchedTrendsInsight]:
+    """Saved trends insights that are on a live dashboard or that someone viewed since ``viewed_since``.
+
+    Only insights with an interval in ``intervals`` and a display outside ``excluded_displays`` are kept.
+    """
+    return logic.watched_trends_insights(
+        team_ids=team_ids, intervals=intervals, excluded_displays=excluded_displays, viewed_since=viewed_since
+    )
 
 
 def recent_viewers_by_insight(

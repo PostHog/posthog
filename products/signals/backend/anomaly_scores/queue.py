@@ -7,12 +7,10 @@ newest scored bucket is oldest, so coverage rotates over every eligible insight.
 
 import hashlib
 import datetime
+from collections.abc import Collection
 from typing import Any, cast
 
 from django.core.cache import cache
-from django.db.models import Q, TextField, Value
-from django.db.models.fields.json import KT
-from django.db.models.functions import Coalesce
 
 from posthog.schema import ChartDisplayType, IntervalType
 
@@ -28,7 +26,7 @@ from posthog.models import Team
 from posthog.tasks.alerts.utils import NON_TIME_SERIES_DISPLAY_TYPES
 
 from products.alerts_platform.backend.facade.scheduling import CalendarInterval, alert_check_offset
-from products.product_analytics.backend.facade.models import Insight
+from products.product_analytics.backend.facade.api import watched_trends_insights
 from products.signals.backend.anomaly_scores.config import AnomalyScoringConfig
 from products.signals.backend.anomaly_scores.scoring import bucket_end
 
@@ -62,7 +60,11 @@ SELECT
     toString(properties.$anomaly_series_key) AS series_key,
     max(timestamp) AS newest_bucket
 FROM events
-WHERE event = {event} AND timestamp >= {since} AND properties.$anomaly_source = {source}
+WHERE event = {event}
+    AND timestamp >= {since}
+    AND timestamp <= {now}
+    AND properties.$anomaly_source = {source}
+    AND toInt(properties.$anomaly_insight_id) IN {insight_ids}
 GROUP BY insight_id, series_key
 LIMIT {limit}
 """
@@ -105,41 +107,14 @@ def watched_insights(
     team_ids: list[int], intervals: tuple[IntervalType, ...], now: datetime.datetime
 ) -> list[WatchedInsight]:
     """Saved trends insights with a scored interval that are on a dashboard or were viewed lately."""
-    if not team_ids:
-        return []
-    trends = (
-        Insight.objects.filter(team_id__in=team_ids, saved=True)
-        .annotate(
-            # A wrapper node holds the trends query in `source`.
-            scored_kind=Coalesce(KT("query__source__kind"), KT("query__kind")),
-            scored_interval=Coalesce(
-                KT("query__source__interval"),
-                KT("query__interval"),
-                Value(IntervalType.DAY.value),
-                output_field=TextField(),
-            ),
-            scored_display=Coalesce(
-                KT("query__source__trendsFilter__display"),
-                KT("query__trendsFilter__display"),
-                Value(""),
-                output_field=TextField(),
-            ),
-        )
-        .filter(scored_kind="TrendsQuery", scored_interval__in=[interval.value for interval in intervals])
-        .exclude(scored_display__in=_UNSCORED_DISPLAYS)
-    )
-    # Two queries instead of one OR, so Postgres never multiplies dashboard tiles by views.
-    on_dashboard = trends.filter(
-        Q(dashboard_tiles__deleted=False) | Q(dashboard_tiles__deleted__isnull=True),
-        dashboard_tiles__dashboard__deleted=False,
-    )
-    viewed = trends.filter(insightviewed__last_viewed_at__gte=now - VIEW_WINDOW)
-    rows: set[tuple[int, int, str]] = set()
-    for queryset in (on_dashboard, viewed):
-        rows.update(cast(list[tuple[int, int, str]], queryset.values_list("team_id", "id", "scored_interval")))
     return [
-        WatchedInsight(team_id=team_id, insight_id=insight_id, interval=IntervalType(interval))
-        for team_id, insight_id, interval in sorted(rows)
+        WatchedInsight(team_id=watched.team_id, insight_id=watched.insight_id, interval=IntervalType(watched.interval))
+        for watched in watched_trends_insights(
+            team_ids=team_ids,
+            intervals=[interval.value for interval in intervals],
+            excluded_displays=_UNSCORED_DISPLAYS,
+            viewed_since=now - VIEW_WINDOW,
+        )
     ]
 
 
@@ -154,8 +129,16 @@ def _utc(value: datetime.datetime) -> datetime.datetime:
     return value.replace(tzinfo=datetime.UTC) if value.tzinfo is None else value.astimezone(datetime.UTC)
 
 
-def scored_buckets(team: Team, since: datetime.datetime) -> dict[int, dict[str, datetime.datetime]]:
-    """Insight id to the newest scored bucket start of each of its series."""
+def scored_buckets(
+    team: Team, insight_ids: Collection[int], since: datetime.datetime, now: datetime.datetime
+) -> dict[int, dict[str, datetime.datetime]]:
+    """Insight id to the newest scored bucket start of each of its series, for this team's own insights.
+
+    Any member can capture an event with any properties into the project. Rows for another team's
+    insight, or with a future bucket, are ignored, so they cannot stop the scoring of an insight.
+    """
+    if not insight_ids:
+        return {}
     tag_queries(product=Product.SIGNALS, feature=Feature.ALERTING)
     response = execute_hogql_query(
         _SCORED_BUCKETS_QUERY,
@@ -165,6 +148,8 @@ def scored_buckets(team: Team, since: datetime.datetime) -> dict[int, dict[str, 
             "event": ast.Constant(value=SCORE_EVENT),
             "source": ast.Constant(value=SOURCE_INSIGHT),
             "since": ast.Constant(value=since),
+            "now": ast.Constant(value=now),
+            "insight_ids": ast.Tuple(exprs=[ast.Constant(value=insight_id) for insight_id in sorted(insight_ids)]),
             "limit": ast.Constant(value=_MAX_SCORED_SERIES),
         },
         workload=Workload.OFFLINE,
@@ -211,26 +196,36 @@ def _stable_hash(insight_id: int) -> int:
     return int.from_bytes(hashlib.sha256(str(insight_id).encode()).digest()[:8], "big")
 
 
+@frozen(order=True)
+class _QueuePosition:
+    # Fields compare in order: the team's turn, then never-scored first, then the oldest newest bucket.
+    turn: int
+    scored: bool
+    newest_bucket: float
+    tiebreak: int
+
+
 def order_insights(
     insights: list[WatchedInsight], newest_buckets: dict[int, datetime.datetime | None]
 ) -> list[WatchedInsight]:
     """Never-scored insights first in a stable hashed order, then the stalest. Round robin over teams."""
 
-    def staleness(insight: WatchedInsight) -> tuple[int, float, int]:
+    def position(insight: WatchedInsight, turn: int) -> _QueuePosition:
         newest = newest_buckets.get(insight.insight_id)
-        return (
-            0 if newest is None else 1,
-            0.0 if newest is None else newest.timestamp(),
-            _stable_hash(insight.insight_id),
+        return _QueuePosition(
+            turn=turn,
+            scored=newest is not None,
+            newest_bucket=0.0 if newest is None else newest.timestamp(),
+            tiebreak=_stable_hash(insight.insight_id),
         )
 
-    rank_in_team: dict[int, int] = {}
-    ranked: list[tuple[int, tuple[int, float, int], WatchedInsight]] = []
-    for insight in sorted(insights, key=staleness):
-        rank = rank_in_team.get(insight.team_id, 0)
-        rank_in_team[insight.team_id] = rank + 1
-        ranked.append((rank, staleness(insight), insight))
-    return [insight for _, _, insight in sorted(ranked, key=lambda item: item[:2])]
+    turns: dict[int, int] = {}
+    positions: dict[int, _QueuePosition] = {}
+    for insight in sorted(insights, key=lambda insight: position(insight, 0)):
+        turn = turns.get(insight.team_id, 0)
+        turns[insight.team_id] = turn + 1
+        positions[insight.insight_id] = position(insight, turn)
+    return sorted(insights, key=lambda insight: positions[insight.insight_id])
 
 
 def select_insights(config: AnomalyScoringConfig, now: datetime.datetime, limit: int) -> Selection:
@@ -239,7 +234,8 @@ def select_insights(config: AnomalyScoringConfig, now: datetime.datetime, limit:
     since = scored_state_since(config, now)
     state: dict[int, dict[str, datetime.datetime]] = {}
     for team_id in sorted({insight.team_id for insight in insights}):
-        state.update(scored_buckets(teams[team_id], since))
+        team_insight_ids = {insight.insight_id for insight in insights if insight.team_id == team_id}
+        state.update(scored_buckets(teams[team_id], team_insight_ids, since, now))
 
     newest_buckets = {
         insight.insight_id: max(state[insight.insight_id].values()) if insight.insight_id in state else None
