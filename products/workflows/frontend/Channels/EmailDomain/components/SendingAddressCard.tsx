@@ -78,9 +78,7 @@ function SenderIdentityFields(props: EmailDomainWizardLogicProps): JSX.Element {
                     onChange={setSenderNameInput}
                     placeholder={suggestedSenderName}
                 />
-                <span className="text-xs text-secondary">
-                    Shown as the sender in the inbox, like Thomas Obermüller.
-                </span>
+                <span className="text-xs text-secondary">Shown as the sender in the inbox.</span>
             </div>
             <div className="flex flex-col gap-1.5 text-sm">
                 <label htmlFor="email-domain-local-part">Email address</label>
