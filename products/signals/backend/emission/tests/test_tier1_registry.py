@@ -60,6 +60,11 @@ TIER1_SOURCES = [
     (ExternalDataSourceType.GRAFANAIRM, "incidents", "grafana_irm", "incident"),
     (ExternalDataSourceType.XMATTERS, "incidents", "xmatters", "incident"),
     (ExternalDataSourceType.BETTERSTACK, "incidents", "betterstack", "incident"),
+    # Work trackers
+    (ExternalDataSourceType.ASANA, "tasks", "asana", "issue"),
+    (ExternalDataSourceType.MONDAY, "items", "monday", "issue"),
+    (ExternalDataSourceType.PLANE, "work_items", "plane", "issue"),
+    (ExternalDataSourceType.AZUREDEVOPS, "work_item_revisions", "azure_devops", "issue"),
     # Data quality / observability
     (ExternalDataSourceType.MONTECARLO, "alerts", "monte_carlo", "incident"),
     (ExternalDataSourceType.BIGEYE, "Issues", "bigeye", "incident"),
@@ -73,8 +78,10 @@ def _mock_record(fields: tuple[str, ...]) -> dict:
     record: dict = {}
     for field in fields:
         name = field.rsplit(" AS ", 1)[-1]
-        if name in ("tags", "labels"):
-            record[name] = '["one", "two"]'
+        if name in ("tags", "labels", "projects"):
+            record[name] = '[{"name": "one"}, {"name": "two"}]' if name == "projects" else '["one", "two"]'
+        elif name == "column_values":
+            record[name] = '[{"id": "a", "type": "text", "text": "some text"}]'
         elif name in ("id", "iid", "project_id", "number", "workflow_state_id"):
             record[name] = 123
         else:
