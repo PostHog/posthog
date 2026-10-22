@@ -2,6 +2,7 @@ from datetime import UTC, datetime
 
 from temporalio import activity
 
+from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.temporal.common.utils import close_db_connections
 
 from products.exports.backend.facade.api import create_png_export, get_delivery_image_url, png_export_has_content
@@ -35,7 +36,7 @@ def prepare_slack_unfurl_charts_activity(inputs: SlackAppUnfurlChartsWorkflowInp
                 is_system=True,
                 expires_after=expires_after,
                 # A recent cached result is fresh enough for a preview and saves a query per unfurl.
-                prefer_recent_cache=True,
+                execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
             )
         except ValueError:
             continue

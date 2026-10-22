@@ -3,9 +3,10 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
+from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.integration import Integration
 
-from products.exports.backend.facade.api import export_prefers_recent_cache
+from products.exports.backend.facade.api import export_execution_mode
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.product_analytics.backend.facade.models import Insight
 from products.slack_app.backend.temporal.activities.unfurl_charts import (
@@ -44,7 +45,7 @@ class TestPrepareSlackUnfurlChartsActivity(BaseTest):
         assert len(prepared.assets) == 1
         asset = ExportedAsset.objects.get(id=prepared.assets[0].asset_id)
         assert asset.insight_id == insight.id
-        assert export_prefers_recent_cache(asset.export_context)
+        assert export_execution_mode(asset.export_context) == ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
 
 
 class TestPostSlackUnfurlChartsActivity(BaseTest):

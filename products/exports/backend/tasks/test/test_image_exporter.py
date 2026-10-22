@@ -490,11 +490,18 @@ class TestImageExporter(APIBaseTest):
                 ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
             ),
             (
-                "prefers_recent_cache",
-                {"prefer_recent_cache": True},
+                "recent_cache_execution_mode",
+                {"execution_mode": ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE.value},
                 None,
                 False,
                 ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+            ),
+            (
+                "async_execution_mode_falls_back",
+                {"execution_mode": ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE.value},
+                None,
+                False,
+                ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
             ),
         ]
     )
