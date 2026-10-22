@@ -349,7 +349,7 @@ async def test_should_run_posthog_database_connection_failure_stays_retryable(
     producer = CDPProducer.for_source(team_id=team.id, schema_id=str(schema.id), job_id="", logger=mock.AsyncMock())
 
     with patch(
-        "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.cdp_producer.warehouse_tables_with_enabled_hog_functions",
+        "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.cdp_producer.has_enabled_hog_function_for_warehouse_table",
         side_effect=error_cls(message),
     ):
         with pytest.raises(PostHogInternalDatabaseError) as exc_info:

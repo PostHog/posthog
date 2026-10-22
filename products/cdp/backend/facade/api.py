@@ -13,7 +13,7 @@ from functools import reduce
 from typing import Any
 from uuid import UUID
 
-from django.db.models import Q
+from django.db.models import Q, QuerySet
 
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -29,6 +29,7 @@ _LAZY = {"HogFunctionSerializer": "api.hog_function"}
 __all__ = [
     *sorted(_LAZY),
     "create_hog_functions",
+    "has_enabled_hog_function_for_warehouse_table",
     "is_hog_function_template_available",
     "warehouse_tables_with_enabled_hog_functions",
 ]
@@ -75,6 +76,24 @@ def create_hog_functions(
     return created_ids
 
 
+def _enabled_hog_functions_triggered_by(
+    team_id: int, trigger_source: str, table_names: Collection[str]
+) -> QuerySet[HogFunction]:
+    names_any_table = reduce(
+        operator.or_, (Q(filters__data_warehouse__contains=[{"table_name": name}]) for name in table_names)
+    )
+    return (
+        HogFunction.objects.filter(team_id=team_id, enabled=True, filters__source=trigger_source)
+        .filter(names_any_table)
+        .exclude(deleted=True)
+    )
+
+
+def has_enabled_hog_function_for_warehouse_table(*, team_id: int, trigger_source: str, table_name: str) -> bool:
+    """Whether an enabled hog function triggers on this warehouse table."""
+    return _enabled_hog_functions_triggered_by(team_id, trigger_source, [table_name]).exists()
+
+
 def warehouse_tables_with_enabled_hog_functions(
     *, team_id: int, trigger_source: str, table_names: Collection[str]
 ) -> set[str]:
@@ -82,14 +101,8 @@ def warehouse_tables_with_enabled_hog_functions(
     names = set(table_names)
     if not names:
         return set()
-    names_any_table = reduce(
-        operator.or_, (Q(filters__data_warehouse__contains=[{"table_name": name}]) for name in names)
-    )
-    triggering_filters = (
-        HogFunction.objects.filter(team_id=team_id, enabled=True, filters__source=trigger_source)
-        .filter(names_any_table)
-        .exclude(deleted=True)
-        .values_list("filters", flat=True)
+    triggering_filters = _enabled_hog_functions_triggered_by(team_id, trigger_source, names).values_list(
+        "filters", flat=True
     )
     return {
         table["table_name"]

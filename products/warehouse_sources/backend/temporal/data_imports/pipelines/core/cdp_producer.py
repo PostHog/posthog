@@ -23,7 +23,7 @@ from posthog.kafka_client.routing import KafkaClusterProfile, async_producer_sco
 from posthog.kafka_client.topics import KAFKA_DWH_CDP_RAW_TABLE
 from posthog.sync import database_sync_to_async_pool
 
-from products.cdp.backend.facade.api import warehouse_tables_with_enabled_hog_functions
+from products.cdp.backend.facade.api import has_enabled_hog_function_for_warehouse_table
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.data_warehouse.backend.facade.api import aget_s3_client, ensure_bucket_exists
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
@@ -243,8 +243,8 @@ class CDPProducer:
                 if self.table.kind == "view" and not self._view_can_trigger():
                     return False
 
-                if dot_notated_table_name in warehouse_tables_with_enabled_hog_functions(
-                    team_id=self.team_id, trigger_source=trigger_source, table_names=[dot_notated_table_name]
+                if has_enabled_hog_function_for_warehouse_table(
+                    team_id=self.team_id, trigger_source=trigger_source, table_name=dot_notated_table_name
                 ):
                     return True
 
