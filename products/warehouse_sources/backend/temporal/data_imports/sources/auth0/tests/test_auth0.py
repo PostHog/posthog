@@ -274,8 +274,10 @@ class TestGetRows:
             "users": _user_rows(50, "2024-06-01T00:00:00.000Z", start=100) + _user_rows(50, newest, start=150),
             "total": 200,
         }
-        # The inclusive lower bound re-reads the 50 users already synced at `newest`.
-        page_2 = {"users": _user_rows(53, newest, start=150), "total": 53}
+        # The inclusive lower bound re-reads 49 users already synced at `newest`. `auth0|150` comes
+        # back too, updated after the slide, so its newer version must not be dropped.
+        updated = {"user_id": "auth0|150", "updated_at": "2024-06-03T00:00:00.000Z"}
+        page_2 = {"users": [*_user_rows(52, newest, start=151), updated], "total": 53}
 
         with mock.patch.object(auth0_module, "SEARCH_RESULT_CAP", 200):
             result = self._run(
@@ -285,15 +287,15 @@ class TestGetRows:
             )
 
         assert result.raised is None
-        assert [len(batch) for batch in result.items] == [100, 100, 3]
-        assert len({row["user_id"] for batch in result.items for row in batch}) == 203
+        assert [len(batch) for batch in result.items] == [100, 100, 4]
+        assert result.items[2][-1] == updated
         # The third request restarts at page 0 with the window's lower bound moved to the newest
         # row seen — that is how the collection is walked past Auth0's 1000-result ceiling.
         assert result.requests[3].param("page") == "0"
         assert result.requests[3].param("q") == f'updated_at:["{newest}" TO *]'
         assert result.saved_states == [
             Auth0ResumeConfig(page=1, window_start=None),
-            Auth0ResumeConfig(page=0, window_start=newest),
+            Auth0ResumeConfig(page=0, window_start=newest, window_start_keys=[[f"auth0|{i}"] for i in range(150, 200)]),
         ]
         assert result.committed_states == result.saved_states
 
@@ -329,16 +331,21 @@ class TestGetRows:
 
     def test_resumes_from_saved_page_and_window(self) -> None:
         resumed_window = "2024-07-01T00:00:00.000Z"
-        page = {"users": _user_rows(1, "2024-07-02T00:00:00.000Z"), "total": 1}
+        # `auth0|0` was yielded at the window boundary before the worker restarted.
+        page = {
+            "users": _user_rows(1, resumed_window) + _user_rows(1, "2024-07-02T00:00:00.000Z", start=1),
+            "total": 2,
+        }
         result = self._run(
             "users",
             [ScriptedResponse(json=page)],
-            resume_state=Auth0ResumeConfig(page=4, window_start=resumed_window),
+            resume_state=Auth0ResumeConfig(page=4, window_start=resumed_window, window_start_keys=[["auth0|0"]]),
             incremental_field="updated_at",
             db_incremental_field_last_value="2020-01-01T00:00:00.000Z",
         )
 
         assert result.raised is None
+        assert [row["user_id"] for batch in result.items for row in batch] == ["auth0|1"]
         # The saved window wins over the (older) database watermark.
         assert result.requests[1].param("page") == "4"
         assert result.requests[1].param("q") == f'updated_at:["{resumed_window}" TO *]'
