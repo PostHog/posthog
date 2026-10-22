@@ -325,6 +325,59 @@ mod tests {
     }
 
     #[test]
+    fn a_revoke_frees_the_partitions_charge() {
+        let mut harness = continuous(3);
+        harness.receive(0, &[0, 1, 2]);
+        harness.after_the_batch_timeout();
+        harness.submit();
+        assert!(!harness.poller.reading());
+
+        harness.revoke(0);
+        assert!(
+            harness.poller.reading(),
+            "a revoked partition holds no charge"
+        );
+
+        harness.receive(0, &[0, 1, 2]);
+        harness.after_the_batch_timeout();
+        harness.submit();
+        assert!(
+            !harness.poller.reading(),
+            "the new assignment's charge counts in full"
+        );
+    }
+
+    #[test]
+    fn the_limit_sums_each_partitions_uncommitted_charge() {
+        let mut harness = continuous(5);
+        harness.receive(0, &[0, 1]);
+        harness.after_the_batch_timeout();
+        harness.submit();
+        harness.receive(0, &[2, 3]);
+        harness.after_the_batch_timeout();
+        harness.submit();
+        assert!(
+            harness.poller.reading(),
+            "a second submit replaces the partition's charge"
+        );
+
+        harness.receive(1, &[0]);
+        harness.after_the_batch_timeout();
+        harness.submit();
+        assert!(
+            !harness.poller.reading(),
+            "the partitions' charges add up to the limit"
+        );
+
+        harness.complete(0, &[0, 1]);
+        assert_eq!(harness.commit(), HashMap::from([(p(0), Offset(2))]));
+        assert!(
+            harness.poller.reading(),
+            "a commit frees only the offsets it passed"
+        );
+    }
+
+    #[test]
     fn a_completion_a_worker_did_not_accept_in_full_fails() {
         let mut harness = continuous(1_000);
         harness.receive(0, &[0, 1]);
