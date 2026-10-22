@@ -27,3 +27,6 @@ class TestCorsResponse(SimpleTestCase):
                     cors_response(request, HttpResponse()).get("Access-Control-Allow-Origin"),
                     msg=f"with origin='{origin}', actual did not equal {expected}",
                 )
+
+
+# Throwaway probe for the Depot Test results gate. Do not merge.
