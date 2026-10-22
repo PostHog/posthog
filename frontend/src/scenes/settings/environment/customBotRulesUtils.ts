@@ -292,8 +292,8 @@ function blockCount({ start, end }: IpBounds, limit: number): number {
     return count
 }
 
-function networkBlockCount(ranges: string[]): number {
-    const bounds = ranges.map(parseIpEntry).flatMap((entry) => (entry ? [ipEntryBounds(entry)] : []))
+function networkBlockCount(entries: (IpEntry | null)[]): number {
+    const bounds = entries.flatMap((entry) => (entry ? [ipEntryBounds(entry)] : []))
     let count = 0
     for (const merged of mergedBounds(bounds)) {
         count += blockCount(merged, MAX_IP_RANGES_PER_CONDITION - count)
@@ -304,8 +304,7 @@ function networkBlockCount(ranges: string[]): number {
     return count
 }
 
-function ipEntryError(entry: string): string | null {
-    const parsed = parseIpEntry(entry)
+function ipEntryError(entry: string, parsed: IpEntry | null): string | null {
     if (!parsed) {
         return `'${entry}' is not a valid IP address or range.`
     }
@@ -335,30 +334,61 @@ export function conditionRanges(condition: CustomBotCondition): string[] {
         .filter(Boolean)
 }
 
+type IpRangeAnalysis = { ranges: string[]; entries: (IpEntry | null)[]; error: string | null; blockCount: number }
+
+const MAX_CACHED_IP_RANGE_ANALYSES = 256
+const ipRangeAnalyses = new Map<string, IpRangeAnalysis>()
+
+function rangeListError(ranges: string[], entries: (IpEntry | null)[]): string | null {
+    for (const [index, entry] of ranges.entries()) {
+        if (entry.length > MAX_PATTERN_LENGTH) {
+            return `An IP range cannot be longer than ${MAX_PATTERN_LENGTH} characters.`
+        }
+        const error = ipEntryError(entry, entries[index])
+        if (error) {
+            return error
+        }
+    }
+    return null
+}
+
+function analyzeRanges(ranges: string[]): IpRangeAnalysis {
+    if (ranges.length > MAX_IP_RANGES_PER_CONDITION) {
+        const error = `A condition can have at most ${MAX_IP_RANGES_PER_CONDITION} IP ranges.`
+        return { ranges, entries: [], error, blockCount: 0 }
+    }
+    const entries = ranges.map(parseIpEntry)
+    const blockCount = networkBlockCount(entries)
+    const blockError =
+        blockCount > MAX_IP_RANGES_PER_CONDITION
+            ? `These ranges cover more than ${MAX_IP_RANGES_PER_CONDITION} network blocks. Use fewer or wider ranges.`
+            : null
+    return { ranges, entries, error: rangeListError(ranges, entries) ?? blockError, blockCount }
+}
+
+function ipRangeAnalysis(condition: CustomBotCondition): IpRangeAnalysis {
+    const cacheKey = JSON.stringify(condition.patterns ?? [])
+    const cached = ipRangeAnalyses.get(cacheKey)
+    if (cached) {
+        return cached
+    }
+    const analysis = analyzeRanges(conditionRanges(condition))
+    if (ipRangeAnalyses.size >= MAX_CACHED_IP_RANGE_ANALYSES) {
+        ipRangeAnalyses.delete(ipRangeAnalyses.keys().next().value as string)
+    }
+    ipRangeAnalyses.set(cacheKey, analysis)
+    return analysis
+}
+
 function validateIpRanges(condition: CustomBotCondition): string | null {
-    const ranges = conditionRanges(condition)
-    if (ranges.length === 0) {
+    const analysis = ipRangeAnalysis(condition)
+    if (analysis.ranges.length === 0) {
         return 'Add an IP address or range to match.'
     }
     if (condition.key !== CustomBotField.IP) {
         return 'Ranges only work with the IP address property.'
     }
-    if (ranges.length > MAX_IP_RANGES_PER_CONDITION) {
-        return `A condition can have at most ${MAX_IP_RANGES_PER_CONDITION} IP ranges.`
-    }
-    for (const entry of ranges) {
-        if (entry.length > MAX_PATTERN_LENGTH) {
-            return `An IP range cannot be longer than ${MAX_PATTERN_LENGTH} characters.`
-        }
-        const error = ipEntryError(entry)
-        if (error) {
-            return error
-        }
-    }
-    if (networkBlockCount(ranges) > MAX_IP_RANGES_PER_CONDITION) {
-        return `These ranges cover more than ${MAX_IP_RANGES_PER_CONDITION} network blocks. Use fewer or wider ranges.`
-    }
-    return null
+    return analysis.error
 }
 
 export function withMatcher(
@@ -368,7 +398,7 @@ export function withMatcher(
 ): CustomBotCondition {
     const { pattern, patterns, ...rest } = condition
     if (matcher === CustomBotMatcher.Cidr) {
-        return { ...rest, key, matcher, patterns: patterns ?? [pattern ?? ''] }
+        return { ...rest, key, matcher, patterns: patterns?.length ? patterns : [pattern ?? ''] }
     }
     return { ...rest, key, matcher, pattern: pattern ?? conditionRanges(condition)[0] ?? '' }
 }
@@ -432,7 +462,7 @@ export function validateCustomBotRuleSet(rules: CustomBotRule[]): string | null 
     const totalRanges = rules
         .flatMap((rule) => rule.items)
         .filter((condition) => condition.matcher === CustomBotMatcher.Cidr)
-        .reduce((sum, condition) => sum + networkBlockCount(conditionRanges(condition)), 0)
+        .reduce((sum, condition) => sum + ipRangeAnalysis(condition).blockCount, 0)
     if (totalRanges > MAX_TOTAL_IP_RANGES) {
         return `You can have at most ${MAX_TOTAL_IP_RANGES} IP network blocks across all rules.`
     }
@@ -450,10 +480,7 @@ export function conditionMatchesValue(condition: CustomBotCondition, value: stri
             return false
         }
         const address = asIPv6(candidate)
-        return conditionRanges(condition).some((entry) => {
-            const parsed = parseIpEntry(entry)
-            return parsed !== null && ipEntryMatches(parsed, address)
-        })
+        return ipRangeAnalysis(condition).entries.some((entry) => entry !== null && ipEntryMatches(entry, address))
     }
     const rawPattern = condition.pattern ?? ''
     const pattern = rawPattern.trim()
