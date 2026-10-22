@@ -5,7 +5,10 @@ import { createElement } from 'react'
 
 import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
 import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
-import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
+import {
+    DataWarehouseSavedQueryUpdate,
+    dataWarehouseViewsLogic,
+} from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
 import { materializationJobsLogic } from 'scenes/data-warehouse/saved_queries/materializationJobsLogic'
 import { urls } from 'scenes/urls'
 
@@ -148,6 +151,29 @@ describe('nodeDetailSceneLogic', () => {
         } finally {
             editor.unmount()
         }
+    })
+
+    // Saving a new query from this page changes what the model depends on, and the lineage tab stays
+    // mounted, so it must reload. A frequency change reaches the same success action without a query.
+    it.each<[string, Partial<DataWarehouseSavedQueryUpdate>, number]>([
+        ['changes the query', { query: { kind: NodeKind.HogQLQuery, query: 'SELECT 2' } }, 1],
+        ['changes only the sync frequency', { sync_frequency: '24hour' }, 0],
+    ])('reloads the lineage graph only when an update %s', async (_case, change, expectedReloads) => {
+        const lineageRequests = jest.fn(() => [200, { nodes: [], edges: [] }])
+        useMocks({
+            get: {
+                '/api/environments/:team_id/data_modeling_nodes/lineage/': lineageRequests,
+                '/api/environments/:team_id/data_modeling_nodes/:id/': () => [200, node],
+                '/api/environments/:team_id/warehouse_saved_queries/:id/': () => [200, savedQuery],
+            },
+        })
+        await mountScene(urls.nodeDetail(NODE_ID))
+        const requestsBefore = lineageRequests.mock.calls.length
+
+        dataWarehouseViewsLogic.actions.updateDataWarehouseSavedQuerySuccess([], { id: SAVED_QUERY_ID, ...change })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(lineageRequests.mock.calls.length - requestsBefore).toBe(expectedReloads)
     })
 
     it.each(['table', 'metric'] as const)('offers a %s only its lineage, and opens on it', async (type) => {

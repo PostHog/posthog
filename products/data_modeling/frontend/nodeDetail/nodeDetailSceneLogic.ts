@@ -729,9 +729,13 @@ export const nodeDetailSceneLogic = kea<nodeDetailSceneLogicType>([
             },
             updateViewFromQueryEditor: () => embeddedQueryEditor()?.actions.reviewEditingViewUpdate(),
             discardQueryEditorChanges: () => embeddedQueryEditor()?.actions.discardChanges(),
-            updateDataWarehouseSavedQuerySuccess: () => {
+            updateDataWarehouseSavedQuerySuccess: ({ payload }) => {
                 if (values.node?.saved_query_id) {
                     actions.loadSavedQuery()
+                    // The server rebuilds the model's dependencies when its query changes.
+                    if (payload?.query && payload.id === values.node.saved_query_id) {
+                        actions.loadLineageGraph()
+                    }
                 }
             },
             // This page is about the deleted view, so it has nowhere left to stand. The same delete runs
