@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 
 import { IconLive } from '@posthog/icons'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
@@ -9,8 +9,7 @@ import { SimpleKeyValueList } from 'lib/components/SimpleKeyValueList'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
-import { logsViewerModalLogic } from 'products/logs/frontend/components/LogsViewer/LogsViewerModal/logsViewerModalLogic'
-import { buildLogsSessionScope } from 'products/logs/frontend/utils'
+import { useViewLogsButton } from 'products/logs/frontend/components/ViewLogsButton'
 
 import { ItemTimeDisplay } from '../../../components/ItemTimeDisplay'
 import { miniFiltersLogic } from '../miniFiltersLogic'
@@ -71,7 +70,7 @@ export function ItemLog({ item, groupCount }: ItemLogProps): JSX.Element {
 }
 
 export function ItemLogDetail({ item, groupedItems, sessionId }: ItemLogProps): JSX.Element {
-    const { openLogsViewerModal } = useActions(logsViewerModalLogic)
+    const { onClick: openSessionLogs } = useViewLogsButton({ sessionId, timestamp: item.timestamp.toISOString() })
 
     const attributes =
         item.data.attributes && typeof item.data.attributes === 'object'
@@ -93,13 +92,7 @@ export function ItemLogDetail({ item, groupedItems, sessionId }: ItemLogProps): 
                         type="tertiary"
                         size="xsmall"
                         icon={<IconLive />}
-                        onClick={() =>
-                            openLogsViewerModal({
-                                id: `session-${sessionId}`,
-                                fullScreen: false,
-                                ...buildLogsSessionScope(sessionId, item.timestamp.toISOString()),
-                            })
-                        }
+                        onClick={openSessionLogs}
                         disabledReason={sessionId ? undefined : 'No session ID associated with this log'}
                     >
                         View in Logs
