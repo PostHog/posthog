@@ -4,7 +4,7 @@ import { useVirtualizer } from '@tanstack/react-virtual'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import React, { HTMLProps, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import React, { HTMLProps, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { IconInfo } from '@posthog/icons'
 import { LemonCheckbox } from '@posthog/lemon-ui'
@@ -311,35 +311,9 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
 
     const paginationState = usePagination(sortedDataSource, pagination, id)
     const virtualizeRows = virtualized && allowContentScroll && !expandable
-    const getRowKey = useCallback(
-        (index: number): string | number => {
-            const record = paginationState.dataSourcePage[index]
-            if (typeof rowKey === 'function') {
-                return rowKey(record, index)
-            }
-            if (rowKey) {
-                return record[rowKey] ?? paginationState.currentStartIndex + index
-            }
-            return paginationState.currentStartIndex + index
-        },
-        [rowKey, paginationState.dataSourcePage, paginationState.currentStartIndex]
-    )
-    const [scrollMargin, setScrollMargin] = useState(0)
-    useLayoutEffect(() => {
-        const header = tableRef.current?.tHead
-        if (!virtualizeRows || !header) {
-            setScrollMargin(0)
-            return
-        }
-        const measureHeader = (): void => setScrollMargin(header.offsetHeight)
-        measureHeader()
-        const observer = new ResizeObserver(measureHeader)
-        observer.observe(header)
-        return () => observer.disconnect()
-    }, [virtualizeRows, showHeader, tableRef])
+    const scrollMargin = tableRef.current?.tHead?.offsetHeight ?? 0
     const rowVirtualizer = useVirtualizer<HTMLDivElement, HTMLTableRowElement>({
         count: paginationState.dataSourcePage.length,
-        getItemKey: getRowKey,
         getScrollElement: () => scrollRef.current,
         estimateSize: () => 36,
         overscan: 5,
@@ -940,7 +914,11 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                                 {paginationState.dataSourcePage.length ? (
                                     rowIndexes.map((rowIndex) => {
                                         const record = paginationState.dataSourcePage[rowIndex]
-                                        const rowKeyDetermined = getRowKey(rowIndex)
+                                        const rowKeyDetermined = rowKey
+                                            ? typeof rowKey === 'function'
+                                                ? rowKey(record, rowIndex)
+                                                : (record[rowKey] ?? rowIndex)
+                                            : paginationState.currentStartIndex + rowIndex
                                         const rowClassNameDetermined =
                                             typeof rowClassName === 'function'
                                                 ? rowClassName(record, rowIndex)
