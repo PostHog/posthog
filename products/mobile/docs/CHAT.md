@@ -49,6 +49,10 @@ The composer area shows only when both checks pass. `ChatAccessGate` (`src/featu
 
 ## Composer drafts
 
+The message input wraps long text onto multiple lines and grows up to 120 points tall.
+Longer drafts scroll vertically within the input. The keyboard's Send action sends the message
+and keeps the keyboard open for a follow-up.
+
 Text and attached report IDs are saved separately for each task, each report discussion, and
 the new-chat composer. Native drafts use encrypted device storage, scoped to the account,
 host and project, with at most 50 drafts per project. Changes save after 400 ms of idle time
