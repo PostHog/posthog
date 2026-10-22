@@ -58979,7 +58979,7 @@ export namespace Schemas {
     }
 
     /**
-     * Values of the dashboard variables that the PromQL, SQL or filters refer to as `$name`.
+     * Values of the dashboard variables that the PromQL, SQL, filters or interval refer to as `$name`.
      */
     export type MetricsQueryVariables = {[key: string]: MetricsVariableValue} | null;
 
@@ -58992,7 +58992,7 @@ export namespace Schemas {
       display?: MetricsDisplaySettings | null;
       /** Arithmetic over clause aliases (e.g. "a / b"); when set, only the formula series are returned */
       formula?: string | null;
-      /** Bucket size, one of: second_15, second_30, minute, minute_5, minute_15, minute_30, hour, hour_6, day, week; auto-picked from the range when omitted. Coarsened when the range would need more than 10,000 buckets. */
+      /** Bucket size, one of: second_15, second_30, minute, minute_5, minute_15, minute_30, hour, hour_6, day, week; auto-picked from the range when omitted. Fixed intervals are coarsened above 500 buckets. A dashboard variable reference such as `$window` pins the interval to its single duration value (15s, 30s, 1m, 5m, 15m, 30m, 1h, 6h, 1d, 1w). Variable intervals that exceed 500 buckets require a larger value or shorter date range, so the step stays consistent with PromQL lookbacks using that variable. */
       interval?: string | null;
       kind?: 'MetricsQuery';
       /** How the query is written; the builder when unset. */
@@ -59005,7 +59005,7 @@ export namespace Schemas {
       /** HogQL SELECT over the posthog.metric* tables. Used when `language` is `sql`. It must return a `time` and a `value` column; every other column is a series label. `{date_from}`, `{date_to}`, `{interval}` and `{interval_seconds}` are filled in from the date range and interval. */
       sql?: string | null;
       tags?: QueryLogTags | null;
-      /** Values of the dashboard variables that the PromQL, SQL or filters refer to as `$name`. */
+      /** Values of the dashboard variables that the PromQL, SQL, filters or interval refer to as `$name`. */
       variables?: MetricsQueryVariables;
       /** version of the node, used for schema migrations */
       version?: number | null;
@@ -59040,7 +59040,7 @@ export namespace Schemas {
     }
 
     /**
-     * Values of the dashboard variables that the filters refer to as `$name`.
+     * Values of the dashboard variables that the filters or interval refer to as `$name`.
      */
     export type MetricsHistogramQueryVariables = {[key: string]: MetricsVariableValue} | null;
 
@@ -59048,7 +59048,7 @@ export namespace Schemas {
       /** Defaults to the last 24 hours when omitted; dashboard date filters override it */
       dateRange?: DateRange | null;
       filters?: MetricsQueryFilter[] | null;
-      /** Bucket size; auto-picked from the range when omitted */
+      /** Bucket size; auto-picked from the range when omitted. A dashboard variable reference such as `$window` pins the interval to its single duration value (15s, 30s, 1m, 5m, 15m, 30m, 1h, 6h, 1d, 1w). Variable intervals that exceed 500 buckets require a larger value or shorter date range. */
       interval?: string | null;
       kind?: 'MetricsHistogramQuery';
       metricName: string;
@@ -59060,7 +59060,7 @@ export namespace Schemas {
       tags?: QueryLogTags | null;
       /** UCUM unit for the y-axis bounds, e.g. "s", "ms". Presentation only. */
       unit?: string | null;
-      /** Values of the dashboard variables that the filters refer to as `$name`. */
+      /** Values of the dashboard variables that the filters or interval refer to as `$name`. */
       variables?: MetricsHistogramQueryVariables;
       /** version of the node, used for schema migrations */
       version?: number | null;
