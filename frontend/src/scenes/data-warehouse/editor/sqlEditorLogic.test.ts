@@ -1929,9 +1929,9 @@ describe('sqlEditorLogic', () => {
                 { display_name: 'Monthly active users', unit: 'users' },
             ],
             [
-                'omits the optional fields when they are blank',
+                'posts blank optional fields as blank, so an overwrite clears them',
                 { ...PREFILL, display_name: '', unit: '' },
-                { display_name: undefined, unit: undefined },
+                { display_name: '', unit: '' },
             ],
         ])('%s', async (_case, fields, expectedOptionalFields) => {
             let createBody: Record<string, any> | undefined
@@ -1950,10 +1950,66 @@ describe('sqlEditorLogic', () => {
             logic.actions.saveAsMetricSubmit(fields)
             await expectLogic(logic).toFinishAllListeners()
 
-            expect(createBody).toMatchObject({ name: fields.name, description: fields.description })
+            expect(createBody).toMatchObject({
+                name: fields.name,
+                description: fields.description,
+                created_source: 'user',
+            })
             expect(createBody?.display_name).toEqual(expectedOptionalFields.display_name)
             expect(createBody?.unit).toEqual(expectedOptionalFields.unit)
             expect(logic.values.metricPrefill).toBeNull()
+        })
+
+        it('asks before it overwrites a taken name, and reopens the form with the typed values and query on dismiss', async () => {
+            const createBodies: Record<string, any>[] = []
+            useMocks({
+                post: {
+                    '/api/projects/:team_id/data_catalog/metrics/': async ({ request }) => {
+                        const body = (await request.json()) as Record<string, any>
+                        createBodies.push(body)
+                        return body.overwrite
+                            ? [201, { name: body.name }]
+                            : [
+                                  409,
+                                  {
+                                      type: 'invalid_request',
+                                      code: 'metric_name_taken',
+                                      detail: 'A metric with this name already exists.',
+                                      extra: { existing_metric: { name: body.name, status: 'approved' } },
+                                  },
+                              ]
+                    },
+                },
+            })
+            const open = jest.spyOn(LemonDialog, 'open').mockImplementation(() => {})
+            const openForm = jest.spyOn(LemonDialog, 'openForm').mockImplementation(() => {})
+            mountEditor()
+            logic.actions.setQueryInput('SELECT 1;\nSELECT 2;\nSELECT 3')
+
+            logic.actions.saveAsMetricSubmit(PREFILL, 'SELECT 2')
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(createBodies.map((body) => body.overwrite)).toEqual([false])
+            // A dismissal runs only onAfterClose.
+            open.mock.calls.at(-1)?.[0].onAfterClose?.()
+            await expectLogic(logic).toFinishAllListeners()
+            const reopenedForm = openForm.mock.calls.at(-1)?.[0]
+            expect(reopenedForm?.initialValues).toMatchObject({ ...PREFILL, saveTarget: 1 })
+
+            await reopenedForm?.onSubmit({ ...PREFILL, saveTarget: 1 })
+            await expectLogic(logic).toFinishAllListeners()
+            // A click on Overwrite runs onClick, and the close that follows runs onAfterClose.
+            const confirmDialog = open.mock.calls.at(-1)?.[0]
+            confirmDialog?.primaryButton?.onClick?.({} as any)
+            confirmDialog?.onAfterClose?.()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(createBodies.map((body) => body.overwrite)).toEqual([false, false, true])
+            expect(createBodies[2].definition.query).toEqual('SELECT 2')
+            expect(openForm).toHaveBeenCalledTimes(1)
+            expect(router.values.location.pathname).toContain(urls.dataCatalogMetric(PREFILL.name))
+            open.mockRestore()
+            openForm.mockRestore()
         })
 
         it('refreshes the sidebar metric list after saving a metric', async () => {
