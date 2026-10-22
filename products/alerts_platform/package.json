@@ -12,12 +12,12 @@
     },
     "devDependencies": {
         "@storybook/react": "catalog:",
-        "@testing-library/react": "*",
         "kea-test-utils": "catalog:"
     },
     "peerDependencies": {
         "@posthog/icons": "catalog:",
         "@posthog/lemon-ui": "*",
+        "@testing-library/react": "*",
         "@types/react": "*",
         "react": "*"
     }
