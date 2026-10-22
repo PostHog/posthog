@@ -182,7 +182,6 @@ describe('Hogflow Executor', () => {
             getMemberCohortIds: () => Promise.resolve([]),
             getMemberCohortIdsForPersons: () => Promise.resolve(new Map()),
             getCohortMembership: () => Promise.resolve(null),
-            getCohortMembershipsForPersons: () => Promise.resolve(new Map()),
         }
         executor = new HogFlowExecutorService(
             hogFlowFunctionsService,
