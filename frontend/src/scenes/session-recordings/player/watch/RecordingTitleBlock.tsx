@@ -3,14 +3,16 @@ import { useValues } from 'kea'
 import { PropertyIcon } from 'lib/components/PropertyIcon/PropertyIcon'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { Link } from 'lib/lemon-ui/Link'
 import { humanFriendlyDuration } from 'lib/utils/durations'
+import { PlayerMetaExperimentTags } from 'scenes/session-recordings/player/player-meta/PlayerMetaExperimentTags'
 import { PinToPlaylistButton } from 'scenes/session-recordings/player/player-meta/PlayerMetaLinks'
 import { playerMetaLogic } from 'scenes/session-recordings/player/player-meta/playerMetaLogic'
 import { gatherIconProperties } from 'scenes/session-recordings/playlist/gatherIconProperties'
 import { sessionRecordingsListPropertiesLogic } from 'scenes/session-recordings/playlist/sessionRecordingsListPropertiesLogic'
 
 import { PersonIcon } from 'products/persons/frontend/components/PersonDisplay'
-import { asDisplay } from 'products/persons/frontend/person-utils'
+import { asDisplay, asLink } from 'products/persons/frontend/person-utils'
 
 import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 
@@ -37,13 +39,21 @@ export function RecordingTitleBlock(): JSX.Element {
         : undefined
     const iconProperties = gatherIconProperties(recordingProperties, sessionPlayerMetaData ?? undefined)
     const durationSeconds = sessionPlayerMetaData?.recording_duration
+    const personName = sessionPerson ? asDisplay(sessionPerson) : 'Unknown user'
+    const personHref = asLink(sessionPerson)
 
     return (
         <div className="flex items-start gap-3 min-w-0" data-attr="watch-panel-title">
             {sessionPerson && <PersonIcon person={sessionPerson} size="lg" className="mr-0 shrink-0" />}
             <div className="flex flex-col gap-0.5 min-w-0 flex-1">
                 <h2 className="text-base font-semibold truncate m-0 ph-no-capture">
-                    {sessionPerson ? asDisplay(sessionPerson) : 'Unknown user'}
+                    {personHref ? (
+                        <Link to={personHref} subtle data-attr="watch-panel-title-person">
+                            {personName}
+                        </Link>
+                    ) : (
+                        personName
+                    )}
                 </h2>
                 <div className="flex items-center gap-x-2 gap-y-0.5 flex-wrap text-xs text-secondary ph-no-capture">
                     {durationSeconds !== undefined && <span>{humanFriendlyDuration(durationSeconds)}</span>}
@@ -54,6 +64,7 @@ export function RecordingTitleBlock(): JSX.Element {
                             <span>{label}</span>
                         </span>
                     ))}
+                    <PlayerMetaExperimentTags />
                 </div>
             </div>
             <div className="shrink-0">

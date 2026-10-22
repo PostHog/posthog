@@ -126,7 +126,7 @@ export const SessionRecordingPreviewCompact = memo(
                                 <div className="flex flex-col gap-0.5 text-xs">
                                     {tileDetails.map(({ label, value }) => (
                                         <span key={label} className="break-all">
-                                            <span className="text-muted">{label}: </span>
+                                            <span className="text-secondary">{label}: </span>
                                             {value}
                                         </span>
                                     ))}

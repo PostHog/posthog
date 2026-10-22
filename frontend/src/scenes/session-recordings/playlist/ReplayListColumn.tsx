@@ -31,23 +31,48 @@ export interface ReplayListColumnProps {
 }
 
 /** The list column's segment switch: What to watch, All recordings, and the open recording's Moments. */
-export function ReplayListColumn({
+export function ReplayListColumn(props: ReplayListColumnProps): JSX.Element {
+    const { activeSessionRecording } = useValues(sessionRecordingsPlaylistLogic)
+    return activeSessionRecording ? (
+        <ReplayListColumnForRecording {...props} recording={activeSessionRecording} />
+    ) : (
+        <ReplayListColumnView {...props} recording={null} momentsAvailable={false} />
+    )
+}
+
+/** Moments shows once the recording has an observation or a summary on the way, so an empty pane never opens. */
+function ReplayListColumnForRecording({
+    recording,
+    ...props
+}: ReplayListColumnProps & { recording: SessionRecordingType }): JSX.Element {
+    const { observations, summarizePending } = useValues(observationsDockLogic({ sessionId: recording.id }))
+    return (
+        <ReplayListColumnView
+            {...props}
+            recording={recording}
+            momentsAvailable={observations.length > 0 || summarizePending}
+        />
+    )
+}
+
+function ReplayListColumnView({
     logicKey,
     recordingsList,
     picksList,
     picksMode,
     unwatchedPicksCount = 0,
     onPicksSelected,
-}: ReplayListColumnProps): JSX.Element {
+    recording,
+    momentsAvailable,
+}: ReplayListColumnProps & { recording: SessionRecordingType | null; momentsAvailable: boolean }): JSX.Element {
     const logic = replayListColumnLogic({ logicKey })
     const { effectiveSegmentFor } = useValues(logic)
     const { setSegment } = useActions(logic)
-    const { activeSessionRecording } = useValues(sessionRecordingsPlaylistLogic)
 
-    const playerLogicProps: SessionRecordingPlayerLogicProps | null = activeSessionRecording
-        ? { playerKey: logicKey, sessionRecordingId: activeSessionRecording.id }
+    const playerLogicProps: SessionRecordingPlayerLogicProps | null = recording
+        ? { playerKey: logicKey, sessionRecordingId: recording.id }
         : null
-    const segment = effectiveSegmentFor(picksMode, playerLogicProps !== null)
+    const segment = effectiveSegmentFor(picksMode, momentsAvailable)
 
     const options = [
         ...(picksList
@@ -68,47 +93,52 @@ export function ReplayListColumn({
             : []),
         {
             value: 'recordings' as const,
-            label: picksList ? 'All' : 'All recordings',
+            label: picksList && momentsAvailable ? 'All' : 'All recordings',
             'data-attr': 'list-segment-recordings',
         },
-        {
-            value: 'moments' as const,
-            label: (
-                <span className="flex items-center gap-1">
-                    <IconSparkles />
-                    <span>Moments</span>
-                    {playerLogicProps && <MomentsBadge sessionId={playerLogicProps.sessionRecordingId} />}
-                </span>
-            ),
-            disabledReason: playerLogicProps ? undefined : 'Open a recording to see its moments',
-            'data-attr': 'list-segment-moments',
-        },
+        ...(momentsAvailable && playerLogicProps
+            ? [
+                  {
+                      value: 'moments' as const,
+                      label: (
+                          <span className="flex items-center gap-1">
+                              <IconSparkles />
+                              <span>Moments</span>
+                              <MomentsBadge sessionId={playerLogicProps.sessionRecordingId} />
+                          </span>
+                      ),
+                      'data-attr': 'list-segment-moments',
+                  },
+              ]
+            : []),
     ]
 
     return (
         <>
-            <LemonSegmentedButton
-                size="small"
-                fullWidth
-                className="mb-2"
-                value={segment}
-                onChange={(next: ReplayListSegment) => {
-                    setSegment(next)
-                    if ((next === 'picks') !== (segment === 'picks')) {
-                        onPicksSelected?.(next === 'picks')
-                    }
-                }}
-                options={options}
-            />
+            {options.length > 1 && (
+                <LemonSegmentedButton
+                    size="small"
+                    fullWidth
+                    className="mb-2"
+                    value={segment}
+                    onChange={(next: ReplayListSegment) => {
+                        setSegment(next)
+                        if ((next === 'picks') !== (segment === 'picks')) {
+                            onPicksSelected?.(next === 'picks')
+                        }
+                    }}
+                    options={options}
+                />
+            )}
             {segment === 'picks' ? (
                 picksList
-            ) : segment === 'moments' && playerLogicProps && activeSessionRecording ? (
+            ) : segment === 'moments' && playerLogicProps && recording ? (
                 <MomentsSegment
-                    key={activeSessionRecording.id}
+                    key={recording.id}
                     playerLogicProps={playerLogicProps}
-                    personDisplay={asDisplay(activeSessionRecording.person)}
-                    person={activeSessionRecording.person}
-                    durationSeconds={activeSessionRecording.recording_duration}
+                    personDisplay={asDisplay(recording.person)}
+                    person={recording.person}
+                    durationSeconds={recording.recording_duration}
                 />
             ) : (
                 recordingsList

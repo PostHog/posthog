@@ -9,27 +9,19 @@ import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
-import { MAX_SELECTED_RECORDINGS, sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic'
+import { sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic'
 import { AddToCollectionModal, BulkScanMenuItem, ConfirmDeleteRecordings } from './SessionRecordingsPlaylistSettings'
 
-/** Replaces the filter row while recordings are selected: the count, select all, and the bulk actions. */
 export function ReplayBulkBar({ type, shortId }: { type: 'filters' | 'collection'; shortId?: string }): JSX.Element {
-    const {
-        selectedRecordingsIds,
-        otherRecordings,
-        visiblePinnedRecordings: pinnedRecordings,
-    } = useValues(sessionRecordingsPlaylistLogic)
+    const { selectedRecordingsIds } = useValues(sessionRecordingsPlaylistLogic)
     const {
         setSelectedRecordingsIds,
-        handleSelectUnselectAll,
         setIsAddToCollectionModalOpen,
         setIsDeleteSelectedRecordingsDialogOpen,
         handleBulkMarkAsViewed,
         handleBulkMarkAsNotViewed,
         handleBulkDeleteFromPlaylist,
     } = useActions(sessionRecordingsPlaylistLogic)
-    const recordings = type === 'filters' ? otherRecordings : pinnedRecordings
-    const allSelected = recordings.length > 0 && selectedRecordingsIds.length === recordings.length
     const accessControlDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.SessionRecording,
         AccessControlLevel.Editor
@@ -66,20 +58,8 @@ export function ReplayBulkBar({ type, shortId }: { type: 'filters' | 'collection
     ]
 
     return (
-        <div className="flex items-center gap-1 flex-wrap text-xs" data-attr="list-bulk-bar">
+        <div className="flex flex-1 items-center gap-1 flex-wrap text-xs" data-attr="list-bulk-bar">
             <span className="font-semibold px-1">{selectedRecordingsIds.length} selected</span>
-            <LemonButton
-                size="xsmall"
-                onClick={() => handleSelectUnselectAll(!allSelected, type)}
-                disabledReason={
-                    recordings.length > MAX_SELECTED_RECORDINGS
-                        ? `Cannot select more than ${MAX_SELECTED_RECORDINGS} recordings at once`
-                        : undefined
-                }
-                data-attr="select-all-recordings"
-            >
-                {allSelected ? 'Clear selection' : `Select all ${recordings.length}`}
-            </LemonButton>
             <LemonButton
                 size="xsmall"
                 onClick={() => setIsAddToCollectionModalOpen(true)}

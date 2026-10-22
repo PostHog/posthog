@@ -20,13 +20,27 @@ import { playerSettingsLogic } from './playerSettingsLogic'
 import { sessionRecordingPlayerLogic } from './sessionRecordingPlayerLogic'
 import { playerSidebarLogic } from './sidebar/playerSidebarLogic'
 import { PlayerSidebarTab } from './sidebar/PlayerSidebarTab'
+import { DebugTabBar } from './watch/DebugTabBar'
 
-export function PlayerSidebar(): JSX.Element {
+export function PlayerSidebar({
+    tabs,
+    stacking,
+    onToggleStacking,
+}: {
+    tabs?: SessionRecordingSidebarTab[]
+    stacking?: SessionRecordingSidebarStacking
+    onToggleStacking?: () => void
+} = {}): JSX.Element {
     const ref = useRef<HTMLDivElement>(null)
 
     const { activeTab } = useValues(playerSidebarLogic)
     const { setTab } = useActions(playerSidebarLogic)
-    const { sidebarOpen, preferredSidebarStacking, isVerticallyStacked } = useValues(playerSettingsLogic)
+    const {
+        sidebarOpen,
+        preferredSidebarStacking,
+        isVerticallyStacked: preferredVertical,
+    } = useValues(playerSettingsLogic)
+    const isVerticallyStacked = stacking ? stacking === SessionRecordingSidebarStacking.Vertical : preferredVertical
     const { setSidebarOpen, setPreferredSidebarStacking } = useActions(playerSettingsLogic)
     const { getIntegrationsByKind } = useValues(integrationsLogic)
     const { sessionPlayerMetaData, logicProps } = useValues(sessionRecordingPlayerLogic)
@@ -46,18 +60,20 @@ export function PlayerSidebar(): JSX.Element {
 
     const { desiredSize } = useValues(resizerLogic(resizerLogicProps))
 
-    const sidebarTabs = [
-        SessionRecordingSidebarTab.OVERVIEW,
-        SessionRecordingSidebarTab.INSPECTOR,
-        SessionRecordingSidebarTab.NETWORK_WATERFALL,
-    ]
+    const sidebarTabs = tabs
+        ? [...tabs]
+        : [
+              SessionRecordingSidebarTab.OVERVIEW,
+              SessionRecordingSidebarTab.INSPECTOR,
+              SessionRecordingSidebarTab.NETWORK_WATERFALL,
+          ]
 
-    if (visionSurfaceShown(logicProps)) {
+    if (!tabs && visionSurfaceShown(logicProps)) {
         sidebarTabs.push(SessionRecordingSidebarTab.OBSERVATIONS)
     }
 
     // Show the person's other recordings once we know who they are
-    if (featureFlags[FEATURE_FLAGS.REPLAY_PLAYER_PERSON_SESSIONS_TAB] && sessionPlayerMetaData?.person) {
+    if (!tabs && featureFlags[FEATURE_FLAGS.REPLAY_PLAYER_PERSON_SESSIONS_TAB] && sessionPlayerMetaData?.person) {
         sidebarTabs.push(SessionRecordingSidebarTab.SESSIONS)
     }
 
@@ -65,7 +81,7 @@ export function PlayerSidebar(): JSX.Element {
     const sessionReplayIntegrations = getIntegrationsByKind(['linear', 'github', 'gitlab', 'jira'])
     const externalReferences = sessionPlayerMetaData?.external_references ?? []
 
-    if (sessionReplayIntegrations.length > 0 || externalReferences.length > 0) {
+    if (!tabs && (sessionReplayIntegrations.length > 0 || externalReferences.length > 0)) {
         sidebarTabs.push(SessionRecordingSidebarTab.LINKED_ISSUES)
     }
 
@@ -92,7 +108,36 @@ export function PlayerSidebar(): JSX.Element {
                 closeThreshold={100}
                 offset="0.25rem"
             />
-            {sidebarOpen && (
+            {sidebarOpen && tabs && (
+                <div className="SessionRecordingPlayer__sidebar__content">
+                    <div className="flex flex-col flex-1 min-h-0 h-full">
+                        <DebugTabBar tabs={sidebarTabs} activeTab={activeTab} onChange={setTab}>
+                            <LemonButton
+                                data-attr="player-sidebar-dock-toggle"
+                                size="small"
+                                icon={<IconBottomPanel />}
+                                onClick={() => onToggleStacking?.()}
+                                tooltip="Dock to bottom"
+                                aria-label="Dock to bottom"
+                                className="rounded-none"
+                            />
+                            <LemonButton
+                                data-attr="player-sidebar-close"
+                                size="small"
+                                icon={<IconX />}
+                                onClick={() => setSidebarOpen(false)}
+                                tooltip="Close sidebar"
+                                aria-label="Close sidebar"
+                                className="rounded-none"
+                            />
+                        </DebugTabBar>
+                        <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
+                            <PlayerSidebarTab />
+                        </div>
+                    </div>
+                </div>
+            )}
+            {sidebarOpen && !tabs && (
                 <div className="SessionRecordingPlayer__sidebar__content">
                     <div className="flex bg-surface-primary pt-[1px]">
                         <div className="w-2.5 border-b shrink-0" />

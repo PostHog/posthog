@@ -10,15 +10,22 @@ export function OngoingRecordingsGroup({
     children,
 }: {
     count: number
-    /** The recording being watched is in the group, so it stays open rather than hiding the selection. */
     holdsActive: boolean
     children: ReactNode
 }): JSX.Element | null {
-    const [open, setOpen] = useState(false)
+    // null follows the selection; a click pins a choice until the selection next moves into the group
+    const [choice, setChoice] = useState<boolean | null>(null)
+    const [wasHoldingActive, setWasHoldingActive] = useState(holdsActive)
+    if (holdsActive !== wasHoldingActive) {
+        setWasHoldingActive(holdsActive)
+        if (holdsActive) {
+            setChoice(null)
+        }
+    }
     if (count === 0) {
         return null
     }
-    const expanded = open || holdsActive
+    const expanded = choice ?? holdsActive
 
     return (
         <div className="border-b">
@@ -28,7 +35,7 @@ export function OngoingRecordingsGroup({
                 className="rounded-none bg-surface-secondary"
                 icon={<IconLive className="text-primary-3000" />}
                 sideIcon={expanded ? <IconChevronDown /> : <IconChevronRight />}
-                onClick={() => setOpen(!expanded)}
+                onClick={() => setChoice(!expanded)}
                 data-attr="list-ongoing-toggle"
             >
                 <span className="flex items-center gap-1 text-[11px] uppercase tracking-wide text-secondary font-semibold">

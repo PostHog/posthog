@@ -1,12 +1,16 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonTabs } from '@posthog/lemon-ui'
+import { IconSidePanel } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
 
 import { NetworkView } from 'scenes/session-recordings/apm/NetworkView'
 import { PlayerInspector } from 'scenes/session-recordings/player/inspector/PlayerInspector'
+import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { playerSidebarLogic } from 'scenes/session-recordings/player/sidebar/playerSidebarLogic'
 
 import { SessionRecordingSidebarTab } from '~/types'
+
+import { DebugTabBar } from './DebugTabBar'
 
 const DEBUG_TABS = [SessionRecordingSidebarTab.INSPECTOR, SessionRecordingSidebarTab.NETWORK_WATERFALL]
 
@@ -14,30 +18,27 @@ const DEBUG_TABS = [SessionRecordingSidebarTab.INSPECTOR, SessionRecordingSideba
 export function RecordingDebugSection(): JSX.Element {
     const { activeTab } = useValues(playerSidebarLogic)
     const { setTab } = useActions(playerSidebarLogic)
+    const { setWatchDebugDock } = useActions(playerSettingsLogic)
     // The sidebar logic still receives tabs this section does not own, such as Observations; they land on the inspector.
     const tab = DEBUG_TABS.includes(activeTab) ? activeTab : SessionRecordingSidebarTab.INSPECTOR
 
     return (
-        <div className="flex flex-col border rounded bg-surface-primary overflow-hidden" data-attr="watch-panel-debug">
-            <LemonTabs
-                size="small"
-                activeKey={tab}
-                onChange={(next) => setTab(next)}
-                barClassName="!mb-0 px-2"
-                tabs={[
-                    {
-                        key: SessionRecordingSidebarTab.INSPECTOR,
-                        label: 'Inspector',
-                        'data-attr': 'watch-panel-debug-inspector',
-                    },
-                    {
-                        key: SessionRecordingSidebarTab.NETWORK_WATERFALL,
-                        label: 'Network waterfall',
-                        'data-attr': 'watch-panel-debug-network',
-                    },
-                ]}
-            />
-            <div className="flex flex-col h-[60vh] min-h-96 overflow-hidden">
+        <div
+            className="flex flex-col border rounded bg-surface-primary overflow-hidden h-[60vh] min-h-96"
+            data-attr="watch-panel-debug"
+        >
+            <DebugTabBar tabs={DEBUG_TABS} activeTab={tab} onChange={setTab}>
+                <LemonButton
+                    size="small"
+                    icon={<IconSidePanel />}
+                    onClick={() => setWatchDebugDock('right')}
+                    tooltip="Dock to right"
+                    aria-label="Dock to right"
+                    className="rounded-none"
+                    data-attr="player-sidebar-dock-toggle"
+                />
+            </DebugTabBar>
+            <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
                 {tab === SessionRecordingSidebarTab.NETWORK_WATERFALL ? <NetworkView /> : <PlayerInspector />}
             </div>
         </div>

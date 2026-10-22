@@ -40,6 +40,23 @@
         flex-direction: column;
         overflow-y: auto;
 
+        .SessionRecordingPlayerWrapper__column {
+            display: flex;
+            flex: 1;
+            flex-direction: column;
+            min-width: 0;
+        }
+
+        &-right-dock {
+            flex-direction: row;
+            overflow-y: hidden;
+
+            .SessionRecordingPlayerWrapper__column {
+                min-height: 0;
+                overflow-y: auto;
+            }
+        }
+
         .SessionRecordingPlayerWrapper__player {
             display: flex;
             flex: none;

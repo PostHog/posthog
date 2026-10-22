@@ -63,11 +63,11 @@ export function useLayoutMenuItems(): LemonMenuItem[] {
         {
             label: 'New',
             onClick: () => setPreferClassicReplayLayout(false),
-            active: replayLayout === 'watch',
+            active: replayLayout !== 'classic',
             'data-attr': 'list-layout-new',
         },
         {
-            label: 'Classic',
+            label: 'Legacy',
             onClick: () => setPreferClassicReplayLayout(true),
             active: replayLayout === 'classic',
             'data-attr': 'list-layout-classic',
