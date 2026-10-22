@@ -487,6 +487,7 @@ class TestErrorTrackingSymbolSetCreateConcurrency(NonAtomicBaseTest):
                     results.append(None)
 
         symbol_set = ErrorTrackingSymbolSet.objects.get(team=self.team, ref=chunk_id)
+        assert symbol_set.storage_ptr is not None
         assert results.count((str(symbol_set.pk), symbol_set.storage_ptr)) == 1
         assert results.count(None) == 1
         assert ErrorTrackingSymbolSet.objects.filter(team=self.team, ref=chunk_id).count() == 1
