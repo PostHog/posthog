@@ -28606,6 +28606,136 @@ export namespace Schemas {
     }
 
     /**
+     * Machine-readable query. Omit for a name+description-only stub. Stored upgrade-canonical.
+     * @nullable
+     */
+    export type DataCatalogMetricCreateDefinition = { [key: string]: unknown } | null;
+
+    /**
+     * Create input. ``overwrite`` exists only here, because PATCH addresses an existing metric by its URL name.
+     */
+    export interface DataCatalogMetricCreate {
+      readonly id: string;
+      /**
+         * Identifier-safe run handle, unique among the team's live metrics. Renaming or deleting a metric frees its name for reuse, and anything referencing the old name (SQL over information_schema.metrics, run URLs, links) stops resolving.
+         * @maxLength 128
+         * @pattern ^[A-Za-z][A-Za-z0-9_]*$
+         */
+      name: string;
+      /**
+         * Human-friendly label. Mutable, unlike name.
+         * @maxLength 255
+         */
+      display_name?: string;
+      /**
+         * What the number is, in 1-2 short sentences under 300 characters: its meaning and grain plus any inclusion or exclusion that changes it. Leave out source tables or views, lineage, column lists, and comparisons with other metrics. Never narrate the query - the definition carries the mechanics; put the query's design decisions in 'reasoning'.
+         * @maxLength 300
+         */
+      description: string;
+      /**
+         * Unit of the result, e.g. usd, percent, cents.
+         * @maxLength 64
+         */
+      unit?: string;
+      /**
+         * Email of the human accountable for this metric, or null.
+         * @nullable
+         */
+      readonly owner: string | null;
+      /**
+         * Machine-readable query. Omit for a name+description-only stub. Stored upgrade-canonical.
+         * @nullable
+         */
+      definition?: DataCatalogMetricCreateDefinition;
+      /**
+         * Query kind of the definition (HogQLQuery, TrendsQuery, ...), or null for a stub.
+         * @nullable
+         */
+      readonly definition_kind: string | null;
+      /** Tables the definition directly references, extracted at write time for the catalog's denied-table filter. */
+      readonly referenced_table_names: unknown;
+      /** Persisted lifecycle state: 'proposed' or 'approved'. Drift is reported separately. */
+      readonly status: string;
+      /** True when the definition has drifted from its linked source insight (or the insight is gone). */
+      readonly is_drifted: boolean;
+      /** @nullable */
+      readonly approved_at: string | null;
+      /** User who approved this metric as canonical, or null. */
+      readonly approved_by: UserBasic | null;
+      /**
+         * Create the metric from this insight's query (snapshotted server-side). Set to null to unlink. Mutually exclusive with definition.
+         * @maxLength 12
+         * @nullable
+         */
+      source_insight_short_id?: string | null;
+      /**
+         * When the metric was last run (30-minute throttle).
+         * @nullable
+         */
+      readonly last_run_at: string | null;
+      /** Whether a human ('user') or an agent ('ai_generated') authored this metric.
+       *
+       * * `user` - user
+       * * `ai_generated` - ai_generated */
+      created_source?: CreatedSourceEnum;
+      /**
+         * Model that generated the metric, if AI-authored.
+         * @maxLength 128
+         */
+      ai_model?: string;
+      /**
+         * AI author's confidence in the proposal, 0-1.
+         * @minimum 0
+         * @maximum 1
+         * @nullable
+         */
+      confidence?: number | null;
+      /** Why the definition is shaped this way, in 1-3 short sentences. Name the main design decisions and trade-offs: the source table or view, a filter or exclusion, the grain, an approximation. Leave out the use case, who asked, run results, validation figures, and edit history. */
+      reasoning?: string;
+      /** User who first created this metric. */
+      readonly created_by: UserBasic;
+      readonly created_at: string;
+      /** @nullable */
+      readonly updated_at: string | null;
+      /** Replace the fields of the live metric that already holds this name. When false, a taken name returns 409 with code 'metric_name_taken' and the existing metric stays unchanged. Overwriting an approved metric with a changed name, description, unit, or definition resets it to 'proposed'. */
+      overwrite?: boolean;
+    }
+
+    /**
+     * The live metric that holds the name a create was sent with.
+     */
+    export interface DataCatalogMetricNameConflictExisting {
+      /** Name of the existing metric. */
+      name: string;
+      /** Lifecycle state of the existing metric: 'proposed' or 'approved'. */
+      status: string;
+    }
+
+    export interface DataCatalogMetricNameConflictExtra {
+      /** The metric that holds the name. Send overwrite true to replace it. */
+      existing_metric: DataCatalogMetricNameConflictExisting;
+    }
+
+    /**
+     * The 409 body of a create whose name a live metric already holds.
+     */
+    export interface DataCatalogMetricNameConflict {
+      /** Error class the API attaches to every error body. */
+      type: string;
+      /** Always 'metric_name_taken'. */
+      code: string;
+      /** Human-readable reason, safe to show as is. */
+      detail: string;
+      /**
+         * Always null: the conflict is not tied to one field.
+         * @nullable
+         */
+      attr: string | null;
+      /** Absent when the existing metric is hidden from the caller because it reads a table they cannot access. */
+      extra?: DataCatalogMetricNameConflictExtra;
+    }
+
+    /**
      * Normalized envelope returned by the metric-run endpoint.
      */
     export interface DataCatalogMetricRun {
@@ -53349,6 +53479,35 @@ export namespace Schemas {
          * @nullable
          */
       readonly path: string | null;
+    }
+
+    export interface FileSystemRankedSearchItem {
+      /** The matching file system entry. */
+      entry: FileSystem;
+      /** Sort key of the match. Lower sorts first. Compare element by element with other results. */
+      rank: number[];
+    }
+
+    export interface FileSystemRankedSearchTypeCount {
+      /** File system type, for example insight or dashboard. */
+      type: string;
+      /** Number of matches of this type. */
+      count: number;
+    }
+
+    export interface FileSystemRankedSearchResponse {
+      /** Matches, best first. */
+      results: FileSystemRankedSearchItem[];
+      /** True when every result contains every search word. False when no entry matched every word and the results match only some words. */
+      matched_all_words: boolean;
+      /** Search words that the best result matched. Use it to tell the user which words were dropped when matched_all_words is false. */
+      matched_words: string[];
+      /** Number of matches for each type, largest first. */
+      type_counts: FileSystemRankedSearchTypeCount[];
+      /** True when no entry matched the words as typed, so every result is a close spelling. */
+      matched_with_typos: boolean;
+      /** True when the search stopped at its candidate limit, so type_counts are lower bounds. */
+      counts_capped: boolean;
     }
 
     export interface FileSystemShortcut {
@@ -128903,6 +129062,27 @@ export namespace Schemas {
      * Delete folder contents too (default: true). Set false to delete only empty folders. Nonempty folders return HTTP 409 with code directory_not_empty.
      */
     recursive?: boolean;
+    };
+
+    export type FileSystemSearchRetrieveParams = {
+    /**
+     * Maximum number of results to return, best first.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    /**
+     * Also include the best matches of every type, up to this many per type, so each type can show a preview.
+     * @minimum 0
+     * @maximum 10
+     */
+    per_type?: number;
+    /**
+     * Search text. Supports the same field filters as the list search (type:, user:, path:, name:, negation with - or !). Free words are ranked by relevance.
+     * @minLength 1
+     * @maxLength 200
+     */
+    search: string;
     };
 
     export type FileSystemShortcutListParams = {
