@@ -256,6 +256,8 @@ export const Table = (props: TableProps): JSX.Element => {
             return backgroundColor
         }
 
+        let sortCells: TableDataCell<any>[] | undefined
+
         return {
             ...columnMeta,
             key: column.name,
@@ -263,7 +265,10 @@ export const Table = (props: TableProps): JSX.Element => {
             // (rows become the original columns), so only offer it in the normal orientation.
             sorter: isTransposed
                 ? undefined
-                : (a, b) => compareTableCells(getTableCell(a.rowIndex, index), getTableCell(b.rowIndex, index)),
+                : (a, b) => {
+                      sortCells ??= tableRows.map((row) => getTableCell(row.rowIndex, index))
+                      return compareTableCells(sortCells[a.rowIndex], sortCells[b.rowIndex])
+                  },
             title: (
                 <ColumnHeaderTitle formattedTitle={formattedTitle} fullTitle={fullColumnTitle}>
                     {isPinningEnabled && (

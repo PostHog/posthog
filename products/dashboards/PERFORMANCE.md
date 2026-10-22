@@ -158,6 +158,7 @@ SQL result tables in dashboard cards use row virtualization inside the tile's sc
 Tables with more than 50 columns also use column virtualization with fixed column widths, unless pinned columns require the full column layout.
 Image exports keep the full table layout.
 Table renderers prepare cells by row and column index, including transposed cells, so offscreen cells do not require formatting before display.
+Sorting prepares the selected column once per column configuration; comparisons reuse those cells.
 Tables skip chart aggregation. Virtualization does not reduce query result size or response parsing.
 
 ## Measure the affected experience

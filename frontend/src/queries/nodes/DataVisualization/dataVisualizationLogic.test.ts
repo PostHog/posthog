@@ -809,6 +809,38 @@ describe('dataVisualizationLogic', () => {
         })
     })
 
+    it.each([ChartDisplayType.ActionsBar, ChartDisplayType.ActionsLineGraph, ChartDisplayType.Metric])(
+        'restores numeric series when switching from a table to %s and back',
+        async (display) => {
+            const response = {
+                columns: ['day', 'value'],
+                types: [
+                    ['day', 'Date'],
+                    ['value', 'Float64'],
+                ],
+                results: [
+                    ['2026-01-01', 2],
+                    ['2026-01-02', 4],
+                ],
+            }
+            dataNodeLogic({ key: testKey, query: defaultQuery.source, dataNodeCollectionId }).actions.setResponse(
+                response
+            )
+            logic.actions.setVisualizationType(ChartDisplayType.ActionsTable)
+            expect(logic.values.yData.every((series) => series.data.length === 0)).toBe(true)
+
+            logic.actions.setVisualizationType(display)
+            await expectLogic(logic).toMatchValues({
+                yData: [expect.objectContaining({ data: [2, 4] })],
+            })
+
+            logic.actions.setVisualizationType(ChartDisplayType.ActionsTable)
+            expect(logic.values.yData.every((series) => series.data.length === 0)).toBe(true)
+            expect(logic.values.getTableCell(0, 1).value).toBe(2)
+            expect(logic.values.tableResults).toEqual(response.results)
+        }
+    )
+
     it.each([false, true])(
         'prepares only requested cells with transpose=%s and uses updated formatting',
         (transpose) => {
