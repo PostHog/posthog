@@ -235,7 +235,7 @@ class TestOrders:
         throttled = ScriptedResponse(status=429, json={"errors": [{"code": "QuotaExceeded"}]})
         result = _driver().run(
             "orders",
-            route({TOKEN_PATH: [TOKEN], ORDERS_PATH: [throttled] * 9 + [_orders_page([_order("1")])]}),
+            route({TOKEN_PATH: [TOKEN], ORDERS_PATH: [throttled] * 8 + [_orders_page([_order("1")])]}),
         )
 
         assert result.raised is None
@@ -857,28 +857,19 @@ class TestVendorReports:
         assert [request.method for request in result.requests if request.path == REPORTS_PATH] == ["POST", "POST"]
 
     @pytest.mark.parametrize(
-        ("fatal_reports", "expected_starts", "expected_rows"),
+        ("fatal_reports", "expected_starts", "expected_rows", "raises"),
         [
             (
                 {"r1"},
                 ["2026-09-21T00:00:00Z", "2026-09-21T00:00:00Z", "2026-09-28T00:00:00Z", "2026-10-05T00:00:00Z"],
                 3,
+                False,
             ),
-            (
-                {"r1", "r2", "r3"},
-                [
-                    "2026-09-21T00:00:00Z",
-                    "2026-09-21T00:00:00Z",
-                    "2026-09-21T00:00:00Z",
-                    "2026-09-28T00:00:00Z",
-                    "2026-10-05T00:00:00Z",
-                ],
-                2,
-            ),
+            ({"r1", "r2", "r3"}, ["2026-09-21T00:00:00Z"] * 3, 0, True),
         ],
     )
-    def test_a_fatal_old_window_is_retried_then_skipped(
-        self, fatal_reports: set[str], expected_starts: list[str], expected_rows: int
+    def test_a_fatal_old_window_is_retried_and_never_passed(
+        self, fatal_reports: set[str], expected_starts: list[str], expected_rows: int, raises: bool
     ) -> None:
         vendor = _ReportsVendor(["DONE"], [{"salesByAsin": [{"asin": "B07", "startDate": "2026-10-05"}]}])
 
@@ -892,9 +883,15 @@ class TestVendorReports:
             "vendor_sales", respond, incremental_field="startDate", db_incremental_field_last_value=date(2026, 9, 21)
         )
 
-        assert result.raised is None
         assert [body["dataStartTime"] for body in vendor.created] == expected_starts
         assert [row["asin"] for row in result.rows] == ["B07"] * expected_rows
+        if raises:
+            assert isinstance(result.raised, VendorReportError)
+            assert result.final_state == AmazonSellingPartnerResumeConfig(
+                marketplace_id="ATVPDKIKX0DER", window_start="2026-09-21T00:00:00Z"
+            )
+        else:
+            assert result.raised is None
 
     def test_a_document_url_outside_amazon_is_refused(self) -> None:
         vendor = _ReportsVendor(["DONE"], [])

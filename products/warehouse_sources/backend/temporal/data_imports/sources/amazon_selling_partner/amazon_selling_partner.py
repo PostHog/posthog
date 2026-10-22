@@ -202,6 +202,9 @@ def _build_resource(
             "auth": auth,
             "max_retries": SP_API_MAX_RETRY_ATTEMPTS,
             "retry_backoff_max_seconds": SP_API_RETRY_BACKOFF_MAX_SECONDS,
+            # Without this a stalled SP-API host holds the whole retry budget in one try, and the
+            # waits above never run. The seller's other calls use the same bound.
+            "request_timeout": REQUEST_TIMEOUT,
             # Order bodies carry buyer data that only the row maps remove, after any sample is taken.
             "capture": False,
         },
@@ -778,28 +781,23 @@ def _vendor_report_rows(
                 try:
                     document = await_report_document(client, report, report_id, manager.safe_point)
                     break
-                except VendorReportError as error:
+                except VendorReportError:
                     # A failed report stays failed, so a retry asks for a new one for the same window.
                     report_id = None
-                    if recent:
-                        manager.save_state(
-                            AmazonSellingPartnerResumeConfig(
-                                completed_marketplaces=completed,
-                                marketplace_id=marketplace_id,
-                                window_start=window_start,
-                            )
-                        )
-                        manager.safe_point()
-                        raise
-                    if attempt == REPORT_FATAL_ATTEMPTS:
-                        # FATAL can be a passing processing error, so an old window is skipped only
-                        # after several reports for it failed.
-                        logger.warning(
-                            "amazon_selling_partner_report_window_skipped",
-                            report_type=report.report_type,
+                    # FATAL can be a passing processing error, so an old window gets more reports in
+                    # this run. A recent one may only be unpublished, so it waits for the next sync.
+                    if not recent and attempt < REPORT_FATAL_ATTEMPTS:
+                        continue
+                    # The resume point stays on this window, so no later window moves the watermark past it.
+                    manager.save_state(
+                        AmazonSellingPartnerResumeConfig(
+                            completed_marketplaces=completed,
+                            marketplace_id=marketplace_id,
                             window_start=window_start,
-                            error=str(error),
                         )
+                    )
+                    manager.safe_point()
+                    raise
             all_rows = (document or {}).get(report.rows_key) or []
             if rows_done >= len(all_rows):
                 manager.save_state(next_state)

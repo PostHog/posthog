@@ -54,7 +54,7 @@ class TempoSource(ResumableSource[TempoSourceConfig, TempoResumeConfig]):
             name=ExternalDataSourceType.TEMPO,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Tempo",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Tempo API token to pull your time-tracking and resource-planning data into the PostHog Data warehouse.
 
 You can create an API token under **Settings → API Integration** in [Tempo](https://www.tempo.io) (Tempo for Jira Cloud). Tokens are scoped, so grant view (read) access for the data you want to sync: worklogs, accounts, customers, teams, plans, and schemes.

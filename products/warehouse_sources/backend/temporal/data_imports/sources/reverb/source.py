@@ -28,6 +28,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.reverb.rev
 from products.warehouse_sources.backend.temporal.data_imports.sources.reverb.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    SHOULD_SYNC_DEFAULT,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -54,8 +55,8 @@ class ReverbSource(ResumableSource[ReverbSourceConfig, ReverbResumeConfig]):
             name=ExternalDataSourceType.REVERB,
             category=DataWarehouseSourceCategory.E_COMMERCE,
             label="Reverb",
-            releaseStatus=ReleaseStatus.ALPHA,
-            caption="""Enter your Reverb personal access token to pull your shop's orders, listings, and payouts into the PostHog Data warehouse.
+            releaseStatus=ReleaseStatus.BETA,
+            caption="""Enter your Reverb personal access token to pull your shop's orders, listings, payouts, payments, and refund requests into the PostHog Data warehouse.
 
 Create a token from **My Profile → API & Integrations** in your Reverb account, with the `read_listings`, `read_orders`, and `read_payouts` scopes. The token doesn't expire.""",
             iconPath="/static/services/reverb.png",
@@ -98,7 +99,7 @@ Create a token from **My Profile → API & Integrations** in your Reverb account
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, should_sync_default=SHOULD_SYNC_DEFAULT)
 
     def validate_credentials(
         self,

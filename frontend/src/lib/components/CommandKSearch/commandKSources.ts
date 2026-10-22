@@ -9,18 +9,27 @@ import {
     unifiedSearchResultToSearchItem,
 } from 'lib/components/Search/searchItems'
 import { shouldSearchTickets } from 'lib/components/Search/utils'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { uuid } from 'lib/utils/dom'
 import { mapGroupQueryResponse } from 'lib/utils/groups'
 
+import { fileSystemSearchRetrieve } from '~/generated/core/api'
+import type { FileSystemApi } from '~/generated/core/api.schemas'
+import { isFileSystemEntryTypeEnabled } from '~/layout/panel-layout/ProjectTree/utils'
 import type { Noun } from '~/models/groupsModel'
+import type { FileSystemEntry } from '~/queries/schema/schema-general'
 import { GroupType, GroupTypeIndex } from '~/types'
 
 import { conversationsTicketsList } from 'products/conversations/frontend/generated/api'
 import { accountsList } from 'products/customer_analytics/frontend/generated/api'
 import { personsList } from 'products/persons/frontend/generated/api'
 
+import { freeWords } from './commandKRanking'
+
 export const RESULTS_LIMIT = 20
 export const SECONDARY_LIMIT = 5
+const RANKED_RESULTS_LIMIT = 40
+const RANKED_PER_TYPE = 4
 
 /**
  * Remote sections, in render order. Results holds the objects that filters apply to. The rest
@@ -105,6 +114,51 @@ const fetchGroups = async (term: string, signal: AbortSignal, context: RemoteCon
     }
 }
 
+const toFileSystemEntry = (entry: FileSystemApi): FileSystemEntry => ({
+    id: entry.id,
+    path: entry.path,
+    type: entry.type,
+    ref: entry.ref ?? undefined,
+    href: entry.href ?? undefined,
+    created_at: entry.created_at,
+    last_viewed_at: entry.last_viewed_at,
+    shortcut: entry.shortcut ?? undefined,
+    user_access_level: entry.user_access_level,
+})
+
+const withCreator = (item: SearchItem, entry: FileSystemApi): SearchItem =>
+    entry.created_by?.first_name ? { ...item, createdByName: entry.created_by.first_name } : item
+
+const fetchRankedResults = async (
+    search: string,
+    signal: AbortSignal,
+    context: RemoteContext,
+    featureFlags: Record<string, unknown>
+): Promise<SearchItem[]> => {
+    const response = await fileSystemSearchRetrieve(
+        String(context.currentTeamId),
+        { search, limit: RANKED_RESULTS_LIMIT, per_type: RANKED_PER_TYPE },
+        { signal }
+    )
+    const typeCounts = new Map(response.type_counts.map(({ type, count }) => [type, count]))
+    return response.results
+        .filter(({ entry }) => isFileSystemEntryTypeEnabled(entry, featureFlags))
+        .map(({ entry, rank }) => ({
+            ...withCreator(
+                fileSystemEntryToSearchItem(toFileSystemEntry(entry), { id: entry.id, category: 'results' }),
+                entry
+            ),
+            rankKey: rank,
+            searchMatch: {
+                matchedAllWords: response.matched_all_words,
+                matchedWords: response.matched_words,
+                typeCount: typeCounts.get(entry.type ?? '') ?? 0,
+                countsCapped: response.counts_capped,
+                withTypos: response.matched_with_typos,
+            },
+        }))
+}
+
 const UNIFIED_TYPES: Record<string, RemoteSource> = {
     event_definition: 'events',
     property_definition: 'properties',
@@ -116,12 +170,16 @@ export const REMOTE_REQUESTS: RemoteRequest[] = [
         id: 'objects',
         query: 'objects',
         sources: ['results'],
-        fetch: async (search, signal) => {
+        fetch: async (search, signal, context) => {
+            const featureFlags = featureFlagLogic.findMounted()?.values.featureFlags ?? {}
+            if (freeWords(search).length > 0) {
+                return { results: await fetchRankedResults(search, signal, context, featureFlags) }
+            }
             const response = await api.fileSystem.list({ search, limit: RESULTS_LIMIT, notType: 'folder', signal })
             return {
-                results: response.results.map((entry) =>
-                    fileSystemEntryToSearchItem(entry, { id: entry.id, category: 'results' })
-                ),
+                results: response.results
+                    .filter((entry) => isFileSystemEntryTypeEnabled(entry, featureFlags))
+                    .map((entry) => fileSystemEntryToSearchItem(entry, { id: entry.id, category: 'results' })),
             }
         },
     },

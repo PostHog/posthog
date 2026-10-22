@@ -28,6 +28,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
     CanonicalDescriptions,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import (
+    OAUTH2_PERMANENT_ERROR_MARKER,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
     SourceSchema,
@@ -69,6 +72,7 @@ class AmazonSellingPartnerSource(ResumableSource[AmazonSellingPartnerSourceConfi
             "403 Client Error: Forbidden for url: https://sellingpartnerapi": "Amazon refused access to this table. Check that the app has the role the table needs and that the account authorized it.",
             MISSING_MARKETPLACES_MESSAGE: MISSING_MARKETPLACES_MESSAGE,
             "Unknown Amazon marketplace ID for real-time sales": "A marketplace ID in the source settings is not one Amazon lists. Check the IDs and update the source.",
+            OAUTH2_PERMANENT_ERROR_MARKER: "Amazon rejected the Login with Amazon credentials. Check the client ID, client secret and refresh token, then update the source.",
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

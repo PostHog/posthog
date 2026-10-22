@@ -11,7 +11,8 @@ import io
 import uuid
 import hashlib
 import datetime as dt
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
+from typing import Any
 
 from django.conf import settings
 from django.db import transaction
@@ -30,7 +31,7 @@ from products.dashboards.backend.facade.dashboard_creation import delete_unliste
 from products.exports.backend.facade.api import read_export_asset_content, render_png_export
 from products.metrics.backend.dashboard_import.catalog import CatalogEntry, MetricCatalog
 from products.metrics.backend.dashboard_import.layout import RequestedBox, place_screenshot_boxes
-from products.metrics.backend.dashboard_import.spec import PanelQuery
+from products.metrics.backend.dashboard_import.spec import BuilderFilter, PanelQuery
 from products.metrics.backend.dashboard_import.tiles import insight_query
 from products.metrics.backend.dashboard_import.validation import PanelValidator
 from products.metrics.backend.metric_attributes_query_runner import (
@@ -39,12 +40,20 @@ from products.metrics.backend.metric_attributes_query_runner import (
 )
 from products.metrics.backend.models import MetricsDashboardTemplate
 from products.metrics.backend.suggested_dashboards import prompts
-from products.metrics.backend.suggested_dashboards.dashboards import acting_user, create_dashboard, drop_preview
+from products.metrics.backend.suggested_dashboards.checks import ProjectChecks, attribute_profile, variable_candidates
+from products.metrics.backend.suggested_dashboards.dashboards import (
+    SERVICE_ATTRIBUTES,
+    acting_user,
+    attribute_variable,
+    create_dashboard,
+    drop_preview,
+)
 from products.metrics.backend.suggested_dashboards.llm import MODEL, ask_model, image_block, text_block
 from products.metrics.backend.suggested_dashboards.matching import template_metric_names
 from products.metrics.backend.suggested_dashboards.spec import (
     DashboardDraft,
     DraftPanel,
+    DraftVariable,
     GenerationRecord,
     GenerationRound,
     PreviewCritique,
@@ -52,6 +61,13 @@ from products.metrics.backend.suggested_dashboards.spec import (
     template_panels,
 )
 from products.metrics.backend.suggested_dashboards.timeouts import GENERATE_TIMEOUT
+from products.metrics.backend.variables import (
+    RANGE_VARIABLES,
+    REFERENCE,
+    VARIABLE_NAME,
+    reference_name,
+    referenced_names,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -60,6 +76,7 @@ MAX_ATTRIBUTES_PER_METRIC = 8
 # The values of an attribute with this many values or fewer go into the prompt, so that a filter uses a real value.
 MAX_LISTED_VALUES = 8
 CHECK_DEADLINE_SECONDS = 30.0
+MAX_VARIABLES = 2
 PICTURE_TTL = dt.timedelta(days=90)
 # A generation that has not saved for this long has stopped: it is longer than the whole workflow may run.
 STALE_GENERATION = GENERATE_TIMEOUT + dt.timedelta(hours=1)
@@ -112,7 +129,9 @@ def start_generation(team_id: int, request: GenerationRequest) -> str | None:
             "status": MetricsDashboardTemplate.Status.GENERATING,
             "metric_names": sorted(request.metric_names),
             "source_team_id": team_id,
-            "generation": GenerationRecord(model=MODEL, requested_name=request.name).model_dump(mode="json"),
+            "generation": GenerationRecord(
+                model=MODEL, requested_name=request.name, requested_metric_names=sorted(request.metric_names)
+            ).model_dump(mode="json"),
         },
     )
     return str(template.id) if created else None
@@ -172,18 +191,126 @@ class _Converted:
     panels: tuple[TemplatePanel, ...]
     accepted: tuple[DraftPanel, ...]
     dropped: tuple[str, ...]
+    # MetricsDashboardVariable JSON for the variables that the kept panels refer to.
+    variables: tuple[dict[str, Any], ...] = ()
+    accepted_variables: tuple[DraftVariable, ...] = ()
 
 
-def _convert(drafts: Sequence[DraftPanel], team: Team, catalog: MetricCatalog) -> _Converted:
-    """Check each drafted query as PostHog would run it, and keep the panels that pass, with no overlapping boxes."""
+@frozen
+class _ValidVariables:
+    variables: list[DraftVariable]
+    # Each variable that selects the same thing as a kept one, by name, with that kept variable.
+    replaced: dict[str, tuple[DraftVariable, DraftVariable]]
+
+
+def _valid_variables(
+    drafts: Sequence[DraftVariable], attributes: Mapping[str, Sequence[str]], checks: ProjectChecks | None
+) -> _ValidVariables:
+    """The drafted variables that list a known attribute with several values, with unique names.
+
+    A variable whose values go one to one with those of an earlier variable selects the same thing, so the earlier
+    one replaces it.
+    """
+    known = {key for keys in attributes.values() for key in keys} | SERVICE_ATTRIBUTES
+    valid: list[DraftVariable] = []
+    replaced: dict[str, tuple[DraftVariable, DraftVariable]] = {}
+    for draft in drafts:
+        if len(valid) >= MAX_VARIABLES:
+            break
+        if (
+            not VARIABLE_NAME.match(draft.name)
+            or draft.name in RANGE_VARIABLES
+            or (draft.attribute not in known and not (checks is not None and checks.knows(draft.attribute)))
+            or any(variable.name == draft.name for variable in valid)
+        ):
+            continue
+        if checks is not None and not checks.has_several_values(draft.attribute):
+            continue
+        equivalent = (
+            next((variable for variable in valid if checks.one_to_one(variable.attribute, draft.attribute)), None)
+            if checks is not None
+            else None
+        )
+        if equivalent is not None:
+            replaced[draft.name] = (draft, equivalent)
+            continue
+        valid.append(draft)
+    return _ValidVariables(variables=valid, replaced=replaced)
+
+
+def _same_attribute(first: str, second: str) -> bool:
+    return first == second or {first, second} <= SERVICE_ATTRIBUTES
+
+
+def _replace_reference(builder_filter: BuilderFilter, old: DraftVariable, new: DraftVariable) -> BuilderFilter:
+    value = REFERENCE.sub(
+        lambda match: (
+            match.group(0).replace(old.name, new.name, 1) if reference_name(match) == old.name else match.group(0)
+        ),
+        builder_filter.value,
+    )
+    key = new.attribute if _same_attribute(builder_filter.key, old.attribute) else builder_filter.key
+    return builder_filter.model_copy(update={"key": key, "value": value})
+
+
+def _with_known_references(draft: DraftPanel, valid: _ValidVariables) -> DraftPanel:
+    """The panel without the filters that refer to a variable that the dashboard does not have.
+
+    A filter on a replaced variable filters on the variable that replaced it.
+    """
+    names = {variable.name for variable in valid.variables}
+
+    def rewritten(builder_filter: BuilderFilter) -> BuilderFilter:
+        for name in referenced_names(builder_filter.value):
+            if name in valid.replaced:
+                builder_filter = _replace_reference(builder_filter, *valid.replaced[name])
+        return builder_filter
+
+    clauses = []
+    for clause in draft.query.clauses:
+        filters: list[BuilderFilter] = []
+        for item in map(rewritten, clause.filters):
+            if set(referenced_names(item.value)) <= names and item not in filters:
+                filters.append(item)
+        clauses.append(clause.model_copy(update={"filters": filters}))
+    return draft.model_copy(update={"query": draft.query.model_copy(update={"clauses": clauses})})
+
+
+def _convert(
+    drafts: Sequence[DraftPanel],
+    team: Team,
+    catalog: MetricCatalog,
+    *,
+    variables: Sequence[DraftVariable] = (),
+    attributes: Mapping[str, Sequence[str]] | None = None,
+    checks: ProjectChecks | None = None,
+) -> _Converted:
+    """Check each drafted query as PostHog would run it, and keep the panels that pass, with no overlapping boxes.
+
+    A drafted variable stays when it lists a known attribute and a kept panel refers to it. It selects All, because
+    the template is for every project and a value of the source project must not reach the others. With `checks`,
+    each panel also runs in the source project, and a panel whose run fails goes.
+    """
+    valid = _valid_variables(variables, attributes or {}, checks)
+    valid_variables = valid.variables
+    definitions = {
+        variable.name: attribute_variable(
+            name=variable.name,
+            label=" ".join(variable.label.split())[:100],
+            attribute=variable.attribute,
+            multi=variable.multi,
+        )
+        for variable in valid_variables
+    }
+    drafts = [_with_known_references(draft, valid) for draft in drafts]
     validator = PanelValidator(team=team, catalog=catalog, promql_available=False)
     queries = {draft.key: PanelQuery(language="builder", builder=draft.query) for draft in drafts}
-    checks = validator.check_all(queries, deadline_seconds=CHECK_DEADLINE_SECONDS)
+    static_checks = validator.check_all(queries, deadline_seconds=CHECK_DEADLINE_SECONDS)
     accepted: list[DraftPanel] = []
     queries_by_key: dict[str, dict] = {}
     dropped: list[str] = []
     for draft in drafts:
-        check = checks.get(draft.key)
+        check = static_checks.get(draft.key)
         if draft.key in queries_by_key or check is None or not check.ok:
             dropped.append(draft.title)
             continue
@@ -195,6 +322,12 @@ def _convert(drafts: Sequence[DraftPanel], team: Team, catalog: MetricCatalog) -
             dropped.append(draft.title)
             continue
         accepted.append(draft)
+    if checks is not None and accepted:
+        errors = checks.run_errors(
+            {draft.key: queries_by_key[draft.key] for draft in accepted}, list(definitions.values())
+        )
+        dropped.extend(f"{draft.title}: {errors[draft.key]}" for draft in accepted if draft.key in errors)
+        accepted = [draft for draft in accepted if draft.key not in errors]
     boxes = place_screenshot_boxes(
         [RequestedBox(key=draft.key, layout=draft.layout, min_w=2, min_h=2) for draft in accepted]
     )
@@ -202,13 +335,35 @@ def _convert(drafts: Sequence[DraftPanel], team: Team, catalog: MetricCatalog) -
         TemplatePanel(key=draft.key, title=draft.title[:200], query=queries_by_key[draft.key], layout=boxes[draft.key])
         for draft in accepted
     )
-    return _Converted(panels=panels, accepted=tuple(accepted), dropped=tuple(dropped))
+    used = {
+        name
+        for draft in accepted
+        for clause in draft.query.clauses
+        for item in clause.filters
+        for name in referenced_names(item.value)
+    }
+    kept_variables = tuple(variable for variable in valid_variables if variable.name in used)
+    return _Converted(
+        panels=panels,
+        accepted=tuple(accepted),
+        dropped=tuple(dropped),
+        variables=tuple(definitions[variable.name] for variable in kept_variables),
+        accepted_variables=kept_variables,
+    )
 
 
 def _store_panels(template: MetricsDashboardTemplate, record: GenerationRecord, converted: _Converted) -> None:
     template.panels = [panel.model_dump(mode="json") for panel in converted.panels]
+    template.variables = list(converted.variables)
     record.draft_panels = list(converted.accepted)
+    record.draft_variables = list(converted.accepted_variables)
     record.dropped_panels = list(converted.dropped)
+
+
+def _checks(context: _Context, value_counts: Mapping[str, int] | None) -> ProjectChecks:
+    return ProjectChecks(
+        context.team, [entry.name for entry in context.entries], value_counts, deadline=CHECK_DEADLINE_SECONDS
+    )
 
 
 def draft_template(template_id: str) -> int:
@@ -216,6 +371,15 @@ def draft_template(template_id: str) -> int:
     context = _context(template_id)
     template, record = context.template, _record(context.template)
     attributes = _attributes(context.team, context.entries)
+    metric_names = [entry.name for entry in context.entries]
+    try:
+        profile = attribute_profile(context.team, metric_names)
+    except Exception:
+        # Without the profile, the dashboard gets no candidates, and a variable is not checked for its values.
+        logger.warning("metrics_suggested_dashboards_attribute_profile_failed", team_id=context.team.id)
+        profile = None
+    candidates = variable_candidates(profile or {}, len(metric_names))
+    value_counts = {key: stats.value_count for key, stats in profile.items()} if profile is not None else None
     draft = ask_model(
         team_id=context.team.id,
         stage="draft",
@@ -228,18 +392,28 @@ def draft_template(template_id: str) -> int:
                     entries=context.entries,
                     attributes=attributes.keys,
                     attribute_values=attributes.values,
+                    variable_candidates=candidates,
                 )
             )
         ],
         answer_type=DashboardDraft,
     )
-    converted = _convert(draft.panels, context.team, context.catalog)
+    converted = _convert(
+        draft.panels,
+        context.team,
+        context.catalog,
+        variables=draft.variables,
+        attributes=attributes.keys,
+        checks=_checks(context, value_counts),
+    )
     template.name = " ".join(draft.name.split())[:200] or template.name
     template.description = " ".join(draft.description.split())[:300] or template.description
     _store_panels(template, record, converted)
     record.attributes = attributes.keys
     record.attribute_values = attributes.values
-    _save_record(template, record, "name", "description", "panels")
+    record.attribute_value_counts = value_counts
+    record.variable_candidates = candidates
+    _save_record(template, record, "name", "description", "panels", "variables")
     return len(converted.panels)
 
 
@@ -260,6 +434,7 @@ def _refresh_preview(context: _Context, round_number: int) -> int | None:
         catalog=context.catalog,
         idempotency_key=f"metrics-template-preview:{template.id}:{round_number}:{uuid.uuid4()}",
         unlisted=True,
+        variables=template.variables or [],
     )
     template.preview_team_id = context.team.id if created else None
     template.preview_dashboard_id = created.id if created else None
@@ -337,9 +512,11 @@ def check_preview(template_id: str, round_number: int, *, revise: bool) -> bool:
             text_block(
                 prompts.critique_input(
                     panels=record.draft_panels,
+                    variables=record.draft_variables,
                     entries=context.entries,
                     attributes=record.attributes,
                     attribute_values=record.attribute_values,
+                    variable_candidates=record.variable_candidates,
                     dropped=record.dropped_panels,
                 )
             ),
@@ -350,7 +527,14 @@ def check_preview(template_id: str, round_number: int, *, revise: bool) -> bool:
     current.looks_good = critique.looks_good
     current.problems = [" ".join(problem.split())[:300] for problem in critique.problems][:10]
     if not looks_good and revise:
-        converted = _convert(critique.panels, context.team, context.catalog)
+        converted = _convert(
+            critique.panels,
+            context.team,
+            context.catalog,
+            variables=critique.variables,
+            attributes=record.attributes,
+            checks=_checks(context, record.attribute_value_counts),
+        )
         if converted.panels:
             current.revised = True
             _store_panels(template, record, converted)
@@ -360,6 +544,7 @@ def check_preview(template_id: str, round_number: int, *, revise: bool) -> bool:
                 template,
                 record,
                 "panels",
+                "variables",
                 "preview_team_id",
                 "preview_dashboard_id",
                 "preview_unbuilt_keys",
@@ -436,6 +621,7 @@ def _capture_generated(template: MetricsDashboardTemplate, record: GenerationRec
             "error": record.error,
             "panel_count": len(template.panels or []),
             "dropped_panel_count": len(record.dropped_panels),
+            "variable_count": len(template.variables or []),
             "check_rounds": len(record.rounds),
             "looks_good": record.rounds[-1].looks_good if record.rounds else None,
             # No project in the path: the reviewer opens it in their own project, not the source team's.

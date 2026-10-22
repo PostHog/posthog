@@ -1,17 +1,15 @@
 import FuseClass from 'fuse.js'
 import { MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
-import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { createFuse } from 'lib/utils/fuseSearch'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import type { Params } from 'scenes/sceneTypes'
 import { organizationIntegrationsLogic } from 'scenes/settings/organization/organizationIntegrationsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -117,8 +115,6 @@ export interface settingsLogicValues {
     selectedSettingId: SettingId | null
     settings: Setting[]
     settingsFuse: SettingsFuse
-    settingsSnapshot: Record<string, any> | null
-    settingsSnapshotLoading: boolean
     unavailableSection: UnavailableSection | null
 }
 
@@ -129,33 +125,6 @@ export interface settingsLogicActions {
     }
     expandGroup: (group: string) => {
         group: string
-    }
-    loadSettingsAsOf: (
-        at: string,
-        scope?: string | string[]
-    ) => {
-        at: string
-        scope: string | string[] | undefined
-    }
-    loadSettingsAsOfFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    }
-    loadSettingsAsOfSuccess: (
-        settingsSnapshot: Record<string, any>,
-        payload?: {
-            at: string
-            scope: string | string[] | undefined
-        }
-    ) => {
-        settingsSnapshot: Record<string, any>
-        payload?: {
-            at: string
-            scope: string | string[] | undefined
-        }
     }
     navigateToSetting: (
         sectionId: SettingSectionId,
@@ -320,7 +289,6 @@ export const settingsLogic = kea<settingsLogicType>([
         toggleLevelCollapse: (level: SettingLevelId) => ({ level }),
         toggleGroupCollapse: (group: string) => ({ group }),
         expandGroup: (group: string) => ({ group }),
-        loadSettingsAsOf: (at: string, scope?: string | string[]) => ({ at, scope }),
         navigateToSetting: (sectionId: SettingSectionId, settingId: SettingId) => ({ sectionId, settingId }),
     }),
 
@@ -407,26 +375,6 @@ export const settingsLogic = kea<settingsLogicType>([
                     ...state,
                     [group]: false,
                 }),
-            },
-        ],
-    })),
-
-    loaders(() => ({
-        settingsSnapshot: [
-            null as Record<string, any> | null,
-            {
-                loadSettingsAsOf: async ({ at, scope }: { at: string; scope?: string | string[] }) => {
-                    const scopeArray = Array.isArray(scope)
-                        ? scope.filter((s): s is string => !!s)
-                        : scope
-                          ? [scope]
-                          : undefined
-                    if (!at) {
-                        lemonToast.warning('A timestamp is required to load settings at a point in time')
-                        return {}
-                    }
-                    return await api.teamSettings.asOf(at, scopeArray)
-                },
             },
         ],
     })),
@@ -860,7 +808,7 @@ export const settingsLogic = kea<settingsLogicType>([
             ]
         },
     })),
-    urlToAction(({ actions, values }) => ({
+    urlToAction(({ actions, values, props }) => ({
         // A section with a scene of its own has no section selection, so its route moves the pane to its tab.
         ...Object.fromEntries(
             SETTINGS_SECTION_SCENES.flatMap(({ level, url, legacyUrl }) =>
@@ -869,6 +817,16 @@ export const settingsLogic = kea<settingsLogicType>([
                     .map((root) => [`${root}(/*)`, () => actions.setNavLevel(level)])
             )
         ),
+        // The settings scene instance outlives a scene change, and its selectSetting pushes `/settings/...`.
+        ...(props.logicKey === 'settingsScene' ? {} : embeddedSettingsRoutes(actions, values)),
+    })),
+])
+
+function embeddedSettingsRoutes(
+    actions: settingsLogicType['actions'],
+    values: settingsLogicType['values']
+): Record<string, (params: Params, searchParams: Params, hashParams: Params) => void> {
+    return {
         ['*/replay/settings']: (_, __, hashParams) => {
             const { selectedSetting } = hashParams
             const selectedSettingId = selectedSetting as SettingId
@@ -894,5 +852,5 @@ export const settingsLogic = kea<settingsLogicType>([
                 actions.selectSetting(selectedSettingId)
             }
         },
-    })),
-])
+    }
+}

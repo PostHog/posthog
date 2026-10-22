@@ -1,3 +1,4 @@
+import type { GatewayBlockedStatus } from "@posthog/shared";
 import { z } from "zod";
 
 export const llmMessageSchema = z.object({
@@ -104,12 +105,14 @@ export const gatewayTokenRefusalSchema = z.object({
   access: z.unknown().optional(),
 });
 
+export type { GatewayBlockedStatus };
+
 export type GatewayRoute =
-  | { mode: "legacy"; reason: string }
   | {
       mode: "blocked";
-      reason: "credit_bucket_exhausted";
+      reason: string;
       detail: string;
+      status: GatewayBlockedStatus;
     }
   | {
       mode: "go";

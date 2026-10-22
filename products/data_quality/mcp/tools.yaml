@@ -52,7 +52,6 @@ tools:
             refreshes, and a check on a metric or a PostHog table on that subject's schedule.
         inject_body:
             created_source: ai_generated
-        feature_flag: data-quality-checks
     data-quality-check-delete:
         operation: data_quality_checks_destroy
         enabled: true
@@ -66,7 +65,6 @@ tools:
         description: >
             Delete a check. The API soft-deletes it, so its run history stays queryable in
             system.information_schema.data_quality_check_runs and past failures can still be dated.
-        feature_flag: data-quality-checks
     data-quality-check-results:
         operation: data_quality_checks_runs_list
         enabled: true
@@ -80,7 +78,6 @@ tools:
         description: >
             The check's newest runs, including the failing-row count and the compiled HogQL that selects the offending
             rows — re-run that query to investigate a failure.
-        feature_flag: data-quality-checks
     data-quality-check-run:
         operation: data_quality_checks_run_create
         enabled: true
@@ -94,7 +91,6 @@ tools:
         description: >
             Run one check now. Returns a suite run to poll; read the outcome from
             system.information_schema.data_quality_check_runs once it finishes.
-        feature_flag: data-quality-checks
     data-quality-check-schedule:
         operation: data_quality_checks_schedule_partial_update
         enabled: true
@@ -115,7 +111,6 @@ tools:
                 required: true
             subject_uuid:
                 required: true
-        feature_flag: data-quality-checks
     data-quality-check-types:
         operation: data_quality_checks_check_types_list
         enabled: true
@@ -129,7 +124,6 @@ tools:
         description: >
             The check types this project can author, each with the JSON schema its config is validated against. Pass
             subject_type to see only the types that kind of subject supports.
-        feature_flag: data-quality-checks
     data-quality-check-update:
         operation: data_quality_checks_partial_update
         enabled: true
@@ -146,7 +140,6 @@ tools:
             are ignored here. The check keeps its id, run history, latest status, and latest run time. A definition or
             name another active check already holds comes back as a field error, with nothing written. Deleted checks
             release their definition, so it can be authored again as a new check.
-        feature_flag: data-quality-checks
     data-quality-subjects:
         operation: data_quality_checks_subjects_list
         enabled: true
@@ -162,4 +155,3 @@ tools:
             whether you can put a check on it. Start here: a check names its subject by the subject_type and id this
             returns, and a relationships check can point at a subject you can only read. A subject whose time_column is
             set can take a lookback_hours window.
-        feature_flag: data-quality-checks

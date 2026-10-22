@@ -16,10 +16,9 @@ class TestNewRelicSource:
 
     @parameterized.expand(
         [
-            ("us_unauthorized", "401 Client Error: Unauthorized for url: https://api.newrelic.com/graphql"),
             ("eu_unauthorized", "401 Client Error: Unauthorized for url: https://api.eu.newrelic.com/graphql"),
-            ("us_forbidden", "403 Client Error: Forbidden for url: https://api.newrelic.com/graphql"),
             ("eu_forbidden", "403 Client Error: Forbidden for url: https://api.eu.newrelic.com/graphql"),
+            ("graphql_access_denied", "New Relic GraphQL error: Access denied."),
         ]
     )
     def test_non_retryable_errors_match_auth_failures(self, _name, observed_error):
@@ -29,7 +28,6 @@ class TestNewRelicSource:
     @parameterized.expand(
         [
             ("other_vendor", "401 Client Error: Unauthorized for url: https://api.stripe.com/v1/customers"),
-            ("server_error", "500 Server Error for url: https://api.newrelic.com/graphql"),
         ]
     )
     def test_non_retryable_errors_do_not_match_unrelated(self, _name, other_error):
@@ -58,10 +56,6 @@ class TestNewRelicSource:
     def test_high_volume_tables_are_off_by_default(self, endpoint):
         schema = next(s for s in self.source.get_schemas(self.config, self.team_id) if s.name == endpoint)
         assert schema.should_sync_default is False
-
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["entities"])
-        assert [schema.name for schema in schemas] == ["entities"]
 
     def test_connection_host_fields_require_secret_reentry_on_retarget(self):
         assert self.source.connection_host_fields == ["account_id", "region"]

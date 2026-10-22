@@ -43,6 +43,12 @@ MIXIN_MODELS_BY_SURFACE: dict[str, dict[str, type[FileSystemSyncMixin]]] = {
 }
 
 
+def register_mixin_model(file_type: str, model_cls: type[FileSystemSyncMixin], surface: str = DEFAULT_SURFACE) -> None:
+    """For a sealed product to add its model from its own `AppConfig.ready()`, so this module
+    never has to import the product's internals."""
+    MIXIN_MODELS_BY_SURFACE.setdefault(surface, {})[file_type] = model_cls
+
+
 class UnfiledFileSaver:
     """
     Checks each model's get_file_system_unfiled(...) for items that

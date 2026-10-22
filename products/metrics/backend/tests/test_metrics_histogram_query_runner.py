@@ -171,6 +171,12 @@ class TestMetricsHistogramQueryRunner(ClickhouseTestMixin, APIBaseTest):
         first, second = (dt.datetime.fromisoformat(t) for t in response.times[:2])
         self.assertEqual(second - first, dt.timedelta(hours=6))
 
+    def test_unresolved_variable_is_explained_without_a_query(self):
+        with patch("products.metrics.backend.hogql_queries.metrics_histogram_query_runner.execute_hogql_query") as run:
+            with self.assertRaisesRegex(ExposedHogQLError, r"\$job"):
+                self._run(filters=[MetricsQueryFilter(key="job", op="eq", value="$job")])
+        run.assert_not_called()
+
     def test_invalid_range_surfaces_as_client_error_not_500(self):
         with self.assertRaises(ExposedHogQLError):
             self._run(

@@ -47,11 +47,15 @@ from products.ai_observability.backend.providers.formatters.tools_handler import
 
 logger = logging.getLogger(__name__)
 
+OPENAI_DECISIONS_BASE_URL = "https://api.openai.com/v1"
+
 
 class OpenAIConfig:
     REASONING_EFFORT: ReasoningEffort = "medium"
     TEMPERATURE: float = 0
     TIMEOUT: float = 300.0
+
+    DECISION_MODELS: frozenset[str] = frozenset({"gpt-6-luna"})
 
     SUPPORTED_MODELS: list[str] = [
         "gpt-5.4",

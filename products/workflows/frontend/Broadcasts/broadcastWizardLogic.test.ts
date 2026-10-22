@@ -11,10 +11,11 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
-import type { HogFlowApi } from 'products/workflows/frontend/generated/api.schemas'
+import type { BlastRadiusApi, HogFlowApi } from 'products/workflows/frontend/generated/api.schemas'
 
 import { draftMessage } from '../MessageAudience/messageDrafts'
 import { urlForNewBroadcastWithAudience } from './broadcastAudiencePrefill'
+import { broadcastTestSendLogic } from './broadcastTestSendLogic'
 import { DEFAULT_BROADCAST_EMAIL, DELETED_SENDER_ERROR, broadcastWizardLogic } from './broadcastWizardLogic'
 
 const LOCAL_AUDIENCE: AnyPropertyFilter[] = [
@@ -51,6 +52,7 @@ function savedBroadcast(overrides: { name: string; subject: string; updatedAt: s
         abort_action: null,
         billable_action_types: [],
         schedules: [],
+        tags: [],
         user_access_level: 'editor',
         draft: null,
         draft_updated_at: null,
@@ -94,6 +96,10 @@ describe('broadcastWizardLogic', () => {
             },
             post: {
                 '/api/projects/:team_id/hog_flows/user_blast_radius/': () => [200, { affected: 0, total: 0 }],
+                '/api/projects/:team_id/hog_flows/new/invocations/': () => [
+                    200,
+                    { status: 'success', nextActionId: null, logs: [] },
+                ],
                 '/api/projects/:team_id/hog_flows/': async () => {
                     await created
                     return [201, savedBroadcast({ name: '', subject: '', updatedAt: '2026-09-24T10:00:00Z' })]
@@ -132,6 +138,33 @@ describe('broadcastWizardLogic', () => {
 
     afterEach(() => {
         logic.unmount()
+    })
+
+    it('remembers a delivered test, for the address it went to, until the email changes', async () => {
+        const testSend = broadcastTestSendLogic({ id: 'new' })
+        testSend.mount()
+        // Let the wizard fill its default sender first, which is an email change of its own.
+        await expectLogic(logic).toFinishAllListeners()
+        const sendTest = async (): Promise<void> => {
+            testSend.actions.setRecipientEmail('reviewer@example.com')
+            testSend.actions.sendTestEmail()
+            // Edited while the send runs, which must not change who the card says got it.
+            testSend.actions.setRecipientEmail('typo@example.com')
+            await expectLogic(testSend).toDispatchActions(['sendTestEmailSuccess']).toFinishAllListeners()
+        }
+
+        await sendTest()
+        expect(testSend.values.lastTestSentTo).toBe('reviewer@example.com')
+        logic.actions.setEmail({ ...logic.values.email, subject: 'Changed after the test' })
+        expect(testSend.values.lastTestSentTo).toBeNull()
+
+        await sendTest()
+        logic.actions.applyExternalEdit(
+            savedBroadcast({ name: '', subject: 'Rewritten by the assistant', updatedAt: '2026-09-24T10:00:09Z' }),
+            null
+        )
+        expect(testSend.values.lastTestSentTo).toBeNull()
+        testSend.unmount()
     })
 
     it('prefills the audience, name and source from a link without creating a draft', async () => {
@@ -385,6 +418,19 @@ describe('broadcastWizardLogic', () => {
         expect(router.values.location.pathname).toContain('/broadcasts/broadcast-1')
     })
 
+    it('autosaves a subject edited in place on the review step', async () => {
+        router.actions.push('/broadcasts/new')
+        logic.actions.setStep('content')
+        releaseCreate()
+        await expectLogic(logic).toDispatchActions(['draftAutosaved']).toFinishAllListeners()
+
+        logic.actions.setStep('review')
+        logic.actions.setEmail({ ...logic.values.email, subject: 'Edited on the review step' })
+        await expectLogic(logic).toDispatchActions(['draftAutosaved']).toFinishAllListeners()
+
+        expect(patchedSubjects.at(-1)).toBe('Edited on the review step')
+    })
+
     it('retries a failed email autosave and moves to the draft URL once it saves', async () => {
         router.actions.push('/broadcasts/new')
         logic.actions.setStep('content')
@@ -569,15 +615,84 @@ describe('broadcastWizardLogic', () => {
         }
     )
 
-    it('stops a launch while an uploaded list in the audience is still matching', async () => {
+    it('refreshes the realtime cohort status until the cohort is ready, past a failed check', async () => {
+        const states = ['needs_attention', 'error', 'ready']
+        let calls = 0
         useMocks({
-            get: {
-                '/api/projects/:team_id/cohorts/:id/': {
-                    id: 42,
-                    name: 'Spring list',
-                    is_static: true,
-                    is_calculating: true,
+            post: {
+                '/api/projects/:team_id/hog_flows/user_blast_radius/': async ({ request }) => {
+                    // The recipient email check posts here too, with an extra condition.
+                    const { filters } = (await request.json()) as { filters: { properties: unknown[] } }
+                    if (filters.properties.length > 1) {
+                        return [200, { affected: 0, total: 0 }]
+                    }
+                    const state = states[Math.min(calls++, states.length - 1)]
+                    if (state === 'error') {
+                        return [500, { detail: 'Simulated outage' }]
+                    }
+                    return [
+                        200,
+                        {
+                            affected: 0,
+                            total: 0,
+                            realtime_cohort: { id: 42, name: 'Upgraded', state, percent_complete: null },
+                        },
+                    ]
                 },
+            },
+        })
+        const statusLoaded =
+            (state: string) =>
+            (action: { type: string; payload?: { blastRadius?: BlastRadiusApi | null } }): boolean =>
+                action.type === logic.actionTypes.loadBlastRadiusSuccess &&
+                action.payload?.blastRadius?.realtime_cohort?.state === state
+        await expectLogic(logic, () => {
+            logic.actions.setAudienceProperties([
+                { type: PropertyFilterType.Cohort, key: 'id', value: 42, operator: PropertyOperator.In },
+            ])
+        }).toDispatchActions([statusLoaded('needs_attention')])
+
+        jest.useFakeTimers()
+        try {
+            await jest.advanceTimersByTimeAsync(20000)
+            await expectLogic(logic).toDispatchActions([statusLoaded('ready')])
+            expect(logic.values.blastRadius?.realtime_cohort?.state).toEqual('ready')
+
+            await jest.advanceTimersByTimeAsync(30000)
+            expect(calls).toEqual(3)
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
+    const dynamicCohort = { id: 42, name: 'Upgraded', is_static: false, is_calculating: true }
+    it.each([
+        [
+            'an uploaded list that is still matching',
+            { id: 42, name: 'Spring list', is_static: true, is_calculating: true },
+            null,
+            ['"Spring list" is still matching people. You can launch when it finishes.'],
+        ],
+        [
+            'a cohort before its first calculation',
+            dynamicCohort,
+            null,
+            [`"Upgraded" is still calculating who's in it. You can launch when it finishes.`],
+        ],
+        [
+            'a realtime cohort the send waits for',
+            dynamicCohort,
+            { id: 42, name: 'Upgraded', state: 'building', percent_complete: null },
+            [],
+        ],
+    ])('checks the audience cohorts at launch: %s', async (_desc, cohort, realtimeCohort, expectedErrors) => {
+        useMocks({
+            get: { '/api/projects/:team_id/cohorts/:id/': cohort },
+            post: {
+                '/api/projects/:team_id/hog_flows/user_blast_radius/': () => [
+                    200,
+                    { affected: 0, total: 0, realtime_cohort: realtimeCohort },
+                ],
             },
         })
         logic.actions.setEmail({
@@ -589,17 +704,16 @@ describe('broadcastWizardLogic', () => {
         logic.actions.setAudienceProperties([
             { type: PropertyFilterType.Cohort, key: 'id', value: 42, operator: PropertyOperator.In },
         ])
+        await expectLogic(logic, () => {
+            logic.actions.loadBlastRadius()
+        }).toDispatchActions(['loadBlastRadiusSuccess'])
         logic.actions.setStep('review')
 
         await expectLogic(logic, () => {
             logic.actions.launchBroadcast()
-        })
-            .toDispatchActions(['setAudienceCohortLaunchErrors', 'launchBroadcastFinished'])
-            .toNotHaveDispatchedActions(['saveBroadcastFinished'])
+        }).toDispatchActions(['setAudienceCohortLaunchErrors'])
 
-        expect(logic.values.stepValidationErrors.review).toEqual([
-            '"Spring list" is still matching people. You can launch when it finishes.',
-        ])
+        expect(logic.values.stepValidationErrors.review).toEqual(expectedErrors)
     })
 
     it.each([

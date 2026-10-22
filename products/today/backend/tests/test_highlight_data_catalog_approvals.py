@@ -52,7 +52,7 @@ class TestDataCatalogApprovalsHighlight(SimpleTestCase):
         item = found.items[0]
         assert (item.title, item.detail, item.url) == (title, detail, url)
         assert item.label == HighlightLabel.OPPORTUNITY
-        assert item.score == 0.5
+        assert (item.importance, item.relevance) == (0.5, 1.0)
         assert registered.scopes == ("data_catalog:read", "data_catalog_approval:write")
 
     def test_a_user_who_cannot_approve_gets_no_item(self) -> None:

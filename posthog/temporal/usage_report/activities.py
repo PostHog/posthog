@@ -26,6 +26,7 @@ from posthog.tasks.usage_report import get_instance_metadata, iter_reports_with_
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.metrics import ExecutionTimeRecorder
 from posthog.temporal.usage_report.aggregator import (
+    add_pre_logs_distinct_patterns_patch_defaults,
     add_pre_sandbox_compute_patch_defaults,
     get_org_user_counts,
     iter_org_reports,
@@ -247,6 +248,7 @@ async def aggregate_and_chunk_org_reports(inputs: AggregateInputs) -> AggregateR
                 check_cancelled()
                 all_data = load_all_data(inputs.query_results)
                 add_pre_sandbox_compute_patch_defaults(all_data, inputs.query_results)
+                add_pre_logs_distinct_patterns_patch_defaults(all_data, inputs.query_results)
                 check_cancelled()
                 counter_report = load_usage_counter_report(inputs)
                 all_data.update({field: dict(rows) for field, rows in counter_report.counts.items()})

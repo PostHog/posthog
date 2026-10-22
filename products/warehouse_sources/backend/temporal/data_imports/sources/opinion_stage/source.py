@@ -54,7 +54,7 @@ class OpinionStageSource(ResumableSource[OpinionStageSourceConfig, OpinionStageR
             name=ExternalDataSourceType.OPINIONSTAGE,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Opinion Stage",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Opinion Stage personal API key to pull your interactive content data into the PostHog Data warehouse.
 
 You can find your API key on your account settings page in [Opinion Stage](https://www.opinionstage.com/). The key grants read access to your items (quizzes, surveys, and forms), their questions, and their responses via the Public Result API.
