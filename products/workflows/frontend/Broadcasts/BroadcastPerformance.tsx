@@ -74,8 +74,9 @@ export function BroadcastPerformance({
 
             {trackingOff ? (
                 <LemonBanner type="info">
-                    Open and click tracking was off for this send, so opens and clicks weren't recorded. Turn on
-                    tracking in the email before the next send to see them.
+                    Open and click tracking was off for this send, so opens and clicks weren't recorded. Before the next
+                    send, check the tracking setting on the email and the email tracking consent setting in your
+                    environment settings.
                 </LemonBanner>
             ) : null}
 
