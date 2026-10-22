@@ -1388,7 +1388,10 @@ export interface dashboardLogicMeta {
                 Record<string, never> | Record<DashboardLayoutSize, TileLayout> | undefined
             >
         ) => ResponsiveLayouts
-        layout: (layouts: any, sizeKey: DashboardLayoutSize | undefined) => Layout | undefined
+        layout: (
+            layouts: Partial<Record<string, Layout>>,
+            sizeKey: DashboardLayoutSize | undefined
+        ) => Layout | undefined
         layoutForItem: (layout: Layout | undefined) => Record<string, TileLayout>
         refreshMetrics: (
             refreshStatus: Record<string, RefreshStatus>,
