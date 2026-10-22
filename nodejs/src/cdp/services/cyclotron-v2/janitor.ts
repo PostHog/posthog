@@ -2,11 +2,13 @@ import { DateTime } from 'luxon'
 import { Pool } from 'pg'
 import { Counter, Gauge } from 'prom-client'
 
+import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
 import { captureException } from '~/common/utils/posthog'
 
-import { CYCLOTRON_INVOCATION_JOB_QUEUES, CyclotronJobInvocationHogFlow } from '../../types'
+import { CYCLOTRON_INVOCATION_JOB_QUEUES, CyclotronJobInvocationHogFlow, HogFlowInvocationContext } from '../../types'
 import { v2JobToInvocation } from '../job-queue/job-queue-postgres-v2'
+import { EmailStatus, EmailStatusWriter, transactionalEmailRecipientHash } from '../messaging/email-status.service'
 import { HogInvocationResultsService } from '../monitoring/hog-invocation-results.service'
 import {
     CYCLOTRON_COUNTER_MAX,
@@ -81,6 +83,21 @@ const queueDepthGauge = new Gauge({
     labelNames: ['queue'],
 })
 
+type EmailStatusJobRow = {
+    id: string
+    team_id: number
+    queue_name: string
+    state: Buffer | null
+}
+
+const hogFlowStateOf = (row: EmailStatusJobRow): Partial<HogFlowInvocationContext> | null => {
+    try {
+        return row.state ? (parseJSON(row.state.toString('utf-8')).state ?? null) : null
+    } catch {
+        return null
+    }
+}
+
 interface PoisonRow {
     id: string
     team_id: number
@@ -121,7 +138,8 @@ export class CyclotronV2Janitor {
         // the give-up path can construct a janitor without Kafka. When absent
         // the janitor never deletes poison pills (it only resets/retries) — it
         // refuses to drop a job it can't record a recovery row for.
-        private invocationResults?: HogInvocationResultsService
+        private invocationResults?: HogInvocationResultsService,
+        private emailStatus?: EmailStatusWriter
     ) {
         this.pool = new Pool({
             connectionString: config.pool.dbUrl,
@@ -365,6 +383,11 @@ export class CyclotronV2Janitor {
                 ids: deletedIds,
             })
         }
+        await this.recordEmailStatuses(
+            result.rows.filter((row) => deletedIds.includes(row.id)),
+            'failed',
+            'gave_up'
+        )
 
         return deletedIds
     }
@@ -465,7 +488,7 @@ export class CyclotronV2Janitor {
             ? [heartbeatCutoff, this.stallBackoffBaseMs, this.stallBackoffMaxMs, STALL_BACKOFF_FIRST_RETRY_SPREAD_MS]
             : [heartbeatCutoff]
 
-        const result = await this.pool.query(
+        const result = await this.pool.query<EmailStatusJobRow>(
             `WITH stalled AS (
                 SELECT id
                 FROM cyclotron_jobs
@@ -477,7 +500,9 @@ export class CyclotronV2Janitor {
             SET status = 'available', lock_id = NULL, last_heartbeat = NULL,
                 janitor_touch_count = LEAST(janitor_touch_count + 1, ${CYCLOTRON_COUNTER_MAX})${backoffClause}
             FROM stalled
-            WHERE cyclotron_jobs.id = stalled.id`,
+            WHERE cyclotron_jobs.id = stalled.id
+            RETURNING cyclotron_jobs.id, cyclotron_jobs.team_id, cyclotron_jobs.queue_name,
+                CASE WHEN cyclotron_jobs.queue_name = 'email' THEN cyclotron_jobs.state END AS state`,
             params
         )
 
@@ -486,8 +511,31 @@ export class CyclotronV2Janitor {
             janitorStalledCounter.inc(count)
             logger.info('CyclotronV2Janitor reset stalled jobs', { count })
         }
+        await this.recordEmailStatuses(result.rows, 'unknown')
 
         return count
+    }
+
+    // record() counts and logs a failed write, and the job handling must not depend on it.
+    private async recordEmailStatuses(rows: EmailStatusJobRow[], status: EmailStatus, reason?: string): Promise<void> {
+        if (!this.emailStatus) {
+            return
+        }
+        for (const row of rows) {
+            if (row.queue_name !== 'email') {
+                continue
+            }
+            const state = hogFlowStateOf(row)
+            const recipientHash = transactionalEmailRecipientHash(
+                { triggerEvent: state?.event?.event, recipientHash: state?.emailRecipientHash },
+                'janitor'
+            )
+            if (recipientHash) {
+                await this.emailStatus
+                    .record({ teamId: row.team_id, messageId: row.id, status, at: new Date(), recipientHash, reason })
+                    .catch(() => undefined)
+            }
+        }
     }
 
     /**

@@ -20,6 +20,7 @@ import { HogFlowManagerService } from '../hogflows/hogflow-manager.service'
 import { HogFunctionManagerService } from '../managers/hog-function-manager.service'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { HogFunctionMonitoringService } from '../monitoring/hog-function-monitoring.service'
+import { EmailStatusWriter } from './email-status.service'
 import { EmailSuppressionService } from './email-suppression.service'
 import { escapeHtml } from './helpers/escape-html'
 import { SES_LINK_INDEX_TAG, SesWebhookHandler } from './helpers/ses'
@@ -292,7 +293,8 @@ export class EmailTrackingService {
         private capturedEventsService: CapturedEventsService,
         private teamWorkflowsConfigService: TeamWorkflowsConfigService,
         private trackingCodeSigner: EmailTrackingCodeSigner,
-        private emailSuppressionService: EmailSuppressionService
+        private emailSuppressionService: EmailSuppressionService,
+        private emailStatus: EmailStatusWriter
     ) {
         const allowedTopicArns = (process.env.SES_ALLOWED_SNS_TOPIC_ARNS ?? '').split(',')
         this.sesWebhookHandler = new SesWebhookHandler(this.trackingCodeSigner, allowedTopicArns)
@@ -511,11 +513,18 @@ export class EmailTrackingService {
                 hardBounceRecipients,
                 complainedRecipients,
                 deliveredRecipients,
+                emailStatusChanges,
             } = await this.sesWebhookHandler.handleWebhook({
                 body: parseJSON(req.body),
                 headers: req.headers,
                 verifySignature: true,
             })
+
+            // Written first and not caught: a failed write answers SNS with a 5xx so it retries, and
+            // nothing below has counted the notification yet, so the retry does not count it twice.
+            for (const change of emailStatusChanges || []) {
+                await this.emailStatus.record(change)
+            }
 
             // A single SNS notification can yield several metrics (a Click emits its rollup plus a
             // per-link row, a Bounce its rollup plus a per-type row). Flushing inside each call would

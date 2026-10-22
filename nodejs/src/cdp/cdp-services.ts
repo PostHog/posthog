@@ -34,6 +34,7 @@ import { IntegrationManagerService } from './services/managers/integration-manag
 import { PersonsManagerService } from './services/managers/persons-manager.service'
 import { RecipientsManagerService } from './services/managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from './services/managers/team-workflows-config.service'
+import { EmailStatusService } from './services/messaging/email-status.service'
 import { EmailSuppressionService } from './services/messaging/email-suppression.service'
 import { EmailValidationService } from './services/messaging/email-validation.service'
 import { EmailService, parseTeamEmailCapMode, parseTierCaps } from './services/messaging/email.service'
@@ -117,6 +118,7 @@ export interface CdpCoreServices {
     /** Resolved outputs shared across every CDP service/consumer. */
     outputs: CdpOutputs
     emailService: EmailService
+    emailStatus: EmailStatusService
     /** Buffers rendered-email asset rows and bulk-flushes them at the batch boundary. */
     messageAssetsService: MessageAssetsService
 }
@@ -438,6 +440,7 @@ export function createCdpCoreServices(
     const teamWorkflowsConfigService = new TeamWorkflowsConfigService(deps.postgres, deps.pubSub)
     const outputs = createCdpOutputsRegistry().build(deps.cdpProducerRegistry, config)
     const messageAssetsService = new MessageAssetsService(outputs)
+    const emailStatus = new EmailStatusService(outputs)
     // Constructed here (rather than below with the other messaging services) so it can be threaded
     // into EmailService — the pre-send suppression check lives there so every send path shares one
     // choke point regardless of whether the invocation came from a workflow action or a hog function.
@@ -477,7 +480,8 @@ export function createCdpCoreServices(
         recipientsManager,
         messageAssetsService,
         workflowEmailRateLimiter,
-        teamEmailRateLimiter
+        teamEmailRateLimiter,
+        emailStatus
     )
     const recipientTokensService = new RecipientTokensService(config.ENCRYPTION_SALT_KEYS, config.SITE_URL)
     const hogInputsService = new HogInputsService(deps.integrationManager, recipientTokensService, deps.encryptedFields)
@@ -614,6 +618,7 @@ export function createCdpCoreServices(
         recipientTokensService,
         outputs,
         emailService,
+        emailStatus,
         messageAssetsService,
     }
 }

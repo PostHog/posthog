@@ -423,6 +423,7 @@ export type CyclotronJobInvocationHogFunctionContext = {
     actionId?: string // The hogflow action node ID, used for metrics instance_id when executing within a workflow
     actionStepCount?: number
     customerTaskIdempotencyVersion?: 1
+    emailRecipientHash?: string
 }
 
 export type WorkflowStepResumeStatus = 'completed' | 'failed' | 'cancelled'
@@ -564,6 +565,8 @@ export type HogFlowInvocationContext = {
     conversionCounted?: boolean
     variables?: Record<string, any>
     send?: AcceptedSend
+    // Part of the queued job format: runs queued before it existed have none.
+    emailRecipientHash?: string
     // Sticky counter incremented by the rerun paginator on rehydration. Lets
     // the lifecycle row producer derive `attempts` / `is_retry` for hog flows
     // the same way it does for hog functions, so the `max_attempts` guard on
