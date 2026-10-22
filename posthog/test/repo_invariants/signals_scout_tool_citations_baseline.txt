@@ -34,6 +34,7 @@ pull-requests
 query-apm-spans
 query-error-tracking-issue
 query-funnel
+query-funnel-actors
 query-lifecycle
 query-llm-trace
 query-logs
