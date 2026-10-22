@@ -2,6 +2,42 @@
 # by the aux role (all envs) and the local data node. One declaration; both stacks
 # compose this layer. The sharded_* storage tables stay in roles/auxiliary/shared.
 database "posthog" {
+  table "_app_metrics2_columns" {
+    abstract = true
+    column "team_id" {
+      type = "Int64"
+    }
+    column "timestamp" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "app_source" {
+      type = "LowCardinality(String)"
+    }
+    column "app_source_id" {
+      type = "String"
+    }
+    column "instance_id" {
+      type = "String"
+    }
+    column "metric_kind" {
+      type = "LowCardinality(String)"
+    }
+    column "metric_name" {
+      type = "LowCardinality(String)"
+    }
+    column "count" {
+      type = "SimpleAggregateFunction(sum, Int64)"
+    }
+    column "_timestamp" {
+      type = "DateTime"
+    }
+    column "_offset" {
+      type = "UInt64"
+    }
+    column "_partition" {
+      type = "UInt64"
+    }
+  }
   table "_conversion_goal_attributed_preaggregated_columns" {
     abstract = true
     column "team_id" {
@@ -1085,6 +1121,15 @@ database "posthog" {
     }
     column "max_event_time" {
       type = "SimpleAggregateFunction(max, DateTime)"
+    }
+  }
+  table "app_metrics2" {
+    extend = "_app_metrics2_columns"
+    engine "distributed" {
+      cluster_name    = "aux"
+      remote_database = "posthog"
+      remote_table    = "sharded_app_metrics2"
+      sharding_key    = "rand()"
     }
   }
   table "conversion_goal_attributed_preaggregated" {
