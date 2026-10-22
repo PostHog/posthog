@@ -167,15 +167,6 @@ TASKS_USE_MODAL_RESUME_SNAPSHOTS: bool = get_from_env(
     type_cast=str_to_bool,
 )
 
-# Force-enables process_task continue_as_new regardless of the tasks-continue-as-new flag
-# (for local E2E / emergency on). The flag is the normal cloud toggle. continue_as_new bounds
-# replay cost so long runs don't trip the 2s workflow-task deadlock detector on eviction.
-TASKS_CONTINUE_AS_NEW_ENABLED: bool = get_from_env(
-    "TASKS_CONTINUE_AS_NEW_ENABLED",
-    False,
-    type_cast=str_to_bool,
-)
-
 TASKS_COMPUTE_QUOTA_ENFORCEMENT_ENABLED: bool = get_from_env(
     "TASKS_COMPUTE_QUOTA_ENFORCEMENT_ENABLED",
     False,
@@ -194,7 +185,7 @@ TASKS_SANDBOX_PERSISTENT_FILESYSTEM_ENABLED: bool = get_from_env(
     type_cast=str_to_bool,
 )
 
-# Event-count threshold for the above; 0 relies on Temporal's is_continue_as_new_suggested().
+# process_task continue_as_new history threshold; 0 relies on Temporal's is_continue_as_new_suggested().
 TASKS_CONTINUE_AS_NEW_HISTORY_THRESHOLD: int = get_from_env(
     "TASKS_CONTINUE_AS_NEW_HISTORY_THRESHOLD", 4000, type_cast=int
 )
@@ -301,6 +292,14 @@ DATA_WAREHOUSE_IMPORT_FREE_HANDOFFS_ENABLED: bool = get_from_env(
 DATA_WAREHOUSE_IMPORT_WATERMARK_CARRY_OVER_ENABLED: bool = get_from_env(
     "DATA_WAREHOUSE_IMPORT_WATERMARK_CARRY_OVER_ENABLED", False, type_cast=str_to_bool
 )
+# An incremental merge import moves its watermark each time a contiguous prefix of its batches is
+# loaded, so a run that fails keeps the progress of the batches that loaded. The import pods record
+# the per-batch values and the load pods promote them, so set it on both. Enable it only when every
+# source that says sort_mode="asc" reads its rows in that order, because the next run reads only
+# the rows above the promoted value.
+DATA_WAREHOUSE_IMPORT_PREFIX_WATERMARK_ENABLED: bool = get_from_env(
+    "DATA_WAREHOUSE_IMPORT_PREFIX_WATERMARK_ENABLED", False, type_cast=str_to_bool
+)
 # At a worker shutdown the import pipeline stops waiting for a source that neither yields an item
 # nor reaches a safe point, and hands the run to another worker. It applies only to runs whose
 # hand-offs are free (DATA_WAREHOUSE_IMPORT_FREE_HANDOFFS_ENABLED), because preemption makes
@@ -355,6 +354,11 @@ TASKS_DISPATCHER_POLL_INTERVAL_SECONDS = get_from_env("TASKS_DISPATCHER_POLL_INT
 TASKS_DISPATCHER_RPC_TIMEOUT_SECONDS = get_from_env("TASKS_DISPATCHER_RPC_TIMEOUT_SECONDS", 10, type_cast=int)
 TASKS_DISPATCHER_MAX_DISPATCH_AGE_SECONDS = get_from_env(
     "TASKS_DISPATCHER_MAX_DISPATCH_AGE_SECONDS", 6 * 60 * 60, type_cast=int
+)
+TASKS_WORKFLOW_DISPATCH_OUTBOX_ENABLED: bool = get_from_env(
+    "TASKS_WORKFLOW_DISPATCH_OUTBOX_ENABLED",
+    CLOUD_DEPLOYMENT in ("US", "EU"),
+    type_cast=str_to_bool,
 )
 STAMPHOG_TASK_QUEUE = _set_temporal_task_queue("stamphog-task-queue")
 TEST_TASK_QUEUE = _set_temporal_task_queue("test-task-queue")

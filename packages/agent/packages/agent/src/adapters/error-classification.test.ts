@@ -46,6 +46,8 @@ describe("classifyAgentError", () => {
       "upstream_provider_failure",
     ],
     ["unexpected status 403 Forbidden: needs a paid plan", "agent_error"],
+    ["Flex capacity unavailable.", "upstream_provider_failure"],
+    ["Internal error: Flex capacity unavailable.", "upstream_provider_failure"],
     [
       "[ede_diagnostic] result_type=user last_content_type=n/a stop_reason=null",
       "turn_ended_without_response",

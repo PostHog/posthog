@@ -116,6 +116,36 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "role": "The role the member holds on the team.",
         },
     },
+    "team_sub_teams": {
+        "description": "The direct sub-teams of the connected account's team. Empty when the account is not on a team.",
+        "docs_url": "https://developers.hellosign.com/api/reference/operation/teamSubTeams/",
+        "columns": {
+            "team_id": "Unique identifier for the sub-team.",
+            "name": "The sub-team's name.",
+        },
+    },
+    "team_invites": {
+        "description": "Invitations to join the connected account's team, with the role each invite grants. Empty when the account is not on a team.",
+        "docs_url": "https://developers.hellosign.com/api/reference/operation/teamInvites/",
+        "columns": {
+            "email_address": "Email address of the user invited to the team.",
+            "team_id": "Identifier of the team the invite is for.",
+            "role": "The role the invited user gets on the team.",
+            "sent_at": "Unix timestamp at which the invite was sent.",
+            "redeemed_at": "Unix timestamp at which the invite was redeemed. Null while the invite is pending.",
+            "expires_at": "Unix timestamp at which the invite expires.",
+        },
+    },
+    "fax_lines": {
+        "description": "A fax line (phone number) on the account, with the accounts that can use it.",
+        "docs_url": "https://developers.hellosign.com/api/reference/operation/faxLineList/",
+        "columns": {
+            "number": "The fax line's phone number.",
+            "created_at": "Unix timestamp at which the fax line was created.",
+            "updated_at": "Unix timestamp at which the fax line was last updated.",
+            "accounts": "The accounts that have access to the fax line.",
+        },
+    },
     "account": {
         "description": "The Dropbox Sign account connected via the API key.",
         "docs_url": "https://developers.hellosign.com/api/reference/operation/accountGet/",
