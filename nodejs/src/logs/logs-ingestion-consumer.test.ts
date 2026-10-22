@@ -216,6 +216,7 @@ describe('LogsIngestionConsumer', () => {
                 | 'metricsEmitter'
                 | 'logsTransformer'
                 | 'patternMessageKeysCache'
+                | 'internalSourcePolicies'
             >
         > = {}
     ) => {
@@ -1044,9 +1045,18 @@ describe('LogsIngestionConsumer', () => {
         const SIGNING_KEY = 'internal-logs-test-key'
 
         it.each([
-            { name: "stores a signed batch outside quota, billing and the team's drop rules", signed: true },
-            { name: 'bills a batch whose signature does not verify', signed: false },
-        ])('$name', async ({ signed }) => {
+            {
+                name: "stores a signed batch outside quota, billing and the team's drop rules",
+                signed: true,
+                billed: false,
+            },
+            { name: 'bills a batch whose signature does not verify', signed: false, billed: true },
+            {
+                name: "bills a signed batch from a billed source but skips the team's drop rules",
+                signed: true,
+                billed: true,
+            },
+        ])('$name', async ({ signed, billed }) => {
             await consumer.stop()
             const dropEverything: Pick<SamplingRulesCache, 'getCompiledRuleSet'> = {
                 getCompiledRuleSet: () =>
@@ -1069,9 +1079,13 @@ describe('LogsIngestionConsumer', () => {
                     LOGS_INTERNAL_INGESTION_ENABLED_TEAMS: String(team.id),
                     LOGS_INTERNAL_INGESTION_SIGNING_KEYS: SIGNING_KEY,
                 },
-                { samplingRulesCache: dropEverything as SamplingRulesCache }
+                {
+                    samplingRulesCache: dropEverything as SamplingRulesCache,
+                    internalSourcePolicies: { hog_flow: { billed, teamRules: false } },
+                }
             )
-            jest.mocked(hub.quotaLimiting.isTeamTokenQuotaLimited).mockResolvedValue(true)
+            // A quota limit drops every billed batch, so it applies only to the rows that test the internal bypass.
+            jest.mocked(hub.quotaLimiting.isTeamTokenQuotaLimited).mockResolvedValue(!(signed && billed))
 
             const [message] = await createKafkaMessages([createLogMessage()], {
                 token: team.api_token,
@@ -1108,10 +1122,10 @@ describe('LogsIngestionConsumer', () => {
                 produced: signed ? 1 : 0,
                 forwardsSignature: false,
                 internalSource: signed ? 'hog_flow' : undefined,
-                received: [signed ? [0, 0] : [100, 1]],
-                internal: signed ? [[team.id, 100, 1]] : [],
-                internalMetrics: signed,
-                billedMetrics: !signed,
+                received: [billed ? [100, 1] : [0, 0]],
+                internal: billed ? [] : [[team.id, 100, 1]],
+                internalMetrics: !billed,
+                billedMetrics: billed,
             })
         })
 

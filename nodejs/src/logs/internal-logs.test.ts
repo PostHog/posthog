@@ -24,7 +24,11 @@ describe('InternalLogsVerifier', () => {
             signature: signInternalLogs(KEY, SOURCE, TEAM_ID, PAYLOAD),
         },
     ])('$name', ({ signature, keys = KEY, teams = String(TEAM_ID) }) => {
-        expect(new InternalLogsVerifier(keys, teams).internalSource(signature, TEAM_ID, PAYLOAD)).toEqual(SOURCE)
+        expect(new InternalLogsVerifier(keys, teams).verify(signature, TEAM_ID, PAYLOAD)).toEqual({
+            source: SOURCE,
+            billed: false,
+            teamRules: false,
+        })
     })
 
     it.each([
@@ -46,11 +50,12 @@ describe('InternalLogsVerifier', () => {
             signature: signInternalLogs(KEY, SOURCE, TEAM_ID, PAYLOAD),
         },
         { name: 'no configured key', keys: '', signature: signInternalLogs(KEY, SOURCE, TEAM_ID, PAYLOAD) },
+        { name: 'a source with no policy', signature: signInternalLogs(KEY, 'not_a_source', TEAM_ID, PAYLOAD) },
         { name: 'an empty payload', payload: null, signature: signInternalLogs(KEY, SOURCE, TEAM_ID, PAYLOAD) },
     ])(
         'bills a batch with $name',
         ({ signature, keys = KEY, teams = String(TEAM_ID), payload = PAYLOAD as Buffer | null }) => {
-            expect(new InternalLogsVerifier(keys, teams).internalSource(signature, TEAM_ID, payload)).toBeUndefined()
+            expect(new InternalLogsVerifier(keys, teams).verify(signature, TEAM_ID, payload)).toBeUndefined()
         }
     )
 

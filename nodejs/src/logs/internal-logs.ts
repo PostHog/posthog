@@ -13,7 +13,24 @@ const SIGNATURE_VERSION = 'v1'
 // No dot, because a dot divides the parts of the header value.
 const SOURCE_PATTERN = /^[a-z0-9_]{1,64}$/
 
-type RejectReason = 'not_configured' | 'team_not_allowed' | 'invalid_signature'
+export type InternalSourcePolicy = {
+    /** Counts toward the team's logs usage, quota and rate limits. */
+    billed: boolean
+    /** Runs the team's sampling, drop, transformation, metric and retention rules. */
+    teamRules: boolean
+}
+
+export type InternalLogs = InternalSourcePolicy & { source: string }
+
+// A signer names the source and this map decides how it is handled, so a leaked key cannot invent
+// a free source. Moving a source to billing changes its entry here, not the producer or the header.
+export const INTERNAL_SOURCE_POLICIES: Readonly<Record<string, InternalSourcePolicy>> = {
+    hog_flow: { billed: false, teamRules: false },
+    // Replay console logs will be billed, but a team's sampling and drop rules must not remove them.
+    // replay_console: { billed: true, teamRules: false },
+}
+
+type RejectReason = 'not_configured' | 'team_not_allowed' | 'invalid_signature' | 'unknown_source'
 
 const logsInternalLogsCounter = new Counter({
     name: 'logs_ingestion_internal_logs_total',
@@ -61,23 +78,28 @@ export class InternalLogsVerifier {
     private readonly keys: string[]
     private readonly isTeamAllowed: ValueMatcher<number>
 
-    constructor(commaSeparatedKeys: string, enabledTeams: string) {
+    constructor(
+        commaSeparatedKeys: string,
+        enabledTeams: string,
+        private readonly policies: Readonly<Record<string, InternalSourcePolicy>> = INTERNAL_SOURCE_POLICIES
+    ) {
         this.keys = parseKeys(commaSeparatedKeys)
         this.isTeamAllowed = buildIntegerMatcher(enabledTeams, true)
     }
 
-    internalSource(signature: string | undefined, teamId: number, payload: Buffer | null): string | undefined {
+    verify(signature: string | undefined, teamId: number, payload: Buffer | null): InternalLogs | undefined {
         if (signature === undefined) {
             return undefined
         }
         const source = signature.split('.')[1] ?? ''
         const reason = this.rejectReason(signature, source, teamId, payload)
-        if (reason) {
-            logsInternalLogsCounter.inc({ outcome: 'rejected', reason })
+        const policy = reason ? undefined : this.policies[source]
+        if (!policy) {
+            logsInternalLogsCounter.inc({ outcome: 'rejected', reason: reason ?? 'unknown_source' })
             return undefined
         }
         logsInternalLogsCounter.inc({ outcome: 'accepted', reason: '' })
-        return source
+        return { source, ...policy }
     }
 
     private rejectReason(

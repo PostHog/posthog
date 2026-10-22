@@ -35,6 +35,7 @@ import {
     INTERNAL_LOGS_HEADER,
     INTERNAL_SOURCE_HEADER,
     InternalLogsVerifier,
+    type InternalSourcePolicy,
     withoutInternalLogsHeaders,
 } from './internal-logs'
 import { MESSAGE_KEYS } from './log-pattern-mask'
@@ -100,6 +101,8 @@ export interface LogsIngestionConsumerDeps {
      * shorten it.
      */
     dependencyRetry?: { retryCount: number; initialRetryDelayMs: number }
+    /** Defaults to `INTERNAL_SOURCE_POLICIES`. Tests pass a billed source, which production does not have yet. */
+    internalSourcePolicies?: Readonly<Record<string, InternalSourcePolicy>>
 }
 
 /** Ingestion default when `logs_settings.retention_days` is unset; must match `DEFAULT_LOGS_RETENTION_DAYS` in `posthog/models/team/logs_retention.py`. */
@@ -453,7 +456,8 @@ export class LogsIngestionConsumer {
         this.backfillEnabledTeamsRaw = mergedConfig.LOGS_BACKFILL_ENABLED_TEAMS
         this.internalLogsVerifier = new InternalLogsVerifier(
             mergedConfig.LOGS_INTERNAL_INGESTION_SIGNING_KEYS,
-            mergedConfig.LOGS_INTERNAL_INGESTION_ENABLED_TEAMS
+            mergedConfig.LOGS_INTERNAL_INGESTION_ENABLED_TEAMS,
+            deps.internalSourcePolicies
         )
         this.samplingService = new LogsSamplingService(this.redis, mergedConfig.LOGS_LIMITER_TTL_SECONDS)
         this.samplingEnabledTeamsRaw = mergedConfig.LOGS_SAMPLING_ENABLED_TEAMS
@@ -501,7 +505,11 @@ export class LogsIngestionConsumer {
 
     // Transformations write hog_function logs, which could come back here as internal logs and loop.
     private appliesTeamLogRules(message: LogsIngestionMessage): boolean {
-        return message.internalSource === undefined
+        return message.internalLogs?.teamRules ?? true
+    }
+
+    private isUnbilledInternal(message: LogsIngestionMessage): boolean {
+        return message.internalLogs !== undefined && !message.internalLogs.billed
     }
 
     private isTransformationsEnabledForTeam(teamId: number): boolean {
@@ -611,7 +619,7 @@ export class LogsIngestionConsumer {
             stages.push(makeTransformStage(recordsTransform))
         }
         let shortestRetentionDays =
-            message.internalSource !== undefined ? INTERNAL_LOGS_MIN_RETENTION_DAYS : defaultRetentionDays
+            message.internalLogs !== undefined ? INTERNAL_LOGS_MIN_RETENTION_DAYS : defaultRetentionDays
         if (useRetention && retentionRuleSet) {
             stages.push(makeRetentionStage(retentionRuleSet, message.teamId, defaultRetentionDays))
             shortestRetentionDays = Math.min(
@@ -725,7 +733,7 @@ export class LogsIngestionConsumer {
         const internalMessages: LogsIngestionMessage[] = []
         const billedMessages: LogsIngestionMessage[] = []
         for (const message of backfillAllowedMessages) {
-            ;(message.internalSource !== undefined ? internalMessages : billedMessages).push(message)
+            ;(this.isUnbilledInternal(message) ? internalMessages : billedMessages).push(message)
         }
         const { quotaAllowedMessages, quotaDroppedMessages } = await this.filterQuotaLimitedMessages(billedMessages)
         const { rateLimiterAllowedMessages, rateLimiterDroppedMessages } =
@@ -787,7 +795,7 @@ export class LogsIngestionConsumer {
         let totalRecordsReceived = 0
         for (const message of messages) {
             // Never quota or rate limited, so counting them would show as drops in received minus allowed.
-            if (message.internalSource !== undefined) {
+            if (this.isUnbilledInternal(message)) {
                 continue
             }
             totalBytesReceived += message.bytesUncompressed
@@ -1145,7 +1153,7 @@ export class LogsIngestionConsumer {
                                 message.recordCount
                             )
 
-                            if (message.internalSource === undefined) {
+                            if (!this.isUnbilledInternal(message)) {
                                 const teamIdLabel = message.teamId.toString()
                                 if (contentCredit > 0) {
                                     logsBillingBytesCreditedCounter.inc({ team_id: teamIdLabel }, contentCredit)
@@ -1216,8 +1224,8 @@ export class LogsIngestionConsumer {
                                     key: null,
                                     headers: {
                                         ...withoutInternalLogsHeaders(parseKafkaHeaders(message.message.headers)),
-                                        ...(message.internalSource !== undefined
-                                            ? { [INTERNAL_SOURCE_HEADER]: message.internalSource }
+                                        ...(message.internalLogs !== undefined
+                                            ? { [INTERNAL_SOURCE_HEADER]: message.internalLogs.source }
                                             : {}),
                                         token: message.token,
                                         team_id: message.teamId.toString(),
@@ -1551,7 +1559,7 @@ export class LogsIngestionConsumer {
                         recordCount,
                         minTimestampMicros: parseMinTimestampHeader(headers.min_timestamp),
                         backfillRequested: headers.backfill_days !== undefined,
-                        internalSource: this.internalLogsVerifier.internalSource(
+                        internalLogs: this.internalLogsVerifier.verify(
                             headers[INTERNAL_LOGS_HEADER],
                             team.id,
                             message.value
