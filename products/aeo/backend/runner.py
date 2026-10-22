@@ -67,52 +67,12 @@ def run_citation_checks(
     rows_written = 0
     write_failures = 0
 
-    def check_prompt(prompt: AEOPrompt) -> tuple[AEOPrompt, list[dict[str, Any]], int]:
-        fields_per_engine: list[dict[str, Any]] = []
-        failures = 0
-        for engine in engines:
-            trace_id = str(uuid.uuid4())
-            check = engine.run(
-                prompt.prompt,
-                trace_id=trace_id,
-                custom_properties={
-                    "aeo_prompt_id": str(prompt.id),
-                    "aeo_run_id": run_id,
-                    "aeo_prompt_source": prompt.prompt_source,
-                    # No $ai_ prefix, so the gateway keeps this on the $ai_generation
-                    # event, which lets usage attribute spend back to the checked team.
-                    "team_id": str(team.id),
-                },
-            )
-            if check.error is not None:
-                failures += 1
-                logger.warning(
-                    "aeo_citation_check_failed",
-                    team_id=team.id,
-                    engine=engine.name,
-                    prompt_id=str(prompt.id),
-                    error=check.error,
-                )
-            fields_per_engine.append(
-                {
-                    **build_check_fields(
-                        check=check,
-                        run_id=run_id,
-                        prompt_id=str(prompt.id),
-                        prompt_text=prompt.prompt,
-                        prompt_source=prompt.prompt_source,
-                        prompt_hash=prompt.prompt_hash,
-                        target_domains=target_domains,
-                    ),
-                    "prompt_topic": prompt.topic,
-                }
-            )
-        return prompt, fields_per_engine, failures
-
     # Engine calls are network-bound and run in worker threads. Database writes stay on
     # this thread, so the workers never open their own Django connections.
     with ThreadPoolExecutor(max_workers=max(1, settings.AEO_RUN_CONCURRENCY)) as pool:
-        futures = {pool.submit(check_prompt, prompt): prompt for prompt in prompts}
+        futures = {
+            pool.submit(_check_prompt, team, run_id, engines, target_domains, prompt): prompt for prompt in prompts
+        }
         for done, future in enumerate(as_completed(futures), start=1):
             try:
                 prompt, fields_per_engine, failures = future.result()
@@ -159,6 +119,52 @@ def run_citation_checks(
         write_failures=summary.write_failures,
     )
     return summary, checks
+
+
+def _check_prompt(
+    team: Team, run_id: str, engines: list[CitationEngine], target_domains: list[str], prompt: AEOPrompt
+) -> tuple[AEOPrompt, list[dict[str, Any]], int]:
+    """Run one prompt on every engine. Runs in a worker thread, so it must not touch the database."""
+    fields_per_engine: list[dict[str, Any]] = []
+    failures = 0
+    for engine in engines:
+        trace_id = str(uuid.uuid4())
+        check = engine.run(
+            prompt.prompt,
+            trace_id=trace_id,
+            custom_properties={
+                "aeo_prompt_id": str(prompt.id),
+                "aeo_run_id": run_id,
+                "aeo_prompt_source": prompt.prompt_source,
+                # No $ai_ prefix, so the gateway keeps this on the $ai_generation
+                # event, which lets usage attribute spend back to the checked team.
+                "team_id": str(team.id),
+            },
+        )
+        if check.error is not None:
+            failures += 1
+            logger.warning(
+                "aeo_citation_check_failed",
+                team_id=team.id,
+                engine=engine.name,
+                prompt_id=str(prompt.id),
+                error=check.error,
+            )
+        fields_per_engine.append(
+            {
+                **build_check_fields(
+                    check=check,
+                    run_id=run_id,
+                    prompt_id=str(prompt.id),
+                    prompt_text=prompt.prompt,
+                    prompt_source=prompt.prompt_source,
+                    prompt_hash=prompt.prompt_hash,
+                    target_domains=target_domains,
+                ),
+                "prompt_topic": prompt.topic,
+            }
+        )
+    return prompt, fields_per_engine, failures
 
 
 def _record_prompt_checks(
