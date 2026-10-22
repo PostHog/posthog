@@ -70,6 +70,7 @@ from products.subscriptions.backend.temporal.ai_subscription.spec_generator impo
 )
 from products.subscriptions.backend.temporal.types import safe_query_error_details
 
+from ee.hogai.context.insight.format import format_access_control_warnings, format_warehouse_sync_warnings
 from ee.hogai.context.insight.query_executor import AssistantQueryExecutor
 from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.tool_errors import MaxToolRetryableError
@@ -641,7 +642,17 @@ async def _run_steps(
                     safe_formatted = strip_llm_framing_markers(query_result.formatted, per_step_cap)
                     rendered = f"### {safe_description}\n\n{safe_formatted}"
                 else:
-                    rendered = f"### {safe_description}\n\n_{QUERY_RETURNED_NO_ROWS}._"
+                    # Access-control filtering or a stale warehouse sync can explain an empty result.
+                    query_warnings = strip_llm_framing_markers(
+                        format_warehouse_sync_warnings(query_result.response)
+                        + format_access_control_warnings(query_result.response),
+                        per_step_cap,
+                    )
+                    rendered = "\n\n".join(
+                        part
+                        for part in (f"### {safe_description}", query_warnings, f"_{QUERY_RETURNED_NO_ROWS}._")
+                        if part
+                    )
                 return StepOutcome(
                     rendered=rendered,
                     diagnostic=QueryStepDiagnostic(

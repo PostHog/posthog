@@ -517,6 +517,15 @@ async def test_synthesis_prompt_carries_the_failure_marker(
     [
         pytest.param(_RESPONSE, "### s0\n\nformatted table", 0, id="rows"),
         pytest.param(_EMPTY_RESPONSE, f"### s0\n\n_{QUERY_RETURNED_NO_ROWS}._", 1, id="no_rows"),
+        pytest.param(
+            {
+                **_EMPTY_RESPONSE,
+                "warnings": [{"type": "access_control", "message": "Results may exclude restricted events."}],
+            },
+            f"### s0\n\n[Access control]\n- Results may exclude restricted events.\n\n_{QUERY_RETURNED_NO_ROWS}._",
+            1,
+            id="no_rows_keeps_query_warnings",
+        ),
     ],
 )
 @patch(f"{_RP}.AssistantQueryExecutor")
