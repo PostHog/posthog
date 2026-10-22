@@ -285,10 +285,11 @@ class HealthContext:
     # Whether PostHog has recorded a call of the flag. None when the experiment has no flag, or when PostHog can't
     # record the calls of this organization's flags.
     flag_called: bool | None
-    # Whether PostHog has recorded a call of the flag since launch. A flag that served an earlier experiment can carry
-    # only calls from before launch, so `flag_called` doesn't answer this. None before launch, when the experiment has
-    # no flag or the flag is deleted, or when PostHog can't record the calls of this organization's flags.
-    flag_called_since_launch: bool | None
+    # Whether PostHog has recorded a call of the flag between launch and the end, or until now while the experiment
+    # runs. A flag that served an earlier experiment can carry only calls from before launch, so `flag_called` doesn't
+    # answer this. None before launch, when the experiment has no flag, when the flag's latest call came after the
+    # end, or when PostHog can't record the calls of this organization's flags.
+    flag_called_during_run: bool | None
     # Whether the team has an active flag, which posthog-js needs to request flags on page load. None when not read:
     # it is read only for a draft whose flag has no recorded call.
     team_has_active_flag: bool | None
@@ -439,17 +440,17 @@ def _flag_called(experiment: Experiment) -> bool | None:
     return None if _flag_calls_unrecorded(experiment) else False
 
 
-def _flag_called_since_launch(experiment: Experiment, flag_called: bool | None) -> bool | None:
+def _flag_called_during_run(experiment: Experiment, flag_called: bool | None) -> bool | None:
     start_date = experiment.start_date
-    # The sync matches calls to a flag by its key, and deleting a flag changes its key, so its calls stop moving
-    # `last_called_at`.
-    if start_date is None or flag_called is None or experiment.feature_flag.deleted:
+    if start_date is None or flag_called is None:
         return None
     if flag_called is False:
         return False
     last_called_at = experiment.feature_flag.last_called_at
     if last_called_at is not None and last_called_at >= start_date:
-        return True
+        # `last_called_at` holds only the latest call, so a call after the end hides whether any came during the run.
+        end_date = experiment.end_date
+        return True if end_date is None or last_called_at <= end_date else None
     return None if _flag_calls_unrecorded(experiment) else False
 
 
@@ -592,7 +593,7 @@ def load_health_context(
         archived=experiment.archived,
         flag=_load_flag_state(experiment),
         flag_called=flag_called,
-        flag_called_since_launch=_flag_called_since_launch(experiment, flag_called),
+        flag_called_during_run=_flag_called_during_run(experiment, flag_called),
         team_has_active_flag=(
             has_active_flags(experiment.team) if flag_called is False and not experiment.is_launched else None
         ),

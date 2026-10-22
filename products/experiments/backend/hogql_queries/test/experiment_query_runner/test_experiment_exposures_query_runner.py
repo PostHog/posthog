@@ -1498,7 +1498,7 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
             ),
         ]
     )
-    def test_zero_exposures_finding_waits_a_day_after_launch(
+    def test_zero_exposures_finding_waits_a_day_and_names_the_flag_calls(
         self,
         _name: str,
         now: str,

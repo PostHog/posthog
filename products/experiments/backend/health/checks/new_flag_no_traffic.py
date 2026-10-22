@@ -12,6 +12,7 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFindingSeverity,
 )
 from products.experiments.backend.health.context import HealthContext
+from products.experiments.backend.health.delays import LAST_CALLED_AT_LAG
 from products.experiments.backend.health.skips import (
     FLAG_DELETED,
     NO_FLAG,
@@ -21,11 +22,6 @@ from products.experiments.backend.health.skips import (
     not_applicable,
     not_checked,
 )
-
-# `last_called_at` moves only when `sync_feature_flag_last_called` runs, every 30 minutes (`posthog/tasks/scheduled.py`).
-# A run reads the calls up to a buffer before its start (`FEATURE_FLAG_LAST_CALLED_AT_SYNC_*_BUFFER_SECONDS`, 1 or 15
-# minutes by default), so a call waits up to one interval plus that buffer. Update this when the schedule changes.
-LAST_CALLED_AT_LAG = "an hour"
 
 
 def new_flag_no_traffic_skip(ctx: HealthContext) -> CheckSkip | None:
