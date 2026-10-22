@@ -9,6 +9,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models.integration import Integration
+from posthog.models.integration.email import EmailIntegration
 from posthog.models.organization import Organization
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
@@ -76,7 +77,7 @@ class TestEmailDomainVerification(EmailDomainApiTestCase):
         assert self.is_verified(sender) and self.is_verified(sibling)
         assert TeamWorkflowsConfig.objects.get(team_id=self.team.id).default_email_integration_id == sender
         assert self.verified_events() == [
-            ((ANY, "email domain verified", {"method": "manual", "seconds_since_created": ANY}), {"team": ANY})
+            ((ANY, "email domain verified", {"method": "agent", "seconds_since_created": ANY}), {"team": ANY})
         ]
         self.reload_workers.assert_called_once_with(self.team.id, sorted([sender, sibling]))
         assert self.world.ses.writes.count("verify_domain_identity") == 2
@@ -138,6 +139,34 @@ class TestEmailDomainVerification(EmailDomainApiTestCase):
         assert (body["status"], body["verified"]) == ("verified", verified)
         assert Integration.objects.get(id=sender).config.get("verified", False) is verified
         assert self.verified_event_methods() == event_methods
+
+    def test_a_cache_outage_still_answers_from_a_live_check(self) -> None:
+        sender = self.create_sender(f"hello@{DOMAIN}")
+        self.publish(self.records_to_publish(sender), *ALL_KINDS)
+
+        with (
+            patch("posthog.models.integration.email.cache.get", side_effect=ConnectionError("Redis is down")),
+            patch("posthog.models.integration.email.cache.set", side_effect=ConnectionError("Redis is down")),
+        ):
+            report = EmailIntegration(Integration.objects.get(id=sender)).status(refresh=False)
+
+        assert (report.check.status, report.verified) == ("verified", True)
+
+    def test_a_browser_session_poll_reports_but_only_email_verify_records_the_verification(self) -> None:
+        sender = self.create_sender(f"hello@{DOMAIN}")
+        self.publish(self.records_to_publish(sender), *ALL_KINDS)
+
+        response = self.get_status(sender, as_browser=True)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert (response.json()["status"], response.json()["verified"]) == ("verified", False)
+        assert (self.is_verified(sender), self.verified_events()) == (False, [])
+
+        verify = self.client.post(f"/api/projects/{self.team.id}/integrations/{sender}/email/verify")
+
+        assert verify.status_code == status.HTTP_200_OK
+        assert self.is_verified(sender)
+        assert self.verified_event_methods() == ["manual"]
 
     def test_failed_worker_reload_keeps_the_verified_answer_and_is_not_retried(self) -> None:
         sender = self.create_sender(f"hello@{DOMAIN}")
@@ -370,7 +399,7 @@ class TestEmailDomainStatusChaos(EmailDomainApiTestCase):
 
         self.world.faults.clear()
         assert self.status_body(self.sender, refresh=False)["verified"] is True
-        assert self.verified_event_methods() == ["manual"]
+        assert self.verified_event_methods() == ["agent"]
 
     @parameterized.expand(
         product(
@@ -401,4 +430,4 @@ class TestEmailDomainStatusChaos(EmailDomainApiTestCase):
         self.world.faults.clear()
         body = self.status_body(self.sender, refresh=False)
         assert (body["status"], record_statuses(body)[kind][0]) == ("verified", status_once_answered)
-        assert self.verified_event_methods() == ["manual"]
+        assert self.verified_event_methods() == ["agent"]

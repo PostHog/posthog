@@ -2688,7 +2688,8 @@ class IntegrationViewSet(
         summary="Get email sending domain status",
         description="Read the setup progress of an email sender's domain from SES and public DNS without "
         "changing either. Poll this until verified is true. Marks the domain's senders as verified once SES "
-        "verifies the domain, when the caller is a project admin with integration:write.",
+        "verifies the domain, when the caller uses a token of a project admin with integration:write. A browser "
+        "session records the verification with email/verify.",
     )
     @action(methods=["GET"], detail=True, url_path="email/status")
     def email_status(self, request: ValidatedRequest, **kwargs: Any) -> Response:
@@ -2719,13 +2720,16 @@ class IntegrationViewSet(
             raise EmailProviderUnavailable() from error
         return Response(EmailDomainStatusSerializer(report).data)
 
-    # Matches what email/verify asks for: a project admin, and integration:write for a token.
+    # Matches what email/verify asks for: a project admin, and integration:write for a token. A browser session
+    # records through email/verify instead, because a GET carries no CSRF check and a link could trigger it.
     def _can_verify_email_domain(self, request: Request) -> bool:
         level = self.user_permissions.current_team.effective_membership_level
         if level is None or level < OrganizationMembership.Level.ADMIN:
             return False
         scopes = get_authenticator_scopes(request.successful_authenticator)
-        return scopes is None or "*" in scopes or not scopes_not_covered(scopes, ["integration:write"])
+        if scopes is None:
+            return False
+        return "*" in scopes or not scopes_not_covered(scopes, ["integration:write"])
 
     def _report_email_domain_verified(self, request: Request, instance: Integration) -> None:
         report_user_action(
