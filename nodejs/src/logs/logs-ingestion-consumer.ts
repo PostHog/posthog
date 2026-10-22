@@ -31,7 +31,12 @@ import {
     recordLogsDropped,
     recordLogsReceived,
 } from './ingestion-otel-metrics'
-import { INTERNAL_LOGS_HEADER, InternalLogsVerifier, withoutInternalLogsHeader } from './internal-logs'
+import {
+    INTERNAL_LOGS_HEADER,
+    INTERNAL_SOURCE_HEADER,
+    InternalLogsVerifier,
+    withoutInternalLogsHeaders,
+} from './internal-logs'
 import { MESSAGE_KEYS } from './log-pattern-mask'
 import { logsPatternForcedDecodeCounter, makePatternMaskingStage } from './log-pattern-stage'
 import { type PiiScrubStats } from './log-pii-scrub'
@@ -499,7 +504,7 @@ export class LogsIngestionConsumer {
      * Transformations also write hog_function logs, which could come back here as internal logs and loop.
      */
     private appliesTeamLogRules(message: LogsIngestionMessage): boolean {
-        return !message.internalLogs
+        return message.internalSource === undefined
     }
 
     private isTransformationsEnabledForTeam(teamId: number): boolean {
@@ -610,7 +615,8 @@ export class LogsIngestionConsumer {
         if (recordsTransform) {
             stages.push(makeTransformStage(recordsTransform))
         }
-        let shortestRetentionDays = message.internalLogs ? INTERNAL_LOGS_MIN_RETENTION_DAYS : defaultRetentionDays
+        let shortestRetentionDays =
+            message.internalSource !== undefined ? INTERNAL_LOGS_MIN_RETENTION_DAYS : defaultRetentionDays
         if (useRetention && retentionRuleSet) {
             stages.push(makeRetentionStage(retentionRuleSet, message.teamId, defaultRetentionDays))
             shortestRetentionDays = Math.min(
@@ -725,7 +731,7 @@ export class LogsIngestionConsumer {
         const internalMessages: LogsIngestionMessage[] = []
         const billedMessages: LogsIngestionMessage[] = []
         for (const message of backfillAllowedMessages) {
-            ;(message.internalLogs ? internalMessages : billedMessages).push(message)
+            ;(message.internalSource !== undefined ? internalMessages : billedMessages).push(message)
         }
         const { quotaAllowedMessages, quotaDroppedMessages } = await this.filterQuotaLimitedMessages(billedMessages)
         const { rateLimiterAllowedMessages, rateLimiterDroppedMessages } =
@@ -791,7 +797,7 @@ export class LogsIngestionConsumer {
         for (const message of messages) {
             // Internal batches are never quota or rate limited, so counting them here would show as drops
             // in received minus allowed. queueInternalLogsMetrics counts them on their own.
-            if (message.internalLogs) {
+            if (message.internalSource !== undefined) {
                 continue
             }
             totalBytesReceived += message.bytesUncompressed
@@ -1156,7 +1162,7 @@ export class LogsIngestionConsumer {
 
                             // An internal batch is never billed, so a credit against it would understate
                             // billed volume.
-                            if (!message.internalLogs) {
+                            if (message.internalSource === undefined) {
                                 const teamIdLabel = message.teamId.toString()
                                 if (contentCredit > 0) {
                                     logsBillingBytesCreditedCounter.inc({ team_id: teamIdLabel }, contentCredit)
@@ -1226,7 +1232,10 @@ export class LogsIngestionConsumer {
                                     value: processedValue,
                                     key: null,
                                     headers: {
-                                        ...withoutInternalLogsHeader(parseKafkaHeaders(message.message.headers)),
+                                        ...withoutInternalLogsHeaders(parseKafkaHeaders(message.message.headers)),
+                                        ...(message.internalSource !== undefined
+                                            ? { [INTERNAL_SOURCE_HEADER]: message.internalSource }
+                                            : {}),
                                         token: message.token,
                                         team_id: message.teamId.toString(),
                                         'json-parse': jsonParse.toString(),
@@ -1559,7 +1568,7 @@ export class LogsIngestionConsumer {
                         recordCount,
                         minTimestampMicros: parseMinTimestampHeader(headers.min_timestamp),
                         backfillRequested: headers.backfill_days !== undefined,
-                        internalLogs: this.internalLogsVerifier.isInternal(
+                        internalSource: this.internalLogsVerifier.internalSource(
                             headers[INTERNAL_LOGS_HEADER],
                             team.id,
                             message.value

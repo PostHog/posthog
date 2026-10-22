@@ -28,7 +28,7 @@ import { Hub, Team } from '~/types'
 import { getDefaultTracesIngestionConsumerConfig } from './config'
 import * as otelMetrics from './ingestion-otel-metrics'
 import { resetLogsIngestionInstrumentsForTests } from './ingestion-otel-metrics'
-import { INTERNAL_LOGS_HEADER, signInternalLogs } from './internal-logs'
+import { INTERNAL_LOGS_HEADER, INTERNAL_SOURCE_HEADER, signInternalLogs } from './internal-logs'
 import { logsPatternBodyKindCounter } from './log-pattern-stage'
 import { LogRecord, decodeLogRecords, encodeLogRecords, logsJsonAttributeSniffCounter } from './log-record-avro'
 import {
@@ -1092,7 +1092,9 @@ describe('LogsIngestionConsumer', () => {
                 bytes_uncompressed: '100',
                 record_count: '1',
             })
-            const signature = signed ? signInternalLogs(SIGNING_KEY, team.id, message.value!) : 'v1.not-a-signature'
+            const signature = signed
+                ? signInternalLogs(SIGNING_KEY, 'hog_flow', team.id, message.value!)
+                : 'v1.hog_flow.not-a-signature'
             message.headers!.push({ [INTERNAL_LOGS_HEADER]: Buffer.from(signature) })
             const recordLogsReceivedSpy = jest.spyOn(otelMetrics, 'recordLogsReceived')
             const recordInternalLogsSpy = jest.spyOn(otelMetrics, 'recordInternalLogs')
@@ -1107,6 +1109,7 @@ describe('LogsIngestionConsumer', () => {
             expect({
                 produced: produced.length,
                 forwardsSignature: produced.some((m) => INTERNAL_LOGS_HEADER in (m.headers ?? {})),
+                internalSource: produced[0]?.headers?.[INTERNAL_SOURCE_HEADER],
                 received: recordLogsReceivedSpy.mock.calls,
                 internal: recordInternalLogsSpy.mock.calls,
                 internalMetrics: ['bytes_ingested_internal', 'records_ingested_internal'].every((n) =>
@@ -1118,6 +1121,7 @@ describe('LogsIngestionConsumer', () => {
             }).toEqual({
                 produced: signed ? 1 : 0,
                 forwardsSignature: false,
+                internalSource: signed ? 'hog_flow' : undefined,
                 received: [signed ? [0, 0] : [100, 1]],
                 internal: signed ? [[team.id, 100, 1]] : [],
                 internalMetrics: signed,
@@ -1143,7 +1147,7 @@ describe('LogsIngestionConsumer', () => {
                 }
             )
             message.headers!.push({
-                [INTERNAL_LOGS_HEADER]: Buffer.from(signInternalLogs(SIGNING_KEY, team.id, message.value!)),
+                [INTERNAL_LOGS_HEADER]: Buffer.from(signInternalLogs(SIGNING_KEY, 'hog_flow', team.id, message.value!)),
             })
             const bytesCreditSpy = jest.spyOn(logsBillingBytesCreditedCounter, 'inc')
             const recordsCreditSpy = jest.spyOn(logsBillingRecordsCreditedCounter, 'inc')
@@ -2605,7 +2609,7 @@ describe('LogsIngestionConsumer', () => {
             jest.mocked(hub.quotaLimiting.isTeamTokenQuotaLimited).mockResolvedValue(true)
             const message = await createKafkaMessage(createLogMessage(), { token: team.api_token })
             message.headers!.push({
-                [INTERNAL_LOGS_HEADER]: Buffer.from(signInternalLogs(key, team.id, message.value!)),
+                [INTERNAL_LOGS_HEADER]: Buffer.from(signInternalLogs(key, 'hog_flow', team.id, message.value!)),
             })
 
             await waitForBackgroundTasks(consumer.processKafkaBatch([message]))

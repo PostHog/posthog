@@ -13,8 +13,8 @@ export type LogsIngestionMessage = {
     minTimestampMicros?: number
     backfillRequested?: boolean
     /**
-     * PostHog produced these logs about the team's use of PostHog, and PostHog owns their storage and processing.
-     * Set only after the `posthog-internal` signature verifies.
+     * The PostHog source that produced these logs about the team's use of PostHog, for example `hog_flow`.
+     * PostHog owns their storage and processing. Set only after the `posthog-internal` signature verifies.
      */
-    internalLogs?: boolean
+    internalSource?: string
 }

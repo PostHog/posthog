@@ -10,7 +10,14 @@ import type { ValueMatcher } from '~/types'
  */
 export const INTERNAL_LOGS_HEADER = 'posthog-internal'
 
+/** Header on the ClickHouse topic that `kafka_logs34_avro_mv` reads into the `internal_source` column. */
+export const INTERNAL_SOURCE_HEADER = 'internal-source'
+
 const SIGNATURE_VERSION = 'v1'
+
+// The source goes into a header value and a LowCardinality column, so keep it a short identifier.
+// It cannot hold a dot, because the dot divides the parts of the header value.
+const SOURCE_PATTERN = /^[a-z0-9_]{1,64}$/
 
 type RejectReason = 'not_configured' | 'team_not_allowed' | 'invalid_signature'
 
@@ -32,33 +39,42 @@ function sha256Hex(payload: Buffer): string {
 }
 
 /**
- * The signature covers the team id and a hash of the payload. The team id stops a signature from
- * moving to another team's batch, and the hash stops it from moving to different data. It has no
- * expiry on purpose: a batch that waits in Kafka through consumer lag or a DLQ replay must stay internal.
+ * The signature covers the source, the team id and a hash of the payload. The source stops a signature
+ * from relabeling a batch, the team id stops it from moving to another team's batch, and the hash stops
+ * it from moving to different data. It has no expiry on purpose: a batch that waits in Kafka through
+ * consumer lag or a DLQ replay must stay internal.
  */
-function computeSignature(key: string, teamId: number, payloadSha256: string): string {
-    const mac = createHmac('sha256', key).update(`${SIGNATURE_VERSION}|${teamId}|${payloadSha256}`).digest('hex')
-    return `${SIGNATURE_VERSION}.${mac}`
+function computeSignature(key: string, source: string, teamId: number, payloadSha256: string): string {
+    const mac = createHmac('sha256', key)
+        .update(`${SIGNATURE_VERSION}|${source}|${teamId}|${payloadSha256}`)
+        .digest('hex')
+    return `${SIGNATURE_VERSION}.${source}.${mac}`
 }
 
-/** Signs a batch with the newest key. Keys are comma-separated, newest first. */
-export function signInternalLogs(commaSeparatedKeys: string, teamId: number, payload: Buffer): string {
+/** Signs a batch from `source` with the newest key. Keys are comma-separated, newest first. */
+export function signInternalLogs(commaSeparatedKeys: string, source: string, teamId: number, payload: Buffer): string {
     const [newestKey] = parseKeys(commaSeparatedKeys)
     if (!newestKey) {
         throw new Error('Cannot sign posthog-internal batch: no signing key configured')
     }
-    return computeSignature(newestKey, teamId, sha256Hex(payload))
+    if (!SOURCE_PATTERN.test(source)) {
+        throw new Error(`Cannot sign posthog-internal batch: invalid source ${JSON.stringify(source)}`)
+    }
+    return computeSignature(newestKey, source, teamId, sha256Hex(payload))
 }
 
-/** Downstream topics have no use for the signature, so it stops at this consumer. */
-export function withoutInternalLogsHeader(headers: Record<string, string>): Record<string, string> {
-    const { [INTERNAL_LOGS_HEADER]: _signature, ...rest } = headers
+/**
+ * Downstream topics have no use for the signature, so it stops at this consumer. An incoming
+ * `internal-source` header is removed too, because only a verified batch may set that column.
+ */
+export function withoutInternalLogsHeaders(headers: Record<string, string>): Record<string, string> {
+    const { [INTERNAL_LOGS_HEADER]: _signature, [INTERNAL_SOURCE_HEADER]: _source, ...rest } = headers
     return rest
 }
 
 /**
  * Decides whether a batch is internal. Only a holder of the signing key can make a signature that
- * passes. Any failure returns false, so the batch is billed and never dropped.
+ * passes. Any failure returns undefined, so the batch is billed and never dropped.
  */
 export class InternalLogsVerifier {
     private readonly keys: string[]
@@ -73,20 +89,27 @@ export class InternalLogsVerifier {
         this.isTeamAllowed = buildIntegerMatcher(enabledTeams, false)
     }
 
-    isInternal(signature: string | undefined, teamId: number, payload: Buffer | null): boolean {
+    /** Returns the signed source of an internal batch, or undefined for a batch to bill. */
+    internalSource(signature: string | undefined, teamId: number, payload: Buffer | null): string | undefined {
         if (signature === undefined) {
-            return false
+            return undefined
         }
-        const reason = this.rejectReason(signature, teamId, payload)
+        const source = signature.split('.')[1] ?? ''
+        const reason = this.rejectReason(signature, source, teamId, payload)
         if (reason) {
             logsInternalLogsCounter.inc({ outcome: 'rejected', reason })
-            return false
+            return undefined
         }
         logsInternalLogsCounter.inc({ outcome: 'accepted', reason: '' })
-        return true
+        return source
     }
 
-    private rejectReason(signature: string, teamId: number, payload: Buffer | null): RejectReason | null {
+    private rejectReason(
+        signature: string,
+        source: string,
+        teamId: number,
+        payload: Buffer | null
+    ): RejectReason | null {
         if (this.keys.length === 0) {
             return 'not_configured'
         }
@@ -94,14 +117,14 @@ export class InternalLogsVerifier {
         if (!this.isTeamAllowed(teamId)) {
             return 'team_not_allowed'
         }
-        if (payload === null) {
+        if (payload === null || !SOURCE_PATTERN.test(source)) {
             return 'invalid_signature'
         }
         const received = Buffer.from(signature)
         const payloadSha256 = sha256Hex(payload)
         // Every key is tried so that a rotation can add a new key before producers switch to it.
         const matches = this.keys.some((key) => {
-            const expected = Buffer.from(computeSignature(key, teamId, payloadSha256))
+            const expected = Buffer.from(computeSignature(key, source, teamId, payloadSha256))
             return expected.length === received.length && timingSafeEqual(expected, received)
         })
         return matches ? null : 'invalid_signature'
