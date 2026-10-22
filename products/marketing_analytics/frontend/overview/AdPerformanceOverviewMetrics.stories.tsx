@@ -79,7 +79,7 @@ export const WithoutGoals: Story = {
 export const ConfigureMetrics: Story = {
     args: { viewKey: 'overview-metrics-configure-story' },
     play: async ({ canvasElement }) => {
-        await userEvent.click(within(canvasElement).getByRole('button', { name: 'Configure metrics' }))
+        await userEvent.click(await within(canvasElement).findByRole('button', { name: 'Configure metrics' }))
         await waitFor(() => expect(within(canvasElement.ownerDocument.body).getByRole('dialog')).toBeVisible())
     },
     parameters: {
