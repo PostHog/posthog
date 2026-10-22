@@ -118,18 +118,33 @@ describe('emailDomainWizardLogic', () => {
     })
 
     it.each([
-        ['the typed name and address', 'Thomas Obermüller', 'thomas', 'Thomas Obermüller', 'thomas@mail.acme.com'],
-        ['the suggestions when the fields are left blank', '  ', '', 'Acme', 'hello@mail.acme.com'],
-    ])('creates the sender with %s', async (_name, typedName, typedLocalPart, name, email) => {
+        [
+            'the typed name, address and reply-to',
+            'Thomas Obermüller',
+            'thomas',
+            'support@acme.com',
+            { name: 'Thomas Obermüller', email: 'thomas@mail.acme.com', reply_to: 'support@acme.com' },
+        ],
+        [
+            'the suggestions when the fields are left blank',
+            '  ',
+            '',
+            ' ',
+            { name: 'Acme', email: 'hello@mail.acme.com' },
+        ],
+    ])('creates the sender with %s', async (_name, typedName, typedLocalPart, typedReplyTo, config) => {
         const logic = mountWizard()
 
         logic.actions.setCustomDomainInput('acme.com')
         logic.actions.useCustomDomain()
         logic.actions.setSenderNameInput(typedName)
         logic.actions.setLocalPart(typedLocalPart)
+        logic.actions.setReplyTo(typedReplyTo)
         await expectLogic(logic, () => logic.actions.createSender()).toFinishAllListeners()
 
-        expect(backend.requestsTo('integration_create').at(-1)?.body).toMatchObject({ config: { name, email } })
+        const body = backend.requestsTo('integration_create').at(-1)?.body as { config: Record<string, unknown> }
+        expect(body.config).toMatchObject(config)
+        expect('reply_to' in body.config).toBe('reply_to' in config)
     })
 
     it('refuses an address that already has a sender', async () => {

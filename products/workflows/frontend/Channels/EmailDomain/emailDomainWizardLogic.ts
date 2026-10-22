@@ -74,6 +74,7 @@ export interface emailDomainWizardLogicValues {
     isLocalStack: boolean
     localPart: string
     localProvider: EmailSenderProvider
+    replyTo: string
     selectedDomain: string | null
     selectedIsInferred: boolean
     sendPrefix: string
@@ -141,6 +142,9 @@ export interface emailDomainWizardLogicActions {
     }
     setLocalProvider: (provider: EmailSenderProvider) => {
         provider: EmailSenderProvider
+    }
+    setReplyTo: (replyTo: string) => {
+        replyTo: string
     }
     setSendPrefix: (prefix: string) => {
         prefix: string
@@ -214,6 +218,7 @@ export const emailDomainWizardLogic = kea<emailDomainWizardLogicType>([
         setAdvancedOpen: (open: boolean) => ({ open }),
         setLocalPart: (localPart: string) => ({ localPart }),
         setSenderNameInput: (name: string) => ({ name }),
+        setReplyTo: (replyTo: string) => ({ replyTo }),
         setSubmitError: (error: string | null) => ({ error }),
         setLocalProvider: (provider: EmailSenderProvider) => ({ provider }),
     }),
@@ -254,6 +259,7 @@ export const emailDomainWizardLogic = kea<emailDomainWizardLogicType>([
                             config: {
                                 email: `${localPart || DEFAULT_LOCAL_PART}@${sendingDomain}`,
                                 name: values.senderName.trim() || values.suggestedSenderName,
+                                ...(values.replyTo.trim() ? { reply_to: values.replyTo.trim() } : {}),
                                 provider: values.senderProvider,
                                 // The provider keeps one bounce subdomain per domain, so a new address reuses the existing one.
                                 mail_from_subdomain:
@@ -289,6 +295,12 @@ export const emailDomainWizardLogic = kea<emailDomainWizardLogicType>([
             null as string | null,
             {
                 setSenderNameInput: (_, { name }) => name,
+            },
+        ],
+        replyTo: [
+            '',
+            {
+                setReplyTo: (_, { replyTo }) => replyTo,
             },
         ],
         localPart: [
