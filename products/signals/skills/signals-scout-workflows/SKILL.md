@@ -154,7 +154,7 @@ The panel reads your evidence back by name, and the API refuses anything it cann
   "unit": "rate",
   "target_value": 0.2,
   "n": 208,
-  "window": "2026-10-08T22:00:00Z/2026-10-15T22:00:00Z",
+  "window": "2026-10-08T00:00:00Z/2026-10-15T00:00:00Z",
   "click_through": 0.0192,
   "guardrails": [
     { "metric": "email_bounced", "value": 0.0, "n": 208, "unit": "rate" },
