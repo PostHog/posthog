@@ -56,7 +56,7 @@ export function GroupsScene(): JSX.Element {
                 <ActivitySceneTabs activeKey={`groups-${groupTypeIndex}`} />
                 <SceneTitleSection
                     name="Groups"
-                    description="Associate events with a group or entity - such as a company, community, or project. Analyze these events as if they were sent by that entity itself. Great for B2B, marketplaces, and more."
+                    description="Associate events with a group or entity - such as a company, community, or project. Analyze these events as if they were sent by that entity itself. Great for B2B, marketplaces, and more. Billing applies to all identified events in your project, not just events with group properties attached. This is because group analytics enables infrastructure that processes all identified events to support group-level analysis."
                     resourceType={{
                         type: groupTypeName,
                         forceIcon: <IconPeople />,

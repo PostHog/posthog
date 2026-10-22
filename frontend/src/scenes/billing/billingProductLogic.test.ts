@@ -1,3 +1,5 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 /* oxlint-disable react-hooks/rules-of-hooks -- useMocks is a test helper, not a React hook */
 import { waitFor } from '@testing-library/react'
 import { router } from 'kea-router'
@@ -13,6 +15,7 @@ import { billingLogic } from 'scenes/billing/billingLogic'
 import { billingProductLogic } from 'scenes/billing/billingProductLogic'
 import { paymentEntryLogic } from 'scenes/billing/paymentEntryLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { billingJson } from '~/mocks/fixtures/_billing'
 import { defaultPlatformAddons } from '~/mocks/fixtures/_billing_platform_addons'
@@ -267,6 +270,37 @@ describe('billingProductLogic', () => {
                 'logs_retention_custom',
             ])
             expect(logic.values.totalsIncludingCompanions).toEqual({ currentTotal: 110, projectedTotal: 220 })
+        })
+    })
+
+    describe('group analytics setup warning', () => {
+        const groupAnalyticsAddon = (overrides: Partial<BillingProductV2AddonType>): BillingProductV2AddonType => ({
+            ...(productByType('product_analytics').addons.find(
+                (addon) => addon.type === 'group_analytics'
+            ) as BillingProductV2AddonType),
+            ...overrides,
+        })
+
+        it.each([
+            { name: 'subscribed more than 7 days ago', subscribedDaysAgo: 8, hasGroupTypes: false, expected: true },
+            { name: 'subscribed less than 7 days ago', subscribedDaysAgo: 3, hasGroupTypes: false, expected: false },
+            { name: 'no subscription date', subscribedDaysAgo: null, hasGroupTypes: false, expected: true },
+            { name: 'project already tracks groups', subscribedDaysAgo: 8, hasGroupTypes: true, expected: false },
+            { name: 'not subscribed', subscribedDaysAgo: 8, hasGroupTypes: false, subscribed: false, expected: false },
+        ])('$name', ({ subscribedDaysAgo, hasGroupTypes, subscribed = true, expected }) => {
+            teamLogic.mount()
+            teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, has_group_types: hasGroupTypes })
+            const logic = billingProductLogic({
+                product: groupAnalyticsAddon({
+                    subscribed,
+                    subscribed_at:
+                        subscribedDaysAgo === null ? null : dayjs().subtract(subscribedDaysAgo, 'day').toISOString(),
+                }),
+            })
+            logic.mount()
+            mounted.push(logic)
+
+            expect(logic.values.showGroupAnalyticsSetupWarning).toBe(expected)
         })
     })
 

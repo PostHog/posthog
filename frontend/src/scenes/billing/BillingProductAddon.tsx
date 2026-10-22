@@ -3,10 +3,11 @@ import { useActions, useValues } from 'kea'
 import { ReactNode, useRef } from 'react'
 
 import { IconCheckCircle, IconInfo } from '@posthog/icons'
-import { LemonSelectOptions, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonSelectOptions, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { humanFriendlyCurrency } from 'lib/utils/numbers'
 import { getProductIcon } from 'scenes/onboarding/shared/utils'
+import { urls } from 'scenes/urls'
 
 import { BillingProductV2AddonType } from '~/types'
 
@@ -31,12 +32,15 @@ export const formatFlatRate = (flatRate: number, unit: string | null): string | 
     )
 }
 
+const GROUP_ANALYTICS_BILLING_NOTICE = 'Billing applies to all identified events in your project.'
+const GROUP_ANALYTICS_SUBSCRIBED_BILLING_NOTICE =
+    'Billing applies to all identified events in your project, not just events with group properties attached. This is because group analytics enables infrastructure that processes all identified events to support group-level analysis. Billing stops when you unsubscribe from the billing page.'
+
 export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonType }): JSX.Element => {
     const productRef = useRef<HTMLDivElement | null>(null)
     const { billing } = useValues(billingLogic)
-    const { isPricingModalOpen, currentAndUpgradePlans, isDataPipelinesDeprecated } = useValues(
-        billingProductLogic({ product: addon, productRef })
-    )
+    const { isPricingModalOpen, currentAndUpgradePlans, isDataPipelinesDeprecated, showGroupAnalyticsSetupWarning } =
+        useValues(billingProductLogic({ product: addon, productRef }))
     const { toggleIsPricingModalOpen } = useActions(billingProductLogic({ product: addon }))
 
     const productType = { plural: `${addon.unit}s`, singular: addon.unit }
@@ -116,7 +120,21 @@ export const BillingProductAddon = ({ addon }: { addon: BillingProductV2AddonTyp
                                 </div>
                             )}
                         </div>
-                        <p className="ml-0 mb-0">{addon.description} </p>
+                        <p className="ml-0 mb-0">
+                            {addon.description}{' '}
+                            {addon.type === 'group_analytics' &&
+                                (addon.subscribed
+                                    ? GROUP_ANALYTICS_SUBSCRIBED_BILLING_NOTICE
+                                    : GROUP_ANALYTICS_BILLING_NOTICE)}
+                        </p>
+                        {showGroupAnalyticsSetupWarning && (
+                            <LemonBanner type="warning" className="mt-2">
+                                You have added Group analytics but this project is not tracking groups yet.{' '}
+                                <Link to={urls.groups(0)} data-attr="billing-group-analytics-setup-warning-link">
+                                    Start tracking groups
+                                </Link>
+                            </LemonBanner>
+                        )}
                         {is_enhanced_persons_og_customer && (
                             <p className="mt-2 mb-0">
                                 <Link

@@ -10,6 +10,7 @@ import api from 'lib/api'
 import type { FeatureFlagKey } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 import {
     BillingPlan,
@@ -18,6 +19,8 @@ import {
     BillingProductV2Type,
     BillingType,
     SurveyEventName,
+    TeamPublicType,
+    TeamType,
 } from '~/types'
 
 import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
@@ -35,7 +38,7 @@ import type { BillingLimitConfig } from './billingLimitConfig'
 import { billingLogic } from './billingLogic'
 import type { BillingAlertConfig, SwitchPlanPayload, UnsubscribeError } from './billingLogic'
 import { billingProductRowDisplayName } from './billingProductDisplayName'
-import { DATA_PIPELINES_CUTOFF_DATE } from './constants'
+import { DATA_PIPELINES_CUTOFF_DATE, GROUP_ANALYTICS_SETUP_GRACE_PERIOD_DAYS } from './constants'
 import { paymentEntryLogic } from './paymentEntryLogic'
 import { BillingGaugeItemKind, BillingGaugeItemType } from './types'
 
@@ -108,6 +111,7 @@ export interface billingProductLogicValues {
     unsubscribeError: UnsubscribeError | null // billingLogic
     unusedPlatformAddonAmount: number // billingLogic
     featureFlags: FeatureFlagsSet // featureFlagLogic
+    currentTeam: TeamPublicType | TeamType | null // teamLogic
     amountDueBeforeCredits: number
     amountDueToday: number
     appliedCreditBalance: number
@@ -174,6 +178,7 @@ export interface billingProductLogicValues {
     proratedAmount: number
     removingBillingLimitNextPeriod: boolean
     showBillingLimitInputErrors: boolean
+    showGroupAnalyticsSetupWarning: boolean
     showTierBreakdown: boolean
     surveyID: string
     surveyResponse: {
@@ -452,6 +457,10 @@ export interface billingProductLogicMeta {
         ) => BillingProductV2AddonType[]
         hasCustomLimitSet: (customLimitUsd: number | null) => boolean
         isDataPipelinesDeprecated: (product: BillingProductV2AddonType | BillingProductV2Type) => boolean
+        showGroupAnalyticsSetupWarning: (
+            product: BillingProductV2AddonType | BillingProductV2Type,
+            currentTeam: TeamPublicType | TeamType | null
+        ) => boolean
         currentAndUpgradePlans: (product: BillingProductV2AddonType | BillingProductV2Type) => {
             currentPlan: BillingPlanType | null
             upgradePlan: BillingPlanType
@@ -592,6 +601,8 @@ export const billingProductLogic = kea<billingProductLogicType>([
             ],
             featureFlagLogic,
             ['featureFlags'],
+            teamLogic,
+            ['currentTeam'],
         ],
         actions: [
             paymentEntryLogic,
@@ -938,6 +949,25 @@ export const billingProductLogic = kea<billingProductLogicType>([
             (_s, p) => [p.product],
             (product: BillingProductV2Type | BillingProductV2AddonType): boolean => {
                 return product.type === 'data_pipelines' && dayjs().isAfter(dayjs(DATA_PIPELINES_CUTOFF_DATE))
+            },
+        ],
+        showGroupAnalyticsSetupWarning: [
+            (s, p) => [p.product, s.currentTeam],
+            (
+                product: BillingProductV2Type | BillingProductV2AddonType,
+                currentTeam: TeamPublicType | TeamType | null
+            ): boolean => {
+                if (product.type !== 'group_analytics' || !product.subscribed || !currentTeam) {
+                    return false
+                }
+                if (currentTeam.has_group_types) {
+                    return false
+                }
+                // Without a subscription date we cannot apply the grace period, so we show the warning.
+                const subscribedAt = 'subscribed_at' in product ? product.subscribed_at : null
+                return (
+                    !subscribedAt || dayjs().diff(dayjs(subscribedAt), 'day') >= GROUP_ANALYTICS_SETUP_GRACE_PERIOD_DAYS
+                )
             },
         ],
         currentAndUpgradePlans: [

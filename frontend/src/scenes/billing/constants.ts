@@ -78,5 +78,8 @@ export const ALL_USAGE_TYPES: UsageTypeValue[] = USAGE_TYPES.map((opt) => opt.va
 // in sync with billing_end_date of data_pipelines in billing plans config
 export const DATA_PIPELINES_CUTOFF_DATE = '2025-09-10'
 
+// Days after a customer adds Group analytics before we warn that the project tracks no groups.
+export const GROUP_ANALYTICS_SETUP_GRACE_PERIOD_DAYS = 7
+
 /** The label billing gives the series that folds the projects beyond the cap; a count follows it. */
 export const FOLDED_SERIES_LABEL = 'All other projects'

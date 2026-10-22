@@ -2428,6 +2428,8 @@ export interface BillingProductV2AddonType {
     tiers: BillingTierType[] | null
     tiered: boolean
     subscribed: boolean
+    // ISO timestamp of when the organization added this addon, if the billing service sends it
+    subscribed_at?: string | null
     // sometimes addons are included with the base product, but they aren't subscribed individually
     included_with_main_product?: boolean
     inclusion_only: boolean | null
