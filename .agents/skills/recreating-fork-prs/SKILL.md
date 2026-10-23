@@ -106,5 +106,5 @@ Do not add a `Co-authored-by` trailer.
 The merge queue squash-merges, and GitHub adds a `Co-authored-by` line for every commit author other than the PR author.
 
 When the new PR merges, the `Thank fork contributor` job in `.github/workflows/pr-closed.yml` reads the "Contributed by" line.
-It comments on the fork PR with the merged commit and the co-author credit, then closes the fork PR.
+It comments on the fork PR with a link to the merged PR, then closes the fork PR.
 Leave the fork PR open until then.

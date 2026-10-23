@@ -36,24 +36,16 @@ function alreadyTold(forkPr) {
     return forkPr.comments.nodes.some((comment) => comment.body.includes(MARKER))
 }
 
-function buildComment({ login, mergedPrNumber, mergeCommitSha, credited }) {
-    const lines = [
-        MARKER,
-        `Thanks @${login}! Your change landed in #${mergedPrNumber} as ${mergeCommitSha}.`,
-        '',
-        `Our backend CI does not run pull requests from forks, so a maintainer moved your commits to a branch in this repository after review. [Pull requests from forks](${HANDBOOK_URL}) explains why.`,
-    ]
-    if (credited) {
-        lines.push('', 'GitHub lists you as a co-author of the merged commit.')
-    }
-    return lines.join('\n')
+function buildComment({ login, mergedPrNumber, credited }) {
+    const merged = credited ? `Merged in #${mergedPrNumber}, with you as co-author.` : `Merged in #${mergedPrNumber}.`
+    return `${MARKER}\nThanks @${login}! ${merged} Fork PRs can't run our backend CI, so it went in from a branch here ([why](${HANDBOOK_URL})).`
 }
 
 const MERGED_PR_QUERY = `query($owner: String!, $name: String!, $number: Int!) {
   repository(owner: $owner, name: $name) {
     pullRequest(number: $number) {
       body
-      mergeCommit { oid authors(first: 50) { nodes { user { login } } } }
+      mergeCommit { authors(first: 50) { nodes { user { login } } } }
     }
   }
 }`
@@ -103,7 +95,7 @@ module.exports = async ({ github, context, core }) => {
 
     if (!alreadyTold(forkPr)) {
         const credited = mergedPr.mergeCommit.authors.nodes.some((author) => sameLogin(author.user?.login, login))
-        const body = buildComment({ login, mergedPrNumber, mergeCommitSha: mergedPr.mergeCommit.oid, credited })
+        const body = buildComment({ login, mergedPrNumber, credited })
         await github.rest.issues.createComment({ owner, repo, issue_number: forkPrNumber, body })
         core.info(`Told @${login} on #${forkPrNumber} (credited: ${credited})`)
     }

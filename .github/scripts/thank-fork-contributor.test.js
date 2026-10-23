@@ -16,7 +16,7 @@ const forkPr = (overrides = {}) => ({
 
 const MERGED_PR = {
     body: 'Contributed by @Indira-kumar in #106575, which cannot merge.',
-    mergeCommit: { oid: '1a3a80f9', authors: { nodes: [{ user: { login: 'Indira-kumar' } }] } },
+    mergeCommit: { authors: { nodes: [{ user: { login: 'Indira-kumar' } }] } },
 }
 
 function fakeGithub(forkPrResult) {
@@ -73,7 +73,7 @@ test.describe('thank-fork-contributor', () => {
     }
 
     test('buildComment claims co-author credit only when GitHub gives it', () => {
-        const args = { login: 'Indira-kumar', mergedPrNumber: 122491, mergeCommitSha: '1a3a80f9' }
+        const args = { login: 'Indira-kumar', mergedPrNumber: 122491 }
         assert.match(buildComment({ ...args, credited: true }), /co-author/)
         assert.doesNotMatch(buildComment({ ...args, credited: false }), /co-author/)
     })
