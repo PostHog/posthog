@@ -25,6 +25,8 @@ pub enum SymbolSetsSubcommand {
     Download(DownloadArgs),
     /// Extract a local symbol set binary file (decompress and split)
     Extract(ExtractArgs),
+    /// Resolve one captured frame against an uploaded symbol set (by ref or local file)
+    Verify(crate::verify::VerifyArgs),
 }
 
 #[derive(clap::Args, Clone)]

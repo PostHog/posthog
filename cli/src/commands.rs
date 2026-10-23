@@ -127,6 +127,15 @@ fn api_command_needs_stored_credentials(args: &[String]) -> bool {
     api_command_needs_stored_credentials_with_env(args, |name| std::env::var_os(name).is_some())
 }
 
+fn offline_symbol_set_command(command: &Commands) -> bool {
+    matches!(
+        command,
+        Commands::SymbolSets {
+            cmd: SymbolSetsSubcommand::Extract(_)
+        }
+    ) || matches!(command, Commands::SymbolSets { cmd: SymbolSetsSubcommand::Verify(args) } if args.file.is_some())
+}
+
 #[derive(Subcommand)]
 pub enum Commands {
     /// Interactively authenticate with PostHog, storing a personal API token locally. You can also use the
@@ -302,6 +311,7 @@ impl Commands {
                 SymbolSetsSubcommand::Upload(_) => "symbolset_upload",
                 SymbolSetsSubcommand::Download(_) => "symbolset_download",
                 SymbolSetsSubcommand::Extract(_) => "symbolset_extract",
+                SymbolSetsSubcommand::Verify(_) => "symbolset_verify",
             },
             Commands::Release { cmd } => match cmd {
                 ReleaseSubcommand::Resolve(_) => "release_resolve",
@@ -361,10 +371,16 @@ impl Cli {
     /// after flushing telemetry.
     pub fn run() -> Result<Option<i32>, CapturedError> {
         let command = Cli::parse();
+        let offline = offline_symbol_set_command(&command.command);
+        if !offline {
+            crate::invocation_context::init_posthog_telemetry();
+        }
         let no_fail = command.no_fail;
         set_telemetry_command_name(command.command.telemetry_command_name());
 
-        let result = command.run_impl().map_err(|error| error.capture());
+        let result = command
+            .run_impl()
+            .map_err(|error| if offline { error } else { error.capture() });
 
         if INVOCATION_CONTEXT.get().is_some() {
             context().finish();
@@ -398,17 +414,16 @@ impl Cli {
             }
         }
 
-        if !matches!(
-            self.command,
-            Commands::Login
-                // Updating talks to the release bucket, never to PostHog, so
-                // requiring credentials would lock out anyone without a token.
-                | Commands::Update
-                | Commands::Api { .. }
-                | Commands::SymbolSets {
-                    cmd: SymbolSetsSubcommand::Extract(_)
-                }
-        ) {
+        if !offline_symbol_set_command(&self.command)
+            && !matches!(
+                self.command,
+                Commands::Login
+                    // Updating talks to the release bucket, never to PostHog, so
+                    // requiring credentials would lock out anyone without a token.
+                    | Commands::Update
+                    | Commands::Api { .. }
+            )
+        {
             init_context(
                 self.host.clone(),
                 self.skip_ssl_verification,
@@ -489,6 +504,9 @@ impl Cli {
                 }
                 SymbolSetsSubcommand::Extract(args) => {
                     crate::download::extract(&args)?;
+                }
+                SymbolSetsSubcommand::Verify(args) => {
+                    crate::verify::verify(&args)?;
                 }
             },
             Commands::Release { cmd } => match cmd {
@@ -684,6 +702,65 @@ mod tests {
                 "wrong dry-run classification for {argv:?}"
             );
         }
+    }
+
+    #[test]
+    fn offline_symbol_set_commands_skip_auth_and_telemetry() {
+        let cases: &[(&[&str], bool)] = &[
+            (&["symbol-sets", "extract", "set.bin"], true),
+            (
+                &[
+                    "symbol-sets",
+                    "verify",
+                    "set.bin",
+                    "--ref",
+                    "chunk-1",
+                    "--frame-file",
+                    "-",
+                ],
+                true,
+            ),
+            (
+                &[
+                    "symbol-sets",
+                    "verify",
+                    "--ref",
+                    "chunk-1",
+                    "--frame-file",
+                    "frame.json",
+                ],
+                false,
+            ),
+        ];
+        for (args, offline) in cases {
+            let cli =
+                Cli::try_parse_from(std::iter::once(&"posthog-cli").chain(args.iter())).unwrap();
+            assert_eq!(
+                offline_symbol_set_command(&cli.command),
+                *offline,
+                "{args:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn verify_requires_exactly_one_frame_input() {
+        assert!(
+            Cli::try_parse_from(["posthog-cli", "symbol-sets", "verify", "--ref", "chunk-1"])
+                .is_err()
+        );
+        assert!(Cli::try_parse_from([
+            "posthog-cli",
+            "symbol-sets",
+            "verify",
+            "--ref",
+            "chunk-1",
+            "--frame",
+            "{}",
+            "--frame-file",
+            "frame.json"
+        ])
+        .is_err());
     }
 
     #[test]

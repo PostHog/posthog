@@ -82,8 +82,18 @@ Interpret the row:
 - `has_uploaded_file: false` means the upload did not complete.
 - A non-null `failure_reason` means PostHog could not parse or load the uploaded symbol data.
 
-The downloaded file is a PostHog symbol-data container (compressed Rust-encoded payload), not plain JSON. Extract
-it with `posthog-cli`:
+To test the captured frame against the uploaded bytes, save its raw JSON as `frame.json` and run:
+
+```bash
+# With CLI credentials, fetch the uploaded symbol set by ref.
+posthog-cli symbol-sets verify --ref "$CHUNK_ID" --frame-file frame.json
+# With a symbolset.bin downloaded through MCP, no CLI credentials are needed.
+posthog-cli symbol-sets verify symbolset.bin --ref "$CHUNK_ID" --frame-file frame.json
+```
+
+Use the `map_id` for Java, or the debug image's `debug_id` for Apple and native frames (also pass that image as `--debug-image '<json>'`). Compare the returned `frames` entries with the expected original source. A lookup, download, or mapping error identifies the stage that failed. This check resolves one frame against one selected set; it does not reproduce Cymbal's full exception handling or release selection.
+
+The downloaded file is a PostHog symbol-data container (compressed Rust-encoded payload), not plain JSON. To inspect its contents, extract it with `posthog-cli`:
 
 ```bash
 posthog-cli symbol-sets extract symbolset.bin -o ./extracted
@@ -92,7 +102,7 @@ posthog-cli symbol-sets extract symbolset.bin -o ./extracted
 #   bunx @posthog/cli symbol-sets extract symbolset.bin -o ./extracted
 ```
 
-`posthog-cli symbol-sets extract` handles all four symbol-set types (source-and-map, hermes, proguard, dSYM) and
+`posthog-cli symbol-sets extract` handles source-and-map, Hermes, ProGuard, dSYM, and ELF symbol sets and
 writes the extracted files into the output directory. Once extracted, summarize using the platform reference's
 helper.
 

@@ -3065,6 +3065,7 @@ checksum = "3a7418e0528510cf3b289a1250775e8c8b6a333bcdd01689133f68a818da798f"
 dependencies = [
  "symbolic-common",
  "symbolic-debuginfo",
+ "symbolic-symcache",
 ]
 
 [[package]]
@@ -3124,6 +3125,20 @@ dependencies = [
  "symbolic-common",
  "thiserror 2.0.17",
  "uuid",
+ "watto 0.2.0",
+]
+
+[[package]]
+name = "symbolic-symcache"
+version = "12.17.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9b14fe4ebcdce2b318d7b4f04d12e6c73c1504a59ed4423d90607aa7baa9ea37"
+dependencies = [
+ "indexmap",
+ "symbolic-common",
+ "symbolic-debuginfo",
+ "thiserror 2.0.17",
+ "tracing",
  "watto 0.2.0",
 ]
 

@@ -13,6 +13,7 @@ pub mod release;
 pub mod sourcemaps;
 pub mod update;
 pub mod utils;
+pub mod verify;
 
 pub mod cmd {
     pub use super::commands::Cli;

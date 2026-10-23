@@ -106,6 +106,28 @@ Pass `--include-source` to bundle the referenced source files for richer context
 
 The standalone `posthog-cli dsym upload` command is unchanged and still recommended for dSYM-only Xcode build phases, where it also reads release and version metadata from each bundle's `Info.plist`.
 
+## Checking symbolication for a captured frame
+
+`posthog-cli symbol-sets verify` checks whether one raw exception frame resolves with the symbol set uploaded to PostHog. It downloads the set by the frame's ref and prints the original location as JSON:
+
+```sh
+posthog-cli symbol-sets verify --ref chunk-123 --frame-file frame.json
+# Use --frame-file - to read JSON from stdin.
+```
+
+For offline checks, provide the uploaded symbol-set binary. This mode needs no credentials, makes no network calls, and disables CLI telemetry:
+
+```sh
+posthog-cli symbol-sets verify uploaded.bin --ref chunk-123 --frame-file frame.json
+# Or pass a raw frame directly with --frame '{"platform":"node:javascript","chunk_id":"chunk-123","lineno":1,"colno":0}'.
+```
+
+The frame's `chunk_id` (or Java `map_id`) must match `--ref`. For `apple` and `native` frames, pass the matching event `$debug_images` entry with `--debug-image '<json>'`. The command checks its debug ID and rebases the instruction address.
+
+JS source-and-map, Hermes, ProGuard, dSYM, and ELF symbol sets return the same JSON shape: `{"frames":[{"source":...,"line":...,"column":...,"function":...,"module":...,"hasContent":...}]}`. Unavailable fields are `null`. An address may expand into multiple inlined frames. A failed lookup, download, decode, or mapping exits nonzero with a stage-specific error.
+
+The command checks one frame against the selected upload. It does not reproduce Cymbal's full exception-resolution pipeline or prove that an event selected the expected release.
+
 ## Configuring sourcemap upload concurrency
 
 Sourcemap uploads run up to 10 file uploads at a time by default. Set a different positive value with `--concurrency` on `sourcemap upload` or `sourcemap process`:
