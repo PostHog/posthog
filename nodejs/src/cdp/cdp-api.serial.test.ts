@@ -2470,6 +2470,39 @@ describe('CDP API', () => {
                 expect(retried.status).toEqual(202)
                 expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
             })
+
+            it.each([
+                {
+                    name: 'queues a code send whose verified sender overrides an unverified workflow sender',
+                    flowId: async (): Promise<string> => (await unverifiedSender()).flowId,
+                    senderId: SENDER_ID,
+                    status: 202,
+                    code: undefined,
+                    queued: 1,
+                },
+                {
+                    name: 'refuses a code send whose unverified sender overrides a verified workflow sender',
+                    flowId: async (): Promise<string> => {
+                        await insertSender(SENDER_ID + 2, { verified: false })
+                        return hogFlow.id
+                    },
+                    senderId: SENDER_ID + 2,
+                    status: 400,
+                    code: 'sender_not_verified',
+                    queued: 0,
+                },
+            ])('$name', async ({ flowId: setUp, senderId, status, code, queued }) => {
+                const flowId = await setUp()
+
+                const res = await send(
+                    flowId,
+                    { Authorization: `Bearer ${mintToken(team.id, flowId)}` },
+                    { ...body, send: { ...codeSend, from: { ...codeSend.from, integrationId: senderId } } }
+                )
+
+                expect([res.status, res.body.code]).toEqual([status, code])
+                expect(mockQueueInvocations).toHaveBeenCalledTimes(queued)
+            })
         })
 
         it('refuses a send when the team is over its email quota', async () => {
