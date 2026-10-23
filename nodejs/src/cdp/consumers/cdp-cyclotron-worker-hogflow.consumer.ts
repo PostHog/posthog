@@ -117,6 +117,14 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
         return pinned
     }
 
+    private async recordSkippedEmail(item: CyclotronJobInvocation, reason: string): Promise<void> {
+        await recordSkippedTransactionalEmail(
+            this.emailStatus,
+            { ...item, state: item.state as CyclotronJobInvocationHogFlow['state'] | null },
+            reason
+        )
+    }
+
     @instrumented('cdpConsumer.handleEachBatch.loadHogFlows')
     protected async loadHogFlows(invocations: CyclotronJobInvocation[]): Promise<LoadHogFlowsResult> {
         const loadedInvocations: CyclotronJobInvocationHogFlow[] = []
@@ -132,6 +140,7 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
                 if (item.cancelRequestedAt) {
                     const hogFlow = await this.hogFlowManager.getHogFlow(item.functionId).catch(() => null)
                     canceledResults.push(this.buildCanceledResult(item, 'Run canceled', hogFlow ?? undefined))
+                    await this.recordSkippedEmail(item, 'run_canceled')
                     return
                 }
 
@@ -143,6 +152,7 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
                     })
 
                     failedInvocations.push(item)
+                    await this.recordSkippedEmail(item, 'workflow_missing')
 
                     return
                 }
@@ -159,11 +169,7 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
                     canceledResults.push(
                         this.buildCanceledResult(item, 'Run canceled: the workflow is no longer active', hogFlow)
                     )
-                    await recordSkippedTransactionalEmail(
-                        this.emailStatus,
-                        { ...item, state: item.state as CyclotronJobInvocationHogFlow['state'] | null },
-                        'workflow_inactive'
-                    )
+                    await this.recordSkippedEmail(item, 'workflow_inactive')
 
                     return
                 }
