@@ -345,6 +345,8 @@ class TestOfflineExperimentReads(APIBaseTest):
         definition = ScoreDefinition.objects.create(team=self.team, name="Category", kind="categorical")
         version = definition.create_new_version(config=config, created_by=self.user)
         unused_version = definition.create_new_version(config=config, created_by=self.user)
+        definition.short_name = "Category label"
+        definition.save(update_fields=["short_name"])
         items = [
             self.item,
             *OfflineExperimentItem.objects.for_team(self.team.id).bulk_create(
@@ -382,6 +384,9 @@ class TestOfflineExperimentReads(APIBaseTest):
             sorted([str(version.id), str(unused_version.id)]),
         )
         self.assertEqual([scorer["config"] for scorer in response.data["scorer_versions"]], [config, config])
+        self.assertEqual(
+            [scorer["short_name"] for scorer in response.data["scorer_versions"]], ["Category label", "Category label"]
+        )
         for item in response.data["results"]:
             self.assertEqual(len(item["results"]), 1)
             result = item["results"][0]

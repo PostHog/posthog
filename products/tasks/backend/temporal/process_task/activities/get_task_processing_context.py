@@ -20,8 +20,6 @@ from products.tasks.backend.constants import (
     AGENT_OTEL_TELEMETRY_STATE_KEY,
     AGENT_PEER_MESSAGING_FEATURE_FLAG,
     BENJAMIN_FEATURE_FLAG,
-    CLAUDE_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG,
-    CODEX_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG,
     CODEX_SUBSCRIPTION_EGRESS_DOMAINS,
     DESKTOP_WORKSPACE_WARM_FEATURE_FLAG,
     DEV_STACK_IMAGE_NAME,
@@ -49,6 +47,7 @@ from products.tasks.backend.exceptions import (
     TaskRunNotReadyError,
 )
 from products.tasks.backend.facade.api import ensure_task_run_session
+from products.tasks.backend.feature_flags import own_subscription_cloud_enabled
 from products.tasks.backend.logic.model_access import ModelAccess, resolve_model_access
 from products.tasks.backend.logic.services.agent_instructions import agent_instructions_state_update
 from products.tasks.backend.logic.services.agentsh import (
@@ -478,19 +477,16 @@ def _is_rtk_enabled(
 
 @frozen
 class _SubscriptionAdapter:
-    flag: str
     runtime_name: str
     settings_name: str
 
 
 _SUBSCRIPTION_ADAPTERS: dict[str, _SubscriptionAdapter] = {
     "claude": _SubscriptionAdapter(
-        flag=CLAUDE_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG,
         runtime_name="Claude",
         settings_name="Claude subscription settings",
     ),
     "codex": _SubscriptionAdapter(
-        flag=CODEX_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG,
         runtime_name="Codex",
         settings_name="ChatGPT subscription settings",
     ),
@@ -519,22 +515,7 @@ def _ensure_subscription_allowed(
             cause=ValueError(f"Subscription requested for a non-{spec.runtime_name} runtime"),
             capture=False,
         )
-    try:
-        enabled = bool(
-            distinct_id
-            and posthoganalytics.feature_enabled(
-                spec.flag,
-                distinct_id=distinct_id,
-                groups={"organization": organization_id},
-                group_properties={"organization": {"id": organization_id}},
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-        )
-    except Exception as e:
-        log_with_activity_context(f"{adapter}_own_subscription_flag_check_failed", run_id=run_id, error=str(e))
-        enabled = False
-    if not enabled:
+    if not own_subscription_cloud_enabled(adapter, distinct_id=distinct_id, organization_id=organization_id):
         raise ProcessTaskFatalError(
             f"Using your {plan_name} for cloud tasks is unavailable. Try again later, "
             f'or open {spec.settings_name} and turn off "Cloud tasks" to use PostHog credits.',

@@ -972,6 +972,7 @@ export const ExternalDataSourceCreatedViaEnumApi = {
  * * `IncidentIo` - IncidentIo
  * * `Pingdom` - Pingdom
  * * `Cloudflare` - Cloudflare
+ * * `CloudflareD1` - CloudflareD1
  * * `CosmosDB` - CosmosDB
  * * `PlanetScaleMySQL` - PlanetScaleMySQL
  * * `PlanetScalePostgres` - PlanetScalePostgres
@@ -1689,6 +1690,7 @@ export const ExternalDataSourceCreatedViaEnumApi = {
  * * `AwsCostAndUsageReport` - AwsCostAndUsageReport
  * * `AwsCostAnomalyDetection` - AwsCostAnomalyDetection
  * * `AwsCostExplorer` - AwsCostExplorer
+ * * `AwsDocumentDB` - AwsDocumentDB
  * * `AwsGlueDataCatalog` - AwsGlueDataCatalog
  * * `AwsGuardduty` - AwsGuardduty
  * * `AwsHealth` - AwsHealth
@@ -2382,6 +2384,7 @@ export const ExternalDataSourceTypeEnumApi = {
     IncidentIo: 'IncidentIo',
     Pingdom: 'Pingdom',
     Cloudflare: 'Cloudflare',
+    CloudflareD1: 'CloudflareD1',
     CosmosDB: 'CosmosDB',
     PlanetScaleMySQL: 'PlanetScaleMySQL',
     PlanetScalePostgres: 'PlanetScalePostgres',
@@ -3099,6 +3102,7 @@ export const ExternalDataSourceTypeEnumApi = {
     AwsCostAndUsageReport: 'AwsCostAndUsageReport',
     AwsCostAnomalyDetection: 'AwsCostAnomalyDetection',
     AwsCostExplorer: 'AwsCostExplorer',
+    AwsDocumentDB: 'AwsDocumentDB',
     AwsGlueDataCatalog: 'AwsGlueDataCatalog',
     AwsGuardduty: 'AwsGuardduty',
     AwsHealth: 'AwsHealth',
@@ -3934,6 +3938,7 @@ export interface ExternalDataSourceCreateApi {
      * * `IncidentIo` - IncidentIo
      * * `Pingdom` - Pingdom
      * * `Cloudflare` - Cloudflare
+     * * `CloudflareD1` - CloudflareD1
      * * `CosmosDB` - CosmosDB
      * * `PlanetScaleMySQL` - PlanetScaleMySQL
      * * `PlanetScalePostgres` - PlanetScalePostgres
@@ -4651,6 +4656,7 @@ export interface ExternalDataSourceCreateApi {
      * * `AwsCostAndUsageReport` - AwsCostAndUsageReport
      * * `AwsCostAnomalyDetection` - AwsCostAnomalyDetection
      * * `AwsCostExplorer` - AwsCostExplorer
+     * * `AwsDocumentDB` - AwsDocumentDB
      * * `AwsGlueDataCatalog` - AwsGlueDataCatalog
      * * `AwsGuardduty` - AwsGuardduty
      * * `AwsHealth` - AwsHealth
@@ -5851,6 +5857,7 @@ export interface ExternalDataSourceConnectionOptionApi {
      * * `IncidentIo` - IncidentIo
      * * `Pingdom` - Pingdom
      * * `Cloudflare` - Cloudflare
+     * * `CloudflareD1` - CloudflareD1
      * * `CosmosDB` - CosmosDB
      * * `PlanetScaleMySQL` - PlanetScaleMySQL
      * * `PlanetScalePostgres` - PlanetScalePostgres
@@ -6568,6 +6575,7 @@ export interface ExternalDataSourceConnectionOptionApi {
      * * `AwsCostAndUsageReport` - AwsCostAndUsageReport
      * * `AwsCostAnomalyDetection` - AwsCostAnomalyDetection
      * * `AwsCostExplorer` - AwsCostExplorer
+     * * `AwsDocumentDB` - AwsDocumentDB
      * * `AwsGlueDataCatalog` - AwsGlueDataCatalog
      * * `AwsGuardduty` - AwsGuardduty
      * * `AwsHealth` - AwsHealth
@@ -7341,6 +7349,7 @@ export interface DatabaseSchemaRequestApi {
      * * `IncidentIo` - IncidentIo
      * * `Pingdom` - Pingdom
      * * `Cloudflare` - Cloudflare
+     * * `CloudflareD1` - CloudflareD1
      * * `CosmosDB` - CosmosDB
      * * `PlanetScaleMySQL` - PlanetScaleMySQL
      * * `PlanetScalePostgres` - PlanetScalePostgres
@@ -8058,6 +8067,7 @@ export interface DatabaseSchemaRequestApi {
      * * `AwsCostAndUsageReport` - AwsCostAndUsageReport
      * * `AwsCostAnomalyDetection` - AwsCostAnomalyDetection
      * * `AwsCostExplorer` - AwsCostExplorer
+     * * `AwsDocumentDB` - AwsDocumentDB
      * * `AwsGlueDataCatalog` - AwsGlueDataCatalog
      * * `AwsGuardduty` - AwsGuardduty
      * * `AwsHealth` - AwsHealth
@@ -8755,6 +8765,7 @@ export interface DirectConnectionSourceOptionApi {
      * * `IncidentIo` - IncidentIo
      * * `Pingdom` - Pingdom
      * * `Cloudflare` - Cloudflare
+     * * `CloudflareD1` - CloudflareD1
      * * `CosmosDB` - CosmosDB
      * * `PlanetScaleMySQL` - PlanetScaleMySQL
      * * `PlanetScalePostgres` - PlanetScalePostgres
@@ -9472,6 +9483,7 @@ export interface DirectConnectionSourceOptionApi {
      * * `AwsCostAndUsageReport` - AwsCostAndUsageReport
      * * `AwsCostAnomalyDetection` - AwsCostAnomalyDetection
      * * `AwsCostExplorer` - AwsCostExplorer
+     * * `AwsDocumentDB` - AwsDocumentDB
      * * `AwsGlueDataCatalog` - AwsGlueDataCatalog
      * * `AwsGuardduty` - AwsGuardduty
      * * `AwsHealth` - AwsHealth
@@ -10223,6 +10235,7 @@ export interface SourcePreviewRequestApi {
      * * `IncidentIo` - IncidentIo
      * * `Pingdom` - Pingdom
      * * `Cloudflare` - Cloudflare
+     * * `CloudflareD1` - CloudflareD1
      * * `CosmosDB` - CosmosDB
      * * `PlanetScaleMySQL` - PlanetScaleMySQL
      * * `PlanetScalePostgres` - PlanetScalePostgres
@@ -10940,6 +10953,7 @@ export interface SourcePreviewRequestApi {
      * * `AwsCostAndUsageReport` - AwsCostAndUsageReport
      * * `AwsCostAnomalyDetection` - AwsCostAnomalyDetection
      * * `AwsCostExplorer` - AwsCostExplorer
+     * * `AwsDocumentDB` - AwsDocumentDB
      * * `AwsGlueDataCatalog` - AwsGlueDataCatalog
      * * `AwsGuardduty` - AwsGuardduty
      * * `AwsHealth` - AwsHealth
@@ -11672,6 +11686,7 @@ export interface SourceSetupApi {
      * * `IncidentIo` - IncidentIo
      * * `Pingdom` - Pingdom
      * * `Cloudflare` - Cloudflare
+     * * `CloudflareD1` - CloudflareD1
      * * `CosmosDB` - CosmosDB
      * * `PlanetScaleMySQL` - PlanetScaleMySQL
      * * `PlanetScalePostgres` - PlanetScalePostgres
@@ -12389,6 +12404,7 @@ export interface SourceSetupApi {
      * * `AwsCostAndUsageReport` - AwsCostAndUsageReport
      * * `AwsCostAnomalyDetection` - AwsCostAnomalyDetection
      * * `AwsCostExplorer` - AwsCostExplorer
+     * * `AwsDocumentDB` - AwsDocumentDB
      * * `AwsGlueDataCatalog` - AwsGlueDataCatalog
      * * `AwsGuardduty` - AwsGuardduty
      * * `AwsHealth` - AwsHealth
@@ -13128,6 +13144,7 @@ export interface SourceCredentialCreateApi {
      * * `IncidentIo` - IncidentIo
      * * `Pingdom` - Pingdom
      * * `Cloudflare` - Cloudflare
+     * * `CloudflareD1` - CloudflareD1
      * * `CosmosDB` - CosmosDB
      * * `PlanetScaleMySQL` - PlanetScaleMySQL
      * * `PlanetScalePostgres` - PlanetScalePostgres
@@ -13845,6 +13862,7 @@ export interface SourceCredentialCreateApi {
      * * `AwsCostAndUsageReport` - AwsCostAndUsageReport
      * * `AwsCostAnomalyDetection` - AwsCostAnomalyDetection
      * * `AwsCostExplorer` - AwsCostExplorer
+     * * `AwsDocumentDB` - AwsDocumentDB
      * * `AwsGlueDataCatalog` - AwsGlueDataCatalog
      * * `AwsGuardduty` - AwsGuardduty
      * * `AwsHealth` - AwsHealth

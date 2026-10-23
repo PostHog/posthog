@@ -168,6 +168,24 @@ const ROOTS = [
         ],
     },
     {
+        root: [
+            AUTHENTICATED_SHELL,
+            'src/scenes/project-homepage/ProjectHomepage.tsx',
+            'src/scenes/project-homepage/ai-first/AiFirstHomepage.tsx',
+        ],
+        label: 'AI-first home path',
+        budgetBytes: 9_400_000,
+        forbidden: [
+            'products/posthog_ai/frontend/components/tool/widgets/VisualizationWidget.tsx',
+            'products/posthog_ai/frontend/components/tool/widgets/RecordingsWidget.tsx',
+            'src/queries/Query/Query.tsx',
+            // The input box renders the thread's question and approval forms only while the agent
+            // waits for an answer, and notebook code only when a notebook update arrives.
+            'products/posthog_ai/frontend/api/primitives.ts',
+            'src/scenes/notebooks/Notebook/notebookLogic.ts',
+        ],
+    },
+    {
         root: 'src/scenes/activity/explore/EventsScene.tsx',
         label: 'events scene',
         // 2026-10-11: 8.92 MiB (3373 files), stable CSS included. ~10% headroom.
@@ -205,7 +223,10 @@ const ROOTS = [
             'src/scenes/settings/SettingsMap.tsx',
             // A browser cannot read files. The polyfill plugin in common/esbuilder/utils.mjs stubs out
             // fs and fs/promises, and a hit means a library's file reader pulled in the jspm fs polyfill.
-            '@jspm/core/nodelibs/browser/fs',
+            {
+                pattern: '@jspm/core/nodelibs/browser/fs',
+                verifyPrefix: '@jspm/core/nodelibs/browser/',
+            },
         ],
     },
 ]

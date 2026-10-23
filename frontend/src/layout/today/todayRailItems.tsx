@@ -2,6 +2,7 @@ import { IconApps, IconChat, IconGear, IconHome, IconSidebarClose, IconSidebarOp
 
 import { IconAnalyticsBars } from 'lib/lemon-ui/icons'
 import { isMac } from 'lib/utils/dom'
+import type { PhaiViewMode } from 'scenes/max/maxGlobalLogic'
 import { urls } from 'scenes/urls'
 
 import { TodayNewAnalyticsButton } from './TodayNewAnalyticsButton'
@@ -14,8 +15,13 @@ export interface TodayPane {
     title: string
     icon: JSX.Element
     /** The page a rail pick opens. Without one, a pick only opens the sidebar and the open page stays. */
-    home?: () => string
+    home?: (effectivePhaiView: PhaiViewMode) => string
     action?: () => JSX.Element
+}
+
+/** The task composer runs on the sandbox, so the legacy view starts a chat on `/ai` instead. */
+export function todayNewChatUrl(effectivePhaiView: PhaiViewMode): string {
+    return effectivePhaiView === 'new' ? urls.taskNewSession() : urls.ai()
 }
 
 export const TODAY_PANES: Record<TodayRailPane, TodayPane> = {
@@ -24,11 +30,16 @@ export const TODAY_PANES: Record<TodayRailPane, TodayPane> = {
         label: 'Chats',
         title: 'Chats',
         icon: <IconChat />,
-        home: () => urls.taskNewSession(),
+        home: todayNewChatUrl,
         action: TodayNewChatButton,
     },
-    // No home: like Products, a pick only opens the sidebar and the open page stays.
-    analytics: { label: 'Analytics', title: 'Analytics', icon: <IconAnalyticsBars />, action: TodayNewAnalyticsButton },
+    analytics: {
+        label: 'Analytics',
+        title: 'Analytics',
+        icon: <IconAnalyticsBars />,
+        home: () => urls.analyticsProductHome(),
+        action: TodayNewAnalyticsButton,
+    },
     products: { label: 'Products', title: 'Products', icon: <IconApps /> },
     settings: { label: 'Settings', title: 'Settings', icon: <IconGear />, home: () => urls.settings('project') },
 }
