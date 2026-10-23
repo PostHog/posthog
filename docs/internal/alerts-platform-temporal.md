@@ -155,6 +155,10 @@ Registration never deletes a schedule, so the rollout above deletes the old ID b
 One tick is one `alerts-platform-orchestrate` execution. It takes an `OrchestrateInputs`; the schedule passes `{}` and every field defaults.
 The first run records the tick cutoff (the scheduled start time, or the workflow start time for manual runs) and a deadline 45 seconds after the run started.
 Discovery runs once per tick. The loop then starts one `alerts-platform-source-dispatch` child per source with demand, ID `{tick_id}-{source}-p{page}`, on the orchestration queue.
+After discovery, the tick starts one `alerts-platform-record-inventory` child with ID `alerts-platform-record-inventory-{cutoff}` and the `ABANDON` close policy, and does not await it.
+That child counts configurations and alerts for each source in turn, with a 1-second statement timeout per query and one activity attempt, and sets the health dashboard gauges.
+Each source also sets `alerts_platform_inventory_recorded_at{source}`. Only the replica that counted a source last holds its current values, so a reader keeps the counts of the pod with the newest timestamp for that source.
+A failed start or count is logged and the next tick tries again, so the inventory never delays or fails a tick.
 Dispatchers are part of the tick: the orchestrator awaits each dispatcher's report and keeps the default `TERMINATE` close policy on that edge.
 They run on the tick's own fleet because the tick awaits them. On the evaluation queue, an evaluation fleet with no free slots
 leaves the dispatcher unpicked, and the tick waits on a report that cannot arrive. A dispatcher starts no activities,
