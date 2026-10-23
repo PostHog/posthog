@@ -598,6 +598,8 @@ class TestTransactionalEmail(APIBaseTest):
             ("quoted_recipient", {"to": '"jane"@example.com'}, "invalid_request", "to"),
             ("recipient_without_a_dotted_domain", {"to": "jane@localhost"}, "invalid_request", "to"),
             ("not_an_address", {"from": "Example"}, "invalid_request", "from"),
+            ("quoted_local_part", {"from": '"security"@example.com'}, "invalid_request", "from"),
+            ("sender_too_long", {"from": f"{'s' * 250}@example.com"}, "invalid_request", "from"),
             ("unverified_domain", {"from": "Example <security@example.org>"}, "sender_not_verified", "from"),
             ("invalid_key", {"template_key": "welcome email"}, "invalid_template_key", "template_key"),
             ("field_this_server_lacks", {"scheduled_at": "2026-11-01T09:00:00Z"}, "invalid_request", "scheduled_at"),

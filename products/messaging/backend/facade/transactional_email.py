@@ -16,6 +16,7 @@ from products.messaging.backend.facade.contracts import (
 )
 from products.messaging.backend.services.transactional_email import (
     SENDER_ADDRESS_MAX_LENGTH,
+    SENDER_ADDRESS_PATTERN,
     code_send_from,
     make_transactional,
     rendered_content,
@@ -26,6 +27,7 @@ from products.messaging.backend.services.transactional_email import (
 
 __all__ = [
     "SENDER_ADDRESS_MAX_LENGTH",
+    "SENDER_ADDRESS_PATTERN",
     "AcceptedSend",
     "EmailSendCommand",
     "EmailSendOutcome",

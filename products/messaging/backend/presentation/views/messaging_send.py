@@ -19,6 +19,8 @@ from posthog.dataclasses import frozen
 from products.messaging.backend.facade.contracts import ContentHashState, Queued, TemplateReference
 from products.messaging.backend.facade.templates import MessageTemplateMissing, find_template_to_send
 from products.messaging.backend.facade.transactional_email import (
+    SENDER_ADDRESS_MAX_LENGTH,
+    SENDER_ADDRESS_PATTERN,
     AcceptedSend,
     EmailSendCommand,
     RenderedContent,
@@ -138,11 +140,20 @@ class SendEmailSerializer(RefusesUnknownFieldsSerializer, SendTransactionalEmail
 
     def validate_from(self, value: str) -> str:
         _name, address = parseaddr(value)
+        if not self._is_sender_address(address):
+            raise serializers.ValidationError("Enter an address, such as `Example <security@example.com>`.")
+        return value
+
+    @staticmethod
+    def _is_sender_address(address: str) -> bool:
+        # The email worker ignores an address its pattern refuses and sends from the sender's own address instead.
+        if len(address) > SENDER_ADDRESS_MAX_LENGTH or not SENDER_ADDRESS_PATTERN.match(address):
+            return False
         try:
             validate_email(address)
         except DjangoValidationError:
-            raise serializers.ValidationError("Enter an address, such as `Example <security@example.com>`.")
-        return value
+            return False
+        return True
 
     def validate(self, data: dict[str, Any]) -> dict[str, Any]:
         if ("template" in data) == ("template_key" in data):
