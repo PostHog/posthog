@@ -3,7 +3,7 @@ import json
 import logging
 import contextlib
 from collections.abc import Iterable
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from django.db import models
 
@@ -43,6 +43,9 @@ from products.cohorts.backend.models.cohort import Cohort
 
 from common.hogvm.python.stl import STL
 from common.hogvm.python.stl.bytecode import BYTECODE_STL
+
+if TYPE_CHECKING:
+    from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 logger = logging.getLogger(__name__)
 
@@ -1148,7 +1151,7 @@ def _contains_behavioral_property(filters: dict) -> bool:
     )
 
 
-def _action_ids_in_filters(filters: dict[str, Any]) -> set[int]:
+def action_ids_in_filters(filters: dict[str, Any]) -> set[int]:
     # Mirrors compile_filters_expr, which compiles every entry typed "actions" in either list.
     action_ids: set[int] = set()
     for key in ("events", "actions"):
@@ -1171,10 +1174,26 @@ def _filter_action_ids(value: Any) -> set[int]:
     action_ids: set[int] = set()
     for key, item in value.items():
         if key == "filters" and isinstance(item, dict):
-            action_ids |= _action_ids_in_filters(item)
+            action_ids |= action_ids_in_filters(item)
         elif key != "inputs":
             action_ids |= _filter_action_ids(item)
     return action_ids
+
+
+def require_viewer_access_to_actions(
+    user_access_control: "UserAccessControl", *, team: Team, action_ids: set[int]
+) -> None:
+    if not action_ids:
+        return
+    actions = Action.objects.filter(team__project_id=team.project_id, id__in=action_ids)
+    denied_ids = user_access_control.denied_object_ids(
+        "action", [(str(action.id), action.team_id, action.created_by_id) for action in actions], "viewer"
+    )
+    if denied_ids:
+        raise serializers.ValidationError(
+            f"You don't have viewer access to action(s) {', '.join(denied_ids)}. "
+            "Remove them from the filters, or ask for access."
+        )
 
 
 def require_viewer_access_to_added_actions(context: dict[str, Any], submitted: Any, stored: Any) -> None:
@@ -1185,18 +1204,7 @@ def require_viewer_access_to_added_actions(context: dict[str, Any], submitted: A
     if not isinstance(user, User) or user_access_control is None:
         return
     added_ids = _filter_action_ids(submitted) - _filter_action_ids(stored)
-    if not added_ids:
-        return
-
-    actions = Action.objects.filter(team__project_id=context["get_team"]().project_id, id__in=added_ids)
-    denied_ids = user_access_control.denied_object_ids(
-        "action", [(str(action.id), action.team_id, action.created_by_id) for action in actions], "viewer"
-    )
-    if denied_ids:
-        raise serializers.ValidationError(
-            f"You don't have viewer access to action(s) {', '.join(denied_ids)}. "
-            "Remove them from the filters, or ask for access."
-        )
+    require_viewer_access_to_actions(user_access_control, team=context["get_team"](), action_ids=added_ids)
 
 
 class HogFunctionFiltersSerializer(serializers.Serializer):

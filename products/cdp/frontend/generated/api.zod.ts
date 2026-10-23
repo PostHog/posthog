@@ -1599,6 +1599,12 @@ export const HogFunctionsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                 .describe(
                     'Optimistic concurrency: the updated_at (or draft_updated_at when editing a staged draft) you last read. If the stored side is newer, the write fails with 409 instead of overwriting the concurrent edit. Omit to overwrite unconditionally.'
                 ),
+            managed_by: zod
+                .string()
+                .nullable()
+                .describe(
+                    "Key of the product that owns this function, or null. This API can't change an owned function."
+                ),
         })
         .optional()
         .describe('Full function configuration to test. Omit when use_draft is true.'),
