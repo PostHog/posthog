@@ -71,6 +71,7 @@ class TestSignalSpend(BaseTest):
     @parameterized.expand([("generation",), ("task",)])
     def test_clickhouse_spend_retries_until_visible_and_tracks_later_costs(self, source: str) -> None:
         driver = str(uuid4())
+        signal_models = (EmbeddingModelName.TEXT_EMBEDDING_3_SMALL_1536, EmbeddingModelName.TEXT_EMBEDDING_3_LARGE_3072)
         signal = SignalSpendUpdate(team_id=self.team.id, signal_id=driver)
         record_llm_spend(
             "first", token_cost_microusd=123, team_id=self.team.id, signal_id=driver, stage="actionability"
@@ -91,17 +92,17 @@ class TestSignalSpend(BaseTest):
         ):
             with self.assertRaisesRegex(RuntimeError, "not yet visible"):
                 publish_signal_spend_metadata(signal)
-            for model in EmbeddingModelName:
+            for model in signal_models:
                 rows[model.value] = [(driver, ("Example finding", json.dumps(metadata), now, [0.5], now))]
             produce_scope.side_effect = RuntimeError("Kafka unavailable")
             with self.assertRaises(RuntimeError):
                 publish_signal_spend_metadata(signal)
             produce_scope.side_effect = None
             publication = publish_signal_spend_metadata(signal)
-            assert producer.produce.call_count == len(EmbeddingModelName)
+            assert producer.produce.call_count == len(signal_models)
             for _ in range(5):
                 assert not confirm_signal_spend_metadata(publication)
-            assert producer.produce.call_count == len(EmbeddingModelName)
+            assert producer.produce.call_count == len(signal_models)
             for call in producer.produce.call_args_list:
                 payload = call.kwargs["data"]
                 assert call.kwargs["key"] == f"signals:{self.team.id}:{driver}:{payload['model_name']}"
@@ -140,7 +141,7 @@ class TestSignalSpend(BaseTest):
             clock.shift(2)
             newer = publish_signal_spend_metadata(signal)
             assert all(newer.versions[model] > version for model, version in publication.versions.items())
-            assert producer.produce.call_count == len(EmbeddingModelName)
+            assert producer.produce.call_count == len(signal_models)
             for call in producer.produce.call_args_list:
                 payload = call.kwargs["data"]
                 assert json.loads(payload["metadata"])["total_spend"] == expected
@@ -154,7 +155,7 @@ class TestSignalSpend(BaseTest):
             producer.reset_mock()
             clock.shift(2)
             publish_signal_spend_metadata(signal)
-            assert producer.produce.call_count == len(EmbeddingModelName)
+            assert producer.produce.call_count == len(signal_models)
             assert all(
                 json.loads(call.kwargs["data"]["metadata"])["spend_accounting_failed_stages"] == ["summarization"]
                 for call in producer.produce.call_args_list

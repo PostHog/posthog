@@ -533,6 +533,7 @@ class TestActivitySummaryQueue(BaseTest):
         assert (result.status, result.called_model) == ("ok", True)
         assert emit.call_args.kwargs["document_id"] == f"{self.user.id}:2026-10-19"
         assert emit.call_args.kwargs["content"] == "Builds the signup funnel.\nFocus areas: signup funnel"
+        assert emit.call_args.kwargs["models"] == ["text-embedding-3-small-1536", "text-embedding-3-large-3072"]
         event = capture.call_args.kwargs
         assert event["event"] == "activity summary generated"
         assert "signup funnel" not in json.dumps(event["properties"]).lower()

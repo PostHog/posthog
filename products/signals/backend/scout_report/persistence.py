@@ -40,8 +40,6 @@ from asgiref.sync import async_to_sync
 from pydantic import JsonValue, TypeAdapter, ValidationError
 from rest_framework.renderers import JSONRenderer
 
-from posthog.schema import EmbeddingModelName
-
 from posthog.api.embedding_worker import emit_embedding_request
 from posthog.dataclasses import frozen
 from posthog.models.team.team import Team
@@ -64,6 +62,7 @@ from products.signals.backend.artefact_schemas import (
     TaskRunArtefact,
     TitleChange,
 )
+from products.signals.backend.constants import SIGNALS_EMBEDDING_MODELS
 from products.signals.backend.enums import ReportLinkWritePath
 from products.signals.backend.models import (
     MAX_SCOUT_CONTENT_REVISIONS,
@@ -1445,7 +1444,7 @@ def _emit_bound_signal(
         document_type=_EMBEDDING_DOCUMENT_TYPE,
         rendering=_EMBEDDING_RENDERING,
         document_id=document_id,
-        models=[m.value for m in EmbeddingModelName],
+        models=[m.value for m in SIGNALS_EMBEDDING_MODELS],
         timestamp=signal.timestamp or timezone.now(),
         metadata=metadata,
     )

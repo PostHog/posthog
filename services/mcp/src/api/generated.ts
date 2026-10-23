@@ -38598,6 +38598,7 @@ export namespace Schemas {
     export const EmbeddingModelName = {
       TextEmbedding3Small1536: 'text-embedding-3-small-1536',
       TextEmbedding3Large3072: 'text-embedding-3-large-3072',
+      TextEmbedding3Small256: 'text-embedding-3-small-256',
     } as const;
 
     export interface EmbeddingRecord {
