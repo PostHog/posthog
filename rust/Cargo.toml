@@ -80,6 +80,7 @@ members = [
   "pgcollector",
   "pgapi",
   "ai-research/replay-core-v4",
+  "ai-research/replay-core-v4-node",
   "ai-research/replay-recorder-v4",
 ]
 
