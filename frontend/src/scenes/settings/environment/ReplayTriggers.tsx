@@ -8,7 +8,8 @@ import { replayTriggersV2Logic } from 'lib/components/IngestionControls/triggers
 import { TriggerGroupsEditor } from 'lib/components/IngestionControls/triggers/triggerGroups/TriggerGroupsEditor'
 import { FeatureFlagTrigger, Trigger, TriggerType } from 'lib/components/IngestionControls/types'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
+import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
@@ -74,8 +75,9 @@ function TriggerPanelHeader({
     status: string
     showMatchTag?: boolean
 }): JSX.Element {
+    // Keep the status next to the title. A right-aligned status reads as a toggle state and draws repeated clicks.
     return (
-        <div className="flex items-center justify-between w-full">
+        <div className="flex items-center gap-2 flex-wrap w-full">
             <span className="font-semibold flex items-center gap-1">
                 {showMatchTag && <IngestionControls.MatchTypeTag />}
                 {title}
@@ -455,11 +457,13 @@ function LegacyRecordingConditions(): JSX.Element {
                     panels={[
                         {
                             key: 'url',
+                            dataAttr: 'replay-settings-panel-url',
                             header: <TriggerPanelHeader title="URL matches" status={statuses.urlStatus} showMatchTag />,
                             content: <UrlTriggerOptions />,
                         },
                         {
                             key: 'event',
+                            dataAttr: 'replay-settings-panel-event',
                             header: (
                                 <TriggerPanelHeader title="Event emitted" status={statuses.eventStatus} showMatchTag />
                             ),
@@ -467,6 +471,7 @@ function LegacyRecordingConditions(): JSX.Element {
                         },
                         {
                             key: 'flag',
+                            dataAttr: 'replay-settings-panel-flag',
                             header: (
                                 <TriggerPanelHeader title="Feature flag" status={statuses.flagStatus} showMatchTag />
                             ),
@@ -483,6 +488,7 @@ function LegacyRecordingConditions(): JSX.Element {
                     panels={[
                         {
                             key: 'sampling',
+                            dataAttr: 'replay-settings-panel-sampling',
                             header: (
                                 <TriggerPanelHeader title="Sampling" status={statuses.samplingStatus} showMatchTag />
                             ),
@@ -490,6 +496,7 @@ function LegacyRecordingConditions(): JSX.Element {
                         },
                         {
                             key: 'min-duration',
+                            dataAttr: 'replay-settings-panel-min-duration',
                             header: <TriggerPanelHeader title="Minimum duration" status={statuses.minDurationStatus} />,
                             content: <MinimumDurationSetting />,
                         },
@@ -517,6 +524,7 @@ function RecordingExclusions(): JSX.Element {
                 panels={[
                     {
                         key: 'blocklist',
+                        dataAttr: 'replay-settings-panel-blocklist',
                         header: <TriggerPanelHeader title="URL blocklist" status={statuses.blocklistStatus} />,
                         content: <UrlBlocklistOptions />,
                     },
@@ -534,8 +542,12 @@ function SdkCompatibilityBanner(): JSX.Element {
         hasOutdatedWebSdk,
         outdatedWebTraffic,
     } = useValues(replayTriggersLogic)
-    const { hasLegacyTriggers } = useValues(replayTriggersV2Logic)
+    const { hasLegacyTriggers, isAddingGroup } = useValues(replayTriggersV2Logic)
     const { showCreateFromLegacyModal, setIsAddingGroup } = useActions(replayTriggersV2Logic)
+    const restrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
 
     if (shouldMinimizeLegacyConditions) {
         return (
@@ -556,11 +568,17 @@ function SdkCompatibilityBanner(): JSX.Element {
                         ? {
                               children: 'Migrate legacy conditions',
                               onClick: showCreateFromLegacyModal,
+                              disabledReason: restrictedReason,
+                              'data-attr': 'replay-sdk-banner-migrate-legacy',
                           }
-                        : {
-                              children: 'Add trigger group',
-                              onClick: () => setIsAddingGroup(true),
-                          }
+                        : isAddingGroup
+                          ? undefined
+                          : {
+                                children: 'Add trigger group',
+                                onClick: () => setIsAddingGroup(true),
+                                disabledReason: restrictedReason,
+                                'data-attr': 'replay-sdk-banner-add-trigger-group',
+                            }
                 }
             >
                 Your recent web SDK traffic is on v{TRIGGER_GROUPS_MIN_SDK_VERSION}+, but you haven't set up trigger
