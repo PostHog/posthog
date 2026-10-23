@@ -20,8 +20,10 @@ from products.cdp.backend.services.invocation_replay import (
     ReplayCriteria,
     claim_replay,
     get_replay_state,
+    is_replay_claimed,
     mark_replay_failed,
     plan_replay,
+    release_replay_claim,
 )
 from products.cdp.backend.tasks.invocation_replay import run_invocation_replay
 
@@ -289,6 +291,11 @@ class HogFunctionAdmin(admin.ModelAdmin):
         if not self.has_change_permission(request):
             raise PermissionDenied
         state = get_replay_state(fingerprint)
+        can_release = bool(state) and state["status"] in ("done", "failed") and is_replay_claimed(fingerprint)
+        if request.method == "POST" and request.POST.get("action") == "release" and can_release:
+            release_replay_claim(fingerprint, actor=f"admin:{request.user.pk}")
+            messages.success(request, "This plan can be sent again. Preview the same filters to send it.")
+            return redirect("admin:cdp-replay-failed-invocations-status", fingerprint=fingerprint)
         results = (state or {}).get("results", [])
         context: dict[str, Any] = {
             **self.admin_site.each_context(request),
@@ -296,6 +303,7 @@ class HogFunctionAdmin(admin.ModelAdmin):
             "step": "status",
             "fingerprint": fingerprint,
             "state": state,
+            "can_release": can_release,
             "result_rows": [{**r, "failed": r["status_code"] != 200, "summary": _result_summary(r)} for r in results],
             "sent_requests": len(results),
             "failed_requests": sum(1 for r in results if r["status_code"] != 200),

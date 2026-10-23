@@ -8,6 +8,11 @@ from django.core.cache import cache
 from django.test import Client
 
 from parameterized import parameterized
+from requests.exceptions import (
+    ConnectionError as RequestsConnectionError,
+    ReadTimeout,
+)
+from urllib3.exceptions import MaxRetryError, NewConnectionError
 
 from posthog.clickhouse.client.execute import sync_execute
 
@@ -26,6 +31,7 @@ WINDOW_START = datetime(2026, 10, 22, 11, 30, tzinfo=UTC)
 WINDOW_END = datetime(2026, 10, 22, 14, 0, tzinfo=UTC)
 IN_WINDOW = WINDOW_START + timedelta(minutes=30)
 EXPIRED = "401: The OAuth token used to make this call expired"
+REFUSED = RequestsConnectionError(MaxRetryError(None, "/rerun", NewConnectionError(None, "connection refused")))
 # Minutes after IN_WINDOW that land after the window ends.
 RECOVERED = 200
 
@@ -293,16 +299,21 @@ class TestInvocationReplay(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("every_request_failed", "send", ConnectionError("cdp api down")),
-            ("send_interrupted", "send", KeyboardInterrupt()),
-            ("planning_failed_in_task", "plan", RuntimeError("clickhouse down")),
+            ("connection_refused", "send", REFUSED, True),
+            ("http_error_response", "send", MagicMock(status_code=503, text="{}"), True),
+            ("planning_failed_in_task", "plan", RuntimeError("clickhouse down"), True),
+            ("read_timeout", "send", ReadTimeout("read timed out"), False),
+            ("interrupted_during_a_request", "send", KeyboardInterrupt(), False),
         ]
     )
     @patch("products.cdp.backend.services.invocation_replay.rerun_hog_invocations")
-    def test_a_send_that_queued_nothing_can_be_sent_again(
-        self, _name: str, stage: str, error: BaseException, rerun: MagicMock
+    def test_a_send_can_be_sent_again_only_when_it_surely_queued_nothing(
+        self, _name: str, stage: str, outcome: Any, can_resend: bool, rerun: MagicMock
     ) -> None:
-        rerun.side_effect = error
+        if isinstance(outcome, BaseException):
+            rerun.side_effect = outcome
+        else:
+            rerun.return_value = outcome
         _insert(_function(self.team, "template-google-ads"), [_row("a1", "failed"), _recovered()])
         criteria = _criteria()
         plan = plan_replay(criteria)
@@ -310,76 +321,14 @@ class TestInvocationReplay(ClickhouseTestMixin, APIBaseTest):
 
         with patch(
             "products.cdp.backend.tasks.invocation_replay.plan_replay",
-            side_effect=error if stage == "plan" else plan_replay,
+            side_effect=outcome if stage == "plan" else plan_replay,
         ):
             try:
                 run_invocation_replay(criteria.to_payload(), plan.fingerprint, "first")
             except BaseException as raised:
-                assert raised is error
-
-        assert claim_replay(plan, actor="second")
-
-    @parameterized.expand(
-        [
-            ("job_failed_before_queuing", "failed", 0, True),
-            ("job_failed_after_a_page", "failed", 1, False),
-            ("job_succeeded", "succeeded", 1, False),
-        ]
-    )
-    @patch("products.cdp.backend.services.invocation_replay.rerun_hog_invocations")
-    def test_an_accepted_send_can_be_sent_again_only_when_its_rerun_job_queued_nothing(
-        self, _name: str, job_status: str, pages: int, can_resend: bool, rerun: MagicMock
-    ) -> None:
-        job_id = "018f0000-0000-0000-0000-00000000aaaa"
-        rerun.return_value = MagicMock(status_code=200, text=f'{{"rerun_job_id":"{job_id}","queued_count":0}}')
-        function = _function(self.team, "template-google-ads")
-        _insert(function, [_row("a1", "failed"), _recovered()])
-        plan = plan_replay(_criteria())
-        assert claim_replay(plan, actor="first")
-        execute_replay(plan, actor="first")
-        now = datetime.now(UTC)
-        sync_execute(
-            INSERT_HOG_INVOCATION_RESULT_SQL,
-            {
-                **_row("00", job_status, error="clickhouse down"),
-                "invocation_id": job_id,
-                "scheduled_at": now,
-                "first_scheduled_at": now,
-                "team_id": self.team.pk,
-                "function_kind": "hog_function_rerun",
-                "function_id": str(function.id),
-                "parent_run_id": "",
-                "attempts": pages,
-                "started_at": now,
-                "finished_at": now,
-                "duration_ms": 10,
-                "invocation_globals": "{}",
-                "is_deleted": 0,
-            },
-        )
+                assert raised is outcome
 
         assert claim_replay(plan, actor="second") is can_resend
-        assert not claim_replay(plan, actor="third")
-
-    @patch("products.cdp.backend.services.invocation_replay.rerun_hog_invocations")
-    def test_concurrent_resends_of_a_released_plan_claim_it_once(self, rerun: MagicMock) -> None:
-        rerun.side_effect = ConnectionError("cdp api down")
-        _insert(_function(self.team, "template-google-ads"), [_row("a1", "failed"), _recovered()])
-        plan = plan_replay(_criteria())
-        cache.set(f"cdp:invocation_replay:claim:{plan.fingerprint}", "first")
-        racer: list[bool] = []
-
-        def check_while_another_send_races(fingerprint: str) -> bool:
-            racer.append(claim_replay(plan, actor="racer"))
-            return True
-
-        with patch(
-            "products.cdp.backend.services.invocation_replay._accepted_reruns_queued_nothing",
-            side_effect=check_while_another_send_races,
-        ):
-            claimed = claim_replay(plan, actor="second")
-
-        assert [claimed, *racer] == [True, False]
 
 
 class TestReplayAdmin(ClickhouseTestMixin, APIBaseTest):
@@ -459,3 +408,17 @@ class TestReplayAdmin(ClickhouseTestMixin, APIBaseTest):
 
         self.admin_client.post(self.url, send)
         assert task.delay.call_count == 2
+
+    @patch("products.cdp.backend.services.invocation_replay.rerun_hog_invocations")
+    def test_staff_can_allow_a_resend_after_an_uncertain_send(self, rerun: MagicMock) -> None:
+        rerun.side_effect = ReadTimeout("read timed out")
+        plan = plan_replay(_criteria())
+        assert claim_replay(plan, actor="first")
+        execute_replay(plan, actor="first")
+        status_url = f"{self.url}{plan.fingerprint}/"
+        assert not claim_replay(plan, actor="second")
+        assert self.admin_client.get(status_url).context["can_release"]
+
+        self.admin_client.post(status_url, {"action": "release"})
+
+        assert claim_replay(plan, actor="second")

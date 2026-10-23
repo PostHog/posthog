@@ -20,6 +20,7 @@ from products.cdp.backend.services.invocation_replay import (
     claim_replay,
     execute_replay,
     plan_replay,
+    release_replay_claim,
 )
 
 
@@ -70,6 +71,11 @@ class Command(BaseCommand):
         parser.add_argument("--details", action="store_true", help="Print one line per function.")
         parser.add_argument("--execute", action="store_true", help="Send the replay. Requires --fingerprint.")
         parser.add_argument("--fingerprint", default="", help="The fingerprint printed by the preview.")
+        parser.add_argument(
+            "--allow-resend",
+            action="store_true",
+            help="With --execute, send a plan again that was sent before. Use only after checking that its runs were not queued.",
+        )
 
     def handle(self, *args: Any, **options: Any) -> None:
         latest_per_person = options["latest_per_person_template_ids"]
@@ -122,6 +128,8 @@ class Command(BaseCommand):
                 "The plan does not match --fingerprint, so nothing was sent. Review the plan above and use its fingerprint."
             )
 
+        if options["allow_resend"]:
+            release_replay_claim(plan.fingerprint, actor="management_command")
         if not claim_replay(plan, actor="management_command"):
             raise CommandError("This plan was already sent, so nothing was sent again.")
         results = execute_replay(plan, actor="management_command")

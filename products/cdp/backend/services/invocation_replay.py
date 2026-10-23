@@ -16,15 +16,19 @@ The rerun worker also re-checks each invocation's latest status before it
 enqueues it.
 """
 
-import json
 import hashlib
 from collections import Counter
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 
-from django.core.cache import cache
+from django.core.cache import caches
 
 import structlog
+from requests.exceptions import (
+    ConnectionError as RequestsConnectionError,
+    ConnectTimeout,
+)
+from urllib3.exceptions import NewConnectionError
 
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
@@ -192,19 +196,6 @@ WHERE function_kind = 'hog_function'
     AND status = 'succeeded'
 """
 
-# The rerun worker writes one lifecycle row per rerun job, keyed by the job ID.
-# attempts holds the number of pages the job processed, so a failed job with
-# 0 attempts queued nothing.
-_RERUN_JOBS_QUERY = """
-SELECT invocation_id, argMax(status, version) AS latest_status, argMax(attempts, version) AS latest_pages
-FROM hog_invocation_results
-WHERE function_kind = 'hog_function_rerun'
-    AND team_id IN %(team_ids)s
-    AND invocation_id IN %(job_ids)s
-    AND scheduled_at >= %(since)s
-GROUP BY invocation_id
-"""
-
 
 @frozen
 class ReplayCriteria:
@@ -355,7 +346,6 @@ class FunctionReplayResult:
     invocation_count: int
     status_code: int
     detail: str
-    rerun_job_id: str = ""
 
 
 @frozen
@@ -585,6 +575,10 @@ def _plan_replay(criteria: ReplayCriteria) -> ReplayPlan:
     return ReplayPlan(criteria=criteria, functions=tuple(replays))
 
 
+# Claims and state coordinate concurrent senders, so every read must see the latest write.
+replay_cache = caches["cdp_invocation_replay"]
+
+
 def _state_key(fingerprint: str) -> str:
     return f"cdp:invocation_replay:{fingerprint}"
 
@@ -593,77 +587,58 @@ def _claim_key(fingerprint: str) -> str:
     return f"cdp:invocation_replay:claim:{fingerprint}"
 
 
-def _accepted_reruns_queued_nothing(fingerprint: str) -> bool:
-    state = get_replay_state(fingerprint)
-    if not state or state.get("status") not in ("done", "failed"):
-        return False
-    accepted = [r for r in state.get("results", []) if r["status_code"] == 200]
-    job_ids = [r.get("rerun_job_id", "") for r in accepted]
-    if not job_ids or not all(job_ids):
-        return False
-    with tags_context(product=Product.PIPELINE_DESTINATIONS, feature=Feature.DEBUG_QUERY):
-        rows = sync_execute(
-            _RERUN_JOBS_QUERY,
-            {
-                "team_ids": sorted({r["team_id"] for r in accepted}),
-                "job_ids": job_ids,
-                "since": datetime.fromisoformat(state["claimed_at"]) - timedelta(hours=1),
-            },
-        )
-    jobs = {job_id: (status, pages) for job_id, status, pages in rows}
-    return all(jobs.get(job_id) == ("failed", 0) for job_id in job_ids)
-
-
 def claim_replay(plan: ReplayPlan, *, actor: str) -> bool:
     """Reserve the plan for one send. Returns False when this exact plan was already claimed."""
-    if cache.add(_claim_key(plan.fingerprint), actor, timeout=REPLAY_STATE_TTL_SECONDS):
-        _save_queued_state(plan, actor)
-        return True
-    # Every accepted rerun job can still fail before it queues a run. The plan then
-    # stays the same, so the claim must not block a resend. The lock lets only one
-    # concurrent resend take the claim over, and it holds until the new state says
-    # "queued", which makes every later check refuse.
-    reclaim_lock = f"{_claim_key(plan.fingerprint)}:reclaim"
-    if not cache.add(reclaim_lock, actor, timeout=60):
+    if not replay_cache.add(_claim_key(plan.fingerprint), actor, timeout=REPLAY_STATE_TTL_SECONDS):
         return False
-    try:
-        if not _accepted_reruns_queued_nothing(plan.fingerprint):
-            return False
-        cache.set(_claim_key(plan.fingerprint), actor, timeout=REPLAY_STATE_TTL_SECONDS)
-        _save_queued_state(plan, actor)
-        return True
-    finally:
-        cache.delete(reclaim_lock)
-
-
-def _save_queued_state(plan: ReplayPlan, actor: str) -> None:
-    cache.set(
+    replay_cache.set(
         _state_key(plan.fingerprint),
         {
             "status": "queued",
             "actor": actor,
-            "claimed_at": datetime.now(UTC).isoformat(),
             "invocation_count": plan.invocation_count,
             "request_count": plan.request_count,
             "results": [],
         },
         timeout=REPLAY_STATE_TTL_SECONDS,
     )
+    return True
 
 
 def _release_claim(fingerprint: str) -> None:
     # Only for a send that queued nothing. The same plan is then still the right
     # plan, and the operator must be able to send it again.
-    cache.delete(_claim_key(fingerprint))
+    replay_cache.delete(_claim_key(fingerprint))
+
+
+def is_replay_claimed(fingerprint: str) -> bool:
+    return replay_cache.get(_claim_key(fingerprint)) is not None
+
+
+def release_replay_claim(fingerprint: str, *, actor: str) -> None:
+    """Let staff send a plan again after they checked that its earlier send queued nothing."""
+    logger.warning("invocation_replay_claim_released", actor=actor, fingerprint=fingerprint)
+    _save_state(fingerprint, detail=f"Released for resending by {actor}.")
+    _release_claim(fingerprint)
+
+
+def _never_reached_cdp(error: Exception) -> bool:
+    # A request that never opened a connection queued nothing. Any other error,
+    # for example a read timeout, can come after the CDP API queued the rerun.
+    if isinstance(error, ConnectTimeout):
+        return True
+    if isinstance(error, RequestsConnectionError) and error.args:
+        return isinstance(getattr(error.args[0], "reason", None), NewConnectionError)
+    return False
 
 
 def get_replay_state(fingerprint: str) -> dict[str, Any] | None:
-    return cache.get(_state_key(fingerprint))
+    return replay_cache.get(_state_key(fingerprint))
 
 
 def _save_state(fingerprint: str, **changes: Any) -> None:
     state = get_replay_state(fingerprint) or {}
-    cache.set(_state_key(fingerprint), {**state, **changes}, timeout=REPLAY_STATE_TTL_SECONDS)
+    replay_cache.set(_state_key(fingerprint), {**state, **changes}, timeout=REPLAY_STATE_TTL_SECONDS)
 
 
 def mark_replay_refused(fingerprint: str, reason: str) -> None:
@@ -676,11 +651,10 @@ def mark_replay_failed(fingerprint: str, reason: str) -> None:
     _release_claim(fingerprint)
 
 
-def _rerun_job_id(response_text: str) -> str:
-    try:
-        return str(json.loads(response_text).get("rerun_job_id") or "")
-    except (ValueError, AttributeError):
-        return ""
+_UNCERTAIN_DETAIL = (
+    "Some requests stopped without a response and may still have queued their runs, so this plan stays blocked. "
+    "Check the runs on the destinations first. Then allow a resend if nothing was queued."
+)
 
 
 def execute_replay(plan: ReplayPlan, *, actor: str) -> list[FunctionReplayResult]:
@@ -696,10 +670,14 @@ def execute_replay(plan: ReplayPlan, *, actor: str) -> list[FunctionReplayResult
     _save_state(fingerprint, status="running")
     criteria = plan.criteria
     results: list[FunctionReplayResult] = []
+    # Requests that may have queued a rerun although they did not return 200.
+    uncertain_requests = 0
+    in_flight = False
     try:
         for function in plan.replayable_functions:
             for offset in range(0, len(function.invocation_ids), HOG_INVOCATION_RERUN_MAX_COUNT):
                 chunk = list(function.invocation_ids[offset : offset + HOG_INVOCATION_RERUN_MAX_COUNT])
+                in_flight = True
                 try:
                     response = rerun_hog_invocations(
                         team_id=function.team_id,
@@ -716,19 +694,20 @@ def execute_replay(plan: ReplayPlan, *, actor: str) -> list[FunctionReplayResult
                         },
                     )
                     status_code, detail = response.status_code, response.text[:500]
-                    rerun_job_id = _rerun_job_id(response.text) if status_code == 200 else ""
                 except Exception as error:
                     # One unreachable request must not stop the rest of the plan. The
                     # result records it, so the operator can preview again and send
                     # only what is still failed.
-                    status_code, detail, rerun_job_id = 0, repr(error)[:500], ""
+                    status_code, detail = 0, repr(error)[:500]
+                    if not _never_reached_cdp(error):
+                        uncertain_requests += 1
+                in_flight = False
                 result = FunctionReplayResult(
                     team_id=function.team_id,
                     function_id=function.function_id,
                     invocation_count=len(chunk),
                     status_code=status_code,
                     detail=detail,
-                    rerun_job_id=rerun_job_id,
                 )
                 results.append(result)
                 _save_state(
@@ -740,24 +719,25 @@ def execute_replay(plan: ReplayPlan, *, actor: str) -> list[FunctionReplayResult
                             "invocation_count": r.invocation_count,
                             "status_code": r.status_code,
                             "detail": r.detail,
-                            "rerun_job_id": r.rerun_job_id,
                         }
                         for r in results
                     ],
                 )
     except BaseException:
-        # An interrupt or a crash before any request was accepted leaves the plan
-        # unchanged, so the claim must not block the operator from sending it again.
-        if not any(r.status_code == 200 for r in results):
-            mark_replay_failed(fingerprint, "The send stopped before any request was accepted.")
+        queued_nothing = not in_flight and not uncertain_requests and not any(r.status_code == 200 for r in results)
+        if queued_nothing:
+            mark_replay_failed(fingerprint, "The send stopped before any request was sent.")
         else:
-            _save_state(
-                fingerprint, status="failed", detail="The send stopped part way. Preview again to send the rest."
-            )
+            _save_state(fingerprint, status="failed", detail=_UNCERTAIN_DETAIL)
         raise
     failed_requests = sum(1 for r in results if r.status_code != 200)
-    _save_state(fingerprint, status="done", failed_requests=failed_requests)
-    if results and failed_requests == len(results):
+    _save_state(
+        fingerprint,
+        status="done",
+        failed_requests=failed_requests,
+        detail=_UNCERTAIN_DETAIL if uncertain_requests else "",
+    )
+    if results and failed_requests == len(results) and not uncertain_requests:
         _release_claim(fingerprint)
     logger.info("invocation_replay_finished", actor=actor, fingerprint=fingerprint, failed_requests=failed_requests)
     return results
