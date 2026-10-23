@@ -11,8 +11,12 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{fmt, EnvFilter};
 
+use replay_core_v4::keys::batch::KeyStore;
+use replay_core_v4::keys::kms::{AwsKms, CachedKms, KmsLimits};
+use replay_core_v4::keys::table::{AwsKeyTable, CachedKeyTable};
 use replay_recorder_v4::config::Config;
-use replay_recorder_v4::consumer::{run, RecorderConsumer, Settings};
+use replay_recorder_v4::consumer::{run, RecorderConsumer, Settings, Writer};
+use replay_recorder_v4::store::S3Store;
 use replay_recorder_v4::teams::TeamCache;
 
 common_alloc::used!();
@@ -112,7 +116,39 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         flush_max_bytes: config.flush_max_bytes,
         session_idle: Duration::from_secs(config.session_idle_secs),
     };
-    tokio::spawn(run(consumer, settings, teams, consumer_handle));
+    let writer = if config.write_enabled {
+        let aws = aws_config::defaults(aws_config::BehaviorVersion::latest())
+            .load()
+            .await;
+        // The cache lifetimes are v3's: a session row's lifetime bounds how late a deletion is seen.
+        let table = CachedKeyTable::new(
+            AwsKeyTable::new(
+                aws_sdk_dynamodb::Client::new(&aws),
+                config.key_table.clone(),
+            ),
+            100_000,
+            Duration::from_secs(300),
+            Duration::from_secs(3600),
+        );
+        let kms = CachedKms::new(
+            AwsKms::new(
+                aws_sdk_kms::Client::new(&aws),
+                config.kms_key_arn.clone(),
+                KmsLimits::default(),
+            ),
+            100_000,
+            Duration::from_secs(1800),
+        );
+        Some(Writer {
+            keys: KeyStore::new(table, kms),
+            store: Arc::new(S3Store::new(aws_sdk_s3::Client::new(&aws))),
+            rrweb_bucket: config.rrweb_bucket.clone(),
+        })
+    } else {
+        tracing::info!("writes are off: the recorder stores nothing");
+        None
+    };
+    tokio::spawn(run(consumer, settings, teams, writer, consumer_handle));
 
     monitor.wait().await?;
     Ok(())
