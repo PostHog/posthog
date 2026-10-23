@@ -1,39 +1,65 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonTag } from '@posthog/lemon-ui'
+import { Badge, Button } from '@posthog/quill'
+
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { Link, LinkPrimitive } from 'lib/lemon-ui/Link'
 
 import { biDashboardCrossFilterLogic } from './biDashboardCrossFilterLogic'
 
-export function BIDashboardFilterBar({ dashboardId }: { dashboardId: number }): JSX.Element {
-    const { enabled, selection, targets } = useValues(biDashboardCrossFilterLogic({ dashboardId }))
-    const { setEnabled, setSelection } = useActions(biDashboardCrossFilterLogic({ dashboardId }))
+export function BIDashboardFilterBar({ dashboardId }: { dashboardId: number }): JSX.Element | null {
+    const { selection, targets, sourceInsightUrl } = useValues(biDashboardCrossFilterLogic({ dashboardId }))
+    const { setSelection } = useActions(biDashboardCrossFilterLogic({ dashboardId }))
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    if (!selection) {
+        return null
+    }
+    const clear = (): void => setSelection(null)
     return (
-        <div className="mb-3 flex flex-wrap items-center gap-2 rounded border p-3" data-attr="bi-dashboard-filter-bar">
-            <LemonSwitch checked={enabled} onChange={setEnabled} label="Use worksheets as filters" />
-            {enabled && (
-                <>
-                    <span className="text-secondary text-xs">
-                        Click a mark to filter other worksheets on the same data source. Click again to clear.
-                    </span>
-                    {selection && (
-                        <div className="flex w-full flex-wrap items-center gap-2" role="status">
-                            <span className="min-w-0 truncate font-semibold">{selection.title}</span>
-                            {selection.selection.labels.map(({ name, value }, index) => (
-                                <LemonTag key={index} className="max-w-full">
-                                    <span className="truncate">{`${name}: ${value}`}</span>
-                                </LemonTag>
-                            ))}
-                            <span>{`${Object.keys(targets).length} worksheets filtered`}</span>
-                            <LemonButton size="xsmall" onClick={() => setSelection(null)}>
-                                Clear selection
-                            </LemonButton>
-                        </div>
-                    )}
-                    <span className="w-full text-xs text-secondary">
-                        Temporary exploration only. The source chart and other tile types stay unchanged. Selections are
-                        not saved, shared, or exported.
-                    </span>
-                </>
+        <div
+            className="flex min-w-0 max-w-full flex-wrap items-center gap-2 border-l border-primary pl-2"
+            data-attr="bi-dashboard-filter-bar"
+            data-quill={todayRailNav ? '' : undefined}
+        >
+            <div className="flex min-w-0 flex-wrap items-center gap-2" role="status">
+                {todayRailNav ? <Badge>BI</Badge> : <LemonTag>BI</LemonTag>}
+                {todayRailNav ? (
+                    <LinkPrimitive
+                        to={sourceInsightUrl}
+                        className="max-w-48 truncate text-xs underline"
+                        title={`Filter from ${selection.title}`}
+                    >
+                        {selection.title}
+                    </LinkPrimitive>
+                ) : (
+                    <Link
+                        to={sourceInsightUrl}
+                        className="max-w-48 truncate text-xs"
+                        title={`Filter from ${selection.title}`}
+                    >
+                        {selection.title}
+                    </Link>
+                )}
+                {selection.selection.labels.map(({ name, value }, index) =>
+                    todayRailNav ? (
+                        <Badge key={index} className="min-w-0 max-w-full">
+                            <span className="truncate">{`${name}: ${value}`}</span>
+                        </Badge>
+                    ) : (
+                        <LemonTag key={index} className="max-w-full">
+                            <span className="truncate">{`${name}: ${value}`}</span>
+                        </LemonTag>
+                    )
+                )}
+                <span className="text-secondary text-xs">{`${Object.keys(targets).length} worksheets filtered`}</span>
+            </div>
+            {todayRailNav ? (
+                <Button onClick={clear}>Clear BI filters</Button>
+            ) : (
+                <LemonButton size="xsmall" onClick={clear}>
+                    Clear BI filters
+                </LemonButton>
             )}
         </div>
     )

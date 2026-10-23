@@ -5,6 +5,7 @@
     },
     "dependencies": {
         "@floating-ui/react": "^0.27.19",
+        "@posthog/quill": "workspace:*",
         "fast-equals": "catalog:",
         "kea": "catalog:",
         "kea-forms": "catalog:",

@@ -1,0 +1,181 @@
+.Popover.BIDrilldownMenu {
+    width: 300px;
+    max-width: none;
+    transform: none;
+    perspective: none;
+
+    > .Popover__box {
+        margin: 0;
+        background: transparent;
+        border: 0;
+        box-shadow: none;
+        opacity: 1;
+        transition: none;
+        transform: none;
+
+        .LemonButton__chrome {
+            height: 100%;
+            padding: 0;
+            border-radius: inherit;
+            box-shadow: none;
+            transform: none;
+        }
+    }
+
+    .Popover__content {
+        overflow: visible;
+    }
+}
+
+.BIDrilldownMenu__selection {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    height: 52px;
+    padding: 4px 12px;
+    margin-bottom: 8px;
+    background: var(--color-bg-surface-popover);
+    border: 1px solid var(--color-border-primary);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-elevation-3000);
+}
+
+.BIDrilldownMenu__wheel {
+    position: relative;
+    width: 300px;
+    height: 300px;
+    overflow: hidden;
+    background: var(--color-bg-surface-popover);
+    border: 1px solid var(--color-border-primary);
+    border-radius: 50%;
+    box-shadow: var(--shadow-elevation-3000);
+
+    [role='menuitem'] {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        padding: 0;
+        border: 0;
+        border-radius: 0;
+        transition: none;
+
+        &:not(.BIDrilldownMenu__filter) {
+            color: var(--color-text-primary);
+            background: transparent;
+
+            &:hover,
+            &:focus-visible {
+                background: var(--color-bg-fill-button-tertiary-hover);
+            }
+        }
+    }
+
+    .BIDrilldownMenu__worksheet {
+        clip-path: polygon(50% 50%, 0 21%, 0 0, 100% 0, 100% 21%);
+
+        .BIDrilldownMenu__action-label {
+            top: 18%;
+            left: 50%;
+        }
+    }
+
+    .BIDrilldownMenu__rows {
+        clip-path: polygon(50% 50%, 50% 100%, 0 100%, 0 21%);
+
+        .BIDrilldownMenu__action-label {
+            top: 72%;
+            left: 23%;
+        }
+    }
+
+    .BIDrilldownMenu__sql {
+        clip-path: polygon(50% 50%, 100% 21%, 100% 100%, 50% 100%);
+
+        .BIDrilldownMenu__action-label {
+            top: 72%;
+            left: 77%;
+        }
+    }
+
+    .BIDrilldownMenu__filter,
+    .BIDrilldownMenu__empty-center {
+        --lemon-button-radius: 50%;
+
+        inset: 50% auto auto 50%;
+        z-index: 1;
+        width: 108px;
+        height: 108px;
+        overflow: hidden;
+        color: var(--color-text-primary);
+        background: var(--color-bg-surface-popover);
+        border: 1px solid var(--color-border-primary);
+        border-radius: 50%;
+        box-shadow: 0 0 0 5px var(--color-bg-surface-popover);
+        transform: translate(-50%, -50%);
+
+        &:hover,
+        &:focus-visible {
+            background: var(--color-bg-fill-button-tertiary-hover);
+        }
+
+        .BIDrilldownMenu__action-label {
+            top: 50%;
+            left: 50%;
+            width: 84px;
+            font-weight: 600;
+        }
+
+        &:focus-visible {
+            outline: 2px solid var(--color-text-primary);
+            outline-offset: -6px;
+        }
+    }
+}
+
+.BIDrilldownMenu__action-label {
+    position: absolute;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    align-items: center;
+    width: 94px;
+    font-size: 12px;
+    line-height: 16px;
+    text-align: center;
+    white-space: normal;
+    transform: translate(-50%, -50%);
+
+    > svg {
+        width: 18px;
+        height: 18px;
+    }
+}
+
+.BIDrilldownMenu__dividers {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    fill: none;
+    stroke: var(--color-border-primary);
+}
+
+.BIDrilldownMenu__wheel .BIDrilldownMenu__filter {
+    background: var(--color-bg-fill-button-tertiary-hover);
+    border: 2px solid var(--color-text-primary);
+
+    &:hover,
+    &:focus-visible {
+        color: var(--color-bg-surface-popover);
+        background: var(--color-text-primary);
+    }
+}
+
+.BIDrilldownMenu__wheel .BIDrilldownMenu__empty-center {
+    position: absolute;
+    cursor: pointer;
+    border: 0;
+    box-shadow: none;
+}

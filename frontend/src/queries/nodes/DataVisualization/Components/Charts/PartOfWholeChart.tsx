@@ -15,6 +15,7 @@ export interface PartOfWholeChartProps {
     chartSettings: ChartSettings
     presetChartHeight?: boolean
     className?: string
+    isSliceSelected?: SqlChartProps['isSliceSelected']
     onSliceClick?: SqlChartProps['onSliceClick']
 }
 

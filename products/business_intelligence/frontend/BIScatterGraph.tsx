@@ -18,6 +18,7 @@ export interface BIScatterGraphProps extends SqlScatterGraphProps {
     rows: unknown[][]
     chartKey: string
     onKeepOnly?: (records: Record<string, unknown>[]) => void
+    isSelected?: (record: Record<string, unknown>) => boolean
     onInspect?: (record: Record<string, unknown>) => void
 }
 
@@ -27,6 +28,7 @@ export function BIScatterGraph({
     rows,
     chartKey,
     onKeepOnly,
+    isSelected,
     onInspect,
     ...chartProps
 }: BIScatterGraphProps): JSX.Element {
@@ -186,7 +188,18 @@ export function BIScatterGraph({
             <SqlScatterGraph
                 {...chartProps}
                 series={series}
-                isPointHighlighted={isPointHighlighted}
+                isPointHighlighted={
+                    isSelected
+                        ? (point) =>
+                              point.meta?.rowIndex !== undefined &&
+                              isSelected(
+                                  Object.fromEntries(
+                                      columns.map((column, index) => [column, rows[point.meta!.rowIndex!][index]])
+                                  )
+                              )
+                        : isPointHighlighted
+                }
+                dimUnhighlighted={!!isSelected}
                 viewport={viewport}
                 legendVisibility={{
                     hiddenKeys: hiddenSeries,

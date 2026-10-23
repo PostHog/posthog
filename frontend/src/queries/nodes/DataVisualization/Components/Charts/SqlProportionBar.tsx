@@ -19,10 +19,11 @@ export const SqlProportionBar = ({
     presetChartHeight,
     className,
     labelFormatter,
+    isSliceSelected,
     onSliceClick,
 }: SqlChartProps): JSX.Element => {
     const { theme, series, legendConfig, total, showTotal, valueFormatter } = useSqlPartOfWholeChart(
-        { xData, yData, chartSettings, labelFormatter },
+        { xData, yData, chartSettings, labelFormatter, isSliceSelected },
         true
     )
     const config: ProportionBarConfig = useChartConfig(() => ({ legend: legendConfig }), [legendConfig])

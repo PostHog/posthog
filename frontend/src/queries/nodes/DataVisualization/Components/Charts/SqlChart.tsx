@@ -38,6 +38,8 @@ export type SqlChartProps = {
     /** Called when the user clicks a data point. Receives the series key, x-axis index, and label.
      *  When provided, the SQL chart shows a "click to inspect" hint in the tooltip. */
     onPointClick?: (seriesKey: string, dataIndex: number, label: string) => void
+    isPointSelected?: (seriesKey: string, dataIndex: number) => boolean
+    isSliceSelected?: (seriesKey: string) => boolean
     onSliceClick?: (payload: RadialSlicePayload) => void
     pointClickHint?: string
     directPointClick?: boolean

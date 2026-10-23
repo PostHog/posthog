@@ -2,10 +2,11 @@ import './RetentionTable.scss'
 
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import React from 'react'
+import React, { useContext } from 'react'
 
 import { IconChevronDown, IconChevronRight } from '@posthog/icons'
 
+import { ResultChartSelectionContext } from 'lib/components/ResultMenu/resultChartSelection'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { gradateColor } from 'lib/utils/colors'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
@@ -26,6 +27,8 @@ export function RetentionTable({
     embedded?: boolean
 }): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
+    const { point: selectedPoint, captureCell } = useContext(ResultChartSelectionContext)
+    const selectedCell = selectedPoint?.seriesKey.startsWith('retention-table:') ? selectedPoint : undefined
     const {
         tableRowsSplitByBreakdownValue,
         hideSizeColumn,
@@ -115,6 +118,7 @@ export function RetentionTable({
                             {/* Mean row */}
                             <tr
                                 onClick={() => toggleBreakdown(breakdownValue)}
+                                style={{ opacity: selectedCell ? 0.3 : undefined }}
                                 className={clsx('cursor-pointer', {
                                     'bg-slate-100':
                                         !isSingleBreakdown && !isDarkModeOn && expandedBreakdowns[breakdownValue],
@@ -177,6 +181,10 @@ export function RetentionTable({
                                         key={rowIndex}
                                         onClick={() => {
                                             if (!inSharedMode && canOpenPersonModal) {
+                                                captureCell({
+                                                    seriesKey: `retention-table:${JSON.stringify([breakdownValue, row.label])}`,
+                                                    label: 'cohort',
+                                                })
                                                 openModal(
                                                     rowIndex,
                                                     breakdownValue === NO_BREAKDOWN_VALUE ? null : breakdownValue
@@ -186,6 +194,14 @@ export function RetentionTable({
                                         className={clsx({
                                             'bg-slate-100': !isSingleBreakdown && !isDarkModeOn,
                                         })}
+                                        style={{
+                                            opacity:
+                                                selectedCell &&
+                                                selectedCell.seriesKey !==
+                                                    `retention-table:${JSON.stringify([breakdownValue, row.label])}`
+                                                    ? 0.3
+                                                    : undefined,
+                                        }}
                                     >
                                         <td className={clsx('pl-2 whitespace-nowrap', { 'pl-6': !isSingleBreakdown })}>
                                             {row.label}
@@ -197,14 +213,28 @@ export function RetentionTable({
                                         )}
                                         {tableHeaders.map((_, columnIndex) => {
                                             const column = row.values[columnIndex]
+                                            const seriesKey = `retention-table:${JSON.stringify([breakdownValue, row.label])}`
+                                            const selectedRow = selectedCell?.seriesKey === seriesKey
+                                            const selected = selectedRow && selectedCell?.label === String(columnIndex)
                                             return (
                                                 <td
                                                     key={columnIndex}
+                                                    data-result-selected={selected || undefined}
+                                                    style={{
+                                                        opacity:
+                                                            selectedRow && selectedCell?.label !== 'cohort' && !selected
+                                                                ? 0.3
+                                                                : undefined,
+                                                        boxShadow: selected
+                                                            ? 'inset 0 0 0 2px var(--primary-3000)'
+                                                            : undefined,
+                                                    }}
                                                     onClick={(e) => {
                                                         // Open the modal for this cohort and tell it which
                                                         // interval column was clicked so it can highlight it.
                                                         e.stopPropagation()
                                                         if (!inSharedMode && canOpenPersonModal) {
+                                                            captureCell({ seriesKey, label: String(columnIndex) })
                                                             openModal(
                                                                 rowIndex,
                                                                 breakdownValue === NO_BREAKDOWN_VALUE

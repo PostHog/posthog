@@ -60,7 +60,6 @@ describe('dashboard worksheet query execution', () => {
         const tiles: DashboardTile[] = [source, tileFromInsight(insight, 2)]
         const logic = biDashboardCrossFilterLogic({ dashboardId: 777, tiles })
         const unmount = logic.mount()
-        logic.actions.setEnabled(true)
         const original = structuredClone(insight)
         const rendered = render(<BIDashboardTile dashboardId={777} tileId={2} insight={insight} query={query} />)
         try {

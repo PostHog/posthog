@@ -47,6 +47,7 @@ import {
 } from '~/types'
 
 import type { AlertType } from 'products/alerts/frontend/types'
+import { DashboardInsightResultMenu } from 'products/dashboards/frontend/components/DashboardInsightResultMenu'
 
 import { DashboardResizeHandles } from '../handles'
 import { EditModeEdge, EditModeEdgeOverlay } from './EditModeEdgeOverlay'
@@ -91,6 +92,8 @@ type AlertModalState = {
 
 export interface InsightCardProps extends Resizeable {
     visualization?: JSX.Element
+    dimmedByBIFilter?: boolean
+    resultMenuEnabled?: boolean
     /** Insight to display. */
     insight: InsightModel
     /** id of the dashboard the card is on (when the card is being displayed on a dashboard) **/
@@ -207,6 +210,8 @@ function InsightCardInternal(
         filtersOverride,
         variablesOverride,
         visualization,
+        dimmedByBIFilter,
+        resultMenuEnabled,
         children,
         projectId,
         projectTimezone,
@@ -403,6 +408,8 @@ function InsightCardInternal(
                     cachedResults={insight}
                     context={{
                         insightProps: insightLogicProps,
+                        dashboardResultMenu: resultMenuEnabled,
+                        dataVisualizationTableVirtualized: !!dashboardId && placement !== DashboardPlacement.Export,
                     }}
                     readOnly
                     embedded
@@ -412,11 +419,32 @@ function InsightCardInternal(
                 />
             )
         )
-    }, [BlockingEmptyState, insight, insightLogicProps, variablesOverride, placement, visualization])
+    }, [
+        BlockingEmptyState,
+        insight,
+        insightLogicProps,
+        variablesOverride,
+        placement,
+        visualization,
+        resultMenuEnabled,
+        dashboardId,
+    ])
 
     const vizContent = shouldRenderViz ? (
         <div className="InsightCard__viz">
-            <div className="InsightCard__vizInner">{vizInner}</div>
+            <div
+                className="InsightCard__vizInner"
+                style={{ opacity: dimmedByBIFilter ? 0.3 : undefined }}
+                data-bi-filter-unaffected={dimmedByBIFilter || undefined}
+            >
+                {resultMenuEnabled ? (
+                    <DashboardInsightResultMenu insight={insight} dashboardId={dashboardId} tileId={tile?.id}>
+                        {vizInner}
+                    </DashboardInsightResultMenu>
+                ) : (
+                    vizInner
+                )}
+            </div>
         </div>
     ) : (
         <InsightVisualizationSkeleton query={insight.query} />
@@ -440,6 +468,7 @@ function InsightCardInternal(
             <ErrorBoundary exceptionProps={{ feature: 'insight' }}>
                 <BindLogic logic={insightLogic} props={insightLogicProps}>
                     <InsightMeta
+                        dimmedByBIFilter={dimmedByBIFilter}
                         tile={tile}
                         insight={insight}
                         projectId={projectId}

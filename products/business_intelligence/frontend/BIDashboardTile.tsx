@@ -1,3 +1,4 @@
+import { deepEqual } from 'fast-equals'
 import { useActions, useValues } from 'kea'
 
 import { LemonTag } from '@posthog/lemon-ui'
@@ -9,6 +10,8 @@ import { InsightModel } from '~/types'
 
 import { biDashboardCrossFilterLogic } from './biDashboardCrossFilterLogic'
 import { canSelectBIWorksheet, getBIDashboardItemId } from './biDashboardCrossFilters'
+import { getBIDashboardFilterLink } from './biDashboardFilterLinks'
+import { getBIDrillSelection } from './biDrilldown'
 
 export interface BIDashboardTileProps {
     dashboardId: number
@@ -49,6 +52,21 @@ export function BIDashboardTile({
                 cachedResults={filtered ? undefined : insight}
                 variablesOverride={variablesOverride}
                 context={{
+                    dashboardResultMenu: true,
+                    dashboardFilterActive: !!selection,
+                    dataVisualizationTableVirtualized: true,
+                    isBIMarkSelected:
+                        selection?.tileId === tileId
+                            ? (record) => {
+                                  const candidate = getBIDrillSelection(query.config, record)
+                                  return (
+                                      !candidate.previous &&
+                                      selection.selection.filters.every((filter) =>
+                                          candidate.filters.some((other) => deepEqual(filter, other))
+                                      )
+                                  )
+                              }
+                            : undefined,
                     insightProps: {
                         dashboardItemId: getBIDashboardItemId(dashboardId, tileId, !!filtered),
                         cachedInsight: { ...insight, query: effectiveQuery, result: filtered ? null : insight.result },
@@ -58,6 +76,14 @@ export function BIDashboardTile({
                     onSelectBIMark: canSelectBIWorksheet(query)
                         ? (record) => selectMark(tileId, insight.name || 'Untitled worksheet', effectiveQuery, record)
                         : undefined,
+                    getBIMarkDashboardUrl: (record) =>
+                        getBIDashboardFilterLink(
+                            window.location.href,
+                            dashboardId,
+                            tileId,
+                            effectiveQuery.config,
+                            record
+                        ),
                 }}
                 readOnly
                 embedded

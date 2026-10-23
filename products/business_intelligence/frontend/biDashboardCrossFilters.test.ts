@@ -1,3 +1,5 @@
+import { router } from 'kea-router'
+
 import { BIConfig, BIField, BIVisualizationNode } from '~/queries/schema/schema-business-intelligence'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { insightOnDashboard, tileFromInsight } from '~/scenes/dashboard/dashboardLogic.testHelpers'
@@ -6,6 +8,7 @@ import { ChartDisplayType, DashboardTile } from '~/types'
 
 import { biDashboardCrossFilterLogic } from './biDashboardCrossFilterLogic'
 import { applyBIDashboardSelection, createBIDashboardSelection, getBIDashboardTargets } from './biDashboardCrossFilters'
+import { getBIDashboardFilterLink, readBIDashboardFilterLink } from './biDashboardFilterLinks'
 import { buildBIQuery, DEFAULT_BI_CONFIG, getBIResultDimensions } from './biEditorTypes'
 import { getBIVisualizationSource } from './biQueryResults'
 
@@ -30,6 +33,52 @@ function mark(query: BIVisualizationNode, value: unknown): Record<string, unknow
 }
 
 describe('dashboard worksheet cross filters', () => {
+    it.each(['US', null, ''])('links only the selected dimensions and restores %j after tiles load', (value) => {
+        initKeaTests()
+        const query = worksheet()
+        const url = getBIDashboardFilterLink(
+            'http://localhost/project/1/dashboard/1?date_from=all#other=value',
+            1,
+            1,
+            query.config,
+            { ...mark(query, value), count: 10, unrelated: 'not part of the selection' }
+        )
+        const hash = new URLSearchParams(url.split('#')[1])
+        expect(url).toContain('?date_from=all')
+        expect(hash.get('other')).toBe('value')
+        expect(readBIDashboardFilterLink(hash.get('bi_filter'))?.record).toEqual(mark(query, value))
+        router.actions.push(url)
+        const logic = biDashboardCrossFilterLogic({ dashboardId: 1, tiles: [] })
+        const unmount = logic.mount()
+        try {
+            expect(logic.values.selection).toBeNull()
+            const other = biDashboardCrossFilterLogic({ dashboardId: 2 })
+            const unmountOther = other.mount()
+            other.actions.setSelection(null)
+            expect(readBIDashboardFilterLink(router.values.currentLocation.hashParams.bi_filter)?.dashboardId).toBe(1)
+            unmountOther()
+            const tiles = [1, 2].map((id) => tileFromInsight({ ...insightOnDashboard(id, [1]), query }, id))
+            biDashboardCrossFilterLogic({ dashboardId: 1, tiles })
+            expect(logic.values.selection?.selection).toEqual(
+                createBIDashboardSelection(1, '', query, mark(query, value))?.selection
+            )
+            expect(Object.keys(logic.values.targets)).toEqual(['2'])
+            logic.actions.setSelection(null)
+            expect(logic.values.selection).toBeNull()
+            expect(router.values.currentLocation.hashParams.bi_filter).toBeUndefined()
+            expect(router.values.currentLocation.hashParams.other).toBe('value')
+        } finally {
+            unmount()
+            window.history.replaceState({}, '', '/')
+        }
+    })
+
+    it.each(['bad-json', 'null', '{"dashboardId":1,"tileId":1,"record":{"status":{}}}'])(
+        'ignores malformed result links: %s',
+        (raw) => {
+            expect(readBIDashboardFilterLink(raw)).toBeNull()
+        }
+    )
     it.each([
         ["Cote d'Ivoire", "properties.country = 'Cote d\\'Ivoire'"],
         [null, 'properties.country IS NULL'],
@@ -112,9 +161,6 @@ describe('dashboard worksheet cross filters', () => {
         const unmountOther = other.mount()
         try {
             logic.actions.selectMark(1, 'Countries', query, mark(query, 'US'))
-            expect(logic.values.selection).toBeNull()
-            logic.actions.setEnabled(true)
-            logic.actions.selectMark(1, 'Countries', query, mark(query, 'US'))
             expect(logic.values.selection?.tileId).toBe(1)
             expect(other.values.selection).toBeNull()
             logic.actions.selectMark(1, 'Countries', query, mark(query, 'US'))
@@ -124,7 +170,7 @@ describe('dashboard worksheet cross filters', () => {
             biDashboardCrossFilterLogic({ dashboardId: 1, tiles: [tiles[0]] })
             expect(logic.values.selection).toBeNull()
             logic.actions.selectMark(1, 'Countries', query, mark(query, 'US'))
-            logic.actions.setEnabled(false)
+            logic.actions.setSelection(null)
             expect(logic.values.selection).toBeNull()
         } finally {
             unmount()

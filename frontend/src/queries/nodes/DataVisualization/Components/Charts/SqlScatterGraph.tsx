@@ -16,6 +16,7 @@ import { ChartSettings } from '~/queries/schema/schema-general'
 import { makeChartErrorHandler } from 'products/product_analytics/frontend/insights/trends/shared/chartErrorHandler'
 
 import { AxisSeries } from '../../dataVisualizationLogic'
+import { dimChartColor } from './sqlChartHighlighting'
 import { buildScatterConfig, buildScatterSeries, SqlScatterSeries, SqlScatterPointMeta } from './sqlScatterGraphAdapter'
 
 const handleChartError = makeChartErrorHandler('sql-scatter-chart')
@@ -30,6 +31,7 @@ export interface SqlScatterGraphProps {
     series?: SqlScatterSeries[]
     legendVisibility?: Pick<ChartLegendConfig, 'hiddenKeys' | 'onToggleSeries' | 'onSetHiddenSeries'>
     viewport?: ScatterAreaSelection | null
+    dimUnhighlighted?: boolean
     isPointHighlighted?: ScatterChartConfig<SqlScatterPointMeta>['isPointHighlighted']
     onPointClick?: (point: ScatterPointDatum<SqlScatterPointMeta>) => void
     onAreaSelect?: (selection: ScatterAreaSelection) => void
@@ -48,11 +50,25 @@ export const SqlScatterGraph = ({
     legendVisibility,
     onPointClick,
     onAreaSelect,
+    dimUnhighlighted,
     isPointHighlighted,
 }: SqlScatterGraphProps): JSX.Element => {
     const theme = useChartTheme()
 
-    const series = useMemo(() => suppliedSeries ?? buildScatterSeries(xData, yData), [suppliedSeries, xData, yData])
+    const series = useMemo(() => {
+        const raw = suppliedSeries ?? buildScatterSeries(xData, yData)
+        return !dimUnhighlighted || !isPointHighlighted
+            ? raw
+            : raw.map((item, index) => ({
+                  ...item,
+                  points: item.points.map((point) => ({
+                      ...point,
+                      color: isPointHighlighted(point)
+                          ? point.color
+                          : dimChartColor(point.color || item.color || theme.colors[index % theme.colors.length]),
+                  })),
+              }))
+    }, [suppliedSeries, xData, yData, dimUnhighlighted, isPointHighlighted, theme.colors])
     const baseConfig = useMemo(
         () => (xData ? buildScatterConfig({ xData, yData, chartSettings }) : undefined),
         [xData, yData, chartSettings]

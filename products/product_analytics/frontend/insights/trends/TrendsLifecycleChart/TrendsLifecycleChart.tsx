@@ -8,6 +8,7 @@ import { useChartConfig, useChartTheme, useDateRangeZoom } from 'lib/charts/hook
 import { getBarColorFromStatus } from 'lib/colors'
 import { AnnotationsLayer } from 'lib/components/AnnotationsOverlay/AnnotationsLayer'
 import { useChartLegendSeriesMenu } from 'lib/components/ChartLegendSeriesMenu/useChartLegendSeriesMenu'
+import { useResultBarSelection, useResultChartPoint } from 'lib/components/ResultMenu/resultChartSelection'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -140,10 +141,11 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
                 timezone,
                 allDays: currentPeriodResult?.days ?? [],
                 valueLabels: showValuesOnSeries || showPercentagesOnSeries ? { formatter: valueLabelFormatter } : false,
-                tooltip: LIFECYCLE_TOOLTIP_CONFIG,
+                tooltip: { ...LIFECYCLE_TOOLTIP_CONFIG, resolveClickToNearestSeries: context?.dashboardResultMenu },
                 legend: legendConfig,
             }),
         [
+            context?.dashboardResultMenu,
             indexedResults,
             buildMeta,
             currentPeriodResult?.labels,
@@ -188,8 +190,12 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
         ]
     )
 
+    const captureResultPoint = useResultChartPoint()
+    const selectedSeries = useResultBarSelection(series, labels, theme.colors)
+
     const onPointClick = useCallback(
         (clickData: PointClickData<TrendsSeriesMeta>) => {
+            captureResultPoint(clickData)
             handleTrendsChartClick(
                 clickData.series.key,
                 clickData.dataIndex,
@@ -197,7 +203,7 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
                 LIFECYCLE_PERSONS_MODAL_OPTIONS
             )
         },
-        [clickDeps]
+        [captureResultPoint, clickDeps]
     )
 
     const onDateRangeZoom = useDateRangeZoom(currentPeriodResult?.days, context?.onDateRangeZoom)
@@ -254,7 +260,7 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
 
     return (
         <TimeSeriesBarChart<TrendsSeriesMeta>
-            series={series}
+            series={selectedSeries}
             labels={labels}
             config={config}
             theme={theme}

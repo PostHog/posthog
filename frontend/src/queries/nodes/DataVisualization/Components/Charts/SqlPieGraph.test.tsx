@@ -115,6 +115,8 @@ describe('SqlPieGraph', () => {
         fireEvent.mouseMove(canvas.parentElement!, { clientX: 450, clientY: 200 })
         await waitFor(() => expect(screen.getByText(aliases ? 'United States' : 'US')).toBeVisible())
         fireEvent.click(canvas.parentElement!)
+        expect(onSelectBIMark).not.toHaveBeenCalled()
+        fireEvent.click(screen.getByText('Filter dashboard by this result'))
         expect(onSelectBIMark).toHaveBeenCalledWith({ region: 'US' })
     })
     it('keeps aliased slices distinct and reuses their data when settings open', async () => {

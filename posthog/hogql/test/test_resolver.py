@@ -1,3 +1,4 @@
+import json
 from datetime import UTC, date, datetime
 from typing import Any, ClassVar, Optional, cast
 from uuid import UUID
@@ -43,6 +44,51 @@ from posthog.hogql.visitor import clone_expr
 class TestResolver(BaseTest):
     maxDiff = None
     snapshot: Any
+
+    @parameterized.expand(
+        [
+            ("invalid_json", "not JSON", "Invalid insight actor query"),
+            (
+                "sql_source",
+                json.dumps(
+                    {"kind": "ActorsQuery", "source": {"kind": "HogQLQuery", "query": "SELECT id FROM persons"}}
+                ),
+                "product analytics datapoint",
+            ),
+            ("oversized", "x" * 100_001, "too large"),
+        ]
+    )
+    def test_matches_insight_rejects_invalid_selection(self, _name: str, selection: str, error: str) -> None:
+        expr = self._select(
+            "SELECT count() FROM events WHERE matchesInsight({selection})", {"selection": ast.Constant(value=selection)}
+        )
+        with self.assertRaisesRegex(QueryError, error):
+            resolve_types(expr, self.context, dialect="clickhouse")
+
+    def test_matches_insight_requires_events_scope(self) -> None:
+        with self.assertRaisesRegex(QueryError, "only be used with the events table"):
+            resolve_types(self._select("SELECT matchesInsight('{}') FROM persons"), self.context, dialect="clickhouse")
+
+    def test_matches_insight_rejects_nested_selection(self) -> None:
+        selection = {
+            "kind": "ActorsQuery",
+            "source": {
+                "kind": "InsightActorsQuery",
+                "day": "2026-01-02",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                    "properties": [{"type": "hogql", "key": "matchesInsight('{}')"}],
+                    "dateRange": {"date_from": "2026-01-01", "date_to": "2026-01-03"},
+                },
+            },
+        }
+        expr = self._select(
+            "SELECT count() FROM events WHERE matchesInsight({selection})",
+            {"selection": ast.Constant(value=json.dumps(selection))},
+        )
+        with self.assertRaisesRegex(QueryError, "cannot contain another"):
+            resolve_types(expr, self.context, dialect="clickhouse")
 
     def _select(self, query: str, placeholders: Optional[dict[str, ast.Expr]] = None) -> ast.SelectQuery:
         return cast(

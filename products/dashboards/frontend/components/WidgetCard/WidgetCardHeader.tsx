@@ -26,6 +26,7 @@ export type DashboardWidgetTopHeadingProps = {
 }
 
 export type WidgetCardHeaderProps = {
+    titleSuffix?: React.ReactNode
     layout: DashboardWidgetHeaderLayout
     title: string
     defaultTitle?: string
@@ -54,6 +55,7 @@ export type WidgetCardHeaderProps = {
 }
 
 type WidgetCardHeaderTitleProps = {
+    titleSuffix?: React.ReactNode
     title: string
     defaultTitle?: string
     titleHref?: string
@@ -64,6 +66,7 @@ type WidgetCardHeaderTitleProps = {
 }
 
 function WidgetCardHeaderTitle({
+    titleSuffix,
     title,
     defaultTitle,
     titleHref,
@@ -108,6 +111,7 @@ function WidgetCardHeaderTitle({
             )}
         >
             {titleEl}
+            {titleSuffix}
         </Heading>
     )
 }
@@ -165,6 +169,7 @@ function WidgetCardHeaderActions({
 }
 
 export function WidgetCardHeader({
+    titleSuffix,
     layout,
     title,
     defaultTitle,
@@ -220,6 +225,7 @@ export function WidgetCardHeader({
 
     const titleEl = (
         <WidgetCardHeaderTitle
+            titleSuffix={titleSuffix}
             title={title}
             defaultTitle={defaultTitle}
             titleHref={titleHref}
@@ -278,6 +284,7 @@ export function WidgetCardHeader({
                     onMouseDown={onDragHandleMouseDown}
                 >
                     <WidgetCardHeaderTitle
+                        titleSuffix={titleSuffix}
                         title={title}
                         defaultTitle={defaultTitle}
                         titleHref={titleHref}
@@ -288,6 +295,7 @@ export function WidgetCardHeader({
                 </div>
                 {!showEditingControls && (
                     <WidgetCardHeaderTitle
+                        titleSuffix={titleSuffix}
                         title={title}
                         defaultTitle={defaultTitle}
                         titleHref={titleHref}

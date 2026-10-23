@@ -14,6 +14,7 @@ export function BIComparisonSummary({
     results,
     chartSettings,
     card = false,
+    isSelected,
     onInspect,
 }: {
     config: BIConfig
@@ -21,6 +22,7 @@ export function BIComparisonSummary({
     results: unknown[][]
     chartSettings?: ChartSettings
     card?: boolean
+    isSelected?: (record: Record<string, unknown>) => boolean
     onInspect?: (record: Record<string, unknown>) => void
 }): JSX.Element {
     const memberLabel = createBIMemberLabelLookup(config)
@@ -50,6 +52,7 @@ export function BIComparisonSummary({
                 noPadding={card}
                 type="tertiary"
                 className="justify-end !text-inherit"
+                style={{ opacity: isSelected && !isSelected(record) ? 0.25 : 1 }}
                 data-attr="bi-comparison-inspect"
                 onClick={() => onInspect(record)}
                 tooltip="Explore this period"

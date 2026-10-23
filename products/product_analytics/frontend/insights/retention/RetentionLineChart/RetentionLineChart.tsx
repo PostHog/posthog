@@ -7,6 +7,8 @@ import type { PointClickData, TooltipContext } from '@posthog/quill-charts'
 
 import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
 import { getColorVar } from 'lib/colors'
+import { useResultChartPoint } from 'lib/components/ResultMenu/resultChartSelection'
+import { ResultSelectionMarker } from 'lib/components/ResultMenu/ResultSelectionMarker'
 import { roundToDecimal } from 'lib/utils/numbers'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -170,8 +172,11 @@ export function RetentionLineChart({ inSharedMode = false }: RetentionLineChartP
         ]
     )
 
+    const captureResultPoint = useResultChartPoint()
+
     const onPointClick = useCallback(
         (clickData: PointClickData<RetentionSeriesMeta>) => {
+            captureResultPoint(clickData)
             if (shouldShowMeanPerBreakdown || clickData.series.meta?.isMean) {
                 return
             }
@@ -182,7 +187,7 @@ export function RetentionLineChart({ inSharedMode = false }: RetentionLineChartP
                 openModal(rowIndex)
             }
         },
-        [shouldShowMeanPerBreakdown, isIntervalView, openModal]
+        [captureResultPoint, shouldShowMeanPerBreakdown, isIntervalView, openModal]
     )
 
     const goalLines = retentionFilter?.goalLines ?? EMPTY_GOAL_LINES
@@ -194,14 +199,28 @@ export function RetentionLineChart({ inSharedMode = false }: RetentionLineChartP
                 goalLines,
                 showTrendLines,
                 series,
-                tooltip: INSIGHT_TOOLTIP_CONFIG,
+                tooltip: {
+                    ...INSIGHT_TOOLTIP_CONFIG,
+                    resolveClickToNearestSeries: !!insightProps.dashboardId && !inSharedMode,
+                },
                 isIntervalView,
                 period,
                 timezone,
             }),
             curve: chartStyleCurve(retentionFilter?.chartStyle),
         }),
-        [isPercentage, goalLines, showTrendLines, series, isIntervalView, period, timezone, retentionFilter?.chartStyle]
+        [
+            insightProps.dashboardId,
+            inSharedMode,
+            isPercentage,
+            goalLines,
+            showTrendLines,
+            series,
+            isIntervalView,
+            period,
+            timezone,
+            retentionFilter?.chartStyle,
+        ]
     )
 
     if (filteredTrendSeries.length === 0 && hasValidBreakdown) {
@@ -231,6 +250,8 @@ export function RetentionLineChart({ inSharedMode = false }: RetentionLineChartP
             className="LineGraph"
             dataAttr="trend-line-graph"
             onError={handleChartError}
-        />
+        >
+            <ResultSelectionMarker />
+        </TimeSeriesLineChart>
     )
 }

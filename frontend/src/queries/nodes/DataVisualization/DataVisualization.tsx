@@ -38,6 +38,7 @@ import { BIChartYearLabels } from 'products/business_intelligence/frontend/BICha
 import { BIComparisonSummary } from 'products/business_intelligence/frontend/BIComparisonSummary'
 import { getBIChartRecord } from 'products/business_intelligence/frontend/biDrilldown'
 import { biDrilldownLogic } from 'products/business_intelligence/frontend/biDrilldownLogic'
+import { BIDrilldownMenu } from 'products/business_intelligence/frontend/BIDrilldownMenu'
 import { BIDrilldownModal } from 'products/business_intelligence/frontend/BIDrilldownModal'
 import { getBIResultDimensions } from 'products/business_intelligence/frontend/biEditorTypes'
 import { createBIMemberFormatter, getBIMemberLabel } from 'products/business_intelligence/frontend/biMemberAliases'
@@ -232,9 +233,13 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
         query,
         filtersOverride: props.filtersOverride,
         variablesOverride: props.variablesOverride,
+        dashboardMenu: !props.inSharedMode && props.context?.dashboardResultMenu,
+        dashboardFilterActive: !props.inSharedMode && props.context?.dashboardFilterActive,
+        onFilterDashboard: !props.inSharedMode ? props.context?.onSelectBIMark : undefined,
+        getDashboardFilterUrl: !props.inSharedMode ? props.context?.getBIMarkDashboardUrl : undefined,
     }
-    const { inspect: inspectResult } = useActions(biDrilldownLogic(drilldownProps))
-    const inspect = !props.inSharedMode && props.context?.onSelectBIMark ? props.context.onSelectBIMark : inspectResult
+    const drilldownLogic = biDrilldownLogic(drilldownProps)
+    const { inspect, setInteraction } = useActions(drilldownLogic)
     const isQuerySnapshot = query.kind === NodeKind.BIVisualizationNode && !!query.config.querySnapshot
     const canDrill = query.kind === NodeKind.BIVisualizationNode && !isQuerySnapshot && !props.inSharedMode
 
@@ -471,6 +476,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
             results: 'results' in response && Array.isArray(response.results) ? response.results : [],
             chartSettings,
             onInspect: canDrill ? inspect : undefined,
+            isSelected: props.context?.isBIMarkSelected,
         }
         component =
             query.config.chartType === ChartDisplayType.TwoDimensionalHeatmap ? (
@@ -493,6 +499,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                 columns={columns}
                 rows={'results' in response && Array.isArray(response.results) ? response.results : []}
                 goalLines={paneGoalLines}
+                isSelected={props.context?.isBIMarkSelected}
                 onInspect={canDrill ? inspect : undefined}
             />
         )
@@ -504,6 +511,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                 context={props.context}
                 cachedResults={props.cachedResults as HogQLQueryResponse | undefined}
                 embedded={props.embedded}
+                isSelected={props.context?.isBIMarkSelected}
                 onInspect={canDrill ? inspect : undefined}
             />
         )
@@ -524,6 +532,26 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                     embedded={props.embedded}
                     directPointClick={canDrill}
                     margins={dateMargins}
+                    isPointSelected={
+                        props.context?.isBIMarkSelected
+                            ? (seriesKey, dataIndex) => {
+                                  const series = _yData.find(
+                                      (series, index) => getSeriesKey(series, index) === seriesKey
+                                  )
+                                  return (
+                                      !!_xData &&
+                                      props.context!.isBIMarkSelected!(
+                                          getBIChartRecord(
+                                              query,
+                                              _xData.column.name,
+                                              _xData.data[dataIndex],
+                                              series && 'breakdownValue' in series ? series.breakdownValue : undefined
+                                          )
+                                      )
+                                  )
+                              }
+                            : undefined
+                    }
                     onPointClick={
                         canDrill
                             ? (seriesKey, dataIndex) => {
@@ -546,7 +574,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                     pointClickHint={
                         canDrill
                             ? props.context?.onSelectBIMark
-                                ? 'Click to filter other worksheets'
+                                ? 'Click to explore · Click again to filter'
                                 : 'Click to explore this result'
                             : undefined
                     }
@@ -563,8 +591,16 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
             <PartOfWholeChart
                 className="p-3"
                 {...pieDisplayData}
+                isSliceSelected={
+                    props.context?.isBIMarkSelected
+                        ? (key) => {
+                              const record = pieDisplayData.records.get(key)
+                              return !!record && props.context!.isBIMarkSelected!(record)
+                          }
+                        : undefined
+                }
                 onSliceClick={
-                    canDrill && props.context?.onSelectBIMark
+                    canDrill
                         ? ({ series }) => {
                               const record = pieDisplayData.records.get(series.key)
                               if (record) {
@@ -589,7 +625,8 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                     rows={'results' in response && Array.isArray(response.results) ? response.results : []}
                     chartKey={dataVisualizationProps.key}
                     onKeepOnly={props.editMode && !props.inSharedMode ? props.context?.onKeepBISelection : undefined}
-                    onInspect={canDrill && props.context?.onSelectBIMark ? inspect : undefined}
+                    isSelected={props.context?.isBIMarkSelected}
+                    onInspect={canDrill ? inspect : undefined}
                     className="p-3"
                     xData={xData}
                     yData={yData}
@@ -620,6 +657,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
         component = (
             <TwoDimensionalHeatmap
                 allowSorting={!(props.embedded && readOnly)}
+                isSelected={props.context?.isBIMarkSelected}
                 onInspect={canDrill ? inspect : undefined}
             />
         )
@@ -652,13 +690,18 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                 ) : null}
                 {component}
                 {canDrill ? (
-                    <BIDrilldownModal
-                        logicProps={drilldownProps}
-                        navigationDisabledReason={props.context?.biHierarchyDrillDisabledReason}
-                        onNavigate={
-                            props.editMode && !props.inSharedMode ? props.context?.onDrillBIHierarchy : undefined
-                        }
-                    />
+                    <>
+                        {(drilldownProps.dashboardMenu || drilldownProps.onFilterDashboard) && (
+                            <BIDrilldownMenu logicProps={drilldownProps} />
+                        )}
+                        <BIDrilldownModal
+                            logicProps={drilldownProps}
+                            navigationDisabledReason={props.context?.biHierarchyDrillDisabledReason}
+                            onNavigate={
+                                props.editMode && !props.inSharedMode ? props.context?.onDrillBIHierarchy : undefined
+                            }
+                        />
+                    </>
                 ) : null}
             </>
         )
@@ -671,6 +714,35 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                     'DataVisualization InsightCard__viz',
                     effectiveVisualizationType === ChartDisplayType.Metric && 'InsightCard__viz--Metric'
                 )}
+                onClick={
+                    canDrill && drilldownProps.dashboardMenu
+                        ? (event) => {
+                              if (
+                                  event.currentTarget.contains(event.target as Node) &&
+                                  !!drilldownLogic.values.interaction &&
+                                  !drilldownLogic.values.record &&
+                                  !(event.target as Element).closest('a, button, input, select, [role="button"]')
+                              ) {
+                                  inspect({})
+                              }
+                          }
+                        : undefined
+                }
+                onClickCapture={
+                    canDrill && (drilldownProps.dashboardMenu || drilldownProps.onFilterDashboard)
+                        ? (event) => {
+                              if (event.currentTarget.contains(event.target as Node)) {
+                                  const rect = (event.target as Element).getBoundingClientRect()
+                                  setInteraction({
+                                      x: event.detail ? event.clientX : rect.x + rect.width / 2,
+                                      y: event.detail ? event.clientY : rect.y + rect.height / 2,
+                                      clickCount: event.detail,
+                                      timestamp: event.timeStamp,
+                                  })
+                              }
+                          }
+                        : undefined
+                }
             >
                 {component}
             </div>

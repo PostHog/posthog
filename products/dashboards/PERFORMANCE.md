@@ -112,6 +112,7 @@ Track DOM nodes, chart instances, observers, timers, decoded images, and memory 
 
 - Mount expensive content near the viewport when the surface permits it.
 - Apply that limit to widget bodies as well as insight charts. Offscreen list widgets can retain thousands of DOM nodes.
+- Virtualize rows inside bounded dashboard SQL tables as well. Mounting a table only near the viewport still pays for every cell on its first display, and JSON cells can create large retained trees. Keep export tables unvirtualized so all rows remain printable.
 - Keep live widget bodies mounted because their data streams update in the component.
 - Keep a card mounted after its first display if it owns saves, query results, refresh polling, or mutation recovery.
 - Release offscreen resources only after their work and state have a durable owner elsewhere.

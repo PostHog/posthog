@@ -16,12 +16,14 @@ export function BIPivotTable({
     columns,
     results,
     chartSettings,
+    isSelected,
     onInspect,
 }: {
     config: BIConfig
     columns: string[]
     results: unknown[][]
     chartSettings?: ChartSettings
+    isSelected?: (record: Record<string, unknown>) => boolean
     onInspect?: (record: Record<string, unknown>) => void
 }): JSX.Element {
     const [collapsedRows, setCollapsedRows] = useState<Set<string>>(new Set())
@@ -153,6 +155,7 @@ export function BIPivotTable({
                                         type="tertiary"
                                         fullWidth
                                         className="justify-end"
+                                        style={{ opacity: isSelected && !isSelected(record) ? 0.25 : 1 }}
                                         data-attr="bi-pivot-inspect"
                                         onClick={() => onInspect(record)}
                                         tooltip="Explore this result"

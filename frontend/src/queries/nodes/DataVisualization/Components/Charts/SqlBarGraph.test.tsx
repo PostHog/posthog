@@ -161,6 +161,8 @@ describe('SqlBarGraph', () => {
             }
             await clickAtIndex(canvas.parentElement!, HOVER, dates.length)
             if (dashboardSelection) {
+                expect(onSelectBIMark).not.toHaveBeenCalled()
+                fireEvent.click(screen.getByText('Filter dashboard by this result'))
                 expect(onSelectBIMark).toHaveBeenCalledWith({ [dateColumn]: MONTHS[HOVER] })
                 expect(screen.queryByText('Explore this result')).not.toBeInTheDocument()
             } else {

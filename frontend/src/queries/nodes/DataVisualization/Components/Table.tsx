@@ -28,6 +28,7 @@ interface TableProps {
     context: QueryContext<VisualizationNode> | undefined
     cachedResults: HogQLQueryResponse | undefined
     embedded?: boolean
+    isSelected?: (record: Record<string, unknown>) => boolean
     onInspect?: (record: Record<string, unknown>) => void
 }
 
@@ -316,6 +317,20 @@ export const Table = (props: TableProps): JSX.Element => {
                                 type="tertiary"
                                 size="xsmall"
                                 className="max-w-full !text-inherit"
+                                style={{
+                                    opacity:
+                                        props.isSelected &&
+                                        !props.isSelected(
+                                            Object.fromEntries(
+                                                sourceColumns.map((column, index) => [
+                                                    column.column.name,
+                                                    sourceRow[index]?.value,
+                                                ])
+                                            )
+                                        )
+                                            ? 0.25
+                                            : 1,
+                                }}
                                 tooltip="Explore this result"
                                 onClick={() =>
                                     props.onInspect?.(

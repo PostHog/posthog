@@ -9,6 +9,7 @@ import { DashboardTileRefreshDataButton } from 'lib/components/Cards/InsightCard
 import { dashboardWidgetMenusLogic } from 'lib/components/Cards/InsightCard/dashboardWidgetMenusLogic'
 import { DashboardWidgetPlacementMenus } from 'lib/components/Cards/InsightCard/DashboardWidgetPlacementMenus'
 import { EditModeEdge } from 'lib/components/Cards/InsightCard/EditModeEdgeOverlay'
+import { ResultFilterUnavailableTag } from 'lib/components/ResultMenu/ResultFilterUnavailableTag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
@@ -46,6 +47,7 @@ import { WidgetCardHeader, widgetCardShouldHideMoreButton } from '../WidgetCard/
 import { WidgetRuntimeAvailabilityGuard } from '../WidgetRuntimeAvailabilityGuard/WidgetRuntimeAvailabilityGuard'
 
 type DashboardWidgetItemProps = {
+    resultFilterActive?: boolean
     onConfigPublished?: () => void
     tile: DashboardTile
     placement: DashboardPlacement
@@ -134,6 +136,7 @@ function DashboardWidgetItemBody({
 }
 
 function DashboardWidgetItemContent({
+    resultFilterActive,
     tile,
     placement,
     widget,
@@ -228,6 +231,11 @@ function DashboardWidgetItemContent({
     return (
         <>
             <WidgetCardHeader
+                titleSuffix={
+                    resultFilterActive ? (
+                        <ResultFilterUnavailableTag reason="Dashboard result filters do not apply to widgets. This widget is showing its original content. Clear the result filter to restore its appearance." />
+                    ) : undefined
+                }
                 layout={headerLayout}
                 title={title}
                 defaultTitle={defaultTitle}
@@ -333,6 +341,8 @@ function DashboardWidgetItemContent({
                 />
             ) : (
                 <WidgetCardBody
+                    style={{ opacity: resultFilterActive ? 0.3 : undefined }}
+                    data-result-filter-unaffected={resultFilterActive || undefined}
                     padding={definition?.bodyPadding}
                     locked={!hasProductAccess}
                     error={!isUnknownWidgetType && hasProductAccess ? error : undefined}
@@ -410,6 +420,7 @@ export const DashboardWidgetItem = React.forwardRef<HTMLDivElement, DashboardWid
             onMoveToDashboard,
             onCopyToDashboard,
             children,
+            resultFilterActive,
             className,
             style,
             ...divProps
@@ -475,6 +486,7 @@ export const DashboardWidgetItem = React.forwardRef<HTMLDivElement, DashboardWid
                 gridChildren={children}
             >
                 <DashboardWidgetItemContent
+                    resultFilterActive={resultFilterActive}
                     tile={tile}
                     placement={placement}
                     widget={widget}

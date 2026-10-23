@@ -7,6 +7,8 @@ import type { PointClickData, TooltipContext } from '@posthog/quill-charts'
 
 import { useChartTheme, useChartConfig, useDateRangeZoom } from 'lib/charts/hooks'
 import { AnnotationsLayer } from 'lib/components/AnnotationsOverlay/AnnotationsLayer'
+import { useResultChartPoint } from 'lib/components/ResultMenu/resultChartSelection'
+import { ResultSelectionMarker } from 'lib/components/ResultMenu/ResultSelectionMarker'
 import { dayjs } from 'lib/dayjs'
 import { ciRanges } from 'lib/statistics'
 import { percentage } from 'lib/utils/numbers'
@@ -222,15 +224,18 @@ export function TrendsLineChart({
         ]
     )
 
+    const captureResultPoint = useResultChartPoint()
+
     const onPointClick = useCallback(
         (clickData: PointClickData) => {
+            captureResultPoint(clickData)
             if (canHandleClick) {
                 handleTrendsChartClick(clickData.series.key, clickData.dataIndex, clickDeps)
             } else if (canNavigateToInsight) {
                 navigateToInsight()
             }
         },
-        [canHandleClick, canNavigateToInsight, clickDeps, navigateToInsight]
+        [captureResultPoint, canHandleClick, canNavigateToInsight, clickDeps, navigateToInsight]
     )
 
     const onDateRangeZoom = useDateRangeZoom(currentPeriodResult?.days, context?.onDateRangeZoom)
@@ -349,10 +354,11 @@ export function TrendsLineChart({
                 valueLabels: showValuesOnSeries && valueLabelFormatter ? { formatter: valueLabelFormatter } : false,
                 curve: chartStyleCurve(trendsFilter?.chartStyle),
                 showCrosshair: true,
-                tooltip: INSIGHT_TOOLTIP_CONFIG,
+                tooltip: { ...INSIGHT_TOOLTIP_CONFIG, resolveClickToNearestSeries: context?.dashboardResultMenu },
                 legend: legendConfig,
             }),
         [
+            context?.dashboardResultMenu,
             indexedResults,
             trendsFilter,
             baseCurrency,
@@ -404,6 +410,7 @@ export function TrendsLineChart({
             dataAttr="trend-line-graph"
             onError={handleChartError}
         >
+            <ResultSelectionMarker />
             {insight.id ? (
                 <TrendsAlertOverlays
                     insightId={insight.id}
