@@ -50,10 +50,6 @@ describe('materialized view trigger', () => {
         })
     })
 
-    it('is gated behind its own feature flag, separately from the source table trigger', () => {
-        expect(getTriggerType().featureFlag).toBe('cdp-dwh-view-source')
-    })
-
     it('buildConfig produces a config recognized by matchConfig', () => {
         const triggerType = getTriggerType()
         const config = triggerType.buildConfig()
