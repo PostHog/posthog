@@ -550,7 +550,9 @@ describe('EmailTrackingService', () => {
             })
 
             it('answers SNS with a 5xx before counting anything when the status write fails, so the retry counts once', async () => {
-                jest.spyOn(api['emailStatus'], 'record').mockRejectedValue(new Error('kafka is down'))
+                mockProducerObserver.produceSpy.mockImplementation(({ topic }) =>
+                    topic === KAFKA_EMAIL_STATUS ? Promise.reject(new Error('kafka is down')) : Promise.resolve()
+                )
 
                 const res = await postSesEvent('Delivery', deliveryDetail, { ph_recipient_hash: ['a1b2'] })
 

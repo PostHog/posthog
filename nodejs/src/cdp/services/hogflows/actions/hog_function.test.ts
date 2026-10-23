@@ -1,3 +1,4 @@
+import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
 import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 
 import { DateTime } from 'luxon'
@@ -6,14 +7,17 @@ import { register } from 'prom-client'
 import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
 import { insertHogFunctionTemplate, insertIntegration } from '~/cdp/_tests/fixtures'
 import { createExampleHogFlowInvocation } from '~/cdp/_tests/fixtures-hogflows'
+import { createCdpOutputsRegistry } from '~/cdp/outputs/registry'
 import { HogFlowAction } from '~/cdp/schema/hogflow'
 import { TRANSACTIONAL_EMAIL_EVENT } from '~/cdp/services/hogflows/hogflow-sensitivity'
 import { createInvocationResult } from '~/cdp/utils/invocation-utils'
 import { PosthogJwtAudience } from '~/cdp/utils/jwt-utils'
 import { ScopedServiceJwt } from '~/cdp/utils/scoped-service-jwt'
 import { workflowStepDispatchKeyFromInvocation } from '~/cdp/utils/workflow-step-dispatch-key'
+import { KAFKA_EMAIL_STATUS } from '~/common/config/kafka-topics'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { parseJSON } from '~/common/utils/json-parse'
+import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { createTestTeamFixture } from '~/tests/helpers/sql'
 import { Hub, Team } from '~/types'
 
@@ -24,6 +28,7 @@ import { HogInputsService } from '../../hog-inputs.service'
 import { HogFunctionTemplateManagerService } from '../../managers/hog-function-template-manager.service'
 import { RecipientsManagerService } from '../../managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from '../../managers/team-workflows-config.service'
+import { EmailStatusService } from '../../messaging/email-status.service'
 import { EmailSuppressionService, emailSuppressionConfigFromEnv } from '../../messaging/email-suppression.service'
 import { EmailValidationService } from '../../messaging/email-validation.service'
 import { EmailService } from '../../messaging/email.service'
@@ -568,7 +573,10 @@ describe('HogFunctionHandler', () => {
         } else {
             ;(mockRecipientPreferencesService.isFrequencyCapped as jest.Mock).mockResolvedValueOnce(true)
         }
-        const emailStatus = { record: jest.fn().mockResolvedValue(undefined), recordInBackground: jest.fn() }
+        mockProducerObserver.resetKafkaProducer()
+        const emailStatus = new EmailStatusService(
+            createCdpOutputsRegistry().build(createCdpConsumerDeps(hub).cdpProducerRegistry, hub)
+        )
         const handler = new HogFunctionHandler(
             mockHogFlowFunctionsService,
             mockRecipientPreferencesService,
@@ -589,15 +597,17 @@ describe('HogFunctionHandler', () => {
             }),
         })
 
-        expect(emailStatus.record).toHaveBeenCalledWith(
+        expect(
+            mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_EMAIL_STATUS).map((row) => row.value)
+        ).toEqual([
             expect.objectContaining({
-                teamId: team.id,
-                messageId: invocation.id,
+                team_id: team.id,
+                message_id: invocation.id,
                 status: 'skipped',
-                recipientHash: 'a1b2',
+                recipient_hash: 'a1b2',
                 reason,
-            })
-        )
+            }),
+        ])
     })
 
     // The billing kind is the whole point of the per-channel handlers: push bills at its own rate

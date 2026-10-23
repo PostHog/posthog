@@ -1,5 +1,6 @@
 // Serial: resets shared Postgres and relies on the reset-created default team.
 import { createMockJobQueue } from '../../tests/helpers/mocks/job-queue.mock'
+import { mockProducerObserver } from '../../tests/helpers/mocks/producer.mock'
 import { mockFetch } from '../../tests/helpers/mocks/request.mock'
 
 import { Server } from 'http'
@@ -11,6 +12,7 @@ import { HogFlow } from '~/cdp/schema/hogflow'
 import { PosthogJwtAudience } from '~/cdp/utils/jwt-utils'
 import { ScopedServiceJwt } from '~/cdp/utils/scoped-service-jwt'
 import { setupExpressApp } from '~/common/api/router'
+import { KAFKA_EMAIL_STATUS } from '~/common/config/kafka-topics'
 import { deleteKeysWithPrefix } from '~/common/redis/_tests/redis'
 import { createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { closeHub, createHub } from '~/common/utils/db/hub'
@@ -2109,7 +2111,6 @@ describe('CDP API', () => {
 
     describe('transactional email', () => {
         let mockQueueInvocations: jest.Mock
-        let recordStatus: jest.SpyInstance
         let hogFlow: HogFlow
         const body = {
             to: 'user@example.com',
@@ -2172,6 +2173,9 @@ describe('CDP API', () => {
                 .set(headers)
                 .send(payload)
 
+        const statusRows = (): Record<string, any>[] =>
+            mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_EMAIL_STATUS).map((row) => row.value)
+
         const codeSend = {
             content: { subject: 'Reset your password', html: '<p>Hi {{ variables.name }}</p>', text: 'Hi' },
             from: { integrationId: 12, email: 'security@example.com', name: 'Example' },
@@ -2182,7 +2186,7 @@ describe('CDP API', () => {
         beforeEach(async () => {
             mockQueueInvocations = jest.fn().mockResolvedValue(undefined)
             api['hogflowQueue'] = { queueInvocations: mockQueueInvocations } as any
-            recordStatus = jest.spyOn(api['emailStatus'], 'recordInBackground').mockImplementation(() => {})
+            mockProducerObserver.resetKafkaProducer()
             hogFlow = await insertHogFlow(transactionalFlow('api', 'active'))
             await insertSender(SENDER_ID)
         })
@@ -2220,8 +2224,14 @@ describe('CDP API', () => {
             // The worker, the SES webhook and the janitor write later statuses with the hash on the run.
             const recipientHash = emailRecipientHash('user@example.com', hub.ENCRYPTION_SALT_KEYS)
             expect(invocation.state.emailRecipientHash).toEqual(recipientHash)
-            expect(recordStatus.mock.calls).toEqual([
-                [{ teamId: team.id, messageId: invocation.id, status: 'queued', at: expect.any(Date), recipientHash }],
+            expect(statusRows()).toEqual([
+                expect.objectContaining({
+                    team_id: team.id,
+                    message_id: invocation.id,
+                    status: 'queued',
+                    reason: '',
+                    recipient_hash: recipientHash,
+                }),
             ])
         })
 
@@ -2241,7 +2251,7 @@ describe('CDP API', () => {
                 expect(res.status).toEqual(202)
                 expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
                 expect(mockQueueInvocations.mock.calls[0][0][0].state.emailRecipientHash).toBeUndefined()
-                expect(recordStatus).not.toHaveBeenCalled()
+                expect(statusRows()).toEqual([])
                 expect(await missingHashCount()).toEqual(missingBefore + 1)
             } finally {
                 hub.ENCRYPTION_SALT_KEYS = configuredSaltKeys
@@ -2271,7 +2281,7 @@ describe('CDP API', () => {
                     replayed: true,
                 })
                 expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
-                expect(recordStatus).toHaveBeenCalledTimes(1)
+                expect(statusRows()).toHaveLength(1)
             })
 
             it.each([
@@ -2380,7 +2390,7 @@ describe('CDP API', () => {
                 expect(retry.status).toEqual(202)
                 expect(retry.body).toMatchObject({ replayed: false })
                 expect(mockQueueInvocations).toHaveBeenCalledTimes(2)
-                expect(recordStatus).toHaveBeenCalledTimes(1)
+                expect(statusRows()).toHaveLength(1)
             })
 
             it('refuses a keyed send when no idempotency store is configured', async () => {
@@ -2576,7 +2586,7 @@ describe('CDP API', () => {
                 })
                 expect(await outcomeCount(code)).toEqual(rejectedBefore + 1)
                 expect(mockQueueInvocations).not.toHaveBeenCalled()
-                expect(recordStatus).not.toHaveBeenCalled()
+                expect(statusRows()).toEqual([])
             })
 
             it('sends a keyed send that was refused once the refusal is fixed', async () => {
