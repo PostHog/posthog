@@ -7,6 +7,7 @@ from uuid import UUID
 from django.conf import settings
 
 from posthog.clickhouse.client.execute import sync_execute
+from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 
 from products.messaging.backend.facade.contracts import EmailStatus, EmailStatusCursor, EmailStatusRecord
 
@@ -57,7 +58,9 @@ def email_recipient_hash(recipient: str) -> str | None:
 def get_email_status(team_id: int, message_id: UUID) -> EmailStatusRecord | None:
     """None for an unknown id, another team's id, and an email whose first status has not arrived yet."""
     created_at = _created_at(message_id)
-    rows = sync_execute(
+    rows = _execute(
+        team_id,
+        "email_status_by_id",
         _STATUS_BY_ID_QUERY,
         {
             "team_id": team_id,
@@ -82,7 +85,12 @@ def list_email_statuses_by_recipient(
         cursor_clause = "AND (created_at, message_id) < (%(cursor_created_at)s, %(cursor_message_id)s)"
         params |= {"cursor_created_at": cursor.created_at, "cursor_message_id": cursor.message_id}
     query = _STATUSES_BY_RECIPIENT_QUERY.format(latest_status=_LATEST_STATUS, cursor_clause=cursor_clause)
-    return [_record(row) for row in sync_execute(query, params)]
+    return [_record(row) for row in _execute(team_id, "email_statuses_by_recipient", query, params)]
+
+
+def _execute(team_id: int, query_type: str, query: str, params: dict[str, Any]) -> list[tuple[Any, ...]]:
+    with tags_context(team_id=team_id, product=Product.MESSAGING, feature=Feature.QUERY, query_type=query_type):
+        return sync_execute(query, params)
 
 
 def _created_at(message_id: UUID) -> datetime:
