@@ -60,6 +60,7 @@ from posthog.rate_limit import (
     ReplayVisionEstimateBurstRateThrottle,
     ReplayVisionEstimateSustainedRateThrottle,
     ReplayVisionWatchFeedBurstRateThrottle,
+    ReplayVisionWatchFeedImpressionsRateThrottle,
     ReplayVisionWatchFeedSustainedRateThrottle,
 )
 
@@ -2601,16 +2602,17 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         # Observations expose recording-derived output, so reading them requires session_recording read.
         if not self.user_access_control.check_access_level_for_resource("session_recording", required_level="viewer"):
             raise PermissionDenied("Reading replay observations requires session_recording read access.")
+        as_of = params.get("as_of") or timezone.now()
         try:
-            date_from = parse_date_bound(params["date_from"], self.team.timezone_info, end_of_range=False)
+            # Relative bounds resolve against `as_of`, so every page of one load reads the same window.
+            date_from = parse_date_bound(params["date_from"], self.team.timezone_info, end_of_range=False, now=as_of)
             date_to = (
-                parse_date_bound(params["date_to"], self.team.timezone_info, end_of_range=True)
+                parse_date_bound(params["date_to"], self.team.timezone_info, end_of_range=True, now=as_of)
                 if params.get("date_to")
                 else None
             )
         except ValueError as e:
             raise ValidationError(str(e))
-        as_of = params.get("as_of") or timezone.now()
         window_end = min(date_to, as_of) if date_to is not None else as_of
         if window_end - date_from > timedelta(days=WATCH_FEED_MAX_WINDOW_DAYS):
             raise ValidationError(
@@ -2646,6 +2648,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             status=ObservationStatus.SUCCEEDED,
             created_at__gte=date_from,
             created_at__lte=window_end,
+            completed_at__lte=as_of,
         )
         if params.get("scanner_type"):
             candidates = candidates.filter(scanner_snapshot__scanner_type=params["scanner_type"])
@@ -2790,7 +2793,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         pagination_class=None,
         # Per-user state, like an observation's `viewed`, so read scope is enough.
         required_scopes=["replay_scanner:read", "session_recording:read"],
-        throttle_classes=[ReplayVisionWatchFeedBurstRateThrottle, ReplayVisionWatchFeedSustainedRateThrottle],
+        throttle_classes=[ReplayVisionWatchFeedImpressionsRateThrottle],
     )
     def watch_feed_impressions(self, request: Request, **kwargs: Any) -> Response:
         """Record that the calling user saw these cards in What to watch, so the feed ranks them lower next time."""
