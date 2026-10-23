@@ -19,7 +19,7 @@ from products.experiments.backend.health.skips import (
     NOT_AFTER_END,
     NOT_ON_ARCHIVED,
     RUNS_AFTER_LAUNCH,
-    CheckSkip,
+    CheckOutcome,
     not_applicable,
     not_checked,
 )
@@ -42,7 +42,7 @@ class _Comparison:
     detectable: float
 
 
-def early_significance_skip(ctx: HealthContext) -> CheckSkip | None:
+def early_significance(ctx: HealthContext) -> CheckOutcome:
     if ctx.archived:
         return not_applicable(NOT_ON_ARCHIVED)
     if not ctx.is_launched:
@@ -61,22 +61,15 @@ def early_significance_skip(ctx: HealthContext) -> CheckSkip | None:
     # "wait" after the page says the target is reached.
     if metric.manual_running_time:
         return not_applicable("Runs with the automatic running time estimate")
-    if metric.result is None:
-        return not_applicable("Runs once the primary metric has results")
-    if _total_samples(metric.result) < MIN_SAMPLES_FOR_RESULTS:
-        return not_applicable("Runs once enough users are exposed")
-    if not 0 < (metric.result.baseline.mean or 0) < 1:
-        return not_applicable("Runs once the control group's conversion rate is above 0% and below 100%")
-    return None
-
-
-def early_significance(ctx: HealthContext) -> ExperimentHealthFinding | None:
-    metric = ctx.primary_metric
-    if early_significance_skip(ctx) is not None or metric is None or metric.result is None:
-        return None
     result = metric.result
-    control_rate = result.baseline.mean or 0
+    if result is None:
+        return not_applicable("Runs once the primary metric has results")
     samples = _total_samples(result)
+    if samples < MIN_SAMPLES_FOR_RESULTS:
+        return not_applicable("Runs once enough users are exposed")
+    control_rate = result.baseline.mean or 0
+    if not 0 < control_rate < 1:
+        return not_applicable("Runs once the control group's conversion rate is above 0% and below 100%")
     # The running time estimate counts the variants of the flag.
     number_of_variants = len(ctx.flag.variants) if ctx.flag and ctx.flag.variants else len(result.variants) + 1
     planned_samples = calculate_sample_size(

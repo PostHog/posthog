@@ -38,6 +38,9 @@ Generation evaluations extract message text without the per-message character cu
 They reserve space for the complete output, then sample input and tool definitions into the remaining space within the 150,000-character limit.
 If the output and section labels alone exceed that limit, the run is skipped with reason `generation_output_too_long` without calling the judge.
 
+Generation evaluation and LLM tagger user prompts repair UTF-16 surrogate sequences after sampling.
+Lone surrogates become replacement characters (`�`), while valid pairs become their Unicode character.
+
 Implementation: [trace judge](../../posthog/temporal/ai_observability/run_trace_evaluation.py), [session judge](../../posthog/temporal/ai_observability/run_session_evaluation.py), and [generation judge](../../posthog/temporal/ai_observability/evaluation_llm_judge.py).
 
 ## OpenAI-compatible judges
@@ -191,6 +194,10 @@ Estimates and new backfills clamp their start to UTC midnight 29 days before the
 This excludes the calendar day whose AI payloads have expired under the 30-day retention policy.
 Ranges ending at or before that boundary are rejected.
 Existing backfills keep their stored windows; **Retry remaining** applies the boundary when it creates a new backfill.
+
+Generation references get up to three lookup attempts.
+A final miss for a backfill reference fails the run without reporting an exception to error tracking.
+Live references marked `awaiting_ingestion` wait 15 seconds between misses and still report the final miss.
 
 A backfill that stops on its own shows as **Interrupted**, with a stop reason.
 A backfill a user stops shows as **Cancelled**.
