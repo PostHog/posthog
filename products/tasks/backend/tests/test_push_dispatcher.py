@@ -18,7 +18,7 @@ from posthog.tasks.push_notifications import send_user_push
 from products.tasks.backend.awaiting_input import dispatch_awaiting_input
 from products.tasks.backend.logic.stream.push_message import PushMessage
 from products.tasks.backend.logic.stream.redis_stream import get_task_run_stream_key
-from products.tasks.backend.models import Task, TaskRun
+from products.tasks.backend.models import Channel, ChannelMembership, Task, TaskRun
 from products.tasks.backend.push_dispatcher import (
     notify_task_handoff,
     notify_task_run_awaiting_input,
@@ -210,6 +210,54 @@ class TestPushDispatcher(TestCase):
         with self.captureOnCommitCallbacks(execute=True):
             notify_task_run_completed(outsider_run)
         mock_delay.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("removed_cached_reply", Channel.ChannelType.PRIVATE, True, "cached", False),
+            ("removed_final_reply", Channel.ChannelType.PRIVATE, True, "final", False),
+            ("removed_status", Channel.ChannelType.PRIVATE, True, "status", False),
+            ("private_member", Channel.ChannelType.PRIVATE, False, "cached", True),
+            ("personal_owner", Channel.ChannelType.PERSONAL, False, "cached", True),
+            ("public_channel", Channel.ChannelType.PUBLIC, False, "cached", True),
+        ]
+    )
+    @patch("products.tasks.backend.push_dispatcher.send_user_push.delay")
+    def test_notification_requires_channel_access(
+        self,
+        _name: str,
+        channel_type: str,
+        remove_membership: bool,
+        preview_source: str,
+        expected_push: bool,
+        mock_delay: Mock,
+    ) -> None:
+        channel = Channel.objects.for_team(self.team.id).create(
+            team=self.team, name="Test channel", channel_type=channel_type, created_by=self.user
+        )
+        self.task.channel = channel
+        self.task.save(update_fields=["channel"])
+        if channel_type == Channel.ChannelType.PRIVATE:
+            membership = ChannelMembership.objects.for_team(self.team.id).create(
+                team=self.team, channel=channel, user=self.user
+            )
+            if remove_membership:
+                membership.delete()
+
+        key = f"{get_task_run_stream_key(str(self.task_run.id))}:push-message"
+        client = get_tasks_stream_redis_sync()
+        self.addCleanup(client.delete, key)
+        if preview_source == "cached":
+            client.set(key, PushMessage(text="Reply content.").to_json(), ex=60)
+        elif preview_source == "final":
+            self.task_run.output = {"final_message": "Reply content."}
+
+        with self.captureOnCommitCallbacks(execute=True):
+            notify_task_run_completed(self.task_run)
+        if expected_push:
+            mock_delay.assert_called_once()
+            self.assertEqual(mock_delay.call_args.args[2], "Reply content.")
+        else:
+            mock_delay.assert_not_called()
 
     @patch("products.tasks.backend.push_dispatcher.send_user_push.delay")
     def test_anonymous_task_is_noop(self, mock_delay):

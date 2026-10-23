@@ -244,7 +244,12 @@ def _enqueue_inner(
         PUSH_DISPATCHER_OUTCOMES_TOTAL.labels(kind=kind, outcome="no_recipient").inc()
         return False
 
-    if not user.teams.filter(id=task_run.team_id).exists():
+    if (
+        not user.teams.filter(id=task_run.team_id).exists()
+        or not Task.objects.filter(id=task_run.task_id, team_id=task_run.team_id, deleted=False)
+        .filter(task_visibility_q(user.id))
+        .exists()
+    ):
         PUSH_DISPATCHER_OUTCOMES_TOTAL.labels(kind=kind, outcome="access_denied").inc()
         logger.debug(
             "push_dispatcher.recipient_lost_access",
