@@ -119,6 +119,20 @@ async def object_storage_client(bucket_name):
         await object_storage_client.delete_bucket(Bucket=bucket_name)
 
 
+@pytest.fixture
+def gcs_checksum_compatibility(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Skip validation of checksums on partial reads.
+
+    The PyArrow AWS SDK we use to read back results eagerly compares checksums
+    on every request that contains them. This causes tests to fail on partial
+    reads as the GCS checksum is for the whole object.
+
+    We set validation to only when required to get around this. This requires
+    mocking the environment as PyArrow does not expose this as a setting.
+    """
+    monkeypatch.setenv("AWS_RESPONSE_CHECKSUM_VALIDATION", "when_required")
+
+
 @pytest_asyncio.fixture
 async def gcs_integration(ateam):
     """An s3-compatible Integration pointing at GCS, using the AWS credentials in the environment."""
