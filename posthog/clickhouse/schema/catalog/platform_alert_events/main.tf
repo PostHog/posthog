@@ -51,6 +51,7 @@ locals {
     { name = "labels", type = "Map(String, String)" },
     { name = "condition_snapshot", type = "String" },
     { name = "source_config_snapshot", type = "String" },
+    { name = "source_detail", type = "String" },
     { name = "query_duration_ms", type = "Nullable(UInt32)" },
     { name = "error_message", type = "String" },
     { name = "consecutive_failures", type = "UInt32" },

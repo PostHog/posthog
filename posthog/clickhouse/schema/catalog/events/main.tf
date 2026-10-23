@@ -149,6 +149,7 @@ module "sharded_events_family" {
     settings     = "index_granularity = 8192, max_avg_part_size_for_too_many_parts = 0"
     indexes = [
       { name = "minmax_inserted_at", expression = "coalesce(inserted_at, _timestamp)", type = "minmax", granularity = 1 },
+      { name = "minmax_sharded_events_inserted_at", expression = "inserted_at", type = "minmax", granularity = 1 },
       { name = "properties_group_custom_keys_bf", expression = "mapKeys(properties_group_custom)", type = "bloom_filter", granularity = 1 },
       { name = "properties_group_custom_values_bf", expression = "mapValues(properties_group_custom)", type = "bloom_filter", granularity = 1 },
       { name = "properties_group_feature_flags_keys_bf", expression = "mapKeys(properties_group_feature_flags)", type = "bloom_filter", granularity = 1 },

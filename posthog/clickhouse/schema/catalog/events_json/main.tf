@@ -138,6 +138,8 @@ module "sharded_events_json_family" {
       { name = "minmax_timestamp", expression = "timestamp", type = "minmax", granularity = 1 },
       { name = "minmax_historical_migration", expression = "historical_migration", type = "minmax", granularity = 1 },
       { name = "minmax_created_at", expression = "created_at", type = "minmax", granularity = 1 },
+      { name = "properties_bf", expression = "properties", type = "jsonbf_v1(false_positive_rate = 0.025)", granularity = 1 },
+      { name = "person_properties_bf", expression = "person_properties", type = "jsonbf_v1(false_positive_rate = 0.025)", granularity = 1 },
     ]
   }
   routing = {
@@ -241,7 +243,7 @@ module "events_json_table_mv" {
   enabled  = contains(var.objects, "events_json_table_mv")
   database = var.database
   name     = "events_json_table_mv"
-  to_table = "${var.database}.writable_events_json"
+  to_table = "${var.database}.writable_events_json_dedup"
   query    = <<-SQL
     SELECT
         *,
@@ -255,16 +257,19 @@ module "events_json_table_mv" {
             cleaned.temporary_properties AS temporary_properties,
             cleaned.properties_null_keys AS properties_null_keys,
             cleaned.temporary_properties_null_keys AS temporary_properties_null_keys,
-            now64() AS inserted_at,
             timestamp,
             team_id,
             distinct_id,
             elements_chain,
+            extract(elements_chain, '(?::|")href="(.*?)"') AS elements_chain_href,
+            arrayDistinct(extractAll(elements_chain, '(?::|")text="(.*?)"')) AS elements_chain_texts,
+            CAST(arrayDistinct(extractAll(elements_chain, '(?:^|;)(a|button|form|input|select|textarea|label)(?:\\.|$|:)')), 'Array(Enum8(\'a\' = 1, \'button\' = 2, \'form\' = 3, \'input\' = 4, \'select\' = 5, \'textarea\' = 6, \'label\' = 7))') AS elements_chain_elements,
+            arrayDistinct(extractAll(elements_chain, '(?::|")attr_id="(.*?)"')) AS elements_chain_ids,
             created_at,
             person_id,
+            person_created_at,
             cleaned.person_properties AS person_properties,
             cleaned.person_properties_null_keys AS person_properties_null_keys,
-            person_created_at,
             group0_properties,
             group1_properties,
             group2_properties,
@@ -281,20 +286,42 @@ module "events_json_table_mv" {
             _timestamp,
             _offset,
             _partition,
-            consumer_breadcrumbs
+            arrayMap(i -> (header_values[i]), arrayFilter(i -> ((header_names[i]) = 'kafka-consumer-breadcrumbs'), arrayEnumerate(header_names))) AS consumer_breadcrumbs
         FROM
         (
             SELECT
-                *,
+                uuid,
+                event,
+                timestamp,
+                team_id,
+                distinct_id,
+                elements_chain,
+                created_at,
+                person_id,
+                person_created_at,
+                group0_properties,
+                group1_properties,
+                group2_properties,
+                group3_properties,
+                group4_properties,
+                group0_created_at,
+                group1_created_at,
+                group2_created_at,
+                group3_created_at,
+                group4_created_at,
+                person_mode,
+                historical_migration,
+                captured_at,
                 _timestamp,
                 _offset,
                 _partition,
-                arrayMap(i -> (_headers.value[i]), arrayFilter(i -> ((_headers.name[i]) = 'kafka-consumer-breadcrumbs'), arrayEnumerate(_headers.name))) AS consumer_breadcrumbs,
+                _headers.name AS header_names,
+                _headers.value AS header_values,
                 JSONCleanPostHogEvent(properties, person_properties) AS cleaned
             FROM ${var.database}.kafka_events_json_native_json
-        ) AS source
+            WHERE event NOT IN ('$feature_flag_called')
+        )
     )
-    SETTINGS input_format_try_infer_dates = 0, input_format_try_infer_datetimes = 0
   SQL
   override = try(local.deployment.overrides["events_json_table_mv"], {})
 

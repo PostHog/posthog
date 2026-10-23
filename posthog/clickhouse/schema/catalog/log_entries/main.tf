@@ -86,28 +86,26 @@ module "log_entries_data_family" {
   names = { storage = "log_entries_data", write = "writable_log_entries_aux" }
 }
 
-module "sharded_log_entries_family" {
-  source  = "../../lib/table_family"
-  node    = var.node
-  objects = var.objects
+module "log_entries_distributed" {
+  source = "../../lib/table"
+  node   = var.node
 
-  name     = "log_entries_distributed"
+  enabled  = contains(var.objects, "log_entries_distributed")
   database = var.database
-  columns  = local.log_entries_data_columns
-  storage = {
-    engine       = "ReplacingMergeTree"
-    engine_args  = ["_timestamp"]
-    partition_by = "toYYYYMMDD(timestamp)"
-    order_by     = "(team_id, log_source, log_source_id, instance_id, timestamp)"
-    ttl          = var.ttl ? "toDate(timestamp) + toIntervalDay(90)" : null
-    settings     = "index_granularity = 1024, ttl_only_drop_parts = 1"
-  }
-  names        = { storage = "sharded_log_entries", write = "writable_log_entries" }
-  sharding_key = "rand()"
-  routing = {
-    read = !var.test
-  }
-  deployment = merge({ cluster = "posthog" }, local.deployment)
+  name     = "log_entries_distributed"
+  override = try(local.deployment.overrides["log_entries_distributed"], {})
+  engine   = "Distributed('aux', '${var.database}', 'log_entries_data')"
+  columns = [
+    { name = "team_id", type = "UInt64" },
+    { name = "log_source", type = "LowCardinality(String)" },
+    { name = "log_source_id", type = "String" },
+    { name = "instance_id", type = "String" },
+    { name = "timestamp", type = "DateTime64(6, 'UTC')" },
+    { name = "level", type = "LowCardinality(String)" },
+    { name = "message", type = "String" },
+    { name = "_timestamp", type = "DateTime" },
+    { name = "_offset", type = "UInt64" },
+  ]
 }
 
 module "test_log_entries_family" {
@@ -148,36 +146,6 @@ module "kafka_log_entries_aux" {
   override = try(local.deployment.overrides["kafka_log_entries_aux"], {})
 }
 
-module "kafka_log_entries_v3" {
-  source = "../../lib/table"
-  node   = var.node
-
-  deployment = local.deployment
-
-  enabled  = contains(var.objects, "kafka_log_entries_v3")
-  database = var.database
-  name     = "kafka_log_entries_v3"
-  engine   = "Kafka(msk_cluster)"
-  settings = "kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse_log_entries', kafka_skip_broken_messages = 100, kafka_topic_list = 'log_entries'"
-  columns  = local.kafka_log_entries_v3_columns
-  override = try(local.deployment.overrides["kafka_log_entries_v3"], {})
-}
-
-module "kafka_log_entries_ws" {
-  source = "../../lib/table"
-  node   = var.node
-
-  deployment = local.deployment
-
-  enabled  = contains(var.objects, "kafka_log_entries_ws")
-  database = var.database
-  name     = "kafka_log_entries_ws"
-  engine   = "Kafka(warpstream_ingestion)"
-  settings = "kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse_log_entries_ws', kafka_skip_broken_messages = 100, kafka_topic_list = 'log_entries'"
-  columns  = local.kafka_log_entries_v3_columns
-  override = try(local.deployment.overrides["kafka_log_entries_ws"], {})
-}
-
 module "log_entries_aux_mv" {
   source  = "../../lib/materialized_view"
   node    = var.node
@@ -209,64 +177,3 @@ module "log_entries_aux_mv" {
   ]
 }
 
-module "log_entries_v3_mv" {
-  source  = "../../lib/materialized_view"
-  node    = var.node
-  objects = var.objects
-
-  enabled  = contains(var.objects, "log_entries_v3_mv")
-  database = var.database
-  name     = "log_entries_v3_mv"
-  to_table = "${var.database}.writable_log_entries"
-  query    = <<-SQL
-    SELECT
-        team_id,
-        log_source,
-        log_source_id,
-        instance_id,
-        timestamp,
-        level,
-        message,
-        _timestamp,
-        _offset
-    FROM ${var.database}.kafka_log_entries_v3
-    WHERE toDate(timestamp) <= today()
-  SQL
-  override = try(local.deployment.overrides["log_entries_v3_mv"], {})
-
-  depends_on = [
-    module.kafka_log_entries_v3,
-    module.sharded_log_entries_family,
-  ]
-}
-
-module "log_entries_ws_mv" {
-  source  = "../../lib/materialized_view"
-  node    = var.node
-  objects = var.objects
-
-  enabled  = contains(var.objects, "log_entries_ws_mv")
-  database = var.database
-  name     = "log_entries_ws_mv"
-  to_table = "${var.database}.writable_log_entries"
-  query    = <<-SQL
-    SELECT
-        team_id,
-        log_source,
-        log_source_id,
-        instance_id,
-        timestamp,
-        level,
-        message,
-        _timestamp,
-        _offset
-    FROM ${var.database}.kafka_log_entries_ws
-    WHERE toDate(timestamp) <= today()
-  SQL
-  override = try(local.deployment.overrides["log_entries_ws_mv"], {})
-
-  depends_on = [
-    module.kafka_log_entries_ws,
-    module.sharded_log_entries_family,
-  ]
-}
