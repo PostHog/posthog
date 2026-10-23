@@ -6,6 +6,7 @@ import hashlib
 import zipfile
 import tempfile
 import subprocess
+from collections.abc import Sequence
 from contextlib import ExitStack
 from pathlib import Path
 from uuid import uuid4
@@ -27,12 +28,17 @@ class SkillSnapshot:
     archive_path: Path
 
     @staticmethod
-    def source_fingerprint(base_dir: Path, skill_source_sha256: str) -> str:
+    def source_fingerprint(base_dir: Path, skill_source_sha256: str, *, excluded_paths: Sequence[Path] = ()) -> str:
+        base_dir = base_dir.resolve()
+        excluded = tuple(path.resolve() for path in excluded_paths if path.resolve().is_relative_to(base_dir))
+        if base_dir in excluded:
+            raise ValueError("The eval output directory cannot be the checkout root")
         digest = hashlib.sha256(skill_source_sha256.encode())
         for staged in (False, True):
             command = ["git", "diff", "--binary", "--no-ext-diff", "--no-textconv", "--no-color"]
             if staged:
                 command.append("--cached")
+            command.extend(["--", ".", *(f":(exclude,literal){path.relative_to(base_dir)}" for path in excluded)])
             digest.update(subprocess.check_output(command, cwd=base_dir))
             digest.update(b"\0")
         untracked = subprocess.check_output(
@@ -54,6 +60,8 @@ class SkillSnapshot:
         )
         for name in sorted(untracked.decode().split("\0")):
             if name:
+                if any((base_dir / name).is_relative_to(path) for path in excluded):
+                    continue
                 digest.update(name.encode())
                 digest.update(b"\0")
                 digest.update((base_dir / name).read_bytes())

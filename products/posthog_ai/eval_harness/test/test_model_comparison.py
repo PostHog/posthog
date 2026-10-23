@@ -4,6 +4,7 @@ import os
 import sys
 import json
 import signal
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -22,6 +23,7 @@ from products.posthog_ai.eval_harness.harness.skill_snapshot import SkillSnapsho
     "scenario,expected_exit,expected_calls",
     [
         ("success", 0, 4),
+        ("in_checkout_output", 0, 4),
         ("skipped", 1, 4),
         ("filtered_out_experiment", 0, 4),
         ("launch_error", 1, 1),
@@ -47,6 +49,8 @@ def test_model_comparison_preserves_settings_and_partial_results(
     expected_calls: int,
 ) -> None:
     directory = tmp_path / "comparison"
+    if scenario == "in_checkout_output":
+        subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
     options = parse_args(
         [
             "example/suite",
@@ -72,8 +76,10 @@ def test_model_comparison_preserves_settings_and_partial_results(
         ]
     )
     calls: list[bool] = []
+    fingerprint: str | None = None
 
     def execute(command: list[str]) -> int:
+        nonlocal fingerprint
         child = parse_args(command[3:])
         calls.append(child.check_only)
         assert child.selectors == options.selectors
@@ -88,6 +94,14 @@ def test_model_comparison_preserves_settings_and_partial_results(
         assert child.interactive is False
         assert not child.comparison_models
         assert child.results_file is not None
+        if scenario == "in_checkout_output" and not child.check_only:
+            assert child.skill_snapshot_output_dir == directory
+            current = SkillSnapshot.source_fingerprint(
+                tmp_path, "skills", excluded_paths=(child.skill_snapshot_output_dir,)
+            )
+            if fingerprint is None:
+                fingerprint = current
+            assert current == fingerprint
         if (
             not child.check_only
             and child.agent_runtime == "codex"

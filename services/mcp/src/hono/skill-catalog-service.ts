@@ -29,6 +29,8 @@ export interface SkillCatalogServiceOptions extends SkillArchiveCacheOptions {
 
 type LoadPhase = 'warmup' | 'poll'
 
+class SkillArchiveIntegrityError extends Error {}
+
 /**
  * Holds the parsed product skill catalog for this pod.
  *
@@ -86,10 +88,13 @@ export class SkillCatalogService {
                 return
             } catch (error) {
                 skillArchiveEventsTotal.inc({ phase: 'warmup', result: 'error' })
-                if (this.expectedArchiveSha) {
+                if (error instanceof SkillArchiveIntegrityError) {
                     throw error
                 }
                 if (Date.now() + this.warmupRetryMs >= deadline) {
+                    if (this.expectedArchiveSha) {
+                        throw error
+                    }
                     console.error('[SkillCatalogService] warmup failed; starting without product skills:', error)
                     return
                 }
@@ -161,7 +166,7 @@ export class SkillCatalogService {
 
     private install(bytes: Uint8Array, sha: string, phase: LoadPhase): void {
         if (this.expectedArchiveSha && hashBytes(bytes) !== this.expectedArchiveSha) {
-            throw new Error('Skill archive does not match the expected SHA-256')
+            throw new SkillArchiveIntegrityError('Skill archive does not match the expected SHA-256')
         }
         if (sha === this.archiveSha) {
             return

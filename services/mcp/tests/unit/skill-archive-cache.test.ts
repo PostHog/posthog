@@ -411,6 +411,42 @@ describe('SkillCatalogService', () => {
         consoleError.mockRestore()
     })
 
+    it.each([true, false])(
+        'retries pinned archive fetch failures within the startup budget (recovers=%s)',
+        async (recovers) => {
+            vi.useFakeTimers()
+            const consoleError = quietConsole()
+            try {
+                const bytes = makeArchive()
+                let attempts = 0
+                const fetchArchive = vi.fn(async () => {
+                    attempts += 1
+                    if (attempts === 1 || !recovers) {
+                        throw new Error('offline')
+                    }
+                    return downloaded(bytes)
+                })
+                const service = new SkillCatalogService(makeRedis(), {
+                    fetchArchive,
+                    expectedArchiveSha: hashBytes(bytes),
+                    warmupTimeoutMs: 50,
+                    warmupRetryMs: 10,
+                })
+                const warmup = service.warmup()
+                const outcome = recovers
+                    ? await expect(warmup).resolves.toBeUndefined()
+                    : await expect(warmup).rejects.toThrow('offline')
+                await vi.runAllTimersAsync()
+                await outcome
+                expect(fetchArchive.mock.calls.length).toBeGreaterThan(1)
+                expect(service.getCatalog()?.size).toBe(recovers ? 1 : undefined)
+            } finally {
+                consoleError.mockRestore()
+                vi.useRealTimers()
+            }
+        }
+    )
+
     it('loads the catalog at warmup and adopts a newer archive another pod published', async () => {
         const redis = makeRedis()
         const first = new SkillCatalogService(redis, {

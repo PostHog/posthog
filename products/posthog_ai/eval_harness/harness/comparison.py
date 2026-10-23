@@ -71,6 +71,7 @@ class ModelComparison:
             ("--reasoning-effort", options.reasoning_effort),
             ("--fail-under", options.fail_under),
             ("--skill-snapshot-report", self._snapshot_report if not check else None),
+            ("--skill-snapshot-output-dir", self.directory if not check else None),
         ):
             if value is not None:
                 command.extend([flag, str(value)])

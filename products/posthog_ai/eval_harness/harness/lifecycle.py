@@ -360,7 +360,18 @@ class SandboxedEvalHarness:
             assert self._live_server is not None
 
             # A private build directory keeps installed bundles and concurrent builds out of the run.
-            source_sha256 = SkillSnapshot.source_fingerprint(Path(settings.BASE_DIR), LocalSkillsCache().source_sha256)
+            output_paths = tuple(
+                path
+                for path in (
+                    self.options.results_file,
+                    self.options.skill_snapshot_report,
+                    self.options.skill_snapshot_output_dir,
+                )
+                if path is not None
+            )
+            source_sha256 = SkillSnapshot.source_fingerprint(
+                Path(settings.BASE_DIR), LocalSkillsCache().source_sha256, excluded_paths=output_paths
+            )
             if self.options.skill_snapshot_report is not None:
                 saved = RunReport.model_validate_json(self.options.skill_snapshot_report.read_text())
                 if (
@@ -383,7 +394,9 @@ class SandboxedEvalHarness:
                 skills_dir = build_local_skills(set_bind_mount_env=False, output_dir=skill_build_dir)
                 self._skills_snapshot = SkillSnapshot.capture(skills_dir, self._stack, source_sha256=source_sha256)
             if (
-                SkillSnapshot.source_fingerprint(Path(settings.BASE_DIR), LocalSkillsCache().source_sha256)
+                SkillSnapshot.source_fingerprint(
+                    Path(settings.BASE_DIR), LocalSkillsCache().source_sha256, excluded_paths=output_paths
+                )
                 != source_sha256
             ):
                 raise RuntimeError("Branch skill sources changed while preparing the eval snapshot")

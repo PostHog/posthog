@@ -80,6 +80,7 @@ class HarnessOptions:
     results_file: Path | None = None
     check_only: bool = False
     skill_snapshot_report: Path | None = None
+    skill_snapshot_output_dir: Path | None = None
 
 
 def _default_case_timeout() -> int:
@@ -122,6 +123,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Where sandboxes run (default: docker). 'modal' exposes this host via Tailscale Funnel so remote sandboxes can reach it.",
     )
     parser.add_argument("--eval", dest="case_filter", default=None, help="Only run cases whose name contains this.")
+    parser.add_argument("--skill-snapshot-output-dir", type=Path, help=argparse.SUPPRESS)
     parser.add_argument(
         "--agent-model",
         default=None,
@@ -340,4 +342,5 @@ def parse_args(argv: list[str] | None = None) -> HarnessOptions:
         results_file=args.results_file,
         check_only=args.check_only,
         skill_snapshot_report=args.skill_snapshot_report,
+        skill_snapshot_output_dir=args.skill_snapshot_output_dir,
     )
