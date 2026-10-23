@@ -78,8 +78,9 @@ class TestImplementationDispatch(BaseTest):
 
     @parameterized.expand([("quota",), ("disabled",), ("no_runner",)])
     def test_policy_block_needs_a_new_trigger(self, reason: str) -> None:
-        with patch(AUTOSTART, new=AsyncMock(return_value=AutostartOutcome(status="blocked", reason=reason))):
+        with patch(AUTOSTART, new=AsyncMock(return_value=AutostartOutcome(status="blocked", reason=reason))) as start:
             self.start()
+        assert start.call_args.kwargs["implementation_spend_kind"] == "scout_triggered_implementation"
         assert self.progress().status == "blocked"
         with patch(DISPATCH_TASK) as enqueue:
             self.dispatcher.enqueue_page()
@@ -126,6 +127,7 @@ class TestImplementationDispatch(BaseTest):
             with travel(timezone.now() + timedelta(seconds=301), tick=False):
                 self.start()
             start.assert_awaited_once()
+            assert start.call_args.kwargs["implementation_spend_kind"] == "reviewer_triggered_implementation"
         assert self.progress().attempt == 2
 
     @parameterized.expand([("revision",), ("research",), ("dismissal",), ("new_decision",)])

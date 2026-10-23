@@ -140,6 +140,8 @@ class TaskRunTokenUsage:
 
 @dataclass(frozen=True, kw_only=True)
 class TaskRunSpend:
+    report_id: UUID | None
+    created_at: datetime
     run_id: UUID
     task_id: UUID
     cost_microusd: int | None

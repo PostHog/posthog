@@ -54,8 +54,8 @@ from products.signals.backend.report_metric_query_access import query_filter_sha
 from products.signals.backend.report_metrics import REPORT_METRIC_GOAL_FIELDS
 from products.signals.backend.spend import (
     begin_report_spend,
-    complete_report_spend,
-    publish_report_spend,
+    finish_report_spend,
+    publish_signal_spend,
     report_triggering_signal,
 )
 from products.signals.backend.stack_plan import create_layer_reports, start_unblocked_layers_of_plan
@@ -677,7 +677,6 @@ class SignalReportSummaryWorkflow:
                             MaybeAutostartImplementationInput(
                                 team_id=inputs.team_id,
                                 report_id=inputs.report_id,
-                                signal_id=inputs.signal_id,
                                 requested_user_id=inputs.requested_implementation_user_id,
                                 requested_task_id=inputs.requested_implementation_task_id,
                                 requested_after_run_count=inputs.requested_after_run_count,
@@ -1182,7 +1181,6 @@ class MaybeAutostartImplementationInput:
     requested_user_id: int | None = None
     requested_task_id: str | None = None
     requested_after_run_count: int | None = None
-    signal_id: str | None = None
 
 
 @temporalio.activity.defn
@@ -1211,7 +1209,7 @@ async def maybe_autostart_implementation_activity(input: MaybeAutostartImplement
         )
     else:
         await maybe_autostart_from_report_artefacts(
-            team_id=input.team_id, report_id=input.report_id, signal_id=input.signal_id, ch_user=ClickHouseUser.SIGNALS
+            team_id=input.team_id, report_id=input.report_id, ch_user=ClickHouseUser.SIGNALS
         )
         # A plan never starts its own run, so its first layers start here, at the same settle point.
         await database_sync_to_async(start_unblocked_layers_of_plan, thread_sensitive=False)(
@@ -1531,8 +1529,10 @@ async def publish_report_spend_activity(input: SignalReportSummaryWorkflowInputs
         team_id=input.team_id, report_id=input.report_id
     )
     if signal_id:
-        await complete_report_spend(team_id=input.team_id, report_id=input.report_id, signal_id=signal_id)
-        await publish_report_spend(team_id=input.team_id, report_id=input.report_id, signal_id=signal_id)
+        await database_sync_to_async(finish_report_spend)(
+            team_id=input.team_id, report_id=input.report_id, signal_id=signal_id
+        )
+        await publish_signal_spend(team_id=input.team_id, signal_id=signal_id)
 
 
 @temporalio.activity.defn

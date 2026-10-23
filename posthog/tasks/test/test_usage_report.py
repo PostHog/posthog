@@ -5088,6 +5088,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
 
         SignalSpend.objects.for_team(team.id).create(
             team=team,
+            kind=SignalSpend.Kind.AD_HOC,
             signal_id=uuid4(),
             finalized_at=period.start,
             spend=15,

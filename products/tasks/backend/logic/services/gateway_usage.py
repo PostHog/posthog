@@ -239,6 +239,8 @@ def get_task_run_token_usage(*, run_id: UUID, team_id: int) -> TaskRunTokenUsage
 def _run_spend(run: TaskRun) -> TaskRunSpend:
     usage = _token_usage(run)
     return TaskRunSpend(
+        report_id=run.task.signal_report_id,
+        created_at=run.created_at,
         run_id=run.id,
         task_id=run.task_id,
         cost_microusd=usage.cost_microusd,
@@ -255,7 +257,7 @@ def locked_task_run_spend(*, team_id: int, run_id: UUID) -> Iterator[TaskRunSpen
 
 
 def get_task_runs_spend(*, team_id: int, run_ids: Iterable[UUID]) -> list[TaskRunSpend]:
-    return [_run_spend(run) for run in TaskRun.objects.filter(team_id=team_id, id__in=run_ids)]
+    return [_run_spend(run) for run in TaskRun.objects.filter(team_id=team_id, id__in=run_ids).select_related("task")]
 
 
 def _token_cost_microusd(run: TaskRun) -> int | None:

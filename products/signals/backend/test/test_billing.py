@@ -584,7 +584,8 @@ class TestSpendBasedBilling(BaseTest):
         assert dict(get_signals_billing_credits_by_team(_at(10) + timedelta(microseconds=1), _at(11))) == {}
         assert dict(get_signals_billing_credits_by_team(_at(10), _at(10))) == {}
 
-    def test_next_quota_refresh_counts_settled_spend_before_daily_reporting(self) -> None:
+    @parameterized.expand([(kind,) for kind in SignalSpend.Kind.values])
+    def test_next_quota_refresh_counts_settled_spend_before_daily_reporting(self, kind: str) -> None:
         self.organization.usage = {
             "signals_credits": {"usage": 90, "todays_usage": 0, "limit": 100},
             "period": ["2026-06-01T00:00:00Z", "2026-07-01T00:00:00Z"],
@@ -595,9 +596,26 @@ class TestSpendBasedBilling(BaseTest):
         with time_machine.travel(_at(9), tick=False):
             report = _make_report(self.team)
         with time_machine.travel(_at(10), tick=False):
-            self._generation(signal_id, 200_000)
+            scout = None
+            if kind == SignalSpend.Kind.SCOUT_RUN:
+                task = _task_model().objects.create(team=self.team, title="Synthetic scout", description="")
+                run = _task_run_model().objects.create(team=self.team, task=task)
+                scout = SignalScoutRun.objects.for_team(self.team.id).create(
+                    team=self.team, task_run=run, skill_name="example-scout", skill_version=1
+                )
+            signal_owned = kind in {SignalSpend.Kind.AD_HOC, SignalSpend.Kind.RESEARCH, SignalSpend.Kind.REPO_SELECTION}
+            spend = SignalSpend.objects.for_team(self.team.id).create(
+                team=self.team,
+                kind=kind,
+                signal_id=signal_id if signal_owned else None,
+                scout_run=scout,
+                report=None if signal_owned or scout else report,
+                task_run_id=(scout.task_run_id if scout else uuid4()) if kind != SignalSpend.Kind.AD_HOC else None,
+                spend=20,
+            )
             assert self._day(10) == {}
-            complete_signal_pipeline(team_id=self.team.id, signal_id=signal_id, report_id=str(report.id))
+            spend.finalized_at = _at(10)
+            spend.save(update_fields=["finalized_at"])
         with time_machine.travel(_at(10) + timedelta(minutes=10), tick=False):
             update_all_orgs_billing_quotas()
             self.organization.refresh_from_db()
@@ -760,6 +778,16 @@ class TestSpendBasedBilling(BaseTest):
             complete_signal_pipeline(team_id=self.team.id, signal_id=signal_id, report_id=str(report.id))
         assert self._day(10) == {self.team.id: 1500}
 
+    def test_ending_trial_does_not_bill_its_settled_spend(self) -> None:
+        signal_id = str(uuid4())
+        with time_machine.travel(_at(10), tick=False):
+            self.trial_mock.return_value = True
+            self._generation(signal_id, 100_000)
+            complete_signal_pipeline(team_id=self.team.id, signal_id=signal_id)
+        self.trial_mock.return_value = False
+        assert self._day(10) == {}
+        assert SignalSpend.objects.for_team(self.team.id).get(signal_id=signal_id).billing_exempt
+
     def test_scout_deletion_preserves_recognized_billing(self) -> None:
         task = _task_model().objects.create(team=self.team, title="Synthetic scout", description="")
         run = _task_run_model().objects.create(team=self.team, task=task)
@@ -767,7 +795,12 @@ class TestSpendBasedBilling(BaseTest):
             team=self.team, task_run=run, skill_name="synthetic-scout", skill_version=1
         )
         SignalSpend.objects.for_team(self.team.id).create(
-            team=self.team, scout_run=scout, finalized_at=_at(10), spend=4
+            team=self.team,
+            scout_run=scout,
+            task_run_id=run.id,
+            kind=SignalSpend.Kind.SCOUT_RUN,
+            finalized_at=_at(10),
+            spend=4,
         )
         scout.delete()
         assert self._day(10) == {self.team.id: 4}
@@ -778,7 +811,8 @@ class TestSpendBasedBilling(BaseTest):
             self._generation(signal_id, 100_000)
             complete_signal_pipeline(team_id=self.team.id, signal_id=signal_id)
         with time_machine.travel(_at(11), tick=False):
-            self._generation(signal_id, 90_000)
+            with self.assertRaises(ValueError):
+                self._generation(signal_id, 90_000)
             complete_signal_pipeline(team_id=self.team.id, signal_id=signal_id)
         spend = SignalSpend.objects.for_team(self.team.id).get(signal_id=signal_id)
         assert not spend.accounting_failed

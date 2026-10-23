@@ -9,6 +9,8 @@ from django.db.models.functions import TruncDate
 import structlog
 import posthoganalytics
 
+from posthog.models import Team
+
 from products.signals.backend.enums import SignalSourceProduct
 from products.signals.backend.free_trial import SELF_DRIVING_FREE_TRIAL_FLAG
 from products.signals.backend.models import SignalReport, SignalScoutRun, SignalSpend
@@ -29,6 +31,21 @@ def scout_spend_exempt(scout: SignalScoutRun) -> bool:
 
     return scout.trial_state is not None or (
         scout.skill_name in BILLING_EXEMPT_SCOUT_SKILLS and _scout_skill_is_canonical(scout.team_id, scout.skill_name)
+    )
+
+
+def trial_spend_exempt(team_id: int) -> bool:
+    org_id = str(Team.objects.values_list("organization_id", flat=True).get(id=team_id))
+    return (
+        posthoganalytics.feature_enabled(
+            SELF_DRIVING_FREE_TRIAL_FLAG,
+            org_id,
+            groups={"organization": org_id},
+            group_properties={"organization": {"id": org_id}},
+            only_evaluate_locally=True,
+            send_feature_flag_events=False,
+        )
+        is True
     )
 
 

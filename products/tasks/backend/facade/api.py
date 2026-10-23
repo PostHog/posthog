@@ -9866,7 +9866,7 @@ def run_task(
         prev_stack_base_branch = (previous_run.state or {}).get("stack_base_branch")
         if prev_stack_base_branch:
             extra_state["stack_base_branch"] = prev_stack_base_branch
-        if pipeline_rerun and task.internal and is_implementation:
+        if pipeline_rerun and is_implementation:
             extra_state["ai_stage"] = "implementation"
 
         # A read-only GitHub grant describes how the task was created, not one run — without the

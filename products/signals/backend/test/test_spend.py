@@ -7,7 +7,7 @@ from decimal import Decimal
 from importlib import import_module
 from threading import Barrier
 from types import SimpleNamespace
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 import time_machine
@@ -25,7 +25,6 @@ from anthropic import APIResponseValidationError, AsyncAnthropic
 from asgiref.sync import async_to_sync
 from fakeredis import FakeRedis
 from parameterized import parameterized
-from structlog.testing import capture_logs
 
 from posthog.schema import EmbeddingModelName
 
@@ -55,11 +54,9 @@ from products.signals.backend.signal_metadata import fetch_signals_for_report_sy
 from products.signals.backend.spend import (
     SignalSpendUpdate,
     begin_report_spend,
-    complete_report_spend,
     complete_signal_pipeline,
     complete_task_spend,
     finish_report_spend,
-    publish_report_spend,
     record_llm_spend,
     record_task_spend,
     register_report_task_spend,
@@ -79,43 +76,6 @@ class TestSpendPricing(SimpleTestCase):
     @parameterized.expand([(1, 0, "0.0001"), (10_001, 1, "5.0001"), (0, 1, "4"), (123_456, 2, "20.3456")])
     def test_price_in_cents(self, cost: int, tasks: int, expected: str) -> None:
         assert cost_to_spend(cost, task_count=tasks) == Decimal(expected)
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("terminal", [False, True])
-async def test_report_completion_waits_for_terminal_task_teardown(terminal: bool) -> None:
-    teardown = asyncio.Event()
-    waiting = asyncio.Event()
-
-    async def finish_task() -> None:
-        waiting.set()
-        await teardown.wait()
-
-    client = Mock()
-    client.get_workflow_handle.return_value.result = AsyncMock(side_effect=finish_task)
-    with (
-        patch(
-            "products.signals.backend.spend._report_implementation_runs",
-            return_value=[SimpleNamespace(is_terminal=terminal, workflow_id="example-implementation")],
-        ),
-        patch("products.signals.backend.spend.finish_report_spend") as finalize,
-        patch("posthog.temporal.common.client.async_connect", new=AsyncMock(return_value=client)),
-    ):
-        completion = asyncio.create_task(
-            complete_report_spend(team_id=1, report_id=str(uuid4()), signal_id=str(uuid4()))
-        )
-        try:
-            if terminal:
-                await asyncio.wait_for(waiting.wait(), timeout=2)
-                finalize.assert_not_called()
-                assert not completion.done()
-                teardown.set()
-            await asyncio.wait_for(completion, timeout=2)
-            assert finalize.call_count == int(terminal)
-        finally:
-            if not completion.done():
-                completion.cancel()
-                await asyncio.gather(completion, return_exceptions=True)
 
 
 @pytest.mark.django_db(transaction=True)
@@ -613,6 +573,7 @@ class TestSignalSpend(BaseTest):
         task: Task | None = None,
         stage: str = "research",
         signal_id: str | None = None,
+        implementation_kind: str | None = None,
     ) -> TaskRun:
         task = task or Task.objects.create(
             team=self.team,
@@ -624,6 +585,7 @@ class TestSignalSpend(BaseTest):
         run = task.create_run(
             environment=TaskRun.Environment.CLOUD,
             spend_signal_id=signal_id,
+            implementation_spend_kind=implementation_kind,
             extra_state={"ai_stage": stage, "unprocessed_request_ids": [], "token_cost": {}},
         )
         run.status = TaskRun.Status.IN_PROGRESS
@@ -640,14 +602,16 @@ class TestSignalSpend(BaseTest):
 
     def _refresh_task_spend(self, *, run_id: str, team_id: int) -> None:
         run = TaskRun.objects.get(id=run_id, team_id=team_id)
-        spend = SignalSpend.objects.for_team(team_id).filter(task_run_ids__contains=[run.id]).first()
+        spend = SignalSpend.objects.for_team(team_id).filter(task_run_id=run.id).first()
         if spend:
             record_task_spend(
                 team_id=team_id,
                 run_id=run_id,
                 signal_id=str(spend.signal_id) if spend.signal_id else None,
                 scout_run_id=str(spend.scout_run_id) if spend.scout_run_id else None,
-                stage="scout" if spend.scout_run_id else "research",
+                report_id=str(spend.report_id) if spend.report_id else None,
+                stage="scout" if spend.scout_run_id else "implementation" if spend.report_id else spend.kind,
+                implementation_kind=spend.kind if spend.report_id else None,
             )
 
     def _set_task_cost(self, run: TaskRun, cost: int | None, *, pending: bool = False) -> None:
@@ -676,77 +640,67 @@ class TestSignalSpend(BaseTest):
             run.save(update_fields=["state"])
         self._refresh_task_spend(run_id=str(run.id), team_id=self.team.id)
 
-    @parameterized.expand([("research",), ("repo_selection",), ("implementation",)])
-    def test_late_task_cost_updates_charge_driver_once_and_preserve_fractional_cents(self, resumed_stage: str) -> None:
+    @parameterized.expand([("research",), ("repo_selection",)])
+    def test_task_cost_updates_charge_exact_run_once(self, stage: str) -> None:
         driver, other = str(uuid4()), str(uuid4())
         report = SignalReport.objects.create(team=self.team, triggering_signal_id=driver)
-        research = self._run(report=report, stage=resumed_stage)
-        implementation = self._run(report=report, stage="implementation")
-        self._set_task_cost(research, 10_001)
-        self._set_task_cost(implementation, 25_002)
-        assert signal_spend_totals(team_id=self.team.id, signal_ids=[driver, other]) == {driver: 11.5003}
-
+        run = self._run(report=report, stage=stage)
+        self._set_task_cost(run, 10_001)
         report.triggering_signal_id = other
         report.save(update_fields=["triggering_signal_id"])
-        self._set_task_cost(research, 10_004)
-        assert signal_spend_totals(team_id=self.team.id, signal_ids=[driver, other]) == {driver: 11.5006}
-        assert SignalSpend.objects.for_team(self.team.id).count() == 1
-        self.temporal.reset_mock()
-        with self.captureOnCommitCallbacks(execute=True):
-            try:
-                with transaction.atomic():
-                    self._refresh_task_spend(run_id=str(research.id), team_id=self.team.id)
-                    raise RuntimeError("roll back task cost")
-            except RuntimeError:
-                pass
-        self.temporal.start_workflow.assert_not_called()
-
-        rerun = self._run(task=research.task, stage=resumed_stage)
+        self._set_task_cost(run, 10_004)
+        register_report_task_spend(
+            team_id=self.team.id, run_id=str(run.id), report_id=str(report.id), stage=stage, signal_id=other
+        )
+        rerun = self._run(task=run.task, stage=stage, signal_id=other)
         self._set_task_cost(rerun, 1)
-        assert signal_spend_totals(team_id=self.team.id, signal_ids=[driver, other]) == {driver: 11.5006, other: 4.0001}
-        assert research.id in SignalSpend.objects.for_team(self.team.id).get(signal_id=driver).task_run_ids
-        assert rerun.id in SignalSpend.objects.for_team(self.team.id).get(signal_id=other).task_run_ids
+        assert signal_spend_totals(team_id=self.team.id, signal_ids=[driver, other]) == {driver: 5.0004, other: 4.0001}
+        rows = SignalSpend.objects.for_team(self.team.id)
+        assert rows.get(task_run_id=run.id).signal_id == UUID(driver)
+        assert rows.get(task_run_id=rerun.id).signal_id == UUID(other)
+        assert set(rows.values_list("kind", flat=True)) == {stage}
 
-    @parameterized.expand([(False,), (True,)])
-    def test_signal_finalizes_after_pipeline_and_all_workflow_teardowns(self, implement: bool) -> None:
+    @parameterized.expand([("reviewer_triggered_implementation",), ("scout_triggered_implementation",)])
+    def test_each_kind_finalizes_independently_and_new_implementation_keeps_settled_rows(
+        self, implementation_kind: str
+    ) -> None:
         driver = str(uuid4())
         report = SignalReport.objects.create(
             team=self.team, triggering_signal_id=driver, status=SignalReport.Status.CANDIDATE
         )
         record_llm_spend("grouping", token_cost_microusd=100, team_id=self.team.id, signal_id=driver, stage="grouping")
         complete_signal_pipeline(team_id=self.team.id, signal_id=driver, report_id=str(report.id))
-        begin_report_spend(team_id=self.team.id, report_id=str(report.id), signal_id=driver)
         research = self._run(report=report)
-        self._set_task_cost(research, 10_000)
-        research.status = TaskRun.Status.COMPLETED
-        research.save(update_fields=["status"])
-        self._complete_task_spend(team_id=self.team.id, run_id=str(research.id))
-        spend = SignalSpend.objects.for_team(self.team.id).get(signal_id=driver)
-        self.assertIsNone(spend.finalized_at)  # The summary workflow can still start implementation.
-
-        report.status = SignalReport.Status.READY
-        report.save(update_fields=["status"])
-        implementation = self._run(report=report, stage="implementation") if implement else None
-        finish_report_spend(team_id=self.team.id, signal_id=driver, report_id=str(report.id))
-        spend.refresh_from_db()
-        assert (spend.finalized_at is None) is implement
-        if implementation:
-            self._set_task_cost(implementation, 20_000)
-            implementation.status = TaskRun.Status.COMPLETED
-            implementation.save(update_fields=["status"])
-            self._refresh_task_spend(team_id=self.team.id, run_id=str(implementation.id))
-            spend.refresh_from_db()
-            self.assertIsNone(spend.finalized_at)  # Terminal status alone is insufficient.
-            self._complete_task_spend(team_id=self.team.id, run_id=str(implementation.id))
-            spend.refresh_from_db()
-        self.assertIsNotNone(spend.finalized_at)
-        assert spend.spend == (Decimal("11.01") if implement else Decimal("5.01"))
-        assert SignalSpend.objects.for_team(self.team.id).count() == 1
-        finalized_at = spend.finalized_at
-        finish_report_spend(team_id=self.team.id, signal_id=driver, report_id=str(report.id))
-        self._complete_task_spend(team_id=self.team.id, run_id=str(research.id))
-        spend.refresh_from_db()
-        assert spend.finalized_at == finalized_at
+        repo = self._run(report=report, stage="repo_selection")
+        for run in (research, repo):
+            self._set_task_cost(run, 10_000)
+            run.status = TaskRun.Status.COMPLETED
+            run.save(update_fields=["status"])
+            self._complete_task_spend(team_id=self.team.id, run_id=str(run.id))
+        rows = SignalSpend.objects.for_team(self.team.id)
+        assert rows.filter(signal_id=driver, finalized_at__isnull=False).count() == 2
+        implementation = self._run(report=report, stage="implementation", implementation_kind=implementation_kind)
+        finish_report_spend(team_id=self.team.id, report_id=str(report.id), signal_id=driver)
+        assert rows.filter(signal_id=driver, finalized_at__isnull=False).count() == 3
+        before = list(rows.filter(signal_id=driver).order_by("id").values())
+        for run in (
+            implementation,
+            self._run(task=implementation.task, stage="implementation", implementation_kind=implementation_kind),
+        ):
+            self._set_task_cost(run, 20_000)
+            run.status = TaskRun.Status.COMPLETED
+            run.save(update_fields=["status"])
+            self._complete_task_spend(team_id=self.team.id, run_id=str(run.id))
+            self._complete_task_spend(team_id=self.team.id, run_id=str(run.id))
+            row = rows.get(task_run_id=run.id)
+            assert row.report_id == report.id
+            assert row.signal_id is None
+            assert row.kind == implementation_kind
+            assert row.spend == Decimal(6)
+            assert row.finalized_at is not None
+        assert list(rows.filter(signal_id=driver).order_by("id").values()) == before
+        assert signal_spend_totals(team_id=self.team.id, signal_ids=[driver]) == {driver: 10.01}
+        assert rows.filter(report=report).count() == 2
 
     @parameterized.expand([("inbox",), ("",)])
     def test_manual_report_run_leaves_finalized_signal_spend_unchanged(self, stage: str) -> None:
@@ -769,46 +723,36 @@ class TestSignalSpend(BaseTest):
         self._complete_task_spend(team_id=self.team.id, run_id=str(resumed.id))
         assert SignalSpend.objects.for_team(self.team.id).values().get() == before
 
-    @parameterized.expand([("research",), ("repo_selection",), ("implementation",)])
+    @parameterized.expand([("research",), ("repo_selection",)])
     def test_resumed_task_belongs_to_new_signal_and_preserves_finalized_owner(self, stage: str) -> None:
         driver, other = str(uuid4()), str(uuid4())
-        report = SignalReport.objects.create(
-            team=self.team, triggering_signal_id=driver, status=SignalReport.Status.READY
-        )
-        run = self._run(report=report, stage="implementation")
-        SignalReportTask.objects.create(team=self.team, report=report, task=run.task, relationship="implementation")
+        report = SignalReport.objects.create(team=self.team, triggering_signal_id=driver)
+        run = self._run(report=report, stage=stage)
         self._set_task_cost(run, 100)
         run.status = TaskRun.Status.COMPLETED
         run.save(update_fields=["status"])
         self._complete_task_spend(team_id=self.team.id, run_id=str(run.id))
-        before = SignalSpend.objects.for_team(self.team.id).filter(signal_id=driver).values().get()
-        self.assertIsNotNone(before["finalized_at"])
+        before = SignalSpend.objects.for_team(self.team.id).get(task_run_id=run.id)
         resumed = self._run(task=run.task, stage=stage, signal_id=other)
         self._set_task_cost(resumed, 200)
         resumed.status = TaskRun.Status.FAILED
         resumed.save(update_fields=["status"])
-        finish_report_spend(team_id=self.team.id, report_id=str(report.id), signal_id=other)
         self.temporal.execute_update_with_start_workflow.side_effect = RuntimeError("Kafka delivery failed")
         with self.assertRaisesRegex(RuntimeError, "Kafka delivery failed"):
             self._complete_task_spend(team_id=self.team.id, run_id=str(resumed.id))
         self.temporal.execute_update_with_start_workflow.side_effect = None
         self._complete_task_spend(team_id=self.team.id, run_id=str(resumed.id))
-        # Late retries of the old run cannot move it to the report's new driver.
         register_report_task_spend(
-            team_id=self.team.id,
-            run_id=str(run.id),
-            report_id=str(report.id),
-            stage="implementation",
-            signal_id=other,
+            team_id=self.team.id, run_id=str(run.id), report_id=str(report.id), stage=stage, signal_id=other
         )
-        self._complete_task_spend(team_id=self.team.id, run_id=str(run.id))
-        assert SignalSpend.objects.for_team(self.team.id).filter(signal_id=driver).values().get() == before
-        spend = SignalSpend.objects.for_team(self.team.id).get(signal_id=other)
-        self.assertIsNotNone(spend.finalized_at)
-        assert spend.spend == Decimal("4.02")
-        assert spend.task_run_ids == [resumed.id]
+        after = SignalSpend.objects.for_team(self.team.id).get(task_run_id=run.id)
+        assert (after.signal_id, after.spend, after.finalized_at) == (
+            before.signal_id,
+            before.spend,
+            before.finalized_at,
+        )
         assert signal_spend_totals(team_id=self.team.id, signal_ids=[driver, other]) == {driver: 4.01, other: 4.02}
-        assert SignalSpend.objects.for_team(self.team.id).count() == 2
+        assert SignalSpend.objects.for_team(self.team.id).get(task_run_id=resumed.id).finalized_at is not None
 
     @parameterized.expand([(SignalReport.Status.READY,), (SignalReport.Status.CANDIDATE,)])
     def test_pipeline_handoff_stays_open_until_summary_completion(self, status: str) -> None:
@@ -818,11 +762,7 @@ class TestSignalSpend(BaseTest):
         complete_signal_pipeline(team_id=self.team.id, signal_id=driver, report_id=str(report.id))
         spend = SignalSpend.objects.for_team(self.team.id).get(signal_id=driver)
         self.assertIsNone(spend.finalized_at)
-        if status == SignalReport.Status.CANDIDATE:
-            finish_report_spend(team_id=self.team.id, signal_id=driver, report_id=str(report.id))
-            spend.refresh_from_db()
-            self.assertIsNone(spend.finalized_at)
-        async_to_sync(complete_report_spend)(team_id=self.team.id, signal_id=driver, report_id=str(report.id))
+        finish_report_spend(team_id=self.team.id, signal_id=driver, report_id=str(report.id))
         spend.refresh_from_db()
         self.assertIsNotNone(spend.finalized_at)
 
@@ -841,7 +781,9 @@ class TestSignalSpend(BaseTest):
         assert spend.spend == Decimal("0.01")
         assert signal_spend_totals(team_id=self.team.id, signal_ids=[driver, str(uuid4())]) == {driver: 0.01}
         with self.assertRaises(IntegrityError), transaction.atomic():
-            SignalSpend.objects.for_team(self.team.id).create(team_id=self.team.id, signal_id=driver)
+            SignalSpend.objects.for_team(self.team.id).create(
+                team_id=self.team.id, signal_id=driver, kind=SignalSpend.Kind.AD_HOC
+            )
 
     def test_older_workers_cannot_replace_new_owner_spend_during_cutover(self) -> None:
         driver = str(uuid4())
@@ -934,7 +876,7 @@ class TestSignalSpend(BaseTest):
         owner = SignalSpend.objects.for_team(self.team.id).get(scout_run=scout)
         assert owner.created_at == scout.created_at
         assert owner.spend == Decimal("4.02")
-        assert owner.task_run_ids == [run.id]
+        assert owner.task_run_id == run.id
         assert owner.finalized_at is None  # Legacy status cannot prove teardown completion.
         record_llm_spend("new-call", token_cost_microusd=300, team_id=self.team.id, signal_id=driver, stage="grouping")
         old.token_cost_microusd = 150
@@ -958,10 +900,11 @@ class TestSignalSpend(BaseTest):
     def test_spend_reads_do_not_reopen_or_bill_a_completed_owner(self) -> None:
         driver = str(uuid4())
         report = SignalReport.objects.create(team=self.team, triggering_signal_id=driver)
+        record_llm_spend("initial", token_cost_microusd=0, team_id=self.team.id, signal_id=driver, stage="grouping")
         run = self._run(report=report)
         self._set_task_cost(run, 10_000)
         SignalSpend.objects.for_team(self.team.id).filter(signal_id=driver).update(finalized_at=timezone.now())
-        before = SignalSpend.objects.for_team(self.team.id).filter(signal_id=driver).values().get()
+        before = list(SignalSpend.objects.for_team(self.team.id).filter(signal_id=driver).order_by("id").values())
         run.state = {"ai_stage": "research", "token_cost": {"model": {"provider": {"cost_microusd": 20_000}}}}
         run.save(update_fields=["state"])
         with CaptureQueriesContext(connection) as queries:
@@ -969,9 +912,53 @@ class TestSignalSpend(BaseTest):
         assert all(query["sql"].startswith("SELECT") and "FOR UPDATE" not in query["sql"] for query in queries)
         self._refresh_task_spend(team_id=self.team.id, run_id=str(run.id))
         begin_report_spend(team_id=self.team.id, report_id=str(report.id), signal_id=driver)
-        record_llm_spend("late-call", token_cost_microusd=100, team_id=self.team.id, signal_id=driver, stage="grouping")
+        with self.assertRaises(ValueError):
+            record_llm_spend(
+                "late-call", token_cost_microusd=100, team_id=self.team.id, signal_id=driver, stage="grouping"
+            )
         complete_signal_pipeline(team_id=self.team.id, signal_id=driver)
-        assert SignalSpend.objects.for_team(self.team.id).filter(signal_id=driver).values().get() == before
+        assert (
+            list(SignalSpend.objects.for_team(self.team.id).filter(signal_id=driver).order_by("id").values()) == before
+        )
+
+    @parameterized.expand(
+        [
+            (stage, after_migration)
+            for stage in ("research", "repo_selection", "implementation")
+            for after_migration in (False, True)
+        ]
+    )
+    def test_legacy_task_settles_its_exact_run_under_the_new_owner(self, stage: str, after_migration: bool) -> None:
+        driver = str(uuid4())
+        report = SignalReport.objects.create(team=self.team, triggering_signal_id=driver)
+        run = self._run(report=report, stage=stage)
+        self._set_task_cost(run, 12_345)
+        run.status = TaskRun.Status.COMPLETED
+        run.save(update_fields=["status"])
+        SignalSpend.objects.for_team(self.team.id).filter(task_run_id=run.id).delete()
+        LegacySignalSpend.objects.for_team(self.team.id).create(
+            team=self.team,
+            signal_id=driver,
+            source_id=str(run.id),
+            task_id=run.task_id,
+            stage=stage,
+            is_task=True,
+            token_cost_microusd=12_345,
+        )
+        if not after_migration:
+            migration = import_module("products.signals.backend.migrations.0199_backfill_owner_spend")
+            for _ in range(2):
+                migration.backfill_owner_spend(apps, SimpleNamespace(connection=connection))
+        for _ in range(2):
+            self._complete_task_spend(team_id=self.team.id, run_id=str(run.id))
+        row = SignalSpend.objects.for_team(self.team.id).get(task_run_id=run.id)
+        assert row.kind == (SignalSpend.Kind.REVIEWER_TRIGGERED_IMPLEMENTATION if stage == "implementation" else stage)
+        assert row.signal_id == (None if stage == "implementation" else UUID(driver))
+        assert row.report_id == (report.id if stage == "implementation" else None)
+        assert row.created_at == run.created_at
+        assert row.spend == Decimal("5.2345")
+        assert row.finalized_at is not None
+        assert SignalSpend.objects.for_team(self.team.id).count() == 1
 
     def test_report_reassignment_and_deletion_do_not_leave_spend_open(self) -> None:
         driver = str(uuid4())
@@ -1005,40 +992,19 @@ class TestSignalSpend(BaseTest):
         assert signal_spend_totals(team_id=self.team.id, signal_ids=[driver]) == {driver: 5.0001}
         self.temporal.start_workflow.assert_not_called()
 
-    @parameterized.expand(
-        [
-            (SignalReport.Status.CANDIDATE, None),
-            (SignalReport.Status.READY, None),
-            (SignalReport.Status.READY, TaskRun.Status.COMPLETED),
-            (SignalReport.Status.READY, TaskRun.Status.FAILED),
-            (SignalReport.Status.READY, TaskRun.Status.CANCELLED),
-        ]
-    )
-    def test_report_publishes_at_research_or_implementation_completion(
-        self, report_status: str, implementation_status: str | None
-    ) -> None:
+    @parameterized.expand([("research", True), ("repo_selection", True), ("implementation", False)])
+    def test_only_signal_owned_tasks_publish_signal_metadata(self, stage: str, publishes: bool) -> None:
         driver = str(uuid4())
-        report = SignalReport.objects.create(team=self.team, triggering_signal_id=driver, status=report_status)
-        research = self._run(report=report)
-        self._set_task_cost(research, 10_001)
-        implementation = None
-        if implementation_status:
-            implementation = self._run(report=report, stage="implementation")
-            SignalReportTask.objects.create(
-                team=self.team, report=report, task_id=implementation.task_id, relationship="implementation"
-            )
-            self._set_task_cost(implementation, 20_002)
-        async_to_sync(publish_report_spend)(team_id=self.team.id, signal_id=driver, report_id=str(report.id))
-        if implementation is not None:
-            self.temporal.start_workflow.assert_not_called()
-            assert implementation_status is not None
-            implementation.status = implementation_status
-            implementation.save(update_fields=["status"])
-            self._complete_task_spend(team_id=self.team.id, run_id=str(implementation.id))
-        self.temporal.execute_update_with_start_workflow.assert_awaited_once()
-        assert signal_spend_totals(team_id=self.team.id, signal_ids=[driver]) == {
-            driver: 11.0003 if implementation else 5.0001
-        }
+        report = SignalReport.objects.create(team=self.team, triggering_signal_id=driver)
+        run = self._run(report=report, stage=stage)
+        self._set_task_cost(run, 10_001)
+        run.status = TaskRun.Status.COMPLETED
+        run.save(update_fields=["status"])
+        self._complete_task_spend(team_id=self.team.id, run_id=str(run.id))
+        assert self.temporal.execute_update_with_start_workflow.await_count == int(publishes)
+        spend = SignalSpend.objects.for_team(self.team.id).get(task_run_id=run.id)
+        assert spend.spend == Decimal("5.0001")
+        assert spend.finalized_at is not None
 
     @parameterized.expand([(False,), (True,)])
     @override_settings(SANDBOX_AI_GATEWAY_URL="https://gateway.example", SANDBOX_AI_GATEWAY_MINT_KEY="test-key")
@@ -1177,50 +1143,31 @@ class TestSignalSpend(BaseTest):
         assert spend.finalized_at is not None
         assert spend.spend == Decimal("16.3456")
 
-    @parameterized.expand(
-        [
-            ("generation", "actionability"),
-            ("task", "research"),
-            ("pipeline", "pipeline_completion"),
-            ("report_start", "report_start"),
-        ]
-    )
-    def test_accounting_database_failure_does_not_abort_pipeline_transaction(self, source: str, stage: str) -> None:
+    @parameterized.expand([("generation",), ("task",), ("pipeline",), ("report_start",)])
+    def test_accounting_failure_does_not_silently_create_untracked_work(self, source: str) -> None:
         driver = str(uuid4())
-        report = SignalReport.objects.create(
-            team=self.team, triggering_signal_id=driver, status=SignalReport.Status.READY
-        )
-        existing_run = self._run(report=report) if source == "task_cost" else None
+        report = SignalReport.objects.create(team=self.team, triggering_signal_id=driver)
 
         def fail_spend_query(
             execute: Callable[..., object], sql: str, params: object, many: bool, context: object
         ) -> object:
-            if sql.startswith('INSERT INTO "signals_ownerspend"') or (
-                source in {"task_cost", "report_finish"} and sql.startswith("SELECT") and '"signals_ownerspend"' in sql
-            ):
-                return execute("SELECT 1 / 0", (), False, context)
+            if sql.startswith('INSERT INTO "signals_ownerspend"'):
+                raise RuntimeError("Accounting unavailable")
             return execute(sql, params, many, context)
 
-        with capture_logs() as logs, connection.execute_wrapper(fail_spend_query):
-            if existing_run is not None:
-                with self.captureOnCommitCallbacks(execute=True):
-                    self._refresh_task_spend(run_id=str(existing_run.id), team_id=self.team.id)
-            elif source == "task":
-                run = self._run(report=report)
-                assert TaskRun.objects.filter(id=run.id).exists()
+        with (
+            connection.execute_wrapper(fail_spend_query),
+            self.assertRaisesRegex(RuntimeError, "Accounting unavailable"),
+        ):
+            if source == "task":
+                self._run(report=report)
             elif source == "pipeline":
                 complete_signal_pipeline(team_id=self.team.id, signal_id=driver)
             elif source == "report_start":
                 begin_report_spend(team_id=self.team.id, signal_id=driver, report_id=str(report.id))
-            elif source == "report_finish":
-                finish_report_spend(team_id=self.team.id, signal_id=driver, report_id=str(report.id))
             else:
                 record_llm_spend(
-                    "example-request",
-                    token_cost_microusd=123,
-                    team_id=self.team.id,
-                    signal_id=driver,
-                    stage="actionability",
+                    "example", token_cost_microusd=123, team_id=self.team.id, signal_id=driver, stage="actionability"
                 )
-        assert SignalReport.objects.filter(id=report.id).exists()
-        assert any(log["event"] == "signals.spend.accounting_failed" and log["stage"] == stage for log in logs)
+        assert not SignalSpend.objects.for_team(self.team.id).exists()
+        assert not TaskRun.objects.filter(team_id=self.team.id).exists()

@@ -20,7 +20,7 @@ from products.signals.backend.enums import ReportLinkKind
 from products.signals.backend.models import SignalEmissionRecord, SignalReport, SignalReportArtefact, SignalSpend
 from products.signals.backend.quota import SelfDrivingQuotaGate
 from products.signals.backend.report_merge import MERGE_DISMISSAL_REASON
-from products.signals.backend.spend import complete_report_spend, record_llm_spend
+from products.signals.backend.spend import finish_report_spend, record_llm_spend
 from products.signals.backend.temporal.grouping import (
     WEIGHT_THRESHOLD,
     AssignAndEmitSignalInput,
@@ -308,7 +308,9 @@ async def test_candidate_returns_promoted_true_without_changing_status(ateam, pr
         token_cost_microusd=None if previous_pass == "accounting_failed" else 10000,
     )
     if previous_pass != "active":
-        await complete_report_spend(team_id=ateam.id, report_id=str(report.id), signal_id=str(original_driver))
+        await database_sync_to_async(finish_report_spend)(
+            team_id=ateam.id, report_id=str(report.id), signal_id=str(original_driver)
+        )
     old_spend = await database_sync_to_async(
         lambda: SignalSpend.objects.for_team(ateam.id).filter(signal_id=original_driver).values().get()
     )()

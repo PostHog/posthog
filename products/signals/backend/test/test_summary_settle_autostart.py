@@ -325,7 +325,6 @@ async def test_signal_during_buffer_re_researches_instead_of_implementing():
     assert recorder.researches == 2
     assert recorder.spend_owners == [str(uuid.UUID(int=1)), str(uuid.UUID(int=2))]
     assert recorder.work_owners == [str(uuid.UUID(int=1))] * 3 + [str(uuid.UUID(int=2))] * 3
-    assert recorder.autostart_inputs[0].signal_id == str(uuid.UUID(int=2))
     assert recorder.candidate_checks == 2
     assert recorder.autostarts == 1
     # Only the settled run notifies, so no card goes out for the summary the re-research replaced.
