@@ -23,6 +23,7 @@ import type { LineageResponseApi, NodeApi } from 'products/data_modeling/fronten
 import {
     warehouseSavedQueriesList,
     warehouseSavedQueriesMaterializeCreate,
+    warehouseSavedQueriesPartialUpdate,
 } from 'products/data_warehouse/frontend/generated/api'
 
 import type { DatabaseSchemaViewTable } from '../../../queries/schema/schema-general'
@@ -91,7 +92,7 @@ export interface DataWarehouseSavedQueryUpdate extends Partial<DataWarehouseSave
 }
 
 export async function renameDataWarehouseSavedQuery(viewId: string, name: string): Promise<void> {
-    await api.dataWarehouseSavedQueries.update(viewId, { name })
+    await warehouseSavedQueriesPartialUpdate(String(ApiConfig.getCurrentTeamId()), viewId, { name })
 }
 
 // A plain function, not a logic action: the toast that calls it can outlive the logic, and an
