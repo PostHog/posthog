@@ -650,6 +650,8 @@ class SignalReport(UUIDModel):
                 self.title = title
                 self.summary = summary
                 self.error = None
+                self.research_blocked_at = None
+                updated_fields.add("research_blocked_at")
                 updated_fields.update(["title", "summary", "error"])
 
             # A `None` title or summary keeps the current one, so a run that did no research (e.g. no
@@ -664,6 +666,8 @@ class SignalReport(UUIDModel):
                     self.summary = summary
                     updated_fields.add("summary")
                 self.error = error
+                self.research_blocked_at = None
+                updated_fields.add("research_blocked_at")
                 updated_fields.add("error")
 
             # Reset to potential (from in_progress via actionability judge, from suppressed, or by user snooze)

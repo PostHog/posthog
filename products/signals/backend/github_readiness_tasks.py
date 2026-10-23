@@ -44,8 +44,11 @@ async def start_recovered_report(team_id: int, report_id: str) -> None:
 
 @shared_task(queue=CeleryQueue.DEFAULT.value, ignore_result=True, soft_time_limit=240, time_limit=300)
 @with_team_scope()
-def resume_github_blocked_reports(team_id: int, after_report_id: str | None = None) -> None:
-    reports = SignalReport.objects.filter(github_blocked_reports(), team_id=team_id)
+def resume_github_blocked_reports(
+    team_id: int, after_report_id: str | None = None, *, connection_restored: bool = False
+) -> None:
+    eligible = github_blocked_reports(connection_restored=connection_restored)
+    reports = SignalReport.objects.filter(eligible, team_id=team_id)
     if after_report_id:
         reports = reports.filter(id__gt=after_report_id)
     if not reports.exists():
@@ -57,36 +60,32 @@ def resume_github_blocked_reports(team_id: int, after_report_id: str | None = No
         return
     readiness = get_team_github_readiness(team_id, verify=True)
     if readiness.status != GitHubReadinessStatus.READY:
+        reports.filter(status=SignalReport.Status.CANDIDATE).update(research_blocked_reason=readiness.status)
         return
     report_ids = list(reports.order_by("id").values_list("id", flat=True)[:RECOVERY_BATCH_SIZE])
     for report_id in report_ids:
         with transaction.atomic():
-            report = (
-                SignalReport.objects.select_for_update()
-                .filter(github_blocked_reports(), team_id=team_id, id=report_id)
-                .first()
-            )
+            report = SignalReport.objects.select_for_update().filter(eligible, team_id=team_id, id=report_id).first()
             if report is None:
                 continue
             if report.status == SignalReport.Status.PENDING_INPUT:
                 fields = report.transition_to(SignalReport.Status.POTENTIAL)
                 fields.extend(report.transition_to(SignalReport.Status.CANDIDATE))
                 report.research_blocked_reason = GitHubReadinessStatus.NOT_CONNECTED
-                report.save(update_fields=[*set(fields), "research_blocked_reason"])
+                report.research_blocked_at = report.last_run_at or report.created_at
+                report.save(update_fields=[*set(fields), "research_blocked_reason", "research_blocked_at"])
         async_to_sync(start_recovered_report)(team_id, str(report_id))
     if len(report_ids) == RECOVERY_BATCH_SIZE:
-        resume_github_blocked_reports.apply_async(args=[team_id, str(report_ids[-1])], countdown=60)
+        resume_github_blocked_reports.apply_async(
+            args=[team_id, str(report_ids[-1])], kwargs={"connection_restored": connection_restored}, countdown=60
+        )
 
 
 @shared_task(queue=CeleryQueue.DEFAULT.value, ignore_result=True, soft_time_limit=60, time_limit=90)
 @skip_team_scope_audit
 def sweep_github_blocked_reports(after_team_id: int = 0) -> None:
     team_ids = list(
-        SignalReport.objects.filter(
-            research_blocked_reason__isnull=False,
-            status=SignalReport.Status.CANDIDATE,
-            team_id__gt=after_team_id,
-        )
+        SignalReport.objects.filter(github_blocked_reports(), team_id__gt=after_team_id)
         .order_by("team_id")
         .values_list("team_id", flat=True)
         .distinct()[:100]

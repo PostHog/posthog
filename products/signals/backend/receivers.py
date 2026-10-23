@@ -64,7 +64,9 @@ def resume_reports_after_github_access_change(sender: type, installation_id: str
     def enqueue() -> None:
         for team_id in team_ids:
             if cache.add(f"signals:github-recovery:{team_id}", True, timeout=60):
-                resume_github_blocked_reports.delay(team_id)
+                resume_github_blocked_reports.apply_async(
+                    args=[team_id], kwargs={"connection_restored": True}, countdown=60
+                )
 
     transaction.on_commit(enqueue, robust=True)
 

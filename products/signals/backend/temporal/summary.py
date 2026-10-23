@@ -360,7 +360,9 @@ class SignalReportSummaryWorkflow:
             return False
         if workflow.patched("signals-github-readiness") and not await workflow.execute_activity(
             check_report_github_readiness_activity,
-            CheckReportGitHubReadinessInput(team_id=inputs.team_id, report_id=inputs.report_id),
+            CheckReportGitHubReadinessInput(
+                team_id=inputs.team_id, report_id=inputs.report_id, recovery=inputs.github_recovery
+            ),
             start_to_close_timeout=timedelta(minutes=5),
             retry_policy=RetryPolicy(maximum_attempts=3),
         ):
