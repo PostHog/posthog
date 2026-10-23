@@ -23,7 +23,6 @@ export function pendingOAuthConnectionProperties(): { oauth_client_name?: string
     return { oauth_client_name: connection?.clientName, oauth_client_id: connection?.clientId }
 }
 
-/** One event for every screen of the login and signup flow, so a single funnel covers both. */
 export function captureAuthStepViewed(step: AuthStep, entry: AuthEntry | null): void {
     // pinned: analytics event name
     posthog.capture('auth step viewed', { step, entry, ...pendingOAuthConnectionProperties() })
