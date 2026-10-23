@@ -816,6 +816,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         acting_user_id: int | None = None,
         scheduled_at: datetime | None = None,
         startup_requested_at: datetime | None = None,
+        spend_signal_id: str | None = None,
     ) -> "TaskRun":
         startup_requested_at = startup_requested_at or django_timezone.now()
         if scheduled_at is not None and django_timezone.is_naive(scheduled_at):
@@ -966,6 +967,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
                     run_id=str(task_run.id),
                     report_id=str(task.signal_report_id),
                     stage=state.get("ai_stage"),
+                    signal_id=spend_signal_id,
                 )
 
             def emit_created_events() -> None:
@@ -1547,6 +1549,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         posthog_mcp_scopes: PosthogMcpScopes = "full",
         branch: str | None = None,
         signal_report_id: str | None = None,
+        spend_signal_id: str | None = None,
         hog_flow_id: uuid.UUID | None = None,
         origin_key: str | None = None,
         extra_run_state: dict[str, Any] | None = None,
@@ -1677,6 +1680,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
                 acting_user_id=user_id,
                 scheduled_at=scheduled_at,
                 startup_requested_at=startup_requested_at,
+                spend_signal_id=spend_signal_id,
             )
             if before_task_dispatch is not None:
                 initial_state = before_task_dispatch(task_run.id)

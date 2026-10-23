@@ -126,6 +126,12 @@ For information from a private repository or another explicitly private source, 
 Each candidate carries a private, public, or unknown label from the cached GitHub repository list, so the agent does not query GitHub for visibility.
 This is prompt guidance, not an enforced access control, and it does not validate repositories selected outside the agent.
 
+## Research spend ownership
+
+Each report-generation pass carries its triggering signal ID through safety evaluation, repository selection, research, and automatic implementation. Task runs bind to that owner when they are created; retries of the same run preserve it even if the report later gets another trigger.
+
+A report can remain `CANDIDATE` after a pass exits at a quota gate or defers because assigned signals are not yet readable. Completion releases that pass's trigger in the same transaction as its accounting update, including when accounting failed and the spend cannot finalize. The next signal can then reserve a new pass. Signals arriving while a pass is still waiting to start keep its existing trigger; they do not take ownership of its work.
+
 ## Reviewer notifications
 
 Research suggests reviewers from relevant commit authors and recent code activity. It also checks the finding's relevant paths against `owners.yaml` and the connected repository's CODEOWNERS. When they disagree, the `owners.yaml` owner comes first and a routable CODEOWNERS owner follows. A human edit to the report's reviewer list stays in place on later research runs. Missing ownership files or paths leave the existing author-based suggestions unchanged. Scout-authored reports use their own reviewer selection guidance.

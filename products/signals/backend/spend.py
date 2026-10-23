@@ -390,8 +390,9 @@ def record_task_cost_delta(*, team_id: int, run_id: UUID, cost_delta_microusd: i
         _save_spend(spend)
 
 
-def register_report_task_spend(*, team_id: int, run_id: str, report_id: str, stage: str | None) -> None:
-    signal_id: str | None
+def register_report_task_spend(
+    *, team_id: int, run_id: str, report_id: str, stage: str | None, signal_id: str | None = None
+) -> None:
     try:
         with transaction.atomic():
             previous = (
@@ -407,7 +408,7 @@ def register_report_task_spend(*, team_id: int, run_id: str, report_id: str, sta
             else:
                 if stage not in {"research", "implementation", "repo_selection"}:
                     return
-                signal_id = report_triggering_signal(team_id=team_id, report_id=report_id)
+                signal_id = signal_id or report_triggering_signal(team_id=team_id, report_id=report_id)
             record_task_spend(
                 team_id=team_id,
                 run_id=run_id,
@@ -473,7 +474,7 @@ def begin_report_spend(*, team_id: int, report_id: str, signal_id: str) -> None:
 
 def finish_report_spend(*, team_id: int, report_id: str, signal_id: str, allow_candidate: bool = False) -> None:
     with transaction.atomic():
-        report = SignalReport.objects.filter(team_id=team_id, id=report_id).first()
+        report = SignalReport.objects.select_for_update().filter(team_id=team_id, id=report_id).first()
         if (
             report
             and report.triggering_signal_id == UUID(signal_id)
@@ -487,6 +488,15 @@ def finish_report_spend(*, team_id: int, report_id: str, signal_id: str, allow_c
             if report:
                 apply_report_billing(spend, report)
             _save_spend(spend, finalize=True)
+
+        if (
+            allow_candidate
+            and report
+            and report.status == SignalReport.Status.CANDIDATE
+            and report.triggering_signal_id == UUID(signal_id)
+        ):
+            report.triggering_signal_id = None
+            report.save(update_fields=["triggering_signal_id"])
 
 
 def _report_implementation_runs(*, team_id: int, report_id: str, signal_id: str) -> list[TaskRunDTO]:

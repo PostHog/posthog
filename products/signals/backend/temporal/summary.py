@@ -274,10 +274,11 @@ class SignalReportSummaryWorkflow:
                     retry_policy=RetryPolicy(maximum_attempts=3),
                 )
                 try:
-                    should_loop = await self._run_once(inputs, log)
+                    should_loop = await self._run_once(replace(inputs, signal_id=signal_id), log)
                 finally:
                     if signal_id:
                         await self._publish_spend(replace(inputs, signal_id=signal_id))
+                inputs = replace(inputs, signal_id=None)
             else:
                 should_loop = await self._run_once(inputs, log)
             if not should_loop:
@@ -414,6 +415,7 @@ class SignalReportSummaryWorkflow:
             MarkReportInProgressInput(
                 team_id=inputs.team_id,
                 report_id=inputs.report_id,
+                signal_id=inputs.signal_id,
                 signal_count=signal_count,
                 source_products=source_products,
             ),
@@ -427,6 +429,7 @@ class SignalReportSummaryWorkflow:
                 SafetyJudgeInput(
                     team_id=inputs.team_id,
                     report_id=inputs.report_id,
+                    signal_id=inputs.signal_id,
                     signals=fetch_result.signals,
                 ),
                 start_to_close_timeout=timedelta(minutes=5),
@@ -471,6 +474,7 @@ class SignalReportSummaryWorkflow:
                 SelectRepositoryInput(
                     team_id=inputs.team_id,
                     report_id=inputs.report_id,
+                    signal_id=inputs.signal_id,
                     signals=fetch_result.signals,
                 ),
                 # Budget = heavy-cache warmup (cold, ≤1000 repos, rate-limit backoffs) +
@@ -509,6 +513,7 @@ class SignalReportSummaryWorkflow:
                     RunAgenticReportInput(
                         team_id=inputs.team_id,
                         report_id=inputs.report_id,
+                        signal_id=inputs.signal_id,
                         signals=fetch_result.signals,
                         repo_selection=repo_result,
                         repo_selection_as_of=repo_selection_as_of,
@@ -672,6 +677,7 @@ class SignalReportSummaryWorkflow:
                             MaybeAutostartImplementationInput(
                                 team_id=inputs.team_id,
                                 report_id=inputs.report_id,
+                                signal_id=inputs.signal_id,
                                 requested_user_id=inputs.requested_implementation_user_id,
                                 requested_task_id=inputs.requested_implementation_task_id,
                                 requested_after_run_count=inputs.requested_after_run_count,
@@ -823,12 +829,13 @@ async def revert_report_to_candidate_activity(input: RevertReportToCandidateInpu
     )
 
 
-@dataclass
+@dataclass(frozen=False)
 class MarkReportInProgressInput:
     team_id: int
     report_id: str
     signal_count: int
     source_products: list[str] = field(default_factory=list)
+    signal_id: str | None = None
 
 
 @temporalio.activity.defn
@@ -848,10 +855,9 @@ async def mark_report_in_progress_activity(input: MarkReportInProgressInput) -> 
             report = SignalReport.objects.select_for_update().get(id=input.report_id, team_id=input.team_id)
             if report.status == SignalReport.Status.IN_PROGRESS:
                 return report.run_count, True
-            if report.triggering_signal_id:
-                begin_report_spend(
-                    team_id=input.team_id, report_id=input.report_id, signal_id=str(report.triggering_signal_id)
-                )
+            signal_id = input.signal_id or (str(report.triggering_signal_id) if report.triggering_signal_id else None)
+            if signal_id:
+                begin_report_spend(team_id=input.team_id, report_id=input.report_id, signal_id=signal_id)
             updated_fields = report.transition_to(
                 SignalReport.Status.IN_PROGRESS, signals_at_run_increment=SIGNALS_AT_RUN_INCREMENT
             )
@@ -1176,6 +1182,7 @@ class MaybeAutostartImplementationInput:
     requested_user_id: int | None = None
     requested_task_id: str | None = None
     requested_after_run_count: int | None = None
+    signal_id: str | None = None
 
 
 @temporalio.activity.defn
@@ -1204,7 +1211,7 @@ async def maybe_autostart_implementation_activity(input: MaybeAutostartImplement
         )
     else:
         await maybe_autostart_from_report_artefacts(
-            team_id=input.team_id, report_id=input.report_id, ch_user=ClickHouseUser.SIGNALS
+            team_id=input.team_id, report_id=input.report_id, signal_id=input.signal_id, ch_user=ClickHouseUser.SIGNALS
         )
         # A plan never starts its own run, so its first layers start here, at the same settle point.
         await database_sync_to_async(start_unblocked_layers_of_plan, thread_sensitive=False)(
@@ -1532,4 +1539,6 @@ async def publish_report_spend_activity(input: SignalReportSummaryWorkflowInputs
 @scoped_temporal()
 @close_db_connections
 async def report_spend_owner_activity(input: SignalReportSummaryWorkflowInputs) -> str | None:
-    return await database_sync_to_async(report_triggering_signal)(team_id=input.team_id, report_id=input.report_id)
+    return input.signal_id or await database_sync_to_async(report_triggering_signal)(
+        team_id=input.team_id, report_id=input.report_id
+    )

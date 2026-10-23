@@ -755,6 +755,7 @@ class AssignAndEmitSignalOutput:
     # The title the report holds after assignment. It differs from `updated_title` when assignment keeps a
     # researched title. None when no title is known, which includes results recorded before this field existed.
     report_title: Optional[str] = None
+    triggering_signal_id: str | None = None
 
 
 @frozen
@@ -775,6 +776,7 @@ class AssignAndEmitDbResult:
     # What the report's last completed pass covered, for the same reason.
     report_signals_researched: int = 0
     report_title: Optional[str] = None
+    triggering_signal_id: str | None = None
 
 
 def _link_check_follow_up(*, team_id: int, report_id: str, source_product: str, extra: dict) -> None:
@@ -964,14 +966,15 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                     # first matching signal after the limit lifts re-evaluates promotion under the
                     # same rules.
                     promotion_suppressed = True
-                # If candidate got here - it usually means CH issue down the way
-                # (e.g. CH wait raised before start_child_workflow)
-                elif report.status != SignalReport.Status.CANDIDATE:
-                    updated_fields = report.transition_to(SignalReport.Status.CANDIDATE)
-                    report.triggering_signal_id = input.signal_id
-                    report.save(update_fields=[*updated_fields, "triggering_signal_id"])
-                    promoted = True
                 else:
+                    updated_fields = (
+                        report.transition_to(SignalReport.Status.CANDIDATE)
+                        if report.status != SignalReport.Status.CANDIDATE
+                        else []
+                    )
+                    if updated_fields or report.triggering_signal_id is None:
+                        report.triggering_signal_id = input.signal_id
+                        report.save(update_fields=[*updated_fields, "triggering_signal_id"])
                     promoted = True
 
             pending_bucket = next_research_bucket(report.researching_signal_count or 0)
@@ -1022,6 +1025,7 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
             return AssignAndEmitDbResult(
                 report_id=report_id,
                 promoted=promoted,
+                triggering_signal_id=str(report.triggering_signal_id) if report.triggering_signal_id else None,
                 timestamp=ts,
                 matched_deleted_report=False,
                 run_count=report.run_count,
@@ -1177,6 +1181,7 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
         return AssignAndEmitSignalOutput(
             report_id=db_result.report_id,
             promoted=db_result.promoted,
+            triggering_signal_id=db_result.triggering_signal_id,
             timestamp=db_result.timestamp,
             run_count=db_result.run_count,
             research_debounce_seconds=RESEARCH_DEBOUNCE_SECONDS,
@@ -1584,6 +1589,7 @@ async def _process_signal_batch(
                         team_id=signal.team_id,
                         report_id=assign_result.report_id,
                         debounce_seconds=assign_result.research_debounce_seconds,
+                        signal_id=assign_result.triggering_signal_id,
                     ),
                     assign_result.run_count,
                 )

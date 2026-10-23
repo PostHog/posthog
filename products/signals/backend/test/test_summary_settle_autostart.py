@@ -125,6 +125,7 @@ class _Recorder:
         self.researches = 0
         self.autostarts = 0
         self.spend_owners: list[str | None] = []
+        self.work_owners: list[str | None] = []
         self.candidate_checks = 0
         # Auto-starts completed by the time the notification child made its first state check. The
         # child only waits for the implementation PR if the task already exists then, so a 0 here
@@ -180,14 +181,17 @@ async def _run_summary_workflow(
 
     @activity.defn(name="report_safety_judge_activity")
     async def fake_safety(input: SafetyJudgeInput) -> SafetyJudgeOutput:
+        recorder.work_owners.append(input.signal_id)
         return SafetyJudgeOutput(safe=True, explanation="ok")
 
     @activity.defn(name="select_repository_activity")
     async def fake_select_repo(input: SelectRepositoryInput) -> RepoSelectionResult:
+        recorder.work_owners.append(input.signal_id)
         return RepoSelectionResult(repository="owner/repo", reason="selected")
 
     @activity.defn(name="run_agentic_report_activity")
     async def fake_research(input: RunAgenticReportInput) -> RunAgenticReportOutput:
+        recorder.work_owners.append(input.signal_id)
         recorder.researches += 1
         return RunAgenticReportOutput(
             title="t",
@@ -320,6 +324,8 @@ async def test_signal_during_buffer_re_researches_instead_of_implementing():
     # rather than implementing the now-stale summary; implementation only starts after it settles again.
     assert recorder.researches == 2
     assert recorder.spend_owners == [str(uuid.UUID(int=1)), str(uuid.UUID(int=2))]
+    assert recorder.work_owners == [str(uuid.UUID(int=1))] * 3 + [str(uuid.UUID(int=2))] * 3
+    assert recorder.autostart_inputs[0].signal_id == str(uuid.UUID(int=2))
     assert recorder.candidate_checks == 2
     assert recorder.autostarts == 1
     # Only the settled run notifies, so no card goes out for the summary the re-research replaced.

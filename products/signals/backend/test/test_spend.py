@@ -606,7 +606,14 @@ class TestSignalSpend(BaseTest):
             assert rows[0]["accounting_failed"] is (not request_id_available)
             client.messages.create.assert_awaited_once()
 
-    def _run(self, *, report: SignalReport | None = None, task: Task | None = None, stage: str = "research") -> TaskRun:
+    def _run(
+        self,
+        *,
+        report: SignalReport | None = None,
+        task: Task | None = None,
+        stage: str = "research",
+        signal_id: str | None = None,
+    ) -> TaskRun:
         task = task or Task.objects.create(
             team=self.team,
             title="Example research",
@@ -616,6 +623,7 @@ class TestSignalSpend(BaseTest):
         )
         run = task.create_run(
             environment=TaskRun.Environment.CLOUD,
+            spend_signal_id=signal_id,
             extra_state={"ai_stage": stage, "unprocessed_request_ids": [], "token_cost": {}},
         )
         run.status = TaskRun.Status.IN_PROGRESS
@@ -761,7 +769,8 @@ class TestSignalSpend(BaseTest):
         self._complete_task_spend(team_id=self.team.id, run_id=str(resumed.id))
         assert SignalSpend.objects.for_team(self.team.id).values().get() == before
 
-    def test_resumed_task_belongs_to_new_signal_and_preserves_finalized_owner(self) -> None:
+    @parameterized.expand([("research",), ("repo_selection",), ("implementation",)])
+    def test_resumed_task_belongs_to_new_signal_and_preserves_finalized_owner(self, stage: str) -> None:
         driver, other = str(uuid4()), str(uuid4())
         report = SignalReport.objects.create(
             team=self.team, triggering_signal_id=driver, status=SignalReport.Status.READY
@@ -774,12 +783,11 @@ class TestSignalSpend(BaseTest):
         self._complete_task_spend(team_id=self.team.id, run_id=str(run.id))
         before = SignalSpend.objects.for_team(self.team.id).filter(signal_id=driver).values().get()
         self.assertIsNotNone(before["finalized_at"])
-        report.triggering_signal_id = other
-        report.save(update_fields=["triggering_signal_id"])
-        resumed = self._run(task=run.task, stage="implementation")
+        resumed = self._run(task=run.task, stage=stage, signal_id=other)
         self._set_task_cost(resumed, 200)
         resumed.status = TaskRun.Status.FAILED
         resumed.save(update_fields=["status"])
+        finish_report_spend(team_id=self.team.id, report_id=str(report.id), signal_id=other)
         self.temporal.execute_update_with_start_workflow.side_effect = RuntimeError("Kafka delivery failed")
         with self.assertRaisesRegex(RuntimeError, "Kafka delivery failed"):
             self._complete_task_spend(team_id=self.team.id, run_id=str(resumed.id))
@@ -791,6 +799,7 @@ class TestSignalSpend(BaseTest):
             run_id=str(run.id),
             report_id=str(report.id),
             stage="implementation",
+            signal_id=other,
         )
         self._complete_task_spend(team_id=self.team.id, run_id=str(run.id))
         assert SignalSpend.objects.for_team(self.team.id).filter(signal_id=driver).values().get() == before
