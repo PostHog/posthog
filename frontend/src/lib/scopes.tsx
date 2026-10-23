@@ -688,6 +688,31 @@ export const groupScopeRows = <Row extends ScopePickerRow>(rows: Row[]): ScopePi
         .map((label) => ({ label, rows: rowsByLabel.get(label) ?? [] }))
 }
 
+export type ScopeGroupSummary = { label: string; write: number; read: number }
+
+// Counts the objects in each product area that a key can write, or only read, in API_SCOPE_GROUPS order.
+// `insight:read` and `insight:write` together count once, as write.
+export const summarizeScopesByGroup = (scopes: readonly string[]): ScopeGroupSummary[] => {
+    const levelByObject = new Map<string, 'read' | 'write'>()
+    for (const scope of scopes) {
+        const [object, action] = scope.split(':')
+        if (levelByObject.get(object) !== 'write') {
+            levelByObject.set(object, action === 'write' ? 'write' : 'read')
+        }
+    }
+    const summaryByLabel = new Map<string, ScopeGroupSummary>()
+    for (const [object, level] of levelByObject) {
+        const label = getScopeGroupLabel(object)
+        const summary = summaryByLabel.get(label) ?? { label, write: 0, read: 0 }
+        summary[level] += 1
+        summaryByLabel.set(label, summary)
+    }
+    return [...API_SCOPE_GROUPS.map(({ label }) => label), OTHER_SCOPE_GROUP_LABEL].flatMap((label) => {
+        const summary = summaryByLabel.get(label)
+        return summary ? [summary] : []
+    })
+}
+
 export const DEFAULT_OAUTH_SCOPES = ['openid', 'email', 'profile']
 
 export const getScopeDescription = (scope: string): string | undefined => {

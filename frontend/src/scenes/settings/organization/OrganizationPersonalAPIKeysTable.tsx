@@ -6,6 +6,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { fullName } from 'lib/utils/strings'
 import { TagList } from 'scenes/settings/user/PersonalAPIKeys'
+import { ScopeGroupSummary } from 'scenes/settings/user/scopes/ScopeGroupSummary'
 
 import type { OrganizationPersonalAPIKeyApi } from 'products/platform_features/frontend/generated/api.schemas'
 
@@ -50,7 +51,7 @@ export function OrganizationPersonalAPIKeysTable(): JSX.Element {
         {
             title: 'Scopes',
             key: 'scopes',
-            render: (_, key) => <TagList tags={[...key.scopes]} />,
+            render: (_, key) => <TagList tags={[...key.scopes]} tooltip={<ScopeGroupSummary scopes={key.scopes} />} />,
         },
         {
             title: 'Access scope',
