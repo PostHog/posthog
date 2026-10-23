@@ -126,8 +126,12 @@ def accessible_observations(
 
     The accessible set comes from the team's experiments, which are few and indexed. The snapshot
     path has no index, so reading the ids off the observations instead scans the whole scanner or team.
+    When the caller can view every experiment of the team, the filter can drop nothing, so it is
+    skipped: that keeps counts on (scanner, status) an index-only scan instead of a heap read per row.
     """
     accessible = _accessible_experiment_ids(access, team_id, None)
+    if accessible >= _accessible_experiment_ids(None, team_id, None):
+        return observations
     # Keep rows whose snapshot names no experiment (untargeted, unrestricted) OR an accessible one,
     # whichever snapshot store names it.
     return observations.filter(snapshot_experiment_scope_q(unrestricted=True, experiment_ids=accessible))
