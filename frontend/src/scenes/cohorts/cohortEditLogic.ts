@@ -539,7 +539,7 @@ export interface cohortEditLogicMeta {
         effectiveQuery: (query: DataTableNode, persistedColumns: string[] | null) => DataTableNode
         canRemovePersonFromCohort: (cohort: CohortType) => boolean | undefined
         isPendingCalculation: (cohort: CohortType) => boolean
-        csvMaxBytes: (preflight: any) => number
+        csvMaxBytes: (preflight: PreflightStatus | null) => number
         isCalculatingOrPending: (cohort: CohortType, isPendingCalculation: boolean) => boolean
     }
 }
@@ -848,7 +848,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
             },
         ],
         isPendingCalculation: [(s) => [s.cohort], (cohort: CohortType) => checkIsPendingCalculation(cohort)],
-        csvMaxBytes: [(s) => [s.preflight], (preflight) => cohortCsvMaxBytes(preflight)],
+        csvMaxBytes: [(s) => [s.preflight], (preflight: PreflightStatus | null) => cohortCsvMaxBytes(preflight)],
         isCalculatingOrPending: [
             (s) => [s.cohort, s.isPendingCalculation],
             (cohort: CohortType, isPendingCalculation: boolean) => {
