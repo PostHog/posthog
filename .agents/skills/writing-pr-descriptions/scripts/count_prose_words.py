@@ -3,7 +3,7 @@
 """
 Print the number of prose words in a PR body.
 
-Headings, tables, code, HTML, images, and everything inside <details> are not prose.
+Headings, tables, code blocks, HTML tags, images, and everything inside <details> are not prose.
 List markers, checkboxes and other words without a letter or digit do not count.
 
 Usage:
@@ -13,63 +13,50 @@ Usage:
 
 from __future__ import annotations
 
-import re
 import sys
 import argparse
+from html.parser import HTMLParser
 from pathlib import Path
 
 from markdown_it import MarkdownIt
 
-PARSER = MarkdownIt("commonmark").enable("table")
-NON_PROSE_OPENERS = {"heading_open", "table_open"}
-NON_PROSE_CLOSERS = {"heading_close", "table_close"}
-# An HTML block runs to the next blank line, so it can hold visible text after a closing tag.
-HTML_PIECE = re.compile(r"<!--.*?-->|<[^>]*>|[^<]+", re.DOTALL)
-DETAILS_OPEN = re.compile(r"<details\b", re.IGNORECASE)
-DETAILS_CLOSE = re.compile(r"</details\s*>", re.IGNORECASE)
+NON_PROSE_TAGS = {"h1", "h2", "h3", "h4", "h5", "h6", "table", "pre", "details"}
 
 
-def count_words(text: str) -> int:
-    return sum(1 for word in text.split() if any(char.isalnum() for char in word))
+class ProseWordCounter(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.non_prose_depth = 0
+        self.words = 0
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag in NON_PROSE_TAGS:
+            self.non_prose_depth += 1
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag in NON_PROSE_TAGS and self.non_prose_depth:
+            self.non_prose_depth -= 1
+
+    def handle_data(self, data: str) -> None:
+        if not self.non_prose_depth:
+            self.words += sum(1 for word in data.split() if any(char.isalnum() for char in word))
 
 
 def count_prose_words(markdown: str) -> int:
-    non_prose_depth = 0
-    details_depth = 0
-    words = 0
-    for block in PARSER.parse(markdown):
-        if block.type in NON_PROSE_OPENERS:
-            non_prose_depth += 1
-        elif block.type in NON_PROSE_CLOSERS:
-            non_prose_depth -= 1
-        for token in [block, *(block.children or [])]:
-            if token.type in ("html_block", "html_inline"):
-                pieces = HTML_PIECE.findall(token.content)
-            elif token.type in ("text", "code_inline"):
-                pieces = [token.content]
-            else:
-                continue
-            is_html = token.type.startswith("html")
-            for piece in pieces:
-                if is_html and DETAILS_OPEN.match(piece):
-                    details_depth += 1
-                elif is_html and DETAILS_CLOSE.match(piece):
-                    details_depth = max(0, details_depth - 1)
-                elif not (is_html and piece.startswith("<")) and not non_prose_depth and not details_depth:
-                    words += count_words(piece)
-    return words
+    counter = ProseWordCounter()
+    counter.feed(MarkdownIt("commonmark").enable("table").render(markdown))
+    counter.close()
+    return counter.words
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("body", help="PR body markdown file, or - to read stdin")
     args = parser.parse_args()
-    if args.body == "-":
-        markdown = sys.stdin.read()
-    elif Path(args.body).is_file():
-        markdown = Path(args.body).read_text()
-    else:
-        parser.error(f"{args.body} is not a file")
+    try:
+        markdown = sys.stdin.read() if args.body == "-" else Path(args.body).read_text()
+    except OSError as error:
+        parser.error(str(error))
     print(count_prose_words(markdown))
 
 

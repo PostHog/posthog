@@ -193,9 +193,7 @@ Run the counter on the body before every `gh pr create` or `gh pr edit`. It read
 uv run python .agents/skills/writing-pr-descriptions/scripts/count_prose_words.py pr-body.md
 ```
 
-When the count is over 150, move facts into a table or a diagram, then cut.
-When it is still over 150, the PR probably holds more than one change.
-A change too big to explain in 150 words is often too big to review in one pass.
+When the count is still over 150 after cutting, the PR is probably too big to review in one pass.
 Suggest a stack to the PR author, name the layers you would split it into, and point to `/stacking-prs`.
 The author decides. If they keep one PR, ship the shortest body that still carries the change.
 
@@ -291,7 +289,7 @@ A "no" anywhere means the body is ordered for the writer, not the reader. Go bac
 ### The line check
 
 1. Is the body shorter than your first draft? If it is longer, you split without cutting. Go back to pass 3.
-2. Does the size of the body track the size of the diff, and does `scripts/count_prose_words.py` print 150 or less? If not, cut. If it is still over 150, suggest a stack to the PR author.
+2. Does the size of the body track the size of the diff, and does `scripts/count_prose_words.py` print 150 or less? If not, go back to "150 words of prose".
 3. Are Problem and Changes together longer than the sections under them? If not, cut the lower ones.
 4. Read the body with the diff closed. Can you say why the PR exists and what it does? If not, you cut something a reader needs.
 5. Does Problem state a need that no source in the request, an issue, or a thread gave? Delete it, and say the reason was not given.

@@ -1,4 +1,4 @@
-<!-- This has to stand on its own: a reader who opens no files should still know why the PR is necessary and what it does. Aim for 150 words of prose or fewer. Tables, diagrams and code blocks do not count. A PR that needs more words may hold more than one change, so consider a stack. A section you have nothing for gets one line or "None". -->
+<!-- This has to stand on its own: a reader who opens no files should still know why the PR is necessary and what it does. Aim for 150 words of prose or fewer. Tables, diagrams and code blocks do not count. A section you have nothing for gets one line or "None". -->
 
 ## Problem
 
