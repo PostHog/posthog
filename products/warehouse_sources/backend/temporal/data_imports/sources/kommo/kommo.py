@@ -16,7 +16,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     SinglePagePaginator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    Endpoint,
+    EndpointResource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.kommo.settings import (
     ENDPOINT_CONFIG,
@@ -36,7 +39,7 @@ CATALOG_PARENT = "catalogs"
 _SUBDOMAIN_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class KommoResumeConfig:
     page: int | None = None
     # Per-catalog progress of a fan-out endpoint, in the framework's dependent-resource shape.
@@ -87,8 +90,16 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
             "initial_value": 0,
         }
 
+    endpoint_config: Endpoint = {
+        "path": endpoint.path,
+        "data_selector": endpoint.data_selector,
+        "params": params,
+        "paginator": _build_paginator(endpoint),
+    }
     if endpoint.per_catalog:
         params["catalog_id"] = {"type": "resolve", "resource": CATALOG_PARENT, "field": "id"}
+        # A catalog deleted after the Catalogs listing answers 404; skip it rather than fail the run.
+        endpoint_config["response_actions"] = [{"status_code": 404, "action": "ignore"}]
 
     resource: EndpointResource = {
         "name": name,
@@ -97,12 +108,7 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
         "write_disposition": {"disposition": "merge", "strategy": "upsert"}
         if incremental_param is not None
         else "replace",
-        "endpoint": {
-            "path": endpoint.path,
-            "data_selector": endpoint.data_selector,
-            "params": params,
-            "paginator": _build_paginator(endpoint),
-        },
+        "endpoint": endpoint_config,
         "table_format": "delta",
     }
     if endpoint.per_catalog:

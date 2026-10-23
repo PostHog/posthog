@@ -143,11 +143,13 @@ class TestKommoSourceTransport:
         result = self._driver().run(
             "CatalogElements",
             [
-                self._catalogs_page([11, 22]),
+                self._catalogs_page([11, 22, 33]),
                 self._elements_page([1], page=1, page_count=2),
                 self._elements_page([2], page=2, page_count=2),
                 # Kommo answers an empty catalog with 204 No Content.
                 ScriptedResponse(status=204),
+                # A catalog deleted after the listing must not fail the whole fan-out.
+                ScriptedResponse(status=404, json={"title": "Not found"}),
             ],
         )
 
@@ -157,13 +159,18 @@ class TestKommoSourceTransport:
             "/api/v4/catalogs/11/elements",
             "/api/v4/catalogs/11/elements",
             "/api/v4/catalogs/22/elements",
+            "/api/v4/catalogs/33/elements",
         ]
-        assert result.params("page") == ["1", "1", "2", "1"]
+        assert result.params("page") == ["1", "1", "2", "1", "1"]
         assert [(row["catalog_id"], row["id"]) for row in result.rows] == [(11, 1), (11, 2)]
         assert all("_catalogs_id" not in row for row in result.rows)
         assert result.final_state == KommoResumeConfig(
             fanout_state={
-                "completed": ["/api/v4/catalogs/11/elements", "/api/v4/catalogs/22/elements"],
+                "completed": [
+                    "/api/v4/catalogs/11/elements",
+                    "/api/v4/catalogs/22/elements",
+                    "/api/v4/catalogs/33/elements",
+                ],
                 "current": None,
                 "child_state": None,
             }
