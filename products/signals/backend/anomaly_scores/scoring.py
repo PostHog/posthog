@@ -20,6 +20,7 @@ from posthog.clickhouse.workload import Workload
 from posthog.dataclasses import frozen
 from posthog.event_usage import EventSource
 from posthog.hogql_queries.utils.breakdowns import has_breakdown_filter
+from posthog.hogql_queries.validation.rules import expanded_series_count
 from posthog.interval_specs import interval_spec
 from posthog.models import Team
 from posthog.schema_migrations.upgrade_manager import upgrade_insight
@@ -216,6 +217,22 @@ def scoring_query_settings(queries: int) -> HogQLGlobalSettings:
         # A timeout must throw: a partial result cuts off the end of the series, and that end scores as a drop.
         timeout_overflow_mode="throw",
     )
+
+
+def query_cost(insight: Insight, team: Team) -> int:
+    """The ClickHouse queries that scoring this insight sends, so the tick can budget them before it runs.
+
+    It counts the scoring query the same way as `TrendsQueryRunner`: one query per series, and one per
+    cohort for each series of a cohort breakdown.
+    """
+    try:
+        query = build_scoring_query(trends_query_for(insight, resolve_profile(team, insight)), buckets=1)
+    except (UnsupportedInsightError, ValueError):
+        # Scoring fails before it sends a query. One query is the safe charge.
+        return 1
+    # A team can resolve a cohort breakdown in one query per series. The larger count is the safe charge.
+    cohort_breakdown = query.breakdownFilter is not None and query.breakdownFilter.breakdown_type == "cohort"
+    return max(1, expanded_series_count(query, cohort_breakdown_expands=cohort_breakdown))
 
 
 def score_series(

@@ -1,12 +1,13 @@
 """Pick the watched insights that the next anomaly scoring tick scores.
 
 There is no stored state. One query per team reads the newest scored bucket of each series back
-from the `$anomaly_score` events. `selection.pick_order` then orders the due insights.
+from the `$anomaly_score` events. `selection.pick_order` then orders the due insights, and the tick
+picks from that order the insights whose queries fit the hourly budgets.
 """
 
 import datetime
 import itertools
-from collections.abc import Collection
+from collections.abc import Callable, Collection
 from typing import Any, cast
 
 from django.core.cache import cache
@@ -25,9 +26,12 @@ from posthog.models import Team
 from posthog.tasks.alerts.utils import NON_TIME_SERIES_DISPLAY_TYPES
 
 from products.alerts_platform.backend.facade.scheduling import CalendarInterval, alert_check_offset
-from products.product_analytics.backend.facade.api import watched_trends_insights
+from products.product_analytics.backend.facade.api import (
+    insights_including_soft_deleted_for_team,
+    watched_trends_insights,
+)
 from products.signals.backend.anomaly_scores.config import AnomalyScoringConfig
-from products.signals.backend.anomaly_scores.scoring import bucket_end
+from products.signals.backend.anomaly_scores.scoring import bucket_end, query_cost
 from products.signals.backend.anomaly_scores.selection import (
     Candidate,
     InsightUsage,
@@ -49,6 +53,9 @@ _MAX_SCORED_SERIES = 50_000
 ATTEMPT_COOLDOWN = datetime.timedelta(hours=1)
 # For a failure that the next hour does not fix: an unsupported shape, a query that is too expensive, or no access.
 SKIP_COOLDOWN = datetime.timedelta(days=1)
+# A query counter lives a little longer than its clock hour, so a tick at the end of the hour still reads it.
+# A lost counter lets the scorer spend at most one more hour of budget.
+_BUDGET_TTL = datetime.timedelta(minutes=70)
 
 _CALENDAR_INTERVALS = {
     IntervalType.HOUR: CalendarInterval.HOURLY,
@@ -91,13 +98,26 @@ class InsightPick:
     # The newest scored bucket start of each series, in UTC. Empty when the insight was never scored.
     scored_through: dict[str, datetime.datetime]
     interval: IntervalType | None = None
+    # The ClickHouse queries this pick sends. Selection charges them to the hourly budgets, so two ticks
+    # that overlap cannot spend the same budget.
+    query_cost: int = 1
 
 
 @frozen
 class Selection:
     picks: list[InsightPick]
-    # Due insights, picked or not. More than the picks means the tick cap cut the queue.
+    # Due insights, picked or not. More than the picks means the tick cap or a budget cut the queue.
     candidates: int
+    # Due insights that the walk reached but skipped, because their queries did not fit a budget.
+    skipped_for_budget: int = 0
+
+
+@frozen
+class QueryBudget:
+    """Scoring queries left in this clock hour, for the fleet and for each project."""
+
+    fleet: int
+    projects: dict[int, int]
 
 
 def eligible_teams(config: AnomalyScoringConfig) -> list[Team]:
@@ -199,6 +219,88 @@ def _cooling_down(insight_ids: list[int]) -> set[int]:
     return {insight_id for insight_id in insight_ids if _cooldown_key(insight_id) in found}
 
 
+def _hour(now: datetime.datetime) -> str:
+    return _utc(now).strftime("%Y%m%d%H")
+
+
+def _fleet_budget_key(now: datetime.datetime) -> str:
+    return f"signals:anomaly_scores:queries:{_hour(now)}"
+
+
+def _project_budget_key(team_id: int, now: datetime.datetime) -> str:
+    return f"signals:anomaly_scores:queries:{_hour(now)}:team:{team_id}"
+
+
+def remaining_budget(config: AnomalyScoringConfig, team_ids: Collection[int], now: datetime.datetime) -> QueryBudget:
+    project_keys = {team_id: _project_budget_key(team_id, now) for team_id in team_ids}
+    spent = cache.get_many([_fleet_budget_key(now), *project_keys.values()])
+    return QueryBudget(
+        fleet=config.max_queries_per_hour - spent.get(_fleet_budget_key(now), 0),
+        projects={
+            team_id: config.max_queries_per_project_per_hour - spent.get(key, 0)
+            for team_id, key in project_keys.items()
+        },
+    )
+
+
+def _reserve(key: str, queries: int, cap: int) -> bool:
+    # `incr` is atomic, so two planners that run at the same time cannot both take the last queries.
+    # `incr` fails on a missing key, and `add` does nothing when the key exists.
+    cache.add(key, 0, timeout=int(_BUDGET_TTL.total_seconds()))
+    if cache.incr(key, queries) <= cap:
+        return True
+    cache.decr(key, queries)
+    return False
+
+
+def reserve_queries(config: AnomalyScoringConfig, team_id: int, queries: int, now: datetime.datetime) -> bool:
+    """Charge ``queries`` to both hourly budgets, or to neither when one of them has too few left."""
+    fleet_key = _fleet_budget_key(now)
+    if not _reserve(fleet_key, queries, config.max_queries_per_hour):
+        return False
+    if _reserve(_project_budget_key(team_id, now), queries, config.max_queries_per_project_per_hour):
+        return True
+    cache.decr(fleet_key, queries)
+    return False
+
+
+def within_budget(
+    order: list[int],
+    costs: dict[int, int],
+    team_ids: dict[int, int],
+    budget: QueryBudget,
+    limit: int,
+    reserve: Callable[[int, int], bool],
+) -> tuple[list[int], int]:
+    """The insights of ``order`` whose cost fits both budgets, up to ``limit``, and the count of skipped ones.
+
+    A pick that does not fit is skipped and the walk continues, so a large insight does not block smaller ones.
+    ``budget`` is a snapshot that skips most misses without a cache call. ``reserve`` charges a pick for real.
+    """
+    fleet = budget.fleet
+    projects = dict(budget.projects)
+    picked: list[int] = []
+    skipped = 0
+    for insight_id in order:
+        if len(picked) >= limit:
+            break
+        cost, team_id = costs[insight_id], team_ids[insight_id]
+        if cost > fleet or cost > projects.get(team_id, 0) or not reserve(team_id, cost):
+            skipped += 1
+            continue
+        picked.append(insight_id)
+        fleet -= cost
+        projects[team_id] -= cost
+    return picked, skipped
+
+
+def _query_costs(team: Team, insight_ids: list[int]) -> dict[int, int]:
+    insights = insights_including_soft_deleted_for_team(team_id=team.id, insight_ids=insight_ids)
+    costs = {insight.id: query_cost(insight, team) for insight in insights}
+    # An insight that no longer exists sends no query, but one query is the safe charge.
+    return {insight_id: costs.get(insight_id, 1) for insight_id in insight_ids}
+
+
 def select_insights(
     config: AnomalyScoringConfig, selection_config: SelectionConfig, now: datetime.datetime, limit: int
 ) -> Selection:
@@ -253,13 +355,27 @@ def select_insights(
     order = [
         insight_id for turn in itertools.zip_longest(*team_orders) for insight_id in turn if insight_id is not None
     ]
+    team_ids = {insight_id: due_by_id[insight_id].team_id for insight_id in order}
+    costs: dict[int, int] = {}
+    for team_id in sorted(set(team_ids.values())):
+        team_order = [insight_id for insight_id in order if team_ids[insight_id] == team_id]
+        costs.update(_query_costs(teams[team_id], team_order))
+    picked, skipped = within_budget(
+        order,
+        costs,
+        team_ids,
+        remaining_budget(config, set(team_ids.values()), now),
+        limit,
+        reserve=lambda team_id, cost: reserve_queries(config, team_id, cost, now),
+    )
     picks = [
         InsightPick(
-            team_id=due_by_id[insight_id].team_id,
+            team_id=team_ids[insight_id],
             insight_id=insight_id,
             scored_through=state.get(insight_id, {}),
             interval=due_by_id[insight_id].interval,
+            query_cost=costs[insight_id],
         )
-        for insight_id in order[:limit]
+        for insight_id in picked
     ]
-    return Selection(picks=picks, candidates=len(order))
+    return Selection(picks=picks, candidates=len(order), skipped_for_budget=skipped)

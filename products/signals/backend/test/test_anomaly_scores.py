@@ -31,6 +31,7 @@ from products.signals.backend.anomaly_scores.scoring import (
     UnsupportedInsightError,
     buckets_to_score,
     fetch_buckets,
+    query_cost,
     score_insight,
     score_series,
     trends_query_for,
@@ -287,3 +288,44 @@ class TestTrendsQueryFor(SimpleTestCase):
     def test_unsupported_shapes_raise(self, _name: str, query: dict[str, Any]) -> None:
         with self.assertRaises(UnsupportedInsightError):
             trends_query_for(Insight(id=1, query=query), DEFAULT_PROFILE)
+
+
+def _events(count: int) -> list[dict[str, Any]]:
+    return [{"kind": "EventsNode", "event": f"event_{i}"} for i in range(count)]
+
+
+class TestQueryCost(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("one_per_series", {"kind": "TrendsQuery", "series": _events(3)}, 3),
+            ("wrapped", {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", "series": _events(2)}}, 2),
+            (
+                "breakdown_and_formula_add_none",
+                {
+                    "kind": "TrendsQuery",
+                    "series": _events(2),
+                    "breakdownFilter": {"breakdown": "$browser", "breakdown_type": "event"},
+                    "trendsFilter": {"formulas": ["A/B", "A+B"]},
+                },
+                2,
+            ),
+            # The scoring query keeps every series, so the charge has no series cap.
+            ("more_series_than_max_series", {"kind": "TrendsQuery", "series": _events(30)}, 30),
+            (
+                "one_per_cohort",
+                {
+                    "kind": "TrendsQuery",
+                    "series": _events(2),
+                    "breakdownFilter": {"breakdown": ["all", 1, 2], "breakdown_type": "cohort"},
+                },
+                6,
+            ),
+            # The scoring query drops the previous period.
+            ("compare_adds_none", {"kind": "TrendsQuery", "series": _events(2), "compareFilter": {"compare": True}}, 2),
+            ("not_scored", {"kind": "FunnelsQuery", "series": _events(4)}, 1),
+        ]
+    )
+    def test_a_pick_costs_the_queries_the_scoring_runner_sends(
+        self, _name: str, query: dict[str, Any], expected: int
+    ) -> None:
+        assert query_cost(Insight(id=1, query=query), MagicMock(spec=Team)) == expected
