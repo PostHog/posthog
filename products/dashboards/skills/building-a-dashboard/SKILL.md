@@ -62,8 +62,6 @@ Prefer reusing existing insights over recreating them.
   others need a separate top-level `render-ui` call with the same query tool and input. Rendering support does not
   determine the saved insight's query type.
 - Keep the set minimal — only the insights the request needs. A focused dashboard is more useful than an exhaustive one.
-- Leave internal and test users out. Omit `filterTestAccounts` or set it to `true` on every new insight. Set it to `false`
-  only when the user asks. If the filtered data is sparse, say so in your reply rather than turning the filter off.
 
 ## Use Data Catalog for reusable metrics
 
