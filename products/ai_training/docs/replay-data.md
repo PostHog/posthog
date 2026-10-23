@@ -431,6 +431,7 @@ Nothing in v4 is kept for good. Each kind of data has a fixed lifetime, and a de
 | Held keys                      | Recorder and fetcher memory                                      | 5 minutes for a session row, one hour for a team month row                                                                         | Cache expiry                  |
 
 - S3 expiration counts from the time an object was written, rounds up to the next midnight UTC and can run late, so plan for objects to stay for up to 2 days more.
+- Blocks expire by write time, not by session start, so a session whose blocks span several write days loses its first blocks first. Nothing marks the rest as partial, and `cold_start` does not cover it. Readers that need whole sessions follow the rule in [Block index](#block-index).
 - The buckets have no versioning, so an expired object leaves no older version behind. S3 removes the parts of an unfinished upload after one day.
 - `blocks/` is stored in Glacier Instant Retrieval from the start. The index prefixes and both image prefixes stay in Standard, because readers read them often.
 - A block can use an image only while the image outlives the block. A pack is written in the same flush as its blocks and expires 8 days later. A fetched image lives at least 30 days after the last block that refers to it, because the recorder sends a job for each referenced URL at least once per day.
@@ -509,6 +510,12 @@ Readers drop duplicates with one rule per (`topic`, `partition`), applied to all
 4. Then walk the incomplete flushes in the same order, with the same overlap check. A kept incomplete flush is best effort: some of its blocks are missing from the index, but the blocks it lists are valid.
 
 A flush keeps or loses its whole range. When two flushes overlap, the reader keeps only the one it reaches first, even when their ranges differ in size, so it never merges parts of two flushes.
+
+A reader that needs whole sessions selects them by the start time in the session UUIDv7, not by write day:
+
+- Read the write days from the UTC day of `start - 1 day` onward. The recorder admits a session from 1 day before its start until 14 days after it, so no block of a session has an earlier write day.
+- Use a session only while its start is less than 29 days old. Every block lives at least 30 days after its write, so until then no block has expired.
+- A session can get more blocks until its start is 14 days old. A reader that needs final sessions uses only sessions with a start between 14 and 29 days old.
 
 A session row is a fold over its block rows: sort them by `first_ts_ms`, then merge each into the result in order.
 Counts sum, times take the minimum or maximum, flags take the logical or, `host` takes the first value and the viewport takes the one with the highest `viewport_ts_ms`.
