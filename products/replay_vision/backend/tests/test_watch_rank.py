@@ -7,6 +7,7 @@ import numpy as np
 from parameterized import parameterized
 
 from products.replay_vision.backend.watch_rank import ANCHOR_VERSION, classify, rank_watch_feed_by_embedding
+from products.replay_vision.backend.watch_rank_backfill import _rank_scanner
 
 _NOW = datetime(2026, 10, 23, 12, 0, tzinfo=UTC)
 
@@ -91,3 +92,31 @@ class TestRankWatchFeedByEmbedding(SimpleTestCase):
         ranked = rank_watch_feed_by_embedding(rows)
 
         assert [entry.observation_id for entry in ranked] == ["row-1", "row-2", "row-3"]
+
+
+class TestBackfillRankScanner(SimpleTestCase):
+    def test_walks_oldest_first_so_a_copy_joins_the_group_of_an_already_ranked_row(self) -> None:
+        anchors = {
+            "failure": np.array([[1.0, 0.0, 0.0]]),
+            "struggle": np.array([[0.0, 1.0, 0.0]]),
+            "revenue": np.array([[0.0, -1.0, 0.0]]),
+            "routine": np.array([[0.0, 0.0, 1.0]]),
+        }
+        error = np.array([1.0, 0.0, 0.0])
+        current = {"category": "failure", "contrast": 1.0, "duplicate_of": "root", "anchor_version": ANCHOR_VERSION}
+        rows = [
+            {"id": "ranked", "watch_rank": current},
+            {"id": "no-vector", "watch_rank": None},
+            {"id": "copy", "watch_rank": None},
+            {"id": "stale", "watch_rank": {**current, "anchor_version": ANCHOR_VERSION - 1}},
+            {"id": "calm", "watch_rank": None},
+        ]
+        vectors = {"ranked": error, "copy": error, "stale": error, "calm": np.array([0.0, 0.0, 1.0])}
+
+        written = _rank_scanner(rows, vectors, anchors)
+
+        assert set(written) == {"copy", "stale", "calm"}
+        assert written["copy"]["duplicate_of"] == "root"
+        assert written["stale"]["duplicate_of"] == "root"
+        assert written["calm"]["category"] == "routine"
+        assert written["calm"]["duplicate_of"] is None
