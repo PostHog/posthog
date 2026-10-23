@@ -192,6 +192,14 @@ semgrep --test .semgrep/rules/security/
 docker run --rm -v "${PWD}:/src" semgrep/semgrep semgrep --test /src/.semgrep/rules/security/
 ```
 
+## Outbound requests and SSRF
+
+PostHog Cloud sends production egress through a Smokescreen proxy. On a code path that goes
+through the proxy, treat raw SSRF, such as a request to an internal IP or to cloud metadata, as
+mitigated. A code path that bypasses the proxy, and a self-hosted deployment, do not have this
+control. A request that probes or trusts an attacker-controlled server is always in scope. The
+SSRF rule in `.agents/skills/security-audit/SKILL.md` says which control is load-bearing.
+
 ## Out-of-band interaction domains
 
 `posthog/security/crosslang/oob_domains.json` lists the services that capture out-of-band
