@@ -66,22 +66,28 @@ export function createRedisPoolFromConfig(config: RedisPoolConfig): RedisPool {
 }
 
 /**
- * Scope entry for a `RedisPool`. `start` creates the pool (which connects
- * to Redis eagerly via `autostart`), `stop` drains the pool then clears
- * it so all connections are released.
+ * Scope entry for a `RedisPool`. `start` creates the pool and resolves after
+ * one connection answers. `stop` drains the pool then clears it so all
+ * connections are released.
  */
 export class RedisPoolComponent {
     constructor(private readonly config: RedisPoolConfig) {}
 
-    start(): Promise<{ value: RedisPool; stop: () => Promise<void> }> {
+    async start(): Promise<{ value: RedisPool; stop: () => Promise<void> }> {
         const pool = createRedisPoolFromConfig(this.config)
-        return Promise.resolve({
-            value: pool,
-            stop: async (): Promise<void> => {
-                await pool.drain()
-                await pool.clear()
-            },
-        })
+        const stop = async (): Promise<void> => {
+            await pool.drain()
+            await pool.clear()
+        }
+        // A process that cannot reach Redis must fail here, before a consumer joins its group and takes
+        // partitions it cannot process.
+        try {
+            await pool.release(await pool.acquire())
+        } catch (error) {
+            await stop()
+            throw error
+        }
+        return { value: pool, stop }
     }
 }
 
