@@ -28,6 +28,8 @@ interface MetricsQueryNodeProps {
     /** With `setQuery`, shows the builder above the chart, as the insight editor does. */
     editMode?: boolean
     setQuery?: (query: MetricsQuery) => void
+    /** Key of the data node that loads the results, so a caller can force it to run again. */
+    dataKey?: string
 }
 
 /** Renders a `MetricsQuery` wherever the generic `Query` component is used —
@@ -40,7 +42,7 @@ const EMPTY_QUERY_MESSAGE: Record<MetricsQueryLanguage, string> = {
 
 export function MetricsQueryNode(props: MetricsQueryNodeProps): JSX.Element | null {
     const builderEnabled = useFeatureFlag('METRICS_INSIGHT_BUILDER')
-    const [dataKey] = useState(() => `MetricsQueryNode.${uniqueNode++}`)
+    const [dataKey] = useState(() => props.dataKey ?? `MetricsQueryNode.${uniqueNode++}`)
     const language = queryLanguage(props.query)
 
     // A new insight starts with no clauses, which the backend rejects, so there is nothing to run yet.
