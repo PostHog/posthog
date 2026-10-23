@@ -47379,6 +47379,7 @@ export namespace Schemas {
      * * `manual` - Manual
      * * `manual_retry` - Manual Retry
      * * `cold_run` - Cold Run
+     * * `stale_refresh` - Stale Refresh
      * * `heal_latest_run` - Heal Latest Run
      * * `experiment_config_change` - Experiment Config Change
      * * `metric_config_change` - Metric Config Change
@@ -47390,6 +47391,7 @@ export namespace Schemas {
       Manual: 'manual',
       ManualRetry: 'manual_retry',
       ColdRun: 'cold_run',
+      StaleRefresh: 'stale_refresh',
       HealLatestRun: 'heal_latest_run',
       ExperimentConfigChange: 'experiment_config_change',
       MetricConfigChange: 'metric_config_change',
@@ -99288,6 +99290,7 @@ export namespace Schemas {
        * * `manual` - Manual
        * * `manual_retry` - Manual Retry
        * * `cold_run` - Cold Run
+       * * `stale_refresh` - Stale Refresh
        * * `heal_latest_run` - Heal Latest Run
        * * `experiment_config_change` - Experiment Config Change
        * * `metric_config_change` - Metric Config Change */
