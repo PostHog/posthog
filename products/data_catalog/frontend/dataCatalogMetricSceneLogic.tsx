@@ -268,7 +268,11 @@ export interface dataCatalogMetricSceneLogicActions {
     startEditingMarkdown: () => {
         value: true
     }
-    updateMetric: (patch: PatchedDataCatalogMetricApi) => {
+    updateMetric: (
+        patch: PatchedDataCatalogMetricApi,
+        approve?: boolean
+    ) => {
+        approve: boolean
         patch: PatchedDataCatalogMetricApi
     }
 }
@@ -313,7 +317,7 @@ export const dataCatalogMetricSceneLogic = kea<dataCatalogMetricSceneLogicType>(
         deleteMetric: true,
         renameMetric: (name: string) => ({ name }),
         renamedExternally: (name: string) => ({ name }),
-        updateMetric: (patch: PatchedDataCatalogMetricApi) => ({ patch }),
+        updateMetric: (patch: PatchedDataCatalogMetricApi, approve: boolean = false) => ({ patch, approve }),
         setMutating: (mutating: boolean) => ({ mutating }),
         setEditingDefinition: (editingDefinition: boolean) => ({ editingDefinition }),
         setDraftSql: (draftSql: string) => ({ draftSql }),
@@ -586,14 +590,23 @@ export const dataCatalogMetricSceneLogic = kea<dataCatalogMetricSceneLogicType>(
                 actions.setMutating(false)
             }
         },
-        updateMetric: async ({ patch }) => {
+        updateMetric: async ({ patch, approve }) => {
             if (values.mutating || isInvalidMetricName(props.name)) {
                 return
             }
             actions.setMutating(true)
             try {
                 actions.setMetric(await dataCatalogMetricsPartialUpdate(projectId(), props.name, patch))
-                lemonToast.success('Metric saved')
+                if (!approve) {
+                    lemonToast.success('Metric saved')
+                    return
+                }
+                try {
+                    actions.setMetric(await dataCatalogMetricsApproveCreate(projectId(), props.name))
+                    lemonToast.success('Metric saved and approved')
+                } catch {
+                    lemonToast.warning('Metric saved, but approving it failed. Approve it from the banner.')
+                }
             } catch (error) {
                 lemonToast.error(apiErrorDetail(error) || 'Could not save the metric. Try again.')
             } finally {

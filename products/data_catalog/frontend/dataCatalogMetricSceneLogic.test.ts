@@ -282,15 +282,22 @@ describe('dataCatalogMetricSceneLogic', () => {
         }
     )
 
-    it('saving an approved metric edit reflects the proposed status from the response', async () => {
+    it.each([
+        ['Save and reset to proposed', false, 'proposed', 0],
+        ['Save and approve', true, 'approved', 1],
+    ])('%s on an approved metric edit', async (_button, approve, expectedStatus, approveCalls) => {
         ;(dataCatalogMetricsPartialUpdate as jest.Mock).mockResolvedValue(
             buildMetric({ status: 'proposed', definition: { kind: 'HogQLQuery', query: 'SELECT 2' } })
         )
+        ;(dataCatalogMetricsApproveCreate as jest.Mock).mockResolvedValue(
+            buildMetric({ status: 'approved', definition: { kind: 'HogQLQuery', query: 'SELECT 2' } })
+        )
 
-        logic.actions.updateMetric({ definition: { kind: 'HogQLQuery', query: 'SELECT 2' } })
+        logic.actions.updateMetric({ definition: { kind: 'HogQLQuery', query: 'SELECT 2' } }, approve)
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(logic.values.metric?.status).toEqual('proposed')
+        expect(dataCatalogMetricsApproveCreate).toHaveBeenCalledTimes(approveCalls)
+        expect(logic.values.metric?.status).toEqual(expectedStatus)
     })
 
     it('surfaces refresh when approve returns 409 and leaves the metric untouched', async () => {
