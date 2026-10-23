@@ -2,6 +2,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from typing import TYPE_CHECKING, Any
+from urllib.parse import urlsplit, urlunsplit
 
 from django.conf import settings
 
@@ -118,6 +119,26 @@ def events_read_workload(workload: Workload, context: "HogQLContext") -> Workloa
     ):
         return Workload.NEW_EVENTS_CLUSTER
     return workload
+
+
+def new_events_cluster_http_url(team_id: int | None) -> str | None:
+    """The events cluster's HTTP URL for a project whose events_json reads run there, else None.
+
+    The Temporal jobs reach ClickHouse through an HTTP client that takes a URL instead of a workload, so this is
+    the main cluster's HTTP URL with the events cluster's host.
+    """
+    host = get_new_events_cluster_host()
+    if host is None or not use_new_events_cluster(team_id):
+        return None
+    main = urlsplit(settings.CLICKHOUSE_HTTP_URL)
+    return urlunsplit(main._replace(netloc=f"{host}:{main.port}"))
+
+
+def events_read_http_url(context: "HogQLContext") -> str | None:
+    """`events_read_workload` for the HTTP clients: the events cluster URL when the printed SQL read events_json there."""
+    if not context.reads_native_events_table:
+        return None
+    return new_events_cluster_http_url(context.team_id)
 
 
 def use_new_events_schema(team_id: int | None = None, modifiers: "HogQLQueryModifiers | None" = None) -> bool:

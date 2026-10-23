@@ -162,6 +162,50 @@ async def test_insert_into_stage_activity_executes_the_expected_query_for_events
 
 
 @pytest.mark.parametrize("interval", ["day"], indirect=True)
+@pytest.mark.parametrize("data_interval_end", [TEST_DATA_INTERVAL_END])
+async def test_insert_into_stage_activity_runs_a_native_backfill_on_the_events_cluster(
+    activity_environment, data_interval_start, data_interval_end, ateam
+):
+    mock_client = MockClickHouseClient()
+    insert_inputs = BatchExportInsertIntoInternalStageInputs(
+        team_id=ateam.pk,
+        batch_export_id=str(uuid.uuid4()),
+        data_interval_start=data_interval_start.isoformat(),
+        data_interval_end=data_interval_end.isoformat(),
+        exclude_events=None,
+        include_events=None,
+        run_id=None,
+        batch_export_model=BatchExportEventsModel(),
+        backfill_details=BackfillDetails(
+            backfill_id=None,
+            start_at=(data_interval_end - dt.timedelta(days=10)).isoformat(),
+            end_at=data_interval_end,
+            is_earliest_backfill=False,
+        ),
+        destination_default_fields=None,
+    )
+    instance_settings = {
+        "CLICKHOUSE_NATIVE_EVENTS_HOST": "native.example.com",
+        "CLICKHOUSE_NATIVE_EVENTS_TEAMS": [ateam.pk],
+    }
+
+    with (
+        patch(
+            "products.batch_exports.backend.temporal.pipeline.internal_stage.get_client",
+            return_value=mock_client.mock_client_cm,
+        ) as get_client,
+        patch("posthog.models.event.new_events_schema.get_instance_setting", instance_settings.get),
+        override_settings(
+            CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True, CLICKHOUSE_HTTP_URL="https://main.example.com:8443/"
+        ),
+    ):
+        await activity_environment.run(insert_into_internal_stage_activity, insert_inputs)
+
+    mock_client.expect_select_from_table("events_json")
+    assert get_client.call_args.kwargs["clickhouse_url"] == "https://native.example.com:8443/"
+
+
+@pytest.mark.parametrize("interval", ["day"], indirect=True)
 @pytest.mark.parametrize(
     "model",
     [

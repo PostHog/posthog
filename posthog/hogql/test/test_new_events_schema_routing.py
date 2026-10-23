@@ -13,6 +13,7 @@ from posthog.hogql.query import HogQLQueryExecutor
 
 from posthog.clickhouse.workload import Workload
 from posthog.models import Organization, Team
+from posthog.models.event.new_events_schema import events_read_http_url
 from posthog.models.instance_setting import override_instance_config
 
 SQL_ON_EVENTS = {"kind": "HogQLQuery", "query": "SELECT count() AS n FROM events"}
@@ -33,6 +34,23 @@ class TestEventsClusterRouting(SimpleTestCase):
                 return_value=True,
             )
         )
+
+    @parameterized.expand(
+        [
+            ("listed_project", [44], True, "https://native.example.com:8443/"),
+            ("legacy_table", [44], False, None),
+            ("unlisted_project", [], True, None),
+        ]
+    )
+    def test_the_http_clients_get_the_events_cluster_url(
+        self, _name: str, allowed: list[object], reads_events_json: bool, expected: str | None
+    ) -> None:
+        self.instance_settings.update(
+            CLICKHOUSE_NATIVE_EVENTS_HOST="native.example.com", CLICKHOUSE_NATIVE_EVENTS_TEAMS=allowed
+        )
+        context = HogQLContext(team_id=self.team.pk, reads_native_events_table=reads_events_json)
+        with self.settings(CLICKHOUSE_HTTP_URL="https://main.example.com:8443/"):
+            self.assertEqual(events_read_http_url(context), expected)
 
     @parameterized.expand(
         [
