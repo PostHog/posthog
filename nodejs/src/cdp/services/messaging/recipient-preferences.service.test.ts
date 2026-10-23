@@ -168,6 +168,22 @@ describe('RecipientPreferencesService', () => {
                 )
             })
 
+            it.each([
+                ['the same category', '123e4567-e89b-12d3-a456-426614174000', 'opted_out'],
+                ['all marketing', '$all', 'opted_out'],
+                ['another category', '00000000-0000-4000-8000-000000000000', null],
+            ])('uses an opt-out this run made for %s before the cache', async (_name, categoryId, expected) => {
+                const action = createEmailAction('test@example.com', '123e4567-e89b-12d3-a456-426614174000')
+                const invocation = createFunctionStepInvocation(action)
+                mockRecipientsManagerGet.mockResolvedValue(null)
+
+                const result = await service.shouldSkipAction(invocation, action, [
+                    { identifier: 'test@example.com', categoryId },
+                ])
+
+                expect(result).toBe(expected)
+            })
+
             it('should return false if recipient is opted in', async () => {
                 const action = createEmailAction('test@example.com', '123e4567-e89b-12d3-a456-426614174000')
                 const invocation = createFunctionStepInvocation(action)

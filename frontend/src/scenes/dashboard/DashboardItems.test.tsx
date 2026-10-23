@@ -322,6 +322,40 @@ describe('DashboardItems', () => {
     })
 
     it.each([
+        [false, true],
+        [true, false],
+    ])('with readOnly %s on a built-in dashboard, offers editing controls: %s', (readOnly, editable) => {
+        const defaultValues = mockedUseValues.getMockImplementation()!
+        mockedUseValues.mockImplementation((logic) =>
+            logic === dashboardLogic
+                ? {
+                      ...defaultValues(logic),
+                      placement: DashboardPlacement.Builtin,
+                      readOnly,
+                      layoutEditMode: false,
+                      dashboardEditing: null,
+                  }
+                : defaultValues(logic)
+        )
+
+        const setDashboardEditing = jest.fn()
+        const defaultActions = mockedUseActions.getMockImplementation()!
+        mockedUseActions.mockImplementation((logic) =>
+            logic === dashboardLogic ? { ...defaultActions(logic), setDashboardEditing } : defaultActions(logic)
+        )
+
+        render(<DashboardItems />)
+
+        const cardProps = mockInsightCard.mock.calls[mockInsightCard.mock.calls.length - 1][0]
+        expect(cardProps.showEditingControls).toBe(editable)
+        cardProps.onEnterEditModeFromEdge(
+            { target: document.body, clientX: 0, clientY: 0, nativeEvent: new MouseEvent('mousemove') },
+            'e'
+        )
+        expect(setDashboardEditing).toHaveBeenCalledTimes(editable ? 1 : 0)
+    })
+
+    it.each([
         ['tight', '8,8'],
         ['condensed', '12,12'],
         ['relaxed', '32,32'],

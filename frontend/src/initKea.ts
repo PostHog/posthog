@@ -25,6 +25,8 @@ Actions for which we don't want to show error alerts,
 mostly to avoid user confusion.
 */
 const ERROR_FILTER_ALLOW_LIST = [
+    'loadRecommendations',
+    'startAnalysis',
     'loadFacetValues', // Logs and tracing facets show an inline error icon on the failed facet.
     'fetchLogs', // Logs and tracing show a warning icon on the pane whose query failed.
     'fetchSpans',
@@ -125,6 +127,7 @@ const ERROR_FILTER_ALLOW_LIST_BY_LOGIC_PATH: Record<string, string> = {
     createProviderKey: 'products.ai_observability.settings.llmProviderKeysLogic',
     updateProviderKey: 'products.ai_observability.settings.llmProviderKeysLogic',
     deleteProviderKey: 'products.ai_observability.settings.llmProviderKeysLogic',
+    loadEvaluationResults: 'products.ai_observability.frontend.redesign.trace.traceViewLogic', // The trace view's Evals tab shows the error
 }
 
 // A keyed logic's path ends with its key, so match the owner path as a prefix.

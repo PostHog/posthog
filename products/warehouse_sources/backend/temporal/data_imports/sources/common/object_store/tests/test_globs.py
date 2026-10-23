@@ -1,6 +1,7 @@
-import time
+from typing import TYPE_CHECKING
 
 import pytest
+from unittest.mock import patch
 
 from parameterized import parameterized
 
@@ -8,10 +9,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
     ObjectStorageError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.globs import (
+    ClickHouseGlob,
     compile_clickhouse_glob,
     glob_key_prefix,
     glob_listing_prefix,
 )
+
+if TYPE_CHECKING:
+    from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.globs import _State
 
 
 class TestClickHouseGlob:
@@ -111,15 +116,25 @@ class TestClickHouseGlob:
             ("eight_stars", "*a*a*a*a*a*a*a*a*b.csv"),
         ]
     )
-    def test_adversarial_match_time(self, _name: str, pattern: str) -> None:
+    def test_adversarial_match_work_is_bounded(self, _name: str, pattern: str) -> None:
         glob = compile_clickhouse_glob(pattern)
-        path = "a" * 200 + ".csv"
+        # Short enough that a backtracking matcher returns and fails the assertions below instead of hanging.
+        path = "a" * 20 + ".csv"
+        closure = ClickHouseGlob._epsilon_closure
+        state_counts: list[int] = []
 
-        started = time.perf_counter()
-        for _ in range(1000):
+        def counting_closure(self: ClickHouseGlob, states: set[_State]) -> set[_State]:
+            result = closure(self, states)
+            state_counts.append(len(result))
+            return result
+
+        with patch.object(ClickHouseGlob, "_epsilon_closure", counting_closure):
             assert glob.matches(path) is False
-        assert time.perf_counter() - started < 2
-        assert glob.matches("a" * 200 + "b.csv") is True
+
+        # One state set per character, each no larger than the token count, keeps the work linear.
+        assert 0 < len(state_counts) <= len(path) + 1
+        assert max(state_counts) <= len(glob.tokens) + 1
+        assert glob.matches("a" * 20 + "b.csv") is True
 
     def test_a_run_of_stars_is_one_wildcard(self) -> None:
         glob = compile_clickhouse_glob("*" * 1000 + ".csv")

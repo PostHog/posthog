@@ -2,11 +2,11 @@ import hashlib
 import inspect
 import threading
 from abc import ABC, abstractmethod
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from contextlib import ExitStack, suppress
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
-from functools import cache, cached_property
+from functools import cache, cached_property, wraps
 from time import perf_counter
 from types import UnionType
 from typing import (
@@ -190,7 +190,15 @@ from posthog.hogql_queries.validation.validation import (
     run_validation_rules,
 )
 from posthog.models import Team, User
-from posthog.models.event.new_events_schema import get_new_events_cluster_host, new_events_cluster_host_scope
+from posthog.models.event.new_events_schema import (
+    events_route_cache_modifiers,
+    events_route_scope,
+    get_new_events_cluster_host,
+    new_events_cluster_host_scope,
+    strip_events_route_modifiers,
+    use_new_events_schema,
+    with_pinned_events_route,
+)
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.team import WeekStartDay
 from posthog.models.team.event_retention import events_retention_months_for_team
@@ -1651,6 +1659,18 @@ def get_query_runner(
             user=user,
         )
 
+    if kind == "AccountUsersQuery":
+        from products.customer_analytics.backend.facade.queries import AccountUsersQueryRunner
+
+        return AccountUsersQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+            user=user,
+        )
+
     if kind == "AccountsTableQuery":
         from products.customer_analytics.backend.facade.queries import AccountsTableQueryRunner
 
@@ -1815,6 +1835,7 @@ R = TypeVar("R", bound=BaseModel)
 # Unfortunately inheritance is also not a thing here, because we lose this info in the schema.ts->.json->.py journey
 CR = TypeVar("CR", bound=GenericCachedQueryResponse)
 SourceT = TypeVar("SourceT", bound=BaseModel)
+_RunMethod = TypeVar("_RunMethod", bound=Callable[..., Any])
 
 
 def resolve_series_custom_name(series: Any, raw_label: str | None) -> str | None:
@@ -1871,6 +1892,15 @@ def team_configs_for_cache_key(team: Team) -> dict[str, dict | str]:
         "marketing_analytics": read("marketing_analytics_config"),
         "customer_analytics": read("customer_analytics_config"),
     }
+
+
+def _pin_events_route(run: _RunMethod) -> _RunMethod:
+    @wraps(run)
+    def pinned(self: "QueryRunner", *args: Any, **kwargs: Any) -> Any:
+        with events_route_scope(self.modifiers):
+            return run(self, *args, **kwargs)
+
+    return cast(_RunMethod, pinned)
 
 
 class QueryRunner(ABC, Generic[Q, R, CR]):
@@ -1934,6 +1964,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
         _modifiers = modifiers or extract_modifiers(query)
         self.modifiers = create_default_modifiers_for_team(team, _modifiers)
+        if self.modifiers.useNewEventsSchema is None:
+            self.modifiers.useNewEventsSchema = use_new_events_schema(team.pk, self.modifiers)
         self.query = query
         self.modifiers.webAnalyticsFirstPageviewFilters = resolve_first_pageview_filters_modifier(
             query, team, self.modifiers.webAnalyticsFirstPageviewFilters
@@ -2081,6 +2113,20 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     def query_status_labels(self) -> list[str] | None:
         return None
 
+    def _reads_events_route(self) -> bool:
+        """True when this query reads the PostHog events table.
+
+        Only then does the events route belong in the query's cache key and in its queued payload.
+        """
+        return True
+
+    def _query_json_with_events_schema(self) -> dict[str, Any]:
+        query_json = self.query.model_dump()
+        # A query that reads no events table needs no pin, and pure Trino rejects modifiers the caller did not set.
+        if self.modifiers.useNewEventsSchema and self._reads_events_route():
+            return with_pinned_events_route(query_json, self.modifiers)
+        return query_json
+
     def enqueue_async_calculation(
         self,
         *,
@@ -2116,7 +2162,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             sharing_configuration_id=sharing_configuration_id,
             insight_id=cache_manager.insight_id,
             dashboard_id=cache_manager.dashboard_id,
-            query_json=self.query.model_dump(),
+            query_json=self._query_json_with_events_schema(),
             query_id=self.query_id or cache_manager.cache_key,  # Use cache key as query ID to avoid duplicates
             cache_key=cache_manager.cache_key,
             labels=self.query_status_labels(),
@@ -2383,6 +2429,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             return query_result, query_duration_ms
 
     @new_events_cluster_host_scope()
+    @_pin_events_route
     def run(
         self,
         execution_mode: ExecutionMode = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
@@ -3122,11 +3169,15 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         # note: to_dict already strips custom_name from series (see schema_helpers.py)
         query = to_dict(self.query)
         query.pop("tags", None)
+        # The resolved modifiers key the events route, so requested values that resolve the same share one entry.
+        query = strip_events_route_modifiers(query, drop_empty=True)
+
+        cache_modifiers = events_route_cache_modifiers(to_dict(self.modifiers), reads_events=self._reads_events_route())
         payload = {
             "query_runner": self.__class__.__name__,
             "query": query,
             "team_id": self.team.pk,
-            "hogql_modifiers": to_dict(self.modifiers),
+            "hogql_modifiers": cache_modifiers,
             "products_modifiers": self._products_modifiers_for_cache(),
             "limit_context": self._limit_context_aliased_for_cache,
             "timezone": self.team.timezone,
@@ -3405,7 +3456,11 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     def single_flight_variant(self) -> str:
         """Separates single flights of runs that share a cache key but not their limits or results.
         Runners add any input that changes either without reaching the cache key."""
-        return self.workload.value
+        # Each ClickHouse user has its own concurrency limit, and a leader that its user's limit
+        # refuses or cancels leaves a follower from another user nothing to serve. The runner's own
+        # user wins over the tagged one, as it does when the query executes.
+        ch_user = self.ch_user.value if self.ch_user != ClickHouseUser.DEFAULT else get_query_tag_value("ch_user")
+        return self.workload.value if ch_user is None else f"{self.workload.value}:ch_user={ch_user}"
 
     def requires_fresh_calculation(self) -> bool:
         """Runners whose results reflect live, mutable state that must never be served stale

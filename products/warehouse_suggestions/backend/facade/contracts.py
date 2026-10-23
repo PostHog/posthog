@@ -62,7 +62,18 @@ class MaterializePayload:
     refresh_interval_basis: WarehouseSuggestionRefreshIntervalBasis | None = None
 
 
-SuggestionPayload = CertifyPayload | DeprecatePayload | MaterializePayload
+@frozen
+class UnmaterializePayload:
+    subject_name: str
+    refresh_seconds_per_month: float
+    refresh_bytes_per_month: float
+    live_seconds_per_month: float
+    live_bytes_per_month: float
+    read_seconds: float
+    query_fingerprint: str
+
+
+SuggestionPayload = CertifyPayload | DeprecatePayload | MaterializePayload | UnmaterializePayload
 
 
 @frozen
@@ -90,7 +101,7 @@ class MaterializeSuggestionPayload:
     refresh_interval_basis: WarehouseSuggestionRefreshIntervalBasis | None = None
 
 
-SuggestionPayloadView = CertifyPayload | DeprecatePayload | MaterializeSuggestionPayload
+SuggestionPayloadView = CertifyPayload | DeprecatePayload | MaterializeSuggestionPayload | UnmaterializePayload
 
 
 @frozen
@@ -143,6 +154,7 @@ class Suggestion:
 @frozen
 class CertificationAsset:
     certification_id: str
+    stopped_materialization: bool = False
 
 
 @frozen
@@ -164,9 +176,15 @@ class AcceptOptions:
     incremental_key: str | None = None
     unique_key: tuple[str, ...] | None = None
     lookback_seconds: int | None = None
+    keep_materialized: bool | None = None
 
 
-CreatedAsset = CertificationAsset | MaterializationAsset
+@frozen
+class UnmaterializationAsset:
+    saved_query_id: str
+
+
+CreatedAsset = CertificationAsset | MaterializationAsset | UnmaterializationAsset
 
 
 @frozen

@@ -132,6 +132,9 @@ BILLABLE_EVENT_EXCLUDED_EVENTS = [
     # artifact of using the product rather than customer instrumentation.
     LLM_PROMPT_FETCHED_EVENT,
     *CONVERSATIONS_EVENTS,
+    # Written by self-driving anomaly scoring, not sent by the customer.
+    "$anomaly_score",
+    "$anomaly_score_shadow",
 ]
 
 
@@ -3297,6 +3300,7 @@ def iter_billable_teams(
     team_fields: Sequence[str],
     organization_fields: Sequence[str],
     organization_ids: Sequence[str] | None = None,
+    buffer_teams: bool = False,
 ) -> Iterator[Team]:
     # Page organizations to avoid repeating their wide columns on every team or retaining them all.
     # Keyset pagination bounds the organization query even when PgBouncer disables server-side cursors.
@@ -3317,7 +3321,9 @@ def iter_billable_teams(
             .only(*team_fields, "organization_id")
             .order_by("organization_id", "id")
         )
-        for team in teams.iterator(chunk_size=2_000):
+        # Callers that reconnect between writes must not leave a read cursor open across yields.
+        team_iterator = iter(teams) if buffer_teams else teams.iterator(chunk_size=2_000)
+        for team in team_iterator:
             if team.id in yielded_team_ids:
                 continue
             yielded_team_ids.add(team.id)

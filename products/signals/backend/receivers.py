@@ -957,8 +957,11 @@ def capture_status_change_analytics(
     # Snapshot now — the instance may be mutated again before the commit callback runs.
     properties = _status_change_properties(instance, prior_status, pending_reason=pending_reason)
     # PR reconciliation supplies a known outcome without creating caller-provided dismissal feedback.
-    if instance.status == SignalReport.Status.RESOLVED and getattr(instance, "_status_from_pr_state", False):
-        properties["resolution_reason"] = "pr_merged"
+    if getattr(instance, "_status_from_pr_state", False):
+        if instance.status == SignalReport.Status.RESOLVED:
+            properties["resolution_reason"] = "pr_merged"
+        elif instance.status == SignalReport.Status.SUPPRESSED:
+            properties["dismissal_cause"] = "pr_closed_without_merge"
     report_id = str(instance.id)
     new_status = instance.status
     team = instance.team

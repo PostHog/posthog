@@ -385,7 +385,12 @@ def discover_trino_schemas(
 
 
 def discover_trino_catalog(
-    cursor: Cursor, *, catalog: str, schema: str | None = None, names: list[str] | None = None
+    cursor: Cursor,
+    *,
+    catalog: str,
+    schema: str | None = None,
+    names: list[str] | None = None,
+    include_columns: bool = True,
 ) -> list[DiscoveredTrinoTable]:
     escaped_catalog = catalog.replace(chr(34), chr(34) * 2)
     table_query = (
@@ -412,6 +417,10 @@ def discover_trino_catalog(
 
     tables: dict[tuple[str, str], list[TrinoColumn]] = {}
     for schema_name, table_names in table_names_by_schema.items():
+        for table_name in table_names:
+            tables[(schema_name, table_name)] = []
+        if not include_columns:
+            continue
         for table_name_batch in batched(table_names, TRINO_COLUMN_DISCOVERY_TABLE_BATCH_SIZE, strict=False):
             placeholders = ", ".join("?" for _ in table_name_batch)
             column_query = (

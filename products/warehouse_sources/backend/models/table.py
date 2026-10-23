@@ -52,6 +52,7 @@ from posthog.schema_enums import DatabaseSerializedFieldType
 from posthog.settings import TEST
 from posthog.sync import database_sync_to_async
 
+from products.warehouse_sources.backend.file_uploads import HostedUpload, parse_hosted_upload
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.util import (
     CLICKHOUSE_HOGQL_MAPPING,
@@ -272,6 +273,10 @@ _CHDB_SUBPROCESS_EXCLUDED_ENV_VARS = frozenset({"LD_PRELOAD", "MALLOC_CONF"})
 # credentials when a read carries none.
 _CHDB_SUBPROCESS_FORCED_ENV_VARS = {"AWS_EC2_METADATA_DISABLED": "true"}
 
+# The deployment sets the egress proxy in the uppercase variables, and chdb reads only the lowercase
+# ones. Without a lowercase copy, chdb connects directly and its reads skip the proxy's address checks.
+_CHDB_SUBPROCESS_PROXY_ENV_VARS = ("HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY")
+
 # A table's URL is customer input, and URL validation only sees the first host. The S3 client follows
 # redirects by default, so a URL that passes validation can send chdb to an internal address. The
 # ClickHouse cluster checks every hop against remote_url_allow_hosts. chdb has no such list, so it
@@ -292,6 +297,7 @@ def run_chdb_query(query: str, timeout: float = CHDB_QUERY_TIMEOUT_SECONDS) -> s
             timeout=timeout,
             env={
                 **{name: value for name, value in os.environ.items() if name not in _CHDB_SUBPROCESS_EXCLUDED_ENV_VARS},
+                **{name.lower(): os.environ[name] for name in _CHDB_SUBPROCESS_PROXY_ENV_VARS if name in os.environ},
                 **_CHDB_SUBPROCESS_FORCED_ENV_VARS,
             },
         )
@@ -555,6 +561,13 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
     def csv_allow_double_quotes(self) -> bool | None:
         return self.options.get("csv_allow_double_quotes")
 
+    @property
+    def hosted_upload(self) -> HostedUpload | None:
+        """The file this team uploaded that a credential-less table reads in place, if it reads one."""
+        if self.credential_id is not None:
+            return None
+        return parse_hosted_upload(self.team_id, self.url_pattern or "")
+
     def adopt_into_source(self, source: "ExternalDataSource") -> list[str]:
         """Make a self-managed table one that `source` syncs. Returns the fields this changed.
 
@@ -569,13 +582,14 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         self.options = {key: value for key, value in (self.options or {}).items() if key != "csv_allow_double_quotes"}
         return ["external_data_source", "credential", "options"]
 
-    def soft_delete(self):
+    def soft_delete(self, *, delete_joins: bool = True):
         from products.data_tools.backend.models.join import DataWarehouseJoin
 
-        for join in DataWarehouseJoin.objects.filter(
-            Q(team_id=self.team.pk) & (Q(source_table_name=self.name) | Q(joining_table_name=self.name))
-        ).exclude(deleted=True):
-            join.soft_delete()
+        if delete_joins:
+            for join in DataWarehouseJoin.objects.filter(
+                Q(team_id=self.team.pk) & (Q(source_table_name=self.name) | Q(joining_table_name=self.name))
+            ).exclude(deleted=True):
+                join.soft_delete()
 
         self.deleted = True
         self.deleted_at = timezone.now()

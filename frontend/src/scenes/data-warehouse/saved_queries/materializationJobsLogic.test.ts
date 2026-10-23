@@ -150,6 +150,30 @@ describe('materializationJobsLogic', () => {
         }
     })
 
+    it('shows the failed run status without a detached error tag', async () => {
+        const mocks = apiMocks({
+            isMaterialized: true,
+            savedQueryExtras: { status: 'Failed', latest_error: 'Query failed' },
+        })
+        mocks.get!['/api/projects/:team_id/data_modeling_jobs/'] = [
+            200,
+            {
+                count: 1,
+                results: [{ id: 'run-1', status: 'Failed', error: 'Query failed' }],
+            },
+        ]
+        useMocks(mocks)
+        logic = materializationJobsLogic({ viewId: 'view-1' })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadSavedQuerySuccess', 'loadDataModelingJobsSuccess'])
+
+        render(createElement(MaterializationStatusPanel, { viewId: 'view-1', showRunActions: false }))
+
+        expect(screen.getByText('Last run')).toBeTruthy()
+        expect(screen.getAllByText('Failed').length).toBeGreaterThan(0)
+        expect(screen.getByText('Materialization').parentElement?.children).toHaveLength(1)
+    })
+
     it('pages through older runs without changing the latest run or growing polling requests', async () => {
         const mocks = apiMocks({ isMaterialized: true })
         const requests: string[] = []
@@ -350,6 +374,37 @@ describe('materializationJobsLogic', () => {
         logic.actions.loadSavedQuery()
         await expectLogic(logic).toDispatchActions(['loadSavedQuerySuccess']).toFinishAllListeners()
         expect(checkCalls).toBe(1)
+    })
+
+    it('shows a refresh mode loading state while the eligibility check runs', async () => {
+        let releaseCheck!: () => void
+        const heldCheck = new Promise<void>((resolve) => {
+            releaseCheck = resolve
+        })
+        const mocks = apiMocks({ isMaterialized: true })
+        mocks.post!['/api/environments/:team_id/warehouse_saved_queries/check_incremental/'] = async () => {
+            await heldCheck
+            return [200, ELIGIBLE_CHECK]
+        }
+        useMocks(mocks)
+        logic = materializationJobsLogic({ viewId: 'view-1' })
+        logic.mount()
+
+        await expectLogic(logic).toDispatchActions(['loadSavedQuerySuccess'])
+        render(
+            createElement(MaterializationStatusPanel, {
+                viewId: 'view-1',
+                showRunActions: false,
+                showStatusSummary: false,
+            })
+        )
+
+        expect(screen.getByText('Refresh mode')).toBeTruthy()
+        expect(document.querySelector('[data-attr="materialization-refresh-mode-loading"]')).toBeTruthy()
+
+        releaseCheck()
+        await expectLogic(logic).toDispatchActions(['loadIncrementalCheckSuccess']).toFinishAllListeners()
+        expect(document.querySelector('[data-attr="materialization-refresh-mode-loading"]')).toBeNull()
     })
 
     // Regression: a rejected eligibility check used to surface as a "Load incremental check failed"

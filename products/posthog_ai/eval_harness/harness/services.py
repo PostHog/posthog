@@ -328,9 +328,14 @@ def start_mcp_server(
         # legacy notebooks-create / notebooks-retrieve pair, which the two surfaces
         # being mutually exclusive makes unavoidable — an eval of the legacy tools
         # needs its own lever, not this one. mcp-exec-skills follows the run's
-        # skill delivery mode.
+        # skill delivery mode. dashboard-widgets gates the widget batch tools that
+        # the dashboard widget evals exercise.
         "FEATURE_FLAG_OVERRIDES": json.dumps(
-            {"revamped-py-notebooks": True, MCP_EXEC_SKILLS_FEATURE_FLAG: exec_skills_enabled}
+            {
+                "revamped-py-notebooks": True,
+                "dashboard-widgets": True,
+                MCP_EXEC_SKILLS_FEATURE_FLAG: exec_skills_enabled,
+            }
         ),
     }
 
@@ -494,9 +499,13 @@ def build_local_skills(*, set_bind_mount_env: bool) -> Path:
     template helpers (e.g. HogQL example rendering) guard on that setting. The
     harness sets ``DEBUG=1`` in the environment before ``django.setup()``, so
     that ordering holds by the time this runs.
+
+    A failed build raises instead of reusing an older ``dist/skills``: the cache
+    would pin the new source hash onto the old output, and every later run would
+    silently give the agent skills from another branch or edit.
     """
     cache = LocalSkillsCache()
-    dist_dir = cache.ensure_built()
+    dist_dir = cache.ensure_built(allow_stale=False)
     if set_bind_mount_env:
         # Only ``DockerSandbox.create`` reads this to bind-mount the built skills.
         # Under the modal provider the locally built skills are instead baked into

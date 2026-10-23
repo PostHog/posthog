@@ -6,6 +6,7 @@ tick off. The pair activity calls `update_activity_summary`, then queues the emb
 
 import asyncio
 import datetime
+import dataclasses
 from collections import Counter
 
 from django.conf import settings
@@ -27,6 +28,8 @@ from posthog.temporal.common.utils import close_db_connections
 
 from products.signals.backend.activity_summary.config import read_config
 from products.signals.backend.activity_summary.logic import (
+    MAX_SKIP_BACKOFF,
+    MAX_VERSIONS,
     ActivitySummaryUpdate,
     UpdateAfterModelCallError,
     UpdateStatus,
@@ -36,9 +39,12 @@ from products.signals.backend.activity_summary.logic import (
 from products.signals.backend.activity_summary.prompt import PROMPT_VERSION
 from products.signals.backend.activity_summary.queue import (
     ActivitySummaryPair,
+    ActivitySummaryTierStats,
     daily_usage,
+    feed_queue,
     max_update_cost_usd,
     select_pairs,
+    sync_pair_state,
 )
 from products.signals.backend.activity_summary.render import DEFAULT_LIMITS, RENDER_VERSION, RenderLimits
 from products.signals.backend.activity_summary.summaries import DEFAULT_MODEL, PIPELINE_DISTINCT_ID
@@ -56,6 +62,12 @@ STOP_MAX_PAIRS_PER_TICK = "max_pairs_per_tick"
 STOP_MAX_PAIRS_PER_DAY = "max_pairs_per_day"
 STOP_MAX_COST_USD_PER_DAY = "max_cost_usd_per_day"
 STOP_GATEWAY_NOT_CONFIGURED = "gateway_not_configured"
+# Due pairs are left, but each organization with due pairs already has its share of the tick.
+STOP_MAX_ORG_SHARE = "max_org_share"
+STOP_ERROR_RATE = "error_rate"
+
+# The circuit breaker waits for this many model calls, so a few early failures do not stop the tick.
+_MIN_ERROR_RATE_SAMPLE = 10
 
 _PLAN_TIMEOUT = datetime.timedelta(minutes=5)
 # One model call has a 120 second request timeout and one retry on a malformed answer.
@@ -86,8 +98,13 @@ class ActivitySummaryTickPlan:
     emit_embeddings: bool
     capture_events: bool
     stop_reason: str | None
-    # A default, so a plan that a workflow history recorded before this field existed still decodes.
+    # Defaults, so a plan that a workflow history recorded before these fields existed still decodes.
     limits: RenderLimits = DEFAULT_LIMITS
+    rebuild_before: datetime.datetime | None = None
+    max_versions: int = MAX_VERSIONS
+    max_error_rate: float = 1.0
+    max_skip_backoff_hours: float = MAX_SKIP_BACKOFF.total_seconds() / 3600
+    tiers: list[ActivitySummaryTierStats] = dataclasses.field(default_factory=list)
 
 
 @frozen
@@ -98,8 +115,12 @@ class ActivitySummaryPairInput:
     min_update_interval_hours: float
     emit_embeddings: bool
     capture_events: bool
-    # A default, so a pair input that a tick queued before this field existed still decodes.
+    # Defaults, so a pair input that a tick queued before these fields existed still decodes.
     limits: RenderLimits = DEFAULT_LIMITS
+    rebuild_before: datetime.datetime | None = None
+    # Has a default, so the pair input of a workflow in flight during a deploy still decodes.
+    max_versions: int = MAX_VERSIONS
+    max_skip_backoff_hours: float = MAX_SKIP_BACKOFF.total_seconds() / 3600
 
 
 @frozen
@@ -118,6 +139,7 @@ class ActivitySummaryTickResult:
     errored: int = 0
     cost_usd: float = 0.0
     stop_reason: str | None = None
+    tiers: list[ActivitySummaryTierStats] = dataclasses.field(default_factory=list)
 
 
 def plan_tick(limit: int | None, now: datetime.datetime) -> ActivitySummaryTickPlan:
@@ -127,12 +149,16 @@ def plan_tick(limit: int | None, now: datetime.datetime) -> ActivitySummaryTickP
         # Every pair would fail on the same missing gateway, so the tick runs none.
         logger.warning("activity_summary_tick_gateway_not_configured")
     enabled = config.enabled and not gateway_missing
+    if config.enabled:
+        # The cursors move even when a cap stops the tick, so new rows do not pile up behind them.
+        feed_queue(config, now)
     usage = daily_usage(now) if enabled else None
     updates_left = max(0, config.max_pairs_per_day - usage.updates) if usage else 0
     cost_left = max(0.0, config.max_cost_usd_per_day - usage.cost_usd) if usage else 0.0
     tick_limit = limit or config.max_pairs_per_tick
-    # One more than the cut, to tell a full queue from a queue the cut emptied.
-    due = select_pairs(config, now, tick_limit + 1) if updates_left and cost_left else []
+    selection = select_pairs(config, now, tick_limit) if updates_left and cost_left else None
+    pairs = selection.pairs if selection else []
+    due_pairs = selection.due_pairs if selection else 0
 
     stop_reason: str | None = None
     if gateway_missing:
@@ -141,12 +167,12 @@ def plan_tick(limit: int | None, now: datetime.datetime) -> ActivitySummaryTickP
         stop_reason = STOP_MAX_PAIRS_PER_DAY
     elif enabled and not cost_left:
         stop_reason = STOP_MAX_COST_USD_PER_DAY
-    elif len(due) > tick_limit:
-        stop_reason = STOP_MAX_PAIRS_PER_TICK
+    elif due_pairs > len(pairs):
+        stop_reason = STOP_MAX_PAIRS_PER_TICK if len(pairs) >= tick_limit else STOP_MAX_ORG_SHARE
     return ActivitySummaryTickPlan(
         enabled=enabled,
-        pairs=due[:tick_limit],
-        candidates=len(due),
+        pairs=pairs,
+        candidates=due_pairs,
         updates_left=updates_left,
         cost_left_usd=cost_left,
         max_update_cost_usd=max_update_cost_usd(config.limits),
@@ -156,7 +182,12 @@ def plan_tick(limit: int | None, now: datetime.datetime) -> ActivitySummaryTickP
         emit_embeddings=config.emit_embeddings,
         capture_events=config.capture_events,
         limits=config.limits,
+        max_error_rate=config.max_error_rate,
+        max_skip_backoff_hours=config.max_skip_backoff_hours,
+        tiers=selection.tiers if selection else [],
         stop_reason=stop_reason,
+        rebuild_before=config.rebuild_before,
+        max_versions=config.max_versions,
     )
 
 
@@ -206,6 +237,7 @@ def _capture_generated(team_id: int, user_id: int, update: ActivitySummaryUpdate
             "cost_usd": update.cost_usd,
             "latency_ms": update.latency_ms,
             "inputs_used": update.inputs_used,
+            "rebuilt": update.rebuilt,
         },
         groups={"organization": str(team.organization_id), "project": str(team.uuid)},
     )
@@ -219,6 +251,9 @@ def run_pair(input: ActivitySummaryPairInput, *, last_attempt: bool = True) -> A
             min_units=input.min_units,
             min_update_interval=datetime.timedelta(hours=input.min_update_interval_hours),
             limits=input.limits,
+            rebuild_before=input.rebuild_before,
+            max_versions=input.max_versions,
+            max_skip_backoff=datetime.timedelta(hours=input.max_skip_backoff_hours),
         )
         called_model = update.status in (UpdateStatus.OK, UpdateStatus.FAILED)
     except Exception as error:
@@ -228,6 +263,11 @@ def run_pair(input: ActivitySummaryPairInput, *, last_attempt: bool = True) -> A
         # Without a failed row and a backoff, the queue picks the same pair again on the next tick.
         update = record_update_exception(input.team_id, input.user_id, error)
         called_model = isinstance(error, UpdateAfterModelCallError)
+    try:
+        sync_pair_state(input.team_id, input.user_id)
+    except Exception:
+        # The pair stays due, so the next tick picks it, skips it as not eligible yet, and syncs it then.
+        logger.exception("activity_summary_queue_sync_failed", team_id=input.team_id, user_id=input.user_id)
     if update.status == UpdateStatus.OK and input.emit_embeddings:
         try:
             _emit_embedding(input.team_id, input.user_id)
@@ -250,6 +290,7 @@ def capture_tick(result: ActivitySummaryTickResult) -> None:
         errored=result.errored,
         cost_usd=result.cost_usd,
         stop_reason=result.stop_reason,
+        tiers=[dataclasses.asdict(tier) for tier in result.tiers],
     )
     ph_background_capture()(
         distinct_id=PIPELINE_DISTINCT_ID,
@@ -262,6 +303,11 @@ def capture_tick(result: ActivitySummaryTickResult) -> None:
             "errored": result.errored,
             "cost_usd": result.cost_usd,
             "stop_reason": result.stop_reason,
+            **{
+                f"{tier.tier}_{name}": getattr(tier, name)
+                for tier in result.tiers
+                for name in ("due_pairs", "oldest_due_hours", "fresh_share")
+            },
         },
     )
 
@@ -305,6 +351,9 @@ class ActivitySummaryTickWorkflow:
         statuses: Counter[str] = Counter()
         errored = 0
         cost = 0.0
+        # Model calls of this tick and the calls among them that failed or raised, for the circuit breaker.
+        calls = 0
+        failures = 0
         updates_left = plan.updates_left
         stop_reason = plan.stop_reason
         picked = 0
@@ -317,6 +366,10 @@ class ActivitySummaryTickWorkflow:
                 break
             if cost >= plan.cost_left_usd:
                 stop_reason = STOP_MAX_COST_USD_PER_DAY
+                break
+            # The pairs not attempted yet stay due with no backoff, so the next tick picks them.
+            if calls >= _MIN_ERROR_RATE_SAMPLE and failures >= plan.max_error_rate * calls:
+                stop_reason = STOP_ERROR_RATE
                 break
             wave = plan.pairs[index : index + min(concurrency, updates_left)]
             index += len(wave)
@@ -333,6 +386,9 @@ class ActivitySummaryTickWorkflow:
                             emit_embeddings=plan.emit_embeddings,
                             capture_events=plan.capture_events,
                             limits=plan.limits,
+                            rebuild_before=plan.rebuild_before,
+                            max_versions=plan.max_versions,
+                            max_skip_backoff_hours=plan.max_skip_backoff_hours,
                         ),
                         start_to_close_timeout=_PAIR_TIMEOUT,
                         heartbeat_timeout=_PAIR_HEARTBEAT_TIMEOUT,
@@ -346,11 +402,15 @@ class ActivitySummaryTickWorkflow:
                 if isinstance(outcome, BaseException):
                     # The attempt can have called the model, so it counts at the highest cost.
                     errored += 1
+                    calls += 1
+                    failures += 1
                     updates_left -= 1
                     cost += plan.max_update_cost_usd
                     continue
                 statuses[outcome.status] += 1
                 if outcome.called_model:
+                    calls += 1
+                    failures += outcome.status == UpdateStatus.FAILED
                     updates_left -= 1
                     cost += plan.max_update_cost_usd if outcome.cost_usd is None else outcome.cost_usd
 
@@ -362,6 +422,7 @@ class ActivitySummaryTickWorkflow:
             errored=errored,
             cost_usd=cost,
             stop_reason=stop_reason,
+            tiers=plan.tiers,
         )
         await workflow.execute_activity(
             capture_activity_summary_tick_activity,

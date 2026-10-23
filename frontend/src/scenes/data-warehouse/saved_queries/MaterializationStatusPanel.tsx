@@ -205,17 +205,7 @@ export function MaterializationStatusPanel({
             <div className="flex flex-col flex-1 gap-4">
                 <div>
                     <div className="flex flex-row items-center gap-2">
-                        {!hideTitle && (
-                            <>
-                                <h3 className="mb-0">Materialization</h3>
-                                <LemonTag type="warning">BETA</LemonTag>
-                            </>
-                        )}
-                        {showStatusSummary && savedQuery?.latest_error && savedQuery.status === 'Failed' && (
-                            <Tooltip title={savedQuery.latest_error} interactive>
-                                <LemonTag type="danger">Error</LemonTag>
-                            </Tooltip>
-                        )}
+                        {!hideTitle && <h3 className="mb-0">Materialization</h3>}
                     </div>
                     {showStatusSummary && showSuspendedBanner && suspension && (
                         <LemonBanner type="error" className="mt-2">

@@ -45,6 +45,55 @@ _TRADE_COLUMNS = {
     "is_block_trade": "Whether the trade was negotiated as a block rather than matched on the book.",
 }
 
+_FILL_COLUMNS = {
+    "fill_id": "Unique identifier for the fill.",
+    "trade_id": "Legacy name for fill_id.",
+    "order_id": "Identifier of the order that produced this fill.",
+    "ticker": "Ticker of the market the fill is in.",
+    "outcome_side": "Outcome side the fill positioned the account for, yes or no.",
+    "book_side": "Order book side of the fill, bid or ask.",
+    "count_fp": "Number of contracts filled.",
+    "yes_price_dollars": "Fill price for the yes side, in dollars.",
+    "no_price_dollars": "Fill price for the no side, in dollars.",
+    "is_taker": "True when the fill removed liquidity from the order book.",
+    "fee_cost": "Fee charged for the fill, in dollars.",
+    "created_time": "When the fill executed.",
+    "subaccount_number": "Subaccount the fill belongs to. 0 is the primary account.",
+}
+
+_ORDER_COLUMNS = {
+    "order_id": "Unique identifier for the order.",
+    "client_order_id": "Identifier the client set when it placed the order.",
+    "ticker": "Ticker of the market the order is in.",
+    "outcome_side": "Outcome side the order is positioned for, yes or no.",
+    "book_side": "Order book side of the order, bid or ask.",
+    "type": "Order type, limit or market.",
+    "status": "Order status, for example resting, canceled, or executed.",
+    "yes_price_dollars": "Limit price for the yes side, in dollars.",
+    "no_price_dollars": "Limit price for the no side, in dollars.",
+    "initial_count_fp": "Number of contracts the order asked for.",
+    "fill_count_fp": "Number of contracts filled so far.",
+    "remaining_count_fp": "Number of contracts still resting.",
+    "taker_fill_cost_dollars": "Cost of the contracts filled as taker, in dollars.",
+    "maker_fill_cost_dollars": "Cost of the contracts filled as maker, in dollars.",
+    "taker_fees_dollars": "Fees paid on contracts filled as taker, in dollars.",
+    "maker_fees_dollars": "Fees paid on contracts filled as maker, in dollars.",
+    "created_time": "When the order was placed.",
+    "last_update_time": "When the order last changed.",
+    "expiration_time": "When the order expires, if it has an expiration.",
+}
+
+_POSITION_COLUMNS = {
+    "ticker": "Ticker of the market the position is in.",
+    "position_fp": "Net number of contracts held. Positive is yes, negative is no.",
+    "total_traded_dollars": "Total spent on this market, in dollars.",
+    "market_exposure_dollars": "Cost of the open position, in dollars.",
+    "realized_pnl_dollars": "Locked-in profit and loss, in dollars.",
+    "fees_paid_dollars": "Fees paid on fills in this market, in dollars.",
+    "last_updated_ts": "When the position last changed.",
+}
+
+
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     "markets": {
         "description": "One row per tradeable event contract, carrying its rules, current quotes, and settlement outcome.",
@@ -142,6 +191,53 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "status": "normal when every member station contributed its primary observation, degraded when a member was absent, fell back, or was replaced by quality control. Both are settlement-eligible.",
             "contributors": "Number of accepted member stations that back the point.",
             "receipt_basis": "Set only on points from the historical backfill for the period before a city went live. These points are not settlement-eligible.",
+        },
+    },
+    "fills": {
+        "description": "Your account's fills. A fill is one match of your order against another order.",
+        "docs_url": "https://docs.kalshi.com/api-reference/portfolio/get-fills",
+        "columns": _FILL_COLUMNS,
+    },
+    "historical_fills": {
+        "description": "Your account's fills from before the historical cutoff, which the fills table no longer returns.",
+        "docs_url": "https://docs.kalshi.com/api-reference/historical/get-historical-fills",
+        "columns": _FILL_COLUMNS,
+    },
+    "orders": {
+        "description": "Your account's orders that are resting, or that were canceled or executed after the historical cutoff.",
+        "docs_url": "https://docs.kalshi.com/api-reference/orders/get-orders",
+        "columns": _ORDER_COLUMNS,
+    },
+    "historical_orders": {
+        "description": "Your account's canceled and executed orders from before the historical cutoff.",
+        "docs_url": "https://docs.kalshi.com/api-reference/historical/get-historical-orders",
+        "columns": _ORDER_COLUMNS,
+    },
+    "positions": {
+        "description": "Your account's position in each market, settled or not, that is still in the live data set.",
+        "docs_url": "https://docs.kalshi.com/api-reference/portfolio/get-positions",
+        "columns": _POSITION_COLUMNS,
+    },
+    "historical_positions": {
+        "description": "Your account's settled positions after their event moved to the historical archive.",
+        "docs_url": "https://docs.kalshi.com/api-reference/historical/get-historical-positions",
+        "columns": _POSITION_COLUMNS,
+    },
+    "settlements": {
+        "description": "Payouts for each settled market your account held contracts in, while still in the live data set.",
+        "docs_url": "https://docs.kalshi.com/api-reference/portfolio/get-settlements",
+        "columns": {
+            "ticker": "Ticker of the market that settled.",
+            "event_ticker": "Ticker of the event the market belongs to.",
+            "market_result": "Settlement outcome, yes, no, or scalar.",
+            "yes_count_fp": "Number of yes contracts held at settlement.",
+            "yes_total_cost_dollars": "Cost basis of the yes contracts, in dollars.",
+            "no_count_fp": "Number of no contracts held at settlement.",
+            "no_total_cost_dollars": "Cost basis of the no contracts, in dollars.",
+            "revenue": "Revenue from the settlement, in cents.",
+            "value": "Payout of a single yes contract, in cents.",
+            "fee_cost": "Total fees paid on the market, in dollars.",
+            "settled_time": "When the market settled and payouts were made.",
         },
     },
 }

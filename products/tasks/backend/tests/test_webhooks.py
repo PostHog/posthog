@@ -1316,6 +1316,7 @@ class TestGitHubPRWebhookResolvesSignalReports(TestCase):
         if relationship == "implementation":
             assert len(status_events) == 1
             assert status_events[0].get("resolution_reason") == ("pr_merged" if merged else None)
+            assert status_events[0].get("dismissal_cause") == (None if merged else "pr_closed_without_merge")
             assert status_events[0]["dismissal_reason"] is None
         else:
             assert status_events == []

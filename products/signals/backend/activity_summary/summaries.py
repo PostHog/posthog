@@ -16,13 +16,12 @@ from posthog.llm.gateway_client import build_openai_client, trace_id_from_seed
 
 from products.signals.backend.activity_summary.prompt import (
     RESPONSE_FORMAT,
-    SUMMARY_MAX_WORDS,
     MalformedSummaryError,
     normalize_summary,
     system_prompt,
     user_message,
 )
-from products.signals.backend.activity_summary.render import MAX_COMPLETION_TOKENS
+from products.signals.backend.activity_summary.render import MAX_COMPLETION_TOKENS, PROFILE_MAX_CHARS
 
 AI_PRODUCT = "activity_summary"
 # Not a person: the gateway attributes every call to the pipeline.
@@ -89,12 +88,12 @@ def summarize(
     model: str,
     as_of: datetime.date,
     max_completion_tokens: int = MAX_COMPLETION_TOKENS,
-    summary_max_words: int = SUMMARY_MAX_WORDS,
+    profile_max_chars: int = PROFILE_MAX_CHARS,
 ) -> SummaryOutcome:
     """One summary. Tokens and latency add up over the attempts, because the retry costs too."""
     messages: list[ChatCompletionMessageParam] = [
-        {"role": "system", "content": system_prompt(summary_max_words)},
-        {"role": "user", "content": user_message(rendered_input, previous_summary, as_of)},
+        {"role": "system", "content": system_prompt(profile_max_chars)},
+        {"role": "user", "content": user_message(rendered_input, previous_summary, as_of, profile_max_chars)},
     ]
     tokens_in: int | None = None
     tokens_out: int | None = None
@@ -123,7 +122,7 @@ def summarize(
             summary = normalize_summary(
                 choice.message.content if choice is not None else None,
                 had_previous_summary=previous_summary is not None,
-                max_words=summary_max_words,
+                profile_max_chars=profile_max_chars,
             )
         except MalformedSummaryError as malformed:
             error = f"malformed_output: {malformed}"

@@ -63,6 +63,7 @@ use crate::pkset::PkSet;
 use crate::probecache::{
     file_key, key_signature, sorted_intersect, CollectedKeys, KeyCollector, ProbeCache,
 };
+use crate::readahead::{max_row_group_pair_fetch_bytes, ReadAheadStore};
 use crate::schema::{cast_to_schema, unknown_columns};
 use crate::smallfile::{fetch_small_file, reads_whole, SmallFileStore};
 use crate::writer::StreamingWriter;
@@ -228,6 +229,11 @@ pub struct UpsertOptions {
     /// `max_parallel_files` whole files. A row group larger than the cap still runs, alone.
     /// The process-wide cap in [`ProcessLimits`] applies on top.
     pub max_fetch_bytes: usize,
+    /// Read the next row group of a file while the reader decodes the current one (see
+    /// `crate::readahead`). A reader then holds up to two row groups, and reserves both
+    /// from the fetch budget. A file whose two largest neighbouring row groups do not fit
+    /// the fetch budget is read without read-ahead. Off by default.
+    pub read_ahead_row_groups: bool,
     /// Commit retry budget handed to `CommitBuilder`.
     pub commit_max_retries: usize,
     /// Row-count granularity for Parquet reads and source-slice writes.
@@ -286,6 +292,7 @@ impl Default for UpsertOptions {
             max_parallel_files: 4,
             max_buffered_bytes: 64 * 1024 * 1024,
             max_fetch_bytes: DEFAULT_MAX_FETCH_BYTES,
+            read_ahead_row_groups: false,
             commit_max_retries: 15,
             read_batch_size: 8192,
             target_file_size: None,
@@ -614,6 +621,12 @@ impl Budgets {
             _local: local,
             _global: global,
         })
+    }
+
+    /// Bytes of compressed row-group data one reader can hold without passing either
+    /// fetch budget.
+    pub(crate) fn fetch_cap_bytes(&self) -> usize {
+        self.fetch_local_cap_kb.min(self.limits.fetch_cap_kb()) as usize * 1024
     }
 
     /// Acquire byte budget for `bytes`, capped at both budgets' capacities so a batch
@@ -2290,15 +2303,31 @@ async fn filter_file(
     budgets: Budgets,
     tx: mpsc::UnboundedSender<(RecordBatch, BudgetPermit)>,
 ) -> Result<FileOutcome> {
-    let (builder, held_fetch) = open_builder(&store, &f, &budgets).await?;
+    let (mut builder, held_fetch) = open_builder(&store, &f, &budgets).await?;
     // Reserve the compressed bytes the reader will hold before it fetches any data.
     // Taken once per file and before any decode budget (see `Budgets::acquire_fetch`).
     let fetch = match held_fetch {
         Some(fetch) => fetch,
         None => {
-            budgets
-                .acquire_fetch(max_row_group_fetch_bytes(builder.metadata(), None))
-                .await?
+            let meta = builder.metadata().clone();
+            let pair = max_row_group_pair_fetch_bytes(&meta);
+            if opts.read_ahead_row_groups
+                && meta.num_row_groups() > 1
+                && pair <= budgets.fetch_cap_bytes()
+            {
+                let path = Path::parse(&f.path)
+                    .map_err(|e| Error::Generic(format!("bad data file path {:?}: {e}", f.path)))?;
+                let read_ahead: Arc<dyn ObjectStore> =
+                    Arc::new(ReadAheadStore::new(store.clone(), path.clone(), &meta));
+                let reader = ParquetObjectReader::new(read_ahead, path).with_file_size(f.size);
+                let arrow_meta = ArrowReaderMetadata::try_new(meta, Default::default())?;
+                builder = ParquetRecordBatchStreamBuilder::new_with_metadata(reader, arrow_meta);
+                budgets.acquire_fetch(pair).await?
+            } else {
+                budgets
+                    .acquire_fetch(max_row_group_fetch_bytes(&meta, None))
+                    .await?
+            }
         }
     };
     let batch_rows = byte_bounded_batch_rows(
