@@ -2141,6 +2141,29 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         Database.create_for(team=self.team)
 
+    def test_database_warehouse_joins_unparseable_key_is_parsed_once_and_not_captured(self):
+        _cached_join_field_chain.cache_clear()
+        self.addCleanup(_cached_join_field_chain.cache_clear)
+        DataWarehouseJoin.objects.create(
+            team=self.team,
+            source_table_name="events",
+            source_table_key="if(event =",
+            joining_table_name="groups",
+            joining_table_key="upper(key)",
+            field_name="some_field",
+        )
+
+        with (
+            patch("posthog.hogql.database.utils.parse_expr", wraps=parse_expr) as parser,
+            patch("posthog.hogql.database.database.capture_exception") as capture_exception,
+        ):
+            for _ in range(2):
+                database = Database.create_for(team=self.team)
+                assert "some_field" not in database.get_table("events").fields
+
+        assert [call.args[0] for call in parser.call_args_list].count("if(event =") == 1
+        capture_exception.assert_not_called()
+
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_database_warehouse_joins_persons_no_poe(self):
         DataWarehouseJoin.objects.create(

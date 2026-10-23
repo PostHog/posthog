@@ -4,6 +4,7 @@ from textwrap import dedent
 from posthog.test.base import APIBaseTest, FuzzyInt
 from unittest.mock import patch
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.schema import HogQLQueryResponse
@@ -229,6 +230,30 @@ class TestViewLinkQuery(APIBaseTest):
         )
         join.refresh_from_db()
         self.assertEqual(join.configuration, {"experiments_optimized": True, "experiments_timestamp_key": "timestamp"})
+
+    @parameterized.expand(
+        [
+            ["unparseable", {"source_table_key": "if(event ="}, 400, "distinct_id"],
+            ["not_a_field", {"source_table_key": "1 + 1"}, 400, "distinct_id"],
+            ["unknown_table", {"source_table_name": "nonexistent_table_xyz"}, 400, "distinct_id"],
+            ["valid_field", {"source_table_key": "event"}, 200, "event"],
+        ]
+    )
+    def test_update_validates_join_key(self, _name: str, patch_data: dict, expected_status: int, expected_key: str):
+        join = DataWarehouseJoin.objects.create(
+            team=self.team,
+            source_table_name="events",
+            source_table_key="distinct_id",
+            joining_table_name="persons",
+            joining_table_key="id",
+            field_name="some_field",
+        )
+
+        response = self.client.patch(f"/api/environments/{self.team.id}/warehouse_view_links/{join.id}/", patch_data)
+
+        self.assertEqual(response.status_code, expected_status, response.content)
+        join.refresh_from_db()
+        self.assertEqual(join.source_table_key, expected_key)
 
     def test_delete(self):
         response = self.client.post(
