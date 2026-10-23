@@ -16,7 +16,7 @@ import type { _MetricEventSampleApi } from 'products/metrics/frontend/generated/
 
 import type { ProductIntentProperties } from '../../../../frontend/src/lib/utils/product-intents'
 import type { Node } from '../../../../frontend/src/queries/schema/schema-general'
-import type { DashboardType, InsightModel, UniversalFiltersGroup } from '../../../../frontend/src/types'
+import type { InsightModel, UniversalFiltersGroup } from '../../../../frontend/src/types'
 import { metricsDashboardImportLogic } from '../dashboardImport/metricsDashboardImportLogic'
 import type { DashboardImportStep } from '../dashboardImport/metricsDashboardImportLogic'
 import type { DashboardImportSourceEnumApi, _MetricFilterApi, _MetricSeriesApi } from '../generated/api.schemas'
@@ -24,7 +24,6 @@ import { metricsSceneLogic } from '../metricsSceneLogic'
 import type { MetricsSceneActiveTab } from '../metricsSceneLogic'
 import { metricsSamplesLogic } from './metricsSamplesLogic'
 import type { MetricsPanelTab } from './metricsSamplesLogic'
-import { metricsStarterDashboardLogic } from './metricsStarterDashboardLogic'
 import { metricsViewerLogic, viewerAggregationFromNode } from './metricsViewerLogic'
 import type {
     MetricAggregation,
@@ -83,16 +82,6 @@ export interface metricsUsageTrackingLogicActions {
     sceneTabChanged: (activeTab: MetricsSceneActiveTab) => {
         activeTab: MetricsSceneActiveTab
     } // metricsSceneLogic
-    starterDashboardCreated: (
-        createdDashboard: DashboardType,
-        warning?: string | undefined
-    ) => {
-        createdDashboard: DashboardType
-        warning: string | undefined
-    } // metricsStarterDashboardLogic
-    starterDashboardOpened: () => {
-        value: true
-    } // metricsStarterDashboardLogic
     addClause: () => {
         value: true
     } // metricsViewerLogic
@@ -211,8 +200,6 @@ export const metricsUsageTrackingLogic = kea<metricsUsageTrackingLogicType>([
                 'openImportedDashboard as importedDashboardOpened',
                 'openImport as dashboardImportViewed',
             ],
-            metricsStarterDashboardLogic,
-            ['openModal as starterDashboardOpened', 'createDashboardSuccess as starterDashboardCreated'],
             teamLogic,
             ['addProductIntent'],
         ],
@@ -426,12 +413,6 @@ export const metricsUsageTrackingLogic = kea<metricsUsageTrackingLogicType>([
         // A running or ended import opened from the Import menu or from a message.
         dashboardImportViewed: ({ dashboardImport }) => {
             posthog.capture('metrics dashboard import viewed', { status: dashboardImport.status })
-        },
-        starterDashboardOpened: () => {
-            posthog.capture('metrics starter dashboard opened')
-        },
-        starterDashboardCreated: ({ warning }) => {
-            posthog.capture('metrics starter dashboard created', { partial: !!warning })
         },
     })),
 ])
