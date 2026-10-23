@@ -1474,7 +1474,15 @@ class TestDescWatermarkAcrossResumedAttempts:
             },
         )
 
-    def _attempt(self, schema: ExternalDataSchema, attempt: int, sort_mode: str | None = "desc") -> PipelineV3:
+    def _attempt(
+        self,
+        schema: ExternalDataSchema,
+        attempt: int,
+        sort_mode: str | None = "desc",
+        *,
+        workflow_run_id: str = "wfrun-abc",
+        continued_workflow_run_id: str | None = None,
+    ) -> PipelineV3:
         resource = MagicMock(
             name="events",
             primary_keys=["id"],
@@ -1489,11 +1497,11 @@ class TestDescWatermarkAcrossResumedAttempts:
             webhook_only=False,
             sort_mode=sort_mode,
         )
-        manager = MagicMock(can_resume=MagicMock(return_value=attempt > 1))
+        manager = MagicMock(can_resume=MagicMock(return_value=attempt > 1 or continued_workflow_run_id is not None))
         with (
             patch(f"{_PIPELINE}.current_import_attempt", return_value=attempt),
             patch(f"{_PIPELINE}.current_workflow_id", return_value="wf-1"),
-            patch(f"{_PIPELINE}.current_workflow_run_id", return_value="wfrun-abc"),
+            patch(f"{_PIPELINE}.current_workflow_run_id", return_value=workflow_run_id),
             patch(f"{_PIPELINE}.S3BatchWriter"),
             patch(f"{_PIPELINE}.PostgresProducer"),
             patch(f"{_PIPELINE}.DeltaTableRef"),
@@ -1507,20 +1515,35 @@ class TestDescWatermarkAcrossResumedAttempts:
                 shutdown_monitor=MagicMock(),
                 resumable_source_manager=manager,
                 models=ImportJobModels(
-                    job=MagicMock(team_id=1, workflow_run_id="wfrun-abc", billable=False, id="job-1"),
+                    job=MagicMock(team_id=1, workflow_run_id=workflow_run_id, billable=False, id="job-1"),
                     schema=schema,
                     source=MagicMock(source_type="Langfuse"),
                     table=MagicMock(),
                 ),
+                continued_workflow_run_id=continued_workflow_run_id,
             )
 
     async def _extract(
-        self, schema: ExternalDataSchema, attempt: int, *, final: bool, sort_mode: str | None = "desc"
+        self,
+        schema: ExternalDataSchema,
+        attempt: int,
+        *,
+        final: bool,
+        sort_mode: str | None = "desc",
+        page: int | None = None,
+        workflow_run_id: str = "wfrun-abc",
+        continued_workflow_run_id: str | None = None,
     ) -> str:
-        pipeline = self._attempt(schema, attempt, sort_mode)
+        pipeline = self._attempt(
+            schema,
+            attempt,
+            sort_mode,
+            workflow_run_id=workflow_run_id,
+            continued_workflow_run_id=continued_workflow_run_id,
+        )
         run_uuid = cast(str, pipeline._run_uuid)
         # Each attempt resumes on an older page than the attempt before it read.
-        newest_row = self._NEWEST - timedelta(hours=10 * (attempt - 1))
+        newest_row = self._NEWEST - timedelta(hours=10 * ((page or attempt) - 1))
         table = pa.table(
             {"created_at": pa.array([newest_row, newest_row - timedelta(hours=5)], pa.timestamp("us", tz="UTC"))}
         )
@@ -1580,6 +1603,27 @@ class TestDescWatermarkAcrossResumedAttempts:
         ):
             await self._extract(schema, 1, final=False, sort_mode=None)
             run_uuid = await self._extract(schema, 2, final=True, sort_mode=None)
+            assert schema.promote_staged_incremental_values(run_uuid)
+
+        assert schema.sync_type_config["incremental_field_last_value"] == self._NEWEST.isoformat()
+
+    @pytest.mark.asyncio
+    async def test_a_job_that_continues_an_interrupted_job_keeps_its_largest_value(self) -> None:
+        schema = self._schema()
+
+        with (
+            patch.object(schema_models, "update_sync_type_config_keys", side_effect=_in_memory_config_update(schema)),
+            patch.object(ExternalDataSchema, "refresh_from_db"),
+        ):
+            await self._extract(schema, 1, final=False, workflow_run_id="wfrun-interrupted")
+            run_uuid = await self._extract(
+                schema,
+                1,
+                final=True,
+                page=2,
+                workflow_run_id="wfrun-next",
+                continued_workflow_run_id="wfrun-interrupted",
+            )
             assert schema.promote_staged_incremental_values(run_uuid)
 
         assert schema.sync_type_config["incremental_field_last_value"] == self._NEWEST.isoformat()

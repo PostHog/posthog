@@ -18,6 +18,7 @@ from ..facade.contracts import (
     SuggestionPayloadView,
     SuggestionReviewer,
     SuggestionStatus,
+    UnmaterializePayload,
     VisibleSources,
 )
 from ..facade.enums import (
@@ -127,10 +128,34 @@ class MaterializePayloadSerializer(DataclassSerializer):
         }
 
 
+@extend_schema_serializer(component_name="WarehouseSuggestionUnmaterializePayload")
+class UnmaterializePayloadSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = UnmaterializePayload
+        exclude = ["query_fingerprint"]
+        extra_kwargs = {
+            "subject_name": {"help_text": "Name of the rarely read materialized view to turn back into a plain view."},
+            "refresh_seconds_per_month": {"help_text": "Time its refreshes take in a month, in seconds."},
+            "refresh_bytes_per_month": {"help_text": "Bytes its refreshes read in a month."},
+            "live_seconds_per_month": {
+                "help_text": "Estimated time its reads would take in a month if each read computed the view, in "
+                "seconds. The estimate uses a full refresh per read, so it leans high."
+            },
+            "live_bytes_per_month": {
+                "help_text": "Estimated bytes its reads would scan in a month if each read computed the view."
+            },
+            "read_seconds": {
+                "help_text": "How long one read would take once the view is computed on read, in seconds. Nine in "
+                "ten of its refreshes finished within this time."
+            },
+        }
+
+
 PAYLOAD_SERIALIZERS: dict[type, type[DataclassSerializer]] = {
     CertifyPayload: CertifyPayloadSerializer,
     DeprecatePayload: DeprecatePayloadSerializer,
     MaterializeSuggestionPayload: MaterializePayloadSerializer,
+    UnmaterializePayload: UnmaterializePayloadSerializer,
 }
 
 
@@ -205,7 +230,8 @@ class WarehouseSuggestionSerializer(DataclassSerializer):
     )
     kind = serializers.ChoiceField(
         choices=WarehouseSuggestionKind.choices,
-        help_text="What the suggestion proposes: certify, deprecate or materialize the subject.",
+        help_text="What the suggestion proposes: certify, deprecate, materialize or unmaterialize the subject. "
+        "unmaterialize turns a rarely read materialized view back into a plain view computed on read.",
     )
     subject_kind = serializers.ChoiceField(
         choices=WarehouseSuggestionSubjectKind.choices,
@@ -302,5 +328,11 @@ class AcceptWarehouseSuggestionSerializer(DataclassSerializer):
                 "help_text": "Materialize only, incremental refresh only: how far before the last refresh's highest "
                 "incremental_key value each refresh reads again, in seconds, so late rows are picked up. Omit to "
                 "keep the proposed lookback.",
+            },
+            "keep_materialized": {
+                "allow_null": False,
+                "help_text": "Deprecate only: true to keep a materialized view refreshing after it is deprecated. "
+                "By default, accepting a deprecate suggestion also stops the view's refreshes and deletes its "
+                "stored table, unless other views or syncs depend on it.",
             },
         }

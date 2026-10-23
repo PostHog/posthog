@@ -108,7 +108,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
     } = useValues(dashboardLogic)
     const { layoutZoom = 1 } = useValues(dashboardLogic)
     const {
-        updateLayouts,
+        stageLayouts,
         updateContainerWidth,
         toggleTileDescription,
         removeTile,
@@ -197,7 +197,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         useDashboardLayoutInteraction({
             layoutEditMode,
             layoutCompaction: dashboard?.customization?.layout_compaction,
-            updateLayouts,
+            updateLayouts: stageLayouts,
         })
 
     useEffect(() => {

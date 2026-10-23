@@ -135,6 +135,7 @@ from products.replay_vision.backend.temporal.vision_alerts.schedule import creat
 from products.review_hog.backend.facade.temporal import create_review_hog_finding_outcomes_schedule
 from products.security.backend.facade.temporal import create_sync_access_rules_schedule
 from products.signals.backend.activity_summary.schedule import create_activity_summary_tick_schedule
+from products.signals.backend.anomaly_scores.schedule import create_anomaly_scoring_tick_schedule
 from products.signals.backend.emission.conversations_schedule import create_conversations_signals_coordinator_schedule
 from products.signals.backend.ranking.schedule import create_inbox_ranking_scoring_schedule
 from products.signals.backend.temporal.agentic.schedule import (
@@ -1000,6 +1001,7 @@ schedules = [
     create_signals_scout_coordinator_schedule,
     create_inbox_ranking_scoring_schedule,
     create_activity_summary_tick_schedule,
+    create_anomaly_scoring_tick_schedule,
     create_scout_suggestions_coordinator_schedule,
     create_support_reply_coordinator_schedule,
     create_channel_summary_coordinator_schedule,

@@ -99,6 +99,8 @@ class LanedPipelineV3(PipelineV3[ResumableData]):
         resumed_incremental_value: Any = None,
         preemption: PreemptionConfig | None = None,
         kept_rows_synced: int | None = None,
+        continued_workflow_run_id: str | None = None,
+        continued_job_ids: tuple[str, ...] = (),
         ride_out: RideOutConfig | None = None,
         progress: DurableProgress | None = None,
     ) -> None:
@@ -120,6 +122,8 @@ class LanedPipelineV3(PipelineV3[ResumableData]):
             resumed_incremental_value=resumed_incremental_value,
             preemption=preemption,
             kept_rows_synced=kept_rows_synced,
+            continued_workflow_run_id=continued_workflow_run_id,
+            continued_job_ids=continued_job_ids,
             ride_out=ride_out,
             progress=progress,
         )
