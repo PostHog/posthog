@@ -12,7 +12,6 @@ from django.utils import timezone
 
 import structlog
 
-from posthog.cache_utils import cache_for
 from posthog.credentials_service.callers import CredentialsCaller
 from posthog.credentials_service.errors import CredentialsServiceFailure
 from posthog.credentials_service.settings_fallback import get_or_settings
@@ -39,9 +38,8 @@ STRIPE_POSTHOG_SECRET_NAMES = (
 )
 
 
-@cache_for(timedelta(minutes=5))
 def stripe_signing_secret() -> str:
-    """The Stripe app signing secret. Cached, because it verifies every install and provisioning request."""
+    """The Stripe app signing secret, resolved fresh so rotation and recovery take effect immediately."""
     return get_or_settings("STRIPE_SIGNING_SECRET", CredentialsCaller.INTEGRATIONS)
 
 
