@@ -184,7 +184,7 @@ import {
     layoutsByTile,
     parseURLFilters,
     parseURLVariables,
-    runWithLimit,
+    TaskQueue,
     searchParamsWithUrlFilters,
     shouldSharedDashboardAutoForceForStaleTime,
 } from './dashboardUtils'
@@ -242,29 +242,48 @@ interface InsightTileRefresh {
     urlFilters: DashboardFilter
     forceRefresh: boolean
     signal: AbortSignal
+    queue: TaskQueue
+}
+
+/** One queue for every insight and widget load, so a dashboard never sends more than the cap at the same time. */
+function tileLoadQueue(cache: Record<string, any>): TaskQueue {
+    return (cache.tileLoadQueue ??= new TaskQueue(TILE_REFRESH_CONCURRENCY))
 }
 
 async function refreshInsightTile(
     tile: DashboardTile & { insight: InsightModel },
-    { actions, dashboardId, currentTeamId, filters, variables, urlFilters, forceRefresh, signal }: InsightTileRefresh
+    {
+        actions,
+        dashboardId,
+        currentTeamId,
+        filters,
+        variables,
+        urlFilters,
+        forceRefresh,
+        signal,
+        queue,
+    }: InsightTileRefresh
 ): Promise<InsightTileRefreshOutcome> {
     const insight = tile.insight
     const queryId = uuid()
-    const queryStartTime = performance.now()
-    actions.setRefreshStatus(insight.short_id, true, true)
+    let queryStartTime = performance.now()
 
     try {
-        const refreshedInsight = await getInsightWithRetry(
-            currentTeamId,
-            insight,
-            dashboardId,
-            queryId,
-            forceRefresh ? 'force_blocking' : 'blocking', // 'blocking' returns cached data if available, when manual refresh is triggered we want fresh results
-            { signal },
-            filters,
-            variables,
-            tile.filters_overrides
-        )
+        const refreshedInsight = await queue.run(() => {
+            queryStartTime = performance.now()
+            actions.setRefreshStatus(insight.short_id, true, true)
+            return getInsightWithRetry(
+                currentTeamId,
+                insight,
+                dashboardId,
+                queryId,
+                forceRefresh ? 'force_blocking' : 'blocking', // 'blocking' returns cached data if available, when manual refresh is triggered we want fresh results
+                { signal },
+                filters,
+                variables,
+                tile.filters_overrides
+            )
+        }, signal)
 
         const queryError = refreshedInsight ? getInsightQueryError(refreshedInsight) : null
         if (!refreshedInsight || isRefreshRejectionStub(refreshedInsight) || queryError) {
@@ -5186,16 +5205,15 @@ export const dashboardLogic = kea<dashboardLogicType>([
             const sortedTilesToRefresh = staleTiles.filter((tile) => !collapsedTileIds.has(tile.id))
             const widgetTileIds = values.widgetTiles.map((tile) => tile.id)
             const openWidgetTileIds = widgetTileIds.filter((id) => !collapsedTileIds.has(id))
-            actions.setWaitingTileRefresh(
-                nextWaitingTileRefresh({
-                    previous: values.waitingTileRefresh,
-                    tiles: values.tiles,
-                    collapsedTileIds,
-                    candidateTileIds: [...staleTiles.map((tile) => tile.id), ...widgetTileIds],
-                    forceRefresh: !!forceRefresh,
-                    settings: settingsToRefresh,
-                })
-            )
+            const waiting = nextWaitingTileRefresh({
+                previous: values.waitingTileRefresh,
+                tiles: values.tiles,
+                collapsedTileIds,
+                candidateTileIds: [...staleTiles.map((tile) => tile.id), ...widgetTileIds],
+                forceRefresh: !!forceRefresh,
+                settings: settingsToRefresh,
+            })
+            actions.setWaitingTileRefresh(waiting)
 
             const tilesStaleCount = sortedTilesToRefresh.length
             let tilesRefreshedCount = 0
@@ -5253,13 +5271,16 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     urlFilters,
                     forceRefresh: !!forceRefresh,
                     signal: cache.abortController.signal,
+                    queue: tileLoadQueue(cache),
                 }
                 const loadingHere = (cache.refreshingTileIds = new Set(sortedTilesToRefresh.map((tile) => tile.id)))
                 const fetchSyncInsightFunctions = sortedTilesToRefresh.map((tile) => async () => {
                     const outcome = await refreshInsightTile(tile, tileRefresh)
                     loadingHere.delete(tile.id)
                     if (outcome === 'refreshed' || outcome === 'cached') {
-                        actions.clearWaitingTileRefresh([tile.id])
+                        if (waiting.tileIds.includes(tile.id)) {
+                            actions.clearWaitingTileRefresh([tile.id])
+                        }
                         tilesRefreshedCount++
                         tilesRefreshedCachedCount += outcome === 'cached' ? 1 : 0
                         filterChange?.remainingInsightIds.delete(tile.insight.short_id)
@@ -5270,7 +5291,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     }
                 })
 
-                await runWithLimit(fetchSyncInsightFunctions, TILE_REFRESH_CONCURRENCY)
+                await Promise.all(fetchSyncInsightFunctions.map((fetchInsight) => fetchInsight()))
                 breakpoint()
 
                 // REFRESH DONE: all insights have been refreshed
@@ -5418,15 +5439,15 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 urlFilters: values.urlFilters,
                 forceRefresh: waiting.forceRefresh,
                 signal: cache.groupAbortController.signal,
+                queue: tileLoadQueue(cache),
             }
-            await runWithLimit(
-                insightTiles.map((tile) => async () => {
+            await Promise.all(
+                insightTiles.map(async (tile) => {
                     const outcome = await refreshInsightTile(tile, tileRefresh)
                     if (outcome === 'refreshed' || outcome === 'cached') {
                         actions.clearWaitingTileRefresh([tile.id])
                     }
-                }),
-                TILE_REFRESH_CONCURRENCY
+                })
             )
         },
         refreshDashboardWidgets: async ({ tileIds, forceRefresh }, breakpoint) => {
@@ -5468,9 +5489,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
             const projectId = String(values.currentTeamId)
             const dashboardId = props.id
+            const queue = tileLoadQueue(cache)
             const fetchFunctions = chunkTileIds(staleTileIds, 4).map((chunk) => async () => {
                 try {
-                    const results = await fetchRunWidgets(projectId, dashboardId, chunk, { signal })
+                    const results = await queue.run(
+                        () => fetchRunWidgets(projectId, dashboardId, chunk, { signal }),
+                        signal
+                    )
                     const resultsByTileId = Object.fromEntries(results.map((result) => [result.tile_id, result]))
                     actions.setWidgetRunResults(resultsByTileId)
                     actions.clearWaitingTileRefresh(results.filter((result) => !result.error).map((r) => r.tile_id))
@@ -5493,7 +5518,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 }
             })
 
-            await runWithLimit(fetchFunctions, 4)
+            await Promise.all(fetchFunctions.map((fetchWidgets) => fetchWidgets()))
         },
         addWidgetTiles: async ({ dashboardId, widgets }) => {
             if (widgets.length === 0) {
