@@ -561,11 +561,9 @@ class TestFrameMaterializePrintPasses(APIBaseTest):
         # Both execution paths take their cluster from the print, so a routed project's frame over
         # events_json has to come out pointing at the events cluster, and one that reads no events
         # has to stay on the offline pool.
-        self.team.modifiers = {"useNewEventsSchema": True}
-        self.team.save()
         instance_settings = {
             "CLICKHOUSE_NATIVE_EVENTS_HOST": "native.example.com",
-            "CLICKHOUSE_NATIVE_EVENTS_TEAMS": [self.team.pk],
+            "CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS": str(self.team.pk),
         }
         with (
             patch("posthog.models.event.new_events_schema.get_instance_setting", instance_settings.get),

@@ -215,7 +215,6 @@ class TestInstanceSettings(APIBaseTest):
     @parameterized.expand(
         [
             ("AUTO_START_ASYNC_MIGRATIONS", False, True),
-            ("CLICKHOUSE_NATIVE_EVENTS_TEAMS", [], [44]),
             ("CLICKHOUSE_NATIVE_EVENTS_HOST", "", "native.example.com"),
         ]
     )
@@ -306,7 +305,6 @@ class TestInstanceSettings(APIBaseTest):
     @parameterized.expand(
         [
             ("AUTO_START_ASYNC_MIGRATIONS", False, True),
-            ("CLICKHOUSE_NATIVE_EVENTS_TEAMS", [], [44]),
             ("CLICKHOUSE_NATIVE_EVENTS_HOST", "", "native.example.com"),
         ]
     )
