@@ -32,6 +32,7 @@ from posthog.models.comment import Comment, CommentSlackThread
 from posthog.models.comment.comment import (
     CANVAS_COMMENT_SCOPES,
     COMMENT_SCOPES_BLOCKED_FROM_GENERIC_API,
+    OBSERVATION_COMMENT_SCOPES,
     TICKET_COMMENT_SCOPES,
     activity_log_scope_for,
     canonical_comment_scope,
@@ -88,6 +89,16 @@ def _require_ticket_editor_access(
 
     if not user_access_control.check_access_level_for_object(ticket, required_level="editor"):
         raise exceptions.PermissionDenied("You do not have access to this ticket")
+
+
+def _can_view_observation(*, team_id: int, item_id: str | None, user_access_control: "UserAccessControl") -> bool:
+    if not item_id:
+        return False
+    from products.replay_vision.backend.facade.api import (  # noqa: PLC0415 — keeps the generic comments API decoupled from replay vision, only imported for observation-scoped comments
+        can_view_observation,
+    )
+
+    return can_view_observation(user_access_control, team_id, item_id)
 
 
 # A reservation with no posted root older than this is a crashed send — safe to retry.
@@ -248,6 +259,15 @@ def _stored_comment_task_id(comment: Comment) -> str | None:
 def _mentions_allowed_for_comment_target(
     *, team_id: int, scope: str, item_id: str | None, item_context: dict | None, mentioned_user_ids: list[int]
 ) -> list[int]:
+    if scope in OBSERVATION_COMMENT_SCOPES:
+        if not item_id:
+            return []
+        from products.replay_vision.backend.facade.api import (  # noqa: PLC0415 — keeps the generic comments API decoupled from replay vision
+            observation_viewer_user_ids,
+        )
+
+        viewer_ids = observation_viewer_user_ids(team_id=team_id, observation_id=item_id, user_ids=mentioned_user_ids)
+        return [user_id for user_id in mentioned_user_ids if user_id in viewer_ids]
     if scope not in DESKTOP_COMMENT_SCOPES:
         return mentioned_user_ids
     if scope in CANVAS_COMMENT_SCOPES:
@@ -453,6 +473,12 @@ class CommentSerializer(serializers.ModelSerializer):
                     item_id=target_item_id,
                     user_access_control=self.context["get_user_access_control"](),
                 )
+            elif target_scope in OBSERVATION_COMMENT_SCOPES and not _can_view_observation(
+                team_id=self.context["get_team"]().id,
+                item_id=target_item_id,
+                user_access_control=self.context["get_user_access_control"](),
+            ):
+                raise exceptions.PermissionDenied("You do not have access to this observation")
 
         target_scope = data.get("scope", instance.scope if instance else None)
         target_item_id = data.get("item_id", instance.item_id if instance else None)
@@ -734,12 +760,17 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
                 except (ValueError, django_exceptions.ValidationError):
                     return None
         candidate_scopes.discard(None)
-        if not candidate_scopes & TICKET_COMMENT_SCOPES:
+        is_ticket = bool(candidate_scopes & TICKET_COMMENT_SCOPES)
+        is_observation = bool(candidate_scopes & OBSERVATION_COMMENT_SCOPES)
+        if not is_ticket and not is_observation:
             return None
         access = "read" if self.action in self.scope_object_read_actions else "write"
-        required: list[str] = [f"ticket:{access}"]
+        required: list[str] = [f"ticket:{access}"] if is_ticket else []
         if candidate_scopes - TICKET_COMMENT_SCOPES:
             required.append(f"comment:{access}")
+        if is_observation:
+            # Observation notes are recording-derived content, so they need the observation API's read scopes too.
+            required.extend(["replay_scanner:read", "session_recording:read"])
         return required
 
     @extend_schema(parameters=[CommentListQueryParamsSerializer])
@@ -904,6 +935,22 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
             # Match the list path, where a denied ticket's comments are simply absent.
             raise exceptions.NotFound()
 
+    def _require_observation_viewer_access_for_pk(self) -> None:
+        """Gate a detail action on the observation its target comment belongs to, as the list path does."""
+        pk = self.kwargs.get("pk")
+        if not pk:
+            return
+        try:
+            target = Comment.objects.filter(team_id=self.team_id, pk=pk).values_list("scope", "item_id").first()
+        except (ValueError, django_exceptions.ValidationError):
+            return
+        if not target or target[0] not in OBSERVATION_COMMENT_SCOPES:
+            return
+        if not _can_view_observation(
+            team_id=self.team_id, item_id=target[1], user_access_control=self.user_access_control
+        ):
+            raise exceptions.NotFound()
+
     def _require_task_comment_viewer_access_for_pk(self) -> None:
         pk = self.kwargs.get("pk")
         if not pk:
@@ -991,6 +1038,11 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
             )
             if scope in TICKET_COMMENT_SCOPES:
                 queryset = self._filter_ticket_scoped_queryset(queryset, params.get("item_id"))
+            elif scope in OBSERVATION_COMMENT_SCOPES:
+                if not _can_view_observation(
+                    team_id=self.team_id, item_id=params.get("item_id"), user_access_control=self.user_access_control
+                ):
+                    return queryset.none()
             elif scope in DESKTOP_COMMENT_SCOPES:
                 task_id = params.get("task_id")
                 item_id = params.get("item_id")
@@ -1011,9 +1063,12 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
         elif self.action in ("list", "count"):
             # Product-owned scopes require their own object-level access checks and must
             # never leak through an unscoped generic comments query.
-            queryset = queryset.exclude(scope__in=[*TICKET_COMMENT_SCOPES, *DESKTOP_COMMENT_SCOPES])
+            queryset = queryset.exclude(
+                scope__in=[*TICKET_COMMENT_SCOPES, *DESKTOP_COMMENT_SCOPES, *OBSERVATION_COMMENT_SCOPES]
+            )
         else:
             self._require_ticket_viewer_access_for_pk()
+            self._require_observation_viewer_access_for_pk()
             self._require_task_comment_viewer_access_for_pk()
 
         if params.get("item_id"):

@@ -3,8 +3,10 @@ import '@testing-library/jest-dom'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { router } from 'kea-router'
 
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+import { SidePanelTab } from '~/types'
 
 import { ReplayObservationSceneComponent } from './ReplayObservation'
 import { replayObservationSceneLogic } from './replayObservationSceneLogic'
@@ -163,10 +165,23 @@ describe('ReplayObservation', () => {
 
             expect(screen.queryByText('Did the scanner get this right?') !== null).toBe(asksForRating)
             expect(screen.queryByText('Internal notes') !== null).toBe(showsNotes)
+            await waitFor(() =>
+                expect(replayObservationSceneLogic.values.sidePanelContext.discussions_disabled).toBe(!showsNotes)
+            )
             fireEvent.click(screen.getByText('Details'))
             expect(screen.queryByText('$recording_observed') !== null).toBe(linksEvent)
         }
     )
+
+    it('hands the notes to the discussion panel while it is open, so one composer edits the thread', async () => {
+        render(<ReplayObservationSceneComponent />)
+        await screen.findByText('Internal notes')
+        expect(screen.queryByText('The notes are open in the discussion panel.')).toBeNull()
+
+        act(() => sidePanelStateLogic.actions.openSidePanel(SidePanelTab.Discussion))
+
+        await screen.findByText('The notes are open in the discussion panel.')
+    })
 
     it.each([
         ['an unrated scan saves the rating', {}, [{ is_correct: true, feedback: '' }]],

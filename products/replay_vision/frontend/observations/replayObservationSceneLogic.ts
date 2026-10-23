@@ -6,7 +6,11 @@ import { urls } from 'scenes/urls'
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { ActivityScope, Breadcrumb } from '~/types'
 
-import type { ReplayObservationApi, VisionObservationsRetrieveParams } from '../generated/api.schemas'
+import type {
+    ReplayObservationApi,
+    ObservationStatusEnumApi,
+    VisionObservationsRetrieveParams,
+} from '../generated/api.schemas'
 import { VISION_ROOT_BREADCRUMB } from '../utils/breadcrumbs'
 
 export type ObservationResultTab = 'summary' | 'timeline'
@@ -26,6 +30,7 @@ export const lastObservationsPage: { current: ObservationsPage | null } = { curr
 export interface replayObservationSceneLogicValues {
     breadcrumbs: Breadcrumb[]
     observationId: string
+    observationStatus: ObservationStatusEnumApi | null
     parentBreadcrumb: Breadcrumb | null
     resultTab: ObservationResultTab
     sidePanelContext: SidePanelSceneContext
@@ -35,6 +40,9 @@ export interface replayObservationSceneLogicValues {
 export interface replayObservationSceneLogicActions {
     setObservationId: (observationId: string) => {
         observationId: string
+    }
+    setObservationStatus: (observationStatus: ObservationStatusEnumApi) => {
+        observationStatus: ObservationStatusEnumApi
     }
     setParentBreadcrumb: (parentBreadcrumb: Breadcrumb | null) => {
         parentBreadcrumb: Breadcrumb | null
@@ -48,7 +56,10 @@ export interface replayObservationSceneLogicActions {
 export interface replayObservationSceneLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         breadcrumbs: (observationId: string, parentBreadcrumb: Breadcrumb | null) => Breadcrumb[]
-        sidePanelContext: (observationId: string) => SidePanelSceneContext
+        sidePanelContext: (
+            observationId: string,
+            observationStatus: ObservationStatusEnumApi | null
+        ) => SidePanelSceneContext
     }
 }
 
@@ -68,6 +79,8 @@ export const replayObservationSceneLogic = kea<replayObservationSceneLogicType>(
         // to this crumb, so where it points decides where "back" lands.
         setParentBreadcrumb: (parentBreadcrumb: Breadcrumb | null) => ({ parentBreadcrumb }),
         setResultTab: (resultTab: ObservationResultTab) => ({ resultTab }),
+        // Pushed by replayObservationLogic too, so the discussion panel knows whether notes are allowed.
+        setObservationStatus: (observationStatus: ObservationStatusEnumApi) => ({ observationStatus }),
     }),
 
     reducers({
@@ -82,6 +95,13 @@ export const replayObservationSceneLogic = kea<replayObservationSceneLogicType>(
             {
                 setParentBreadcrumb: (_, { parentBreadcrumb }) => parentBreadcrumb,
                 // Clear when navigating to a different observation so we don't briefly show the previous parent.
+                setObservationId: () => null,
+            },
+        ],
+        observationStatus: [
+            null as ObservationStatusEnumApi | null,
+            {
+                setObservationStatus: (_, { observationStatus }) => observationStatus,
                 setObservationId: () => null,
             },
         ],
@@ -108,10 +128,12 @@ export const replayObservationSceneLogic = kea<replayObservationSceneLogicType>(
             ],
         ],
         [SIDE_PANEL_CONTEXT_KEY]: [
-            (s) => [s.observationId],
-            (observationId: string): SidePanelSceneContext => ({
+            (s) => [s.observationId, s.observationStatus],
+            (observationId: string, observationStatus: ObservationStatusEnumApi | null): SidePanelSceneContext => ({
                 activity_scope: ActivityScope.REPLAY_OBSERVATION,
                 activity_item_id: observationId,
+                // A retry deletes an unfinished scan and gives the new scan a new id, which would strand its notes.
+                discussions_disabled: observationStatus !== 'succeeded',
             }),
         ],
     }),
