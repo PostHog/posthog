@@ -37,6 +37,10 @@ The image picker's config plugin writes the photo library usage description and 
 Every EAS profile needs a new native build before it can run `1.2.0` code.
 Do not publish `1.2.0` code as an update to `1.1.0` builds: the runtime versions differ, so those builds never receive it, and the picker modules are not in them.
 
+Version `1.3.0` adds `expo-system-ui`, automatic native appearance and a dark launch screen.
+Every EAS profile needs a new native build to include these changes.
+JavaScript-only updates for existing `1.2.0` and `1.2.1` builds must retain their native dependencies and configuration.
+
 ## Build profiles
 
 Profiles are in `eas.json`. Each profile has its own update channel and EAS environment.
