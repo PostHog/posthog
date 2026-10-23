@@ -6,7 +6,7 @@ description: >-
   States who is affected and what is wrong for them in Problem, taken from a source and never invented, then the visible effect and mechanism in Changes.
   Selects bullets, tables, diagrams, screenshots, or collapsed blocks for each fact.
   Removes unnecessary detail and checks one fact per bullet, sentences under 25 words, active voice, and no idioms.
-  Keeps the body complete without the diff, holds its prose to 150 words or splits the PR into a stack, and links evidence or marks claims as unchecked.
+  Keeps the body complete without the diff, aims for 150 words of prose and suggests a stack when the PR needs more, and links evidence or marks claims as unchecked.
   Checks the title and first lines of Problem and Changes.
   Not for commit messages (see AGENTS.md, "Commit types") or product copy (see `/writing-user-facing-copy`).
 ---
@@ -176,26 +176,27 @@ Delete:
 - The follow-up sentence in any "here is the reason, and here is why the reason matters" pair.
 - Any bullet whose reader you cannot name.
 
-### Size tracks the change
+### 150 words of prose
 
 A body that would fit any PR tells a reader nothing about this one. A reader who meets a few learns to skip them all.
 When the diff is six lines, the body has to read as the body of a six-line change.
 
-- The prose in the whole body stays at or under 150 words. Headings, tables, diagrams, code blocks, `<details>` blocks and template comments do not count.
-- A one-file fix: 3 to 6 bullets across the whole body.
-- One line or "None" under every heading that does not apply. That is a complete answer, not a gap.
-- Numbers, file paths and identifiers survive cutting. Adjectives and second explanations do not.
+- Aim for 150 words of prose or fewer across the whole body. Headings, tables, diagrams, code blocks, `<details>` blocks and template comments do not count, so moving evidence into them is the first cut.
+- Give a one-file fix 3 to 6 bullets across the whole body.
+- Write one line or "None" under every heading that does not apply. That is a complete answer, not a gap.
+- Keep numbers, file paths and identifiers when you cut. Cut adjectives and second explanations.
 
-Count the prose with this command before every `gh pr create` or `gh pr edit`:
+Run the counter on the body file before every `gh pr create` or `gh pr edit`:
 
-````sh
-sed 's/<!--.*-->//g' pr-body.md | awk '/^```/{f=!f;next} /^ *<details>/{d=1} /^ *<\/details>/{d=0;next} !f && !d && !/^ *\|/ && !/^#/' | wc -w
-````
+```sh
+.agents/skills/writing-pr-descriptions/scripts/count-prose-words.sh pr-body.md
+```
 
-Over 150, move facts into a table or a diagram, then cut.
-If the body is still over 150, the PR holds more than one change.
-Split it into a stack with `/stacking-prs`, and give each layer its own body under the ceiling.
-Never raise the count to fit the PR.
+When the count is over 150, move facts into a table or a diagram, then cut.
+When it is still over 150, the PR probably holds more than one change.
+A change too big to explain in 150 words is often too big to review in one pass.
+Suggest a stack to the PR author, name the layers you would split it into, and point to `/stacking-prs`.
+The author decides. If they keep one PR, ship the shortest body that still carries the change.
 
 Small does not mean partial. Three bullets still have to carry why the change is necessary and what it does.
 
@@ -289,7 +290,7 @@ A "no" anywhere means the body is ordered for the writer, not the reader. Go bac
 ### The line check
 
 1. Is the body shorter than your first draft? If it is longer, you split without cutting. Go back to pass 3.
-2. Is the prose 150 words or fewer, counted with the command under "Size tracks the change"? If not, cut, and then split the PR into a stack.
+2. Does `scripts/count-prose-words.sh` print 150 or less? If not, cut. If it is still over 150, suggest a stack to the PR author.
 3. Are Problem and Changes together longer than the sections under them? If not, cut the lower ones.
 4. Read the body with the diff closed. Can you say why the PR exists and what it does? If not, you cut something a reader needs.
 5. Does Problem state a need that no source in the request, an issue, or a thread gave? Delete it, and say the reason was not given.

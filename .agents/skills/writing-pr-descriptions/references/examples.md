@@ -191,4 +191,4 @@ Nobody sees this change, which is the case pass 1 is easiest to skip on. There i
 > - The codecs on `flag_evaluations` take those columns out of the cluster's central compression tuning and buy nothing back.
 
 The line check's first item is what makes this a rewrite rather than a reformat: the body has to come out shorter. Both cut examples do, 297 words to 197 and 190 to 111, and the reorder in example 1 came out shorter too.
-Example 2 still fails the 150-word ceiling in `SKILL.md`. Its eight Problem bullets are the next cut.
+Example 2 still has 197 words of prose, over the 150-word target in `SKILL.md`. Its eight Problem bullets are the next cut.
