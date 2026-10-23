@@ -187,7 +187,7 @@ export class CdpEventsConsumer<
             messages.map(async (message) => {
                 // Parked rather than dropped: a schema we cannot read today is often one a later
                 // version can.
-                const park = (error: string): void =>
+                const park = (error: string): boolean =>
                     this.deadLetterService.recordMessageFailure(message, { step: 'parse', error })
 
                 const clickHouseEvent = readMessage(
@@ -199,12 +199,29 @@ export class CdpEventsConsumer<
                     return
                 }
 
-                // Outside readMessage: a lookup error fails the batch, so the consumer reads the batch again.
-                const [teamHogFunctions, teamHogFlows, team] = await Promise.all([
+                // A retriable error fails the batch, so the consumer reads the batch again. Any other
+                // lookup error parks the message for a replay, because failing the batch on an error
+                // that repeats stops the partition. The loaders send the team ids of the whole batch
+                // in one query, so one failed query parks every message in it. With the dead-letter
+                // topic off, nothing keeps the message, so the error fails the batch too.
+                const lookups = await Promise.all([
                     this.hogFunctionManager.getHogFunctionsForTeam(clickHouseEvent.team_id, this.hogTypes),
                     this.hogFlowManager.getHogFlowsForTeam(clickHouseEvent.team_id),
                     this.deps.teamManager.getTeam(clickHouseEvent.team_id),
-                ])
+                ]).catch((e) => {
+                    if (e?.isRetriable === true) {
+                        throw e
+                    }
+                    if (!park(e instanceof Error ? e.message : String(e))) {
+                        throw e
+                    }
+                    logger.error('Error looking up team data', e)
+                    return null
+                })
+                if (!lookups) {
+                    return
+                }
+                const [teamHogFunctions, teamHogFlows, team] = lookups
 
                 if ((!teamHogFunctions.length && !teamHogFlows.length) || !team) {
                     return

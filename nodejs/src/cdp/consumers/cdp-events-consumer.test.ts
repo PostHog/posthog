@@ -4,6 +4,7 @@ import { mockProducerObserver } from '../../../tests/helpers/mocks/producer.mock
 
 import { HogFlow } from '~/cdp/schema/hogflow'
 import { GroupReadRepository } from '~/common/groups/repositories/group-repository.interface'
+import { DependencyUnavailableError } from '~/common/utils/db/error'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 
 import { createCdpConsumerDeps } from '../../../tests/helpers/cdp'
@@ -55,6 +56,12 @@ describe('CdpEventsConsumer', () => {
         const { backgroundTask } = await connect.mock.calls[0][0](messages)
         await backgroundTask
     }
+
+    const lookupSpies = [
+        { lookup: 'team', spy: () => jest.spyOn(processor['deps'].teamManager, 'getTeam') },
+        { lookup: 'hog function', spy: () => jest.spyOn(processor['hogFunctionManager'], 'getHogFunctionsForTeam') },
+        { lookup: 'hog flow', spy: () => jest.spyOn(processor['hogFlowManager'], 'getHogFlowsForTeam') },
+    ]
 
     beforeEach(async () => {
         hub = await createHub()
@@ -133,18 +140,27 @@ describe('CdpEventsConsumer', () => {
             })
         })
 
-        const lookupError = new Error('canceling statement due to conflict with recovery')
-
-        it.each([
-            { lookup: 'the team lookup', spy: () => jest.spyOn(processor['deps'].teamManager, 'getTeam') },
-            {
-                lookup: 'the hog function lookup',
-                spy: () => jest.spyOn(processor['hogFunctionManager'], 'getHogFunctionsForTeam'),
-            },
-            { lookup: 'the hog flow lookup', spy: () => jest.spyOn(processor['hogFlowManager'], 'getHogFlowsForTeam') },
-        ])(
-            'fails the batch when $lookup throws, and queues the event when the batch is read again',
-            async ({ spy }) => {
+        it.each(
+            lookupSpies.flatMap(({ lookup, spy }) => [
+                {
+                    lookup,
+                    kind: 'a retriable error',
+                    dlqEnabled: true,
+                    spy,
+                    lookupError: new DependencyUnavailableError('connection reset', 'Postgres', new Error('reset')),
+                },
+                {
+                    lookup,
+                    kind: 'a non-retriable error with the dead-letter topic off',
+                    dlqEnabled: false,
+                    spy,
+                    lookupError: new Error('column "bytecode" does not exist'),
+                },
+            ])
+        )(
+            'fails the batch when the $lookup lookup throws $kind, and queues the event when the batch is read again',
+            async ({ spy, dlqEnabled, lookupError }) => {
+                hub.CDP_DLQ_ENABLED = dlqEnabled
                 spy().mockRejectedValueOnce(lookupError)
                 const messages = [createKafkaMessage(createIncomingEvent(team.id, {}))]
 
@@ -754,6 +770,14 @@ describe('CdpEventsConsumer', () => {
                     bad: (teamId: number) =>
                         createKafkaMessage({ ...createIncomingEvent(teamId, {}), team_id: 3_000_000_000 }),
                 },
+                ...lookupSpies.map(({ lookup, spy }) => ({
+                    name: `an event whose ${lookup} lookup throws a non-retriable error`,
+                    // The first message in the batch makes the first lookup call, so only it fails.
+                    bad: (teamId: number) => {
+                        spy().mockRejectedValueOnce(new Error('column "bytecode" does not exist'))
+                        return createKafkaMessage(createIncomingEvent(teamId, {}))
+                    },
+                })),
             ])('parks $name and processes the rest of the batch', async ({ bad }) => {
                 await insertHogFunction({
                     ...HOG_EXAMPLES.simple_fetch,
@@ -761,11 +785,11 @@ describe('CdpEventsConsumer', () => {
                     ...HOG_FILTERS_EXAMPLES.no_filters,
                 })
 
-                await handleBatch([bad(team.id), createKafkaMessage(createIncomingEvent(team.id, {}))])
+                await handleBatch([bad(team.id), createKafkaMessage(createIncomingEvent(team.id, {}), { offset: 1 })])
 
                 const parked = mockProducerObserver.getProducedKafkaMessagesForTopic('cdp_events_dlq_test')
                 expect(parked).toHaveLength(1)
-                expect(parked[0].headers).toMatchObject({ dlq_step: 'parse' })
+                expect(parked[0].headers).toMatchObject({ dlq_step: 'parse', dlq_offset: '0' })
                 expect(mockQueueInvocations).toHaveBeenCalledWith([expect.objectContaining({ teamId: team.id })])
             })
 
@@ -802,7 +826,7 @@ describe('CdpEventsConsumer', () => {
                     ...HOG_INPUTS_EXAMPLES.simple_fetch,
                     ...HOG_FILTERS_EXAMPLES.no_filters,
                 })
-                const outage = new Error('Postgres is down')
+                const outage = new DependencyUnavailableError('Postgres is down', 'Postgres', new Error('down'))
                 const lookup = jest
                     .spyOn(processor['hogFunctionManager'], 'getHogFunctionsForTeam')
                     .mockRejectedValue(outage)
