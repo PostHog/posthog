@@ -410,7 +410,7 @@ class MessagingSendViewSet(TransactionalEmailViewSetMixin, viewsets.ViewSet):
             data,
             usage=usage,
             send=send,
-            idempotency_key=self._idempotency_key(request),
+            idempotency_key=request.headers.get("Idempotency-Key"),
             route=SendRoute.SEND_EMAIL,
         )
         warnings = [TEMPLATE_SUPERSEDED] if target.hash_state == ContentHashState.SUPERSEDED else []
@@ -437,14 +437,10 @@ class MessagingSendViewSet(TransactionalEmailViewSetMixin, viewsets.ViewSet):
             to=data["to"],
             distinct_id=self._distinct_id(data),
             source=RenderedEmail(key=key, send=send),
-            idempotency_key=self._idempotency_key(request),
+            idempotency_key=request.headers.get("Idempotency-Key"),
             route=SendRoute.SEND_EMAIL,
         )
         return self._queued(self._send(request, command, report=usage), [])
-
-    @staticmethod
-    def _idempotency_key(request: Request) -> str | None:
-        return request.headers.get("Idempotency-Key")
 
     def _accepted_send(self, data: dict[str, Any], *, content: RenderedContent | None) -> AcceptedSend:
         capture = data.get("capture_engagement")
