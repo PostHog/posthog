@@ -564,8 +564,12 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer, UserAccess
 
         return recordings_counts
 
-    def validate_filters(self, value: Any) -> Any:
-        experiment_exposure = value.get("experiment_exposure") if isinstance(value, dict) else None
+    def validate_filters(self, value: Any) -> dict[str, Any]:
+        if not isinstance(value, dict):
+            raise ValidationError(
+                "Filters must be a JSON object. Send the filter criteria as an object, not as a string or a list."
+            )
+        experiment_exposure = value.get("experiment_exposure")
         experiment_id = experiment_exposure.get("experiment_id") if isinstance(experiment_exposure, dict) else None
         if isinstance(experiment_id, int):
             # Deferred: the experiments facade package imports posthog.api on init, which

@@ -315,21 +315,31 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
             [
                 "saved_filters_with_no_filters",
                 {"type": "filters"},
+                None,
                 "You must provide a valid filters when creating a saved filter",
             ],
             [
                 "collection_with_filters",
                 {"type": "collection", "filters": {"events": [{"id": "test"}]}},
+                None,
                 "You cannot create a collection with filters",
+            ],
+            [
+                "saved_filters_as_json_string",
+                {"type": "filters", "filters": json.dumps({"date_from": "-7d"})},
+                "filters",
+                "Filters must be a JSON object. Send the filter criteria as an object, not as a string or a list.",
             ],
         ]
     )
-    def test_rejects_invalid_filter_combinations(self, _name: str, playlist_data: dict, expected_error: str) -> None:
+    def test_rejects_invalid_filter_combinations(
+        self, _name: str, playlist_data: dict, expected_attr: str | None, expected_error: str
+    ) -> None:
         self._create_playlist(
             playlist_data,
             status.HTTP_400_BAD_REQUEST,
             expected_response_json={
-                "attr": None,
+                "attr": expected_attr,
                 "code": "invalid_input",
                 "detail": expected_error,
                 "type": "validation_error",
@@ -573,8 +583,10 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
 
-    @parameterized.expand([["empty_dict", {}], ["none", None]])
-    def test_cannot_update_saved_filter_to_have_no_filters(self, _name: str, updated_filters: dict | None) -> None:
+    @parameterized.expand([["empty_dict", {}], ["none", None], ["json_string", json.dumps({"date_from": "-7d"})]])
+    def test_cannot_update_saved_filter_to_have_no_filters(
+        self, _name: str, updated_filters: dict | str | None
+    ) -> None:
         create_response = self._create_playlist(
             {
                 "type": "filters",
