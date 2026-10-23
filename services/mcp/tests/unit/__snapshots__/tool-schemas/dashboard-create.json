@@ -93,6 +93,37 @@
             "enum": ["tight", "condensed", "standard", "relaxed", "wide"],
             "type": "string"
         },
+        "group_repeats": {
+            "anyOf": [
+                {
+                    "additionalProperties": {
+                        "properties": {
+                            "direction": {
+                                "default": "vertical",
+                                "description": "Where the copies go. vertical stacks each copy below the one before it. horizontal puts the copies side by side, and starts a new row when the grid is full.\n\n* `vertical` - vertical\n* `horizontal` - horizontal",
+                                "enum": ["vertical", "horizontal"],
+                                "type": "string"
+                            },
+                            "variable": {
+                                "description": "Name of the metric dashboard variable, without the $. Each copy of the group gets one of its values.",
+                                "maxLength": 100,
+                                "type": "string"
+                            }
+                        },
+                        "required": ["variable"],
+                        "type": "object"
+                    },
+                    "propertyNames": {
+                        "type": "string"
+                    },
+                    "type": "object"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Tile groups to repeat, keyed by the tiles' group_key. The dashboard shows one copy of each insight tile in the group for each selected value of the metric variable, with the variable set to that value. Edit mode shows only the original tiles. A write replaces the whole map. Send an empty object or null to stop all repeats."
+        },
         "group_titles": {
             "anyOf": [
                 {
