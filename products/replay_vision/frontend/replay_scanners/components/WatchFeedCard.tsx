@@ -432,12 +432,11 @@ export function WatchFeedRow({ item, position }: WatchFeedRowProps): JSX.Element
                     </span>
                 </p>
             </div>
-            <div className="relative overflow-hidden rounded-md border">
+            {/* Clicks pass through the poster to the card's link, which sits beneath it. */}
+            <div className="pointer-events-none relative overflow-hidden rounded-md border">
                 {!observation.viewed && <span className="absolute inset-x-0 top-0 z-20 h-1 bg-accent" aria-hidden />}
                 <ObservationThumbnail observation={observation} className="rounded-none border-0" />
-                {!observation.viewed && (
-                    <UnviewedObservationTag className="absolute top-2 left-2 z-10 pointer-events-none" />
-                )}
+                {!observation.viewed && <UnviewedObservationTag className="absolute top-2 left-2 z-10" />}
             </div>
             <footer className="flex items-center gap-2">
                 <LemonButton
