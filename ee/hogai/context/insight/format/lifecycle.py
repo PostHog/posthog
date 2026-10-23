@@ -6,7 +6,7 @@ from posthog.schema import AssistantLifecycleQuery, LifecycleQuery
 from .utils import format_matrix, format_number, strip_datetime_seconds
 
 STATUS_ORDER = ["new", "returning", "resurrecting", "dormant"]
-STATUS_LABELS = ["New", "Returning", "Resurrecting", "Dormant"]
+STATUS_LABELS = {"new": "New", "returning": "Returning", "resurrecting": "Resurrecting", "dormant": "Dormant"}
 
 
 class LifecycleResultsFormatter:
@@ -39,10 +39,13 @@ class LifecycleResultsFormatter:
     ):
         self._query = query
         self._results = results
+        self._statuses = self._shown_statuses(query)
 
     def format(self) -> str:
         if not self._results:
             return "No data recorded for this time period."
+        if not self._statuses:
+            return "No lifecycle statuses are selected in lifecycleFilter.toggledLifecycles."
 
         # Group results by event series (using action order as key)
         series_groups: dict[int, dict[str, dict[str, Any]]] = defaultdict(dict)
@@ -72,12 +75,12 @@ class LifecycleResultsFormatter:
         series_name = self._extract_series_name(any_result)
 
         matrix: list[list[str]] = []
-        header = ["Date", *STATUS_LABELS]
+        header = ["Date", *(STATUS_LABELS[status] for status in self._statuses)]
         matrix.append(header)
 
         for i, day in enumerate(days):
             row = [strip_datetime_seconds(day)]
-            for status in STATUS_ORDER:
+            for status in self._statuses:
                 status_result = statuses.get(status)
                 if status_result and i < len(status_result.get("data", [])):
                     row.append(format_number(status_result["data"][i]))
@@ -89,6 +92,14 @@ class LifecycleResultsFormatter:
         if multi_series:
             return f"Event: {series_name}\n{formatted}"
         return formatted
+
+    @staticmethod
+    def _shown_statuses(query: AssistantLifecycleQuery | LifecycleQuery) -> list[str]:
+        toggled = query.lifecycleFilter.toggledLifecycles if query.lifecycleFilter else None
+        if toggled is None:
+            return STATUS_ORDER
+        toggled_values = {status.value for status in toggled}
+        return [status for status in STATUS_ORDER if status in toggled_values]
 
     @staticmethod
     def _extract_series_name(result: dict[str, Any]) -> str:
