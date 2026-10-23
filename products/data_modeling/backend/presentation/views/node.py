@@ -466,7 +466,8 @@ class NodeViewSet(
 
         try:
             node_ids = run_related_node_materializations(
-                node,
+                node.team_id,
+                node.id,
                 direction=body.validated_data["direction"],
                 user=cast(User, req.user),
                 hidden_types=self._hidden_node_types(),

@@ -325,14 +325,15 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
                     else frozenset({NodeType.METRIC})
                 )
                 node_ids = run_related_node_materializations(
-                    node,
+                    self.team_id,
+                    node.id,
                     direction=direction,
                     user=cast(User, request.user),
                     hidden_types=hidden_types,
                 )
             else:
-                node = materialize_saved_query(saved_query, triggered_by_id=request.user.pk)
-                node_ids = [str(node.id)]
+                node_id = materialize_saved_query(saved_query, triggered_by_id=request.user.pk)
+                node_ids = [str(node_id)]
         except MissingDagNodeError:
             raise exceptions.ValidationError(
                 detail="This view isn't fully set up to materialize. Save the query again, then try syncing."

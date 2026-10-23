@@ -4,7 +4,6 @@ from datetime import timedelta
 from uuid import UUID, uuid4
 
 from django.conf import settings
-from django.db import models
 
 import structlog
 from temporalio.common import RetryPolicy, WorkflowIDConflictPolicy, WorkflowIDReusePolicy
@@ -18,7 +17,7 @@ from posthog.temporal.data_modeling.workflows.execute_dag import ExecuteDAGInput
 from posthog.temporal.data_modeling.workflows.materialize_view import MaterializeViewWorkflowInputs
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.data_modeling.backend.facade.contracts import MaterializationForbiddenError
+from products.data_modeling.backend.facade.contracts import MaterializationForbiddenError, MaterializationRunDirection
 from products.data_modeling.backend.graph import Graph
 from products.data_modeling.backend.logic.node_suspension import unsuspend_nodes
 from products.data_modeling.backend.logic.saved_query_dag_sync import MissingDagNodeError
@@ -30,11 +29,6 @@ logger = structlog.get_logger(__name__)
 
 
 RELATED_RUN_EDIT_ACCESS_REFUSAL = "You need edit access to every view in this run."
-
-
-class MaterializationRunDirection(models.TextChoices):
-    UPSTREAM = "upstream", "Upstream"
-    DOWNSTREAM = "downstream", "Downstream"
 
 
 def start_node_materialization(node: Node, *, resume: bool = True, triggered_by_id: int | None = None) -> None:
@@ -73,12 +67,17 @@ def start_node_materialization(node: Node, *, resume: bool = True, triggered_by_
 
 
 def run_related_node_materializations(
-    node: Node,
+    team_id: int,
+    node_id: UUID | str,
     *,
-    direction: str,
+    direction: MaterializationRunDirection | str,
     user: User,
     hidden_types: frozenset[str] = frozenset(),
 ) -> list[str]:
+    try:
+        node = Node.objects.select_related("team").get(team_id=team_id, id=node_id)
+    except Node.DoesNotExist:
+        raise MissingDagNodeError(f"Node {node_id} not found")
     graph = Graph(team_id=node.team_id, dag_id=node.dag_id, hidden_types=hidden_types)
     if direction == MaterializationRunDirection.UPSTREAM:
         node_ids = graph.get_upstream(node.id)
@@ -172,7 +171,7 @@ def run_saved_query_materialization(team_id: int, saved_query_id: UUID | str) ->
 
 def materialize_saved_query(
     saved_query: DataWarehouseSavedQuery, *, resume: bool = True, triggered_by_id: int | None = None
-) -> Node:
+) -> UUID:
     """Materialize the saved query's backing node via the v2 workflow.
 
     Fire a single materialization — don't fan out over duplicate-DAG nodes, or two workers race to
@@ -187,4 +186,4 @@ def materialize_saved_query(
         # trace of, and there is no v1 schedule left to fall back to.
         raise MissingDagNodeError(f"Saved query {saved_query.id} has no DAG node to materialize")
     start_node_materialization(node, resume=resume, triggered_by_id=triggered_by_id)
-    return node
+    return node.id
