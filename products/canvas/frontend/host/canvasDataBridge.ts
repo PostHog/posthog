@@ -87,7 +87,6 @@ const UNTAGGABLE_QUERY_KINDS = new Set<string>([
     NodeKind.DataVisualizationNode,
     NodeKind.BIVisualizationNode,
     NodeKind.InsightActorsQueryOptions,
-    NodeKind.FunnelCorrelationQuery,
     NodeKind.WebAnalyticsExternalSummaryQuery,
 ])
 

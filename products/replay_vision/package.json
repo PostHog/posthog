@@ -1,9 +1,10 @@
 {
     "name": "@posthog/products-replay-vision",
     "scripts": {
-        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/tests evals/test/ -v --tb=short"
+        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/tests -v --tb=short"
     },
     "dependencies": {
+        "@posthog/quill": "workspace:*",
         "@posthog/quill-charts": "workspace:*",
         "kea": "catalog:",
         "kea-forms": "catalog:",
@@ -22,6 +23,7 @@
         "@posthog/brand": "catalog:",
         "@posthog/icons": "catalog:",
         "@posthog/lemon-ui": "*",
+        "@posthog/react": "catalog:",
         "@storybook/react": "catalog:",
         "@testing-library/dom": "*",
         "@types/react": "*",

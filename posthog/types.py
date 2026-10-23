@@ -17,7 +17,6 @@ from posthog.schema import (
     ExperimentActorsQuery,
     FeaturePropertyFilter,
     FlagPropertyFilter,
-    FunnelCorrelationActorsQuery,
     FunnelExclusionActionsNode,
     FunnelExclusionEventsNode,
     FunnelsActorsQuery,
@@ -55,7 +54,6 @@ type InsightQueryNode = Union[
 type InsightActorsQueryNode = Union[
     InsightActorsQuery,
     FunnelsActorsQuery,
-    FunnelCorrelationActorsQuery,
     StickinessActorsQuery,
     ExperimentActorsQuery,
     PathsV2ActorsQuery,

@@ -1,1 +1,1 @@
-0184_signalscratchpad_search_trgm_indexes
+0197_signalscratchpad_trgm_fastupdate_off

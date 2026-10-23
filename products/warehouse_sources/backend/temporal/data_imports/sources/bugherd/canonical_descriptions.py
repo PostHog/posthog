@@ -33,6 +33,14 @@ _TASK_COLUMNS = {
     "admin_link": "Task board URL for the task; login required.",
 }
 
+# The members and guests lists return the same User object as the full users list.
+_USER_COLUMNS = {
+    "id": "Unique identifier for the user.",
+    "email": "The user's email address.",
+    "display_name": "The user's display name.",
+    "avatar_url": "URL of the user's avatar image.",
+}
+
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     "Organization": {
         "description": "Top-level details about your BugHerd organization.",
@@ -45,12 +53,17 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     "Users": {
         "description": "Team members and guests who belong to your BugHerd organization.",
         "docs_url": _API_DOCS_URL,
-        "columns": {
-            "id": "Unique identifier for the user.",
-            "email": "The user's email address.",
-            "display_name": "The user's display name.",
-            "avatar_url": "URL of the user's avatar image.",
-        },
+        "columns": _USER_COLUMNS,
+    },
+    "Members": {
+        "description": "Team members (non-guest users) in your BugHerd organization.",
+        "docs_url": _API_DOCS_URL,
+        "columns": _USER_COLUMNS,
+    },
+    "Guests": {
+        "description": "Guest users in your BugHerd organization: external collaborators invited to specific projects.",
+        "docs_url": _API_DOCS_URL,
+        "columns": _USER_COLUMNS,
     },
     "Projects": {
         "description": "Websites/projects tracked for visual feedback and bug reporting in BugHerd.",
@@ -110,6 +123,29 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "created_at": "Timestamp when the comment was posted.",
             "user_id": "ID of the user who posted the comment.",
             "is_private": "Whether the comment is visible only to team members, not guests/clients.",
+        },
+    },
+    "TaskAttachments": {
+        "description": "Screenshots and other files attached to a task.",
+        "docs_url": _API_DOCS_URL,
+        "columns": {
+            "id": "Identifier for the attachment, unique within its task.",
+            "task_id": "ID of the task the file is attached to.",
+            "project_id": "ID of the project the task belongs to.",
+            "file_name": "Name of the attached file.",
+            "url": "URL of the attached file.",
+            "created_at": "Timestamp when the file was attached.",
+        },
+    },
+    "UserProjects": {
+        "description": "Project memberships: one row for each project a user belongs to.",
+        "docs_url": _API_DOCS_URL,
+        "columns": {
+            "user_id": "ID of the user who belongs to the project.",
+            "id": "ID of the project the user belongs to.",
+            "name": "The project's display name.",
+            "created_at": "Timestamp when the project was created.",
+            "is_active": "Whether the project is active.",
         },
     },
 }

@@ -68,7 +68,7 @@ import { AddVariableButton } from './Components/Variables/AddVariableButton'
 import { variableModalLogic } from './Components/Variables/variableModalLogic'
 import { VariablesForInsight } from './Components/Variables/Variables'
 import { VariablesLogicProps, variablesLogic } from './Components/Variables/variablesLogic'
-import { DataVisualizationLogicProps, dataVisualizationLogic } from './dataVisualizationLogic'
+import { DataVisualizationLogicProps, SideBarTab, dataVisualizationLogic } from './dataVisualizationLogic'
 import { displayLogic } from './displayLogic'
 import { applyDataVisualizationQueryUpdate } from './queryUpdateUtils'
 
@@ -234,9 +234,10 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
         variablesOverride: props.variablesOverride,
     }
     const { inspect } = useActions(biDrilldownLogic(drilldownProps))
-    const canDrill = query.kind === NodeKind.BIVisualizationNode && !props.inSharedMode
+    const isQuerySnapshot = query.kind === NodeKind.BIVisualizationNode && !!query.config.querySnapshot
+    const canDrill = query.kind === NodeKind.BIVisualizationNode && !isQuerySnapshot && !props.inSharedMode
 
-    const { seriesBreakdownData } = useValues(seriesBreakdownLogic({ key: dataVisualizationProps.key }))
+    const { seriesBreakdownData, chartData } = useValues(seriesBreakdownLogic({ key: dataVisualizationProps.key }))
     const { goalLines } = useValues(displayLogic)
 
     // Overlay alert threshold bounds on the chart, like trends does — only when rendering a saved
@@ -266,7 +267,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
         [biConfig, effectiveVisualizationType]
     )
 
-    const { toggleChartSettingsPanel } = useActions(dataVisualizationLogic)
+    const { toggleChartSettingsPanel, setSideBarTab } = useActions(dataVisualizationLogic)
 
     const { queryId, pollResponse } = useValues(dataNodeLogic)
 
@@ -284,6 +285,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
         query.kind === NodeKind.BIVisualizationNode &&
         (xData?.column.type.name === 'DATE' || xData?.column.type.name === 'DATETIME') &&
         dateBucket !== 'year' &&
+        !chartSettings.xAxisDateFormat &&
         effectiveVisualizationType !== ChartDisplayType.ActionsBarValue &&
         chartSettings.showXAxisTicks !== false
     const dateAxis = useMemo(
@@ -305,8 +307,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
         if (!isSqlChartVisualizationType(effectiveVisualizationType)) {
             return null
         }
-        const chartXData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.xData : xData
-        const chartYData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.seriesData : yData
+        const { xData: chartXData, yData: chartYData } = chartData
         const xDimension = biConfig
             ? getBIResultDimensions(biConfig).find(({ column }) => column === chartXData?.column.name)
             : undefined
@@ -335,17 +336,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                   }
                 : dateAxis,
         }
-    }, [
-        effectiveVisualizationType,
-        seriesBreakdownData,
-        xData,
-        yData,
-        biConfig,
-        dateAxis,
-        isDateXAxis,
-        timezone,
-        dateBucket,
-    ])
+    }, [effectiveVisualizationType, chartData, biConfig, dateAxis, isDateXAxis, timezone, dateBucket])
 
     const pieDisplayData = useMemo(() => {
         if (!PART_OF_WHOLE_DISPLAY_TYPES.includes(effectiveVisualizationType)) {
@@ -435,6 +426,10 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
             <LemonBanner type="warning">
                 The returned columns do not match this worksheet. Run the query again or check the selected fields.
             </LemonBanner>
+        )
+    } else if (isQuerySnapshot && effectiveVisualizationType === ChartDisplayType.TwoDimensionalHeatmap) {
+        component = (
+            <LemonBanner type="info">Query snapshots do not support pivots. Choose another chart type.</LemonBanner>
         )
     } else if (
         query.kind === NodeKind.BIVisualizationNode &&
@@ -662,6 +657,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                             <AddVariableButton buttonProps={{ size: controlSize }} />
 
                             {sourceFeatures.has(QueryFeature.dateRangePicker) &&
+                                query.kind !== NodeKind.BIVisualizationNode &&
                                 !router.values.location.pathname.includes(urls.sqlEditor()) && ( // decouple this component from insights tab and datawarehouse scene
                                     <DateRange
                                         key="date-range"
@@ -676,7 +672,14 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                                 )}
 
                             <div className={props.context?.chartTypeSelectorClassName}>
-                                <TableDisplay size={controlSize} />
+                                <TableDisplay
+                                    size={controlSize}
+                                    disabledReasonFor={(chartType) =>
+                                        isQuerySnapshot && chartType === ChartDisplayType.TwoDimensionalHeatmap
+                                            ? 'Query snapshots do not support pivots'
+                                            : undefined
+                                    }
+                                />
                             </div>
 
                             <LemonButton
@@ -687,6 +690,27 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                                 tooltip="Visualization settings"
                                 aria-label="Visualization settings"
                             />
+
+                            {query.kind === NodeKind.BIVisualizationNode &&
+                                effectiveVisualizationType === ChartDisplayType.ActionsTable && (
+                                    <LemonButton
+                                        size={controlSize}
+                                        type="secondary"
+                                        data-attr="bi-conditional-formatting"
+                                        onClick={() => {
+                                            setSideBarTab(SideBarTab.ConditionalFormatting)
+                                            if (settingsPanel) {
+                                                if (!settingsPanel.isOpen) {
+                                                    settingsPanel.onToggle()
+                                                }
+                                            } else {
+                                                toggleChartSettingsPanel(true)
+                                            }
+                                        }}
+                                    >
+                                        Conditional formatting
+                                    </LemonButton>
+                                )}
 
                             {props.exportContext && (
                                 <ExportButton

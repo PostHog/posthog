@@ -56,6 +56,9 @@ class DodoPaymentsEndpointConfig:
     restated: bool = False
     # Per-parent child endpoints, read once for each row of the parent listing.
     fanout: DependentEndpointConfig | None = None
+    # Path params bound from the same parent row beside `fanout.resolve_param`, mapped to the
+    # parent field each one reads.
+    extra_resolve_fields: dict[str, str] = field(default_factory=dict)
 
 
 DODOPAYMENTS_ENDPOINTS: dict[str, DodoPaymentsEndpointConfig] = {
@@ -200,6 +203,65 @@ DODOPAYMENTS_ENDPOINTS: dict[str, DodoPaymentsEndpointConfig] = {
             resolve_param="credit_entitlement_id",
             resolve_field="id",
             include_from_parent=[],
+        ),
+    ),
+    # Ledger entries are immutable and take their own `start_date` filter, so incremental runs
+    # filter each ledger request and walk the parents in full. The parents are themselves a
+    # fan-out (entitlement -> customer balance), so this chain carries no resume state.
+    "credit_entitlement_ledger": DodoPaymentsEndpointConfig(
+        path="/credit-entitlements/{credit_entitlement_id}/balances/{customer_id}/ledger",
+        primary_keys=["credit_entitlement_id", "customer_id", "id"],
+        start_param="start_date",
+        incremental_fields=[incremental_field("created_at")],
+        fanout=DependentEndpointConfig(
+            child_response_actions=SKIP_MISSING_PARENT,
+            parent_name="credit_entitlement_balances",
+            resolve_param="customer_id",
+            resolve_field="customer_id",
+            include_from_parent=[],
+        ),
+        extra_resolve_fields={"credit_entitlement_id": "credit_entitlement_id"},
+    ),
+    # `remaining_amount` and `is_expired` change after a grant is created and there is no date
+    # filter, so this is full refresh only.
+    "credit_entitlement_grants": DodoPaymentsEndpointConfig(
+        path="/credit-entitlements/{credit_entitlement_id}/balances/{customer_id}/grants",
+        primary_keys=["credit_entitlement_id", "customer_id", "id"],
+        fanout=DependentEndpointConfig(
+            child_response_actions=SKIP_MISSING_PARENT,
+            parent_name="credit_entitlement_balances",
+            resolve_param="customer_id",
+            resolve_field="customer_id",
+            include_from_parent=[],
+        ),
+        extra_resolve_fields={"credit_entitlement_id": "credit_entitlement_id"},
+    ),
+    # One row per currency. The body is `{"items": [...], "total_balance_usd": ...}` with no
+    # pagination, and each wallet already carries `customer_id`.
+    "customer_wallets": DodoPaymentsEndpointConfig(
+        path="/customers/{customer_id}/wallets",
+        primary_keys=["customer_id", "currency"],
+        paginated=False,
+        fanout=DependentEndpointConfig(
+            child_response_actions=SKIP_MISSING_PARENT,
+            parent_name="customers",
+            resolve_param="customer_id",
+            resolve_field="customer_id",
+            include_from_parent=[],
+        ),
+    ),
+    # A customer gets emails long after the customer is created, so the customer listing cannot
+    # window them, and an email's delivery `status` changes after it is sent. Full refresh only.
+    "customer_emails": DodoPaymentsEndpointConfig(
+        path="/customers/{customer_id}/emails",
+        primary_keys=["customer_id", "email_log_id"],
+        fanout=DependentEndpointConfig(
+            child_response_actions=SKIP_MISSING_PARENT,
+            parent_name="customers",
+            resolve_param="customer_id",
+            resolve_field="customer_id",
+            include_from_parent=["customer_id"],
+            parent_field_renames={"customer_id": "customer_id"},
         ),
     ),
 }

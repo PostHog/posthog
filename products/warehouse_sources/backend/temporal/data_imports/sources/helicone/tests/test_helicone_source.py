@@ -19,10 +19,6 @@ class TestHeliconeSource:
         # Changing the regional host must force re-entry of the API key (credential retargeting guard).
         assert self.source.connection_host_fields == ["region"]
 
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=[REQUESTS_ENDPOINT])
-        assert [schema.name for schema in schemas] == [REQUESTS_ENDPOINT]
-
     def test_source_for_pipeline_drops_last_value_on_full_refresh(self):
         result = SourceDriver(self.source, self.config).run(
             REQUESTS_ENDPOINT,

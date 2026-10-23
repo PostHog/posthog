@@ -189,11 +189,11 @@ class Auth0Source(ResumableSource[Auth0SourceConfig, Auth0ResumeConfig]):
             name=ExternalDataSourceType.AUTH0,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Auth0",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             keywords=["okta", "identity", "sso", "authentication", "ciam"],
             caption="""Enter your Auth0 tenant domain and a machine-to-machine application's credentials to pull your users, tenant logs, and tenant configuration into the PostHog Data warehouse.
 
-In the Auth0 dashboard go to **Applications > Applications**, create a **Machine to Machine** application, and authorize it for the **Auth0 Management API**. Grant the read scopes for the tables you want to sync: `read:users`, `read:logs`, `read:clients`, `read:connections`, `read:roles`, `read:organizations`, `read:resource_servers`, `read:actions`, `read:log_streams`.
+In the Auth0 dashboard go to **Applications > Applications**, create a **Machine to Machine** application, and authorize it for the **Auth0 Management API**. Grant the read scopes for the tables you want to sync: `read:users`, `read:logs`, `read:clients`, `read:connections`, `read:roles`, `read:organizations`, `read:resource_servers`, `read:actions`, `read:log_streams`, `read:organization_members`, `read:organization_member_roles`, `read:sessions`.
 
 Use your canonical tenant domain (for example `your-tenant.us.auth0.com`), not a custom domain. Auth0 only issues Management API tokens for the canonical one.""",
             iconPath="/static/services/auth0.png",

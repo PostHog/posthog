@@ -52,7 +52,7 @@ class RssSource(ResumableSource[RssSourceConfig, RssResumeConfig]):
             name=ExternalDataSourceType.RSS,
             category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             label="RSS.com",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["podcast", "podcasting"],
             caption="""Enter your RSS.com API key to pull your podcast and episode data into the PostHog Data warehouse.
 

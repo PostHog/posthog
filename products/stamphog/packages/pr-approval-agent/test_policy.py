@@ -196,11 +196,11 @@ OLD_ALLOW_PATH_PATTERNS = [
     "CHANGELOG",
     "LICENSE",
     "CONTRIBUTING",
-    ".github/CODEOWNERS",
     ".gitignore",
     ".editorconfig",
     "generated/",
     "__snapshots__/",
+    ".github/CODEOWNERS",
 ]
 OLD_MAX_LINES = 800
 OLD_MAX_FILES = 30

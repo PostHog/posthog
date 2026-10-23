@@ -19,8 +19,8 @@ import { funnelDataLogic } from '../funnelDataLogic'
 import { funnelPersonsModalLogic } from '../funnelPersonsModalLogic'
 import { FunnelStepsBarTooltip } from './FunnelStepsBarTooltip'
 import {
-    buildFunnelStepBarLabelFormatter,
     buildFunnelStepsBarData,
+    formatFunnelStepBarLabel,
     FUNNEL_STEPS_BAR_TOOLTIP_CONFIG,
     getConversionChipStepIndexes,
     resolveFunnelStepClick,
@@ -68,6 +68,7 @@ export function FunnelStepsBarChart({
         insightData,
         funnelsFilter,
         isStepOptional,
+        hasPartialBreakdownSelection,
     } = useValues(funnelDataLogic(insightProps))
     const { canOpenPersonModal } = useValues(funnelPersonsModalLogic(insightProps))
     const { openPersonsModalForSeries } = useActions(funnelPersonsModalLogic(insightProps))
@@ -84,7 +85,6 @@ export function FunnelStepsBarChart({
             }),
         [steps, getFunnelsColor]
     )
-    const formatBarLabel = useMemo(() => buildFunnelStepBarLabelFormatter(series), [series])
 
     // Feeds the tooltip header only; the visible labels come from the StepLegend footer.
     const stepLabels = useMemo(() => steps.map((step) => String(step.custom_name ?? step.name ?? '')), [steps])
@@ -129,11 +129,20 @@ export function FunnelStepsBarChart({
                 breakdownFilter={breakdownFilter}
                 groupTypeLabel={groupTypeLabel}
                 showPersonsModal={showPersonsModal}
+                isPartialBreakdownSelection={hasPartialBreakdownSelection}
                 resolvedDateRange={insightData?.resolved_date_range}
                 compareTo={querySource?.compareFilter?.compare_to}
             />
         ),
-        [steps, breakdownFilter, groupTypeLabel, showPersonsModal, insightData?.resolved_date_range, querySource]
+        [
+            steps,
+            breakdownFilter,
+            groupTypeLabel,
+            showPersonsModal,
+            hasPartialBreakdownSelection,
+            insightData?.resolved_date_range,
+            querySource,
+        ]
     )
 
     const renderStepFooter = useCallback(
@@ -184,7 +193,7 @@ export function FunnelStepsBarChart({
                     dataAttr="funnel-steps-bar-chart-canvas"
                     onError={handleChartError}
                 >
-                    {hasBarLabels && <ValueLabels valueFormatter={formatBarLabel} offset={4} />}
+                    {hasBarLabels && <ValueLabels valueFormatter={formatFunnelStepBarLabel} offset={4} />}
                     {conversionChipStepIndexes.length > 0 && (
                         <StepConversionChips steps={steps} stepIndexes={conversionChipStepIndexes} />
                     )}

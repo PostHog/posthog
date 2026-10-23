@@ -11,7 +11,7 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import APIException, NotFound, PermissionDenied
 from rest_framework.request import Request
 from rest_framework.response import Response
-from rest_framework.throttling import UserRateThrottle
+from rest_framework.throttling import BaseThrottle, UserRateThrottle
 
 from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -30,6 +30,7 @@ from .serializers import (
     FigureMarksSerializer,
     HighlightsSerializer,
     KeyClausesQuerySerializer,
+    PulsePinsSerializer,
     ReportKeyClausesSerializer,
     ReportPageSerializer,
 )
@@ -57,6 +58,19 @@ class JevSustainedThrottle(UserRateThrottle):
 JEV_THROTTLES = [BurstRateThrottle, SustainedRateThrottle, JevBurstThrottle, JevSustainedThrottle]
 
 
+class PulsePinsBurstThrottle(UserRateThrottle):
+    scope = "today_pulse_pins_burst"
+    rate = "30/minute"
+
+
+class PulsePinsSustainedThrottle(UserRateThrottle):
+    scope = "today_pulse_pins_sustained"
+    rate = "300/day"
+
+
+PULSE_PIN_THROTTLES = [BurstRateThrottle, SustainedRateThrottle, PulsePinsBurstThrottle, PulsePinsSustainedThrottle]
+
+
 @contextmanager
 def _jev_errors_as_responses(team_id: int) -> Iterator[None]:
     try:
@@ -71,8 +85,13 @@ def _jev_errors_as_responses(team_id: int) -> Iterator[None]:
 
 class TodayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "today"
-    scope_object_read_actions = ["excerpt_choice", "highlights"]
-    scope_object_write_actions: list[str] = []
+    scope_object_read_actions = ["excerpt_choice", "highlights", "pulse_pins"]
+    scope_object_write_actions = ["set_pulse_pins"]
+
+    def get_throttles(self) -> list[BaseThrottle]:
+        if self.action == "set_pulse_pins":
+            return [throttle() for throttle in PULSE_PIN_THROTTLES]
+        return super().get_throttles()
 
     def _jev_user(self) -> User:
         user = cast(User, self.request.user)
@@ -97,6 +116,34 @@ class TodayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         scopes = get_authenticator_scopes(request.successful_authenticator)
         found = api.get_highlights(team=self.team, user=user, scopes=None if scopes is None else frozenset(scopes))
         return Response(HighlightsSerializer(found).data)
+
+    @validated_request(
+        responses={200: OpenApiResponse(response=PulsePinsSerializer)},
+        summary="Get the numbers the person keeps",
+        description="The numbers the person keeps at the start of the key numbers on their home, in order. Suggestions fill the free places. 404 when the person does not have the new navigation.",
+    )
+    @action(detail=False, methods=["get"], url_path="pulse_pins")
+    def pulse_pins(self, request: Request, **kwargs) -> Response:
+        user = cast(User, request.user)
+        if not api.is_enabled_for(user, self.team):
+            raise NotFound()
+        scopes = get_authenticator_scopes(request.successful_authenticator)
+        found = api.get_pulse_pins(team=self.team, user=user, scopes=None if scopes is None else frozenset(scopes))
+        return Response(PulsePinsSerializer(found).data)
+
+    @validated_request(
+        request_serializer=PulsePinsSerializer,
+        responses={200: OpenApiResponse(response=PulsePinsSerializer)},
+        summary="Set the numbers the person keeps",
+        description="Replaces the numbers the person keeps at the start of the key numbers, in order. Repeated keys are dropped and only the first 4 are kept. The next highlights request computes the new numbers. 404 when the person does not have the new navigation.",
+    )
+    @pulse_pins.mapping.put
+    def set_pulse_pins(self, request: Request, **kwargs) -> Response:
+        user = cast(User, request.user)
+        if not api.is_enabled_for(user, self.team):
+            raise NotFound()
+        saved = api.set_pulse_pins(team=self.team, user=user, pins=request.validated_data.pins)
+        return Response(PulsePinsSerializer(saved).data)
 
     @validated_request(
         responses={200: OpenApiResponse(response=ReportPageSerializer)},

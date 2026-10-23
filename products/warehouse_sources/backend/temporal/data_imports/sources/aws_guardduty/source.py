@@ -113,14 +113,16 @@ class AwsGuarddutySource(ResumableSource[AwsGuarddutySourceConfig, AwsGuarddutyR
             label="AWS GuardDuty",
             iconPath="/static/services/aws_guardduty.png",
             caption=(
-                "Sync GuardDuty findings, detectors, and member accounts from one AWS region. "
+                "Sync GuardDuty findings, detectors, member accounts, Runtime Monitoring coverage, "
+                "malware scans, and usage statistics from one AWS region. "
                 "Enable GuardDuty in that region before syncing. "
                 "Grant `guardduty:ListDetectors`, `guardduty:GetDetector`, `guardduty:ListFindings`, "
-                "`guardduty:GetFindings`, and `guardduty:ListMembers` for all tables. "
+                "`guardduty:GetFindings`, `guardduty:ListMembers`, `guardduty:ListCoverage`, "
+                "`guardduty:DescribeMalwareScans`, and `guardduty:GetUsageStatistics` for all tables. "
                 "The members table requires a GuardDuty administrator account. "
                 "Findings use incremental sync through their update time. Other tables use full refresh."
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["aws", "guardduty", "security", "threat detection"],
             fields=cast(
                 list[FieldType],

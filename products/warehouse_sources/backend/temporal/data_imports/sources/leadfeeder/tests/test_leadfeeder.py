@@ -12,7 +12,6 @@ from requests.exceptions import HTTPError
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
-    always,
     scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.leadfeeder import (
@@ -237,11 +236,6 @@ class TestSourceResponse:
 
 
 class TestValidateCredentials:
-    @parameterized.expand([("valid", 200, True), ("unauthorized", 401, False), ("server_error", 500, False)])
-    def test_status_mapping(self, _name: str, status: int, expected: bool) -> None:
-        with scripted_network(always(ScriptedResponse(status=status))):
-            assert validate_credentials("token") is expected
-
     def test_session_redacts_token_and_blocks_redirects(self) -> None:
         # The token rides in a custom `Authorization: Token token=...` header the denylist can't see,
         # so it must be registered for value-based redaction; redirects must not be followed or the

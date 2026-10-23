@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
+import { PostHogValidationError } from '@/lib/errors'
 import { GENERATED_TOOLS } from '@/tools/generated/feature_flags'
 import type { Context } from '@/tools/types'
 
@@ -130,5 +131,99 @@ describe('update-feature-flag preserving groups', () => {
         expect(request).toHaveBeenCalledTimes(1)
         expect(requestArgs(request, 0).method).toBe('PATCH')
         expect(requestArgs(request, 0).body).toMatchObject({ active: false })
+    })
+
+    describe('untyped property error', () => {
+        const existing = {
+            id: 9,
+            key: 'pricing-banner',
+            filters: {
+                groups: [
+                    {
+                        properties: [{ key: 'country', type: 'person', operator: 'exact', value: 'US' }],
+                        rollout_percentage: 100,
+                    },
+                ],
+            },
+        }
+
+        // groups[0].properties[1] holds `email`, so a hook that swaps the group and property indices names the wrong key.
+        const params = tool.schema.parse({
+            id: 9,
+            filters: {
+                groups: [
+                    {
+                        properties: [
+                            { key: 'country', type: 'person', operator: 'exact', value: 'US' },
+                            { key: 'email', type: 'person', operator: 'exact', value: 'someone@example.com' },
+                        ],
+                        rollout_percentage: 100,
+                    },
+                    {
+                        properties: [{ key: 'plan', operator: 'exact', value: 'pro' }],
+                        rollout_percentage: 50,
+                    },
+                ],
+            },
+        })
+
+        function rejectPatchWith(
+            detail: string,
+            code: string
+        ): { request: ReturnType<typeof vi.fn>; error: PostHogValidationError } {
+            const error = new PostHogValidationError({
+                detail,
+                attr: 'filters',
+                code,
+                extra: undefined,
+                url: 'https://us.posthog.com/api/projects/42/feature_flags/9/',
+                method: 'PATCH',
+            })
+            const request = vi.fn().mockResolvedValueOnce(existing).mockRejectedValueOnce(error)
+            return { request, error }
+        }
+
+        it.each([
+            {
+                shape: 'serde guard',
+                detail: 'groups[1].properties[0].type: invalid property type',
+                code: 'invalid',
+            },
+            {
+                shape: 'structural',
+                detail: 'groups[1].properties[0].type: This field is required.',
+                code: 'structural.groups[].properties[].type.required',
+            },
+        ])('names the rejected property and its fix for the $shape rejection', async ({ detail, code }) => {
+            const { request } = rejectPatchWith(detail, code)
+
+            const rejection: unknown = await tool.handler(createMockContext(request), params).catch((e: unknown) => e)
+
+            expect(rejection).toBeInstanceOf(PostHogValidationError)
+            expect(rejection).toMatchObject({ attr: 'filters', code, method: 'PATCH' })
+            const { message } = rejection as PostHogValidationError
+            expect(message).toContain(detail)
+            expect(message).toContain('filters.groups[1].properties[0]')
+            expect(message).toContain('"plan"')
+            expect(message).toContain("Don't guess `person`")
+            expect(message).not.toContain('"email"')
+        })
+
+        it.each([
+            {
+                scenario: 'a different field under filters',
+                detail: 'groups[0].properties[0].operator: "foo" is not a valid choice.',
+                code: 'structural.groups[].properties[].operator.invalid_choice',
+            },
+            {
+                scenario: 'a type path the sent filters do not contain',
+                detail: 'groups[5].properties[0].type: invalid property type',
+                code: 'invalid',
+            },
+        ])('rethrows the API error unchanged for $scenario', async ({ detail, code }) => {
+            const { request, error } = rejectPatchWith(detail, code)
+
+            await expect(tool.handler(createMockContext(request), params)).rejects.toBe(error)
+        })
     })
 })

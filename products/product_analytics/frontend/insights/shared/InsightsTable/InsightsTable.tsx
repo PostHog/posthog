@@ -11,6 +11,7 @@ import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisForma
 import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { formatBreakdownLabel } from 'scenes/insights/utils'
+import { getResultSeries, getResultSeriesIndex } from 'scenes/insights/utils/resultSeries'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { cohortsModel } from '~/models/cohortsModel'
@@ -19,6 +20,7 @@ import { extractDisplayLabel } from '~/queries/nodes/DataTable/utils'
 import { hasBreakdownFilter } from '~/queries/utils'
 import { ChartDisplayType, TrendsFilterType } from '~/types'
 
+import { getResultSeriesName } from 'products/product_analytics/frontend/insights/shared/resultSeriesName'
 import { trendsDataLogic } from 'products/product_analytics/frontend/insights/trends/trendsDataLogic'
 import { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
 
@@ -99,6 +101,7 @@ export function InsightsTable({
         getTrendsColor,
         getTrendsHidden,
         insightData,
+        querySource,
     } = useValues(trendsDataLogic(insightProps))
     const { toggleResultHidden, toggleAllResultsHidden } = useActions(trendsDataLogic(insightProps))
     const { aggregation, allowAggregation, pinnedColumns, isColumnPinned, getPreviousResult, displayResults } =
@@ -114,10 +117,17 @@ export function InsightsTable({
             typeKey: filterKey,
         })
         if (entityFilter) {
-            entityFilter.actions.selectFilter(item.action)
+            entityFilter.actions.selectSeriesAt(getResultSeriesIndex(querySource, item) ?? null)
             entityFilter.actions.showModal()
         }
     }
+
+    const mathPropertyOf = (item: IndexedTrendResult): string | null | undefined =>
+        getResultSeries(querySource, item).math?.math_property
+    const showCountedByTag = indexedResults.some((item) => {
+        const math = getResultSeries(querySource, item).math?.math
+        return !!math && math !== 'total'
+    })
 
     const { allCohorts } = useValues(cohortsModel)
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
@@ -197,7 +207,8 @@ export function InsightsTable({
             ) : (
                 <SeriesColumnItem
                     item={item}
-                    indexedResults={indexedResults}
+                    series={getResultSeries(querySource, item)}
+                    showCountedByTag={showCountedByTag}
                     canEditSeriesNameInline={canEditSeriesNameInline}
                     seriesNameTooltip={seriesNameTooltip}
                     handleEditClick={handleSeriesEditClick}
@@ -231,8 +242,8 @@ export function InsightsTable({
                 return compareFn()(formatItemBreakdownLabel!(a), formatItemBreakdownLabel!(b))
             }
 
-            const labelA = a.action?.name || a.label || ''
-            const labelB = b.action?.name || b.label || ''
+            const labelA = getResultSeriesName(getResultSeries(querySource, a)) || a.label || ''
+            const labelB = getResultSeriesName(getResultSeries(querySource, b)) || b.label || ''
             return labelA.localeCompare(labelB)
         },
     })
@@ -352,6 +363,7 @@ export function InsightsTable({
             render: (_: any, item: IndexedTrendResult) => (
                 <AggregationColumnItem
                     item={item}
+                    mathProperty={mathPropertyOf(item)}
                     isNonTimeSeriesDisplay={isNonTimeSeriesDisplay}
                     aggregation={aggregation}
                     trendsFilter={trendsFilter}
@@ -376,6 +388,7 @@ export function InsightsTable({
                     return (
                         <AggregationColumnItem
                             item={previousItem}
+                            mathProperty={mathPropertyOf(previousItem)}
                             isNonTimeSeriesDisplay={isNonTimeSeriesDisplay}
                             aggregation={aggregation}
                             trendsFilter={trendsFilter}
@@ -452,6 +465,7 @@ export function InsightsTable({
                 <ValueColumnItem
                     index={index}
                     item={item}
+                    mathProperty={mathPropertyOf(item)}
                     isStickiness={isStickiness}
                     renderCount={renderCount}
                     formatPropertyValueForDisplay={formatPropertyValueForDisplay}
@@ -463,6 +477,7 @@ export function InsightsTable({
         }))
     }, [
         indexedResults,
+        querySource,
         renderCount,
         formatPropertyValueForDisplay,
         isStickiness,

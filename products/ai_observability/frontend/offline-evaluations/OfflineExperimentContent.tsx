@@ -11,6 +11,7 @@ import { urls } from 'scenes/urls'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import type { OfflineScorerSummaryApi } from '../generated/api.schemas'
+import { ScorerLabel } from '../scoreDefinitions/ScorerLabel'
 import { OfflineExperimentLogicProps, offlineExperimentLogic } from './offlineExperimentLogic'
 import { OfflineExperimentStatus } from './OfflineExperimentStatus'
 import { OfflineItemInspector } from './OfflineItemInspector'
@@ -181,7 +182,9 @@ export function OfflineExperimentContent(props: OfflineExperimentLogicProps): JS
                                     <Link
                                         className="break-words"
                                         to={offlineScorerHistoryUrl(summary.scorer, experiment, timezone)}
-                                    >{`${summary.scorer.name} v${summary.scorer.version}`}</Link>
+                                    >
+                                        <ScorerLabel scorer={summary.scorer} />
+                                    </Link>
                                 ),
                             },
                             {

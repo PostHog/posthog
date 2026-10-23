@@ -1,6 +1,6 @@
 import os
-from collections.abc import Generator
-from datetime import datetime
+from collections.abc import Callable, Generator
+from datetime import datetime, timedelta
 from io import BytesIO
 from typing import Any, Optional
 
@@ -18,6 +18,7 @@ from boto3 import resource
 from botocore.client import Config
 from dateutil.relativedelta import relativedelta
 from openpyxl import load_workbook
+from parameterized import parameterized
 from requests.exceptions import HTTPError
 
 from posthog.hogql.constants import CSV_EXPORT_BREAKDOWN_LIMIT_INITIAL
@@ -420,6 +421,12 @@ class TestCSVExporter(APIBaseTest):
         personal_api_key.scopes = ["export:write", "query:read"]
         personal_api_key.scoped_teams = [self.team.id + 1]
         personal_api_key.save(update_fields=["scopes", "scoped_teams"])
+        with pytest.raises(ValueError, match="could not verify its original authorization"):
+            assert_export_authorization(exported_asset)
+
+        personal_api_key.scoped_teams = [self.team.id]
+        personal_api_key.expires_at = now() - timedelta(minutes=1)
+        personal_api_key.save(update_fields=["scoped_teams", "expires_at"])
         with pytest.raises(ValueError, match="could not verify its original authorization"):
             assert_export_authorization(exported_asset)
 
@@ -1344,8 +1351,40 @@ class TestCSVExporter(APIBaseTest):
                 ],
             )
 
+    @parameterized.expand(
+        [
+            (
+                "a series node",
+                "test_event",
+                lambda query: query,
+                ["series,$browser,Total Sum", "test_event,Chrome,1", "test_event,Firefox,1"],
+            ),
+            (
+                "a saved series without a kind",
+                "legacy_event",
+                lambda query: {**query, "series": [{"event": "legacy_event", "name": "legacy_event", "math": "total"}]},
+                ["series,$browser,Total Sum", "legacy_event,Chrome,1", "legacy_event,Firefox,1"],
+            ),
+            (
+                "a renamed series wrapped in its visualization node",
+                "wrapped_event",
+                lambda query: {
+                    "kind": "InsightVizNode",
+                    "source": {**query, "series": [{**query["series"][0], "custom_name": "Tests"}]},
+                },
+                ["series,custom name,Total Sum", "Chrome,Tests,1", "Firefox,Tests,1"],
+            ),
+        ]
+    )
     @patch("products.exports.backend.models.exported_asset.UUIDT")
-    def test_csv_exporter_trends_with_breakdown(self, mocked_uuidt: Any) -> None:
+    def test_csv_exporter_trends_with_breakdown(
+        self,
+        _name: str,
+        event: str,
+        shape_source: Callable[[dict[str, Any]], dict[str, Any]],
+        expected_lines: list[str],
+        mocked_uuidt: Any,
+    ) -> None:
         with time_machine.travel("2025-05-22T12:00:00.000Z", tick=False):
             _create_person(distinct_ids=["user_1"], team=self.team)
             _create_person(distinct_ids=["user_2"], team=self.team)
@@ -1353,14 +1392,14 @@ class TestCSVExporter(APIBaseTest):
         events_by_person = {
             "user_1": [
                 {
-                    "event": "test_event",
+                    "event": event,
                     "timestamp": datetime(2025, 5, 22, 13, 0),
                     "properties": {"$browser": "Chrome"},
                 },
             ],
             "user_2": [
                 {
-                    "event": "test_event",
+                    "event": event,
                     "timestamp": datetime(2025, 5, 22, 13, 1),
                     "properties": {"$browser": "Firefox"},
                 },
@@ -1373,21 +1412,23 @@ class TestCSVExporter(APIBaseTest):
             team=self.team,
             export_format=ExportedAsset.ExportFormat.CSV,
             export_context={
-                "source": {
-                    "kind": "TrendsQuery",
-                    "dateRange": {"date_to": "2025-05-22", "date_from": "2025-05-22"},
-                    "series": [
-                        {"kind": "EventsNode", "event": "test_event", "name": "test_event", "math": "total"},
-                    ],
-                    "interval": "day",
-                    "trendsFilter": {
-                        "display": "ActionsTable",
-                    },
-                    "breakdownFilter": {
-                        "breakdown": "$browser",
-                        "breakdown_type": "event",
-                    },
-                }
+                "source": shape_source(
+                    {
+                        "kind": "TrendsQuery",
+                        "dateRange": {"date_to": "2025-05-22", "date_from": "2025-05-22"},
+                        "series": [
+                            {"kind": "EventsNode", "event": event, "name": event, "math": "total"},
+                        ],
+                        "interval": "day",
+                        "trendsFilter": {
+                            "display": "ActionsTable",
+                        },
+                        "breakdownFilter": {
+                            "breakdown": "$browser",
+                            "breakdown_type": "event",
+                        },
+                    }
+                )
             },
         )
         exported_asset.save()
@@ -1405,14 +1446,7 @@ class TestCSVExporter(APIBaseTest):
             lines = (content or "").strip().split("\r\n")
             data_lines = sorted(lines[1:])
 
-            self.assertEqual(
-                lines[0:1] + data_lines,
-                [
-                    "series,$browser,Total Sum",
-                    "test_event,Chrome,1",
-                    "test_event,Firefox,1",
-                ],
-            )
+            self.assertEqual(lines[0:1] + data_lines, expected_lines)
 
     @patch("products.exports.backend.models.exported_asset.UUIDT")
     def test_csv_exporter_trends_with_breakdown_and_action(self, mocked_uuidt: Any) -> None:

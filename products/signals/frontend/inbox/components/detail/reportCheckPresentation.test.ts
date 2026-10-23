@@ -9,6 +9,7 @@ import {
     checkExpiredEntry,
     checkScheduledEntry,
     latestCheckExplanations,
+    monitoringPeriodLabel,
     reportChecksMeta,
     splitReportCheckRows,
 } from './reportCheckPresentation'
@@ -49,6 +50,16 @@ function rowFor(
 }
 
 describe('reportCheckPresentation', () => {
+    it.each([
+        [0, '0 minutes'],
+        [1, '1 minute'],
+        [1441, '1 day 1 minute'],
+        [1501, '1 day 1 hour 1 minute'],
+        [20160, '14 days'],
+    ])('preserves the full Monitoring period of %s minutes', (minutes, label) => {
+        expect(monitoringPeriodLabel(Number(minutes))).toBe(label)
+    })
+
     describe('buildReportCheckRows', () => {
         // The section exists so a reader can tell a scheduled check from a waiting one from a check
         // that never ran. A wrong mapping here puts the wrong verdict word on the row.
@@ -64,6 +75,32 @@ describe('reportCheckPresentation', () => {
                 { status: 'pending', kind: 'metric_threshold', soak_minutes: 1440 },
                 'Waiting',
                 'At least 1 day after this report is resolved',
+            ],
+            [
+                'a Monitoring deadline does not promise another run',
+                {
+                    monitoring_timing: {
+                        state: 'window_ended',
+                        started_at: '2026-09-20T09:00:00Z',
+                        ends_at: '2026-09-27T09:00:00Z',
+                        next_measurement_at: null,
+                    },
+                },
+                'Awaiting verification',
+                'The observation window has ended. Interim measurements have stopped. A final verdict has not been recorded.',
+            ],
+            [
+                'a paused Monitoring check does not promise a scout run',
+                {
+                    monitoring_timing: {
+                        state: 'paused',
+                        started_at: '2026-09-20T09:00:00Z',
+                        ends_at: '2026-09-27T09:00:00Z',
+                        next_measurement_at: null,
+                    },
+                },
+                'Paused',
+                'This check is paused during Monitoring.',
             ],
             [
                 'a scheduled check leads with its run date and its lane',
@@ -221,6 +258,20 @@ describe('reportCheckPresentation', () => {
                 '2 · running now',
             ],
             ['says what pending checks are waiting on', [{ status: 'pending' }], '1 · waiting for resolve'],
+            [
+                'does not advertise a closed Monitoring window as the next run',
+                [
+                    {
+                        monitoring_timing: {
+                            state: 'window_ended',
+                            started_at: null,
+                            ends_at: null,
+                            next_measurement_at: null,
+                        },
+                    },
+                ],
+                '1',
+            ],
             ['says nothing is left to run', [{ status: 'passed' }, { status: 'failed' }], '2 · all done'],
         ])('%s', (_name, overrides, expected) => {
             expect(reportChecksMeta(overrides.map((o) => makeCheck(o)))).toEqual(expected)

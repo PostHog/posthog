@@ -39,8 +39,9 @@ use cohort_stream_processor::merge::transfer::{
     PersonMergeEvent, Tombstone, MERGE_EVENT_SCHEMA_VERSION,
 };
 use cohort_stream_processor::partitions::{
-    merge_partition_key, partition_of, run_rebalance_worker, CohortConsumerContext, Follower,
-    FollowerSet, InputGroups, InputTopic, OffsetTracker, PartitionRouter, COHORT_PARTITION_COUNT,
+    merge_partition_key, partition_of, AdmittedSplit, ClaimedSplit, CohortConsumerContext,
+    Follower, FollowerSet, InputGroups, InputTopic, OffsetTracker, PartitionRouter,
+    COHORT_PARTITION_COUNT,
 };
 use cohort_stream_processor::producer::{
     CohortMembershipChange, KafkaCascadeSink, KafkaMembershipSink, KafkaStreamEventSink,
@@ -69,7 +70,6 @@ use rdkafka::producer::{FutureProducer, FutureRecord};
 use rdkafka::util::Timeout;
 use rdkafka::{ClientConfig, Offset, TopicPartitionList};
 use serde_json::json;
-use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use uuid::Uuid;
 
@@ -257,9 +257,7 @@ fn events_client_config(group: &str) -> ClientConfig {
         .set("group.id", group)
         .set("enable.auto.commit", "false")
         .set("enable.auto.offset.store", "false")
-        .set("auto.offset.reset", "earliest")
-        .set("partition.assignment.strategy", "cooperative-sticky")
-        .set("session.timeout.ms", "6000");
+        .set("auto.offset.reset", "earliest");
     config
 }
 
@@ -635,6 +633,30 @@ impl Instance {
     }
 }
 
+/// The ownership fence's admission of the split `config` names, which the processor runs before it
+/// opens the store.
+async fn admit(config: &Config, groups: &Arc<InputGroups>) -> AdmittedSplit {
+    let claim = config
+        .split_claim()
+        .expect("the pod name ends in an ordinal");
+    let groups = groups.clone();
+    tokio::task::spawn_blocking(move || {
+        AdmittedSplit::try_admit(claim, &groups).expect("the fence admits the split")
+    })
+    .await
+    .expect("the admission panicked")
+}
+
+/// The claim the processor makes once the store is open.
+async fn claim(admitted: AdmittedSplit, groups: &Arc<InputGroups>) -> ClaimedSplit {
+    let groups = groups.clone();
+    tokio::task::spawn_blocking(move || {
+        admitted.claim(&groups).expect("claim the owned partitions")
+    })
+    .await
+    .expect("the claim panicked")
+}
+
 /// An optional pending `restore` is finished by the events consumer's boot. Its follower positions
 /// must already be committed, so each `incremental_assign(Offset::Stored)` resolves to them.
 #[allow(clippy::too_many_arguments)]
@@ -646,6 +668,7 @@ async fn spawn_instance(
     handles: [Handle; 4],
     durable_restore: bool,
     restore: Option<PendingRestore>,
+    claimed: &ClaimedSplit,
 ) -> Instance {
     let [events_handle, merge_handle, transfer_handle, cascade_handle] = handles;
     let kafka_config = producer_kafka_config();
@@ -733,32 +756,24 @@ async fn spawn_instance(
             .expect("create cascade follower consumer"),
     );
 
-    let followers = Arc::new(FollowerSet::new([
+    FollowerSet::new([
         Follower::new(merges_consumer.clone(), topics.merges.clone()),
         Follower::new(transfers_consumer.clone(), topics.transfers.clone()),
         Follower::new(cascade_consumer.clone(), topics.cascade.clone()),
-    ]));
+    ])
+    .assign(claimed)
+    .expect("assign the followers");
 
-    let (context, rebalance_rx) = CohortConsumerContext::new(dispatcher.clone());
     let events_client: StreamConsumer<CohortConsumerContext> = events_client_config(&groups.events)
-        .create_with_context(context)
+        .create_with_context(CohortConsumerContext)
         .expect("create events consumer");
-    events_client
-        .subscribe(&[topics.events.as_str()])
-        .expect("subscribe events");
 
-    let (command_tx, command_rx) = mpsc::unbounded_channel();
-    let mut tasks = vec![tokio::spawn(run_rebalance_worker(
-        rebalance_rx,
-        dispatcher.clone(),
-        followers,
-        command_tx,
-        events_handle.shutdown_token(),
-    ))];
+    let mut tasks = Vec::new();
 
     let merge_follower = FollowerConsumer::<MergeRoute>::new(
         merges_consumer,
         topics.merges.clone(),
+        claimed.stamp(),
         dispatcher.clone(),
         merge_handle,
         100,
@@ -768,6 +783,7 @@ async fn spawn_instance(
     let transfer_follower = FollowerConsumer::<TransferRoute>::new(
         transfers_consumer,
         topics.transfers.clone(),
+        claimed.stamp(),
         dispatcher.clone(),
         transfer_handle,
         100,
@@ -777,6 +793,7 @@ async fn spawn_instance(
     let cascade_follower = FollowerConsumer::<CascadeRoute>::new(
         cascade_consumer,
         topics.cascade.clone(),
+        claimed.stamp(),
         dispatcher.clone(),
         cascade_handle,
         100,
@@ -802,10 +819,10 @@ async fn spawn_instance(
         100,
         RECV_TIMEOUT,
         COMMIT_INTERVAL,
-        NUM_PARTITIONS as usize,
-        command_rx,
+        claimed,
         restore,
-    );
+    )
+    .expect("assign cohort_stream_events");
     tasks.push(tokio::spawn(events_consumer.process()));
 
     Instance {
@@ -815,8 +832,6 @@ async fn spawn_instance(
     }
 }
 
-/// `durable_restore_enabled && cohort_cascade_enabled` requires `durable_restore_single_pod &&
-/// pod_identity().is_some()` to pass `validate_startup`, so those knobs are set too.
 #[allow(clippy::too_many_arguments)]
 fn merge_durability_config(
     store_path: &Path,
@@ -829,7 +844,6 @@ fn merge_durability_config(
     env.insert("CHECKPOINT_ENABLED".into(), "true".into());
     env.insert("DURABLE_RESTORE_ENABLED".into(), "true".into());
     env.insert("COHORT_CASCADE_ENABLED".into(), "true".into());
-    env.insert("DURABLE_RESTORE_SINGLE_POD".into(), "true".into());
     // Ends in a StatefulSet ordinal, which checkpoints require.
     env.insert(
         "POD_NAME".into(),
@@ -931,12 +945,17 @@ async fn delete_s3_prefix(config: &Config) {
 
 /// Runs one checkpoint tick against the running dispatcher, with positions read from the broker,
 /// and uploads it: `upload_every_n` is 1.
-async fn checkpoint_to_s3(instance: &Instance, config: &Config, groups: &Arc<InputGroups>) {
+async fn checkpoint_to_s3(
+    instance: &Instance,
+    config: &Config,
+    groups: &Arc<InputGroups>,
+    claimed: ClaimedSplit,
+) {
     let sweeper = CheckpointSweeper::new(
         instance.store.clone(),
         instance.dispatcher.clone(),
         groups.clone(),
-        config.checkpoint_lineage().expect("ordinal pod name"),
+        claimed,
         config.durability_config(),
         1,
         tokio_util::sync::CancellationToken::new(),
@@ -997,6 +1016,7 @@ async fn merge_and_cascade_state_survive_an_s3_disaster_restore() {
     let store_path = root.path().join("db");
     let checkpoint_dir = root.path().join("checkpoints");
     let config = merge_durability_config(&store_path, &checkpoint_dir, &prefix, &topics, &groups);
+    let input_groups = Arc::new(InputGroups::new(&config));
 
     let names = topics.names();
     let config_for_cleanup = config.clone();
@@ -1014,7 +1034,10 @@ async fn merge_and_cascade_state_survive_an_s3_disaster_restore() {
         let shutdown = handles[0].clone();
         let _monitor = manager.monitor_background();
 
-        let store1 = CohortStore::open(&config.store_config()).expect("open tenure-1 store");
+        let admitted = admit(&config, &input_groups).await;
+        let store1 = CohortStore::open(&config.store_config(admitted.ownership()))
+            .expect("open tenure-1 store");
+        let claimed = claim(admitted, &input_groups).await;
         let instance = spawn_instance(
             &topics,
             &groups,
@@ -1023,6 +1046,7 @@ async fn merge_and_cascade_state_survive_an_s3_disaster_restore() {
             handles,
             config.durable_restore_enabled,
             None,
+            &claimed,
         )
         .await;
         wait_for(
@@ -1113,8 +1137,7 @@ async fn merge_and_cascade_state_survive_an_s3_disaster_restore() {
             NUM_PARTITIONS as usize,
             "the dispatcher must still own all 64 partitions at checkpoint time",
         );
-        let input_groups = Arc::new(InputGroups::new(&config));
-        checkpoint_to_s3(&instance, &config, &input_groups).await;
+        checkpoint_to_s3(&instance, &config, &input_groups, claimed).await;
 
         shutdown.request_shutdown();
         instance.join().await;
@@ -1125,8 +1148,10 @@ async fn merge_and_cascade_state_survive_an_s3_disaster_restore() {
             .expect("remove checkpoint_local_dir (simulate PVC loss)");
 
         // Tenure 2: the boot restores from S3 and positions the follower groups; verify the state.
+        let admitted = admit(&config, &input_groups).await;
         let (store2, restore) = open_store(
             &config,
+            &admitted,
             Some(config.checkpoint_lineage().expect("ordinal pod name")),
             input_groups.clone(),
         )
@@ -1137,10 +1162,12 @@ async fn merge_and_cascade_state_survive_an_s3_disaster_restore() {
         assert_eq!(restore.source().label(), "s3");
 
         // The followers resume past the merge on P_old's partition and the transfer on P_new's.
-        let merge_resume = restore.plan().positions(&InputTopic::new(topics.merges.as_str()));
+        let merge_resume = restore
+            .plan()
+            .positions(&InputTopic::new(topics.merges.as_str()), &admitted.ownership());
         let transfer_resume = restore
             .plan()
-            .positions(&InputTopic::new(topics.transfers.as_str()));
+            .positions(&InputTopic::new(topics.transfers.as_str()), &admitted.ownership());
         assert!(
             merge_resume.get(&part(p_old)).map(|offset| offset.get()) >= Some(1),
             "the merge follower resumes past the merge on P_old's partition: {merge_resume:?}",
@@ -1190,6 +1217,7 @@ async fn merge_and_cascade_state_survive_an_s3_disaster_restore() {
         let shutdown2 = handles2[0].clone();
         let _monitor2 = manager2.monitor_background();
 
+        let claimed = claim(admitted, &input_groups).await;
         let instance2 = spawn_instance(
             &topics,
             &groups,
@@ -1198,6 +1226,7 @@ async fn merge_and_cascade_state_survive_an_s3_disaster_restore() {
             handles2,
             config.durable_restore_enabled,
             Some(restore),
+            &claimed,
         )
         .await;
         wait_for(

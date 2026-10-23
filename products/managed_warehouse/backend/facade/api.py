@@ -13,11 +13,7 @@ from typing import TYPE_CHECKING
 from uuid import UUID
 
 from products.managed_warehouse.backend import common, storage
-from products.managed_warehouse.backend.common import (
-    DUCKGRES_BUCKET_REGION,
-    EARLIEST_BACKFILL_DATE,
-    NO_HISTORY_SENTINEL,
-)
+from products.managed_warehouse.backend.common import DUCKGRES_BUCKET_REGION, EARLIEST_BACKFILL_DATE
 from products.managed_warehouse.backend.facade.contracts import (
     DuckgresQueryServerConfig,
     DuckgresStoredBucketConfig,
@@ -36,7 +32,6 @@ if TYPE_CHECKING:
 __all__ = [
     "DUCKGRES_BUCKET_REGION",
     "EARLIEST_BACKFILL_DATE",
-    "NO_HISTORY_SENTINEL",
     "default_bucket_region",
     "deprovision_for_org_deletion",
     "duckgres_data_imports_schema",
@@ -132,12 +127,18 @@ def has_provisioned_warehouse(organization_id: str | UUID) -> bool:
 def is_data_modeling_shadow_ready(
     *,
     organization_id: str | UUID,
+    team_id: int,
 ) -> bool:
+    from products.managed_warehouse.backend.facade.cp_teams import (  # noqa: PLC0415 -- keeps control-plane imports off startup paths
+        get_org_team_membership,
+    )
     from products.managed_warehouse.backend.trino_compiler import (  # noqa: PLC0415 -- keeps optional compiler imports off startup paths
         get_ready_trino_catalog_name,
     )
 
-    return get_ready_trino_catalog_name(str(organization_id)) is not None
+    if get_ready_trino_catalog_name(str(organization_id)) is None:
+        return False
+    return get_org_team_membership(str(organization_id), team_id) is not None
 
 
 def get_duckgres_query_server_config(organization_id: str) -> DuckgresQueryServerConfig:

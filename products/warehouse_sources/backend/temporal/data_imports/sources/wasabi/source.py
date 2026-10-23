@@ -122,7 +122,7 @@ class WasabiSource(ResumableSource[WasabiSourceConfig, WasabiResumeConfig]):
 
 WACA is available to Wasabi Control Accounts (partners managing sub-accounts). To get an API key, enable Wasabi Account Control API access on your Control Account — see [Wasabi's documentation](https://docs.wasabi.com/apidocs/account-control-api) for details.
 """,
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             docsUrl="https://posthog.com/docs/cdp/sources/wasabi",
             iconPath="/static/services/wasabi.png",
             keywords=["waca", "wasabi account control"],

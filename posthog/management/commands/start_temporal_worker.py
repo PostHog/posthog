@@ -42,6 +42,10 @@ from posthog.temporal.backfill_materialized_property import (
     ACTIVITIES as BACKFILL_MATERIALIZED_PROPERTY_ACTIVITIES,
     BackfillMaterializedPropertiesBatchWorkflow,
 )
+from posthog.temporal.billing_active_sync import (
+    ACTIVITIES as BILLING_ACTIVE_SYNC_ACTIVITIES,
+    WORKFLOWS as BILLING_ACTIVE_SYNC_WORKFLOWS,
+)
 from posthog.temporal.cleanup_property_definitions import (
     ACTIVITIES as CLEANUP_PROPDEFS_ACTIVITIES,
     WORKFLOWS as CLEANUP_PROPDEFS_WORKFLOWS,
@@ -107,6 +111,7 @@ from posthog.temporal.salesforce_enrichment import (
     ACTIVITIES as SALESFORCE_ENRICHMENT_ACTIVITIES,
     WORKFLOWS as SALESFORCE_ENRICHMENT_WORKFLOWS,
 )
+from posthog.temporal.session_replay.copy_recording import COPY_RECORDING_ACTIVITIES, COPY_RECORDING_WORKFLOWS
 from posthog.temporal.session_replay.count_playlist_items import (
     COUNT_PLAYLIST_ITEMS_ACTIVITIES,
     COUNT_PLAYLIST_ITEMS_WORKFLOWS,
@@ -152,6 +157,7 @@ from posthog.temporal.weekly_digest import (
 )
 
 from products.alerts.backend.facade.temporal import (
+    PLATFORM_AI_QUEUE_ACTIVITIES as INSIGHT_PLATFORM_AI_QUEUE_ACTIVITIES,
     PLATFORM_EVALUATION_ACTIVITIES as INSIGHT_PLATFORM_EVALUATION_ACTIVITIES,
     PLATFORM_EVALUATION_WORKFLOWS as INSIGHT_PLATFORM_EVALUATION_WORKFLOWS,
 )
@@ -223,13 +229,10 @@ from products.experiments.backend.temporal import (
     EXPERIMENT_CANARY_WORKFLOWS,
     EXPERIMENT_ENROLLMENT_CENSUS_ACTIVITIES,
     EXPERIMENT_ENROLLMENT_CENSUS_WORKFLOWS,
+    EXPERIMENT_RECALCULATION_ACTIVITY_QUEUE_ACTIVITIES,
     EXPERIMENT_SCHEDULED_RECALCULATION_ACTIVITIES,
     EXPERIMENT_SCHEDULED_RECALCULATION_WORKFLOWS,
     WORKFLOWS as EXPERIMENTS_RECALCULATION_WORKFLOWS,
-)
-from products.exports.backend.temporal.subscriptions import (
-    ACTIVITIES as SUBSCRIPTION_ACTIVITIES,
-    WORKFLOWS as SUBSCRIPTION_WORKFLOWS,
 )
 from products.growth.backend.temporal import (
     ACTIVITIES as GROWTH_ACTIVITIES,
@@ -303,6 +306,10 @@ from products.slack_app.backend.facade.temporal import (
 from products.stamphog.backend.facade.temporal import (
     ACTIVITIES as STAMPHOG_ACTIVITIES,
     WORKFLOWS as STAMPHOG_WORKFLOWS,
+)
+from products.subscriptions.backend.facade.temporal import (
+    ACTIVITIES as SUBSCRIPTION_ACTIVITIES,
+    WORKFLOWS as SUBSCRIPTION_WORKFLOWS,
 )
 from products.tasks.backend.facade.temporal import (
     ACTIVITIES as TASKS_ACTIVITIES,
@@ -459,6 +466,13 @@ _task_queue_specs = [
         EXPERIMENTS_RECALCULATION_WORKFLOWS,
         EXPERIMENTS_RECALCULATION_ACTIVITIES,
     ),
+    # The calc activity gets its own queue so that a worker with a fixed slot count caps how many
+    # recalculation ClickHouse queries run at the same time.
+    (
+        settings.EXPERIMENTS_RECALCULATION_ACTIVITY_TASK_QUEUE,
+        [],
+        EXPERIMENT_RECALCULATION_ACTIVITY_QUEUE_ACTIVITIES,
+    ),
     (
         settings.HEALTH_CHECK_TASK_QUEUE,
         HEALTH_CHECK_WORKFLOWS,
@@ -493,7 +507,7 @@ _task_queue_specs = [
     (
         settings.MAX_AI_TASK_QUEUE,
         AI_WORKFLOWS,
-        AI_ACTIVITIES + ALERT_AI_QUEUE_ACTIVITIES,
+        AI_ACTIVITIES + ALERT_AI_QUEUE_ACTIVITIES + INSIGHT_PLATFORM_AI_QUEUE_ACTIVITIES,
     ),
     (
         settings.TEST_TASK_QUEUE,
@@ -502,11 +516,16 @@ _task_queue_specs = [
     ),
     (
         settings.BILLING_TASK_QUEUE,
-        QUOTA_LIMITING_WORKFLOWS + SALESFORCE_ENRICHMENT_WORKFLOWS + USAGE_REPORTS_WORKFLOWS + BILLING_ALERTS_WORKFLOWS,
+        QUOTA_LIMITING_WORKFLOWS
+        + SALESFORCE_ENRICHMENT_WORKFLOWS
+        + USAGE_REPORTS_WORKFLOWS
+        + BILLING_ALERTS_WORKFLOWS
+        + BILLING_ACTIVE_SYNC_WORKFLOWS,
         QUOTA_LIMITING_ACTIVITIES
         + SALESFORCE_ENRICHMENT_ACTIVITIES
         + USAGE_REPORTS_ACTIVITIES
-        + BILLING_ALERTS_ACTIVITIES,
+        + BILLING_ALERTS_ACTIVITIES
+        + BILLING_ACTIVE_SYNC_ACTIVITIES,
     ),
     (
         settings.VIDEO_EXPORT_TASK_QUEUE,
@@ -526,6 +545,7 @@ _task_queue_specs = [
     (
         settings.SESSION_REPLAY_TASK_QUEUE,
         COUNT_PLAYLIST_ITEMS_WORKFLOWS
+        + COPY_RECORDING_WORKFLOWS
         + DELETE_RECORDINGS_WORKFLOWS
         + ENFORCE_MAX_REPLAY_RETENTION_WORKFLOWS
         + RASTERIZE_RECORDING_WORKFLOWS
@@ -533,6 +553,7 @@ _task_queue_specs = [
         + SURFACING_SCORE_EXPORT_SWEEP_WORKFLOWS
         + SURFACING_SCORING_SWEEP_WORKFLOWS,
         COUNT_PLAYLIST_ITEMS_ACTIVITIES
+        + COPY_RECORDING_ACTIVITIES
         + DELETE_RECORDINGS_ACTIVITIES
         + ENFORCE_MAX_REPLAY_RETENTION_ACTIVITIES
         + RASTERIZE_RECORDING_ACTIVITIES

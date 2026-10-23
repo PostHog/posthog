@@ -371,7 +371,7 @@ export const DefaultSurfaceWithRecents: Story = {
     parameters: {
         docs: {
             description: {
-                story: 'The default "All" surface staff land on, brought in line with the pill variant: recents lead, then pinned, then the cross-tab content in fixed (learnable) order. Recent/pinned rows are tagged with their source (e.g. "Events - recent"), and the category dropdown exposes Recent and Pinned alongside the content categories so they stay navigable.',
+                story: 'The default "All" surface staff land on, brought in line with the pill variant: recents lead, then pinned, then the cross-tab content in fixed (learnable) order. Recent/pinned rows are tagged with their source (e.g. "Events - recent"), and saved items stay in All without separate Recent and Pinned category options.',
             },
         },
     },
