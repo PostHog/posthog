@@ -352,12 +352,14 @@ def _request_reviews(
     pr: dict[str, Any],
     reviewers: list[str],
 ) -> list[str]:
-    existing = {
-        str(login).lower()
-        for login in [pr.get("author"), *(pr.get("assignees") or []), *(pr.get("requested_reviewers") or [])]
-        if login
-    }
-    wanted = [login for login in reviewers if login.lower() not in existing]
+    assignees = list(dict.fromkeys(str(login).lower() for login in (pr.get("assignees") or []) if login))
+    owner = assignees[0] if len(assignees) == 1 else None
+    if owner is None and (pr.get("requested_reviewers") or pr.get("requested_teams")):
+        return []
+
+    existing = {str(login).lower() for login in [pr.get("author"), *(pr.get("requested_reviewers") or [])] if login}
+    candidates = [owner] if owner else reviewers
+    wanted = [login for login in candidates if login.lower() not in existing]
     if not wanted:
         return []
 
@@ -372,6 +374,17 @@ def _request_reviews(
         return []
     existing.update(str(login).lower() for login in (reviews.get("reviewed_by") or []) if login)
     wanted = [login for login in wanted if login.lower() not in existing]
+    if not wanted:
+        return []
+    try:
+        removed = github.get_removed_pull_request_reviewers(parsed.repository, parsed.number)
+    except Exception:
+        log.exception("signals.reviewer_pr_assignment.removed_reviews_fetch_failed")
+        return []
+    if removed is None:
+        log.warning("signals.reviewer_pr_assignment.removed_reviews_fetch_failed")
+        return []
+    wanted = [login for login in wanted if login.lower() not in removed][:1]
     if not wanted:
         return []
 
