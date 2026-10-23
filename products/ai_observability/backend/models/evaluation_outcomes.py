@@ -121,8 +121,18 @@ _DEFINITION_BUILDERS: Mapping[str, Callable[[bool], EvaluationReportOutcomeDefin
 SUPPORTED_EVAL_REPORT_OUTPUT_TYPES = (*_DEFINITION_BUILDERS, "numeric", "categorical")
 
 
-_CATEGORIES_EXPRESSION = "JSONExtract(ifNull(properties.$ai_evaluation_categorical_result, '[]'), 'Array(String)')"
-_SCORE_EXPRESSION = "toFloat(properties.$ai_evaluation_numeric_result)"
+CATEGORIES_EXPRESSION = "JSONExtract(ifNull(properties.$ai_evaluation_categorical_result, '[]'), 'Array(String)')"
+SCORE_EXPRESSION = "toFloat(properties.$ai_evaluation_numeric_result)"
+_NUMERIC_EVENT_PREDICATE = f"properties.$ai_evaluation_result_type = 'numeric' AND {NOT_SKIPPED_PREDICATE}"
+_CATEGORICAL_EVENT_PREDICATE = f"properties.$ai_evaluation_result_type = 'categorical' AND {NOT_SKIPPED_PREDICATE}"
+# A categorical run is graded only when the judge said it applies, where a numeric run is graded unless it said not.
+_CATEGORICAL_APPLICABLE_PREDICATE = "properties.$ai_evaluation_applicable = 'true'"
+# A run that produced a score or chose its categories, with or without a passing rule. Same as
+# EVALUATION_NUMERIC_GRADED_HOGQL and EVALUATION_CATEGORICAL_GRADED_HOGQL in the frontend's constants.ts.
+NUMERIC_SCORED_PREDICATE = (
+    f"{_NUMERIC_EVENT_PREDICATE} AND properties.$ai_evaluation_numeric_result IS NOT NULL AND {APPLICABLE_PREDICATE}"
+)
+CATEGORIZED_PREDICATE = f"{_CATEGORICAL_EVENT_PREDICATE} AND {_CATEGORICAL_APPLICABLE_PREDICATE}"
 
 
 @frozen
@@ -135,19 +145,21 @@ def categorical_rule_predicates(passing_categories: str | None) -> RulePredicate
     """The pass and fail predicates of a categorical passing rule. `passing_categories` is a HogQL array, or None
     for a rule that passes only a run that chose no category."""
     if passing_categories is None:
-        passing = f"empty({_CATEGORIES_EXPRESSION})"
+        passing = f"empty({CATEGORIES_EXPRESSION})"
     else:
-        passing = f"(notEmpty({_CATEGORIES_EXPRESSION}) AND hasAll({passing_categories}, {_CATEGORIES_EXPRESSION}))"
-    applicable = "properties.$ai_evaluation_applicable = 'true'"
-    return RulePredicates(passed=f"{passing} AND {applicable}", failed=f"NOT {passing} AND {applicable}")
+        passing = f"(notEmpty({CATEGORIES_EXPRESSION}) AND hasAll({passing_categories}, {CATEGORIES_EXPRESSION}))"
+    return RulePredicates(
+        passed=f"{passing} AND {_CATEGORICAL_APPLICABLE_PREDICATE}",
+        failed=f"NOT {passing} AND {_CATEGORICAL_APPLICABLE_PREDICATE}",
+    )
 
 
 def numeric_rule_predicates(operator: Literal["gte", "lte"], threshold: str) -> RulePredicates:
     """The pass and fail predicates of a numeric passing rule. `threshold` is a HogQL expression."""
     passed_op, failed_op = (">=", "<") if operator == "gte" else ("<=", ">")
     return RulePredicates(
-        passed=f"{_SCORE_EXPRESSION} {passed_op} {threshold} AND {APPLICABLE_PREDICATE}",
-        failed=f"{_SCORE_EXPRESSION} {failed_op} {threshold} AND {APPLICABLE_PREDICATE}",
+        passed=f"{SCORE_EXPRESSION} {passed_op} {threshold} AND {APPLICABLE_PREDICATE}",
+        failed=f"{SCORE_EXPRESSION} {failed_op} {threshold} AND {APPLICABLE_PREDICATE}",
     )
 
 
@@ -170,8 +182,8 @@ def _categorical_definition(output_config: dict | None) -> EvaluationReportOutco
             "fail": failed_predicate,
             "na": "properties.$ai_evaluation_applicable = 'false'",
         },
-        event_predicate=f"properties.$ai_evaluation_result_type = 'categorical' AND {NOT_SKIPPED_PREDICATE}",
-        result_expression=_CATEGORIES_EXPRESSION,
+        event_predicate=_CATEGORICAL_EVENT_PREDICATE,
+        result_expression=CATEGORIES_EXPRESSION,
         applicable_expression="properties.$ai_evaluation_applicable",
         score_expression="NULL",
         passing_result=None,
@@ -188,10 +200,10 @@ def _numeric_definition(output_config: dict | None) -> EvaluationReportOutcomeDe
     return EvaluationReportOutcomeDefinition(
         outcomes=("pass", "fail", "na"),
         outcome_predicates={"pass": passed, "fail": failed, "na": "properties.$ai_evaluation_applicable = 'false'"},
-        event_predicate=f"properties.$ai_evaluation_result_type = 'numeric' AND {NOT_SKIPPED_PREDICATE}",
-        result_expression=_SCORE_EXPRESSION,
+        event_predicate=_NUMERIC_EVENT_PREDICATE,
+        result_expression=SCORE_EXPRESSION,
         applicable_expression="properties.$ai_evaluation_applicable",
-        score_expression=_SCORE_EXPRESSION,
+        score_expression=SCORE_EXPRESSION,
         passing_result=None,
         numeric_config=config,
     )

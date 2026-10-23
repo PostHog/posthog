@@ -1,7 +1,7 @@
 import hashlib
 from collections import Counter
 from collections.abc import Callable, Mapping, Sequence
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime
 from typing import TYPE_CHECKING, Any, cast
 
 from django.core.cache import cache
@@ -101,6 +101,8 @@ from .metrics import llma_track_latency
 
 if TYPE_CHECKING:
     from posthog.models import User
+
+    from ..logic.evaluations.period import PeriodBounds
 
 logger = structlog.get_logger(__name__)
 
@@ -1012,8 +1014,6 @@ class HogEvaluationOutputType(models.TextChoices):
     CATEGORICAL = OutputType.CATEGORICAL.value, OutputType.CATEGORICAL.label
 
 
-OVERVIEW_DEFAULT_DAYS = 14
-OVERVIEW_MAX_DAYS = 90
 OVERVIEW_CACHE_SECONDS = 300
 
 
@@ -1052,43 +1052,30 @@ class EvaluationsOverviewPeriodSerializer(serializers.Serializer):
         help_text="Skip the result cached for the last five minutes and compute it again.",
     )
 
-    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
-        team = self.context["team"]
-        date_to = attrs.get("date_to") or datetime.now(team.timezone_info).date()
-        date_from = attrs.get("date_from")
-        try:
-            if date_from is None:
-                date_from = (
-                    date_to - timedelta(days=OVERVIEW_DEFAULT_DAYS - 1)
-                    if not isinstance(date_to, datetime)
-                    else date_to - timedelta(days=OVERVIEW_DEFAULT_DAYS)
-                )
-            end = facade.period_bound(team, date_to, is_end=True)
-            start = facade.period_bound(team, date_from, is_end=False)
-            # Both bounds share the project's tzinfo, which compares wall time, so this compares instants instead.
-            length = end.astimezone(UTC) - start.astimezone(UTC)
-            # The overview also reads the period of equal length before this one.
-            start.astimezone(UTC) - length
-        except OverflowError:
-            raise serializers.ValidationError("The period is outside the supported date range.")
-        if length <= timedelta(0):
-            raise serializers.ValidationError({"date_from": "Must be before date_to."})
-        # Whole days count by the calendar, because a day across a daylight saving change is 23 or 25 hours long.
-        # An instant has no such change, so a period with one counts real time.
-        if not isinstance(date_from, datetime) and not isinstance(date_to, datetime):
-            too_long = (date_to - date_from).days + 1 > OVERVIEW_MAX_DAYS
-        else:
-            too_long = length > timedelta(days=OVERVIEW_MAX_DAYS)
-        if too_long:
-            raise serializers.ValidationError({"date_from": f"The period can cover at most {OVERVIEW_MAX_DAYS} days."})
-        return {**attrs, "start": start, "end": end}
-
 
 class EvaluationsOverviewQuerySerializer(EvaluationsOverviewPeriodSerializer):
     evaluation_ids = RepeatedOrCommaSeparatedListField(
         child=serializers.UUIDField(),
         required=False,
         help_text="Only these evaluations. Defaults to every evaluation the user can see.",
+    )
+
+
+class EvaluationRunOutcome(models.TextChoices):
+    PASSED = "passed", "Passed"
+    FAILED = "failed", "Failed"
+
+
+class EvaluationRunsQuerySerializer(EvaluationsOverviewPeriodSerializer):
+    outcome = serializers.ChoiceField(
+        choices=EvaluationRunOutcome.choices,
+        required=False,
+        help_text="Only runs with this outcome under the evaluation's passing rule. Without it, every graded run, "
+        "including scored, categorized and sentiment runs. An evaluation without a passing rule rejects this filter "
+        "with a 400.",
+    )
+    limit = serializers.IntegerField(
+        required=False, default=5, min_value=1, max_value=50, help_text="How many runs to return, newest first."
     )
 
 
@@ -1601,10 +1588,21 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
     def partial_update(self, request, *args, **kwargs):
         return super().partial_update(request, *args, **kwargs)
 
-    def _cached_overview_read(
-        self, request: ValidatedRequest, name: str, evaluation_ids: Sequence[str], read: Callable[[], Contract]
-    ) -> Response:
+    def _overview_period(self, request: ValidatedRequest) -> "PeriodBounds":
         query = request.validated_query_data
+        try:
+            return facade.evaluations_period(self.team, query.get("date_from"), query.get("date_to"))
+        except facade.InvalidPeriodError as error:
+            raise serializers.ValidationError({error.field: str(error)} if error.field else str(error))
+
+    def _cached_overview_read(
+        self,
+        request: ValidatedRequest,
+        name: str,
+        evaluation_ids: Sequence[str],
+        period: "PeriodBounds",
+        read: Callable[[], Contract],
+    ) -> Response:
         # Keyed by the evaluations the user can see and by their current property restrictions, because a hit skips
         # the masking a fresh read applies, and a restriction can change while an entry is still cached.
         visible = hashlib.sha256(",".join(sorted(evaluation_ids)).encode()).hexdigest()
@@ -1614,10 +1612,10 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
             )
         )
         cache_key = (
-            f"ai_evaluations_{name}/{self.team.pk}/{request.user.pk}/{query['start'].astimezone(UTC).isoformat()}/{query['end'].astimezone(UTC).isoformat()}"
+            f"ai_evaluations_{name}/{self.team.pk}/{request.user.pk}/{period.start.astimezone(UTC).isoformat()}/{period.end.astimezone(UTC).isoformat()}"
             f"/{visible}/{restrictions}"
         )
-        if not query["refresh"]:
+        if not request.validated_query_data["refresh"]:
             cached = cache.get(cache_key)
             if cached is not None:
                 return Response(cached)
@@ -1629,15 +1627,16 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
 
     @validated_request(
         query_serializer=EvaluationsOverviewQuerySerializer,
-        include_serializer_context=True,
         responses={
             200: OpenApiResponse(response=contracts.EvaluationsOverview),
+            400: OpenApiResponse(description="The period is malformed, empty, longer than 90 days or out of range."),
             429: OpenApiResponse(description="Too many queries are running for the project or organization."),
         },
     )
     @action(detail=False, methods=["get"], url_path="overview", required_scopes=["evaluation:read"])
     def overview(self, request: ValidatedRequest, **kwargs) -> Response:
         """Each evaluation's results over a period, compared with the period of equal length before it."""
+        period = self._overview_period(request)
         queryset = self.get_queryset()
         # The base viewset narrows by access level on `list` only, so this read applies it itself.
         if not is_service_auth(request):
@@ -1650,32 +1649,71 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
             request,
             "overview",
             evaluation_ids,
-            lambda: facade.get_evaluations_overview(
-                self.team, cast("User", request.user), evaluation_ids, query["start"], query["end"]
-            ),
+            period,
+            lambda: facade.get_evaluations_overview(self.team, cast("User", request.user), evaluation_ids, period),
         )
 
     @validated_request(
-        query_serializer=EvaluationsOverviewPeriodSerializer,
-        include_serializer_context=True,
+        query_serializer=EvaluationRunsQuerySerializer,
         responses={
-            200: OpenApiResponse(response=contracts.EvaluationOverviewDetails),
+            200: OpenApiResponse(response=contracts.EvaluationRuns),
+            400: OpenApiResponse(
+                description="The period is invalid, or an outcome filter is set on an evaluation without a passing rule."
+            ),
             429: OpenApiResponse(description="Too many queries are running for the project or organization."),
         },
     )
-    @action(detail=True, methods=["get"], url_path="overview_details", required_scopes=["evaluation:read"])
-    def overview_details(self, request: ValidatedRequest, **kwargs) -> Response:
-        """One evaluation's latest failures and score histogram over a period, for the overview's drawer."""
+    @action(detail=True, methods=["get"], url_path="runs", required_scopes=["evaluation:read"])
+    def runs(self, request: ValidatedRequest, **kwargs) -> Response:
+        """One evaluation's latest graded runs in a period, newest first, optionally only the passed or failed ones."""
         evaluation_id = str(self.get_object().id)
+        period = self._overview_period(request)
         query = request.validated_query_data
-        return self._cached_overview_read(
-            request,
-            "overview_details",
-            [evaluation_id],
-            lambda: facade.get_evaluation_overview_details(
-                self.team, cast("User", request.user), evaluation_id, query["start"], query["end"]
+        outcome, limit = query.get("outcome"), query["limit"]
+        try:
+            return self._cached_overview_read(
+                request,
+                f"runs/{outcome}/{limit}",
+                [evaluation_id],
+                period,
+                lambda: facade.get_evaluation_runs(
+                    self.team, cast("User", request.user), evaluation_id, period, outcome, limit
+                ),
+            )
+        except facade.NoPassingRuleError:
+            raise serializers.ValidationError(
+                {"outcome": "This evaluation has no passing rule, so its runs are neither passed nor failed."}
+            )
+
+    @validated_request(
+        query_serializer=EvaluationsOverviewPeriodSerializer,
+        responses={
+            200: OpenApiResponse(response=contracts.ScoreHistogram),
+            400: OpenApiResponse(
+                description="The period is invalid, or the evaluation is not numeric with a minimum and maximum score."
             ),
-        )
+            429: OpenApiResponse(description="Too many queries are running for the project or organization."),
+        },
+    )
+    @action(detail=True, methods=["get"], url_path="score_distribution", required_scopes=["evaluation:read"])
+    def score_distribution(self, request: ValidatedRequest, **kwargs) -> Response:
+        """How one numeric evaluation's scores in a period spread across its configured scale."""
+        evaluation_id = str(self.get_object().id)
+        period = self._overview_period(request)
+        try:
+            return self._cached_overview_read(
+                request,
+                "score_distribution",
+                [evaluation_id],
+                period,
+                lambda: facade.get_evaluation_score_distribution(
+                    self.team, cast("User", request.user), evaluation_id, period
+                ),
+            )
+        except facade.NoScoreScaleError:
+            raise serializers.ValidationError(
+                "Only a numeric evaluation with a minimum and a maximum score has a score distribution."
+            )
 
     @extend_schema(request=TestHogRequestSerializer, responses=TestHogResponseSerializer)
     @action(detail=False, methods=["post"], url_path="test_hog", required_scopes=["evaluation:read"])

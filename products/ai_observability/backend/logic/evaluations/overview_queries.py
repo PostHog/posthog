@@ -14,32 +14,36 @@ from posthog.dataclasses import frozen
 from posthog.models import Team, User
 
 from products.ai_observability.backend.models.evaluation_outcomes import (
-    APPLICABLE_PREDICATE,
+    CATEGORIES_EXPRESSION,
+    CATEGORIZED_PREDICATE,
     NOT_SKIPPED_PREDICATE,
+    NUMERIC_SCORED_PREDICATE,
+    SCORE_EXPRESSION,
+    SENTIMENT_LABELS,
     get_outcome_definition,
 )
 
 from .pass_filters import PassRules
-from .period import OverviewPeriod
+from .period import OverviewPeriod, PeriodBounds
 
 _SKIPPED = "properties.$ai_evaluation_skipped = 'true'"
-_NOT_SKIPPED = NOT_SKIPPED_PREDICATE
-_NOT_APPLICABLE = f"properties.$ai_evaluation_applicable = 'false' AND {_NOT_SKIPPED}"
-# Same as EVALUATION_NUMERIC_GRADED_HOGQL and EVALUATION_CATEGORICAL_GRADED_HOGQL in the frontend's constants.ts.
-NUMERIC_SCORED = (
-    "properties.$ai_evaluation_result_type = 'numeric' AND properties.$ai_evaluation_numeric_result IS NOT NULL"
-    f" AND {APPLICABLE_PREDICATE} AND {_NOT_SKIPPED}"
+_NOT_APPLICABLE = f"properties.$ai_evaluation_applicable = 'false' AND {NOT_SKIPPED_PREDICATE}"
+_SENTIMENT = get_outcome_definition("sentiment")
+# One column per label, in the order of SENTIMENT_LABELS, which `load_bucket_counts` reads them in.
+_SENTIMENT_COUNTS = ", ".join(
+    f"countIf({_SENTIMENT.outcome_predicates[label]} AND {NOT_SKIPPED_PREDICATE}) AS {label}"
+    for label in SENTIMENT_LABELS
 )
-_CATEGORIZED = f"properties.$ai_evaluation_result_type = 'categorical' AND properties.$ai_evaluation_applicable = 'true' AND {_NOT_SKIPPED}"
-_CATEGORIES = get_outcome_definition("categorical").result_expression
-SCORE = "toFloat(properties.$ai_evaluation_numeric_result)"
+_ANY_LABEL = ", ".join(f"'{label}'" for label in SENTIMENT_LABELS)
 
+# A run that a summary kind without a passing rule grades: scored, categorized or labeled.
+GRADED_WITHOUT_RULE = (
+    f"({NUMERIC_SCORED_PREDICATE}) OR ({CATEGORIZED_PREDICATE})"
+    f" OR ({_SENTIMENT.result_expression} IN ({_ANY_LABEL}) AND {NOT_SKIPPED_PREDICATE})"
+)
 # A run any summary kind grades, so an evaluation whose recent runs were all N/A or skipped still reads as silent
 # since its last real result.
-_GRADED_ANY = (
-    f"graded_run OR ({NUMERIC_SCORED}) OR ({_CATEGORIZED})"
-    f" OR (properties.$ai_sentiment_label IN ('positive', 'neutral', 'negative') AND {_NOT_SKIPPED})"
-)
+_GRADED_ANY = f"graded_run OR {GRADED_WITHOUT_RULE}"
 
 PAGE_SIZE = MAX_SELECT_RETURNED_ROWS
 # Many evaluations over a long period can group into more rows than one response returns, for example categorical
@@ -62,12 +66,10 @@ SELECT
     countIf(graded_run AND NOT passing_run) AS failed,
     countIf({_NOT_APPLICABLE}) AS not_applicable,
     countIf({_SKIPPED}) AS skipped,
-    countIf({NUMERIC_SCORED}) AS score_count,
-    sumIf({SCORE}, {NUMERIC_SCORED}) AS score_sum,
-    countIf({_CATEGORIZED}) AS categorized,
-    countIf(properties.$ai_sentiment_label = 'positive' AND {_NOT_SKIPPED}) AS positive,
-    countIf(properties.$ai_sentiment_label = 'neutral' AND {_NOT_SKIPPED}) AS neutral,
-    countIf(properties.$ai_sentiment_label = 'negative' AND {_NOT_SKIPPED}) AS negative,
+    countIf({NUMERIC_SCORED_PREDICATE}) AS score_count,
+    sumIf({SCORE_EXPRESSION}, {NUMERIC_SCORED_PREDICATE}) AS score_sum,
+    countIf({CATEGORIZED_PREDICATE}) AS categorized,
+    {_SENTIMENT_COUNTS},
     if(countIf(({_GRADED_ANY}) AS graded_any) = 0, NULL, maxIf(timestamp, graded_any)) AS last_run_at
 FROM events
 WHERE {_WHERE}
@@ -81,10 +83,10 @@ _CATEGORY_QUERY = f"""
 SELECT
     toString(properties.$ai_evaluation_id) AS evaluation_id,
     {_BUCKET} AS bucket,
-    arrayJoin(if(empty({_CATEGORIES}), [''], {_CATEGORIES})) AS category,
+    arrayJoin(if(empty({CATEGORIES_EXPRESSION}), [''], {CATEGORIES_EXPRESSION})) AS category,
     count() AS runs
 FROM events
-WHERE {_WHERE} AND {_CATEGORIZED}
+WHERE {_WHERE} AND {CATEGORIZED_PREDICATE}
 GROUP BY evaluation_id, bucket, category
 ORDER BY evaluation_id, bucket, category
 LIMIT {{limit}} OFFSET {{offset}}
@@ -205,6 +207,21 @@ def instant(value: datetime) -> ast.Expr:
             ast.Constant(value="UTC"),
         ],
     )
+
+
+# The runs of one evaluation in a period, for the reads that list or bucket them.
+EVALUATION_RUNS_WHERE = (
+    "event = '$ai_evaluation' AND properties.$ai_evaluation_id = {evaluation_id}"
+    " AND timestamp >= {start} AND timestamp < {end}"
+)
+
+
+def evaluation_runs_placeholders(evaluation_id: str, period: PeriodBounds) -> dict[str, ast.Expr]:
+    return {
+        "evaluation_id": ast.Constant(value=evaluation_id),
+        "start": instant(period.start),
+        "end": instant(period.end),
+    }
 
 
 def run_evaluation_query(

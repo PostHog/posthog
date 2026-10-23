@@ -1,8 +1,6 @@
 import json
 from datetime import timedelta
-from types import SimpleNamespace
 from uuid import UUID, uuid4
-from zoneinfo import ZoneInfo
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import Mock, patch
@@ -2758,24 +2756,61 @@ class TestEvaluationsOverviewAccessControl(ClickhouseTestMixin, _EvaluationAcces
         assert [row["name"] for row in response.json()["evaluations"]] == ["Visible"]
         assert response.json()["totals"]["graded"] == 1
 
+    @parameterized.expand([("runs",), ("score_distribution",)])
+    def test_evaluation_reads_need_access_to_the_evaluation(self, endpoint: str) -> None:
+        hidden = self._create_evaluation("Hidden")
+        self.client.force_login(self.no_access_user)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/evaluations/{hidden.id}/{endpoint}/")
+
+        assert response.status_code in (status.HTTP_403_FORBIDDEN, status.HTTP_404_NOT_FOUND)
+
+    @parameterized.expand(
+        [
+            ("period", "{id}/runs/?date_from=2026-03-10&date_to=2026-03-09", "date_from", "Must be before date_to."),
+            (
+                "period out of range",
+                "overview/?date_to=9999-12-31",
+                None,
+                "The period is outside the supported date range.",
+            ),
+            (
+                "outcome without a passing rule",
+                "{id}/runs/?outcome=failed",
+                "outcome",
+                "This evaluation has no passing rule, so its runs are neither passed nor failed.",
+            ),
+            (
+                "score distribution without bounds",
+                "{id}/score_distribution/",
+                None,
+                "Only a numeric evaluation with a minimum and a maximum score has a score distribution.",
+            ),
+        ]
+    )
+    def test_invalid_reads_return_400(self, _name: str, path: str, attr: str | None, detail: str) -> None:
+        evaluation = Evaluation.objects.create(
+            team=self.team,
+            name="Score",
+            evaluation_type="hog",
+            evaluation_config={"source": "return true"},
+            output_type="numeric",
+            output_config={},
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/evaluations/{path.format(id=evaluation.id)}")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert (response.json()["attr"], response.json()["detail"]) == (attr, detail)
+
 
 class TestEvaluationsOverviewPeriod(SimpleTestCase):
     @parameterized.expand(
         [
-            ("end before start", {"date_from": "2026-03-10", "date_to": "2026-03-09"}, False),
-            ("91 days", {"date_from": "2026-08-04", "date_to": "2026-11-02"}, False),
-            ("last day of year 9999", {"date_to": "9999-12-31"}, False),
-            ("first day of year 1", {"date_to": "0001-01-01"}, False),
-            # Clocks fall back on November 1, so these 90 days are 2161 hours long.
-            ("90 days across daylight saving", {"date_from": "2026-08-05", "date_to": "2026-11-02"}, True),
-            ("90 days of instants", {"date_from": "2026-08-05T00:00:00Z", "date_to": "2026-11-03T00:00:00Z"}, True),
-            (
-                "an instant past 90 days",
-                {"date_from": "2026-08-05T00:00:00Z", "date_to": "2026-11-03T00:00:01Z"},
-                False,
-            ),
+            ("date", {"date_from": "2026-03-10"}, True),
+            ("instant with offset", {"date_to": "2026-03-10T05:30:00+05:30"}, True),
+            ("not a date", {"date_from": "2026-13-01"}, False),
         ]
     )
-    def test_period_validation(self, _name: str, data: dict[str, str], valid: bool) -> None:
-        team = SimpleNamespace(timezone_info=ZoneInfo("America/New_York"))
-        assert EvaluationsOverviewPeriodSerializer(data=data, context={"team": team}).is_valid() is valid
+    def test_period_parsing(self, _name: str, data: dict[str, str], valid: bool) -> None:
+        assert EvaluationsOverviewPeriodSerializer(data=data).is_valid() is valid

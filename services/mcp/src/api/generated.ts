@@ -43584,43 +43584,6 @@ export namespace Schemas {
       readonly evaluation_count: number;
     }
 
-    export interface EvaluationFailure {
-      timestamp: string;
-      /** The evaluator's reasoning, cut to about 1,000 characters. */
-      reasoning: string | null;
-      /** The generation the run graded. Null for trace and session runs. */
-      targetEventId: string | null;
-      traceId: string | null;
-    }
-
-    export interface ScoreScale {
-      min: number;
-      max: number;
-    }
-
-    export interface ScoreBucket {
-      label: string;
-      count: number;
-    }
-
-    export interface ScoreHistogram {
-      scale: ScoreScale;
-      /** One bucket per integer on a small integer scale, else ten equal buckets across the scale. */
-      buckets: ScoreBucket[];
-    }
-
-    export interface EvaluationOverviewDetails {
-      /** Start of the period, in the project's timezone. */
-      start: string;
-      /** End of the period, exclusive. */
-      end: string;
-      evaluationId: string;
-      /** The latest failed runs in the period, newest first. Null when the evaluation has no passing rule. */
-      recentFailures: EvaluationFailure[] | null;
-      /** Scores in the period. Null unless the evaluation is numeric with configured bounds. */
-      scoreDistribution: ScoreHistogram | null;
-    }
-
     /**
      * * `scheduled` - Scheduled
      * * `every_n` - Every N
@@ -44022,6 +43985,11 @@ export namespace Schemas {
       failed: number;
     }
 
+    export interface ScoreScale {
+      min: number;
+      max: number;
+    }
+
     export interface ScoreDistribution {
       mean: number;
       /** The configured score bounds, or null when the evaluation sets none. */
@@ -44106,6 +44074,28 @@ export namespace Schemas {
       trackedCategory: string | null;
     }
 
+    /**
+     * Null when the evaluation has no passing rule, or the run was not graded by it.
+     */
+    export type EvaluationRunOutcome = typeof EvaluationRunOutcome[keyof typeof EvaluationRunOutcome] | null;
+
+
+    export const EvaluationRunOutcome = {
+      Passed: 'passed',
+      Failed: 'failed',
+    } as const;
+
+    export interface EvaluationRun {
+      timestamp: string;
+      /** Null when the evaluation has no passing rule, or the run was not graded by it. */
+      outcome: EvaluationRunOutcome;
+      /** The evaluator's reasoning, cut to about 1,000 characters. */
+      reasoning: string | null;
+      /** The generation the run graded. Null for trace and session runs. */
+      targetEventId: string | null;
+      traceId: string | null;
+    }
+
     export interface EvaluationRunEvaluation {
       /** UUID of the evaluation being run. */
       id: string;
@@ -44138,6 +44128,11 @@ export namespace Schemas {
       evaluation: EvaluationRunEvaluation;
       /** UUID of the event being evaluated. */
       target_event_id: string;
+    }
+
+    export interface EvaluationRuns {
+      /** Newest first. */
+      results: EvaluationRun[];
     }
 
     export type EvaluationsOverviewIntervalEnum = typeof EvaluationsOverviewIntervalEnum[keyof typeof EvaluationsOverviewIntervalEnum];
@@ -103505,6 +103500,11 @@ export namespace Schemas {
       effective_destination_ids?: string[];
     }
 
+    export interface ScoreBucket {
+      label: string;
+      count: number;
+    }
+
     export interface ScoreDefinitionCreate {
       /**
          * Tag names. Replaces existing tags; send [] to remove all tags. Names are trimmed and lowercased.
@@ -103595,6 +103595,12 @@ export namespace Schemas {
       next_cursor: string | null;
       /** Versions on this page, newest first. */
       results: ScoreDefinitionVersion[];
+    }
+
+    export interface ScoreHistogram {
+      scale: ScoreScale;
+      /** One bucket per integer on a small integer scale, else ten equal buckets across the scale. */
+      buckets: ScoreBucket[];
     }
 
     export interface ScoringActivateRequest {
@@ -129486,7 +129492,44 @@ export namespace Schemas {
     offset?: number;
     };
 
-    export type EvaluationsOverviewDetailsRetrieveParams = {
+    export type EvaluationsRunsRetrieveParams = {
+    /**
+     * Start of the period: a date for the whole day in the project's timezone, or an ISO 8601 datetime. Defaults to 13 days before `date_to`.
+     */
+    date_from?: string;
+    /**
+     * End of the period: a date includes that whole day, a datetime is an exclusive instant. Defaults to today.
+     */
+    date_to?: string;
+    /**
+     * How many runs to return, newest first.
+     * @minimum 1
+     * @maximum 50
+     */
+    limit?: number;
+    /**
+     * Only runs with this outcome under the evaluation's passing rule. Without it, every graded run, including scored, categorized and sentiment runs. An evaluation without a passing rule rejects this filter with a 400.
+     *
+     * * `passed` - Passed
+     * * `failed` - Failed
+     * @minLength 1
+     */
+    outcome?: EvaluationsRunsRetrieveOutcome;
+    /**
+     * Skip the result cached for the last five minutes and compute it again.
+     */
+    refresh?: boolean;
+    };
+
+    export type EvaluationsRunsRetrieveOutcome = typeof EvaluationsRunsRetrieveOutcome[keyof typeof EvaluationsRunsRetrieveOutcome];
+
+
+    export const EvaluationsRunsRetrieveOutcome = {
+      Passed: 'passed',
+      Failed: 'failed',
+    } as const;
+
+    export type EvaluationsScoreDistributionRetrieveParams = {
     /**
      * Start of the period: a date for the whole day in the project's timezone, or an ISO 8601 datetime. Defaults to 13 days before `date_to`.
      */

@@ -1,51 +1,28 @@
-"""What the overview's evaluation drawer shows beyond the overview row: the latest failures and the score histogram."""
-
-from datetime import datetime
-
 from posthog.hogql import ast
 
 from posthog.dataclasses import frozen
 from posthog.models import Team, User
 
-from ...facade import contracts
-from .overview_queries import NUMERIC_SCORED, SCORE, instant, run_evaluation_query
-from .pass_filters import PassRules
+from products.ai_observability.backend.models.evaluation_outcomes import NUMERIC_SCORED_PREDICATE, SCORE_EXPRESSION
 
-RECENT_FAILURES_LIMIT = 5
-REASONING_MAX_CHARS = 1000
+from ...facade import contracts
+from .overview_queries import EVALUATION_RUNS_WHERE, evaluation_runs_placeholders, run_evaluation_query
+from .period import PeriodBounds
+
 # An integer scale of 2 to this many steps gets one bucket per integer, any other scale gets equal buckets.
 MAX_INTEGER_BUCKETS = 20
 EQUAL_BUCKETS = 10
-
-_WHERE = (
-    "event = '$ai_evaluation' AND properties.$ai_evaluation_id = {evaluation_id}"
-    " AND timestamp >= {start} AND timestamp < {end}"
-)
-
-_FAILURES_QUERY = f"""
-SELECT timestamp, properties.$ai_evaluation_reasoning, properties.$ai_target_event_id, properties.$ai_trace_id
-FROM events
-WHERE {_WHERE} AND {{graded}} AND NOT {{passes}}
-ORDER BY timestamp DESC
-LIMIT {RECENT_FAILURES_LIMIT}
-"""
 
 # Scores outside the configured scale land in the end buckets. The emitter skips such runs, so this only catches
 # runs scored before the scale changed. The epsilon keeps a score on a bucket edge in the bucket it starts, where
 # float division can land just under it: (0.3 - 0) / 0.1 is 2.9999999999999996.
 _HISTOGRAM_QUERY = f"""
-SELECT least(greatest(toInt(floor(({SCORE} - {{low}}) / {{width}} + 1e-9)), 0), {{last}}) AS bucket, count()
+SELECT least(greatest(toInt(floor(({SCORE_EXPRESSION} - {{low}}) / {{width}} + 1e-9)), 0), {{last}}) AS bucket, count()
 FROM events
-WHERE {_WHERE} AND {NUMERIC_SCORED}
+WHERE {EVALUATION_RUNS_WHERE} AND {NUMERIC_SCORED_PREDICATE}
 GROUP BY bucket
 LIMIT {MAX_INTEGER_BUCKETS + 1}
 """
-
-
-@frozen
-class DetailsWindow:
-    start: datetime
-    end: datetime
 
 
 @frozen
@@ -78,69 +55,21 @@ def score_buckets(scale: contracts.ScoreScale, step: float | None) -> ScoreBucke
     )
 
 
-def _text(value: object) -> str | None:
-    return value if isinstance(value, str) and value else None
-
-
-def _truncate(value: object) -> str | None:
-    text = _text(value)
-    if text is None or len(text) <= REASONING_MAX_CHARS:
-        return text
-    return f"{text[: REASONING_MAX_CHARS - 1]}…"
-
-
-def _placeholders(evaluation_id: str, window: DetailsWindow) -> dict[str, ast.Expr]:
-    return {
-        "evaluation_id": ast.Constant(value=evaluation_id),
-        "start": instant(window.start),
-        "end": instant(window.end),
-    }
-
-
-def load_recent_failures(
-    team: Team,
-    user: User | None,
-    evaluation_id: str,
-    window: DetailsWindow,
-    pass_rules: PassRules,
-) -> list[contracts.EvaluationFailure]:
-    rows = run_evaluation_query(
-        "ai_evaluations_overview_failures",
-        _FAILURES_QUERY,
-        team,
-        user,
-        {
-            **_placeholders(evaluation_id, window),
-            "graded": pass_rules.graded,
-            "passes": pass_rules.passes,
-        },
-    )
-    return [
-        contracts.EvaluationFailure(
-            timestamp=row[0], reasoning=_truncate(row[1]), target_event_id=_text(row[2]), trace_id=_text(row[3])
-        )
-        for row in rows
-    ]
-
-
 def load_score_distribution(
     team: Team,
     user: User | None,
     evaluation_id: str,
-    window: DetailsWindow,
+    period: PeriodBounds,
     scale: contracts.ScoreScale,
-    step: float | None,
-) -> contracts.ScoreHistogram | None:
-    buckets = score_buckets(scale, step)
-    if buckets is None:
-        return None
+    buckets: ScoreBuckets,
+) -> contracts.ScoreHistogram:
     rows = run_evaluation_query(
-        "ai_evaluations_overview_score_histogram",
+        "ai_evaluations_score_distribution",
         _HISTOGRAM_QUERY,
         team,
         user,
         {
-            **_placeholders(evaluation_id, window),
+            **evaluation_runs_placeholders(evaluation_id, period),
             "low": ast.Constant(value=buckets.low),
             "width": ast.Constant(value=buckets.width),
             "last": ast.Constant(value=len(buckets.labels) - 1),

@@ -3,23 +3,17 @@ from datetime import date, datetime
 
 from posthog.models import Team, User
 
-from products.ai_observability.backend.models.evaluation_configs import CategoricalOutputConfig, NumericOutputConfig
-from products.ai_observability.backend.models.evaluation_outcomes import get_outcome_definition
-from products.ai_observability.backend.models.evaluations import Evaluation, EvaluationStatus
-
-from ..logic.evaluations.overview import (
-    CategoryOption,
-    EvaluationMeta,
-    SummaryKind,
-    evaluation_result,
-    group_by_evaluation,
-    overview_totals,
-    pass_rate_overview,
-)
-from ..logic.evaluations.overview_details import DetailsWindow, load_recent_failures, load_score_distribution
+from ..logic.evaluations.evaluation_metas import load_evaluation_meta, load_evaluation_metas
+from ..logic.evaluations.overview import evaluation_result, group_by_evaluation, overview_totals, pass_rate_overview
 from ..logic.evaluations.overview_queries import load_bucket_counts, load_category_counts
 from ..logic.evaluations.pass_filters import build_evaluation_pass_filters, build_pass_rules
-from ..logic.evaluations.period import overview_period, resolve_bound
+from ..logic.evaluations.period import (
+    InvalidPeriodError as InvalidPeriodError,
+    PeriodBounds,
+    overview_period,
+)
+from ..logic.evaluations.runs import RunOutcome, load_runs
+from ..logic.evaluations.score_distribution import load_score_distribution, score_buckets
 from ..logic.traces.evaluation_result import EvaluationResult
 from ..logic.traces.evaluation_result_queries import load_evaluation_results, load_output_configs
 from ..logic.traces.events_fallback import fallback_window
@@ -37,6 +31,14 @@ class TraceNotFoundError(Exception):
 
 
 class TraceNodeNotFoundError(Exception):
+    pass
+
+
+class NoPassingRuleError(Exception):
+    pass
+
+
+class NoScoreScaleError(Exception):
     pass
 
 
@@ -205,122 +207,68 @@ def _to_evaluation_result(result: EvaluationResult) -> contracts.TraceEvaluation
     )
 
 
-def period_bound(team: Team, value: date | datetime, *, is_end: bool) -> datetime:
-    """A request bound as an instant. A date is a whole day in the project's timezone, so as an end it means the
-    following midnight. A datetime without an offset is read in the project's timezone."""
-    return resolve_bound(value, team.timezone_info, is_end=is_end)
+def evaluations_period(team: Team, date_from: date | datetime | None, date_to: date | datetime | None) -> PeriodBounds:
+    """Raises `InvalidPeriodError` for a period that is empty, longer than 90 days or out of range."""
+    return PeriodBounds.from_request(date_from, date_to, team.timezone_info)
 
 
 def get_evaluations_overview(
-    team: Team, user: User | None, evaluation_ids: Sequence[str], start: datetime, end: datetime
+    team: Team, user: User | None, evaluation_ids: Sequence[str], period: PeriodBounds
 ) -> contracts.EvaluationsOverview:
-    """Each evaluation's results from `start` to `end`, compared with the period of equal length before it, plus the
+    """Each evaluation's results in the period, compared with the period of equal length before it, plus the
     totals the overview cards show. Two ClickHouse reads, unless the evaluations group into more rows than half a
     page holds.
 
     While the period still runs, the previous one stops at the same point, so a partial today is not compared with
     a full day."""
-    period = overview_period(start, end, datetime.now(team.timezone_info), team.timezone_info)
-    evaluations = (
-        Evaluation.objects.filter(team_id=team.pk, id__in=evaluation_ids, deleted=False)
-        .select_related("directory", "created_by")
-        .order_by("-created_at", "id")
-    )
-    metas = [_evaluation_meta(evaluation) for evaluation in evaluations]
+    overview = overview_period(period.start, period.end, datetime.now(team.timezone_info), team.timezone_info)
+    metas = load_evaluation_metas(team.pk, evaluation_ids)
     ids = [meta.id for meta in metas]
-    counts = group_by_evaluation(load_bucket_counts(team, user, period, ids, build_pass_rules(team.pk, ids)))
+    counts = group_by_evaluation(load_bucket_counts(team, user, overview, ids, build_pass_rules(team.pk, ids)))
     categories = group_by_evaluation(
         load_category_counts(
-            team, user, period, {meta.id: len(meta.categories) for meta in metas if meta.kind == "categories"}
+            team, user, overview, {meta.id: len(meta.categories) for meta in metas if meta.kind == "categories"}
         )
     )
     rows = [
-        evaluation_result(meta, period.buckets, counts.get(meta.id, []), categories.get(meta.id, [])) for meta in metas
+        evaluation_result(meta, overview.buckets, counts.get(meta.id, []), categories.get(meta.id, []))
+        for meta in metas
     ]
-    bucket_count = len(period.buckets)
+    bucket_count = len(overview.buckets)
     return contracts.EvaluationsOverview(
-        start=period.start,
-        end=period.end,
-        previous_start=period.previous_start,
-        previous_end=period.previous_end,
-        interval=period.interval,
-        buckets=list(period.buckets),
+        start=overview.start,
+        end=overview.end,
+        previous_start=overview.previous_start,
+        previous_end=overview.previous_end,
+        interval=overview.interval,
+        buckets=list(overview.buckets),
         evaluations=rows,
         totals=overview_totals(rows, bucket_count),
         pass_rate_overview=pass_rate_overview(rows, bucket_count),
     )
 
 
-def _evaluation_meta(evaluation: Evaluation) -> EvaluationMeta:
-    config = evaluation.output_config or {}
-    try:
-        has_pass_rule = get_outcome_definition(
-            evaluation.output_type, true_is_failure=config.get("true_is_failure") is True, output_config=config
-        ).has_pass_rule
-    except ValueError:
-        has_pass_rule = False
-    kind: SummaryKind
-    if evaluation.output_type == "sentiment":
-        kind = "sentiment"
-    elif has_pass_rule:
-        kind = "pass_rate"
-    elif evaluation.output_type == "numeric":
-        kind = "score"
-    else:
-        kind = "categories"
-    scale = None
-    score_step = None
-    categories: tuple[CategoryOption, ...] = ()
-    multiple = False
-    # A config that no longer validates still shows its counts, without the bounds or labels it would carry.
-    try:
-        if evaluation.output_type == "numeric":
-            numeric = NumericOutputConfig.model_validate(config)
-            score_step = numeric.step
-            if numeric.min is not None and numeric.max is not None:
-                scale = contracts.ScoreScale(min=numeric.min, max=numeric.max)
-        elif evaluation.output_type == "categorical":
-            categorical = CategoricalOutputConfig.model_validate(config)
-            categories = tuple(CategoryOption(key=option.key, label=option.label) for option in categorical.options)
-            multiple = categorical.selection_mode == "multiple"
-    except ValueError:
-        pass
-    creator = evaluation.created_by
-    return EvaluationMeta(
-        id=str(evaluation.id),
-        name=evaluation.name,
-        directory_name=evaluation.directory.name if evaluation.directory else None,
-        evaluation_type=evaluation.evaluation_type,
-        output_type=evaluation.output_type,
-        enabled=evaluation.enabled,
-        errored=evaluation.status == EvaluationStatus.ERROR,
-        status_reason=evaluation.status_reason if evaluation.status == EvaluationStatus.ERROR else None,
-        created_by=(" ".join(filter(None, [creator.first_name, creator.last_name])) or creator.email)
-        if creator
-        else None,
-        kind=kind,
-        scale=scale,
-        score_step=score_step,
-        categories=categories,
-        multiple=multiple,
-    )
+def get_evaluation_runs(
+    team: Team,
+    user: User | None,
+    evaluation_id: str,
+    period: PeriodBounds,
+    outcome: RunOutcome | None,
+    limit: int,
+) -> contracts.EvaluationRuns:
+    """Raises `NoPassingRuleError` for an outcome filter on an evaluation without a passing rule."""
+    if outcome is not None and load_evaluation_meta(team.pk, evaluation_id).kind != "pass_rate":
+        raise NoPassingRuleError(evaluation_id)
+    pass_rules = build_pass_rules(team.pk, [evaluation_id])
+    return contracts.EvaluationRuns(results=load_runs(team, user, evaluation_id, period, pass_rules, outcome, limit))
 
 
-def get_evaluation_overview_details(
-    team: Team, user: User | None, evaluation_id: str, start: datetime, end: datetime
-) -> contracts.EvaluationOverviewDetails:
-    """The latest failures and the score histogram of one evaluation from `start` to `end`."""
-    evaluation = Evaluation.objects.get(team_id=team.pk, id=evaluation_id, deleted=False)
-    meta = _evaluation_meta(evaluation)
-    window = DetailsWindow(start=start, end=end)
-    return contracts.EvaluationOverviewDetails(
-        evaluation_id=meta.id,
-        start=start,
-        end=end,
-        recent_failures=load_recent_failures(team, user, meta.id, window, build_pass_rules(team.pk, [meta.id]))
-        if meta.kind == "pass_rate"
-        else None,
-        score_distribution=load_score_distribution(team, user, meta.id, window, meta.scale, meta.score_step)
-        if meta.scale is not None
-        else None,
-    )
+def get_evaluation_score_distribution(
+    team: Team, user: User | None, evaluation_id: str, period: PeriodBounds
+) -> contracts.ScoreHistogram:
+    """Raises `NoScoreScaleError` unless the evaluation is numeric with a minimum below its maximum."""
+    meta = load_evaluation_meta(team.pk, evaluation_id)
+    buckets = score_buckets(meta.scale, meta.score_step) if meta.scale is not None else None
+    if meta.scale is None or buckets is None:
+        raise NoScoreScaleError(evaluation_id)
+    return load_score_distribution(team, user, evaluation_id, period, meta.scale, buckets)

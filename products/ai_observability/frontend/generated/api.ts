@@ -45,16 +45,17 @@ import type {
     EvaluationConfigApi,
     EvaluationConfigSetActiveKeyRequestApi,
     EvaluationDirectoryApi,
-    EvaluationOverviewDetailsApi,
     EvaluationReportApi,
     EvaluationReportUpdateApi,
     EvaluationRunRequestApi,
     EvaluationRunResponseApi,
+    EvaluationRunsApi,
     EvaluationsBackfillsListParams,
     EvaluationsListParams,
     EvaluationsOverviewApi,
-    EvaluationsOverviewDetailsRetrieveParams,
     EvaluationsOverviewRetrieveParams,
+    EvaluationsRunsRetrieveParams,
+    EvaluationsScoreDistributionRetrieveParams,
     ExperimentReceiptApi,
     ExperimentSubmissionApi,
     InstrumentationCheckActionApi,
@@ -135,6 +136,7 @@ import type {
     ScoreDefinitionNewVersionApi,
     ScoreDefinitionVersionApi,
     ScoreDefinitionVersionPageApi,
+    ScoreHistogramApi,
     SummarizeRequestApi,
     SummarizeResponseApi,
     TaggerApi,
@@ -1468,10 +1470,10 @@ export const evaluationsDestroy = async (projectId: string, id: string, options?
     })
 }
 
-export const getEvaluationsOverviewDetailsRetrieveUrl = (
+export const getEvaluationsRunsRetrieveUrl = (
     projectId: string,
     id: string,
-    params?: EvaluationsOverviewDetailsRetrieveParams
+    params?: EvaluationsRunsRetrieveParams
 ) => {
     const normalizedParams = new URLSearchParams()
 
@@ -1484,20 +1486,55 @@ export const getEvaluationsOverviewDetailsRetrieveUrl = (
     const stringifiedParams = normalizedParams.toString()
 
     return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/evaluations/${id}/overview_details/?${stringifiedParams}`
-        : `/api/projects/${projectId}/evaluations/${id}/overview_details/`
+        ? `/api/projects/${projectId}/evaluations/${id}/runs/?${stringifiedParams}`
+        : `/api/projects/${projectId}/evaluations/${id}/runs/`
 }
 
 /**
- * One evaluation's latest failures and score histogram over a period, for the overview's drawer.
+ * One evaluation's latest graded runs in a period, newest first, optionally only the passed or failed ones.
  */
-export const evaluationsOverviewDetailsRetrieve = async (
+export const evaluationsRunsRetrieve = async (
     projectId: string,
     id: string,
-    params?: EvaluationsOverviewDetailsRetrieveParams,
+    params?: EvaluationsRunsRetrieveParams,
     options?: RequestInit
-): Promise<EvaluationOverviewDetailsApi> => {
-    return apiMutator<EvaluationOverviewDetailsApi>(getEvaluationsOverviewDetailsRetrieveUrl(projectId, id, params), {
+): Promise<EvaluationRunsApi> => {
+    return apiMutator<EvaluationRunsApi>(getEvaluationsRunsRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getEvaluationsScoreDistributionRetrieveUrl = (
+    projectId: string,
+    id: string,
+    params?: EvaluationsScoreDistributionRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/evaluations/${id}/score_distribution/?${stringifiedParams}`
+        : `/api/projects/${projectId}/evaluations/${id}/score_distribution/`
+}
+
+/**
+ * How one numeric evaluation's scores in a period spread across its configured scale.
+ */
+export const evaluationsScoreDistributionRetrieve = async (
+    projectId: string,
+    id: string,
+    params?: EvaluationsScoreDistributionRetrieveParams,
+    options?: RequestInit
+): Promise<ScoreHistogramApi> => {
+    return apiMutator<ScoreHistogramApi>(getEvaluationsScoreDistributionRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
     })

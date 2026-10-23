@@ -1,6 +1,7 @@
 from datetime import UTC, date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
+import pytest
 import time_machine
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import patch
@@ -12,9 +13,9 @@ from posthog.hogql.database.database import Database
 from posthog.hogql.printer.utils import prepare_and_print_ast
 
 from products.ai_observability.backend.facade.api import (
-    get_evaluation_overview_details,
+    evaluations_period,
+    get_evaluation_runs,
     get_evaluations_overview,
-    period_bound,
 )
 from products.ai_observability.backend.logic.evaluations.overview_queries import (
     CategoryBucketCount,
@@ -23,7 +24,12 @@ from products.ai_observability.backend.logic.evaluations.overview_queries import
     run_evaluation_query,
 )
 from products.ai_observability.backend.logic.evaluations.pass_filters import build_pass_rules
-from products.ai_observability.backend.logic.evaluations.period import OverviewPeriod, overview_period
+from products.ai_observability.backend.logic.evaluations.period import (
+    InvalidPeriodError,
+    OverviewPeriod,
+    PeriodBounds,
+    overview_period,
+)
 from products.ai_observability.backend.models.evaluations import Evaluation
 
 PERIOD = OverviewPeriod(
@@ -58,6 +64,39 @@ def test_rolling_hours_keep_their_real_length_across_daylight_saving(_name: str,
     assert period.interval == "hour"
     assert len(period.buckets) == hours
     assert (period.previous_start, period.previous_end) == (now - 2 * length, now - length)
+
+
+@parameterized.expand(
+    [
+        ("end before start", date(2026, 3, 10), date(2026, 3, 9), "date_from"),
+        ("91 days", date(2026, 8, 4), date(2026, 11, 2), "date_from"),
+        ("last day of year 9999", None, date(9999, 12, 31), "out of range"),
+        ("first day of year 1", None, date(1, 1, 1), "out of range"),
+        # Clocks fall back on November 1, so these 90 days are 2161 hours long.
+        ("90 days across daylight saving", date(2026, 8, 5), date(2026, 11, 2), None),
+        (
+            "90 days of instants",
+            datetime(2026, 8, 5, tzinfo=UTC),
+            datetime(2026, 11, 3, tzinfo=UTC),
+            None,
+        ),
+        (
+            "an instant past 90 days",
+            datetime(2026, 8, 5, tzinfo=UTC),
+            datetime(2026, 11, 3, 0, 0, 1, tzinfo=UTC),
+            "date_from",
+        ),
+    ]
+)
+def test_period_from_request(
+    _name: str, date_from: date | datetime | None, date_to: date | datetime, error: str | None
+) -> None:
+    if error is None:
+        PeriodBounds.from_request(date_from, date_to, NEW_YORK)
+        return
+    with pytest.raises(InvalidPeriodError) as raised:
+        PeriodBounds.from_request(date_from, date_to, NEW_YORK)
+    assert (raised.value.field or "out of range") == error
 
 
 class TestEvaluationsOverviewQueries(ClickhouseTestMixin, BaseTest):
@@ -175,8 +214,7 @@ class TestEvaluationsOverviewQueries(ClickhouseTestMixin, BaseTest):
             self.team,
             None,
             [str(judge.id)],
-            period_bound(self.team, date(2026, 3, 9), is_end=False),
-            period_bound(self.team, date(2026, 3, 10), is_end=True),
+            evaluations_period(self.team, date(2026, 3, 9), date(2026, 3, 10)),
         )
 
         [row] = overview.evaluations
@@ -200,8 +238,7 @@ class TestEvaluationsOverviewQueries(ClickhouseTestMixin, BaseTest):
             self.team,
             None,
             [str(judge.id)],
-            period_bound(self.team, date(2026, 3, 8), is_end=False),
-            period_bound(self.team, date(2026, 3, 11), is_end=True),
+            evaluations_period(self.team, date(2026, 3, 8), date(2026, 3, 11)),
         )
 
         [row] = overview.evaluations
@@ -244,7 +281,9 @@ class TestEvaluationsOverviewQueries(ClickhouseTestMixin, BaseTest):
         flush_persons_and_events()
 
         with time_machine.travel(now, tick=False):
-            overview = get_evaluations_overview(self.team, None, [str(judge.id)], now - timedelta(hours=hours), now)
+            overview = get_evaluations_overview(
+                self.team, None, [str(judge.id)], PeriodBounds(start=now - timedelta(hours=hours), end=now)
+            )
 
         [row] = overview.evaluations
         assert overview.interval == "hour"
@@ -259,13 +298,15 @@ class TestEvaluationsOverviewQueries(ClickhouseTestMixin, BaseTest):
         # 01:00 on November 1 in New York after the clocks fall back, between 01:40 before and 01:20 after it.
         self._run(judge, "2026-11-01T06:00:00Z", **{"$ai_evaluation_result": False})
         flush_persons_and_events()
-        start, end = datetime(2026, 11, 1, 5, 40, tzinfo=UTC), datetime(2026, 11, 1, 6, 20, tzinfo=UTC)
+        period = PeriodBounds(
+            start=datetime(2026, 11, 1, 5, 40, tzinfo=UTC), end=datetime(2026, 11, 1, 6, 20, tzinfo=UTC)
+        )
 
-        overview = get_evaluations_overview(self.team, None, [str(judge.id)], start, end)
-        details = get_evaluation_overview_details(self.team, None, str(judge.id), start, end)
+        overview = get_evaluations_overview(self.team, None, [str(judge.id)], period)
+        runs = get_evaluation_runs(self.team, None, str(judge.id), period, "failed", 5)
 
         assert overview.evaluations[0].graded_count == 1
-        assert details.recent_failures is not None and len(details.recent_failures) == 1
+        assert len(runs.results) == 1
 
     def test_query_size_does_not_grow_with_the_number_of_evaluations(self) -> None:
         def printed_size(count: int) -> int:
@@ -313,7 +354,9 @@ class TestEvaluationsOverviewQueries(ClickhouseTestMixin, BaseTest):
         flush_persons_and_events()
         now = datetime(2026, 3, 10, 12, 30, tzinfo=UTC)
 
-        overview = get_evaluations_overview(self.team, None, [str(judge.id)], now - timedelta(hours=24), now)
+        overview = get_evaluations_overview(
+            self.team, None, [str(judge.id)], PeriodBounds(start=now - timedelta(hours=24), end=now)
+        )
 
         [row] = overview.evaluations
         assert overview.interval == "hour"
