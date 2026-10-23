@@ -8,6 +8,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { Link } from 'lib/lemon-ui/Link'
+import { AuthBanner } from 'scenes/authentication/shared/authScene/AuthBanner'
 import { AuthCardTitle } from 'scenes/authentication/shared/authScene/AuthCardTitle'
 import { AuthSceneCard } from 'scenes/authentication/shared/authScene/AuthScene'
 import { TurnstileChallenge } from 'scenes/authentication/shared/TurnstileChallenge'
@@ -73,7 +74,7 @@ export function SignupProfileStep(): JSX.Element {
                 }
             />
             {signupPanelOnboardingManualErrors?.generic && (
-                <div className="mb-4 py-2.5 px-3 text-sm leading-normal text-primary text-left bg-danger-highlight border border-danger rounded">
+                <AuthBanner variant="danger" className="mb-4">
                     <span>{signupPanelOnboardingManualErrors.generic.detail || 'Could not complete your signup.'}</span>
                     {preflight?.cloud && (
                         <>
@@ -96,7 +97,7 @@ export function SignupProfileStep(): JSX.Element {
                             <span>to resolve this.</span>
                         </>
                     )}
-                </div>
+                </AuthBanner>
             )}
             <Form
                 logic={signupLogic}

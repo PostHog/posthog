@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { AuthBanner } from 'scenes/authentication/shared/authScene/AuthBanner'
 import { AuthCardTitle } from 'scenes/authentication/shared/authScene/AuthCardTitle'
 import { AuthSceneCard } from 'scenes/authentication/shared/authScene/AuthScene'
 
@@ -26,10 +27,9 @@ export function PendingInviteStep(): JSX.Element {
                 className="mb-5"
             />
             {pendingInviteResent ? (
-                <div className="flex gap-2 items-start py-2.5 px-3 text-sm text-primary text-left bg-success-highlight border border-success rounded">
-                    <span className="font-bold text-success">✓</span>
-                    <span>Sent. Look for an email from {org}. The link inside takes you straight in.</span>
-                </div>
+                <AuthBanner variant="success">
+                    {`Sent. Look for an email from ${org}. The link inside takes you straight in.`}
+                </AuthBanner>
             ) : (
                 <div className="flex flex-col gap-2.5">
                     <LemonButton

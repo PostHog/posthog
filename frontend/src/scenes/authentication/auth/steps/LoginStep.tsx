@@ -7,16 +7,17 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { Link } from 'lib/lemon-ui/Link'
+import { AuthBanner } from 'scenes/authentication/shared/authScene/AuthBanner'
 import { AuthCardTitle } from 'scenes/authentication/shared/authScene/AuthCardTitle'
 import { AuthSceneCard } from 'scenes/authentication/shared/authScene/AuthScene'
 import { useLastLoginMethod } from 'scenes/authentication/shared/lastLoginMethod'
-import { OtherRegionHint } from 'scenes/authentication/shared/OtherRegionHint'
 import { pendingOAuthConnectionLogic } from 'scenes/authentication/shared/pendingOAuthConnectionLogic'
 import { urls } from 'scenes/urls'
 
 import { authLogic } from '../authLogic'
 import { ConnectTitle } from '../components/ConnectTitle'
 import { LoginErrorBanner } from '../components/LoginErrorBanner'
+import { OtherRegionNotice } from '../components/OtherRegionNotice'
 import { UseDifferentEmailLink } from '../components/UseDifferentEmailLink'
 import { loginLogic } from '../loginLogic'
 
@@ -77,9 +78,7 @@ export function LoginStep(): JSX.Element {
             <LoginStepTitle />
             <LoginErrorBanner />
             {generalError?.code === 'invalid_credentials' && (
-                <div className="mb-4">
-                    <OtherRegionHint />
-                </div>
+                <OtherRegionNotice email={login.email} reason="login_failed" />
             )}
             <Form logic={loginLogic} formKey="login" enableFormOnSubmit className="flex flex-col gap-4">
                 {/* Password managers pair the saved password with this username */}
@@ -119,7 +118,7 @@ export function LoginStep(): JSX.Element {
                     </LemonField>
                 )}
                 {hasNoConfiguredLoginMethod && (
-                    <div className="py-2.5 px-3 text-sm leading-normal text-primary text-left bg-warning-highlight border border-warning rounded">
+                    <AuthBanner variant="warning">
                         <span>No sign-in method is set up for this account. Use</span>{' '}
                         <Link
                             to={[urls.passwordReset(), { email: login.email }]}
@@ -131,7 +130,7 @@ export function LoginStep(): JSX.Element {
                             Forgot password?
                         </Link>{' '}
                         <span>to set a password by email.</span>
-                    </div>
+                    </AuthBanner>
                 )}
                 {autoRedirectingToProvider && (
                     <p className="text-sm text-secondary text-center mb-0">

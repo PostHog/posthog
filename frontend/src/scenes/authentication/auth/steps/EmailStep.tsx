@@ -8,6 +8,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { isWebKitBrowser } from 'lib/utils/dom'
 import { isEmail } from 'lib/utils/url'
+import { AuthBanner } from 'scenes/authentication/shared/authScene/AuthBanner'
 import { AuthCardTitle } from 'scenes/authentication/shared/authScene/AuthCardTitle'
 import { AuthSceneCard } from 'scenes/authentication/shared/authScene/AuthScene'
 import { RegionField } from 'scenes/authentication/shared/authScene/RegionField'
@@ -136,10 +137,10 @@ export function EmailStep(): JSX.Element {
                         Trying to join an existing organization?
                     </button>
                     {showJoinOrg && (
-                        <p className="AuthScene__note mt-3 py-3 px-3.5 text-xs leading-relaxed text-secondary text-left border border-dashed rounded">
+                        <AuthBanner variant="note" className="mt-3">
                             You'll need your invite link. When a teammate invites you, we email you a personal link.
                             Didn't get one? Check spam, or ask them to resend it from their members settings.
-                        </p>
+                        </AuthBanner>
                     )}
                 </div>
             )}

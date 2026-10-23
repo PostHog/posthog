@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { SSO_PROVIDER_NAMES } from 'lib/constants'
 import { Link } from 'lib/lemon-ui/Link'
+import { AuthBanner } from 'scenes/authentication/shared/authScene/AuthBanner'
 import { ERROR_MESSAGES } from 'scenes/authentication/shared/loginErrorMessages'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
@@ -79,7 +80,7 @@ export function LoginErrorBanner(): JSX.Element | null {
     }
 
     return (
-        <div className="mb-4 py-2.5 px-3 text-sm leading-normal text-primary text-left bg-danger-highlight border border-danger rounded">
+        <AuthBanner variant="danger" className="mb-4">
             <span>
                 {generalError.detail ||
                     ERROR_MESSAGES[generalError.code] ||
@@ -123,6 +124,6 @@ export function LoginErrorBanner(): JSX.Element | null {
                     </Link>
                 </>
             )}
-        </div>
+        </AuthBanner>
     )
 }
