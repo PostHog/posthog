@@ -27,6 +27,7 @@ from products.slack_app.backend.temporal.attachments import (
     SlackAttachmentBudget,
     attachment_display_name,
     build_slack_attachment_prompt_text,
+    can_read_slack_files,
     get_slack_bot_token,
     merge_prepared_attachments,
     prepare_slack_file_artifacts,
@@ -819,15 +820,22 @@ def create_posthog_code_task_for_repo_activity(
     task_run = created.latest_run
     if task_run:
         bot_token = get_slack_bot_token(slack, integration)
+        can_read_files = can_read_slack_files(integration)
         event_files = parse_slack_file_refs(event.get("files"))
         # The thread's own attachments matter as much as the tagging message's: the
         # screenshot under discussion is usually the one the thread opened with, and the
         # request several replies down says "look at this" about it.
         attachment_budget = SlackAttachmentBudget()
         prepared_attachments = merge_prepared_attachments(
-            prepare_slack_file_artifacts(event_files, bot_token, budget=attachment_budget),
+            prepare_slack_file_artifacts(
+                event_files, bot_token, can_read_files=can_read_files, budget=attachment_budget
+            ),
             prepare_slack_thread_file_artifacts(
-                thread_messages, bot_token, already_requested=event_files, budget=attachment_budget
+                thread_messages,
+                bot_token,
+                can_read_files=can_read_files,
+                already_requested=event_files,
+                budget=attachment_budget,
             ),
         )
         uploaded_attachments, attachment_skips = _upload_prepared_slack_attachments(
@@ -1090,11 +1098,14 @@ def forward_posthog_code_followup_activity(
     # Taken before the thread digest and the speaker prefix join it, so it holds only this person's words.
     person_message = labeled_mentions_to_display_names(user_text) or None
     bot_token = get_slack_bot_token(slack, integration)
+    can_read_files = can_read_slack_files(integration)
     event_files = parse_slack_file_refs(inputs.event.get("files"))
     # Shared with the thread fetch below, so the reply and the catch-up files draw on one
     # allowance instead of two.
     attachment_budget = SlackAttachmentBudget()
-    prepared_attachments = prepare_slack_file_artifacts(event_files, bot_token, budget=attachment_budget)
+    prepared_attachments = prepare_slack_file_artifacts(
+        event_files, bot_token, can_read_files=can_read_files, budget=attachment_budget
+    )
     if not user_text and not prepared_attachments.has_files:
         return True
     if not user_text and not prepared_attachments.artifacts:
@@ -1144,7 +1155,11 @@ def forward_posthog_code_followup_activity(
     prepared_attachments = merge_prepared_attachments(
         prepared_attachments,
         prepare_slack_thread_file_artifacts(
-            update.messages, bot_token, already_requested=event_files, budget=attachment_budget
+            update.messages,
+            bot_token,
+            can_read_files=can_read_files,
+            already_requested=event_files,
+            budget=attachment_budget,
         ),
     )
 
@@ -1470,7 +1485,9 @@ def _resume_task_with_new_run(
     user_text = decode_slack_event_text(slack, integration, event_text)
     person_message = labeled_mentions_to_display_names(user_text) or None
     prepared_attachments = prepare_slack_file_artifacts(
-        parse_slack_file_refs(inputs.event.get("files")), get_slack_bot_token(slack, integration)
+        parse_slack_file_refs(inputs.event.get("files")),
+        get_slack_bot_token(slack, integration),
+        can_read_files=can_read_slack_files(integration),
     )
     if not user_text and not prepared_attachments.has_files:
         return True
