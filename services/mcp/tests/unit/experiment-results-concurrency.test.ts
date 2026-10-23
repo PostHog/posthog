@@ -2,8 +2,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { ApiClient } from '@/api/client'
 
-// Every metric is one /query/ call against a per-organization concurrency limit shared with the
-// app, so a run with many metrics must not fire them all at once.
 describe('experiment-results-get metric query concurrency', () => {
     afterEach(() => {
         vi.unstubAllGlobals()
@@ -56,11 +54,11 @@ describe('experiment-results-get metric query concurrency', () => {
             return
         }
         expect(maxInFlight).toBe(4)
-        expect(result.data.primaryMetricsResults.map((r) => (r as { metric_uuid: string }).metric_uuid)).toEqual(
-            primaryUuids
-        )
-        expect(result.data.secondaryMetricsResults.map((r) => (r as { metric_uuid: string }).metric_uuid)).toEqual(
-            secondaryUuids
-        )
+        expect(
+            result.data.primaryMetricsResults.map((r: unknown) => (r as { metric_uuid: string }).metric_uuid)
+        ).toEqual(primaryUuids)
+        expect(
+            result.data.secondaryMetricsResults.map((r: unknown) => (r as { metric_uuid: string }).metric_uuid)
+        ).toEqual(secondaryUuids)
     })
 })
