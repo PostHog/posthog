@@ -2,7 +2,7 @@ import { offset } from '@floating-ui/react'
 import { BindLogic, useActions, useValues } from 'kea'
 import React, { ReactNode, useEffect, useRef, useState } from 'react'
 
-import { IconArrowRight, IconCheck, IconPencil, IconStopFilled, IconTrash, IconUpload, IconX } from '@posthog/icons'
+import { IconArrowRight, IconCheck, IconPencil, IconPlus, IconStopFilled, IconTrash, IconX } from '@posthog/icons'
 import { LemonTextArea } from '@posthog/lemon-ui'
 import { Button, Spinner, Switch, Text } from '@posthog/quill'
 
@@ -14,6 +14,13 @@ import { QuillComposerLayout } from 'products/posthog_ai/frontend/api/composer'
 import { ContextTags, ContextToolInfoTags, SandboxContextTags } from '../Context'
 import { maxThreadLogic } from '../maxThreadLogic'
 import { posthogAiContextLogic } from '../posthogAiContextLogic'
+import {
+    QUEUED_MESSAGES_HEADING,
+    RESEARCH_BETA_NOTICE,
+    SUPPORT_OVERRIDE_LABEL,
+    SUPPORT_SESSION_NOTICE,
+    composerPlaceholder,
+} from './composerCopy'
 import { FillInHint } from './FillInHint'
 import { QuillContextPicker } from './QuillContextPicker'
 import { QuillModeSelector } from './QuillModeSelector'
@@ -150,7 +157,6 @@ export const QuillQuestionInput = React.forwardRef<HTMLDivElement, QuillQuestion
     const {
         inputValue,
         handleQuestionChange,
-        hasQuestion,
         fillInHint,
         showFillInHint,
         promptLength,
@@ -191,14 +197,15 @@ export const QuillQuestionInput = React.forwardRef<HTMLDivElement, QuillQuestion
         setSupportOverrideEnabled,
     } = useQuestionInput({ textAreaRef: resolvedTextAreaRef, onSubmit })
 
+    const placeholderCopy = composerPlaceholder({
+        conversation,
+        isSharedThread,
+        threadLoading,
+        isThreadVisible,
+        placeholder,
+    })
     const placeholderText =
-        conversation && isSharedThread
-            ? `This thread was shared with you by ${conversation.user.first_name} ${conversation.user.last_name}`
-            : threadLoading
-              ? 'Thinking…'
-              : isThreadVisible
-                ? (placeholder ?? 'Ask follow-up, or / for commands')
-                : 'Ask a question, or / for commands'
+        placeholderCopy.kind === 'prompt' ? `${placeholderCopy.lead}, ${placeholderCopy.hint}` : placeholderCopy.text
 
     const sendLabel = showStopButton ? 'Stop' : isQueueingSubmission ? 'Queue message' : 'Send message'
     const sendButton = showStopButton ? (
@@ -216,9 +223,10 @@ export const QuillQuestionInput = React.forwardRef<HTMLDivElement, QuillQuestion
     ) : (
         <Button
             type="button"
-            variant={isThreadVisible && !hasQuestion ? 'outline' : 'primary'}
+            variant="primary"
             size="icon"
-            className="rounded-xs"
+            // Looks disabled like the sandbox send button, but stays clickable (see below).
+            className={cn('rounded-xs', disabledReason && 'opacity-50')}
             aria-label={sendLabel}
             tooltip={disabledReason ?? sendLabel}
             loading={threadLoading && !dataProcessingAccepted}
@@ -249,13 +257,13 @@ export const QuillQuestionInput = React.forwardRef<HTMLDivElement, QuillQuestion
                         size="xs"
                         className="m-0 rounded-lg bg-warning px-2 py-1.5 text-center text-warning-foreground"
                     >
-                        Research mode is a free beta feature with lower daily limits
+                        {RESEARCH_BETA_NOTICE}
                     </Text>
                 )}
                 {queueingEnabled && (queuedMessages.length > 0 || queueSubmitting) && (
                     <div className="flex flex-col gap-1 px-1">
                         <Text size="xs" variant="muted" className="m-0 flex items-center gap-1.5">
-                            Up next
+                            {QUEUED_MESSAGES_HEADING}
                             {queueSubmitting && <Spinner />}
                         </Text>
                         {displayQueuedMessages.map((message) => (
@@ -275,14 +283,8 @@ export const QuillQuestionInput = React.forwardRef<HTMLDivElement, QuillQuestion
                         <QuillComposerLayout
                             groupRef={groupRef}
                             textAreaRef={resolvedTextAreaRef}
-                            // The chips are lemon tags, as they are in the sandbox composer.
-                            chips={
-                                !isSharedThread && showContextUI ? (
-                                    <div data-not-quill className="flex flex-wrap items-center gap-1">
-                                        <QuillContextChips />
-                                    </div>
-                                ) : undefined
-                            }
+                            // No wrapper element, so the chip row stays empty and hides itself when there are no chips.
+                            chips={!isSharedThread && showContextUI ? <QuillContextChips /> : undefined}
                             field={
                                 <>
                                     {!inputValue && (
@@ -314,7 +316,7 @@ export const QuillQuestionInput = React.forwardRef<HTMLDivElement, QuillQuestion
                                         minRows={1}
                                         maxRows={10}
                                         className={cn(
-                                            '!border-none !bg-transparent resize-none',
+                                            '!border-none !bg-transparent py-2 pl-2 resize-none',
                                             // Hide the native caret so only the enlarged fill-in caret shows.
                                             showFillInHint && 'caret-transparent'
                                         )}
@@ -347,8 +349,6 @@ export const QuillQuestionInput = React.forwardRef<HTMLDivElement, QuillQuestion
                             controls={
                                 !isSharedThread && showContextUI ? (
                                     <>
-                                        <QuillModeSelector />
-                                        <QuillContextPicker />
                                         {showAttachButton && (
                                             <>
                                                 <input
@@ -360,17 +360,19 @@ export const QuillQuestionInput = React.forwardRef<HTMLDivElement, QuillQuestion
                                                     onChange={handleAttachmentChange}
                                                 />
                                                 <Button
-                                                    size="sm"
+                                                    size="icon-sm"
                                                     variant="default"
+                                                    aria-label="Attach files"
                                                     tooltip="Attach files in new PostHog AI. Your draft moves with you."
                                                     onClick={() => attachmentInputRef.current?.click()}
                                                     data-attr="max-new-chat-attach-file"
                                                 >
-                                                    <IconUpload />
-                                                    Attach
+                                                    <IconPlus />
                                                 </Button>
                                             </>
                                         )}
+                                        <QuillContextPicker />
+                                        <QuillModeSelector />
                                     </>
                                 ) : undefined
                             }
@@ -391,7 +393,7 @@ export const QuillQuestionInput = React.forwardRef<HTMLDivElement, QuillQuestion
                 {/* Info banner for conversations created during impersonation (marked as internal) */}
                 {isImpersonatedInternalConversation && (
                     <Text size="xs" variant="muted" className="m-0 px-2">
-                        Support agent session — this conversation won't be visible to the customer
+                        {SUPPORT_SESSION_NOTICE}
                     </Text>
                 )}
                 {/* Override switch - shown when impersonating and viewing an existing customer conversation (not internal) */}
@@ -400,10 +402,10 @@ export const QuillQuestionInput = React.forwardRef<HTMLDivElement, QuillQuestion
                         <Switch
                             checked={supportOverrideEnabled}
                             onCheckedChange={(checked: boolean) => setSupportOverrideEnabled(checked)}
-                            aria-label="I understand this will add to the customer's conversation"
+                            aria-label={SUPPORT_OVERRIDE_LABEL}
                         />
                         <Text size="xs" className="m-0">
-                            I understand this will add to the customer's conversation
+                            {SUPPORT_OVERRIDE_LABEL}
                         </Text>
                     </label>
                 )}

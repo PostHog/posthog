@@ -78,9 +78,10 @@ describe.each([
     it('offers file selection before the first message and preserves the current draft', async () => {
         // The flag outlives the previous skin's run of this test, so start from flags off.
         act(() => featureFlagLogic.actions.setFeatureFlags([], {}))
-        expect(screen.queryByText('Attach', { exact: true })).not.toBeInTheDocument()
+        const attachButton = (): Element | null => document.querySelector('[data-attr="max-new-chat-attach-file"]')
+        expect(attachButton()).not.toBeInTheDocument()
         act(() => featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: true }))
-        expect(screen.getByText('Attach', { exact: true })).toBeInTheDocument()
+        expect(attachButton()).toBeInTheDocument()
         const file = new File(['demo'], 'notes.txt', { type: 'text/plain' })
         fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Read these notes' } })
         const fileInput = document.querySelector('[data-attr="max-new-chat-attach-input"]') as HTMLInputElement

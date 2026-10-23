@@ -65,7 +65,7 @@ export function QuillActivity({
             </ThreadMarker>
             {/* Product widgets (charts, tables, diffs) keep PostHog's own colours inside the quill thread. */}
             {children && (
-                <div className="min-w-0 ps-5" data-not-quill>
+                <div className="my-2 min-w-0 ps-5" data-not-quill>
                     {children}
                 </div>
             )}

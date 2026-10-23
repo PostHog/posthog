@@ -25,7 +25,7 @@ function cellAlign(node: unknown): CellAlign | undefined {
 export const QUILL_MARKDOWN_COMPONENTS: LemonMarkdownComponents = {
     table: ({ node: _node, children }) => (
         // No header, so no header gap on top.
-        <Card size="sm" flush className={cn('my-2 pt-0', quillCardBorderClass())}>
+        <Card size="sm" flush className={cn('pt-0', quillCardBorderClass())}>
             <CardContent>
                 <Table size="sm">{children}</Table>
             </CardContent>

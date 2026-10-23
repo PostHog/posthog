@@ -1,3 +1,5 @@
+import './quillProse.scss'
+
 import { memo, type ReactNode, useContext, useEffect, useRef, useState } from 'react'
 
 import { IconChevronDown } from '@posthog/icons'
@@ -30,7 +32,7 @@ const ASSISTANT_TASK_LIST_CLASS = cn(
 )
 
 /** The prose rules every assistant markdown block in the quill thread shares. */
-export const QUILL_ASSISTANT_PROSE_CLASS = ASSISTANT_TASK_LIST_CLASS
+export const QUILL_ASSISTANT_PROSE_CLASS = cn('QuillProse', ASSISTANT_TASK_LIST_CLASS)
 
 /**
  * Clamps a user bubble to five lines with a Show more toggle. Overflow depends on wrapping width, so it
@@ -111,7 +113,7 @@ export function QuillHumanBubble({
                     </ChatBubbleContent>
                 </ChatBubble>
                 {(startedAt !== undefined || copyText) && (
-                    <ChatMessageFooter {...footerRevealProps(revealed, 'items-center gap-1')}>
+                    <ChatMessageFooter {...footerRevealProps(revealed, 'items-center gap-1', { reserveSpace: true })}>
                         {startedAt !== undefined && <QuillFooterTimestamp time={startedAt} />}
                         {copyText && (
                             <QuillCopyButton

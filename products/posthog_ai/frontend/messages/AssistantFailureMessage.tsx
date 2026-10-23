@@ -3,6 +3,7 @@ import React from 'react'
 import { IconWarning } from '@posthog/icons'
 import { ChatBubble, ChatBubbleContent, ChatMessage, ChatMessageContent } from '@posthog/quill-primitives'
 
+import { QuillAssistantMarkdown } from '../components/quill/QuillMessages'
 import { useQuillThread } from '../components/quill/quillThreadContext'
 import { MarkdownMessage } from './MarkdownMessage'
 import { MessageTemplate } from './MessageTemplate'
@@ -25,7 +26,7 @@ export const AssistantFailureMessage = React.forwardRef<HTMLDivElement, Assistan
                         <ChatBubble variant="destructive">
                             <ChatBubbleContent className="flex items-start gap-2">
                                 <IconWarning className="mt-1 size-4 shrink-0" />
-                                <MarkdownMessage content={content || DEFAULT_FAILURE_MESSAGE} id={id} />
+                                <QuillAssistantMarkdown content={content || DEFAULT_FAILURE_MESSAGE} id={id} />
                             </ChatBubbleContent>
                         </ChatBubble>
                         {action}

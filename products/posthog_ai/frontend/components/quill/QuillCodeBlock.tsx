@@ -7,7 +7,7 @@ import { QuillCopyButton } from './QuillFooterButton'
 
 export function QuillCodeBlock({ code, language }: { code: string; language: Language }): JSX.Element {
     return (
-        <Card flush className={cn('my-2 py-0', quillCardBorderClass())}>
+        <Card flush className={cn('py-0', quillCardBorderClass())}>
             {/* The scroll runs to the card edges and shadows the cut side; the padding scrolls with the code. */}
             <ScrollArea viewportClassName="py-2.5 pe-10 ps-3" data-not-quill>
                 <div className="w-max font-mono text-xs">

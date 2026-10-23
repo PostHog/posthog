@@ -13,6 +13,13 @@ import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentP
 
 import { ContextDisplay } from '../Context'
 import { maxThreadLogic } from '../maxThreadLogic'
+import {
+    QUEUED_MESSAGES_HEADING,
+    RESEARCH_BETA_NOTICE,
+    SUPPORT_OVERRIDE_LABEL,
+    SUPPORT_SESSION_NOTICE,
+    composerPlaceholder,
+} from './composerCopy'
 import { FillInHint } from './FillInHint'
 import { SlashCommandAutocomplete } from './SlashCommandAutocomplete'
 import { type QueuedMessageEditProps, useQuestionInput } from './useQuestionInput'
@@ -165,6 +172,13 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
         supportOverrideEnabled,
         setSupportOverrideEnabled,
     } = useQuestionInput({ textAreaRef, onSubmit })
+    const placeholderCopy = composerPlaceholder({
+        conversation,
+        isSharedThread,
+        threadLoading,
+        isThreadVisible,
+        placeholder,
+    })
 
     return (
         <div
@@ -187,13 +201,13 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                     {children}
                     {showResearchBanner && (
                         <div className="flex justify-center items-center gap-1 w-full px-2 py-1.5 mb-2 bg-warning/10 text-primary text-xs rounded-lg border-primary">
-                            Research mode is a free beta feature with lower daily limits
+                            {RESEARCH_BETA_NOTICE}
                         </div>
                     )}
                     {queueingEnabled && (queuedMessages.length > 0 || queueSubmitting) && (
                         <div className="px-3 py-2">
                             <div className="text-xs text-muted mb-1.5 flex items-center gap-1.5">
-                                Up next
+                                {QUEUED_MESSAGES_HEADING}
                                 {queueSubmitting && <Spinner size="small" />}
                             </div>
                             <div className="space-y-1.5">
@@ -232,26 +246,15 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                         id="textarea-hint"
                                         className="text-secondary absolute top-4 left-4 text-sm pointer-events-none"
                                     >
-                                        {conversation && isSharedThread ? (
-                                            `This thread was shared with you by ${conversation.user.first_name} ${conversation.user.last_name}`
-                                        ) : threadLoading ? (
-                                            'Thinking…'
-                                        ) : isThreadVisible ? (
-                                            placeholder || (
-                                                <>
-                                                    Ask follow-up{' '}
-                                                    <span className="text-tertiary opacity-80 contrast-more:opacity-100">
-                                                        or / for commands
-                                                    </span>
-                                                </>
-                                            )
-                                        ) : (
+                                        {placeholderCopy.kind === 'prompt' ? (
                                             <>
-                                                Ask a question{' '}
+                                                {placeholderCopy.lead}{' '}
                                                 <span className="text-tertiary opacity-80 contrast-more:opacity-100">
-                                                    or / for commands
+                                                    {placeholderCopy.hint}
                                                 </span>
                                             </>
+                                        ) : (
+                                            placeholderCopy.text
                                         )}
                                     </div>
                                 )}
@@ -389,7 +392,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                 {/* Info banner for conversations created during impersonation (marked as internal) */}
                 {isImpersonatedInternalConversation && (
                     <div className="flex justify-start items-center gap-1 w-full px-2 py-1 bg-bg-light text-muted text-xs rounded-b-lg">
-                        Support agent session — this conversation won't be visible to the customer
+                        {SUPPORT_SESSION_NOTICE}
                     </div>
                 )}
                 {/* Override checkbox - shown when impersonating and viewing existing customer conversation (not internal) */}
@@ -397,7 +400,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                     <div className="flex justify-start gap-1 w-full p-1 bg-warning-highlight rounded-b-lg">
                         <LemonSwitch
                             checked={supportOverrideEnabled}
-                            label="I understand this will add to the customer's conversation"
+                            label={SUPPORT_OVERRIDE_LABEL}
                             onChange={(checked: boolean) => setSupportOverrideEnabled(checked)}
                             size="xxsmall"
                             tooltip="Support agents should create new conversations instead of using existing ones. Check this to override."
