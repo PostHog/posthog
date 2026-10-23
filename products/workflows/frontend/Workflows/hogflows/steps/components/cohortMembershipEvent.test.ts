@@ -36,6 +36,48 @@ describe('cohortMembershipEvent', () => {
                 },
             },
         ],
+        [
+            'a negated cohort filter',
+            {
+                filters: {
+                    events: [
+                        {
+                            ...cohortEvent,
+                            properties: [
+                                { ...cohortEvent.properties[0], operator: 'is_not' },
+                                cohortEvent.properties[1],
+                            ],
+                        },
+                    ],
+                },
+            },
+        ],
+        [
+            'a person-scoped status filter',
+            {
+                filters: {
+                    events: [
+                        {
+                            ...cohortEvent,
+                            properties: [cohortEvent.properties[0], { ...cohortEvent.properties[1], type: 'person' }],
+                        },
+                    ],
+                },
+            },
+        ],
+        [
+            'a list of cohort ids',
+            {
+                filters: {
+                    events: [
+                        {
+                            ...cohortEvent,
+                            properties: [{ ...cohortEvent.properties[0], value: [42, 43] }, cohortEvent.properties[1]],
+                        },
+                    ],
+                },
+            },
+        ],
     ])('leaves an API-written cohort entry with %s among the event entries', (_name, entry) => {
         expect(splitCohortMembershipEntry([entry])).toEqual({ eventEntries: [entry], cohort: null })
     })

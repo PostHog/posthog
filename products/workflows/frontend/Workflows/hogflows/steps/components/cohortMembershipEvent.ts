@@ -45,11 +45,16 @@ export function readCohortMembershipEventEntry(entry: EventEntry | undefined): C
         return null
     }
     const [event] = events
-    const properties: { key?: string; value?: unknown }[] = event?.properties ?? []
+    const properties: { key?: string; value?: unknown; operator?: string; type?: string }[] = event?.properties ?? []
     if (event?.id !== COHORT_MEMBERSHIP_CHANGED_EVENT || properties.length !== 2) {
         return null
     }
-    const cohortId = Number(properties.find((property) => property.key === 'cohort_id')?.value)
+    // Rewriting a negated or person-scoped filter as an exact event match would change what the goal matches.
+    if (properties.some((property) => property.operator !== 'exact' || property.type !== 'event')) {
+        return null
+    }
+    const cohortValue = properties.find((property) => property.key === 'cohort_id')?.value
+    const cohortId = typeof cohortValue === 'number' || typeof cohortValue === 'string' ? Number(cohortValue) : NaN
     const status = properties.find((property) => property.key === 'status')?.value
     if (!Number.isInteger(cohortId) || (status !== 'entered' && status !== 'left')) {
         return null
