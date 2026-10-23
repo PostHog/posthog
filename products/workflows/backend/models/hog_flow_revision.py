@@ -8,7 +8,9 @@ from posthog.models.utils import UUIDTModel
 
 class HogFlowRevision(TeamScopedRootMixin, UUIDTModel):
     """Append-only snapshot of a workflow's live content, written whenever the live config
-    changes. Rollback copies a snapshot back into the draft; workers never read this table."""
+    changes. Rollback copies a snapshot back into the draft. The hogflow worker reads
+    `content.actions`, `content.edges` and `content.trigger` to send a queued transactional
+    email as it was accepted, so a change to the snapshot shape must keep those readable."""
 
     class Meta:
         constraints = [
