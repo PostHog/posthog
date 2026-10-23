@@ -43,6 +43,25 @@ MANAGED_WAREHOUSE_PORTS_BY_SOURCE_TYPE: dict[str, frozenset[int]] = {
 MANAGED_WAREHOUSE_SOURCE_TYPES = frozenset(MANAGED_WAREHOUSE_PORTS_BY_SOURCE_TYPE)
 
 
+# The DNS zone each deployment serves managed warehouses under. It lives here rather than in
+# `presentation.views` because the warehouse-source host guard reads it, and importing a DRF
+# module from a Temporal worker's connect path is how a presentation dependency ends up in a
+# background process.
+_MANAGED_WAREHOUSE_DOMAINS = {
+    "US": "us.postwh.com",
+    "EU": "eu.postwh.com",
+    "DEV": "dev.postwh.com",
+}
+
+
+def managed_warehouse_domain() -> str:
+    """The zone managed warehouse hostnames are served under in this deployment."""
+    from django.conf import settings  # noqa: PLC0415
+
+    deployment = (getattr(settings, "CLOUD_DEPLOYMENT", None) or "").upper()
+    return _MANAGED_WAREHOUSE_DOMAINS.get(deployment, "test.local")
+
+
 def _ingress_ips() -> tuple[str, ...]:
     """The configured ingress address set, read per call so a settings override takes effect."""
     from django.conf import settings  # noqa: PLC0415
@@ -79,7 +98,7 @@ class ManagedWarehouseTarget:
         because an empty set is a failed lookup, not an approved destination, and it must be a
         subset of the configured ingress addresses so a record that points elsewhere is refused.
         """
-        if host != self.host:
+        if _normalize_host(host) != _normalize_host(self.host):
             return False
         if port is None or port not in self.ports:
             return False
@@ -88,6 +107,11 @@ class ManagedWarehouseTarget:
             return False
         allowed = {_canonical_ip(ip) for ip in ingress_ips}
         return all(_canonical_ip(address) in allowed for address in addresses)
+
+
+def _normalize_host(host: str) -> str:
+    """Lowercase a hostname and drop one root-zone trailing dot, as the guard does."""
+    return host.lower().strip().rstrip(".")
 
 
 def _canonical_ip(value: str) -> str:
@@ -119,10 +143,10 @@ def get_managed_warehouse_target(organization_id: str | UUID, *, source_type: st
 
     org_id = str(organization_id)
     key = _cache_key(org_id, source_type)
-    cached = cache.get(key)
+    cached = _cache_get(key)
     if isinstance(cached, ManagedWarehouseTarget):
         return cached
-    if cached is _NO_TARGET:
+    if cached == _NO_TARGET:
         return None
 
     host = _read_ready_host(org_id)
@@ -131,13 +155,29 @@ def get_managed_warehouse_target(organization_id: str | UUID, *, source_type: st
         return None
 
     target = ManagedWarehouseTarget(host=host, ports=ports)
-    cache.set(key, target, _TARGET_CACHE_TTL_SECONDS)
+    _cache_target(key, target)
     return target
 
 
 # A sentinel is cached rather than None: Django's cache stores None as a miss, so a denial would
-# otherwise be re-read from the control plane on every dial.
-_NO_TARGET = object()
+# otherwise be re-read from the control plane on every dial. It is a string, not `object()`,
+# because the cache pickles its values and an unpickled sentinel is a new object. A denial
+# compared by identity would therefore never hit, and every denied dial during an outage would
+# pay the full control-plane timeout.
+_NO_TARGET = "no-managed-warehouse-target"
+
+
+def _cache_get(key: str) -> object:
+    """The cached answer for `key`, or None when absent.
+
+    A cache fault denies rather than raising: the guard runs inside a connect, and an exception
+    here would replace a clear refusal with an opaque connection error.
+    """
+    try:
+        return cache.get(key)
+    except Exception:
+        logger.exception("managed_warehouse_target_cache_read_failed")
+        return None
 
 
 def _cache_denial(key: str) -> None:
@@ -145,6 +185,14 @@ def _cache_denial(key: str) -> None:
         cache.set(key, _NO_TARGET, _DENIAL_CACHE_TTL_SECONDS)
     except Exception:
         logger.exception("managed_warehouse_target_denial_cache_failed")
+
+
+def _cache_target(key: str, target: ManagedWarehouseTarget) -> None:
+    try:
+        cache.set(key, target, _TARGET_CACHE_TTL_SECONDS)
+    except Exception:
+        # A positive answer that cannot be cached still answers this dial.
+        logger.exception("managed_warehouse_target_cache_write_failed")
 
 
 def _read_ready_host(organization_id: str) -> str | None:
@@ -163,6 +211,11 @@ def _read_ready_host(organization_id: str) -> str | None:
         return None
     except http_requests.RequestException:
         logger.warning("managed_warehouse_target_unreachable", organization_id=organization_id)
+        return None
+    except Exception:
+        # A control-plane response the adapter cannot translate is not a verdict on the
+        # organization. Deny, and keep the failure out of the caller's connect.
+        logger.exception("managed_warehouse_target_control_plane_error", organization_id=organization_id)
         return None
 
     if response.status_code != 200 or not isinstance(response.body, dict):

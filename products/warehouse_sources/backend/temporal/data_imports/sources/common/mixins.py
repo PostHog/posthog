@@ -523,10 +523,9 @@ def _is_managed_warehouse_host(host: str) -> bool:
 
 def _managed_warehouse_host_suffixes() -> tuple[str, ...]:
     """The `dw` zones this deployment serves managed warehouses under."""
-    from products.managed_warehouse.backend.presentation.views import managed_warehouse_domain  # noqa: PLC0415
+    from products.managed_warehouse.backend.managed_ingress import managed_warehouse_domain  # noqa: PLC0415
 
-    domain = managed_warehouse_domain()
-    return (f".dw.{domain}",)
+    return (f".dw.{managed_warehouse_domain()}",)
 
 
 def _managed_warehouse_organization_id(team_id: int | None) -> str | None:

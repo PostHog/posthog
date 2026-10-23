@@ -60,10 +60,10 @@ class TestManagedWarehouseAccepts(SimpleTestCase):
         assert _target().accepts("zzq7x9neg.dw.us.postwh.com", 5432, [_NLB_A]) is False
 
     @override_settings(MANAGED_WAREHOUSE_INGRESS_IPS=f"{_NLB_A},{_NLB_B}")
-    def test_a_host_that_differs_only_in_case_is_refused(self) -> None:
-        # The control-plane host is compared as stored. Accepting a case variant would mean the
-        # comparison and the dial could disagree about normalization.
-        assert _target().accepts("ACME.dw.us.postwh.com", 5432, [_NLB_A]) is False
+    def test_a_different_tenant_at_the_same_address_is_refused(self) -> None:
+        # Both tenant names answer with the same ingress address, so the address check alone
+        # cannot separate them. The host comparison is what stops one tenant reaching another.
+        assert _target().accepts("globex.dw.us.postwh.com", 5432, [_NLB_A]) is False
 
     @override_settings(MANAGED_WAREHOUSE_INGRESS_IPS=f"{_NLB_A},{_NLB_B}")
     def test_a_port_the_source_type_is_not_served_on_is_refused(self) -> None:
@@ -506,3 +506,194 @@ class TestPinnedHostKwargsForAManagedWarehouse(SimpleTestCase):
         ):
             with pytest.raises(HostNotAllowedError):
                 pinned_host_kwargs(_TENANT_HOST, port=5432, connect_timeout=5, team_id=999, source_type="postgres")
+
+
+class TestDenialCacheSurvivesSerialization(SimpleTestCase):
+    """A denial must be recognised after a round trip through the cache backend.
+
+    The cache pickles its values, so an `object()` sentinel comes back as a different object and
+    an identity comparison never matches. A denial that never hits is worse than no cache: every
+    denied dial, and every dial during a control-plane outage, pays the full control-plane
+    timeout against an already-sick service.
+    """
+
+    def test_a_denial_is_recognised_after_a_pickle_round_trip(self) -> None:
+        import pickle
+
+        from products.managed_warehouse.backend.managed_ingress import _NO_TARGET
+
+        restored = pickle.loads(pickle.dumps(_NO_TARGET))
+        assert restored == _NO_TARGET
+
+    def test_a_cached_denial_is_returned_without_a_control_plane_call(self) -> None:
+        from products.managed_warehouse.backend.managed_ingress import _NO_TARGET
+
+        with (
+            patch(f"{_INGRESS_MODULE}.hogtower") as hogtower,
+            patch(f"{_INGRESS_MODULE}.cache") as cache,
+        ):
+            cache.get.return_value = _NO_TARGET
+            assert get_managed_warehouse_target("org-1", source_type="postgres") is None
+            hogtower.request.assert_not_called()
+
+    def test_a_cache_read_fault_denies_instead_of_raising(self) -> None:
+        # The guard runs inside a connect. An exception from the cache would replace a clear
+        # refusal with an opaque connection error.
+        with (
+            patch(f"{_INGRESS_MODULE}.cache") as cache,
+            patch(f"{_INGRESS_MODULE}.hogtower") as hogtower,
+            patch(f"{_INGRESS_MODULE}.logger"),
+        ):
+            cache.get.side_effect = RuntimeError("redis down")
+            hogtower.is_configured.return_value = False
+            assert get_managed_warehouse_target("org-1", source_type="postgres") is None
+
+    def test_a_cache_write_fault_still_answers_the_dial(self) -> None:
+        with (
+            patch(f"{_INGRESS_MODULE}.cache") as cache,
+            patch(f"{_INGRESS_MODULE}.hogtower") as hogtower,
+            patch(f"{_INGRESS_MODULE}.logger"),
+        ):
+            cache.get.return_value = None
+            cache.set.side_effect = RuntimeError("redis down")
+            hogtower.is_configured.return_value = True
+            hogtower.request.return_value = _response(
+                {"org_id": "org-1", "state": "ready", "connection": {"host": _TENANT_HOST}}
+            )
+            target = get_managed_warehouse_target("org-1", source_type="postgres")
+
+        assert target is not None
+        assert target.host == _TENANT_HOST
+
+    def test_a_control_plane_error_the_adapter_cannot_translate_denies(self) -> None:
+        with (
+            patch(f"{_INGRESS_MODULE}.cache"),
+            patch(f"{_INGRESS_MODULE}.hogtower") as hogtower,
+            patch(f"{_INGRESS_MODULE}.logger"),
+        ):
+            hogtower.is_configured.return_value = True
+            hogtower.request.side_effect = KeyError("unmapped route")
+            assert get_managed_warehouse_target("org-1", source_type="postgres") is None
+
+
+class TestHostComparisonIsNormalized(SimpleTestCase):
+    """A control-plane host with a capital or a trailing dot must still match.
+
+    The guard refuses any host that is not already normalized, so it compares the normalized
+    name. Comparing against the control plane's string as stored would refuse that host for as
+    long as the control plane kept answering with it.
+    """
+
+    @parameterized.expand(
+        [
+            ("uppercase", "ACME.DW.US.POSTWH.COM"),
+            ("trailing_dot", "acme.dw.us.postwh.com."),
+            ("mixed", "Acme.Dw.Us.Postwh.Com."),
+        ]
+    )
+    @override_settings(MANAGED_WAREHOUSE_INGRESS_IPS=_NLB_A)
+    def test_a_differently_cased_or_dotted_control_plane_host_still_matches(self, _name: str, stored: str) -> None:
+        target = ManagedWarehouseTarget(host=stored, ports=frozenset({5432}))
+        assert target.accepts(_TENANT_HOST, 5432, [_NLB_A]) is True
+
+    @override_settings(MANAGED_WAREHOUSE_INGRESS_IPS=_NLB_A)
+    def test_a_genuinely_different_host_is_still_refused(self) -> None:
+        # Normalization must not become a fuzzy match.
+        target = ManagedWarehouseTarget(host="globex.dw.us.postwh.com", ports=frozenset({5432}))
+        assert target.accepts(_TENANT_HOST, 5432, [_NLB_A]) is False
+
+
+class TestTrinoConnectPathAgreesWithValidation(SimpleTestCase):
+    """A managed Trino source must not validate and then refuse every sync.
+
+    The taken branch checked the host without a port or source type, so the exemption was
+    unavailable on the connect path even when validation had just approved it.
+    """
+
+    @override_settings(CLOUD_DEPLOYMENT="US", MANAGED_WAREHOUSE_INGRESS_IPS=_NLB_A)
+    def test_the_trino_connect_passes_port_and_source_type(self) -> None:
+        from products.warehouse_sources.backend.temporal.data_imports.sources.trino.trino import TrinoImplementation
+
+        config = _stub_trino_config(port=443)
+        with patch.object(TrinoImplementation, "is_database_host_valid", return_value=(True, None)) as check:
+            with patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.trino.trino.connect_trino",
+                side_effect=_no_connection,
+            ):
+                try:
+                    with TrinoImplementation().connect(config, team_id=999):
+                        pass
+                except _Stop:
+                    pass
+
+        check.assert_called_once()
+        kwargs = check.call_args.kwargs
+        assert kwargs.get("port") == 443
+        assert kwargs.get("source_type") == "trino"
+
+
+class _Stop(Exception):
+    pass
+
+
+def _no_connection(*args, **kwargs):
+    raise _Stop()
+
+
+def _stub_trino_config(port: int):
+    from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.trino import (
+        TrinoAuthTypeConfig,
+        TrinoSourceConfig,
+    )
+
+    return TrinoSourceConfig(
+        host=_TENANT_HOST,
+        port=port,
+        catalog="ducklake",
+        auth_type=TrinoAuthTypeConfig(user="root", selection="password", password="secret"),
+        schema="main",
+        use_ssl=True,
+        verify_ssl=True,
+    )
+
+
+class TestTheRealDependenciesResolve(SimpleTestCase):
+    """The guard's imports must resolve without a patch, on the real module path.
+
+    Every other test in this file patches `_managed_warehouse_organization_id`, so a wrong
+    import path inside it would pass them all and then raise an `ImportError` at the call site in
+    production. These tests call the real functions.
+    """
+
+    def test_the_organization_lookup_resolves(self) -> None:
+        from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
+            _managed_warehouse_organization_id,
+        )
+
+        # A nonexistent team must deny, not raise. The point is that the import resolves.
+        assert _managed_warehouse_organization_id(2**31 - 1) is None
+
+    def test_a_missing_team_denies(self) -> None:
+        from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
+            _managed_warehouse_organization_id,
+        )
+
+        with patch(f"{_MIXINS_MODULE}.logger"):
+            assert _managed_warehouse_organization_id(None) is None
+
+    def test_the_domain_helper_resolves_without_the_presentation_layer(self) -> None:
+        # The guard reads the zone from a dependency-free module, so a Temporal worker does not
+        # import the DRF views module to learn a DNS suffix.
+        from products.managed_warehouse.backend.managed_ingress import managed_warehouse_domain
+
+        with override_settings(CLOUD_DEPLOYMENT="US"):
+            assert managed_warehouse_domain() == "us.postwh.com"
+        with override_settings(CLOUD_DEPLOYMENT="EU"):
+            assert managed_warehouse_domain() == "eu.postwh.com"
+
+    def test_the_views_helper_agrees_with_the_dependency_free_one(self) -> None:
+        from products.managed_warehouse.backend.managed_ingress import managed_warehouse_domain as dependency_free
+        from products.managed_warehouse.backend.presentation.views import managed_warehouse_domain
+
+        with override_settings(CLOUD_DEPLOYMENT="US"):
+            assert managed_warehouse_domain() == dependency_free() == "us.postwh.com"
