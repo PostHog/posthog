@@ -8980,7 +8980,9 @@ class TestExperimentExcludedVariants(_HoistFlagConfigClientMixin, APILicensedTes
 
 
 class TestRunningTimeTargetEndpoint(APILicensedTest):
-    def _experiment(self, running_time_calculation: dict[str, Any], *, with_result: bool = True) -> Experiment:
+    def _experiment(
+        self, running_time_calculation: dict[str, Any], *, with_result: bool = True, stats_config: dict | None = None
+    ) -> Experiment:
         flag = FeatureFlag.objects.create(
             team=self.team,
             key="revenue-flag",
@@ -9010,6 +9012,7 @@ class TestRunningTimeTargetEndpoint(APILicensedTest):
                 }
             ],
             running_time_calculation=running_time_calculation,
+            stats_config=stats_config or {},
         )
         if with_result:
             spread = {"number_of_samples": 1000, "sum": 1000, "sum_squares": 26000}
@@ -9041,6 +9044,14 @@ class TestRunningTimeTargetEndpoint(APILicensedTest):
                 30,
                 5000,
             ),
+            (
+                "manual_mode_keeps_the_saved_effect",
+                {"exposure_estimate_config": {"conversionRateInputType": "manual"}, "recommended_sample_size": 5000},
+                True,
+                "?minimum_detectable_effect=60",
+                30,
+                5000,
+            ),
         ]
     )
     def test_returns_the_target_the_header_compares(
@@ -9060,6 +9071,22 @@ class TestRunningTimeTargetEndpoint(APILicensedTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         self.assertEqual(response.json(), {"minimum_detectable_effect": effect, "recommended_sample_size": sample_size})
+
+    @parameterized.expand(
+        [
+            ("bayesian_99_percent", {"method": "bayesian", "bayesian": {"ci_level": 0.99}}, 20688),
+            ("frequentist_90_percent", {"method": "frequentist", "frequentist": {"alpha": 0.1}}, 10952),
+        ]
+    )
+    def test_sizes_at_the_experiments_confidence_level(
+        self, _name: str, stats_config: dict[str, Any], sample_size: int
+    ) -> None:
+        experiment = self._experiment({}, stats_config=stats_config)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment.id}/running_time_target/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual(response.json()["recommended_sample_size"], sample_size)
 
     def test_rejects_an_effect_of_zero(self) -> None:
         experiment = self._experiment({})
@@ -9146,7 +9173,7 @@ class TestCalculateRunningTimeEndpoint(APILicensedTest):
         body = response.json()
         self.assertAlmostEqual(body["baseline_value"], 10, places=4)
         self.assertAlmostEqual(body["variance"], 32, places=1)
-        self.assertEqual(body["recommended_sample_size"], 1024)
+        self.assertEqual(body["recommended_sample_size"], 1025)
 
     def test_funnel_from_step_counts(self):
         response = self._calculate(

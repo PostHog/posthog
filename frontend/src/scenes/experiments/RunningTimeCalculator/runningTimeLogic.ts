@@ -287,6 +287,10 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
                     if (typeof experimentId !== 'number') {
                         return null
                     }
+                    // In the modal each edit of the effect asks again, so wait for the typing to stop.
+                    if (values.isRunningTimeConfigModalOpen) {
+                        await breakpoint(300)
+                    }
                     const result = await experimentsRunningTimeTargetRetrieve(
                         String(values.currentProjectId),
                         experimentId,

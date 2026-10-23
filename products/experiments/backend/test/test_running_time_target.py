@@ -4,7 +4,8 @@ from parameterized import parameterized
 
 from posthog.schema import ExperimentFunnelMetric, ExperimentMeanMetric, ExperimentQueryResponse, ExperimentRatioMetric
 
-from products.experiments.backend.running_time_target import AnalyzedMetric, size_target
+from products.experiments.backend.metric_resolution import ExperimentMetric
+from products.experiments.backend.running_time_target import size_target
 from products.feature_flags.backend.facade.edits import FlagVariant
 
 REVENUE = ExperimentMeanMetric.model_validate(
@@ -57,6 +58,13 @@ class TestSizeTarget:
     @parameterized.expand(
         [
             ("observed_variance", REVENUE, _response(("test", SPREAD)), _split(*EVEN), 8898),
+            (
+                "variant_with_a_wider_spread",
+                REVENUE,
+                _response(("test", {**SPREAD, "sum_squares": 51000})),
+                _split(*EVEN),
+                13347,
+            ),
             ("uneven_split", REVENUE, _response(("test", SPREAD)), _split(("control", 80), ("test", 20)), 13903),
             (
                 "smallest_of_three_variants_with_the_control_listed_second",
@@ -118,14 +126,14 @@ class TestSizeTarget:
                     },
                 ),
                 _split(("control", 80), ("test", 20)),
-                10505,
+                8640,
             ),
             (
                 "funnel_conversion_rate",
                 CHECKOUT,
                 _response(("test", CONVERSIONS), control=CONVERSIONS),
                 _split(*EVEN),
-                3201,
+                3200,
             ),
             (
                 "ratio_delta_method",
@@ -146,7 +154,7 @@ class TestSizeTarget:
     def test_sizes_each_comparison_with_the_control(
         self,
         _name: str,
-        metric: AnalyzedMetric,
+        metric: ExperimentMetric,
         response: ExperimentQueryResponse,
         split: tuple[FlagVariant, ...],
         expected: int | None,
@@ -177,4 +185,17 @@ class TestSizeTarget:
                 metric=metric, response=_response(("test", SPREAD)), split=_split(*EVEN), minimum_detectable_effect=30
             )
             == 8898
+        )
+
+    @parameterized.expand([("90_percent", 0.9, 7009), ("95_percent", 0.95, 8898), ("99_percent", 0.99, 13240)])
+    def test_sizes_at_the_analysis_confidence_level(self, _name: str, confidence_level: float, expected: int) -> None:
+        assert (
+            size_target(
+                metric=REVENUE,
+                response=_response(("test", SPREAD)),
+                split=_split(*EVEN),
+                minimum_detectable_effect=30,
+                confidence_level=confidence_level,
+            )
+            == expected
         )

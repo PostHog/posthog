@@ -25,6 +25,7 @@ from products.experiments.backend.health.skips import (
 )
 from products.experiments.backend.logic.result_stats import MetricResultStats, VariantStats
 from products.experiments.backend.running_time_calculator import calculate_detectable_effect
+from products.experiments.backend.running_time_target import RunningTimeTarget
 
 # pinned: sent as `finding_variant` on the health finding events.
 BELOW_DETECTABLE_EFFECT = "below_detectable_effect"
@@ -72,7 +73,7 @@ def early_significance(ctx: HealthContext) -> CheckOutcome:
         return None
     below_detectable = [
         comparison
-        for comparison in _significant_comparisons(result, control_rate)
+        for comparison in _significant_comparisons(result, control_rate, metric.target)
         if abs(comparison.observed) < comparison.detectable
     ]
     if not below_detectable:
@@ -110,13 +111,24 @@ def early_significance(ctx: HealthContext) -> CheckOutcome:
     )
 
 
-def _significant_comparisons(result: MetricResultStats, control_rate: float) -> list[_Comparison]:
+def _significant_comparisons(
+    result: MetricResultStats, control_rate: float, target: RunningTimeTarget
+) -> list[_Comparison]:
     comparisons: list[_Comparison] = []
     for variant in result.variants:
         if variant.significant is not True or variant.interval is None:
             continue
+        # The variances and the level that the running time target uses, so CUPED applies here too. Without the
+        # variances, p(1-p) of the control.
+        variance = target.variances.get(variant.key)
         detectable = calculate_detectable_effect(
-            "funnel", control_rate, result.baseline.number_of_samples, variant.number_of_samples
+            "funnel",
+            control_rate,
+            result.baseline.number_of_samples,
+            variant.number_of_samples,
+            variance=variance.control if variance else None,
+            variant_variance=variance.variant if variance else None,
+            confidence_level=target.confidence_level,
         )
         if detectable is not None:
             # The difference the results page shows, from the analysis itself, so CUPED and the Bayesian model apply.

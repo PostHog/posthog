@@ -70,7 +70,7 @@ class TestCalculateVarianceFromStats:
         )
         variance = calculate_variance_from_stats(10, "ratio", baseline)
         assert variance is not None
-        assert math.isclose(variance, 32, rel_tol=1e-6)
+        assert math.isclose(variance, 32 * 10000 / 9999, rel_tol=1e-6)
 
     def test_ratio_zero_covariance(self):
         baseline = BaselineStats(
@@ -83,7 +83,7 @@ class TestCalculateVarianceFromStats:
         )
         variance = calculate_variance_from_stats(0.5, "ratio", baseline)
         assert variance is not None
-        assert math.isclose(variance, 0.0625, rel_tol=1e-6)
+        assert math.isclose(variance, 0.0625 * 1000 / 999, rel_tol=1e-6)
 
     def test_ratio_high_positive_covariance_reduces_variance(self):
         baseline = BaselineStats(
@@ -109,7 +109,7 @@ class TestCalculateVarianceFromStats:
         )
         variance = calculate_variance_from_stats(0.7, "retention", baseline)
         assert variance is not None
-        assert math.isclose(variance, 0.21, rel_tol=1e-6)
+        assert math.isclose(variance, 0.21 * 10000 / 9999, rel_tol=1e-6)
 
     @parameterized.expand(
         [
@@ -148,10 +148,9 @@ class TestCalculateVarianceFromStats:
         baseline = BaselineStats(number_of_samples=0, sum=100, denominator_sum=1000)
         assert calculate_variance_from_stats(10, "ratio", baseline) is None
 
-    def test_handles_missing_optional_fields(self):
+    def test_returns_none_without_the_denominators_spread(self):
         baseline = BaselineStats(number_of_samples=1000, sum=5000, sum_squares=30000, denominator_sum=10000)
-        variance = calculate_variance_from_stats(0.5, "ratio", baseline)
-        assert variance is not None
+        assert calculate_variance_from_stats(0.5, "ratio", baseline) is None
 
 
 class TestCalculateSampleSize:

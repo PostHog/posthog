@@ -31,7 +31,7 @@ from products.experiments.backend.models.experiment import (
     ExperimentToSavedMetric,
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
-from products.experiments.backend.running_time_target import RunningTimeTarget
+from products.experiments.backend.running_time_target import ComparisonVariance, RunningTimeTarget
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 Status = ExperimentHealthCheckStatus
@@ -46,6 +46,7 @@ def _context(
     *,
     baseline: tuple[int, int] = (1000, 100),
     planned_samples: int | None = 3201,
+    variances: dict[str, ComparisonVariance] | None = None,
     **changes: Any,
 ) -> HealthContext:
     control_samples, control_conversions = baseline
@@ -70,7 +71,9 @@ def _context(
     metric = PrimaryMetric(
         name="Checkout",
         is_funnel=True,
-        target=RunningTimeTarget(minimum_detectable_effect=30, recommended_sample_size=planned_samples),
+        target=RunningTimeTarget(
+            minimum_detectable_effect=30, recommended_sample_size=planned_samples, variances=variances or {}
+        ),
         result=result,
     )
     return replace(RUNNING_CONTEXT, primary_metric=metric, **changes)
@@ -89,6 +92,13 @@ class TestEarlySignificance(TestCase):
             ("analysis_stopped", _context([("test", 1000, 0.2, None)]), None),
             ("sample_reached_the_plan", _context([("test", 1000, 0.2, True)], planned_samples=2000), None),
             ("no_planned_sample", _context([("test", 1000, 0.2, True)], planned_samples=None), None),
+            (
+                "detectable_with_the_targets_variances",
+                _context(
+                    [("test", 1000, 0.2, True)], variances={"test": ComparisonVariance(control=0.02, variant=0.02)}
+                ),
+                None,
+            ),
             (
                 "names_the_variant_below_detectable",
                 _context([("large", 1000, 0.5, True), ("small", 1000, 0.2, True)]),
@@ -170,11 +180,11 @@ class TestEarlySignificanceFromStoredResults(BaseTest):
                 {"minimum_detectable_effect": 20},
                 15,
                 Status.FINDING,
-                (20, 7200),
+                (20, 7824),
             ),
-            ("inline_metric_and_the_teams_default_effect", False, True, {}, 15, Status.FINDING, (15, 12801)),
-            ("inline_metric_and_the_product_default_effect", False, True, {}, None, Status.FINDING, (30, 3201)),
-            ("shared_metric", True, True, {}, None, Status.FINDING, (30, 3201)),
+            ("inline_metric_and_the_teams_default_effect", False, True, {}, 15, Status.FINDING, (15, 13910)),
+            ("inline_metric_and_the_product_default_effect", False, True, {}, None, Status.FINDING, (30, 3478)),
+            ("shared_metric", True, True, {}, None, Status.FINDING, (30, 3478)),
             ("result_of_an_earlier_configuration", False, False, {}, None, Status.NOT_APPLICABLE, None),
             (
                 "manual_running_time_reads_the_saved_target",

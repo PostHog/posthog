@@ -17,10 +17,12 @@ StatsMethod = Literal["bayesian", "frequentist"]
 
 _INTERVAL_KEYS = ("credible_interval", "confidence_interval")
 
-_BASELINE_FIELDS = frozenset(ExperimentStatsBaseValidated.model_fields)
+# A funnel's stored stats carry sample sessions per step, which can be large, and no reader of a stored row needs them.
+_UNREAD_FIELDS = frozenset({"step_sessions"})
+_BASELINE_FIELDS = frozenset(ExperimentStatsBaseValidated.model_fields) - _UNREAD_FIELDS
 _VARIANT_FIELDS_BY_METHOD = {
-    "bayesian": frozenset(ExperimentVariantResultBayesian.model_fields),
-    "frequentist": frozenset(ExperimentVariantResultFrequentist.model_fields),
+    "bayesian": frozenset(ExperimentVariantResultBayesian.model_fields) - _UNREAD_FIELDS,
+    "frequentist": frozenset(ExperimentVariantResultFrequentist.model_fields) - _UNREAD_FIELDS,
 }
 
 
