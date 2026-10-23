@@ -17,7 +17,7 @@ import {
 import { LemonMenuItem, Spinner, lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { isAccessDeniedError } from 'lib/api-error'
+import { isAccessDeniedError, readableErrorMessage } from 'lib/api-error'
 import { TreeItem } from 'lib/components/DatabaseTableTree/DatabaseTableTree'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTreeRef, TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
@@ -2657,9 +2657,12 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
             }
             if (
                 name !== view.originalName &&
-                values.dataWarehouseSavedQueries.some((savedView) => savedView.name === name)
+                (values.dataWarehouseSavedQueries.some((savedView) => savedView.name === name) ||
+                    values.dataWarehouseTables.some((table) => table.name === name))
             ) {
-                actions.setRenameViewNameError('A view with this name already exists')
+                actions.setRenameViewNameError(
+                    'A table or view with this name already exists. Choose a different name.'
+                )
                 return
             }
             if (name === view.originalName) {
@@ -2677,9 +2680,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 lemonToast.success('View renamed')
                 actions.closeRenameView()
             } catch (error) {
-                actions.setRenameViewSubmitError(
-                    error instanceof Error ? error.message : 'Could not rename the view. Try again.'
-                )
+                actions.setRenameViewSubmitError(readableErrorMessage(error) ?? 'Could not rename the view. Try again.')
             } finally {
                 actions.setRenameViewSaving(false)
             }

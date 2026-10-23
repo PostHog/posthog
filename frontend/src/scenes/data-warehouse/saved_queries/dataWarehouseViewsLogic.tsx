@@ -6,6 +6,7 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api, { ApiConfig } from 'lib/api'
+import { isUnavailableEndpointError } from 'lib/api-error'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { urls } from 'scenes/urls'
@@ -138,10 +139,10 @@ export interface dataWarehouseViewsLogicValues {
     dataWarehouseSavedQueriesFailed: boolean
     dataWarehouseSavedQueriesLoaded: boolean
     dataWarehouseSavedQueriesLoading: boolean
+    dataWarehouseSavedQueryDownstreamReferences: Record<string, DataWarehouseSavedQueryDownstreamReferenceState>
     dataWarehouseSavedQueryFolders: DataWarehouseSavedQueryFolder[]
     dataWarehouseSavedQueryFoldersById: Record<string, DataWarehouseSavedQueryFolder>
     dataWarehouseSavedQueryFoldersLoading: boolean
-    dataWarehouseSavedQueryDownstreamReferences: Record<string, DataWarehouseSavedQueryDownstreamReferenceState>
     dataWarehouseSavedQueryMap: Record<string, DataWarehouseSavedQuerySummary>
     dataWarehouseSavedQueryMapById: Record<string, DataWarehouseSavedQuerySummary>
     dataWarehouseSavedQueryMapByIdStringMap: Record<string, DataWarehouseSavedQuerySummary>
@@ -279,6 +280,19 @@ export interface dataWarehouseViewsLogicActions {
         dataWarehouseSavedQueries: DataWarehouseSavedQuerySummary[]
         payload?: any
     }
+    loadDataWarehouseSavedQueryDownstreamReferences: (viewId: string) => {
+        viewId: string
+    }
+    loadDataWarehouseSavedQueryDownstreamReferencesFailure: (viewId: string) => {
+        viewId: string
+    }
+    loadDataWarehouseSavedQueryDownstreamReferencesSuccess: (
+        viewId: string,
+        references: DataWarehouseSavedQueryDownstreamReference[]
+    ) => {
+        references: DataWarehouseSavedQueryDownstreamReference[]
+        viewId: string
+    }
     loadDataWarehouseSavedQueryFolders: () => any
     loadDataWarehouseSavedQueryFoldersFailure: (
         error: string,
@@ -294,12 +308,6 @@ export interface dataWarehouseViewsLogicActions {
         dataWarehouseSavedQueryFolders: DataWarehouseSavedQueryFolder[]
         payload?: any
     }
-    loadDataWarehouseSavedQueryDownstreamReferences: (viewId: string) => { viewId: string }
-    loadDataWarehouseSavedQueryDownstreamReferencesFailure: (viewId: string) => { viewId: string }
-    loadDataWarehouseSavedQueryDownstreamReferencesSuccess: (
-        viewId: string,
-        references: DataWarehouseSavedQueryDownstreamReference[]
-    ) => { viewId: string; references: DataWarehouseSavedQueryDownstreamReference[] }
     materializationChanged: (viewId: string) => {
         viewId: string
     }
@@ -714,8 +722,12 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                     viewId,
                     getDataWarehouseSavedQueryDownstreamReferences(lineage, viewId)
                 )
-            } catch {
-                actions.loadDataWarehouseSavedQueryDownstreamReferencesFailure(viewId)
+            } catch (error) {
+                if (isUnavailableEndpointError(error)) {
+                    actions.loadDataWarehouseSavedQueryDownstreamReferencesSuccess(viewId, [])
+                } else {
+                    actions.loadDataWarehouseSavedQueryDownstreamReferencesFailure(viewId)
+                }
             }
         },
         loadDataWarehouseSavedQueriesSuccess: ({ dataWarehouseSavedQueries }) => {

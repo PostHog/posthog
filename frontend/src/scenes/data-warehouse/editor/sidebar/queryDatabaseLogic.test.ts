@@ -133,6 +133,35 @@ describe('queryDatabaseLogic', () => {
         logic.unmount()
     })
 
+    it('rejects a rename that matches a warehouse table', () => {
+        initKeaTests()
+        const logic = queryDatabaseLogic()
+        logic.mount()
+        databaseTableListLogic.findMounted()?.actions.loadDatabaseSuccess({
+            tables: {
+                orders: {
+                    id: 'table-1',
+                    name: 'orders',
+                    type: 'data_warehouse',
+                    fields: {},
+                },
+            },
+            joins: [],
+        } as any)
+
+        logic.actions.openRenameView({ id: 'view-1', name: 'orders_by_day' })
+        dataWarehouseViewsLogic
+            .findMounted()
+            ?.actions.loadDataWarehouseSavedQueryDownstreamReferencesSuccess('view-1', [])
+        logic.actions.setRenameViewName('orders')
+        logic.actions.submitRenameView()
+
+        expect(logic.values.renameView?.nameError).toBe(
+            'A table or view with this name already exists. Choose a different name.'
+        )
+        logic.unmount()
+    })
+
     it('loads pre-expanded properties, paginates, and filters them', async () => {
         initKeaTests()
         mockPropertyDefinitionsList

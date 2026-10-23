@@ -5,6 +5,13 @@ import { RenameViewModal } from './RenameViewModal'
 const meta: Meta<typeof RenameViewModal> = {
     title: 'Scenes-App/Data Warehouse/Rename view modal',
     component: RenameViewModal,
+    decorators: [
+        (Story) => (
+            <div className="min-h-1 min-w-1">
+                <Story />
+            </div>
+        ),
+    ],
 }
 export default meta
 
