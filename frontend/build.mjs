@@ -131,7 +131,7 @@ await buildInParallel(
                     console.error('Could not get entrypoint for bundle "PostHog App."')
                     throw new Error('Could not get entrypoint for bundle "PostHog App."')
                 }
-                // Heavy esbuild work: run it under the heavy-build lock so it cannot overlap the Exporter build.
+                // onBuildComplete runs outside the heavy-build lock, and this work runs esbuild over every chunk.
                 const stable = isDev ? null : await runExclusiveHeavy(() => finishAppBuild(buildResponse))
                 writeIndexHtml(chunks, entrypoints, stable)
             }
@@ -161,10 +161,6 @@ await buildInParallel(
     }
 )
 
-/**
- * Production-only post-build work for the app: minifies each chunk, writes the preload manifest,
- * the CSS groups and the stable chunk copies. Returns the stable chunk result for index.html.
- */
 async function finishAppBuild(buildResponse) {
     const { chunks, entrypoints } = buildResponse
     const unminifiedDir = await minifyAppChunks(buildResponse)
