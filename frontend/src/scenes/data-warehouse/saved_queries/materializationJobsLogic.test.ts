@@ -171,7 +171,7 @@ describe('materializationJobsLogic', () => {
 
         expect(screen.getByText('Last run')).toBeTruthy()
         expect(screen.getAllByText('Failed').length).toBeGreaterThan(0)
-        expect(screen.getByRole('heading', { name: 'Materialization' }).parentElement?.children).toHaveLength(1)
+        expect(screen.getByText('Materialization').parentElement?.children).toHaveLength(1)
     })
 
     it('pages through older runs without changing the latest run or growing polling requests', async () => {
