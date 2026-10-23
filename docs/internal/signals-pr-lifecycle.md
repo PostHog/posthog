@@ -175,7 +175,12 @@ The same access rule applies when a reviewer is added later.
 If no suggested reviewer has access, the ready report still goes to the configured team channel without reviewer mentions.
 The notification activity retries transient ClickHouse reads before it claims the report for delivery.
 
-When an implementation pull request reaches the report, the worker requests a review from the highest-ranked available suggested reviewer with a connected GitHub account. It skips the pull request author, existing assignees, and the DRI it assigns. A pre-existing user or team review request is treated as a deliberate choice and left alone, so the worker adds nothing. People who already submitted a review are skipped. Under the DRI rule, one assignee remains responsible for the pull request.
+When an implementation pull request reaches the report, the worker requests a review from the highest-ranked available suggested reviewer with a connected GitHub account.
+It requests at most one person per attempt and preserves the report order.
+Existing assignees and a newly assigned DRI remain eligible when they are suggested reviewers; assignment does not add candidates or change their rank.
+The worker skips the pull request author and people who already submitted a review.
+A pre-existing user or team review request prevents automatic additions.
+Under the DRI rule, one assignee remains responsible for the pull request.
 
 ## Assignment decisions
 

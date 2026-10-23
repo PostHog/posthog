@@ -339,7 +339,7 @@ def _request_reviews(
     if pr.get("requested_reviewers") or pr.get("requested_teams"):
         return []
 
-    existing = {str(login).lower() for login in [pr.get("author"), *(pr.get("assignees") or [])] if login}
+    existing = {str(login).lower() for login in [pr.get("author")] if login}
     wanted = [login for login in reviewers if login.lower() not in existing]
     if not wanted:
         return []
