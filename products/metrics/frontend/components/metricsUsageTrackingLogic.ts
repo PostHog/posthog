@@ -358,7 +358,7 @@ export const metricsUsageTrackingLogic = kea<metricsUsageTrackingLogicType>([
                 // The range and the clause shape let this event compare with `query completed` for MetricsQuery.
                 date_from: values.dateFrom,
                 // From the request body, which leaves out a series row with no metric.
-                clause_count: values.queryPayload?.clauses.length ?? 0,
+                clause_count: values.queryPayload?.clauses?.length ?? 0,
                 has_formula: !!values.queryPayload?.formula,
             })
             // Once per mount, not per query — live refresh re-runs the query every 15s,
