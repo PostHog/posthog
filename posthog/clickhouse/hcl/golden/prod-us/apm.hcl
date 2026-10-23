@@ -555,29 +555,6 @@ database "posthog" {
     }
   }
 
-  table "writable_metrics4_service_freshness" {
-    column "team_id" {
-      type = "Int32"
-    }
-    column "time_bucket" {
-      type = "DateTime64(0)"
-    }
-    column "service_name" {
-      type = "LowCardinality(String)"
-    }
-    column "original_expiry_time_bucket" {
-      type = "DateTime64(0)"
-    }
-    column "max_timestamp" {
-      type = "SimpleAggregateFunction(max, DateTime64(6))"
-    }
-    engine "distributed" {
-      cluster_name    = "logs"
-      remote_database = "posthog"
-      remote_table    = "metrics4_service_freshness"
-    }
-  }
-
   table "writable_query_log_archive_v3" {
     column "initial_query_start_time" {
       type = "DateTime64(6, 'UTC')"
@@ -1512,37 +1489,6 @@ SQL
     }
     column "original_expiry_timestamp" {
       type = "DateTime64(6)"
-    }
-  }
-
-  materialized_view "metrics4_input_to_metrics4_service_freshness" {
-    to_table = "posthog.writable_metrics4_service_freshness"
-    query    = <<SQL
-SELECT
-  team_id,
-  toStartOfHour(timestamp) AS time_bucket,
-  service_name,
-  toStartOfHour(original_expiry_timestamp) AS original_expiry_time_bucket,
-  maxSimpleState(timestamp) AS max_timestamp
-FROM posthog.metrics4_input
-GROUP BY
-  team_id, time_bucket, service_name, original_expiry_time_bucket
-SQL
-
-    column "team_id" {
-      type = "Int32"
-    }
-    column "time_bucket" {
-      type = "DateTime64(0)"
-    }
-    column "service_name" {
-      type = "LowCardinality(String)"
-    }
-    column "original_expiry_time_bucket" {
-      type = "DateTime64(0)"
-    }
-    column "max_timestamp" {
-      type = "SimpleAggregateFunction(max, DateTime64(6))"
     }
   }
 

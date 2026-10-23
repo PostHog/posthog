@@ -168,19 +168,6 @@ database "posthog" {
     }
   }
 
-  table "writable_metrics4_service_freshness" {
-    column "team_id" { type = "Int32" }
-    column "time_bucket" { type = "DateTime64(0)" }
-    column "service_name" { type = "LowCardinality(String)" }
-    column "original_expiry_time_bucket" { type = "DateTime64(0)" }
-    column "max_timestamp" { type = "SimpleAggregateFunction(max, DateTime64(6))" }
-    engine "distributed" {
-      cluster_name    = "logs"
-      remote_database = "posthog"
-      remote_table    = "metrics4_service_freshness"
-    }
-  }
-
   materialized_view "kafka_metrics_avro4_mv" {
     to_table = "posthog.metrics4_input"
     query    = file("sql/kafka_metrics_avro4_mv.sql")
@@ -283,16 +270,6 @@ database "posthog" {
     column "attribute_value" { type = "String" }
     column "attribute_type" { type = "LowCardinality(String)" }
     column "attribute_count" { type = "SimpleAggregateFunction(sum, UInt64)" }
-  }
-
-  materialized_view "metrics4_input_to_metrics4_service_freshness" {
-    to_table = "posthog.writable_metrics4_service_freshness"
-    query    = file("sql/metrics4_input_to_metrics4_service_freshness.sql")
-    column "team_id" { type = "Int32" }
-    column "time_bucket" { type = "DateTime64(0)" }
-    column "service_name" { type = "LowCardinality(String)" }
-    column "original_expiry_time_bucket" { type = "DateTime64(0)" }
-    column "max_timestamp" { type = "SimpleAggregateFunction(max, DateTime64(6))" }
   }
 
   materialized_view "metrics4_input_to_metrics4_resource_attributes" {

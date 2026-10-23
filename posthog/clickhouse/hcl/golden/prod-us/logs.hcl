@@ -2000,8 +2000,9 @@ SQL
     partition_by = "original_expiry_date"
     ttl          = "original_expiry_date"
     settings = {
-      index_granularity   = "128"
-      ttl_only_drop_parts = "1"
+      deduplicate_merge_projection_mode = "rebuild"
+      index_granularity                 = "128"
+      ttl_only_drop_parts               = "1"
     }
     column "team_id" {
       type = "Int32"
@@ -2110,6 +2111,14 @@ SQL
       expr        = "timestamp_max"
       type        = "minmax"
       granularity = 1
+    }
+    projection "service_freshness_by_hour" {
+      query = <<SQL
+SELECT team_id, time_bucket, service_name, max(arrayMax(timestamp_arr))
+GROUP BY
+  team_id, time_bucket, service_name
+SQL
+
     }
     engine "replicated_aggregating_merge_tree" {
       zoo_path     = "/clickhouse/tables/noshard/posthog.metrics4_samples"
@@ -2223,35 +2232,6 @@ SQL
       zoo_path       = "/clickhouse/tables/noshard/posthog.metrics4_series"
       replica_name   = "{replica}-{shard}"
       version_column = "timestamp"
-    }
-  }
-
-  table "metrics4_service_freshness" {
-    order_by     = ["team_id", "time_bucket", "service_name", "original_expiry_time_bucket"]
-    partition_by = "toDate(original_expiry_time_bucket)"
-    ttl          = "original_expiry_time_bucket"
-    settings = {
-      index_granularity   = "8192"
-      ttl_only_drop_parts = "1"
-    }
-    column "team_id" {
-      type = "Int32"
-    }
-    column "time_bucket" {
-      type = "DateTime64(0)"
-    }
-    column "service_name" {
-      type = "LowCardinality(String)"
-    }
-    column "original_expiry_time_bucket" {
-      type = "DateTime64(0)"
-    }
-    column "max_timestamp" {
-      type = "SimpleAggregateFunction(max, DateTime64(6))"
-    }
-    engine "replicated_aggregating_merge_tree" {
-      zoo_path     = "/clickhouse/tables/noshard/posthog.metrics4_service_freshness"
-      replica_name = "{replica}-{shard}"
     }
   }
 
