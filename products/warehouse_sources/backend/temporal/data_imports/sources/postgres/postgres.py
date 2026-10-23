@@ -938,6 +938,11 @@ def _is_options_startup_param_unsupported(error: BaseException) -> bool:
 # reach a PostgreSQL server speaking the SSL protocol — a wrong port, an HTTP/proxy/edge endpoint,
 # or a TCP proxy fronting a paused/deleted database. Don't mislabel it "SSL not supported": let the
 # raw message reach `get_non_retryable_errors` for an accurate, non-retryable diagnosis.
+# The source type the managed-warehouse host exemption is keyed on. Kept next to the one
+# connect this module opens so a managed warehouse host is treated the same at connect time
+# as it is at validation time.
+_HOST_CHECK_SOURCE_TYPE = "postgres"
+
 _INVALID_SSL_NEGOTIATION_RESPONSE_SUBSTRING = "received invalid response to ssl negotiation"
 
 
@@ -959,6 +964,7 @@ def _open_connection(*, team_id: int | None = None, **connect_kwargs: Any) -> ps
             port=connect_kwargs.get("port", 5432),
             connect_timeout=connect_kwargs.get("connect_timeout", 15),
             team_id=team_id,
+            source_type=_HOST_CHECK_SOURCE_TYPE,
         )
     )
     try:
