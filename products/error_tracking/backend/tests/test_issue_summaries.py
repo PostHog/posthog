@@ -316,6 +316,9 @@ class TestIssueSummaryGeneration(BaseTest):
         assert result.summary is not None
         assert self.llm_calls == (2 if expected == IssueSummaryOutcome.GENERATED else 1)
         assert result.summary.input_hash == (new_hash if expected == IssueSummaryOutcome.GENERATED else "hash-1")
+        shown = summaries_facade.get_issue_summary(self.team.id, self.issue.id)
+        assert shown is not None
+        assert (shown.generated_at, shown.checked_at) == (result.summary.generated_at, result.summary.checked_at)
 
     def test_merge_keeps_target_summary_and_deletes_source_summary(self) -> None:
         source = ErrorTrackingIssue.objects.create(team=self.team, name="TypeError")

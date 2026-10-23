@@ -25,6 +25,7 @@ def _to_summary(summary: ErrorTrackingIssueSummary) -> contracts.ErrorTrackingIs
         else None,
         model=summary.model,
         generated_at=summary.generated_at,
+        checked_at=summary.checked_at,
     )
 
 
