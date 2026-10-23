@@ -227,7 +227,7 @@ describe('watchFeedLogic', () => {
             200,
             { results: [item('o2', 'embedding_pick'), item('o3', 'recent')], has_more: true, as_of: 'T0' },
         ])
-        await expectLogic(logic, () => logic.actions.loadMoreFeed())
+        await expectLogic(logic, () => logic.actions.loadMoreFeed({}))
             .toDispatchActions(['loadMoreFeedSuccess'])
             .toFinishAllListeners()
 
@@ -239,7 +239,7 @@ describe('watchFeedLogic', () => {
 
         // The deduplicated o2 still counts toward the offset, and an empty page ends paging instead of repeating.
         feedSpy.mockImplementation(() => [200, { results: [], has_more: true, as_of: 'T0' }])
-        await expectLogic(logic, () => logic.actions.loadMoreFeed())
+        await expectLogic(logic, () => logic.actions.loadMoreFeed({}))
             .toDispatchActions(['loadMoreFeedSuccess'])
             .toFinishAllListeners()
 
@@ -264,7 +264,7 @@ describe('watchFeedLogic', () => {
                   })
                 : [200, { results: [item('o2', 'recent')], has_more: true, as_of: 'T1' }]
         )
-        logic.actions.loadMoreFeed()
+        logic.actions.loadMoreFeed({})
         // Waiting for every listener would wait on the held page too, so wait for the new load alone.
         await expectLogic(logic, () => logic.actions.setScannerTypeFilter('monitor')).toDispatchActions([
             'loadFeedSuccess',
@@ -295,8 +295,8 @@ describe('watchFeedLogic', () => {
                     )
                 })
         )
-        logic.actions.loadMoreFeed()
-        logic.actions.loadMoreFeed()
+        logic.actions.loadMoreFeed({})
+        logic.actions.loadMoreFeed({})
         await expectLogic(logic).toMatchValues({ feedItemsLoading: true })
         await waitFor(() => expect(pending).toHaveLength(2))
         // The newer request lands first, then the older one would append the same page again.

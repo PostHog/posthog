@@ -113,7 +113,7 @@ export interface watchFeedLogicActions {
             value: true
         }
     }
-    loadMoreFeed: () => any
+    loadMoreFeed: (_: any) => any
     loadMoreFeedFailure: (
         error: string,
         errorObject?: any

@@ -53,7 +53,7 @@ function FeedEnd({ itemCount }: { itemCount: number }): JSX.Element | null {
 
     useEffect(() => {
         if (inView && feedHasMore && !feedItemsLoading && !feedMoreFailed) {
-            loadMoreFeed()
+            loadMoreFeed({})
         }
     }, [inView, feedHasMore, feedItemsLoading, feedMoreFailed, loadMoreFeed])
 
@@ -61,7 +61,7 @@ function FeedEnd({ itemCount }: { itemCount: number }): JSX.Element | null {
         return (
             <div className="flex items-center gap-2 text-sm text-secondary border rounded p-4">
                 <span>Couldn't load more sessions.</span>
-                <LemonButton size="small" type="secondary" onClick={() => loadMoreFeed()}>
+                <LemonButton size="small" type="secondary" onClick={() => loadMoreFeed({})}>
                     Try again
                 </LemonButton>
             </div>
