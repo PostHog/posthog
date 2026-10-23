@@ -5125,7 +5125,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 )
             const sortedTilesToRefresh = staleTiles.filter((tile) => !collapsedTileIds.has(tile.id))
             const widgetTileIds = values.widgetTiles.map((tile) => tile.id)
-            const previouslyWaiting = values.waitingTileRefresh?.tileIds.filter((id) => collapsedTileIds.has(id)) ?? []
+            const openWidgetTileIds = widgetTileIds.filter((id) => !collapsedTileIds.has(id))
+            const loadedHere = new Set([...sortedTilesToRefresh.map((tile) => tile.id), ...openWidgetTileIds])
+            const groupedTileIds = new Set(values.tiles.filter((tile) => tile.group_key).map((tile) => tile.id))
+            // This refresh aborts a running group load, so a tile it does not load itself must keep waiting.
+            const previouslyWaiting =
+                values.waitingTileRefresh?.tileIds.filter((id) => groupedTileIds.has(id) && !loadedHere.has(id)) ?? []
             actions.setWaitingTileRefresh({
                 tileIds: [
                     ...new Set([
@@ -5160,10 +5165,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 )
 
                 await breakpoint()
+            }
 
-                actions.abortAnyRunningQuery()
-                cache.abortController = new AbortController()
+            // Also with no visible insight to load, so a group load with older settings ends as aborted.
+            actions.abortAnyRunningQuery()
+            cache.abortController = new AbortController()
 
+            if (sortedTilesToRefresh.length > 0) {
                 // Cache values used during and after the long-running fetch, since the logic
                 // may be unmounted by the time the awaits complete (kea's no-arg breakpoint()
                 // only cancels on newer invocations, not on unmount).
@@ -5280,9 +5288,25 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 actions.forceRefreshIfStale()
             }
 
-            const openWidgetTileIds = widgetTileIds.filter((id) => !collapsedTileIds.has(id))
             if (openWidgetTileIds.length > 0) {
                 actions.refreshDashboardWidgets({ tileIds: openWidgetTileIds, forceRefresh: !!forceRefresh })
+            }
+
+            const openGroupsWaiting = (): Set<string> =>
+                new Set(
+                    values.tiles
+                        .filter(
+                            (tile) =>
+                                tile.group_key &&
+                                !values.collapsedTileIds.has(tile.id) &&
+                                values.waitingTileRefresh?.tileIds.includes(tile.id)
+                        )
+                        .map((tile) => tile.group_key as string)
+                )
+            if (openGroupsWaiting().size > 0) {
+                // The aborted group load clears its queued status a few microtasks later, and that status blocks a reload.
+                await breakpoint(0)
+                openGroupsWaiting().forEach((groupKey) => actions.refreshTileGroup(groupKey))
             }
         },
         toggleTileGroup: ({ groupKey }) => {
