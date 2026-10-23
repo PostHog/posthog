@@ -6,7 +6,11 @@ import pytest
 
 from posthog.caching.insight_result import InsightResult
 
-from products.subscriptions.backend.temporal.insight_snapshot import _has_comparison_enabled, _serialize_insight_result
+from products.subscriptions.backend.temporal.insight_snapshot import (
+    _extract_interval,
+    _has_comparison_enabled,
+    _serialize_insight_result,
+)
 
 
 def _build_insight_result(**overrides) -> InsightResult:
@@ -50,6 +54,20 @@ def _build_insight_result(**overrides) -> InsightResult:
 )
 def test_has_comparison_enabled(query_json, expected):
     assert _has_comparison_enabled(query_json) is expected
+
+
+@pytest.mark.parametrize(
+    "query_json,expected",
+    [
+        (None, None),
+        ({"source": {"kind": "TrendsQuery", "interval": "hour"}}, "hour"),
+        ({"kind": "TrendsQuery", "interval": "day"}, "day"),
+        ({"source": {"kind": "FunnelsQuery"}}, None),
+        ({"source": {"kind": "TrendsQuery", "interval": 5}}, None),
+    ],
+)
+def test_extract_interval(query_json, expected):
+    assert _extract_interval(query_json) == expected
 
 
 def test_serialize_insight_result_non_finite_floats_become_null():

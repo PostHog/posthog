@@ -179,6 +179,19 @@ def _has_comparison_enabled(query_json: Any) -> bool:
     return bool(isinstance(compare_filter, dict) and compare_filter.get("compare"))
 
 
+def _extract_interval(query_json: Any) -> str | None:
+    """The bucket size of a time-series insight (e.g. "hour", "day"), so the AI summary
+    knows what one data point covers. Returns None for query kinds without an interval.
+    """
+    if not isinstance(query_json, dict):
+        return None
+    source = query_json.get("source", query_json)
+    if not isinstance(source, dict):
+        return None
+    interval = source.get("interval")
+    return interval if isinstance(interval, str) and interval else None
+
+
 def _execute_and_serialize_insight_query(
     *,
     insight: Insight,
@@ -269,10 +282,12 @@ def build_insight_delivery_snapshot(
         }
         base["comparison_enabled"] = False
         base["value_format"] = None
+        base["interval"] = None
         return base
 
     base["comparison_enabled"] = _has_comparison_enabled(query_json)
     base["value_format"] = _extract_value_format(query_json)
+    base["interval"] = _extract_interval(query_json)
     base.update(
         _execute_and_serialize_insight_query(
             insight=insight,

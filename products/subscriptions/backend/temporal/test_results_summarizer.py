@@ -24,7 +24,7 @@ class TestBuildResultsSummaryEmpty:
                 {"label": "Pageviews", "data": [100, 120, 110, 130, 150]},
                 {"label": "Signups", "data": [10, 12, 8, 15, 20]},
             ],
-            ["Pageviews", "latest=150", "avg=", "trend=up", "Signups", "latest=20"],
+            ["Pageviews", "last point=150", "avg=", "trend=up", "Signups", "last point=20"],
         ),
         (
             "trends_with_count_only",
@@ -90,7 +90,7 @@ class TestBuildResultsSummaryEmpty:
             "lifecycle_uses_trends",
             "LifecycleQuery",
             [{"label": "New", "data": [10, 20, 30]}],
-            ["New", "latest=30", "trend=up"],
+            ["New", "last point=30", "trend=up"],
         ),
         (
             "unknown_query_uses_generic",
@@ -162,7 +162,7 @@ class TestBuildResultsSummaryEmpty:
             ],
             [
                 "detached_elements (boxplot)",
-                "median latest=200",
+                "median last point=200 (may be incomplete)",
                 "overall min=10",
                 "overall max=2,900",
                 "median trend=up",
@@ -190,15 +190,15 @@ class TestBuildResultsSummaryValueFormat:
     @pytest.mark.parametrize(
         "value_format,data,expected_fragments",
         [
-            ({"format": "duration"}, [360000], ["latest=4d 4h"]),
-            ({"format": "duration_ms"}, [360000000], ["latest=4d 4h"]),
-            ({"format": "duration_ns"}, [500000], ["latest=500µs"]),
-            ({"format": "duration_ns"}, [1500000000], ["latest=1.5s"]),
-            ({"format": "duration_ns"}, [360000000000000], ["latest=4d 4h"]),
-            ({"format": "percentage"}, [37], ["latest=37%"]),
-            ({"format": "percentage_scaled"}, [0.37], ["latest=37%"]),
-            ({"prefix": "$"}, [1200], ["latest=$1,200"]),
-            ({"format": "numeric", "postfix": " reqs"}, [1200], ["latest=1,200 reqs"]),
+            ({"format": "duration"}, [360000], ["last point=4d 4h"]),
+            ({"format": "duration_ms"}, [360000000], ["last point=4d 4h"]),
+            ({"format": "duration_ns"}, [500000], ["last point=500µs"]),
+            ({"format": "duration_ns"}, [1500000000], ["last point=1.5s"]),
+            ({"format": "duration_ns"}, [360000000000000], ["last point=4d 4h"]),
+            ({"format": "percentage"}, [37], ["last point=37%"]),
+            ({"format": "percentage_scaled"}, [0.37], ["last point=37%"]),
+            ({"prefix": "$"}, [1200], ["last point=$1,200"]),
+            ({"format": "numeric", "postfix": " reqs"}, [1200], ["last point=1,200 reqs"]),
         ],
     )
     def test_metric_values_match_axis_format(self, value_format, data, expected_fragments):
@@ -210,7 +210,7 @@ class TestBuildResultsSummaryValueFormat:
     def test_no_value_format_falls_back_to_plain_numeric(self):
         results = [{"label": "Metric", "data": [360000]}]
         summary = build_results_summary("TrendsQuery", results, value_format=None)
-        assert "latest=360,000" in summary
+        assert "last point=360,000" in summary
 
 
 class TestBuildResultsSummaryTruncation:
@@ -351,3 +351,9 @@ class TestBuildResultsSummaryEdgeCases:
         results = [{"label": "Metric", "data": [], "count": 0, "aggregated_value": float("inf")}]
         summary = build_results_summary("TrendsQuery", results)
         assert "N/A" in summary
+
+
+class TestTrendsLastPoint:
+    def test_whole_period_stats_lead_and_last_point_is_flagged_incomplete(self):
+        summary = build_results_summary("TrendsQuery", [{"label": "Pageviews", "data": [100, 120, 110, 130, 3]}])
+        assert summary.index("avg=") < summary.index("last point=3 (may be incomplete)")
