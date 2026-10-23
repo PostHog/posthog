@@ -46,15 +46,17 @@ describe('issueSummaryLogic', () => {
     }
 
     it.each([
-        ['generation outlasts the deadline', GENERATING, 'generating', 'timed_out'],
-        ['no summary will be written', UNAVAILABLE, 'hidden', 'hidden'],
-    ])('stops polling when %s', async (_name, response, viewOnLoad, viewAtDeadline) => {
-        retrieve.mockResolvedValue(response)
+        ['generation outlasts the deadline', GENERATING, 0, 'generating', 'timed_out'],
+        ['a poll answers after the deadline', GENERATING, 1500, 'generating', 'timed_out'],
+        ['no summary will be written', UNAVAILABLE, 0, 'hidden', 'hidden'],
+    ])('stops polling when %s', async (_name, response, latencyMs, viewOnLoad, viewAtDeadline) => {
+        retrieve.mockImplementation(() => new Promise((resolve) => setTimeout(() => resolve(response), latencyMs)))
         logic = issueSummaryLogic({ issueId: ISSUE_ID })
         logic.mount()
+        await advance(latencyMs)
         await expectLogic(logic).toDispatchActions(['loadSummarySuccess']).toMatchValues({ view: viewOnLoad })
 
-        await advance(ISSUE_SUMMARY_POLL_TIMEOUT_MS)
+        await advance(ISSUE_SUMMARY_POLL_TIMEOUT_MS + latencyMs)
         const callsAtDeadline = retrieve.mock.calls.length
         expect(logic.values.view).toBe(viewAtDeadline)
 

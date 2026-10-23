@@ -270,6 +270,10 @@ export const issueSummaryLogic = kea<issueSummaryLogicType>([
                     return
                 }
                 if (values.awaitingSummary) {
+                    // A poll sent before the deadline can answer after it. Only "Try again" starts a new cycle.
+                    if (values.timedOut) {
+                        return
+                    }
                     // Starting again would also push the deadline back, so a poll that keeps answering
                     // `generating` would never time out.
                     if (!values.polling) {
