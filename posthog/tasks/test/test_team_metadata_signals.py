@@ -70,7 +70,9 @@ class TestTeamMetadataInvalidationSignals(BaseTest):
     def test_enqueue_failure_records_counter_and_does_not_propagate(self) -> None:
         with patch("posthog.tasks.team_metadata.update_related_teams_metadata_cache_task") as mock_task:
             mock_task.delay.side_effect = Exception("broker down")
-            with patch("posthog.tasks.team_metadata.HYPERCACHE_SIGNAL_UPDATE_COUNTER") as mock_counter:
+            with patch(
+                "posthog.storage.team_metadata_signal_handlers.HYPERCACHE_SIGNAL_UPDATE_COUNTER"
+            ) as mock_counter:
                 try:
                     with self.captureOnCommitCallbacks(execute=True):
                         self.organization.name = "Renamed org"
@@ -134,7 +136,7 @@ class TestOrgProjectDeleteCascadesToTeamClear(BaseTest):
         # so reading instance.id after project.delete() returns would see None.
         cleared_team_ids: set[int] = set()
         with patch(
-            "posthog.tasks.team_metadata.clear_team_metadata_cache",
+            "posthog.storage.team_metadata_signal_handlers.clear_team_metadata_cache",
             side_effect=lambda instance, **kwargs: cleared_team_ids.add(instance.id),
         ):
             project.delete()
