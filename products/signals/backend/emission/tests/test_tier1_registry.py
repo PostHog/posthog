@@ -84,6 +84,10 @@ TIER1_SOURCES = [
     # Data quality / observability
     (ExternalDataSourceType.MONTECARLO, "alerts", "monte_carlo", "incident"),
     (ExternalDataSourceType.BIGEYE, "Issues", "bigeye", "incident"),
+    # Support
+    (ExternalDataSourceType.HELPSCOUT, "conversations", "helpscout", "ticket"),
+    (ExternalDataSourceType.DECAGON, "conversations", "decagon", "ticket"),
+    (ExternalDataSourceType.VITALLY, "Conversations", "vitally", "ticket"),
     # Tier-2 security tools
     (ExternalDataSourceType.LACEWORK, "alerts", "lacework", "scanner_finding"),
     (ExternalDataSourceType.ORCASECURITY, "alerts", "orca_security", "scanner_finding"),
@@ -138,6 +142,8 @@ def _mock_record(fields: tuple[str, ...], product: str = "") -> dict:
             record[name] = '[{"name": "one"}, {"name": "two"}]' if name == "projects" else '["one", "two"]'
         elif name == "column_values":
             record[name] = '[{"id": "a", "type": "text", "text": "some text"}]'
+        elif name == "messages":
+            record[name] = '[{"role": "USER", "text": "hello", "body": "hello"}]'
         elif name in ("id", "iid", "project_id", "number", "workflow_state_id"):
             record[name] = 123
         else:
