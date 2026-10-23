@@ -16,6 +16,10 @@ export function assertTeamId<T extends { team_id: unknown }>(message: T): T {
     return message
 }
 
+function errorMessage(e: unknown): string {
+    return e instanceof Error ? e.message : String(e)
+}
+
 /**
  * If the step throws, this logs the error and counts it as a parse error. It then returns null, and
  * the caller skips the message. Wrap only a step that reads the message. A dependency lookup must not
@@ -25,7 +29,7 @@ export function skipIfMalformed<T>(errorLog: string, step: () => T, onError?: (e
     try {
         return step()
     } catch (e) {
-        const error = e instanceof Error ? e.message : String(e)
+        const error = errorMessage(e)
         logger.error(errorLog, e)
         counterParseError.labels({ error }).inc()
         onError?.(error)
@@ -50,6 +54,11 @@ export type ParseBatchOptions<TLoaded = Team> = {
     onInvalidTeamId?: () => void
     /** Runs on each parse error. */
     onError?: (message: Message, error: string) => void
+    /**
+     * Keeps a message whose lookup failed with an error that is not retriable. Returns true when it kept
+     * the message, so the batch skips it. Without it, or when it returns false, the error fails the batch.
+     */
+    parkLookupError?: (message: Message, error: string) => boolean
 }
 
 /**
@@ -59,13 +68,14 @@ export type ParseBatchOptions<TLoaded = Team> = {
  * means the message is malformed. It fails the same way every time it is read, so this skips it. This
  * also skips a team id that `loadTeam` cannot query, for the reason `assertTeamId` gives.
  *
- * `loadTeam` reads Postgres, and this does not catch its error. The error fails the batch, so the
- * consumer does not store the batch's offsets and reads the batch again after the pod restarts.
- * Skipping the message instead would lose the event.
+ * `loadTeam` reads Postgres. A retriable error from it fails the batch, so the consumer does not store
+ * the batch's offsets and reads the batch again after the pod restarts. Skipping the message instead
+ * would lose the event. Any other lookup error fails the batch too, unless `parkLookupError` keeps the
+ * message.
  */
 export async function parseBatch<TLoaded = Team>(
     messages: Message[],
-    { errorLog, parse, loadTeam, onInvalidTeamId, onError }: ParseBatchOptions<TLoaded>
+    { errorLog, parse, loadTeam, onInvalidTeamId, onError, parkLookupError }: ParseBatchOptions<TLoaded>
 ): Promise<HogFunctionInvocationGlobals[]> {
     const results = await Promise.all(
         messages.map(async (message) => {
@@ -92,7 +102,13 @@ export async function parseBatch<TLoaded = Team>(
             if (!parsed) {
                 return null
             }
-            const loaded = await loadTeam(parsed.teamId)
+            const loaded = await loadTeam(parsed.teamId).catch((e) => {
+                if (e?.isRetriable === true || !parkLookupError?.(message, errorMessage(e))) {
+                    throw e
+                }
+                logger.error('Error looking up team data', e)
+                return null
+            })
             if (!loaded) {
                 return null
             }
