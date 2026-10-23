@@ -26,8 +26,9 @@ export function NodeDetailQueryEditorSync({ id }: { id: string }): null {
             updateLoading: loading,
             discardDisabledReason,
             isMaterializedView,
+            hasChanges: hasEditorChanges,
         })
-    }, [disabledReason, loading, discardDisabledReason, isMaterializedView, setQueryEditorState])
+    }, [disabledReason, loading, discardDisabledReason, isMaterializedView, hasEditorChanges, setQueryEditorState])
 
     useOnMountEffect(() => () => setQueryEditorState(null))
 

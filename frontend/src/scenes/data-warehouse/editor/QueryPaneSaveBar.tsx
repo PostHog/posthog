@@ -9,11 +9,12 @@ import { useUpdateEditingView } from './useUpdateEditingView'
 /**
  * Saving an edited view otherwise means leaving the editor for the button in the scene header, so
  * this repeats it over the pane the edit happened in. It shares `useUpdateEditingView` with that
- * button, so both stay disabled for the same reasons — including until the edited query has run.
+ * button, so both stay disabled for the same reasons, including until the edited query has run.
+ * The pane already diffs the edit, so this saves directly instead of opening the review again.
  */
 export function QueryPaneSaveBar(): JSX.Element | null {
     const { editingView, changesToSave } = useValues(sqlEditorLogic)
-    const { disabledReason, loading, isMaterializedView, update } = useUpdateEditingView()
+    const { disabledReason, loading, isMaterializedView, commit } = useUpdateEditingView()
 
     if (!editingView || !changesToSave) {
         return null
@@ -30,7 +31,7 @@ export function QueryPaneSaveBar(): JSX.Element | null {
             <LemonButton
                 type="primary"
                 size="small"
-                onClick={() => update()}
+                onClick={() => commit()}
                 disabledReason={disabledReason}
                 loading={loading}
                 data-attr="query-pane-save-bar-update"

@@ -43,6 +43,8 @@ export interface NodeDetailSceneLogicProps {
 export interface NodeDetailQueryEditorState {
     updateDisabledReason: string | undefined
     updateLoading: boolean
+    /** False hides the buttons entirely: a view with nothing to save needs neither of them. */
+    hasChanges: boolean
     discardDisabledReason: string | undefined
     isMaterializedView: boolean
 }

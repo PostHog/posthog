@@ -28,9 +28,14 @@ interface QueryPaneProps {
     constrainHeight?: boolean
     /** Opt in to the floating save bar for the view being edited. Hosts with no view leave it off. */
     showInlineSaveBar?: boolean
+    /** Saved query text to diff the edit against while typing. Unset leaves the plain editor. */
+    liveDiffOriginalValue?: string
 }
 
 export function QueryPane(props: QueryPaneProps): JSX.Element {
+    // A suggestion's diff and the live edit diff both render through originalValue, but only the
+    // suggestion gets the accept and reject bar: the live one is saved from QueryPaneSaveBar.
+    const diffOriginalValue = props.originalValue || props.liveDiffOriginalValue
     const { queryPaneHeight, queryPaneDesiredSize, queryPaneResizerProps } = useValues(editorSizingLogic)
     const { onAcceptSuggestedQueryInput, onRejectSuggestedQueryInput } = useActions(sqlEditorLogic)
     const { acceptText, rejectText, diffShowRunButton, insightLoading } = useValues(sqlEditorLogic)
@@ -41,7 +46,7 @@ export function QueryPane(props: QueryPaneProps): JSX.Element {
                 enabled: false,
             },
             wordWrap: 'on',
-            scrollBeyondLastLine: !!props.originalValue,
+            scrollBeyondLastLine: !!diffOriginalValue,
             automaticLayout: true,
             fixedOverflowWidgets: true,
             glyphMargin: true,
@@ -51,7 +56,7 @@ export function QueryPane(props: QueryPaneProps): JSX.Element {
             quickSuggestionsDelay: 300,
             readOnly: queryLoading,
         }),
-        [props.originalValue, queryLoading]
+        [diffOriginalValue, queryLoading]
     )
     // Without an output pane beneath it the editor owns its column, so it takes whatever height the
     // database tree gives the row rather than leaving dead space next to the schema list.
@@ -92,7 +97,8 @@ export function QueryPane(props: QueryPaneProps): JSX.Element {
                                         sourceQuery={props.sourceQuery}
                                         height={height}
                                         width={width}
-                                        originalValue={props.originalValue}
+                                        originalValue={diffOriginalValue}
+                                        hideOriginalLineNumbers={!props.originalValue && !!props.liveDiffOriginalValue}
                                         enableVimMode={props.editorVimModeEnabled}
                                         vimrc={props.editorVimrc}
                                         {...props.codeEditorProps}

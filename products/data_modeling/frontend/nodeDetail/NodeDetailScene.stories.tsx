@@ -263,7 +263,6 @@ export const UnsavedQueryChanges: Story = {
         // The editor seeds its tab on mount, and an edit that lands first leaves it unseeded with no
         // view for the bar to save. Waiting for Monaco also keeps the snapshot off a half-painted
         // editor, which would otherwise differ from run to run.
-        await canvas.findByRole('button', { name: 'Discard changes' }, { timeout: 15000 })
         await waitFor(
             () => {
                 if (!canvasElement.querySelector('[data-editor-ready="true"]')) {

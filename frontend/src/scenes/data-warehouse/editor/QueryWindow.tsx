@@ -116,6 +116,13 @@ export function QueryWindow({
         singleStatementDisabledReason,
     } = useValues(logic)
 
+    // Diff the edit against the saved query as it is typed, rather than only in the review that
+    // opens on save. The baseline is set as soon as a view is open, not when the first edit lands:
+    // Monaco renders a diff through a different component, so turning it on mid-edit would remount
+    // the editor and drop the caret, losing every keystroke after the first. With no edit the two
+    // sides match and it draws as a plain editor. A suggestion's own diff still wins while open.
+    const liveDiffOriginal = showInlineSaveBar && editingView ? (editingView.query?.query ?? '') : undefined
+
     const {
         setQueryInput,
         runQuery,
@@ -369,6 +376,7 @@ export function QueryWindow({
             {showQueryPanel ? (
                 <QueryPane
                     originalValue={originalQueryInput ?? ''}
+                    liveDiffOriginalValue={liveDiffOriginal}
                     queryInput={(suggestedQueryInput || queryInput) ?? ''}
                     sourceQuery={sourceQuery.source}
                     promptError={null}

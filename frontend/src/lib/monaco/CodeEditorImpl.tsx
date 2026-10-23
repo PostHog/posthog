@@ -55,6 +55,12 @@ export interface CodeEditorProps extends Omit<EditorProps, 'loading' | 'theme'> 
     metadataQueryOffset?: number
     /** The original value to compare against - renders it in diff mode */
     originalValue?: string
+    /**
+     * Drop the original side's line numbers from the diff gutter. For a diff that stays mounted
+     * while the text is edited, the second column of numbers reads as a glitch whenever the two
+     * sides match.
+     */
+    hideOriginalLineNumbers?: boolean
     /** Enable vim keybindings */
     enableVimMode?: boolean
     /** Vim commands to run when vim mode starts, one per line */
@@ -169,6 +175,7 @@ export function CodeEditor({
     metadataQuery,
     metadataQueryOffset,
     originalValue,
+    hideOriginalLineNumbers,
     enableVimMode,
     vimrc,
     ...editorProps
@@ -186,6 +193,12 @@ export function CodeEditor({
     // ref holds the parent diff editor so cleanup can dispose the whole
     // diff (original editor, diff widget, decorations, view zones).
     const diffEditorRef = useRef<importedEditor.IStandaloneDiffEditor | null>(null)
+
+    useEffect(() => {
+        diffEditorRef.current
+            ?.getOriginalEditor()
+            .updateOptions({ lineNumbers: hideOriginalLineNumbers ? 'off' : 'on' })
+    }, [hideOriginalLineNumbers, monacoAndEditor])
 
     const vimModeRef = useRef<{ dispose: () => void } | null>(null)
     const vimStatusBarRef = useRef<HTMLDivElement | null>(null)
