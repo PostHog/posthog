@@ -338,11 +338,12 @@ class TestSelection(SimpleTestCase):
         self.assertIn("\\u003c", context)
 
     @parameterized.expand([(False,), (True,)])
-    def test_outcome_event_redacts_candidate_names_in_privacy_mode(self, privacy_mode: bool) -> None:
+    def test_outcome_event_carries_no_customer_names(self, privacy_mode: bool) -> None:
         self.selector.mode = "shadow"
+        metric_id = str(uuid4())
         scored = [
-            (Candidate(id="secret-skill", kind="skill", title="Secret skill", text="t", reference="r"), 0.2),
-            (Candidate(id="m1", kind="metric", title="Secret metric", text="t", reference="r"), 0.9),
+            (Candidate(id="Secret skill", kind="skill", title="Secret skill", text="t", reference="r"), 0.2),
+            (Candidate(id=metric_id, kind="metric", title="Secret metric", text="t", reference="r"), 0.9),
         ]
         with (
             patch("products.context_layer.backend.selection.is_privacy_mode_enabled", return_value=privacy_mode),
@@ -351,11 +352,10 @@ class TestSelection(SimpleTestCase):
             self.selector.capture_outcome("selected", 0.8, scored)
         properties = capture.call_args.kwargs["properties"]
         self.assertEqual(properties["reason"], "selected")
-        self.assertEqual(properties["candidate_count"], 2)
         self.assertEqual([c["score"] for c in properties["candidates"]], [0.9, 0.2])
         serialized = json.dumps(properties)
-        for name in ("secret-skill", "Secret skill", "Secret metric"):
-            self.assertEqual(name in serialized, not privacy_mode)
+        self.assertNotIn("Secret", serialized)
+        self.assertEqual(metric_id in serialized, not privacy_mode)
 
 
 class TestSelectionPermissions(SimpleTestCase):

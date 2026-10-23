@@ -1,5 +1,6 @@
 import json
 import time
+import hashlib
 from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor, wait
 from contextvars import copy_context
@@ -345,8 +346,14 @@ class ContextSelector:
 
     def capture_outcome(self, reason: str, gate: float, scored: list[tuple[Candidate, float]]) -> None:
         # The gateway drops System One inputs and answers from its events, so this is the only record of decisions.
-        # Skill ids are customer-defined names, so privacy mode drops ids along with titles.
+        # The event goes to PostHog's own analytics, so it carries no customer-written names.
         privacy_mode = is_privacy_mode_enabled(self.run.team)
+        candidates: list[dict[str, object]] = []
+        for candidate, score in sorted(scored, key=lambda pair: -pair[1]):
+            entry: dict[str, object] = {"kind": candidate.kind, "score": round(score, 4)}
+            if not privacy_mode:
+                entry["ref"] = self.candidate_ref(candidate)
+            candidates.append(entry)
         posthoganalytics.capture(
             distinct_id=str(self.actor.distinct_id),
             event="context selection outcome",
@@ -360,20 +367,17 @@ class ContextSelector:
                 "gate_probability": round(gate, 4),
                 "candidate_count": len(scored),
                 "privacy_mode": privacy_mode,
-                "candidates": [
-                    {"kind": candidate.kind, "score": round(score, 4)}
-                    if privacy_mode
-                    else {
-                        "kind": candidate.kind,
-                        "id": candidate.id,
-                        "title": candidate.title,
-                        "score": round(score, 4),
-                    }
-                    for candidate, score in sorted(scored, key=lambda pair: -pair[1])
-                ],
+                "candidates": candidates,
             },
             groups=groups(self.run.team.organization, self.run.team),
         )
+
+    def candidate_ref(self, candidate: Candidate) -> str:
+        if candidate.kind != "skill":
+            return candidate.id
+        # A skill's id is its customer-written name, so only a team-scoped digest leaves the process.
+        digest = hashlib.sha256(f"{self.run.team_id}:{candidate.id}".encode()).hexdigest()
+        return f"sha256:{digest[:16]}"
 
     def render(self, scored: list[tuple[Candidate, float]]) -> str:
         header = (
