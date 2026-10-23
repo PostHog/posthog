@@ -13,7 +13,6 @@ SHELL_PLUS_POST_IMPORTS = [
         ),
     ),
     ("django.utils.timezone", ("now",)),
-    ("posthog.models.filters", ("Filter",)),
     ("posthog.models.property", ("Property",)),
     ("posthog.clickhouse.client", ("sync_execute",)),
     ("posthog.hogql", ("ast")),

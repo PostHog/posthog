@@ -355,6 +355,10 @@ def _error_response(status_code: int, message: str, headers: dict[str, str] | No
             github.GithubResourceUnavailableError,
         ),
         ("Secret scanning is disabled on this repository.", github.GithubResourceUnavailableError),
+        (
+            "Upgrade to GitHub Pro or make this repository public to enable this feature.",
+            github.GithubResourceUnavailableError,
+        ),
         # A real denial stays fatal, and carries GitHub's own reason so the curated copy can name it.
         ("Resource not accessible by integration", github.GithubAccessDeniedError),
         ("Must have admin rights to Repository.", github.GithubAccessDeniedError),

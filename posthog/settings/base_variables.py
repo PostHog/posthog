@@ -66,6 +66,10 @@ SERVER_GATEWAY_INTERFACE = get_from_env("SERVER_GATEWAY_INTERFACE", "WSGI", type
 # GitHub secret alert relay URL - set in US deployment to forward alerts to EU
 GITHUB_SECRET_ALERT_RELAY_URL: str | None = get_from_env("GITHUB_SECRET_ALERT_RELAY_URL", optional=True)
 
+# PostHog's internal US project is also used by callers running in the EU region.
+POSTHOG_PROJECT_ID: int = get_from_env("POSTHOG_PROJECT_ID", 2, type_cast=int)
+POSTHOG_HOST: str = get_from_env("POSTHOG_HOST", "https://us.posthog.com")
+
 # Internal team on PostHog Cloud US that receives `$ai_generation` /
 # `$ai_embedding` events emitted by PostHog products (PostHog Desktop,
 # background agents, etc). Used by /api/llm_analytics/personal_spend/.

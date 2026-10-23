@@ -11,6 +11,13 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFindingSeverity,
 )
 from products.experiments.backend.health.context import HealthContext
+from products.experiments.backend.health.skips import (
+    NO_FLAG,
+    NOT_AFTER_END,
+    RUNS_AFTER_LAUNCH,
+    CheckOutcome,
+    not_applicable,
+)
 from products.experiments.backend.variant_distribution import is_evenly_distributed
 
 MULTIPLE_VARIANT_KEY = "$multiple"
@@ -51,9 +58,13 @@ def evaluate_bias_risk(
     return BiasRisk(multiple_variant_percentage=multiple_variant_percentage)
 
 
-def bias_risk_multiple_excluded(ctx: HealthContext) -> ExperimentHealthFinding | None:
-    if ctx.exposures is None or ctx.flag is None or ctx.has_ended:
-        return None
+def bias_risk_multiple_excluded(ctx: HealthContext) -> CheckOutcome:
+    if ctx.exposures is None:
+        return not_applicable(RUNS_AFTER_LAUNCH)
+    if ctx.flag is None:
+        return not_applicable(NO_FLAG)
+    if ctx.has_ended:
+        return not_applicable(NOT_AFTER_END)
     risk = evaluate_bias_risk(
         rollout_percentages=[variant.rollout_percentage for variant in ctx.flag.variants],
         multiple_variant_handling=ctx.exposures.multiple_variant_handling,

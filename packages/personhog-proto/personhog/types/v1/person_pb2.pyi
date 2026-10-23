@@ -47,6 +47,36 @@ class ReleaseOutcome(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     RELEASE_OUTCOME_COMMITTED: _ClassVar[ReleaseOutcome]
     RELEASE_OUTCOME_ABORTED: _ClassVar[ReleaseOutcome]
 
+class RaiseOutcome(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    RAISE_OUTCOME_UNSPECIFIED: _ClassVar[RaiseOutcome]
+    RAISE_OUTCOME_RAISED: _ClassVar[RaiseOutcome]
+    RAISE_OUTCOME_AT_OR_ABOVE: _ClassVar[RaiseOutcome]
+    RAISE_OUTCOME_NOT_LIVE: _ClassVar[RaiseOutcome]
+    RAISE_OUTCOME_MISSING: _ClassVar[RaiseOutcome]
+
+class RestoreOutcome(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    RESTORE_OUTCOME_UNSPECIFIED: _ClassVar[RestoreOutcome]
+    RESTORE_OUTCOME_INSERTED: _ClassVar[RestoreOutcome]
+    RESTORE_OUTCOME_EXISTS_LIVE: _ClassVar[RestoreOutcome]
+    RESTORE_OUTCOME_EXISTS_TOMBSTONED: _ClassVar[RestoreOutcome]
+    RESTORE_OUTCOME_NO_DISTINCT_ID: _ClassVar[RestoreOutcome]
+
+class DistinctIdWriteAction(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    DISTINCT_ID_WRITE_ACTION_UNSPECIFIED: _ClassVar[DistinctIdWriteAction]
+    DISTINCT_ID_WRITE_ACTION_INSERT: _ClassVar[DistinctIdWriteAction]
+    DISTINCT_ID_WRITE_ACTION_RAISE: _ClassVar[DistinctIdWriteAction]
+
+class DistinctIdWriteOutcome(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    DISTINCT_ID_WRITE_OUTCOME_UNSPECIFIED: _ClassVar[DistinctIdWriteOutcome]
+    DISTINCT_ID_WRITE_OUTCOME_APPLIED: _ClassVar[DistinctIdWriteOutcome]
+    DISTINCT_ID_WRITE_OUTCOME_UNCHANGED: _ClassVar[DistinctIdWriteOutcome]
+    DISTINCT_ID_WRITE_OUTCOME_PRECONDITION_FAILED: _ClassVar[DistinctIdWriteOutcome]
+    DISTINCT_ID_WRITE_OUTCOME_PERSON_NOT_LIVE: _ClassVar[DistinctIdWriteOutcome]
+
 DELETE_PERSONS_MODE_UNSPECIFIED: DeletePersonsMode
 DELETE_PERSONS_MODE_HARD: DeletePersonsMode
 DELETE_PERSONS_MODE_TOMBSTONE: DeletePersonsMode
@@ -61,6 +91,24 @@ LIFECYCLE_OP_TYPE_MERGE: LifecycleOpType
 RELEASE_OUTCOME_UNSPECIFIED: ReleaseOutcome
 RELEASE_OUTCOME_COMMITTED: ReleaseOutcome
 RELEASE_OUTCOME_ABORTED: ReleaseOutcome
+RAISE_OUTCOME_UNSPECIFIED: RaiseOutcome
+RAISE_OUTCOME_RAISED: RaiseOutcome
+RAISE_OUTCOME_AT_OR_ABOVE: RaiseOutcome
+RAISE_OUTCOME_NOT_LIVE: RaiseOutcome
+RAISE_OUTCOME_MISSING: RaiseOutcome
+RESTORE_OUTCOME_UNSPECIFIED: RestoreOutcome
+RESTORE_OUTCOME_INSERTED: RestoreOutcome
+RESTORE_OUTCOME_EXISTS_LIVE: RestoreOutcome
+RESTORE_OUTCOME_EXISTS_TOMBSTONED: RestoreOutcome
+RESTORE_OUTCOME_NO_DISTINCT_ID: RestoreOutcome
+DISTINCT_ID_WRITE_ACTION_UNSPECIFIED: DistinctIdWriteAction
+DISTINCT_ID_WRITE_ACTION_INSERT: DistinctIdWriteAction
+DISTINCT_ID_WRITE_ACTION_RAISE: DistinctIdWriteAction
+DISTINCT_ID_WRITE_OUTCOME_UNSPECIFIED: DistinctIdWriteOutcome
+DISTINCT_ID_WRITE_OUTCOME_APPLIED: DistinctIdWriteOutcome
+DISTINCT_ID_WRITE_OUTCOME_UNCHANGED: DistinctIdWriteOutcome
+DISTINCT_ID_WRITE_OUTCOME_PRECONDITION_FAILED: DistinctIdWriteOutcome
+DISTINCT_ID_WRITE_OUTCOME_PERSON_NOT_LIVE: DistinctIdWriteOutcome
 
 class Person(_message.Message):
     __slots__ = (
@@ -906,3 +954,259 @@ class FoldPersonDocumentResponse(_message.Message):
     PERSON_FIELD_NUMBER: _ClassVar[int]
     person: Person
     def __init__(self, person: _Optional[_Union[Person, _Mapping]] = ...) -> None: ...
+
+class DistinctIdRow(_message.Message):
+    __slots__ = ("distinct_id", "person_id", "person_uuid", "version", "is_deleted", "person_is_deleted")
+    DISTINCT_ID_FIELD_NUMBER: _ClassVar[int]
+    PERSON_ID_FIELD_NUMBER: _ClassVar[int]
+    PERSON_UUID_FIELD_NUMBER: _ClassVar[int]
+    VERSION_FIELD_NUMBER: _ClassVar[int]
+    IS_DELETED_FIELD_NUMBER: _ClassVar[int]
+    PERSON_IS_DELETED_FIELD_NUMBER: _ClassVar[int]
+    distinct_id: str
+    person_id: int
+    person_uuid: str
+    version: int
+    is_deleted: bool
+    person_is_deleted: bool
+    def __init__(
+        self,
+        distinct_id: _Optional[str] = ...,
+        person_id: _Optional[int] = ...,
+        person_uuid: _Optional[str] = ...,
+        version: _Optional[int] = ...,
+        is_deleted: bool = ...,
+        person_is_deleted: bool = ...,
+    ) -> None: ...
+
+class GetDistinctIdRowsRequest(_message.Message):
+    __slots__ = ("team_id", "distinct_ids", "read_options")
+    TEAM_ID_FIELD_NUMBER: _ClassVar[int]
+    DISTINCT_IDS_FIELD_NUMBER: _ClassVar[int]
+    READ_OPTIONS_FIELD_NUMBER: _ClassVar[int]
+    team_id: int
+    distinct_ids: _containers.RepeatedScalarFieldContainer[str]
+    read_options: _common_pb2.ReadOptions
+    def __init__(
+        self,
+        team_id: _Optional[int] = ...,
+        distinct_ids: _Optional[_Iterable[str]] = ...,
+        read_options: _Optional[_Union[_common_pb2.ReadOptions, _Mapping]] = ...,
+    ) -> None: ...
+
+class GetDistinctIdRowsResponse(_message.Message):
+    __slots__ = ("rows",)
+    ROWS_FIELD_NUMBER: _ClassVar[int]
+    rows: _containers.RepeatedCompositeFieldContainer[DistinctIdRow]
+    def __init__(self, rows: _Optional[_Iterable[_Union[DistinctIdRow, _Mapping]]] = ...) -> None: ...
+
+class PersonListEntry(_message.Message):
+    __slots__ = ("id", "uuid", "version", "is_deleted", "has_live_distinct_ids", "created_at_ms")
+    ID_FIELD_NUMBER: _ClassVar[int]
+    UUID_FIELD_NUMBER: _ClassVar[int]
+    VERSION_FIELD_NUMBER: _ClassVar[int]
+    IS_DELETED_FIELD_NUMBER: _ClassVar[int]
+    HAS_LIVE_DISTINCT_IDS_FIELD_NUMBER: _ClassVar[int]
+    CREATED_AT_MS_FIELD_NUMBER: _ClassVar[int]
+    id: int
+    uuid: str
+    version: int
+    is_deleted: bool
+    has_live_distinct_ids: bool
+    created_at_ms: int
+    def __init__(
+        self,
+        id: _Optional[int] = ...,
+        uuid: _Optional[str] = ...,
+        version: _Optional[int] = ...,
+        is_deleted: bool = ...,
+        has_live_distinct_ids: bool = ...,
+        created_at_ms: _Optional[int] = ...,
+    ) -> None: ...
+
+class ListPersonsForTeamRequest(_message.Message):
+    __slots__ = ("team_id", "after_person_id", "limit", "read_options", "before_person_id")
+    TEAM_ID_FIELD_NUMBER: _ClassVar[int]
+    AFTER_PERSON_ID_FIELD_NUMBER: _ClassVar[int]
+    LIMIT_FIELD_NUMBER: _ClassVar[int]
+    READ_OPTIONS_FIELD_NUMBER: _ClassVar[int]
+    BEFORE_PERSON_ID_FIELD_NUMBER: _ClassVar[int]
+    team_id: int
+    after_person_id: int
+    limit: int
+    read_options: _common_pb2.ReadOptions
+    before_person_id: int
+    def __init__(
+        self,
+        team_id: _Optional[int] = ...,
+        after_person_id: _Optional[int] = ...,
+        limit: _Optional[int] = ...,
+        read_options: _Optional[_Union[_common_pb2.ReadOptions, _Mapping]] = ...,
+        before_person_id: _Optional[int] = ...,
+    ) -> None: ...
+
+class ListPersonsForTeamResponse(_message.Message):
+    __slots__ = ("persons", "next_after_person_id")
+    PERSONS_FIELD_NUMBER: _ClassVar[int]
+    NEXT_AFTER_PERSON_ID_FIELD_NUMBER: _ClassVar[int]
+    persons: _containers.RepeatedCompositeFieldContainer[PersonListEntry]
+    next_after_person_id: int
+    def __init__(
+        self,
+        persons: _Optional[_Iterable[_Union[PersonListEntry, _Mapping]]] = ...,
+        next_after_person_id: _Optional[int] = ...,
+    ) -> None: ...
+
+class RaisePersonVersionFloorsRequest(_message.Message):
+    __slots__ = ("team_id", "floors")
+    TEAM_ID_FIELD_NUMBER: _ClassVar[int]
+    FLOORS_FIELD_NUMBER: _ClassVar[int]
+    team_id: int
+    floors: _containers.RepeatedCompositeFieldContainer[PersonVersionFloor]
+    def __init__(
+        self, team_id: _Optional[int] = ..., floors: _Optional[_Iterable[_Union[PersonVersionFloor, _Mapping]]] = ...
+    ) -> None: ...
+
+class RaisePersonVersionFloorResult(_message.Message):
+    __slots__ = ("person_uuid", "outcome", "version")
+    PERSON_UUID_FIELD_NUMBER: _ClassVar[int]
+    OUTCOME_FIELD_NUMBER: _ClassVar[int]
+    VERSION_FIELD_NUMBER: _ClassVar[int]
+    person_uuid: str
+    outcome: RaiseOutcome
+    version: int
+    def __init__(
+        self,
+        person_uuid: _Optional[str] = ...,
+        outcome: _Optional[_Union[RaiseOutcome, str]] = ...,
+        version: _Optional[int] = ...,
+    ) -> None: ...
+
+class RaisePersonVersionFloorsResponse(_message.Message):
+    __slots__ = ("results",)
+    RESULTS_FIELD_NUMBER: _ClassVar[int]
+    results: _containers.RepeatedCompositeFieldContainer[RaisePersonVersionFloorResult]
+    def __init__(
+        self, results: _Optional[_Iterable[_Union[RaisePersonVersionFloorResult, _Mapping]]] = ...
+    ) -> None: ...
+
+class RestoredPerson(_message.Message):
+    __slots__ = ("person_uuid", "properties", "created_at_ms", "is_identified", "version", "distinct_ids")
+    PERSON_UUID_FIELD_NUMBER: _ClassVar[int]
+    PROPERTIES_FIELD_NUMBER: _ClassVar[int]
+    CREATED_AT_MS_FIELD_NUMBER: _ClassVar[int]
+    IS_IDENTIFIED_FIELD_NUMBER: _ClassVar[int]
+    VERSION_FIELD_NUMBER: _ClassVar[int]
+    DISTINCT_IDS_FIELD_NUMBER: _ClassVar[int]
+    person_uuid: str
+    properties: bytes
+    created_at_ms: int
+    is_identified: bool
+    version: int
+    distinct_ids: _containers.RepeatedCompositeFieldContainer[RestoredDistinctId]
+    def __init__(
+        self,
+        person_uuid: _Optional[str] = ...,
+        properties: _Optional[bytes] = ...,
+        created_at_ms: _Optional[int] = ...,
+        is_identified: bool = ...,
+        version: _Optional[int] = ...,
+        distinct_ids: _Optional[_Iterable[_Union[RestoredDistinctId, _Mapping]]] = ...,
+    ) -> None: ...
+
+class RestoredDistinctId(_message.Message):
+    __slots__ = ("distinct_id", "version")
+    DISTINCT_ID_FIELD_NUMBER: _ClassVar[int]
+    VERSION_FIELD_NUMBER: _ClassVar[int]
+    distinct_id: str
+    version: int
+    def __init__(self, distinct_id: _Optional[str] = ..., version: _Optional[int] = ...) -> None: ...
+
+class RestorePersonsRequest(_message.Message):
+    __slots__ = ("team_id", "persons")
+    TEAM_ID_FIELD_NUMBER: _ClassVar[int]
+    PERSONS_FIELD_NUMBER: _ClassVar[int]
+    team_id: int
+    persons: _containers.RepeatedCompositeFieldContainer[RestoredPerson]
+    def __init__(
+        self, team_id: _Optional[int] = ..., persons: _Optional[_Iterable[_Union[RestoredPerson, _Mapping]]] = ...
+    ) -> None: ...
+
+class RestorePersonResult(_message.Message):
+    __slots__ = ("person_uuid", "outcome", "person_id", "version", "restored_distinct_ids")
+    PERSON_UUID_FIELD_NUMBER: _ClassVar[int]
+    OUTCOME_FIELD_NUMBER: _ClassVar[int]
+    PERSON_ID_FIELD_NUMBER: _ClassVar[int]
+    VERSION_FIELD_NUMBER: _ClassVar[int]
+    RESTORED_DISTINCT_IDS_FIELD_NUMBER: _ClassVar[int]
+    person_uuid: str
+    outcome: RestoreOutcome
+    person_id: int
+    version: int
+    restored_distinct_ids: _containers.RepeatedScalarFieldContainer[str]
+    def __init__(
+        self,
+        person_uuid: _Optional[str] = ...,
+        outcome: _Optional[_Union[RestoreOutcome, str]] = ...,
+        person_id: _Optional[int] = ...,
+        version: _Optional[int] = ...,
+        restored_distinct_ids: _Optional[_Iterable[str]] = ...,
+    ) -> None: ...
+
+class RestorePersonsResponse(_message.Message):
+    __slots__ = ("results",)
+    RESULTS_FIELD_NUMBER: _ClassVar[int]
+    results: _containers.RepeatedCompositeFieldContainer[RestorePersonResult]
+    def __init__(self, results: _Optional[_Iterable[_Union[RestorePersonResult, _Mapping]]] = ...) -> None: ...
+
+class DistinctIdWrite(_message.Message):
+    __slots__ = ("distinct_id", "action", "person_uuid", "min_version", "expected_version")
+    DISTINCT_ID_FIELD_NUMBER: _ClassVar[int]
+    ACTION_FIELD_NUMBER: _ClassVar[int]
+    PERSON_UUID_FIELD_NUMBER: _ClassVar[int]
+    MIN_VERSION_FIELD_NUMBER: _ClassVar[int]
+    EXPECTED_VERSION_FIELD_NUMBER: _ClassVar[int]
+    distinct_id: str
+    action: DistinctIdWriteAction
+    person_uuid: str
+    min_version: int
+    expected_version: int
+    def __init__(
+        self,
+        distinct_id: _Optional[str] = ...,
+        action: _Optional[_Union[DistinctIdWriteAction, str]] = ...,
+        person_uuid: _Optional[str] = ...,
+        min_version: _Optional[int] = ...,
+        expected_version: _Optional[int] = ...,
+    ) -> None: ...
+
+class WriteDistinctIdsRequest(_message.Message):
+    __slots__ = ("team_id", "writes")
+    TEAM_ID_FIELD_NUMBER: _ClassVar[int]
+    WRITES_FIELD_NUMBER: _ClassVar[int]
+    team_id: int
+    writes: _containers.RepeatedCompositeFieldContainer[DistinctIdWrite]
+    def __init__(
+        self, team_id: _Optional[int] = ..., writes: _Optional[_Iterable[_Union[DistinctIdWrite, _Mapping]]] = ...
+    ) -> None: ...
+
+class DistinctIdWriteResult(_message.Message):
+    __slots__ = ("distinct_id", "outcome", "row")
+    DISTINCT_ID_FIELD_NUMBER: _ClassVar[int]
+    OUTCOME_FIELD_NUMBER: _ClassVar[int]
+    ROW_FIELD_NUMBER: _ClassVar[int]
+    distinct_id: str
+    outcome: DistinctIdWriteOutcome
+    row: DistinctIdRow
+    def __init__(
+        self,
+        distinct_id: _Optional[str] = ...,
+        outcome: _Optional[_Union[DistinctIdWriteOutcome, str]] = ...,
+        row: _Optional[_Union[DistinctIdRow, _Mapping]] = ...,
+    ) -> None: ...
+
+class WriteDistinctIdsResponse(_message.Message):
+    __slots__ = ("results",)
+    RESULTS_FIELD_NUMBER: _ClassVar[int]
+    results: _containers.RepeatedCompositeFieldContainer[DistinctIdWriteResult]
+    def __init__(self, results: _Optional[_Iterable[_Union[DistinctIdWriteResult, _Mapping]]] = ...) -> None: ...

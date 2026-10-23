@@ -92,6 +92,23 @@ module "partitioned_sharded_posthog_document_embeddings_family" {
       { name = "kafka_timestamp_minmax_partitioned_sharded_posthog_document_embeddings", expression = "_timestamp", type = "minmax", granularity = 3 },
     ]
   }
+  routing = {
+    read_columns = [
+      { name = "team_id", type = "Int64" },
+      { name = "product", type = "LowCardinality(String)" },
+      { name = "document_type", type = "LowCardinality(String)" },
+      { name = "model_name", type = "LowCardinality(String)" },
+      { name = "rendering", type = "LowCardinality(String)" },
+      { name = "document_id", type = "String" },
+      { name = "timestamp", type = "DateTime64(3, 'UTC')" },
+      { name = "inserted_at", type = "DateTime64(3, 'UTC')" },
+      { name = "content", type = "String", default_expression = "''" },
+      { name = "embedding", type = "Array(Float64)" },
+      { name = "_timestamp", type = "DateTime" },
+      { name = "_offset", type = "UInt64" },
+      { name = "_partition", type = "UInt64" },
+    ]
+  }
   sharding_key = "cityHash64(document_id)"
   deployment   = merge({ cluster = "posthog" }, local.deployment)
   names        = { storage = "partitioned_sharded_posthog_document_embeddings", write = "writable_posthog_document_embeddings" }

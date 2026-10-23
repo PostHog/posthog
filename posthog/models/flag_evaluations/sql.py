@@ -36,6 +36,10 @@ FLAG_EVALUATIONS_TTL_DAYS = 90
 # to update the target's stored_events.
 FLAG_EVALUATIONS_SOURCE_EVENT = "$feature_flag_called"
 
+# A DEFAULT fills only a column the insert omits. A writer that copies person_properties
+# from a source that can hold '' maps it to '{}' with this expression.
+FLAG_EVALUATIONS_PERSON_PROPERTIES_EXPR = "if(empty(person_properties), '{}', person_properties)"
+
 KAFKA_FLAG_EVALUATIONS_TABLE = f"kafka_{FLAG_EVALUATIONS_TABLE}"
 
 # One canonical column list, rendered in a Kafka, a Distributed and a storage

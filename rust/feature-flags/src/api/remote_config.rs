@@ -38,6 +38,7 @@ use crate::{
     metrics::consts::{REMOTE_CONFIG_AUTH_COUNTER, REMOTE_CONFIG_ETAG_COUNTER},
     router::State as AppState,
     team::team_models::Team,
+    utils::python_truthiness::is_falsy,
 };
 use axum::{
     debug_handler,
@@ -219,7 +220,7 @@ pub async fn remote_config(
 
     // Django applies `or None` to the final value and renders None as an empty body, not
     // the JSON literal `null`. Apply the falsy check after decryption so an empty decrypted
-    // string nulls out too.
+    // string nulls out too. In practice the payload is always a JSON-encoded string.
     let payload = payload.filter(|v| !is_falsy(v));
 
     // `Value::to_string` produces the same compact JSON `Json(v)` would serialize, so the
@@ -334,20 +335,6 @@ fn resolve_decrypted_payload(
 /// revalidation headers so a client polling a not-yet-set payload can 304 too.
 fn empty_ok_no_content_type(etag: &str) -> Response {
     (StatusCode::OK, revalidation_headers(etag)).into_response()
-}
-
-/// Mirrors Python truthiness for `payloads.get("true") or None`. In practice the payload
-/// is always a JSON-encoded string, but cover every falsy JSON value so the behaviour
-/// matches Python exactly: null, false, zero, and empty string/array/object.
-fn is_falsy(v: &Value) -> bool {
-    match v {
-        Value::Null => true,
-        Value::Bool(b) => !b,
-        Value::Number(n) => n.as_f64() == Some(0.0),
-        Value::String(s) => s.is_empty(),
-        Value::Array(a) => a.is_empty(),
-        Value::Object(o) => o.is_empty(),
-    }
 }
 
 /// Authenticates and resolves the decrypt gate against the already-resolved scope team,
@@ -549,28 +536,4 @@ async fn load_remote_config_flag(
         warn!("remote_config flag query failed: {e}");
         FlagError::DatabaseUnavailable
     })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::is_falsy;
-    use serde_json::json;
-
-    #[test]
-    fn is_falsy_matches_python_truthiness() {
-        // Django's `payloads["true"] or None` nulls out every falsy JSON value.
-        assert!(is_falsy(&json!(null)));
-        assert!(is_falsy(&json!(false)));
-        assert!(is_falsy(&json!(0)));
-        assert!(is_falsy(&json!(0.0)));
-        assert!(is_falsy(&json!("")));
-        assert!(is_falsy(&json!([])));
-        assert!(is_falsy(&json!({})));
-        // Truthy values pass through.
-        assert!(!is_falsy(&json!(true)));
-        assert!(!is_falsy(&json!(1)));
-        assert!(!is_falsy(&json!("x")));
-        assert!(!is_falsy(&json!([1])));
-        assert!(!is_falsy(&json!({"k": "v"})));
-    }
 }

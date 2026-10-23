@@ -53,6 +53,9 @@ locals {
     { name = "_partition", type = "UInt64" },
   ])
 
+  # The data table stores details without the codec its readers and writer declare.
+  sharded_ingestion_warnings_storage_columns = [for column in local.sharded_ingestion_warnings_columns : column.name == "details" ? { name = column.name, type = column.type } : column]
+
   ingestion_warnings_v2_columns = [
     { name = "team_id", type = "Int64" },
     { name = "source", type = "LowCardinality(String)" },
@@ -125,9 +128,9 @@ module "sharded_ingestion_warnings_family" {
 
   name     = "ingestion_warnings"
   database = var.database
-  columns  = local.sharded_ingestion_warnings_columns
+  columns  = local.sharded_ingestion_warnings_storage_columns
   storage = {
-    partition_by = "toYYYYMMDD(timestamp)"
+    partition_by = "toYear(timestamp)"
     order_by     = "(team_id, toHour(timestamp), type, source, timestamp)"
   }
   routing = {

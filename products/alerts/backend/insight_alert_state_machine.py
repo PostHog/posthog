@@ -55,9 +55,14 @@ def insight_snapshot(
     )
 
 
+def platform_state_of(insight_state: str) -> AlertState:
+    """Insight stores the `schema_enums` spelling ("Firing"). The machine spells it "firing"."""
+    return AlertState[InsightAlertState(insight_state).name]
+
+
 def snapshot_from_alert(alert: AlertConfiguration) -> AlertSnapshot:
     return insight_snapshot(
-        AlertState[InsightAlertState(alert.state).name],
+        platform_state_of(alert.state),
         last_notified_at=alert.last_notified_at,
         snooze_until=alert.snoozed_until,
     )
@@ -114,6 +119,11 @@ def apply_invalid_configuration(alert: AlertConfiguration) -> list[str]:
         "enabled",
         *apply_outcome(alert, ControlPlaneOutcome(new_state=AlertState.ERRORED, consecutive_failures=0)),
     ]
+
+
+def apply_platform_state(alert: AlertConfiguration, state: InsightAlertState) -> list[str]:
+    """Takes a state the platform holds for the alert, such as the one it hands back with ownership."""
+    return apply_outcome(alert, ControlPlaneOutcome(new_state=platform_state_of(state), consecutive_failures=0))
 
 
 def should_notify(outcome: AlertCheckOutcome) -> bool:

@@ -16,6 +16,7 @@ from products.review_hog.backend.models import (
     ReviewInstallationClaim,
     ReviewProjectSettings,
     ReviewRepository,
+    ReviewRepositoryPerson,
     ReviewUserRepositoryChoice,
     ReviewUserSettings,
 )
@@ -105,13 +106,13 @@ class TestReviewRepositorySettingsAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("environment_only", False, (403, 403, 403, 403, 403)),
-            ("environment_and_parent", True, (200, 200, 200, 200, 200)),
+            ("environment_only", False, (403, 403, 403, 403, 403, 403)),
+            ("environment_and_parent", True, (200, 200, 200, 200, 200, 200)),
         ]
     )
     @patch("products.review_hog.backend.pr_status.probe_workflow", return_value=WorkflowProbe.NOT_RUNNING)
     def test_a_project_scoped_key_needs_the_parent_project(
-        self, _name: str, include_parent: bool, expected: tuple[int, int, int, int, int], _probe: MagicMock
+        self, _name: str, include_parent: bool, expected: tuple[int, int, int, int, int, int], _probe: MagicMock
     ) -> None:
         environment = Team.objects.create(organization=self.organization, parent_team=self.team, name="Staging")
         value = generate_random_token_personal()
@@ -132,6 +133,7 @@ class TestReviewRepositorySettingsAPI(APIBaseTest):
             self._url("reviews/pr_status/", environment), {"pr_url": "https://github.com/PostHog/posthog/pull/5"}
         )
         table = self.client.get(self._url("reviews/table/", environment))
+        choices = self.client.get(self._url("repository_choices/", environment))
 
         assert (
             read.status_code,
@@ -139,6 +141,7 @@ class TestReviewRepositorySettingsAPI(APIBaseTest):
             reviews.status_code,
             pr_status.status_code,
             table.status_code,
+            choices.status_code,
         ) == expected
 
     def test_project_rule_stores_only_what_differs_and_is_logged(self) -> None:
@@ -321,8 +324,13 @@ class TestReviewRepositorySettingsAPI(APIBaseTest):
         ReviewRepository.objects.for_team(self.other_team.id).create(
             team=self.other_team, installation_id="1000", full_name="example-org/api", selected=True
         )
-        ReviewRepository.objects.for_team(self.team.id).create(
+        docs = ReviewRepository.objects.for_team(self.team.id).create(
             team=self.team, installation_id=INSTALLATION, full_name="example-org/docs", flash_for="everyone"
+        )
+        # A person on the exception's list renders through the nested user serializer.
+        excepted = User.objects.create_and_join(self.organization, "excepted@example.com", None)
+        ReviewRepositoryPerson.objects.for_team(self.team.id).create(
+            team=self.team, repository=docs, user=excepted, kind=ReviewRepositoryPerson.Kind.EXCEPTED
         )
         ReviewUserRepositoryChoice.objects.for_team(self.team.id).create(
             team=self.team, user=self.user, installation_id=INSTALLATION, full_name="example-org/docs", mode="off"
@@ -346,16 +354,28 @@ class TestReviewRepositorySettingsAPI(APIBaseTest):
         assert entries["example-org/api"]["owner_project"] == {"id": self.other_team.id, "name": "Other project"}
         assert entries["example-org/api"]["my_result"] == {"flash": False, "reason": "not_in_project"}
         assert entries["example-org/docs"]["exception"]["flash_for"] == "everyone"
+        [person] = entries["example-org/docs"]["exception"]["people"]
+        assert (person["kind"], person["user"]["email"]) == ("excepted", "excepted@example.com")
         assert entries["example-org/docs"]["my_result"] == {"flash": False, "reason": "own_repository_choice"}
         assert entries["example-org/docs"]["inherited_result"] == {"flash": True, "reason": "own_default"}
         assert entries["example-org/docs"]["repository_result"] == {"flash": True, "reason": "repository_everyone"}
 
         exceptions = self.client.get(f"{url}&view=exceptions").json()
         assert [entry["full_name"] for entry in exceptions["results"]] == ["example-org/docs"]
+        # web follows the project with no exception and no own choice, so only the fold counts it.
+        differs = self.client.get(f"{url}&view=differs").json()
+        assert sorted(entry["full_name"] for entry in differs["results"]) == ["example-org/api", "example-org/docs"]
+        assert (differs["folded"], differs["folded_preview"], differs["folded_result"]) == (
+            1,
+            ["example-org/web"],
+            {"flash": True, "reason": "own_default"},
+        )
         page = self.client.get(f"{url}&view=in_project&limit=1").json()
         assert (page["total"], page["has_more"], page["next_offset"]) == (2, True, 1)
+        assert everything.json()["folded"] == differs["folded"]
         searched = self.client.get(f"{url}&search=API").json()
         assert [entry["full_name"] for entry in searched["results"]] == ["example-org/api"]
+        assert searched["folded"] == 0
 
     def test_overview_needs_a_connected_installation(self) -> None:
         res = self.client.get(self._url("repository_overview/?installation_id=9999"))

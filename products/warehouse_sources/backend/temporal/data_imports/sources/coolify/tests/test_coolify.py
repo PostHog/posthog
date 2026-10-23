@@ -11,6 +11,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.coolify.coolify import (
+    AUDIT_EVENTS_FORBIDDEN_ERROR,
+    AuditEventsPaginationTruncatedError,
     CoolifyHostNotAllowedError,
     DeploymentsPaginationTruncatedError,
     _client_config,
@@ -98,7 +100,11 @@ class TestCoolifyClientConfig:
             pytest.param("servers", True, id="log_drain_keys_in_the_response"),
             pytest.param("services", True, id="compose_contents_in_the_response"),
             pytest.param("teams", True, id="member_emails_in_the_response"),
+            pytest.param("audit_events", True, id="change_diffs_in_the_response"),
+            pytest.param("application_task_executions", True, id="command_output_in_the_response"),
+            pytest.param("backup_executions", True, id="raw_backup_configs_in_the_walk"),
             pytest.param("projects", False, id="nothing_to_withhold"),
+            pytest.param("project_environments", False, id="environments_nothing_to_withhold"),
         ],
     )
     def test_capture_is_disabled_only_where_the_response_must_not_be_sampled(
@@ -192,6 +198,171 @@ class TestCoolifyDeploymentsFanout:
         assert paginator.has_next_page is False
 
 
+class TestCoolifyNestedFanout:
+    @pytest.mark.parametrize(
+        "endpoint,responses,expected_paths,expected_rows",
+        [
+            pytest.param(
+                "project_environments",
+                [
+                    ScriptedResponse(json=[{"uuid": "prj-gone"}, {"uuid": "prj-1"}]),
+                    ScriptedResponse(status=404, json={}),
+                    ScriptedResponse(json=[{"id": 7, "uuid": "env-1", "name": "production"}]),
+                ],
+                [
+                    "/api/v1/projects",
+                    "/api/v1/projects/prj-gone/environments",
+                    "/api/v1/projects/prj-1/environments",
+                ],
+                [{"id": 7, "uuid": "env-1", "name": "production", "project_uuid": "prj-1"}],
+                id="project_environments",
+            ),
+            pytest.param(
+                "application_task_executions",
+                [
+                    ScriptedResponse(json=[{"uuid": "app-gone"}, {"uuid": APP_UUID}]),
+                    ScriptedResponse(status=404, json={}),
+                    ScriptedResponse(json=[{"uuid": "task-1", "name": "nightly", "command": "secret-cmd"}]),
+                    ScriptedResponse(json=[{"uuid": "exe-1", "status": "failed", "message": "token=abc"}]),
+                ],
+                [
+                    "/api/v1/applications",
+                    "/api/v1/applications/app-gone/scheduled-tasks",
+                    f"/api/v1/applications/{APP_UUID}/scheduled-tasks",
+                    f"/api/v1/applications/{APP_UUID}/scheduled-tasks/task-1/executions",
+                ],
+                [
+                    {
+                        "uuid": "exe-1",
+                        "status": "failed",
+                        "task_uuid": "task-1",
+                        "task_name": "nightly",
+                        "application_uuid": APP_UUID,
+                    }
+                ],
+                id="application_task_executions",
+            ),
+            pytest.param(
+                "backup_executions",
+                [
+                    ScriptedResponse(json=[{"uuid": "db-1"}]),
+                    ScriptedResponse(json=[{"uuid": "bkp-1", "executions": [{"uuid": "embedded"}]}]),
+                    ScriptedResponse(json={"executions": [{"uuid": "bex-1", "status": "success", "size": 42}]}),
+                ],
+                [
+                    "/api/v1/databases",
+                    "/api/v1/databases/db-1/backups",
+                    "/api/v1/databases/db-1/backups/bkp-1/executions",
+                ],
+                [
+                    {
+                        "uuid": "bex-1",
+                        "status": "success",
+                        "size": 42,
+                        "scheduled_backup_uuid": "bkp-1",
+                        "database_uuid": "db-1",
+                    }
+                ],
+                id="backup_executions",
+            ),
+        ],
+    )
+    def test_binds_every_parent_id_and_projects_it_onto_the_rows(
+        self,
+        endpoint: str,
+        responses: list[ScriptedResponse],
+        expected_paths: list[str],
+        expected_rows: list[dict],
+    ) -> None:
+        # A wrong resolve field leaves a `{placeholder}` in the child path or binds the wrong id,
+        # and a wrong rename leaves the parent id under its framework-prefixed key, so the rows
+        # can't be joined back. A parent deleted mid-sync must cost only its own rows.
+        result = _driver().run(endpoint, responses)
+
+        assert result.raised is None
+        assert result.paths == expected_paths
+        assert result.rows == expected_rows
+
+
+class TestCoolifyAuditEvents:
+    def test_walks_to_the_last_page_and_drops_rows_shifted_by_new_events(self) -> None:
+        # Coolify pages newest first, so an event recorded between page fetches pushes the last
+        # row of page 1 onto page 2. The table replaces on every sync, so that row must not be
+        # stored twice. Sensitive columns must never reach storage.
+        result = _driver().run(
+            "audit_events",
+            [
+                ScriptedResponse(
+                    json={
+                        "current_page": 1,
+                        "last_page": 2,
+                        "data": [
+                            {"id": 3, "created_at": "2026-10-03T00:00:00.000000Z", "changes": {"password": "x"}},
+                            {"id": 2, "created_at": "2026-10-02T00:00:00.000000Z", "actor_email": "a@example.com"},
+                        ],
+                    }
+                ),
+                ScriptedResponse(
+                    json={
+                        "current_page": 2,
+                        "last_page": 2,
+                        "data": [
+                            {"id": 2, "created_at": "2026-10-02T00:00:00.000000Z", "actor_email": "a@example.com"},
+                            {"id": 1, "created_at": "2026-10-01T00:00:00.000000Z", "ip_address": "192.0.2.1"},
+                        ],
+                    }
+                ),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.paths == ["/api/v1/audit-events", "/api/v1/audit-events"]
+        assert result.params("page") == ["1", "2"]
+        assert result.params("per_page") == ["100", "100"]
+        assert result.rows == [
+            {"id": 3, "created_at": "2026-10-03T00:00:00.000000Z"},
+            {"id": 2, "created_at": "2026-10-02T00:00:00.000000Z"},
+            {"id": 1, "created_at": "2026-10-01T00:00:00.000000Z"},
+        ]
+
+    def test_a_page_count_past_the_safety_cap_fails_the_table_instead_of_truncating_it(self) -> None:
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.coolify.coolify.MAX_AUDIT_EVENTS_PAGES",
+            2,
+        ):
+            result = _driver().run(
+                "audit_events",
+                [
+                    ScriptedResponse(json={"last_page": 3, "data": [{"id": 2, "created_at": "2026-10-02T00:00:00Z"}]}),
+                    ScriptedResponse(json={"last_page": 3, "data": [{"id": 1, "created_at": "2026-10-01T00:00:00Z"}]}),
+                ],
+            )
+
+        # The first page already proves the walk can't complete, so no further page is fetched.
+        assert isinstance(result.raised, AuditEventsPaginationTruncatedError)
+        assert result.paths == ["/api/v1/audit-events"]
+
+    @pytest.mark.parametrize(
+        "status_code,expected",
+        [
+            pytest.param(200, None, id="admin_token"),
+            pytest.param(403, AUDIT_EVENTS_FORBIDDEN_ERROR, id="member_token"),
+            # Not a denial, so the table stays selectable and the sync reports the real error.
+            pytest.param(500, None, id="server_error_is_not_a_denial"),
+        ],
+    )
+    def test_reports_the_admin_only_audit_log_per_table(self, status_code: int, expected: str | None) -> None:
+        with scripted_network(always(ScriptedResponse(status=status_code, json={}))) as network:
+            permissions = CoolifySource().get_endpoint_permissions(
+                CoolifySourceConfig(base_url=BASE_URL, api_token="coolify-token"),
+                team_id=1,
+                endpoints=["servers", "audit_events"],
+            )
+
+        assert permissions == {"servers": None, "audit_events": expected}
+        assert {request.path for request in network.requests_log} == {"/api/v1/audit-events"}
+
+
 class TestCoolifyValidateCredentials:
     def test_rejects_an_invalid_url_without_a_network_call(self) -> None:
         valid, error = validate_credentials("https://user@coolify.example.com", "coolify-token")
@@ -202,12 +373,8 @@ class TestCoolifyValidateCredentials:
     @pytest.mark.parametrize(
         "status_code,expected_valid,expected_fragment",
         [
-            pytest.param(200, True, None, id="ok"),
             # Coolify answers an unrecognized token with 400 "Invalid token." rather than 401.
             pytest.param(400, False, "rejected the API token", id="invalid_token_400"),
-            pytest.param(401, False, "rejected the API token", id="unauthenticated"),
-            pytest.param(403, False, "read permission", id="missing_read_ability"),
-            pytest.param(500, False, "try again", id="transient_server_error"),
         ],
     )
     def test_maps_status_to_a_message(

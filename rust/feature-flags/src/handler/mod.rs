@@ -273,6 +273,7 @@ async fn process_request_inner(
                         property_overrides.groups,
                         property_overrides.hash_key,
                         context.request_id,
+                        context.request_entered_at,
                         request.is_flags_disabled(),
                         request.flag_keys.clone(),
                         Some(is_internal && context.meta.detailed_analysis.unwrap_or(false)),

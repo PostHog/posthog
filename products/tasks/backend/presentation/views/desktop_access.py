@@ -1,3 +1,4 @@
+import logging
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
@@ -17,7 +18,6 @@ from posthog.api.email_verification import email_verification_pending
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.exceptions_capture import capture_exception
-from posthog.llm.wizard_blocklist import wizard_identity_blocked
 from posthog.models import User
 from posthog.models.oauth import OAuthAccessToken
 from posthog.permissions import APIScopePermission
@@ -43,11 +43,11 @@ from products.tasks.backend.facade.desktop_gateway import (
     desktop_gateway_base_url,
     desktop_gateway_configured,
     desktop_limit_tier,
-    desktop_rollout_enabled,
     desktop_token_ttl_seconds,
     mint_desktop_gateway_token,
     plan_allowed_models,
     posthog_code_plan,
+    record_gateway_token_refusal,
     team_credit_refusal,
 )
 from products.tasks.backend.presentation.serializers import (
@@ -59,6 +59,8 @@ from products.tasks.backend.presentation.serializers import (
 )
 
 from ee.billing.quota_limiting import team_quota_snapshot
+
+logger = logging.getLogger(__name__)
 
 # The legacy gateway's usage windows for posthog_code, which its cost throttles exempt.
 _BURST_WINDOW_SECONDS = 86400
@@ -114,6 +116,16 @@ def _desktop_oauth_credential(request: Request) -> tuple[OAuthAccessToken | None
             detail="This credential cannot mint PostHog Desktop gateway tokens.",
         )
     return access_token, None
+
+
+def _refusal_reason(response: Response) -> str:
+    """The same order the Desktop client reads, so the metric names what the app saw."""
+    data = response.data if isinstance(response.data, dict) else {}
+    for key in ("reason", "code"):
+        value = data.get(key)
+        if isinstance(value, str) and value:
+            return value
+    return f"http_{response.status_code}"
 
 
 def _iso(value: datetime) -> str:
@@ -207,8 +219,15 @@ class DesktopAccessViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @extend_schema(exclude=True)
     @action(detail=False, methods=["post"], url_path="gateway_token", required_scopes=["llm_gateway:read"])
     def gateway_token(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        """Mints a `phe_` pinned to this team, the user and the plan's models. Any non-201 keeps the
-        app on the legacy gateway."""
+        """Mints a `phe_` pinned to this team, the user and the plan's models. Any non-201 is a refusal."""
+        response = self._gateway_token(request)
+        if response.status_code != status.HTTP_201_CREATED:
+            reason = _refusal_reason(response)
+            record_gateway_token_refusal("desktop", reason, ai_product=POSTHOG_CODE_PRODUCT)
+            logger.info("desktop gateway mint refused (team_id=%s reason=%s)", self.team_id, reason)
+        return response
+
+    def _gateway_token(self, request: Request) -> Response:
         access_token, refusal = _desktop_oauth_credential(request)
         if refusal is not None or access_token is None:
             return refusal or _disabled("oauth_required", status.HTTP_403_FORBIDDEN)
@@ -232,15 +251,6 @@ class DesktopAccessViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if not user.distinct_id:
             return _disabled("oauth_required", status.HTTP_403_FORBIDDEN, detail="This account has no identity.")
         distinct_id = str(user.distinct_id)
-        if wizard_identity_blocked(
-            distinct_id=distinct_id,
-            email=user.email,
-            user_uuid=str(user.uuid),
-            organization_ids=[str(organization.id)],
-            team_ids=[team.id],
-            surface="desktop_gateway_token",
-        ):
-            return _disabled("blocked", status.HTTP_403_FORBIDDEN, detail="This account cannot use the AI gateway.")
         try:
             refused = security_access_refused(
                 SecuritySubject(
@@ -256,13 +266,10 @@ class DesktopAccessViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             capture_exception(e)
             refused = False
         if refused:
-            # The flag's refusal, word for word, so a client cannot tell which blocklist matched.
             return _disabled("blocked", status.HTTP_403_FORBIDDEN, detail="This account cannot use the AI gateway.")
 
         if not desktop_gateway_configured():
             return _disabled("unconfigured")
-        if not desktop_rollout_enabled(organization, team, distinct_id, user.email):
-            return _disabled("not_rolled_out")
 
         try:
             # Cache funding for one token lifetime: the app re-mints that often, so staleness stays within a token.

@@ -18,7 +18,7 @@ from posthog.test.base import (
 from unittest.mock import patch
 
 from django.core.cache import cache
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
 import requests
@@ -30,10 +30,12 @@ from posthog.models import Team
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.test.authentication_checks import covers_authentication
 
 from products.ai_observability.backend.api.personal_spend import (
     CROSS_REGION_SIGNATURE_HEADER,
     CROSS_REGION_TIMESTAMP_HEADER,
+    PersonalSpendCrossRegionAuthentication,
     PersonalSpendEUProxyViewSet,
     sign_cross_region_spend_request,
 )
@@ -48,7 +50,7 @@ def _by_product(rows: list[dict], product: str | None) -> dict | None:
     return next((r for r in rows if r["product"] == product), None)
 
 
-class TestPersonalSpendEuRedirect(APIBaseTest):
+class TestPersonalSpendEuRedirect(SimpleTestCase):
     """Pure unit test of the EU redirect view — does not depend on URL conf for EU."""
 
     def test_eu_redirect_view_preserves_query_string(self) -> None:
@@ -944,6 +946,7 @@ class TestPersonalSpendInternalEndpoint(ClickhouseTestMixin, APIBaseTest):
         response = self._post(body, _signed_headers(body))
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
+    @covers_authentication(PersonalSpendCrossRegionAuthentication)
     def test_signed_request_computes_spend_for_asserted_email(self) -> None:
         _create_person(distinct_ids=["eu-user"], team=self.team, properties={"email": "someone@example.com"})
         _create_event(

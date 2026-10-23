@@ -8,20 +8,12 @@
 The checks are small functions so every trigger can call the same ones.
 """
 
-from django.db import models
-
 from posthog.dataclasses import frozen
 
+from products.review_hog.backend.facade.enums import ReviewRequestRefusal
 from products.review_hog.backend.models import ReviewReport, ReviewUserSettings
 from products.review_hog.backend.reviewer.constants import REVIEW_MODE_FLASH, REVIEW_MODE_FULL
 from products.review_hog.backend.reviewer.review_state import published_heads_by_mode
-
-
-class ReviewRequestRefusal(models.TextChoices):
-    """Why a request is refused. Clients show a reason per code."""
-
-    FLASH_AFTER_FULL = "flash_after_full", "Standard after a published Deep review"
-    RESOLUTION_NOT_OPTED_IN = "resolution_not_opted_in", "The pull request owner has not opted in to resolution"
 
 
 @frozen

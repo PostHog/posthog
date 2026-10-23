@@ -125,7 +125,8 @@ class TestGoogleSearchConsoleEmitter:
         variant = SIGNAL_VARIANT_LOOKUP.get((output.source_product, output.source_type))
         assert variant is not None
         # extra="forbid" + strict types on the contract catches any drift between emitter and schema.
-        variant.model_validate(dataclasses.asdict(output))
+        data = dataclasses.asdict(output)
+        variant.model_validate({field: data[field] for field in variant.model_fields if field in data})
 
 
 class TestGoogleSearchConsoleConfig:

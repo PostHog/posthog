@@ -309,7 +309,7 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2026-07-02',
         featureFlags: [FEATURE_FLAGS.ENGINEERING_ANALYTICS],
-        pageUrl: urls.engineeringAnalyticsAuthor('jane-dev'),
+        pageUrl: urls.engineeringAnalyticsAuthor('jane-dev', 'PostHog/posthog'),
         testOptions: {
             waitForSelector: '[data-attr="engineering-analytics-day-view"]',
         },

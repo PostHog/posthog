@@ -305,11 +305,11 @@ export class PersonhogPersonsStore implements PersonsStore {
         this.teamGeneration.set(teamId, this.generationOf(teamId) + 1)
     }
 
-    /** Callers get copies, so stamping a result cannot edit the shared cache. */
+    /** Shallow: callers may replace fields, but never edit properties in place. */
     private snapshot(person: InternalPerson): InternalPerson
     private snapshot(person: InternalPerson | null): InternalPerson | null
     private snapshot(person: InternalPerson | null): InternalPerson | null {
-        return person === null ? null : { ...person, properties: { ...person.properties } }
+        return person === null ? null : { ...person }
     }
 
     /**
@@ -724,7 +724,7 @@ export class PersonhogPersonsStore implements PersonsStore {
         // outdates the view; the install declines and the next touch
         // re-resolves, while the lane keeps the ops.
         if (generation === this.generationOf(person.team_id)) {
-            this.projections.set(personKey, this.snapshot(projected))
+            this.projections.set(personKey, projected)
             this.setDistinctIdToPersonId(`${person.team_id}:${distinctId}`, personKey)
             this.trackBatchEntry(batchId, `${person.team_id}:${distinctId}`)
         }

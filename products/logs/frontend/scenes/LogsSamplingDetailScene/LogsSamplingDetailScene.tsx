@@ -3,7 +3,9 @@ import { Form } from 'kea-forms'
 
 import { IconInfo, IconRefresh } from '@posthog/icons'
 import { LemonButton, LemonDialog } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip/Tooltip'
 import { compactNumber, humanizeBytes } from 'lib/utils/numbers'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -60,6 +62,7 @@ function LogsSamplingDetailFormBody({ rule }: { rule: LogsSamplingRuleApi }): JS
     const { samplingForm, isSamplingFormSubmitting } = useValues(logsSamplingFormLogic(formProps))
     const { ruleDropImpact24h, ruleDropImpact24hLoading } = useValues(logsSamplingDetailSceneLogic)
     const saveDisabledReason = samplingFormSaveDisabledReason(samplingForm)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const confirmDelete = (): void => {
         LemonDialog.open({
@@ -85,9 +88,15 @@ function LogsSamplingDetailFormBody({ rule }: { rule: LogsSamplingRuleApi }): JS
                     onNameChange={(name) => setSamplingFormValue('name', name)}
                     renameDebounceMs={0}
                     actions={
-                        <LemonButton type="secondary" status="danger" onClick={confirmDelete}>
-                            Delete
-                        </LemonButton>
+                        todayRailNav ? (
+                            <Button variant="destructive-outline" onClick={confirmDelete}>
+                                Delete
+                            </Button>
+                        ) : (
+                            <LemonButton type="secondary" status="danger" onClick={confirmDelete}>
+                                Delete
+                            </LemonButton>
+                        )
                     }
                 />
                 <SceneStickyBar>

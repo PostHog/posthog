@@ -37,6 +37,9 @@ from products.feature_flags.backend.models import FeatureFlag
 RULE_A = "3f3b7a9e-8f2e-4f4b-9c7d-2a1e5b6c8d90"
 RULE_B = "b1c2d3e4-f5a6-4b7c-8d9e-0f1a2b3c4d5e"
 SEED_B = "7c9e6f82-1a2b-4c3d-9e8f-5a6b7c8d9e0f"
+RULE_C = "d3e4f5a6-b7c8-4d9e-a0f1-2b3c4d5e6f70"
+SEED_C = "c0ffee00-1a2b-4c3d-9e8f-5a6b7c8d9e0f"
+HOLDOUT_SEED_C = "f00dcafe-1a2b-4c3d-9e8f-5a6b7c8d9e0f"
 UNKNOWN_RULE = "00000000-0000-4000-8000-000000000000"
 
 
@@ -73,6 +76,34 @@ def rollout(rule_id: str | None = RULE_B, seed: str | None = SEED_B, **extra: An
     if seed is not None:
         rule["seed"] = seed
     return rule
+
+
+def experiment(rule_id: str | None = RULE_C, seed: str | None = SEED_C, **extra: Any) -> dict:
+    rule: dict[str, Any] = {
+        "rule_type": "experiment",
+        "targeting": {"properties": []},
+        "paused": False,
+        "rollout_percentage": 100,
+        "on_rollout_miss": "continue",
+        "assignment_algorithm": "sha1_60_v1",
+        "variants": [
+            {"key": "control", "weight": 50, "value": False},
+            {"key": "test", "weight": 50, "value": True},
+        ],
+        **extra,
+    }
+    if rule_id is not None:
+        rule = {"id": rule_id, **rule}
+    if seed is not None:
+        rule["seed"] = seed
+    return rule
+
+
+def local_holdout(seed: str | None = HOLDOUT_SEED_C, exclusion_percentage: float = 10) -> dict:
+    holdout: dict[str, Any] = {"exclusion_percentage": exclusion_percentage}
+    if seed is not None:
+        holdout["seed"] = seed
+    return holdout
 
 
 def config(*rules: dict, **extra: Any) -> dict:
@@ -591,7 +622,7 @@ class TestV2AdmissionBoundary(AdmittedV2TestCase):
     @parameterized.expand(
         [
             ("malformed", {"version": 2, "rules": "broken"}),
-            ("deferred_experiment", config({"id": RULE_A, "rule_type": "experiment", "targeting": {}})),
+            ("malformed_experiment", config({"id": RULE_A, "rule_type": "experiment", "targeting": {}})),
             ("string_with_boolean_default", config(return_type="string")),
         ]
     )
@@ -601,16 +632,6 @@ class TestV2AdmissionBoundary(AdmittedV2TestCase):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         flag.refresh_from_db()
         assert flag.filters == stored
-        assert flag.version == 3
-
-    def test_an_experiment_rule_cannot_be_written(self) -> None:
-        flag = self.flag()
-        response = self.patch_flag(
-            flag,
-            {"version": 3, "filters": config({"id": RULE_A, "rule_type": "experiment", "targeting": {}})},
-        )
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        flag.refresh_from_db()
         assert flag.version == 3
 
     @parameterized.expand(
@@ -732,26 +753,18 @@ def string_config(value: str, default: str | None, rule_id: str | None = RULE_A)
     return config(targeted(rule_id=rule_id, value=value), return_type="string", default_value=default)
 
 
+RULE_VALUE_DETAIL = 'Must be a non-empty string other than $false, $true or "null".'
+DEFAULT_VALUE_DETAIL = 'Must be null or a non-empty string other than $false, $true or "null".'
 RESERVED_STRING_VALUES = [
-    (
-        "rule_value",
-        "$false",
-        None,
-        "filters__rules__0__value",
-        "Must be a non-empty string other than $false or $true.",
-    ),
-    (
-        "default_value",
-        "compact",
-        "$true",
-        "filters__default_value",
-        "Must be a non-empty string other than $false or $true, or null.",
-    ),
+    ("rule_value", "$false", None, "filters__rules__0__value", RULE_VALUE_DETAIL),
+    ("default_value", "compact", "$true", "filters__default_value", DEFAULT_VALUE_DETAIL),
+    ("null_rule_value", "null", None, "filters__rules__0__value", RULE_VALUE_DETAIL),
+    ("null_default_value", "compact", "null", "filters__default_value", DEFAULT_VALUE_DETAIL),
 ]
 
 
 class TestWriterOnlyRules(AdmittedV2TestCase):
-    """The writer reserves `$false` and `$true` as string values; the caches accept them, so a stored one stays replaceable."""
+    """The writer reserves `$false`, `$true` and `"null"` as string values. The caches accept them, so a stored one stays replaceable."""
 
     @parameterized.expand(RESERVED_STRING_VALUES)
     def test_create_rejects_a_reserved_value(
@@ -792,6 +805,21 @@ class TestWriterOnlyRules(AdmittedV2TestCase):
         assert response.status_code == status.HTTP_200_OK, response.json()
         flag.refresh_from_db()
         assert (flag.filters, flag.version) == (string_config("compact", None), 4)
+
+    def test_an_update_keeps_a_null_value_the_row_already_holds(self) -> None:
+        flag = self.flag(string_config("null", "null"))
+        replacement = config(targeted(value="null", description="Reviewed"), return_type="string", default_value="null")
+        response = self.patch_flag(flag, {"version": 3, "filters": replacement})
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        flag.refresh_from_db()
+        assert (flag.filters, flag.version) == (replacement, 4)
+
+    def test_a_stored_null_value_can_be_enabled(self) -> None:
+        flag = self.flag(string_config("null", "null"), active=False)
+        response = self.patch_flag(flag, {"version": 3, "active": True})
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        flag.refresh_from_db()
+        assert (flag.active, flag.version) == (True, 4)
 
     def test_a_stored_reserved_value_can_be_disabled(self) -> None:
         flag = self.flag(string_config("$false", None), active=True)

@@ -6,11 +6,14 @@ from urllib.parse import quote, urlencode, urljoin, urlsplit
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from posthog.dataclasses import frozen
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    make_tracked_session,
+    retry_with_deadline,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.gitguardian.settings import (
@@ -80,7 +83,7 @@ def _build_url(base_url: str, path: str, params: dict[str, Any]) -> str:
     return f"{base_url}{path}?{urlencode(params)}"
 
 
-@retry(
+@retry_with_deadline(
     retry=retry_if_exception_type(
         (
             GitGuardianRetryableError,
@@ -340,9 +343,9 @@ def gitguardian_source(
             incremental_field=incremental_field,
         ),
         primary_keys=endpoint_config.primary_keys,
-        # Incremental endpoints request `ordering=date` explicitly, so rows arrive oldest-first
+        # Most incremental endpoints request `ordering=date` explicitly, so rows arrive oldest-first
         # and the incremental watermark can checkpoint per batch.
-        sort_mode="asc",
+        sort_mode=endpoint_config.sort_mode,
         partition_count=1,
         partition_size=1,
         partition_mode="datetime" if endpoint_config.partition_key else None,

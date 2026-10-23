@@ -1,6 +1,5 @@
-from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
-
 from products.cdp.backend.templates.airtable.template_airtable import template as template_airtable
+from products.cdp.backend.templates.helpers import BaseHogFunctionTemplateTest
 
 
 class TestTemplateAirtable(BaseHogFunctionTemplateTest):

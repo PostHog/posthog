@@ -17,6 +17,7 @@ from typing import Any, Literal, cast
 
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
+from products.review_hog.backend.facade.contracts import ReviewIssueCategory
 from products.review_hog.backend.reviewer.models.github_meta import PRComment, PRFile, PRMetadata
 from products.review_hog.backend.reviewer.models.issues_review import (
     DropDisposition,
@@ -35,20 +36,6 @@ from products.signals.backend.artefact_schemas import (
     NoteArtefact,
     TaskRunArtefact,
 )
-
-# Mirrors `IssueValidation.category` (the live LLM contract); redefined here so the durable
-# artefact shape doesn't drift with the regenerated review-tool schema.
-ReviewIssueCategory = Literal[
-    "bug",
-    "security",
-    "performance",
-    "code_quality",
-    "best_practice",
-    "documentation",
-    "testing",
-    "accessibility",
-    "compatibility",
-]
 
 
 class ReviewIssueFinding(BaseModel):
@@ -356,6 +343,9 @@ class TurnMarkerArtefact(BaseModel):
     base_sha: str | None = Field(default=None, description="The merge base the reviewed diff was taken against.")
     skipped_paths: list[str] | None = Field(
         default=None, description="The changed files the turn left out of the review."
+    )
+    review_design: str | None = Field(
+        default=None, description="The design the turn ran on (pipeline or single_agent)."
     )
 
 

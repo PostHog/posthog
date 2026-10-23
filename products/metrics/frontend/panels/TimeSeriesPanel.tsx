@@ -17,6 +17,12 @@ import { teamLogic } from 'scenes/teamLogic'
 import { buildMetricsChartConfig } from '../components/metricsChartConfig'
 import { MetricsExemplarMarkers, type MetricsExemplar } from '../components/MetricsExemplarMarkers'
 import { formatSeriesNames, seriesColor } from '../components/metricsSeries'
+import {
+    extrapolatePartialValue,
+    isExtrapolatable,
+    type MetricsPartialBucketQuery,
+    partialBucketFraction,
+} from './metricsPartialBucket'
 import type { MetricsPanelProps } from './registry'
 
 const AREA_FILL_OPACITY = 0.2
@@ -26,32 +32,51 @@ const AREA_FILL_OPACITY = 0.2
  *
  * A null bucket is a gap (a non-representable aggregate). quill's `Series.data` is `number[]`
  * (no null), so a gap renders as 0 until quill takes null data; `display.nullMode` is read by
- * the chart config only, not here. */
+ * the chart config only, not here.
+ *
+ * A last bucket still in progress draws as a dashed segment. Counter series show it scaled up to
+ * the full bucket, so the partial window does not read as a sudden drop. */
 export function TimeSeriesPanel({
     series,
     display,
     fallbackName,
     exemplars,
-}: MetricsPanelProps & { exemplars?: MetricsExemplar[] }): JSX.Element {
+    query,
+}: MetricsPanelProps & { exemplars?: MetricsExemplar[]; query?: MetricsPartialBucketQuery }): JSX.Element {
     const { timezone } = useValues(teamLogic)
     const theme = useChartTheme()
     const isBar = display?.type === 'bar'
     const isArea = display?.type === 'area'
+
+    const labels = useMemo(() => (series[0]?.points ?? []).map((p) => p.time), [series])
+    const partialFraction = useMemo(
+        () => (isBar ? null : partialBucketFraction(labels, query, timezone)),
+        [labels, isBar, query, timezone]
+    )
 
     const chartSeries = useMemo<Series[]>(() => {
         const names = formatSeriesNames(
             series.map((s) => ({ labels: s.labels, metric_name: s.metricName ?? undefined, clause: s.clause })),
             fallbackName
         )
-        return series.map((s, index) => ({
-            key: `${index}`,
-            label: names[index],
-            data: s.points.map((p) => p.value ?? 0),
-            color: getColorVar(seriesColor(index)),
-            ...(isArea ? { fill: { opacity: AREA_FILL_OPACITY } } : {}),
-        }))
-    }, [series, fallbackName, isArea])
-    const labels = useMemo(() => (series[0]?.points ?? []).map((p) => p.time), [series])
+        return series.map((s, index) => {
+            const data = s.points.map((p) => p.value ?? 0)
+            if (partialFraction !== null && isExtrapolatable(s, query)) {
+                data[data.length - 1] = extrapolatePartialValue(data[data.length - 1], partialFraction)
+            }
+            return {
+                key: `${index}`,
+                label: names[index],
+                data,
+                color: getColorVar(seriesColor(index)),
+                ...(isArea ? { fill: { opacity: AREA_FILL_OPACITY } } : {}),
+                ...(partialFraction !== null ? { stroke: { partial: { fromIndex: data.length - 1 } } } : {}),
+            }
+        })
+    }, [series, fallbackName, isArea, partialFraction, query])
+    // `MetricsPanel` gives every series the same resolved unit, so the first series speaks for the chart.
+    const unit = series[0]?.unit ?? undefined
+    const plottedValues = useMemo(() => chartSeries.flatMap((s) => s.data), [chartSeries])
 
     const sharedConfig = useChartConfig<TimeSeriesLineChartConfig>(
         () =>
@@ -59,9 +84,16 @@ export function TimeSeriesPanel({
                 display,
                 xAxis: { timezone },
                 seriesCount: chartSeries.length,
-                labelFormatter: (label: string) => dayjs(label).tz(timezone).format('D MMM YYYY HH:mm:ss'),
+                labelFormatter: (label: string) => {
+                    const formatted = dayjs(label).tz(timezone).format('D MMM YYYY HH:mm:ss')
+                    return partialFraction !== null && label === labels[labels.length - 1]
+                        ? `${formatted} (in progress)`
+                        : formatted
+                },
+                unit,
+                values: plottedValues,
             }),
-        [timezone, chartSeries.length, display]
+        [timezone, chartSeries.length, display, unit, plottedValues, partialFraction, labels]
     )
 
     const markers = exemplars?.length ? <MetricsExemplarMarkers exemplars={exemplars} /> : null

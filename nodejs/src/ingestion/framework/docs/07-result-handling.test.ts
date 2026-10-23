@@ -1,9 +1,9 @@
 /**
- * # Chapter 7: Result Handling (DLQ, DROP, REDIRECT)
+ * # Chapter 7: Result Handling (DLQ, DROP, REDIRECT, TIMEOUT)
  *
  * After processing items through pipeline steps, results need to be handled
  * properly. OK results continue through the pipeline, but non-OK results
- * (DLQ, DROP, REDIRECT) require special handling.
+ * (DLQ, DROP, REDIRECT, TIMEOUT) require special handling.
  *
  * The `handleResults()` method processes non-OK results by converting them
  * into appropriate side effects:
@@ -11,6 +11,7 @@
  * - **DLQ**: Send to dead-letter topic with error details
  * - **DROP**: Log and discard (no Kafka message)
  * - **REDIRECT**: Send to a named output (e.g. overflow)
+ * - **TIMEOUT**: Nothing (the source redelivers the message, see chapter 18)
  *
  * ## Redirect Options
  *

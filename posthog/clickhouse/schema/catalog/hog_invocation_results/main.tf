@@ -10,6 +10,12 @@ variable "database" {
   default     = "posthog"
 }
 
+variable "tiered_storage" {
+  description = "Keep data tables on the S3-tiered storage policy and move cold parts to its cold volume. Only PostHog Cloud servers have the policy."
+  type        = bool
+  default     = true
+}
+
 variable "ttl" {
   description = "Set table TTLs. Tests turn them off, because they insert rows with old timestamps."
   type        = bool
@@ -101,7 +107,7 @@ module "hog_invocation_results_data_family" {
     partition_by = "toYYYYMMDD(scheduled_at)"
     order_by     = "(team_id, function_kind, function_id, invocation_id)"
     ttl          = var.ttl ? "toDate(scheduled_at) + toIntervalDay(30)" : null
-    settings     = "index_granularity = 1024, ttl_only_drop_parts = 1"
+    settings     = "index_granularity = 1024, ttl_only_drop_parts = 1${var.tiered_storage ? ", storage_policy = 's3_tiered'" : ""}"
     indexes = [
       { name = "status_idx", expression = "status", type = "set(8)", granularity = 1 },
       { name = "function_idx", expression = "function_id", type = "bloom_filter(0.01)", granularity = 1 },

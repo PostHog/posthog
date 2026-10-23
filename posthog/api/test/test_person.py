@@ -23,12 +23,14 @@ from unittest import mock
 from django.test import SimpleTestCase
 from django.utils import timezone
 
+import grpc
 from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
 from rest_framework import status
 from rest_framework.exceptions import ValidationError
 
-import posthog.models.person.divergence
+import posthog.models.person.divergence.repairs
+import posthog.models.person.divergence.stale_merge
 from posthog.api.person import tag_client_query_id
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import get_query_tag_value, reset_query_tags
@@ -317,6 +319,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             created_at=timezone.now() - timedelta(days=1),
             immediate=True,
         )
+        PropertyDefinition.objects.create(team=self.team, name="Email", type=PropertyDefinition.Type.PERSON)
         by_name = _create_person(
             team=self.team,
             distinct_ids=["0198f3c1-6c2a-7a5b-9d41-9a1b2c3d4e61"],
@@ -1385,6 +1388,24 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert original is not None
         self.assertCountEqual(original.distinct_ids, ["a", "b"])
 
+    @parameterized.expand(
+        [
+            ("every_id_listed", {"distinct_ids_to_split": ["b", "a", "a"]}, "must leave at least one distinct ID"),
+            ("unknown_main_id", {"main_distinct_id": "not_on_this_person"}, "not on this person"),
+        ]
+    )
+    def test_split_people_rejects_a_split_that_leaves_no_distinct_id(
+        self, _name: str, payload: dict, message: str
+    ) -> None:
+        person1 = _create_person(team=self.team, distinct_ids=["a", "b"], properties={}, immediate=True)
+
+        with mock.patch("posthog.api.person.split_person.delay") as split_task:
+            response = self.client.post(f"/api/person/{person1.pk}/split/", payload, content_type="application/json")
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn(message, response.content.decode())
+        split_task.assert_not_called()
+
     def test_split_people_partial_rejects_combined_with_main_distinct_id(self) -> None:
         person1 = _create_person(
             team=self.team,
@@ -2203,8 +2224,9 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         # 16 as above, plus the include_total counting queries (was 20); the count runs a second
         # HogQL database build, which pays the saved-expressions fetch again. +2 because each of
-        # the two HogQL database builds looks up the organization's flag_evaluations mode.
-        with self.assertNumQueries(21):
+        # the two HogQL database builds looks up the organization's flag_evaluations mode. +1 for the
+        # revenue analytics config, which each request reads on its own Team instance.
+        with self.assertNumQueries(22):
             response_include_total = self.client.get("/api/person/?limit=10&include_total").json()
         self.assertEqual(response_include_total["count"], 20)  #  With `include_total`, the total count is returned too
 
@@ -2398,9 +2420,39 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert person_after is not None
         assert person_after.version is not None and person_after.version > 105
 
+    @parameterized.expand(
+        [
+            ("mark_held_by_another_operation", grpc.StatusCode.FAILED_PRECONDITION, (), 409),
+            ("row_lock_timed_out", grpc.StatusCode.DEADLINE_EXCEEDED, (("x-db-timeout", "lock_timeout"),), 409),
+            ("statement_timed_out", grpc.StatusCode.DEADLINE_EXCEEDED, (("x-db-timeout", "statement_timeout"),), 503),
+            ("personhog_deadline", grpc.StatusCode.DEADLINE_EXCEEDED, (), 503),
+            ("personhog_unavailable", grpc.StatusCode.UNAVAILABLE, (), 503),
+        ]
+    )
+    def test_reset_person_distinct_id_asks_for_a_retry_on_a_busy_person_or_an_unavailable_service(
+        self, _name: str, code: grpc.StatusCode, trailing: tuple[tuple[str, str], ...], status: int
+    ) -> None:
+        failure = grpc.RpcError()
+        failure.code = mock.MagicMock(return_value=code)
+        failure.trailing_metadata = mock.MagicMock(return_value=trailing)
+
+        with mock.patch("posthog.api.person.repair_distinct_id", side_effect=failure):
+            response = self.client.post(
+                f"/api/projects/{self.team.pk}/persons/reset_person_distinct_id/", {"distinct_id": "busy"}
+            )
+
+        assert response.status_code == status
+        assert (
+            response.json()["detail"]
+            == {
+                409: "This person is being updated right now. Try again in a few seconds.",
+                503: "Person data is temporarily unavailable. Try again in a minute.",
+            }[status]
+        )
+
     @mock.patch(
-        f"{posthog.models.person.divergence.__name__}.create_person_distinct_id",
-        wraps=posthog.models.person.divergence.create_person_distinct_id,
+        f"{posthog.models.person.divergence.repairs.__name__}.create_person_distinct_id",
+        wraps=posthog.models.person.divergence.repairs.create_person_distinct_id,
     )
     @pytest.mark.flaky(reruns=2)
     def test_reset_person_distinct_id_not_found(self, mocked_ch_call):
@@ -2679,7 +2731,7 @@ class TestPersonBatchRestrictedProperties(ClickhouseTestMixin, APIBaseTest):
             team=self.team, property_definition=restricted, access_level=PropertyAccessLevel.NONE.value
         )
 
-    @mock.patch(f"{posthog.models.person.divergence.__name__}.capture_internal")
+    @mock.patch(f"{posthog.models.person.divergence.stale_merge.__name__}.capture_internal")
     def test_reset_does_not_copy_a_restricted_property_into_an_event(self, capture: mock.MagicMock) -> None:
         person = create_person(team=self.team, properties={"email": "pg@example.com"}, version=5, uuid=str(uuid4()))
         add_distinct_id(person=person, distinct_id="target", version=0)
