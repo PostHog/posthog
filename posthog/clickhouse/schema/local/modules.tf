@@ -42,8 +42,11 @@ module "catalog" {
     }
     # A single server writes events straight to storage: it has none of Cloud's deduplication and buffer tables.
     events_json_table_mv = { to_table = "${var.database}.writable_events_json" }
-    # jsonbf_v1 exists only in PostHog's ClickHouse build.
-    sharded_events_json = { drop_indexes = ["properties_bf", "person_properties_bf"] }
+    # jsonbf_v1 and five of these merge settings exist only in PostHog's ClickHouse build.
+    sharded_events_json = {
+      drop_indexes = ["properties_bf", "person_properties_bf"]
+      settings     = "index_granularity = 8192, object_serialization_version = 'v3', object_shared_data_serialization_version = 'map_with_buckets', enable_block_offset_column = 1, enable_block_number_column = 1, map_serialization_version = 'with_buckets', string_serialization_version = 'single_stream', propagate_types_serialization_versions_to_nested_types = 1, index_granularity_bytes = 67108864, vertical_merge_algorithm_min_rows_to_activate = 1, max_uncompressed_bytes_in_patches = '60Gi', merge_max_block_size_bytes = 67108864"
+    }
   }, { for name, override in local.test_overrides : name => override if var.test })
 
   deployment = {
