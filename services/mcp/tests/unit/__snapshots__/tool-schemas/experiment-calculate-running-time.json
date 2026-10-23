@@ -58,7 +58,7 @@
                         },
                         "sum_squares": {
                             "default": 0,
-                            "description": "Sum of squared metric values. Required for ratio/retention variance.",
+                            "description": "Sum of squared metric values. Mean metrics read their variance from it, and ratio/retention metrics need it. Without it, a mean metric's variance is approximated from the baseline value.",
                             "type": "number"
                         }
                     },
