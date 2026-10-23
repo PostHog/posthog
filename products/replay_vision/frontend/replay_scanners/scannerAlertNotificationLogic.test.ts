@@ -67,7 +67,7 @@ describe('scannerAlertNotificationLogic', () => {
         logic.actions.loadIntegrationsSuccess([firstWorkspace, secondWorkspace])
 
         await expectLogic(logic).toMatchValues({
-            selectedSlackIntegrationId: null,
+            selectedSlackIntegrationId: 1,
             selectedSlackIntegration: firstWorkspace,
         })
 
@@ -94,7 +94,7 @@ describe('scannerAlertNotificationLogic', () => {
         })
     })
 
-    it('preserves the selected channel on reload unless its workspace was removed', async () => {
+    it('keeps staged Slack state on reload only while its workspace is still connected', async () => {
         logic = scannerAlertNotificationLogic({})
         logic.mount()
         const firstWorkspace = makeSlackIntegration(1)
@@ -105,19 +105,25 @@ describe('scannerAlertNotificationLogic', () => {
         logic.actions.loadIntegrationsSuccess([firstWorkspace, secondWorkspace])
 
         await expectLogic(logic).toMatchValues({
-            selectedSlackIntegrationId: null,
-            selectedSlackIntegration: firstWorkspace,
+            selectedSlackIntegrationId: 1,
             slackChannelValue: 'C123|#general',
         })
 
-        logic.actions.setSelectedSlackIntegrationId(2)
+        logic.actions.loadIntegrationsSuccess([secondWorkspace])
+
+        await expectLogic(logic).toMatchValues({
+            selectedSlackIntegration: secondWorkspace,
+            slackChannelValue: null,
+        })
+
         logic.actions.setSlackChannelValue('C456|#alerts')
+        logic.actions.addSelectedNotification()
+        logic.actions.addPendingNotification({ type: 'webhook', webhookUrl: 'https://example.com/hook' })
         logic.actions.loadIntegrationsSuccess([firstWorkspace])
 
         await expectLogic(logic).toMatchValues({
-            selectedSlackIntegrationId: null,
             selectedSlackIntegration: firstWorkspace,
-            slackChannelValue: null,
+            pendingNotifications: [{ type: 'webhook', webhookUrl: 'https://example.com/hook' }],
         })
     })
 

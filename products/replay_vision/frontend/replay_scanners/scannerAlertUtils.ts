@@ -111,11 +111,7 @@ export function groupVisionAlertDestinations(
             const workspaceName = slackIntegrations?.find(
                 (integration) => integration.id === slackWorkspaceValue
             )?.display_name
-            const channelName =
-                hf.name
-                    .split(' → ')
-                    .at(-1)
-                    ?.replace(/^Slack /, '') ?? '#channel'
+            const channelName = hf.name.match(/ → Slack (#\S+)$/)?.[1] ?? '#channel'
             label = `${workspaceName ?? 'Unknown workspace'} · ${channelName}`
         } else {
             type = VISION_ALERT_NOTIFICATION_TYPE_WEBHOOK

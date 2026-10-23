@@ -318,13 +318,23 @@ export const scannerAlertNotificationLogic = kea<scannerAlertNotificationLogicTy
         loadIntegrationsSuccess: ({ integrations }) => {
             const availableSlackIntegrations = integrations.filter((integration) => integration.kind === 'slack')
             if (
-                values.selectedSlackIntegrationId !== null &&
                 !availableSlackIntegrations.some((integration) => integration.id === values.selectedSlackIntegrationId)
             ) {
-                actions.setSelectedSlackIntegrationId(null)
+                actions.setSelectedSlackIntegrationId(availableSlackIntegrations[0]?.id ?? null)
             }
             if (availableSlackIntegrations.length === 0) {
                 actions.setSelectedType(VISION_ALERT_NOTIFICATION_TYPE_WEBHOOK)
+            }
+
+            // A new alert creates its destinations on submit, so a staged notification for a disconnected workspace would fail then.
+            const availableIds = new Set(availableSlackIntegrations.map((integration) => integration.id))
+            const stillValidPending = values.pendingNotifications.filter(
+                (notification) =>
+                    notification.type !== VISION_ALERT_NOTIFICATION_TYPE_SLACK ||
+                    availableIds.has(notification.slackWorkspaceId)
+            )
+            if (stillValidPending.length !== values.pendingNotifications.length) {
+                actions.setPendingNotifications(stillValidPending)
             }
         },
         deleteExistingDestination: async ({ group }) => {
