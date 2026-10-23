@@ -7,7 +7,6 @@ import { watchPicksStarterLogic } from 'products/replay_vision/frontend/replay_s
 
 import { ReplayListColumn } from './ReplayListColumn'
 
-/** The watch-layout list column inside the picks experiment: keeps the picks logic informed of which segment is open. */
 export function ReplayListColumnWithPicks({
     logicKey,
     recordingsList,

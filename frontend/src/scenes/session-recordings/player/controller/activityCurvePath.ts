@@ -5,7 +5,7 @@ export interface ActivityPoint {
 
 /**
  * The SVG path of an activity curve closed along the bottom edge, so it fills as an area. `smooth` joins the points
- * with a Catmull-Rom spline rendered as cubic Béziers; otherwise they are joined with straight segments.
+ * with a Catmull-Rom spline rendered as cubic Béziers. Otherwise they are joined with straight segments.
  */
 export function activityAreaPath(points: ActivityPoint[], width: number, height: number, smooth: boolean): string {
     if (points.length === 0) {

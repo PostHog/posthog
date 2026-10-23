@@ -85,7 +85,7 @@ function ScannerPicker({
                                 target="_blank"
                                 className="block px-2 py-3 text-sm"
                             >
-                                No scanners yet — create one
+                                No scanners yet. Create one
                             </Link>
                         ) : filteredScanners.length === 0 ? (
                             <div className="px-2 py-3 text-sm text-muted">No scanners match your search.</div>
@@ -333,7 +333,7 @@ export function RecordingMoments({ sessionId, playerLogicProps }: RecordingMomen
         sessionRecordingPlayerLogic.findMounted(logicProps)?.actions.seekToTime(ms)
     }
     const scanBlock = recordingScanBlock(sessionPlayerMetaData)
-    // A seek can land short of its target; step from the last jump while still on it.
+    // A seek can land short of its target. Step from the last jump while still on it.
     const nextFrom =
         lastJumpMs.current !== null && Math.abs(currentPlayerTime - lastJumpMs.current) < 1000
             ? lastJumpMs.current

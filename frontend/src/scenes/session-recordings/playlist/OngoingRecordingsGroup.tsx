@@ -3,7 +3,6 @@ import { ReactNode, useState } from 'react'
 import { IconChevronDown, IconChevronRight, IconLive } from '@posthog/icons'
 import { LemonBadge, LemonButton } from '@posthog/lemon-ui'
 
-/** Recordings still receiving data, folded above the results so the list opens on finished ones. */
 export function OngoingRecordingsGroup({
     count,
     holdsActive,
@@ -13,7 +12,7 @@ export function OngoingRecordingsGroup({
     holdsActive: boolean
     children: ReactNode
 }): JSX.Element | null {
-    // null follows the selection; a click pins a choice until the selection next moves into the group
+    // null follows the selection. A click pins a choice until the selection next moves into the group
     const [choice, setChoice] = useState<boolean | null>(null)
     const [wasHoldingActive, setWasHoldingActive] = useState(holdsActive)
     if (holdsActive !== wasHoldingActive) {

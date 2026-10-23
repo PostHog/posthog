@@ -21,9 +21,11 @@ import { useSummarizeBlockedReason } from './useSummarizeBlockedReason'
 export function SummarizeButton({
     sessionId,
     scanBlock,
+    inWatchLayout = false,
 }: {
     sessionId: string
     scanBlock: ScanBlock | null
+    inWatchLayout?: boolean
 }): JSX.Element {
     const logic = observationsDockLogic({ sessionId })
     const { summarizePending, defaultSummarizer, summarizerScanners, observations } = useValues(logic)
@@ -60,7 +62,7 @@ export function SummarizeButton({
             label: scanner.name,
             active: scanner.id === defaultSummarizer?.id,
             disabledReason: scannerDisabledReason(scanner),
-            onClick: () => summarizeWith(scanner.id),
+            onClick: () => summarizeWith(scanner.id, inWatchLayout),
             'data-attr': 'vision-summarize-pick-scanner',
         })),
         {
@@ -79,7 +81,7 @@ export function SummarizeButton({
             tooltip: 'Uses a built-in prompt. Nothing is saved to your scanners, so there is nothing to open or edit.',
             active: !defaultSummarizer,
             disabledReason: builtInDisabledReason,
-            onClick: () => summarizeWith(null),
+            onClick: () => summarizeWith(null, inWatchLayout),
             'data-attr': 'vision-summarize-pick-built-in',
         },
     ]
@@ -100,7 +102,7 @@ export function SummarizeButton({
                     consent_needed: !dataProcessingAccepted,
                 })
                 if (dataProcessingAccepted) {
-                    summarize()
+                    summarize(inWatchLayout)
                 } else {
                     setConsentRequested(true)
                 }
@@ -140,7 +142,7 @@ export function SummarizeButton({
             hidden={!consentRequested}
             onApprove={() => {
                 setConsentRequested(false)
-                summarize()
+                summarize(inWatchLayout)
             }}
             onDismiss={() => setConsentRequested(false)}
         >

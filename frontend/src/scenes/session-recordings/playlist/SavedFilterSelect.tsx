@@ -16,7 +16,6 @@ import { asUniversalFilters, sessionRecordingsPlaylistLogic } from './sessionRec
 const savedFilterName = (filter: SessionRecordingPlaylistType): string =>
     filter.name || filter.derived_name || 'Unnamed'
 
-/** "All recordings" or the applied saved filter, with the saved filters one click away. */
 export function SavedFilterSelect({
     setFilters,
     edited,

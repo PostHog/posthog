@@ -14,7 +14,7 @@ import { ActivityPoint, activityAreaPath } from './activityCurvePath'
 export function UserActivity({ hoverRef }: { hoverRef: MutableRefObject<HTMLDivElement | null> }): JSX.Element {
     const { activityPerSecond, logicProps } = useValues(sessionRecordingPlayerLogic)
     const { replayLayout } = useValues(playerSettingsLogic)
-    // The watch layout keeps the curve on screen; the classic seekbar reveals it on hover.
+    // The watch layout keeps the curve on screen. The classic seekbar reveals it on hover.
     const watchLayout = playerUsesWatchLayout(replayLayout, logicProps)
 
     const seekBarRef = useRef<HTMLDivElement | null>(null)

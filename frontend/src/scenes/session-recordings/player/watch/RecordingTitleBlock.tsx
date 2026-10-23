@@ -16,7 +16,6 @@ import { asDisplay, asLink } from 'products/persons/frontend/person-utils'
 
 import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 
-/** Who the recording is of, when it happened and on what, with the collection action beside it. */
 export function RecordingTitleBlock(): JSX.Element {
     const { logicProps, sessionPlayerMetaData } = useValues(sessionRecordingPlayerLogic)
     const { sessionPerson, loading, startTime } = useValues(playerMetaLogic(logicProps))

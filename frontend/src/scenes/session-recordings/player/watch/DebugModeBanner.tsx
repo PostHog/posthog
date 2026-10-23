@@ -11,13 +11,12 @@ import { SessionRecordingSidebarTab } from '~/types'
 // The notice retires itself a month or so after the layout experiment starts.
 const DEBUG_HINT_UNTIL = Date.parse('2026-12-01')
 
-/** One-time pointer to Debug mode for people who used to find the inspector in the sidebar. */
 export function DebugModeBanner(): JSX.Element | null {
-    const { sidebarOpen, debugHintDismissed } = useValues(playerSettingsLogic)
+    const { debugMode, debugHintDismissed } = useValues(playerSettingsLogic)
     const { setSidebarOpen, dismissDebugHint } = useActions(playerSettingsLogic)
     const { setTab } = useActions(playerSidebarLogic)
 
-    if (sidebarOpen || debugHintDismissed || Date.now() >= DEBUG_HINT_UNTIL) {
+    if (debugMode || debugHintDismissed || Date.now() >= DEBUG_HINT_UNTIL) {
         return null
     }
 

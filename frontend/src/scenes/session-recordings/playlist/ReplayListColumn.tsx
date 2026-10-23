@@ -24,13 +24,11 @@ export interface ReplayListColumnProps {
     recordingsList: ReactNode
     /** The What to watch list, when the picks experiment offers one. */
     picksList?: ReactNode
-    /** Where the picks logic would land a fresh page; null when picks are off. */
     picksMode: 'picks' | 'recordings' | null
     unwatchedPicksCount?: number
     onPicksSelected?: (selected: boolean) => void
 }
 
-/** The list column's segment switch: What to watch, All recordings, and the open recording's Moments. */
 export function ReplayListColumn(props: ReplayListColumnProps): JSX.Element {
     const { activeSessionRecording } = useValues(sessionRecordingsPlaylistLogic)
     // Keeps the chosen segment alive while the branches below mount and unmount around it.

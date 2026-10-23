@@ -14,7 +14,6 @@ import { RecordingOverviewDisclosure } from './RecordingOverviewDisclosure'
 import { RecordingSections } from './RecordingSections'
 import { RecordingTitleBlock } from './RecordingTitleBlock'
 
-/** Everything under the player in the watch layout: title, overview, comments, the inspector in Debug, then the rest. */
 export function WatchPanel({
     summaryActions,
 }: {
@@ -22,7 +21,7 @@ export function WatchPanel({
     summaryActions?: React.ReactNode
 }): JSX.Element | null {
     const { logicProps, sessionRecordingId } = useValues(sessionRecordingPlayerLogic)
-    const { sidebarOpen, watchDebugDock } = useValues(playerSettingsLogic)
+    const { debugMode, watchDebugDock } = useValues(playerSettingsLogic)
     if (!sessionRecordingId) {
         return null
     }
@@ -37,7 +36,7 @@ export function WatchPanel({
                 actions={vision ? <SummarizeRecordingBar inline extraActions={summaryActions} /> : summaryActions}
             />
             <RecordingCommentsList sessionId={sessionRecordingId} />
-            {sidebarOpen && watchDebugDock === 'bottom' && <RecordingDebugSection />}
+            {debugMode && watchDebugDock === 'bottom' && <RecordingDebugSection />}
             <RecordingSections />
         </div>
     )

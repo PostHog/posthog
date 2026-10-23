@@ -60,6 +60,7 @@ export function PlayerSidebar({
 
     const { desiredSize } = useValues(resizerLogic(resizerLogicProps))
 
+    const debugTab = tabs?.includes(activeTab) ? activeTab : SessionRecordingSidebarTab.INSPECTOR
     const sidebarTabs = tabs
         ? [...tabs]
         : [
@@ -111,7 +112,7 @@ export function PlayerSidebar({
             {sidebarOpen && tabs && (
                 <div className="SessionRecordingPlayer__sidebar__content">
                     <div className="flex flex-col flex-1 min-h-0 h-full">
-                        <DebugTabBar tabs={sidebarTabs} activeTab={activeTab} onChange={setTab}>
+                        <DebugTabBar tabs={sidebarTabs} activeTab={debugTab} onChange={setTab}>
                             <LemonButton
                                 data-attr="player-sidebar-dock-toggle"
                                 size="small"
@@ -132,7 +133,7 @@ export function PlayerSidebar({
                             />
                         </DebugTabBar>
                         <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
-                            <PlayerSidebarTab />
+                            <PlayerSidebarTab tab={debugTab} />
                         </div>
                     </div>
                 </div>

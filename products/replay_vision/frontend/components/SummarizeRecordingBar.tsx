@@ -2,8 +2,10 @@ import { useValues } from 'kea'
 
 import { Tooltip } from '@posthog/lemon-ui'
 
+import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { sessionRecordingDataCoordinatorLogic } from 'scenes/session-recordings/player/sessionRecordingDataCoordinatorLogic'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+import { playerUsesWatchLayout } from 'scenes/session-recordings/playlist/replayLayout'
 
 import { observationsDockLogic } from '../logics/observationsDockLogic'
 import { recordingScanBlock } from '../utils/scanEligibility'
@@ -39,7 +41,8 @@ function SummarizeRecordingBarContent({
     inline: boolean
 }): JSX.Element {
     const { defaultSummarizer } = useValues(observationsDockLogic({ sessionId }))
-    const { sessionPlayerMetaData } = useValues(sessionRecordingPlayerLogic)
+    const { sessionPlayerMetaData, logicProps } = useValues(sessionRecordingPlayerLogic)
+    const { replayLayout } = useValues(playerSettingsLogic)
     const scanBlock = recordingScanBlock(sessionPlayerMetaData)
     const summarizeBlockedReason = useSummarizeBlockedReason(scanBlock)(defaultSummarizer)
 
@@ -53,7 +56,11 @@ function SummarizeRecordingBarContent({
             // Frozen: dashboards and selectors still find the bar under its old name.
             data-attr="vision-observations-dock"
         >
-            <SummarizeButton sessionId={sessionId} scanBlock={scanBlock} />
+            <SummarizeButton
+                sessionId={sessionId}
+                scanBlock={scanBlock}
+                inWatchLayout={playerUsesWatchLayout(replayLayout, logicProps)}
+            />
             <SummarizeExplainer />
             {extraActions}
             {summarizeBlockedReason && (
