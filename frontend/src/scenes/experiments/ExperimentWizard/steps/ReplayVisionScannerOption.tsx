@@ -10,6 +10,7 @@ import { DEFAULT_MODEL, OBSERVATION_CREDITS_BY_MODEL } from 'products/replay_vis
 import { getReplayVisionEditDisabledReason } from 'products/replay_vision/frontend/utils/accessControl'
 import { formatCredits } from 'products/replay_vision/frontend/utils/credits'
 
+import { flagAggregatesByGroup } from '../../replayVisionScanner'
 import { experimentWizardLogic } from '../experimentWizardLogic'
 import { ReplayVisionScannerCard, type ReplayVisionScannerOptionProps } from './ReplayVisionScannerCard'
 import { ReplayVisionScannerCheckbox } from './ReplayVisionScannerCheckbox'
@@ -22,14 +23,15 @@ import { ReplayVisionScannerCheckbox } from './ReplayVisionScannerCheckbox'
  * checkbox. The flag is read here, at the end of the analytics step, so only people who see the option are
  * exposed. */
 export function ReplayVisionScannerOption(): JSX.Element {
-    const { createReplayVisionScanner } = useValues(experimentWizardLogic)
+    const { createReplayVisionScanner, linkedFeatureFlag } = useValues(experimentWizardLogic)
     const { setCreateReplayVisionScanner } = useActions(experimentWizardLogic)
     const { dataProcessingAccepted } = useValues(aiConsentLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const [consentRequested, setConsentRequested] = useState(false)
+    const groupAggregated = flagAggregatesByGroup(linkedFeatureFlag)
 
     const optionProps: ReplayVisionScannerOptionProps = {
-        checked: createReplayVisionScanner,
+        checked: createReplayVisionScanner && !groupAggregated,
         onChange: (checked) => {
             if (checked && !dataProcessingAccepted) {
                 setConsentRequested(true)
@@ -37,14 +39,17 @@ export function ReplayVisionScannerOption(): JSX.Element {
                 setCreateReplayVisionScanner(checked)
             }
         },
-        disabledReason: getReplayVisionEditDisabledReason() ?? undefined,
+        disabledReason:
+            getReplayVisionEditDisabledReason() ??
+            (groupAggregated
+                ? "This experiment's feature flag aggregates by group. Replay Vision can only watch experiments that aggregate by person."
+                : undefined),
         // Per-session price only: a monthly projection needs the 30-day recording history the
         // estimate endpoint reads, and an unstarted experiment has no exposed sessions yet, so
         // any monthly figure computed here would be a misleading zero. The scanner page shows
         // the projection once participant sessions exist. Priced at the model
         // experimentScannerBody pins, so this matches the scanner the save path creates.
         sessionPrice: formatCredits(OBSERVATION_CREDITS_BY_MODEL[DEFAULT_MODEL]),
-        experimentScanners: !!featureFlags[FEATURE_FLAGS.VISION_EXPERIMENT_SCANNER],
     }
 
     const option =

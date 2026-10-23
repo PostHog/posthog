@@ -13,8 +13,6 @@ export interface ReplayVisionScannerOptionProps {
     onChange: (checked: boolean) => void
     disabledReason?: string
     sessionPrice: string
-    /** VISION_EXPERIMENT_SCANNER: the save path creates an experiment scanner that turns on at launch */
-    experimentScanners: boolean
 }
 
 export function ReplayVisionScannerCard({
@@ -22,11 +20,8 @@ export function ReplayVisionScannerCard({
     onChange,
     disabledReason,
     sessionPrice,
-    experimentScanners,
 }: ReplayVisionScannerOptionProps): JSX.Element {
-    const title = experimentScanners
-        ? 'Compare what users do in each variant'
-        : 'Watch participant behavior with Replay Vision'
+    const title = 'Compare what users do in each variant'
 
     return (
         <LemonCard hoverEffect={false} className="@container flex items-start gap-4 p-4">
@@ -42,9 +37,8 @@ export function ReplayVisionScannerCard({
                             {title}
                         </div>
                         <p className="m-0 mt-1 text-sm text-secondary">
-                            {experimentScanners
-                                ? 'Replay vision summarizes the recordings of people in this experiment and shows each variant side by side.'
-                                : "AI watches the recordings of people in this experiment, so you don't have to. Every result is an event you can query, graph, and alert on."}
+                            Replay vision summarizes the recordings of people in this experiment and shows each variant
+                            side by side.
                         </p>
                     </div>
                     <LemonSwitch
@@ -56,10 +50,8 @@ export function ReplayVisionScannerCard({
                     />
                 </div>
                 <p className="m-0 text-xs text-muted">
-                    {experimentScanners
-                        ? 'It turns on when you launch the experiment and stops when the experiment ends.'
-                        : "It's created turned off, so nothing is scanned until you turn it on."}{' '}
-                    Each scanned session costs {sessionPrice}.
+                    It turns on when you launch the experiment and stops when the experiment ends. Each scanned session
+                    costs {sessionPrice}.
                 </p>
                 <div className="text-sm">
                     <VisionDocsLink dataAttr="experiment-create-replay-vision-docs">
