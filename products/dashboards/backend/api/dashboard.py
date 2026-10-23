@@ -124,10 +124,12 @@ from products.dashboards.backend.api.dashboard_template_json_schema_parser impor
     DashboardTemplateCreationJSONSchemaParser,
 )
 from products.dashboards.backend.api.widget_openapi_serializers import (
+    GROUP_REPEATS_HELP_TEXT,
     GROUP_TITLES_HELP_TEXT,
     WIDGET_BATCH_ADD_OPENAPI_HELP,
     AddDashboardWidgetRequestOpenApi,
     BreakdownColorConfigSerializer,
+    DashboardGroupRepeatSerializer,
     DashboardWidgetConfigField,
     PatchedDashboardOpenApiSerializer,
     UpdateDashboardWidgetRequestOpenApi,
@@ -136,6 +138,7 @@ from products.dashboards.backend.api.widget_openapi_serializers import (
 from products.dashboards.backend.constants import (
     DASHBOARD_GRID_COLUMN_COUNT,
     MAX_GROUP_KEY_LENGTH,
+    MAX_GROUP_REPEATS,
     MAX_GROUP_TITLE_LENGTH,
     MAX_GROUP_TITLES,
     MAX_TEXT_TILE_AGENT_CONTEXT_LENGTH,
@@ -149,6 +152,7 @@ from products.dashboards.backend.models.dashboard import (
     DASHBOARD_GRID_COMPACTION_MODES,
     DASHBOARD_GRID_SPACING_GAPS,
     Dashboard,
+    GroupRepeatDirection,
 )
 from products.dashboards.backend.models.dashboard_tile import ButtonTile, DashboardTile, DashboardTileBadge, Text
 from products.dashboards.backend.models.dashboard_widget import DashboardWidget
@@ -239,11 +243,48 @@ def _valid_group_titles(customization: Any) -> dict[str, str]:
     return valid_titles
 
 
-def _with_group_titles(customization: dict[str, Any], group_titles: dict[str, str] | None) -> dict[str, Any]:
-    customization = {key: value for key, value in customization.items() if key != "group_titles"}
-    if group_titles:
-        customization["group_titles"] = group_titles
+def _valid_group_repeats(customization: Any) -> dict[str, dict[str, str]]:
+    group_repeats = _normalize_dashboard_customization(customization).get("group_repeats")
+    if not isinstance(group_repeats, dict):
+        return {}
+    valid_repeats: dict[str, dict[str, str]] = {}
+    for key, repeat in group_repeats.items():
+        if not isinstance(key, str) or not isinstance(repeat, dict):
+            continue
+        variable = repeat.get("variable")
+        direction = repeat.get("direction", GroupRepeatDirection.VERTICAL)
+        if not isinstance(variable, str) or not variable.strip() or direction not in GroupRepeatDirection.values:
+            continue
+        try:
+            group_key = _normalized_group_key(key)
+        except serializers.ValidationError:
+            continue
+        if group_key:
+            valid_repeats[group_key] = {"variable": variable.strip(), "direction": direction}
+    return valid_repeats
+
+
+def _with_group_map(customization: dict[str, Any], name: str, group_map: dict[str, Any] | None) -> dict[str, Any]:
+    customization = {key: value for key, value in customization.items() if key != name}
+    if group_map:
+        customization[name] = group_map
     return customization
+
+
+def _normalized_group_map(value: dict[str, Any], *, limit: int, noun: str) -> dict[str, Any]:
+    if len(value) > limit:
+        raise serializers.ValidationError(f"A dashboard can have at most {limit} {noun}.")
+    normalized: dict[str, Any] = {}
+    for key, item in value.items():
+        group_key = _normalized_group_key(key)
+        if not group_key:
+            raise serializers.ValidationError("Group keys can't be empty.")
+        if len(group_key) > MAX_GROUP_KEY_LENGTH:
+            raise serializers.ValidationError(f"Group keys can have at most {MAX_GROUP_KEY_LENGTH} characters.")
+        if group_key in normalized:
+            raise serializers.ValidationError(f'Group key "{group_key}" is used more than once.')
+        normalized[group_key] = item
+    return normalized
 
 
 def _effective_layout_compaction(customization: Any) -> str:
@@ -324,6 +365,7 @@ DASHBOARD_SHARED_FIELDS = [
     "grid_spacing",
     "layout_compaction",
     "group_titles",
+    "group_repeats",
 ]
 
 
@@ -1352,6 +1394,11 @@ class DashboardCustomizationSerializer(serializers.Serializer):
         required=False,
         help_text=GROUP_TITLES_HELP_TEXT,
     )
+    group_repeats = serializers.DictField(
+        child=DashboardGroupRepeatSerializer(),
+        required=False,
+        help_text=GROUP_REPEATS_HELP_TEXT,
+    )
 
 
 class BreakdownColorsField(serializers.ListField):
@@ -1422,6 +1469,13 @@ class DashboardMetadataSerializer(DashboardBasicSerializer):
         write_only=True,
         help_text=GROUP_TITLES_HELP_TEXT,
     )
+    group_repeats = serializers.DictField(
+        child=DashboardGroupRepeatSerializer(),
+        required=False,
+        allow_null=True,
+        write_only=True,
+        help_text=GROUP_REPEATS_HELP_TEXT,
+    )
     persisted_filters = serializers.SerializerMethodField()
     persisted_variables = serializers.SerializerMethodField()
 
@@ -1438,19 +1492,14 @@ class DashboardMetadataSerializer(DashboardBasicSerializer):
     def validate_group_titles(self, value: dict[str, str] | None) -> dict[str, str] | None:
         if value is None:
             return None
-        if len(value) > MAX_GROUP_TITLES:
-            raise serializers.ValidationError(f"A dashboard can have at most {MAX_GROUP_TITLES} group titles.")
-        normalized: dict[str, str] = {}
-        for key, title in value.items():
-            group_key = _normalized_group_key(key)
-            if not group_key:
-                raise serializers.ValidationError("Group keys can't be empty.")
-            if len(group_key) > MAX_GROUP_KEY_LENGTH:
-                raise serializers.ValidationError(f"Group keys can have at most {MAX_GROUP_KEY_LENGTH} characters.")
-            if group_key in normalized:
-                raise serializers.ValidationError(f'Group key "{group_key}" is used more than once.')
-            normalized[group_key] = title
-        return normalized
+        return _normalized_group_map(value, limit=MAX_GROUP_TITLES, noun="group titles")
+
+    def validate_group_repeats(self, value: dict[str, dict[str, str]] | None) -> dict[str, dict[str, str]] | None:
+        if value is None:
+            return None
+        return _normalized_group_map(
+            {key: dict(repeat) for key, repeat in value.items()}, limit=MAX_GROUP_REPEATS, noun="group repeats"
+        )
 
     def get_filters(self, dashboard: Dashboard) -> dict:
         request = self.context.get("request")
@@ -1470,6 +1519,9 @@ class DashboardMetadataSerializer(DashboardBasicSerializer):
         group_titles = _valid_group_titles(customization)
         if group_titles:
             result["group_titles"] = group_titles
+        group_repeats = _valid_group_repeats(customization)
+        if group_repeats:
+            result["group_repeats"] = group_repeats
         return result
 
     def get_variables(self, dashboard: Dashboard) -> dict | None:
@@ -1819,6 +1871,8 @@ class DashboardSerializer(DashboardMetadataSerializer):
         layout_compaction = validated_data.pop("layout_compaction", None)
         has_group_titles = "group_titles" in validated_data
         group_titles = validated_data.pop("group_titles", None)
+        has_group_repeats = "group_repeats" in validated_data
+        group_repeats = validated_data.pop("group_repeats", None)
         current_count = Dashboard.objects.filter(team_id=team_id, deleted=False).count()
         check_count_limit(
             team=team,
@@ -1882,7 +1936,13 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 "layout_compaction": layout_compaction,
             }
         if has_group_titles:
-            validated_data["customization"] = _with_group_titles(validated_data.get("customization", {}), group_titles)
+            validated_data["customization"] = _with_group_map(
+                validated_data.get("customization", {}), "group_titles", group_titles
+            )
+        if has_group_repeats:
+            validated_data["customization"] = _with_group_map(
+                validated_data.get("customization", {}), "group_repeats", group_repeats
+            )
 
         with transaction.atomic():
             dashboard = Dashboard.objects.create(team_id=team_id, filters=filters, **validated_data)
@@ -2109,11 +2169,13 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 **({"tile_spacing": grid_spacing} if grid_spacing is not None else {}),
                 **({"layout_compaction": layout_compaction} if layout_compaction is not None else {}),
             }
-        if "group_titles" in validated_data:
-            validated_data["customization"] = _with_group_titles(
-                validated_data.get("customization", _normalize_dashboard_customization(instance.customization)),
-                validated_data.pop("group_titles"),
-            )
+        for group_map_name in ("group_titles", "group_repeats"):
+            if group_map_name in validated_data:
+                validated_data["customization"] = _with_group_map(
+                    validated_data.get("customization", _normalize_dashboard_customization(instance.customization)),
+                    group_map_name,
+                    validated_data.pop(group_map_name),
+                )
 
         being_undeleted = instance.deleted and "deleted" in validated_data and not validated_data["deleted"]
         if being_undeleted:

@@ -9,7 +9,7 @@ import { cn } from 'lib/utils/css-classes'
 import { truncate } from 'lib/utils/strings'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { AnyResponseType, MetricsQuery, MetricsQueryLanguage } from '~/queries/schema/schema-general'
+import { AnyResponseType, DashboardFilter, MetricsQuery, MetricsQueryLanguage } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
 import { MetricsQueryEditor } from '../components/MetricsQueryEditor'
@@ -30,6 +30,8 @@ interface MetricsQueryNodeProps {
     attachTo?: LogicWrapper | BuiltLogic
     /** Set by dashboard tiles and notebooks, which reduce the UI to the data. */
     embedded?: boolean
+    /** Dashboard filters, such as metric variable selections, that the query runs with. */
+    filtersOverride?: DashboardFilter | null
     /** With `setQuery`, shows the builder above the chart, as the insight editor does. */
     editMode?: boolean
     setQuery?: (query: MetricsQuery) => void
@@ -124,6 +126,7 @@ function MetricsQueryResults({ dataKey: key, ...props }: MetricsQueryNodeProps &
         loadPriority,
         onData,
         dataNodeCollectionId: dataNodeCollectionId ?? key,
+        filtersOverride: props.filtersOverride,
     })
 
     useAttachedLogic(logic, props.attachTo)

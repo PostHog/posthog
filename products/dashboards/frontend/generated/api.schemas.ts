@@ -297,6 +297,36 @@ export type DashboardApiPersistedVariables = { [key: string]: unknown } | null
  */
 export type DashboardApiGroupTitles = { [key: string]: string } | null
 
+/**
+ * * `vertical` - vertical
+ * * `horizontal` - horizontal
+ */
+export type GroupRepeatDirectionEnumApi = (typeof GroupRepeatDirectionEnumApi)[keyof typeof GroupRepeatDirectionEnumApi]
+
+export const GroupRepeatDirectionEnumApi = {
+    Vertical: 'vertical',
+    Horizontal: 'horizontal',
+} as const
+
+export interface DashboardGroupRepeatApi {
+    /**
+     * Name of the metric dashboard variable, without the $. Each copy of the group gets one of its values.
+     * @maxLength 100
+     */
+    variable: string
+    /** Where the copies go. vertical stacks each copy below the one before it. horizontal puts the copies side by side, and starts a new row when the grid is full.
+     *
+     * * `vertical` - vertical
+     * * `horizontal` - horizontal */
+    direction?: GroupRepeatDirectionEnumApi
+}
+
+/**
+ * Tile groups to repeat, keyed by the tiles' group_key. The dashboard shows one copy of each insight tile in the group for each selected value of the metric variable, with the variable set to that value. Edit mode shows only the original tiles. A write replaces the whole map. Send an empty object or null to stop all repeats.
+ * @nullable
+ */
+export type DashboardApiGroupRepeats = { [key: string]: DashboardGroupRepeatApi } | null
+
 export type DashboardApiTilesItem = { [key: string]: unknown }
 
 /**
@@ -372,6 +402,11 @@ export const LayoutCompactionEnumApi = {
  */
 export type DashboardCustomizationApiGroupTitles = { [key: string]: string }
 
+/**
+ * Tile groups to repeat, keyed by the tiles' group_key. The dashboard shows one copy of each insight tile in the group for each selected value of the metric variable, with the variable set to that value. Edit mode shows only the original tiles. A write replaces the whole map. Send an empty object or null to stop all repeats.
+ */
+export type DashboardCustomizationApiGroupRepeats = { [key: string]: DashboardGroupRepeatApi }
+
 export interface DashboardCustomizationApi {
     /** Named tile density preset.
      *
@@ -389,6 +424,8 @@ export interface DashboardCustomizationApi {
     layout_compaction?: LayoutCompactionEnumApi
     /** Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles. */
     group_titles?: DashboardCustomizationApiGroupTitles
+    /** Tile groups to repeat, keyed by the tiles' group_key. The dashboard shows one copy of each insight tile in the group for each selected value of the metric variable, with the variable set to that value. Edit mode shows only the original tiles. A write replaces the whole map. Send an empty object or null to stop all repeats. */
+    group_repeats?: DashboardCustomizationApiGroupRepeats
 }
 
 /**
@@ -479,6 +516,11 @@ export interface DashboardApi {
      * @nullable
      */
     group_titles?: DashboardApiGroupTitles
+    /**
+     * Tile groups to repeat, keyed by the tiles' group_key. The dashboard shows one copy of each insight tile in the group for each selected value of the metric variable, with the variable set to that value. Edit mode shows only the original tiles. A write replaces the whole map. Send an empty object or null to stop all repeats.
+     * @nullable
+     */
+    group_repeats?: DashboardApiGroupRepeats
     /** @nullable */
     readonly tiles: readonly DashboardApiTilesItem[] | null
     /** Template key to create the dashboard from a predefined template. */
@@ -498,6 +540,12 @@ export interface DashboardApi {
  * @nullable
  */
 export type PatchedPatchedDashboardOpenApiApiGroupTitles = { [key: string]: string } | null
+
+/**
+ * Tile groups to repeat, keyed by the tiles' group_key. The dashboard shows one copy of each insight tile in the group for each selected value of the metric variable, with the variable set to that value. Edit mode shows only the original tiles. A write replaces the whole map. Send an empty object or null to stop all repeats.
+ * @nullable
+ */
+export type PatchedPatchedDashboardOpenApiApiGroupRepeats = { [key: string]: DashboardGroupRepeatApi } | null
 
 /**
  * OpenAPI-only shape for a dashboard's filters object (agents/MCP).
@@ -1144,6 +1192,11 @@ export interface PatchedPatchedDashboardOpenApiApi {
      * @nullable
      */
     group_titles?: PatchedPatchedDashboardOpenApiApiGroupTitles
+    /**
+     * Tile groups to repeat, keyed by the tiles' group_key. The dashboard shows one copy of each insight tile in the group for each selected value of the metric variable, with the variable set to that value. Edit mode shows only the original tiles. A write replaces the whole map. Send an empty object or null to stop all repeats.
+     * @nullable
+     */
+    group_repeats?: PatchedPatchedDashboardOpenApiApiGroupRepeats
     /** Dashboard tiles to update, each identified by its tile id. Any tile type accepts `layouts` to set its grid position and size. Widget tiles also accept nested widget.config patches. */
     tiles?: DashboardPatchTileOpenApiApi[]
     /** Template key to create the dashboard from a predefined template. */

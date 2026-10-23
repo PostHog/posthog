@@ -38,8 +38,10 @@ import { DashboardLayoutSize, DashboardPlacement, DashboardType } from '~/types'
 
 import { DashboardGridBackground } from 'products/dashboards/frontend/components/DashboardGridBackground'
 import { DashboardInsightTile } from 'products/dashboards/frontend/components/DashboardInsightTile'
+import { DashboardRepeatedInsightTile } from 'products/dashboards/frontend/components/DashboardRepeatedInsightTile'
 import { DashboardTextItem } from 'products/dashboards/frontend/components/DashboardTextItem/DashboardTextItem'
 import { getDashboardTileSpacingGap } from 'products/dashboards/frontend/dashboardCustomization'
+import { expandRepeatedGroups } from 'products/dashboards/frontend/dashboardRepeatedGroups'
 import { getGroupTitlesByTileId, hasTileDecorations } from 'products/dashboards/frontend/dashboardTileGroups'
 import { useDashboardContainerWidth } from 'products/dashboards/frontend/useDashboardContainerWidth'
 
@@ -85,8 +87,8 @@ const MemoizedDashboardWidgetItem = memo(DashboardWidgetItem, gridTilePropsEqual
 export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsProps = {}): JSX.Element {
     const {
         dashboard,
-        tiles,
-        layouts,
+        tiles: dashboardTiles,
+        layouts: dashboardLayouts,
         layoutEditMode,
         placement,
         readOnly,
@@ -105,6 +107,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         widgetRefreshStatus,
         scrollToBottomSignal,
         sizeKey,
+        metricVariableOptions,
     } = useValues(dashboardLogic)
     const { layoutZoom = 1 } = useValues(dashboardLogic)
     const {
@@ -122,6 +125,31 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         setDashboardEditing,
     } = useActions(dashboardLogic)
     const { updateWidgetTile } = useAsyncActions(dashboardLogic)
+    // Edit mode shows the original tiles of a repeated group. Shared and exported dashboards cannot run new queries.
+    const showRepeatedGroups =
+        !layoutEditMode && [DashboardPlacement.Dashboard, DashboardPlacement.ProjectHomepage].includes(placement)
+    const repeatedGroups = useMemo(
+        () =>
+            showRepeatedGroups && dashboardTiles
+                ? expandRepeatedGroups({
+                      tiles: dashboardTiles,
+                      layouts: dashboardLayouts as Partial<Record<DashboardLayoutSize, Layout>>,
+                      groupRepeats: dashboard?.customization?.group_repeats,
+                      filters: effectiveEditBarFilters,
+                      options: metricVariableOptions,
+                  })
+                : null,
+        [
+            showRepeatedGroups,
+            dashboardTiles,
+            dashboardLayouts,
+            dashboard?.customization?.group_repeats,
+            effectiveEditBarFilters,
+            metricVariableOptions,
+        ]
+    )
+    const tiles = repeatedGroups?.tiles ?? dashboardTiles
+    const layouts = (repeatedGroups?.layouts ?? dashboardLayouts) as typeof dashboardLayouts
     const { reportDashboardTileRepositioned } = useActions(eventUsageLogic)
     const { push } = useActions(router)
     const { data: surveyLinkedInsights, loading: surveyLinkedInsightsLoading } = useSurveyLinkedInsights({
@@ -738,6 +766,9 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                                 )
                             }
                         })}
+                        {repeatedGroups?.copies.map((copy) => (
+                            <DashboardRepeatedInsightTile key={copy.key} copy={copy} />
+                        ))}
                     </ReactGridLayout>
                 </div>
             )}

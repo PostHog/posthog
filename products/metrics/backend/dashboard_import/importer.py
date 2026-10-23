@@ -624,14 +624,23 @@ class DashboardImporter:
     def _build(self, state: ImportState, verdicts: list[PanelVerdict], *, idempotency_key: str) -> ImportResult:
         """Create the dashboard from the verdicts. A dashboard without an insight tile is not created."""
         summary = ImportSummary.from_verdicts(verdicts)
-        tiles = [verdict.tile for verdict in verdicts if verdict.tile is not None]
-        if not any(tile.kind == "insight" for tile in tiles):
+        drafts = [(verdict.key, verdict.tile) for verdict in verdicts if verdict.tile is not None]
+        if not any(tile.kind == "insight" for _, tile in drafts):
             return ImportResult(
                 status="failed",
                 error="No panel could be imported, so no dashboard was created.",
                 summary=summary,
                 panels=verdicts,
             )
+        group_keys = (
+            {panel.key: panel.group_key for panel in state.spec.panels if panel.group_key} if state.spec else {}
+        )
+        used_groups = {group_keys[key] for key, _ in drafts if key in group_keys}
+        group_repeats = {
+            key: repeat.model_dump()
+            for key, repeat in (state.spec.group_repeats.items() if state.spec else [])
+            if key in used_groups
+        }
         try:
             created = create_dashboard_with_tiles(
                 team_id=self._team.id,
@@ -639,17 +648,18 @@ class DashboardImporter:
                 dashboard=NewDashboard(
                     name=state.dashboard_name,
                     description=_dashboard_description(state),
-                    tiles=tuple(_new_tile(tile) for tile in tiles),
+                    tiles=tuple(_new_tile(tile, group_key=group_keys.get(key)) for key, tile in drafts),
                     idempotency_key=idempotency_key,
                     date_from=state.date_from,
                     filters={"metricVariables": state.spec.metric_variables}
                     if state.spec and state.spec.metric_variables
                     else None,
+                    customization={"group_repeats": group_repeats} if group_repeats else None,
                 ),
             )
         except DashboardCreationDenied as error:
             return ImportResult(status="failed", error=str(error), summary=summary, panels=verdicts)
-        keys = [verdict.key for verdict in verdicts if verdict.tile is not None]
+        keys = [key for key, _ in drafts]
         return ImportResult(
             status="completed",
             dashboard_id=created.id,
@@ -917,10 +927,10 @@ def _dashboard_description(state: ImportState) -> str:
     return state.spec.description if state.spec else ""
 
 
-def _new_tile(tile: TileDraft) -> NewInsightTile | NewTextTile:
+def _new_tile(tile: TileDraft, *, group_key: str | None) -> NewInsightTile | NewTextTile:
     layout = TileLayout(x=tile.layout.x, y=tile.layout.y, w=tile.layout.w, h=tile.layout.h)
     if tile.kind == "text":
-        return NewTextTile(body=tile.text or "", layout=layout)
+        return NewTextTile(body=tile.text or "", layout=layout, group_key=group_key)
     # Grafana shows a panel description only in a tooltip, and the tile's (i) popover still shows a hidden one.
     return NewInsightTile(
         name=tile.name,
@@ -928,6 +938,7 @@ def _new_tile(tile: TileDraft) -> NewInsightTile | NewTextTile:
         query=tile.query or {},
         layout=layout,
         show_description=False if tile.description else None,
+        group_key=group_key,
     )
 
 

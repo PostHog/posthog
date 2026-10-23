@@ -34,6 +34,11 @@ class LayoutCompaction(models.TextChoices):
 DASHBOARD_GRID_COMPACTION_MODES = tuple(LayoutCompaction.values)
 
 
+class GroupRepeatDirection(models.TextChoices):
+    VERTICAL = "vertical", "vertical"
+    HORIZONTAL = "horizontal", "horizontal"
+
+
 class DashboardManager(RootTeamManager):
     def get_queryset(self):
         return super().get_queryset().exclude(deleted=True)

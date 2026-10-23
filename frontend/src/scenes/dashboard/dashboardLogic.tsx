@@ -445,6 +445,7 @@ export interface dashboardLogicValues {
     loadTimer: Date | null
     loadingPreview: boolean
     maxContext: MaxContextInput[]
+    metricVariableOptions: Record<string, string[]>
     nextAllowedDashboardRefresh: Dayjs | null
     nextWidgetStaleAt: number | null
     oldestRefreshed: Dayjs | null
@@ -1004,6 +1005,9 @@ export interface dashboardLogicActions {
     }
     setMetricFilters: (metricFilters: MetricsQueryFilter[] | null) => {
         metricFilters: MetricsQueryFilter[] | null
+    }
+    setMetricVariableOptions: (options: Record<string, string[]>) => {
+        options: Record<string, string[]>
     }
     setMetricVariables: (metricVariables: MetricsDashboardVariable[] | null) => {
         metricVariables: MetricsDashboardVariable[] | null
@@ -1592,6 +1596,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             properties: Record<string, string | number | boolean | null | undefined>
         ) => ({ changeType, properties }),
         setMetricVariables: (metricVariables: MetricsDashboardVariable[] | null) => ({ metricVariables }),
+        setMetricVariableOptions: (options: Record<string, string[]>) => ({ options }),
         setExternalFilters: (filters: DashboardFilter) => ({ filters }),
         setDashboardSettingsDraft: (settings: DashboardSettings | null) => ({ settings }),
         setPreviewedDashboardSettings: (settings: DashboardSettings | null) => ({ settings }),
@@ -2294,6 +2299,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     source === DashboardEventSource.DashboardHeaderDiscardChanges ? null : state,
                 restoreTemporaryColorState: (_, { themeId }) => themeId,
             },
+        ],
+        // The loaded options of each metric variable, so the grid can repeat a tile group for each value.
+        metricVariableOptions: [
+            {} as Record<string, string[]>,
+            { setMetricVariableOptions: (_, { options }) => options },
         ],
         layoutZoom: [
             1,

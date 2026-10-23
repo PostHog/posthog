@@ -198,6 +198,7 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
                 embedded={embedded}
                 editMode={!!editMode && !readOnly}
                 setQuery={setQuery as unknown as (query: MetricsQuery) => void}
+                filtersOverride={filtersOverride}
             />
         )
     } else if (isMetricsHistogramQuery(query)) {
@@ -208,6 +209,7 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
                 cachedResults={props.cachedResults}
                 context={queryContext}
                 embedded={embedded}
+                filtersOverride={filtersOverride}
             />
         )
     } else if (isEndpointsUsageOverviewQuery(query)) {

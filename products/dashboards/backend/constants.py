@@ -27,6 +27,7 @@ MAX_TEXT_TILE_AGENT_CONTEXT_LENGTH = 10_000
 MAX_GROUP_TITLES = 100
 MAX_GROUP_KEY_LENGTH = 100
 MAX_GROUP_TITLE_LENGTH = 200
+MAX_GROUP_REPEATS = 100
 
 # Upper bound on pinned recordings pulled from a collection to scope a session replay widget. Bounds the
 # session_ids IN clause sent to ClickHouse and the Python list we materialize, matching the saved-filter

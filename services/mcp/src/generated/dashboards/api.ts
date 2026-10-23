@@ -115,6 +115,9 @@ export const dashboardsCreateBodyNameMax = 400
 export const dashboardsCreateBodyBreakdownColorsItemColorTokenRegExp = new RegExp('^preset-[1-9][0-9]\*$')
 export const dashboardsCreateBodyGroupTitlesMaxOne = 200
 
+export const dashboardsCreateBodyGroupRepeatsVariableMax = 100
+
+export const dashboardsCreateBodyGroupRepeatsDirectionDefault = `vertical`
 export const dashboardsCreateBodyDeleteInsightsDefault = false
 
 export const DashboardsCreateBody = () => zod
@@ -190,6 +193,29 @@ export const DashboardsCreateBody = () => zod
             .describe(
                 "Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles."
             ),
+        group_repeats: zod
+            .record(
+                zod.string(),
+                zod.object({
+                    variable: zod
+                        .string()
+                        .max(dashboardsCreateBodyGroupRepeatsVariableMax)
+                        .describe(
+                            'Name of the metric dashboard variable, without the $. Each copy of the group gets one of its values.'
+                        ),
+                    direction: zod
+                        .enum(['vertical', 'horizontal'])
+                        .describe('\* `vertical` - vertical\n\* `horizontal` - horizontal')
+                        .default(dashboardsCreateBodyGroupRepeatsDirectionDefault)
+                        .describe(
+                            'Where the copies go. vertical stacks each copy below the one before it. horizontal puts the copies side by side, and starts a new row when the grid is full.\n\n\* `vertical` - vertical\n\* `horizontal` - horizontal'
+                        ),
+                })
+            )
+            .nullish()
+            .describe(
+                "Tile groups to repeat, keyed by the tiles' group_key. The dashboard shows one copy of each insight tile in the group for each selected value of the metric variable, with the variable set to that value. Edit mode shows only the original tiles. A write replaces the whole map. Send an empty object or null to stop all repeats."
+            ),
         use_template: zod
             .string()
             .optional()
@@ -257,6 +283,9 @@ export const dashboardsPartialUpdateBodyNameMax = 400
 export const dashboardsPartialUpdateBodyBreakdownColorsItemColorTokenRegExp = new RegExp('^preset-[1-9][0-9]\*$')
 export const dashboardsPartialUpdateBodyGroupTitlesMaxOne = 200
 
+export const dashboardsPartialUpdateBodyGroupRepeatsVariableMax = 100
+
+export const dashboardsPartialUpdateBodyGroupRepeatsDirectionDefault = `vertical`
 export const dashboardsPartialUpdateBodyTilesItemLayoutsOneSmOneXMin = 0
 export const dashboardsPartialUpdateBodyTilesItemLayoutsOneSmOneXMax = 11
 
@@ -373,6 +402,29 @@ export const DashboardsPartialUpdateBody = () => zod
             .nullish()
             .describe(
                 "Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles."
+            ),
+        group_repeats: zod
+            .record(
+                zod.string(),
+                zod.object({
+                    variable: zod
+                        .string()
+                        .max(dashboardsPartialUpdateBodyGroupRepeatsVariableMax)
+                        .describe(
+                            'Name of the metric dashboard variable, without the $. Each copy of the group gets one of its values.'
+                        ),
+                    direction: zod
+                        .enum(['vertical', 'horizontal'])
+                        .describe('\* `vertical` - vertical\n\* `horizontal` - horizontal')
+                        .default(dashboardsPartialUpdateBodyGroupRepeatsDirectionDefault)
+                        .describe(
+                            'Where the copies go. vertical stacks each copy below the one before it. horizontal puts the copies side by side, and starts a new row when the grid is full.\n\n\* `vertical` - vertical\n\* `horizontal` - horizontal'
+                        ),
+                })
+            )
+            .nullish()
+            .describe(
+                "Tile groups to repeat, keyed by the tiles' group_key. The dashboard shows one copy of each insight tile in the group for each selected value of the metric variable, with the variable set to that value. Edit mode shows only the original tiles. A write replaces the whole map. Send an empty object or null to stop all repeats."
             ),
         tiles: zod
             .array(

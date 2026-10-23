@@ -52,12 +52,14 @@ class NewInsightTile:
     query: dict[str, Any]
     layout: TileLayout
     show_description: bool | None = None
+    group_key: str | None = None
 
 
 @frozen
 class NewTextTile:
     body: str
     layout: TileLayout
+    group_key: str | None = None
 
     def __post_init__(self) -> None:
         if len(self.body) > MAX_TEXT_TILE_LENGTH:
@@ -77,6 +79,8 @@ class NewDashboard:
     # The product that created it opens it by id.
     unlisted: bool = False
     filters: dict[str, Any] | None = None
+    # Dashboard display settings, such as `group_repeats`, in the shape that the dashboard API returns.
+    customization: dict[str, Any] | None = None
 
 
 @frozen
@@ -139,6 +143,7 @@ def create_dashboard_with_tiles(*, team_id: int, user_id: int, dashboard: NewDas
                 **({"date_from": dashboard.date_from} if dashboard.date_from else {}),
             },
             creation_mode=Dashboard.CreationMode.UNLISTED if dashboard.unlisted else Dashboard.CreationMode.DEFAULT,
+            customization=dashboard.customization or {},
         )
         for index, tile in enumerate(dashboard.tiles):
             if isinstance(tile, NewInsightTile):
@@ -160,12 +165,17 @@ def create_dashboard_with_tiles(*, team_id: int, user_id: int, dashboard: NewDas
                     insight_id=insight_id,
                     layouts=_layouts(tile.layout),
                     show_description=tile.show_description,
+                    group_key=tile.group_key,
                 )
                 insight_count += 1
             else:
                 text = Text.objects.create(team_id=team_id, body=tile.body, created_by=user, last_modified_by=user)
                 created_tile = DashboardTile.objects.create(
-                    dashboard=created, team_id=team_id, text=text, layouts=_layouts(tile.layout)
+                    dashboard=created,
+                    team_id=team_id,
+                    text=text,
+                    layouts=_layouts(tile.layout),
+                    group_key=tile.group_key,
                 )
                 text_tile_count += 1
             tile_ids.append(created_tile.id)

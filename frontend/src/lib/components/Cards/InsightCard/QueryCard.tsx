@@ -9,7 +9,7 @@ import { urls } from 'scenes/urls'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { Query } from '~/queries/Query/Query'
-import { Node } from '~/queries/schema/schema-general'
+import { DashboardFilter, Node } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { InsightSceneSource } from '~/types'
 
@@ -29,6 +29,8 @@ export interface QueryCardProps extends Pick<InsightCardProps, 'highlighted' | '
     uniqueKey?: string | number
     /** Additional controls to show in the top controls area */
     extraControls?: JSX.Element | null
+    /** Dashboard filters that the query runs with */
+    filtersOverride?: DashboardFilter | null
 }
 
 /** This is like InsightCard, except for presentation of queries that aren't saved insights. */
@@ -45,6 +47,7 @@ export const QueryCard = React.forwardRef<HTMLDivElement, QueryCardProps>(functi
         attachTo,
         uniqueKey,
         extraControls,
+        filtersOverride,
         ...divProps
     },
     ref
@@ -96,6 +99,7 @@ export const QueryCard = React.forwardRef<HTMLDivElement, QueryCardProps>(functi
                         embedded
                         context={context}
                         uniqueKey={uniqueKey}
+                        filtersOverride={filtersOverride}
                     />
                 </div>
             </ErrorBoundary>

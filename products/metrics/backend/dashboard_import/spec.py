@@ -25,6 +25,7 @@ PanelOutcome = Literal["imported", "approximated", "failed", "skipped"]
 QueryLanguage = Literal["promql", "builder", "histogram", "hogql"]
 Aggregation = Literal["sum", "avg", "count", "min", "max", "p95", "rate", "increase", "histogram_quantile"]
 FilterOperator = Literal["eq", "neq", "regex", "not_regex"]
+RepeatDirection = Literal["vertical", "horizontal"]
 
 
 class _Model(BaseModel):
@@ -86,6 +87,13 @@ class PanelSpec(_Model):
     text: str | None = None
     notes: list[str] = Field(default_factory=list)
     skip_reason: str | None = None
+    # Panels that share a group key become a tile group. Only a repeated Grafana row or panel makes one.
+    group_key: str | None = None
+
+
+class GroupRepeatSpec(_Model):
+    variable: str
+    direction: RepeatDirection
 
 
 class DashboardSpec(_Model):
@@ -96,6 +104,7 @@ class DashboardSpec(_Model):
     variables: dict[str, str] = Field(default_factory=dict)
     # Dashboard variables that stay live on the imported dashboard, as MetricsDashboardVariable JSON.
     metric_variables: list[dict[str, Any]] = Field(default_factory=list)
+    group_repeats: dict[str, GroupRepeatSpec] = Field(default_factory=dict)
     notes: list[str] = Field(default_factory=list)
 
 

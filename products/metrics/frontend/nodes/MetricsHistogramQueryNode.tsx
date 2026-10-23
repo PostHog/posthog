@@ -8,7 +8,12 @@ import { cn } from 'lib/utils/css-classes'
 import { InsightErrorState } from 'scenes/insights/EmptyStates'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { AnyResponseType, MetricsHistogramQuery, MetricsHistogramQueryResponse } from '~/queries/schema/schema-general'
+import {
+    AnyResponseType,
+    DashboardFilter,
+    MetricsHistogramQuery,
+    MetricsHistogramQueryResponse,
+} from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
 import { HeatmapPanel } from '../panels/HeatmapPanel'
@@ -24,6 +29,8 @@ export function MetricsHistogramQueryNode(props: {
     attachTo?: LogicWrapper | BuiltLogic
     /** Set by dashboard tiles and notebooks, which reduce the UI to the data. */
     embedded?: boolean
+    /** Dashboard filters, such as metric variable selections, that the query runs with. */
+    filtersOverride?: DashboardFilter | null
 }): JSX.Element | null {
     const { onData, loadPriority, dataNodeCollectionId } = props.context.insightProps ?? {}
     const [key] = useState(() => `MetricsHistogramQueryNode.${uniqueNode++}`)
@@ -39,6 +46,7 @@ export function MetricsHistogramQueryNode(props: {
         loadPriority,
         onData,
         dataNodeCollectionId: dataNodeCollectionId ?? key,
+        filtersOverride: props.filtersOverride,
     })
 
     useAttachedLogic(logic, props.attachTo)

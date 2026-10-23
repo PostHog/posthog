@@ -40,6 +40,7 @@ from products.metrics.backend.dashboard_import.spec import (
     DisplaySpec,
     DisplayType,
     GridLayout,
+    GroupRepeatSpec,
     PanelKind,
     PanelSpec,
     Reducer,
@@ -199,6 +200,9 @@ class GrafanaDashboardParser:
         self._variables = TemplateVariables.from_templating(templating, self._datasource_type)
         self._has_adhoc_filters = any(isinstance(item, dict) and item.get("type") == "adhoc" for item in templating)
         self._used_keys: set[str] = set()
+        self._live_variables = {definition.name for definition in self._variables.definitions()}
+        # The row that each panel sits under, keyed by the id of the panel's dict.
+        self._row_of: dict[int, dict[str, Any]] = {}
 
     @staticmethod
     def _unwrap(raw: Any) -> _UnwrappedDashboard:
@@ -230,6 +234,7 @@ class GrafanaDashboardParser:
         panels = [self._panel(panel, layout) for panel, layout in items[:MAX_PANELS]]
         if not panels:
             raise GrafanaImportError("The dashboard has no panels to import.")
+        panels, group_repeats = self._repeat_groups([panel for panel, _ in items[:MAX_PANELS]], panels)
         time_range = _dict(self._dashboard.get("time"))
         date_from = relative_date(time_range.get("from"))
         if time_range.get("from") and date_from is None:
@@ -243,8 +248,43 @@ class GrafanaDashboardParser:
             panels=panels,
             variables=self._variables.summary(),
             metric_variables=[definition.model_dump(exclude_none=True) for definition in self._variables.definitions()],
+            group_repeats=group_repeats,
             notes=notes,
         )
+
+    def _live_repeat(self, panel: dict[str, Any]) -> str | None:
+        variable = panel.get("repeat")
+        return variable if isinstance(variable, str) and variable in self._live_variables else None
+
+    def _repeat_groups(
+        self, raw_panels: list[dict[str, Any]], panels: list[PanelSpec]
+    ) -> tuple[list[PanelSpec], dict[str, GroupRepeatSpec]]:
+        """Put the panels of a repeated row, or a repeated panel alone, in a tile group that repeats."""
+        grouped: list[PanelSpec] = []
+        repeats: dict[str, GroupRepeatSpec] = {}
+        row_keys: dict[int, str] = {}
+        for raw, panel in zip(raw_panels, panels):
+            row = self._row_of.get(id(raw))
+            if panel.kind == "row":
+                grouped.append(panel)
+            elif row is not None and (variable := self._live_repeat(row)):
+                row_id = row.get("id")
+                key = row_keys.setdefault(
+                    id(row),
+                    f"r{row_id}"
+                    if isinstance(row_id, int) and not isinstance(row_id, bool)
+                    else f"r{len(row_keys) + 1}x",
+                )
+                repeats[key] = GroupRepeatSpec(variable=variable, direction="vertical")
+                grouped.append(panel.model_copy(update={"group_key": key}))
+            elif variable := self._live_repeat(raw):
+                # Grafana repeats a panel horizontally unless it says otherwise.
+                direction = "vertical" if raw.get("repeatDirection") == "v" else "horizontal"
+                repeats[panel.key] = GroupRepeatSpec(variable=variable, direction=direction)
+                grouped.append(panel.model_copy(update={"group_key": panel.key}))
+            else:
+                grouped.append(panel)
+        return grouped, repeats
 
     def _ordered_items(self) -> list[tuple[dict[str, Any], GridLayout]]:
         packer = GridPacker()
@@ -252,14 +292,17 @@ class GrafanaDashboardParser:
             return self._legacy_rows(packer)
         items: list[tuple[dict[str, Any], GridLayout]] = []
         top_level = [panel for panel in _list(self._dashboard.get("panels")) if isinstance(panel, dict)]
+        current_row: dict[str, Any] | None = None
         for panel in sorted(top_level, key=lambda panel: (_grid_coordinate(panel, "y"), _grid_coordinate(panel, "x"))):
             if panel.get("type") == "row":
+                current_row = None if panel.get("collapsed") else panel
                 if _text(panel.get("title"), MAX_TITLE_LENGTH):
                     items.append((panel, packer.place_full_width(h=1)))
                 else:
                     packer.start_band()
                 if panel.get("collapsed"):
                     children = [child for child in _list(panel.get("panels")) if isinstance(child, dict)]
+                    self._row_of.update((id(child), panel) for child in children)
                     items.extend(
                         (child, self._place(packer, child))
                         for child in sorted(
@@ -267,6 +310,8 @@ class GrafanaDashboardParser:
                         )
                     )
                 continue
+            if current_row is not None:
+                self._row_of[id(panel)] = current_row
             items.append((panel, self._place(packer, panel)))
         return items
 
@@ -290,6 +335,7 @@ class GrafanaDashboardParser:
                 if column + width > GRID_COLUMNS:
                     packer.start_band()
                     column = 0
+                self._row_of[id(panel)] = row
                 items.append((panel, packer.place(x=column, w=width, h=height)))
                 column += width
             packer.start_band()
@@ -357,7 +403,7 @@ class GrafanaDashboardParser:
         notes: list[str] = []
         if approximation := _APPROXIMATED_TYPES.get(grafana_type):
             notes.append(approximation)
-        if panel.get("repeat"):
+        if panel.get("repeat") and not self._live_repeat(panel):
             notes.append("Grafana repeats this panel for each variable value. The import keeps one panel.")
         if panel.get("transformations"):
             notes.append("Grafana transformations are not imported.")

@@ -1,6 +1,7 @@
 import json
 import datetime
 from collections.abc import Callable
+from typing import Any
 
 import time_machine
 from posthog.test.base import APIBaseTest, FuzzyInt, QueryMatchingTest, snapshot_postgres_queries
@@ -789,6 +790,53 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         )
 
         self.assertEqual(response["attr"], "group_titles")
+
+    def test_dashboard_group_repeats_are_saved_replaced_cleared_and_duplicated(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        self.dashboard_api.update_dashboard(dashboard_id, {"group_titles": {"endpoints": "Endpoints"}})
+
+        _, updated = self.dashboard_api.update_dashboard(
+            dashboard_id, {"group_repeats": {" endpoints ": {"variable": "endpoint"}}}
+        )
+        self.assertEqual(
+            updated["customization"],
+            {
+                "group_titles": {"endpoints": "Endpoints"},
+                "group_repeats": {"endpoints": {"variable": "endpoint", "direction": "vertical"}},
+            },
+        )
+
+        _, updated = self.dashboard_api.update_dashboard(
+            dashboard_id, {"group_repeats": {"regions": {"variable": "region", "direction": "horizontal"}}}
+        )
+        self.assertEqual(
+            updated["customization"]["group_repeats"], {"regions": {"variable": "region", "direction": "horizontal"}}
+        )
+
+        _, copied = self.dashboard_api.create_dashboard({"name": "copy", "use_dashboard": dashboard_id})
+        self.assertEqual(
+            copied["customization"]["group_repeats"], {"regions": {"variable": "region", "direction": "horizontal"}}
+        )
+
+        _, updated = self.dashboard_api.update_dashboard(dashboard_id, {"group_repeats": None})
+        self.assertEqual(updated["customization"], {"group_titles": {"endpoints": "Endpoints"}})
+
+    @parameterized.expand(
+        [
+            ("blank_key", {"   ": {"variable": "endpoint"}}),
+            ("blank_variable", {"endpoints": {"variable": " "}}),
+            ("unknown_direction", {"endpoints": {"variable": "endpoint", "direction": "diagonal"}}),
+            ("too_many_repeats", {f"group-{index}": {"variable": "endpoint"} for index in range(101)}),
+        ]
+    )
+    def test_dashboard_group_repeats_are_rejected_when_invalid(self, _name: str, group_repeats: dict[str, Any]) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+
+        _, response = self.dashboard_api.update_dashboard(
+            dashboard_id, {"group_repeats": group_repeats}, expected_status=status.HTTP_400_BAD_REQUEST
+        )
+
+        self.assertIn("group_repeats", response["attr"])
 
     @parameterized.expand([("horizontal",), ("stable",)])
     def test_dashboard_layout_compaction_is_saved_and_duplicated(self, layout_compaction: str) -> None:

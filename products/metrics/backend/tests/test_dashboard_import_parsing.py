@@ -184,6 +184,86 @@ def test_legacy_rows_place_spans_side_by_side_under_a_title() -> None:
     assert single_stat.display.reduce == "last"
 
 
+_ENDPOINT_VARIABLE = {"name": "endpoint", "type": "custom", "query": "list,get", "current": {"value": "list"}}
+
+
+def _timeseries(panel_id: int, y: int, **extra: Any) -> dict[str, Any]:
+    return {
+        "id": panel_id,
+        "type": "timeseries",
+        "title": f"Panel {panel_id}",
+        "gridPos": {"x": 0, "y": y, "w": 12, "h": 8},
+        "targets": [{"refId": "A", "expr": 'sum(rate(requests_total{endpoint="$endpoint"}[5m]))'}],
+        **extra,
+    }
+
+
+@pytest.mark.parametrize(
+    "panels, templating, group_keys, group_repeats, repeat_notes",
+    [
+        pytest.param(
+            [
+                {"id": 1, "type": "row", "title": "$endpoint", "repeat": "endpoint", "gridPos": {"y": 0}},
+                _timeseries(2, 1),
+                _timeseries(3, 1),
+                {"id": 4, "type": "row", "title": "Totals", "gridPos": {"y": 9}},
+                _timeseries(5, 10),
+            ],
+            [_ENDPOINT_VARIABLE],
+            {"p2": "r1", "p3": "r1"},
+            {"r1": {"variable": "endpoint", "direction": "vertical"}},
+            [],
+            id="a_repeated_row_groups_the_panels_under_it",
+        ),
+        pytest.param(
+            [
+                {
+                    "id": 1,
+                    "type": "row",
+                    "repeat": "endpoint",
+                    "collapsed": True,
+                    "gridPos": {"y": 0},
+                    "panels": [_timeseries(2, 1)],
+                }
+            ],
+            [_ENDPOINT_VARIABLE],
+            {"p2": "r1"},
+            {"r1": {"variable": "endpoint", "direction": "vertical"}},
+            [],
+            id="a_collapsed_repeated_row_without_a_title_groups_its_panels",
+        ),
+        pytest.param(
+            [_timeseries(1, 0, repeat="endpoint", repeatDirection="v")],
+            [_ENDPOINT_VARIABLE],
+            {"p1": "p1"},
+            {"p1": {"variable": "endpoint", "direction": "vertical"}},
+            [],
+            id="a_repeated_panel_is_a_group_of_one",
+        ),
+        pytest.param(
+            [_timeseries(1, 0, repeat="endpoint")],
+            [],
+            {},
+            {},
+            ["Grafana repeats this panel for each variable value. The import keeps one panel."],
+            id="a_variable_that_is_not_live_keeps_one_panel",
+        ),
+    ],
+)
+def test_maps_grafana_repeats_to_repeated_tile_groups(
+    panels: list[dict[str, Any]],
+    templating: list[dict[str, Any]],
+    group_keys: dict[str, str],
+    group_repeats: dict[str, dict[str, str]],
+    repeat_notes: list[str],
+) -> None:
+    spec = GrafanaDashboardParser({"panels": panels, "templating": {"list": templating}}).parse()
+
+    assert {panel.key: panel.group_key for panel in spec.panels if panel.group_key} == group_keys
+    assert {key: repeat.model_dump() for key, repeat in spec.group_repeats.items()} == group_repeats
+    assert [note for panel in spec.panels for note in panel.notes if "repeats" in note] == repeat_notes
+
+
 @pytest.mark.parametrize(
     "raw, expected_title",
     [

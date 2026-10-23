@@ -162,6 +162,24 @@ class TestDashboardImportAPI(APIBaseTest):
             ("Panel 3", None),
         }
 
+    def test_imports_a_repeated_panel_as_a_repeated_tile_group(self) -> None:
+        grafana = json.loads(
+            _grafana(
+                'sum(rate(orders_total{job="$job"}[5m]))',
+                templating=[{"name": "job", "type": "custom", "query": "api,web", "current": {"value": "api"}}],
+            )
+        )
+        grafana["panels"][1]["repeat"] = "job"
+
+        body = self._start(source="grafana", grafana_json=json.dumps(grafana))
+
+        assert body["summary"] == {"total": 2, "imported": 2, "approximated": 0, "failed": 0, "skipped": 0}
+        dashboard = Dashboard.objects.get(id=body["dashboard_id"])
+        assert dashboard.customization == {"group_repeats": {"p2": {"variable": "job", "direction": "horizontal"}}}
+        assert {
+            (tile.insight is not None, tile.group_key) for tile in DashboardTile.objects.filter(dashboard=dashboard)
+        } == {(False, None), (True, "p2")}
+
     def test_starts_a_read_only_agent_for_panels_it_cannot_match(self) -> None:
         body = self._start(
             source="grafana",

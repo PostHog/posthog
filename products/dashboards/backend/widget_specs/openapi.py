@@ -13,7 +13,11 @@ from products.dashboards.backend.constants import (
     MAX_GROUP_KEY_LENGTH,
     MAX_GROUP_TITLE_LENGTH,
 )
-from products.dashboards.backend.models.dashboard import DASHBOARD_GRID_COMPACTION_MODES, DASHBOARD_GRID_SPACING_GAPS
+from products.dashboards.backend.models.dashboard import (
+    DASHBOARD_GRID_COMPACTION_MODES,
+    DASHBOARD_GRID_SPACING_GAPS,
+    GroupRepeatDirection,
+)
 from products.dashboards.backend.models.dashboard_tile import DashboardTileBadge
 from products.dashboards.backend.widget_specs.pydantic_openapi import pydantic_config_field, pydantic_stub_serializer
 from products.dashboards.backend.widget_specs.registry import EXPECTED_WIDGET_TYPES, WIDGET_SPECS
@@ -21,6 +25,12 @@ from products.dashboards.backend.widget_specs.registry import EXPECTED_WIDGET_TY
 GROUP_TITLES_HELP_TEXT = (
     "Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. "
     "A write replaces the whole map. Send an empty object or null to remove all group titles."
+)
+GROUP_REPEATS_HELP_TEXT = (
+    "Tile groups to repeat, keyed by the tiles' group_key. The dashboard shows one copy of each insight tile "
+    "in the group for each selected value of the metric variable, with the variable set to that value. "
+    "Edit mode shows only the original tiles. A write replaces the whole map. "
+    "Send an empty object or null to stop all repeats."
 )
 GROUP_KEY_HELP_TEXT = (
     "Key that puts this tile in a group with the other tiles that have the same key on this dashboard. "
@@ -70,6 +80,21 @@ def _config_model_openapi_prefix(config_model: type[BaseModel]) -> str:
     if name.endswith("Config"):
         return name[: -len("Config")]
     return name
+
+
+class DashboardGroupRepeatSerializer(serializers.Serializer):
+    variable = serializers.CharField(
+        max_length=MAX_GROUP_KEY_LENGTH,
+        help_text="Name of the metric dashboard variable, without the $. Each copy of the group gets one of its values.",
+    )
+    direction = serializers.ChoiceField(
+        choices=GroupRepeatDirection.choices,
+        default=GroupRepeatDirection.VERTICAL,
+        help_text=(
+            "Where the copies go. vertical stacks each copy below the one before it. "
+            "horizontal puts the copies side by side, and starts a new row when the grid is full."
+        ),
+    )
 
 
 class _TileLayoutBoxOpenApiSerializer(serializers.Serializer):
@@ -464,6 +489,12 @@ class PatchedDashboardOpenApiSerializer(serializers.Serializer):
         required=False,
         allow_null=True,
         help_text=GROUP_TITLES_HELP_TEXT,
+    )
+    group_repeats = serializers.DictField(
+        child=DashboardGroupRepeatSerializer(),
+        required=False,
+        allow_null=True,
+        help_text=GROUP_REPEATS_HELP_TEXT,
     )
     tiles = DashboardPatchTileOpenApiSerializer(
         many=True,

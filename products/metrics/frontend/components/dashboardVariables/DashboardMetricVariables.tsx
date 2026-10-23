@@ -18,7 +18,7 @@ const NO_VARIABLES: MetricsDashboardVariable[] = []
 
 export function DashboardMetricVariables({ editable = true }: { editable?: boolean }): JSX.Element | null {
     const { dashboard, dashboardEditing, effectiveEditBarFilters } = useValues(dashboardLogic)
-    const { setMetricVariables, setDashboardEditing } = useActions(dashboardLogic)
+    const { setMetricVariables, setMetricVariableOptions, setDashboardEditing } = useActions(dashboardLogic)
     const [editorOpen, setEditorOpen] = useState(false)
 
     const metricVariables = effectiveEditBarFilters.metricVariables
@@ -39,6 +39,7 @@ export function DashboardMetricVariables({ editable = true }: { editable?: boole
         dateFrom: effectiveEditBarFilters.date_from,
         dateTo: effectiveEditBarFilters.date_to,
         onSelectionsChange: change,
+        onOptionsChange: setMetricVariableOptions,
     })
     const { options, loadingNames, errors, pendingVariables } = useValues(logic)
     const { retry, select, stage } = useActions(logic)

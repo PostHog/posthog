@@ -189,7 +189,10 @@ class _LayoutConverter:
         width = _int(w, 12)
         height = _int(h if h is not None else spec.get("height"), 8)
         panel["gridPos"] = {"x": x, "y": y, "w": width, "h": height}
-        if _dict(spec.get("repeat")).get("value"):
-            panel["repeat"] = _dict(spec.get("repeat")).get("value")
+        repeat = _dict(spec.get("repeat"))
+        if repeat.get("value"):
+            panel["repeat"] = repeat.get("value")
+            if repeat.get("direction"):
+                panel["repeatDirection"] = repeat.get("direction")
         self.panels.append(panel)
         self._next_y = max(self._next_y, y + height)
