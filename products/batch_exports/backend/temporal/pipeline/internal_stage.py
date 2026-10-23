@@ -572,10 +572,10 @@ async def _get_query(
                 filter_distinct_ids = """
                 HAVING
                     (
-                        _timestamp >= {interval_start}::DateTime64
+                        _timestamp >= %(interval_start)s::DateTime64
                     )
                     AND (
-                        _timestamp < {interval_end}::DateTime64
+                        _timestamp < %(interval_end)s::DateTime64
                     )
                 """
             else:

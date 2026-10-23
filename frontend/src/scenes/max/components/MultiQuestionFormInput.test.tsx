@@ -5,7 +5,7 @@ import { useActions } from 'kea'
 
 import type { MultiQuestionForm } from '~/queries/schema/schema-assistant-messages'
 
-import { MultiQuestionFormInput } from './InputFormArea'
+import { MultiQuestionFormInput } from './MultiQuestionFormInput'
 
 jest.mock('kea', () => ({
     ...jest.requireActual('kea'),

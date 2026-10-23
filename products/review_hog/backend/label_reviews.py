@@ -84,6 +84,17 @@ def draft_review_notice(comment_commands_on: bool) -> str:
     )
 
 
+def first_review_note(review_link: str, deep_command: bool) -> str:
+    """The note the first review on a pull request ends with: where to see the review, and how to ask for Deep."""
+    note = f"See this review and its findings in [PostHog Review]({review_link})."
+    if deep_command:
+        note = (
+            f"{note} Comment `@posthog review --deep` for a Deep review. "
+            "A Deep review takes longer and looks deeper than a Standard review."
+        )
+    return note
+
+
 LabelReviewOutcome = Literal[
     "repository_not_added",
     "installation_mismatch",
