@@ -128,12 +128,28 @@ class TestBuildCompatibilityHint:
                 "Aggregation 'count' cannot be nested inside another aggregation 'avg'.",
                 "`count` is nested inside another aggregate",
             ),
+            (
+                "no_common_type",
+                "Code: 386. DB::Exception: There is no supertype for types String, UInt8 because some of them are String/FixedString and some of them are not. (NO_COMMON_TYPE)",
+                "ClickHouse has no common type for String, UInt8",
+            ),
         ]
     )
     def test_clickhouse_rejection_names_the_accepted_shape(self, _name: str, message: str, expected_start: str) -> None:
         hint = build_compatibility_hint(message)
         assert hint is not None
         assert expected_start in hint
+
+    @parameterized.expand([("string_and_number", "String, UInt8", True), ("date_and_number", "Date, UInt16", False)])
+    def test_no_common_type_cast_advice_follows_string_types(
+        self, _name: str, types: str, expects_cast_advice: bool
+    ) -> None:
+        hint = build_compatibility_hint(
+            f"Code: 386. DB::Exception: There is no supertype for types {types} because some of them are "
+            "String/FixedString and some of them are not. (NO_COMMON_TYPE)"
+        )
+        assert hint is not None
+        assert ("toFloat(properties.x)" in hint) == expects_cast_advice
 
     def test_long_printed_property_aggregate_is_matched_and_shortened(self) -> None:
         expression = (

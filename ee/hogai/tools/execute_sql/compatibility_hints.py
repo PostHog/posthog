@@ -64,6 +64,8 @@ _ILLEGAL_ARGUMENT_TYPE_RES = (
     re.compile(r"Illegal types? (.{1,120}?) of arguments? for aggregate function (\w+)"),
     re.compile(r"Illegal types? of arguments? \((.{1,120}?)\) of function (\w+)"),
 )
+# A comparison or IN between a string property and a number fails before any function is named.
+_NO_COMMON_TYPE_RE = re.compile(r"There is no supertype for types (.{1,120}?) because")
 _DISPLAY_LIMIT = 80
 _TYPE_WRAPPER_RE = re.compile(r"(?:Nullable|LowCardinality)\(([^()]*)\)")
 # A column ClickHouse names back to us is HogQL only when it is a plain field chain. Printed
@@ -111,6 +113,7 @@ def build_compatibility_hint(error_message: str) -> str | None:
         _aggregate_in_filter_rewrite,
         _not_an_aggregate_rewrite,
         _argument_type_rewrite,
+        _no_common_type_rewrite,
     ):
         rewrite = rule(error_message)
         if rewrite is not None:
@@ -203,7 +206,20 @@ def _argument_type_rewrite(error_message: str) -> str | None:
     if match is None:
         return None
     types, function = match.group(1), match.group(2)
-    lead = f"`{function}` does not accept {types}."
+    return _type_mismatch_advice(f"`{function}` does not accept {types}.", types)
+
+
+def _no_common_type_rewrite(error_message: str) -> str | None:
+    match = _NO_COMMON_TYPE_RE.search(error_message)
+    if match is None:
+        return None
+    types = match.group(1)
+    return _type_mismatch_advice(
+        f"ClickHouse has no common type for {types}, so it cannot compare or combine them.", types
+    )
+
+
+def _type_mismatch_advice(lead: str, types: str) -> str:
     if not _names_a_string_type(types):
         return f"{lead} Check the argument types with toTypeName(x) and convert them to what the function expects."
     return (
