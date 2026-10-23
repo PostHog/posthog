@@ -25,7 +25,7 @@ export const emailStatusMissingRecipientHash = new Counter({
 })
 
 // The rank is the high part of the row version, so a status only moves forward: a late `sent`
-// never replaces `delivered`. `failed` ranks above `sent` because SES can reject an email it accepted.
+// never replaces `delivered`. A `failed` from SES ranks above `sent`, because SES can reject an email it accepted.
 const STATUS_RANK = {
     queued: 0,
     unknown: 1,
@@ -38,6 +38,15 @@ const STATUS_RANK = {
 } as const
 
 export type EmailStatus = keyof typeof STATUS_RANK
+
+// A rerun keeps the message id, so its `skipped` or `sent` must replace the failed attempt it reruns.
+// Such a failure ranks with `unknown`, another attempt outcome that the next attempt replaces.
+const ATTEMPT_FAILURE_REASONS: ReadonlySet<string> = new Set(['provider_error', 'gave_up'])
+
+const rankOf = (status: EmailStatus, reason: string | undefined): number =>
+    status === 'failed' && reason !== undefined && ATTEMPT_FAILURE_REASONS.has(reason)
+        ? STATUS_RANK.unknown
+        : STATUS_RANK[status]
 
 export type StatusChange = {
     teamId: number
@@ -69,7 +78,8 @@ type EmailStatusRow = {
 
 const STATUS_TIME_BITS = 2 ** 48
 
-const versionOf = (status: EmailStatus, at: Date): number => STATUS_RANK[status] * STATUS_TIME_BITS + at.getTime()
+const versionOf = (change: StatusChange): number =>
+    rankOf(change.status, change.reason) * STATUS_TIME_BITS + change.at.getTime()
 
 // A UUIDT carries its creation time in milliseconds in its first 48 bits. Every row of a message
 // derives `created_at` from the message id, so the rows share a partition and replace each other.
@@ -147,7 +157,7 @@ export class EmailStatusService implements EmailStatusWriter {
             team_id: change.teamId,
             message_id: change.messageId,
             status: change.status,
-            version: versionOf(change.status, change.at),
+            version: versionOf(change),
             created_at: clickhouseDateTime64(createdAtOf(change.messageId)),
             status_at: clickhouseDateTime64(change.at),
             reason: change.reason ?? '',
