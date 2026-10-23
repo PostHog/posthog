@@ -64,7 +64,7 @@ export interface emailDomainAgentLogicMeta {
             domain: string | null,
             mailFromSubdomain: string,
             currentTeamId: number | null,
-            integrationId: any,
+            integrationId: number | null,
             pageUrl: string | null,
             dnsHost: EmailDomainDnsHostApi | null,
             supportsDomainConnect: boolean,

@@ -52,12 +52,12 @@ export interface domainConnectLogicActions {
         errorObject?: any
     }
     checkDomainSuccess: (
-        domainConnectInfo: DomainConnectInfo | null,
+        domainConnectInfo: EmailDomainConnectCheckApi | null,
         payload?: {
             value: true
         }
     ) => {
-        domainConnectInfo: DomainConnectInfo | null
+        domainConnectInfo: EmailDomainConnectCheckApi | null
         payload?: {
             value: true
         }
