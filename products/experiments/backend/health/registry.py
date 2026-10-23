@@ -1,4 +1,5 @@
 from collections.abc import Callable, Sequence
+from typing import assert_never
 
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
@@ -149,6 +150,8 @@ def evaluate(ctx: HealthContext, checks: Sequence[HealthCheck]) -> ExperimentHea
                 results.append(_result(check, ExperimentHealthCheckStatus.FINDING, None))
             case None:
                 results.append(_result(check, ExperimentHealthCheckStatus.PASSED, None))
+            case _:
+                assert_never(outcome)
     return ExperimentHealth(findings=tuple(findings), checks=tuple(results))
 
 

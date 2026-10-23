@@ -19,15 +19,10 @@ from products.experiments.backend.health.checks.zero_exposures import (
     FLAG_NOT_CALLED,
     zero_exposures,
 )
-from products.experiments.backend.health.context import (
-    ExposureEvents,
-    ExposureTotals,
-    FlagState,
-    FlagVariant,
-    load_health_context,
-)
+from products.experiments.backend.health.context import ExposureEvents, ExposureTotals, FlagState, load_health_context
 from products.experiments.backend.health.test.factories import RUNNING_CONTEXT
 from products.experiments.backend.models.experiment import Experiment
+from products.feature_flags.backend.facade.edits import FlagVariant
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig

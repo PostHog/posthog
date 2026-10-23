@@ -17,6 +17,14 @@ from products.experiments.backend.health.checks.flag_change_findings import flag
 from products.experiments.backend.health.checks.flag_state import flag_state
 from products.experiments.backend.health.checks.split_changed import split_changed_mid_run
 from products.experiments.backend.health.context import FlagHistoryNotCheckedReason, HealthContext, parse_flag_state
+from products.experiments.backend.health.skips import (
+    FLAG_DELETED,
+    NEEDS_VARIANTS,
+    NOT_AFTER_END,
+    NOT_ON_ARCHIVED,
+    CheckSkip,
+    not_applicable,
+)
 from products.experiments.backend.health.test.factories import ENDED, RUNNING, RUNNING_CONTEXT, Status, flag_history
 from products.feature_flags.backend.facade.edits import SplitChange, parse_variants
 
@@ -413,19 +421,24 @@ class TestSplitChangedMidRun(TestCase):
 
     @parameterized.expand(
         [
-            ("ended", _context(EVEN, UNEVEN, status=ENDED)),
-            ("archived", _context(EVEN, UNEVEN, archived=True)),
-            ("deleted_flag", _context(EVEN, UNEVEN, deleted=True)),
-            ("nobody_exposed_before_any_change", _context(EVEN)),
-            ("flag_without_variants_reported_by_flag_variants_mismatch", _context(EVEN, [])),
+            ("ended", _context(EVEN, UNEVEN, status=ENDED), not_applicable(NOT_AFTER_END)),
+            ("archived", _context(EVEN, UNEVEN, archived=True), not_applicable(NOT_ON_ARCHIVED)),
+            ("deleted_flag", _context(EVEN, UNEVEN, deleted=True), not_applicable(FLAG_DELETED)),
+            ("nobody_exposed_before_any_change", _context(EVEN), None),
+            (
+                "flag_without_variants_reported_by_flag_variants_mismatch",
+                _context(EVEN, []),
+                not_applicable(NEEDS_VARIANTS),
+            ),
             (
                 "not_checked_on_an_ended_experiment",
                 _context(EVEN, status=ENDED, not_checked=FlagHistoryNotCheckedReason.NO_HISTORY_ACCESS),
+                not_applicable(NOT_AFTER_END),
             ),
         ]
     )
-    def test_no_finding(self, _name: str, ctx: HealthContext) -> None:
-        self.assertIsNone(_split_code_finding(ctx))
+    def test_no_finding(self, _name: str, ctx: HealthContext, expected: CheckSkip | None) -> None:
+        self.assertEqual((_split_code_finding(ctx), split_changed_mid_run(ctx)), (None, expected))
 
     @parameterized.expand(
         [

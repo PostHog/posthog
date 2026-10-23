@@ -148,9 +148,9 @@ def _edited_overrides(effect: ConditionsNetEffect) -> list[str]:
 def removed_overrides_to_grade(ctx: HealthContext) -> PinnedConditions | None:
     """The overrides removed after launch, as pins on the conditions that held them, which the finding is graded
     by as if they were still in place. None when no removed override has a condition left to count its users."""
-    history = ctx.flag_history
+    history = changes_to_check(ctx)
     flag = ctx.flag
-    if not isinstance(history, FlagHistory) or flag is None or flag.deleted or not ctx.is_running or ctx.archived:
+    if not isinstance(history, FlagHistory) or flag is None:
         return None
     effect = conditions_net_effect(history.counted(ConditionsChange), current=history.release_conditions)
     if effect is None:
