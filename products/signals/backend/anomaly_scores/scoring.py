@@ -1,4 +1,5 @@
 import json
+import math
 import hashlib
 import dataclasses
 from collections.abc import Sequence
@@ -10,11 +11,12 @@ import numpy as np
 
 from posthog.schema import BreakdownFilter, ChartDisplayType, DateRange, IntervalType, TrendsQuery
 
-from posthog.hogql.constants import LimitContext
+from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 
 from posthog.api.services.query import ExecutionMode
-from posthog.caching.calculate_results import calculate_for_query_based_insight
-from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.clickhouse.client.connection import ClickHouseUser
+from posthog.clickhouse.query_tagging import Feature, Product, get_team_query_tags, tag_queries
+from posthog.clickhouse.workload import Workload
 from posthog.dataclasses import frozen
 from posthog.event_usage import EventSource
 from posthog.hogql_queries.utils.breakdowns import has_breakdown_filter
@@ -26,6 +28,7 @@ from posthog.tasks.alerts.detectors.registry import get_detector
 from posthog.tasks.alerts.utils import WRAPPER_NODE_KINDS, is_non_time_series_trend
 
 from products.product_analytics.backend.facade.models import Insight
+from products.product_analytics.backend.facade.queries import TrendsQueryRunner
 from products.signals.backend.anomaly_scores.config import (
     DEFAULT_LIMITS,
     IntervalScoring,
@@ -36,6 +39,12 @@ from products.signals.backend.anomaly_scores.config import (
 
 # Naming fields do not change what a series counts, so a rename keeps its key.
 _SERIES_NAMING_FIELDS = {"custom_name", "name"}
+
+_DATE_UNITS = {IntervalType.HOUR: "h", IntervalType.DAY: "d", IntervalType.WEEK: "w", IntervalType.MONTH: "m"}
+
+# The scoring query runs as background work, so it gets more time than a chart query and fewer threads.
+# A timeout must throw: a partial result cuts off the end of the series, and that end scores as a drop.
+SCORING_QUERY_SETTINGS = HogQLGlobalSettings(max_execution_time=150, max_threads=8, timeout_overflow_mode="throw")
 
 
 class UnsupportedInsightError(Exception):
@@ -108,16 +117,71 @@ def interval_scoring(profile: ScoringProfile, interval: IntervalType) -> Interva
     return scoring
 
 
-def build_scoring_query(
-    query: TrendsQuery, scoring: IntervalScoring, limits: ScoringLimits = DEFAULT_LIMITS
-) -> TrendsQuery:
-    """Fetch the scorer's lookback instead of the chart's date range.
+def _detector_history(detector: dict[str, Any]) -> int:
+    """Buckets the detector reads to score its newest bucket. A detector without a window reads all it gets."""
+    if isinstance(detector.get("detectors"), list):
+        return max((_detector_history(sub) for sub in detector["detectors"]), default=0)
+    window = detector.get("window")
+    if not isinstance(window, int):
+        return 0
+    preprocessing = detector.get("preprocessing") or {}
+    # Differencing and trailing smoothing each read buckets before the first one they output.
+    consumed = (
+        (1 if preprocessing.get("diffs_n") else 0)
+        + max((preprocessing.get("smooth_n") or 0) - 1, 0)
+        + (preprocessing.get("lags_n") or 0)
+    )
+    return window + max(detector.get("training_offset_n", 1), 1) + consumed
+
+
+def history_buckets(scoring: IntervalScoring) -> int:
+    """Completed buckets up to and including a scored bucket that its score depends on."""
+    return max(scoring.min_points, _detector_history(scoring.detector))
+
+
+def buckets_to_score(
+    interval: IntervalType,
+    *,
+    now: datetime,
+    after: datetime | None,
+    timezone: ZoneInfo,
+    limits: ScoringLimits = DEFAULT_LIMITS,
+) -> int:
+    if after is None:
+        return limits.max_backfill_buckets
+    count = 0
+    start = bucket_end(after.astimezone(timezone), interval)
+    while count < limits.max_backfill_buckets and bucket_end(start, interval) <= now:
+        count += 1
+        start = bucket_end(start, interval)
+    return max(count, 1)
+
+
+def fetch_buckets(query: TrendsQuery, scoring: IntervalScoring, to_score: int) -> int:
+    """Completed buckets the scoring query fetches: the history of the oldest bucket to score, then the rest.
+
+    The count has one bucket more than the scores read, so a first bucket that the date range cuts short is never read.
+    """
+    count = history_buckets(scoring) + to_score
+    smoothing = query.trendsFilter.smoothingIntervals if query.trendsFilter else None
+    if smoothing and smoothing > 1:
+        # Trends smooths over the fetched buckets only, so the oldest values need their own trailing window.
+        count += smoothing - 1
+    days_of_week = query.dateRange.daysOfWeek if query.dateRange else None
+    if days_of_week and _interval(query) == IntervalType.DAY:
+        # Trends drops the buckets of the days that the filter leaves out.
+        count = math.ceil(count * 7 / len(set(days_of_week)))
+    return count
+
+
+def build_scoring_query(query: TrendsQuery, buckets: int, limits: ScoringLimits = DEFAULT_LIMITS) -> TrendsQuery:
+    """Fetch the newest ``buckets`` completed buckets instead of the chart's date range.
 
     Series, filters and formulas stay as they are, so the scores describe the series the chart shows.
     """
     days_of_week = query.dateRange.daysOfWeek if query.dateRange else None
     update: dict[str, Any] = {
-        "dateRange": DateRange(date_from=scoring.lookback, daysOfWeek=days_of_week),
+        "dateRange": DateRange(date_from=f"-{buckets}{_DATE_UNITS[_interval(query)]}", daysOfWeek=days_of_week),
         "compareFilter": None,
     }
     if has_breakdown_filter(query.breakdownFilter):
@@ -184,27 +248,35 @@ def score_insight(
     query = trends_query_for(insight, profile)
     interval = _interval(query)
     scoring = interval_scoring(profile, interval)
-    scoring_query = build_scoring_query(query, scoring, limits)
+    timezone = team.timezone_info
+    to_score = buckets_to_score(interval, now=now, after=after, timezone=timezone, limits=limits)
+    scoring_query = build_scoring_query(query, fetch_buckets(query, scoring, to_score), limits)
 
+    tag_queries(**get_team_query_tags(team), insight_id=insight.pk)
     tag_queries(product=Product.SIGNALS, feature=Feature.ALERTING)
-    calculation = calculate_for_query_based_insight(
-        insight,
+    runner = TrendsQueryRunner(
+        query=scoring_query,
         team=team,
-        execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
         # No request user. Run as the insight's creator so warehouse access control resolves for them.
         user=insight.created_by,
-        query_override=scoring_query.model_dump(exclude_none=True),
-        analytics_props={"source": EventSource.SELF_DRIVING},
-        # The async context raises the ClickHouse timeout to minutes. One slow insight must not hold a tick.
+        # The async context raises the timeout above SCORING_QUERY_SETTINGS. One slow insight must not hold a tick.
         limit_context=LimitContext.QUERY,
+        workload=Workload.OFFLINE,
+        ch_user=ClickHouseUser.DEFAULT,
+        hogql_settings=SCORING_QUERY_SETTINGS,
     )
-    if calculation.result is None:
+    response = runner.run(
+        execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+        insight_id=insight.pk,
+        analytics_props={"source": EventSource.SELF_DRIVING},
+    )
+    results = getattr(response, "results", None)
+    if not isinstance(results, list):
         raise RuntimeError(f"No results for insight {insight.pk}")
 
-    timezone = team.timezone_info
     series: list[ScoredSeries] = []
     key_counts: dict[str, int] = {}
-    for result in cast(list[dict[str, Any]], calculation.result)[: limits.max_series]:
+    for result in cast(list[dict[str, Any]], results)[: limits.max_series]:
         buckets = [_parse_bucket(day, timezone) for day in result.get("days") or []]
         breakdown_value = _breakdown_label(result.get("breakdown_value"))
         key = series_key(insight.pk, _series_definition(scoring_query, result), breakdown_value)

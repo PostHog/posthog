@@ -4,6 +4,7 @@ The `anomaly-scoring` flag payload holds every lever, and a missing or malformed
 tick off. Each insight activity scores one insight and writes its new buckets as `$anomaly_score` events.
 """
 
+import time
 import asyncio
 import datetime
 from collections import Counter
@@ -15,7 +16,15 @@ import structlog
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
+from posthog.hogql.errors import TableAccessDeniedError
+
 from posthog.dataclasses import frozen
+from posthog.exceptions import (
+    ClickHouseClusterMemoryLimitExceeded,
+    ClickHouseEstimatedQueryExecutionTimeTooLong,
+    ClickHouseQueryMemoryLimitExceeded,
+    ClickHouseQueryTimeOut,
+)
 from posthog.models import Team
 from posthog.ph_client import ph_background_capture
 from posthog.sync import database_sync_to_async
@@ -32,9 +41,10 @@ from products.signals.backend.anomaly_scores.config import (
     read_payload,
 )
 from products.signals.backend.anomaly_scores.emission import emit, score_events
+from products.signals.backend.anomaly_scores.metrics import record_candidates, record_pick
 from products.signals.backend.anomaly_scores.queue import (
     ATTEMPT_COOLDOWN,
-    UNSUPPORTED_COOLDOWN,
+    SKIP_COOLDOWN,
     InsightPick,
     mark_attempted,
     select_insights,
@@ -51,11 +61,22 @@ STATUS_SCORED = "scored"
 STATUS_UP_TO_DATE = "up_to_date"
 STATUS_UNSUPPORTED = "unsupported"
 STATUS_MISSING = "missing"
+# The scoring query hit a ClickHouse time or memory limit. A retry in an hour hits it again.
+STATUS_TOO_EXPENSIVE = "too_expensive"
+# The insight's creator cannot read a table of the query.
+STATUS_ACCESS_DENIED = "access_denied"
+# Any other failure. The activity raises it, and the workflow counts it as `errored`.
+STATUS_ERRORED = "errored"
 
 _PLAN_TIMEOUT = datetime.timedelta(minutes=2)
-# The scoring query times out at 60 seconds. The rest is detection and the capture request.
-_INSIGHT_TIMEOUT = datetime.timedelta(minutes=3)
+# The scoring query times out at 150 seconds. The rest is detection and the capture request.
+_INSIGHT_TIMEOUT = datetime.timedelta(minutes=5)
 _INSIGHT_HEARTBEAT_TIMEOUT = datetime.timedelta(minutes=1)
+_CAPTURE_TIMEOUT = datetime.timedelta(minutes=1)
+# No batch of insights starts after this time. The picks that are left wait for a later tick.
+TICK_BUDGET = datetime.timedelta(minutes=10)
+# The last batch can start at the budget, and the summary capture runs after it.
+TICK_TIMEOUT = _PLAN_TIMEOUT + TICK_BUDGET + _INSIGHT_TIMEOUT + _CAPTURE_TIMEOUT
 
 
 @frozen
@@ -83,6 +104,7 @@ class ScoreInsightInput:
 class ScoreInsightResult:
     status: str
     events: int
+    series: int = 0
 
 
 @frozen
@@ -93,6 +115,9 @@ class AnomalyScoringTickResult:
     statuses: dict[str, int] | None = None
     errored: int = 0
     events: int = 0
+    duration_ms: int = 0
+    # Picks left for a later tick because the tick budget ran out.
+    deferred: int = 0
 
 
 def plan_tick(limit: int | None, now: datetime.datetime) -> AnomalyScoringTickPlan:
@@ -102,6 +127,7 @@ def plan_tick(limit: int | None, now: datetime.datetime) -> AnomalyScoringTickPl
     if not config.enabled:
         return AnomalyScoringTickPlan(enabled=False, picks=[], candidates=0, max_concurrency=config.max_concurrency)
     selection = select_insights(config, parse_selection_config(payload), now, limit or config.max_insights_per_tick)
+    record_candidates(selection.candidates)
     return AnomalyScoringTickPlan(
         enabled=True,
         picks=selection.picks,
@@ -111,7 +137,65 @@ def plan_tick(limit: int | None, now: datetime.datetime) -> AnomalyScoringTickPl
     )
 
 
+def failure_status(error: Exception) -> str | None:
+    """The status of a failure that the next tick does not fix, or None for any other failure."""
+    if isinstance(error, UnsupportedInsightError):
+        return STATUS_UNSUPPORTED
+    # The cluster limit is a subclass of the query limit, but it is load from other queries, so a later tick can pass.
+    if isinstance(error, ClickHouseClusterMemoryLimitExceeded):
+        return None
+    if isinstance(
+        error,
+        ClickHouseQueryTimeOut | ClickHouseQueryMemoryLimitExceeded | ClickHouseEstimatedQueryExecutionTimeTooLong,
+    ):
+        return STATUS_TOO_EXPENSIVE
+    if isinstance(error, TableAccessDeniedError):
+        return STATUS_ACCESS_DENIED
+    return None
+
+
 def run_insight(input: ScoreInsightInput, now: datetime.datetime) -> ScoreInsightResult:
+    """Score one pick, and log and measure its outcome. A known failure returns its status, and any other one raises."""
+    pick = input.pick
+    interval = pick.interval.value if pick.interval else "unknown"
+    started = time.monotonic()
+    try:
+        result = _score_pick(input, now)
+    except Exception as error:
+        status = failure_status(error)
+        duration_ms = round((time.monotonic() - started) * 1000)
+        log = logger.info if status else logger.exception
+        log(
+            "anomaly_scoring_insight_failed",
+            team_id=pick.team_id,
+            insight_id=pick.insight_id,
+            interval=interval,
+            status=status or STATUS_ERRORED,
+            error_class=type(error).__name__,
+            error=str(error)[:200],
+            duration_ms=duration_ms,
+        )
+        record_pick(status=status or STATUS_ERRORED, interval=interval, duration_ms=duration_ms, events=0)
+        if status is None:
+            raise
+        mark_attempted(pick.insight_id, SKIP_COOLDOWN)
+        return ScoreInsightResult(status=status, events=0)
+    duration_ms = round((time.monotonic() - started) * 1000)
+    logger.info(
+        "anomaly_scoring_insight_scored",
+        team_id=pick.team_id,
+        insight_id=pick.insight_id,
+        interval=interval,
+        status=result.status,
+        series=result.series,
+        events=result.events,
+        duration_ms=duration_ms,
+    )
+    record_pick(status=result.status, interval=interval, duration_ms=duration_ms, events=result.events)
+    return result
+
+
+def _score_pick(input: ScoreInsightInput, now: datetime.datetime) -> ScoreInsightResult:
     pick = input.pick
     insight = next(
         (
@@ -126,24 +210,21 @@ def run_insight(input: ScoreInsightInput, now: datetime.datetime) -> ScoreInsigh
     team = Team.objects.get(id=pick.team_id)
     # Set before scoring, so a failure also waits for the cooldown instead of taking a slot on every tick.
     mark_attempted(pick.insight_id, ATTEMPT_COOLDOWN)
-    try:
-        scores = score_insight(
-            insight,
-            team,
-            now=now,
-            # Every series is filtered again on its own newest bucket below. A new series gets up to the backfill cap.
-            after=min(pick.scored_through.values()) if pick.scored_through else None,
-            limits=input.limits,
-        )
-    except UnsupportedInsightError as error:
-        logger.info("anomaly_scoring_insight_unsupported", insight_id=pick.insight_id, reason=str(error))
-        mark_attempted(pick.insight_id, UNSUPPORTED_COOLDOWN)
-        return ScoreInsightResult(status=STATUS_UNSUPPORTED, events=0)
+    scores = score_insight(
+        insight,
+        team,
+        now=now,
+        # Every series is filtered again on its own newest bucket below. A new series gets up to the backfill cap.
+        after=min(pick.scored_through.values()) if pick.scored_through else None,
+        limits=input.limits,
+    )
     events = score_events(
         team_id=team.id, insight_id=insight.id, scores=scores, scored_through=pick.scored_through, scored_at=now
     )
     emit(team, events)
-    return ScoreInsightResult(status=STATUS_SCORED if events else STATUS_UP_TO_DATE, events=len(events))
+    return ScoreInsightResult(
+        status=STATUS_SCORED if events else STATUS_UP_TO_DATE, events=len(events), series=len(scores.series)
+    )
 
 
 def capture_tick(result: AnomalyScoringTickResult) -> None:
@@ -154,6 +235,8 @@ def capture_tick(result: AnomalyScoringTickResult) -> None:
         statuses=result.statuses,
         errored=result.errored,
         events=result.events,
+        duration_ms=result.duration_ms,
+        deferred=result.deferred,
     )
     ph_background_capture()(
         distinct_id=ANOMALY_SCORING_FLAG_DISTINCT_ID,
@@ -165,6 +248,8 @@ def capture_tick(result: AnomalyScoringTickResult) -> None:
             **{f"status_{status}": count for status, count in (result.statuses or {}).items()},
             "errored": result.errored,
             "events": result.events,
+            "duration_ms": result.duration_ms,
+            "deferred": result.deferred,
         },
     )
 
@@ -195,6 +280,7 @@ async def capture_anomaly_scoring_tick_activity(result: AnomalyScoringTickResult
 class AnomalyScoringTickWorkflow:
     @workflow.run
     async def run(self, inputs: AnomalyScoringTickInput) -> AnomalyScoringTickResult:
+        started = workflow.now()
         plan = await workflow.execute_activity(
             plan_anomaly_scoring_tick_activity,
             inputs,
@@ -207,8 +293,12 @@ class AnomalyScoringTickWorkflow:
         statuses: Counter[str] = Counter()
         errored = 0
         events = 0
+        deferred = 0
         concurrency = max(1, plan.max_concurrency)
         for index in range(0, len(plan.picks), concurrency):
+            if workflow.now() - started >= TICK_BUDGET:
+                deferred = len(plan.picks) - index
+                break
             results = await asyncio.gather(
                 *(
                     workflow.execute_activity(
@@ -237,11 +327,13 @@ class AnomalyScoringTickWorkflow:
             statuses=dict(statuses),
             errored=errored,
             events=events,
+            duration_ms=round((workflow.now() - started).total_seconds() * 1000),
+            deferred=deferred,
         )
         await workflow.execute_activity(
             capture_anomaly_scoring_tick_activity,
             result,
-            start_to_close_timeout=datetime.timedelta(minutes=1),
+            start_to_close_timeout=_CAPTURE_TIMEOUT,
             retry_policy=RetryPolicy(maximum_attempts=2),
         )
         return result
