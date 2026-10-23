@@ -87,7 +87,9 @@ from products.subscriptions.backend.facade.api import (
     TEAMS_WEBHOOK_URL_ERROR,
     TEAMS_WEBHOOK_URL_MASKED_ERROR,
     ai_query_plan_status,
+    blocked_access_for_subscription,
     sanitize_prompt,
+    should_check_table_access,
     validate_re_enable,
 )
 from products.subscriptions.backend.facade.contracts import (
@@ -1012,7 +1014,31 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
             organization = self.context["get_organization"]()
             self._validate_summary_enabled_org_limit(organization)
 
+        self._check_query_access(attrs, resource_type)
+
         return attrs
+
+    def _check_query_access(self, attrs: dict, resource_type: str) -> None:
+        if resource_type == Subscription.ResourceType.AI_PROMPT:
+            return
+        team = self.context["get_team"]()
+        subscription_id = self.instance.id if self.instance else None
+        if not should_check_table_access(team_id=team.id, subscription_id=subscription_id, attrs=attrs):
+            return
+        user = self.context["request"].user
+        # Compiling the queries as the requester needs a real user.
+        if not isinstance(user, User):
+            return
+        blocked_names = blocked_access_for_subscription(
+            user=user,
+            team=team,
+            user_access_control=self.context["view"].user_access_control,
+            subscription_id=subscription_id,
+            attrs=attrs,
+        )
+        if blocked_names:
+            blocked = ", ".join(f"`{name}`" for name in blocked_names)
+            raise ValidationError(f"Can't save this subscription: you don't have access to {blocked}.")
 
     def _is_becoming_active_summary(self, attrs: dict) -> bool:
         pre_summary_enabled = self.instance.summary_enabled if self.instance else False

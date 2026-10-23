@@ -375,6 +375,8 @@ export namespace Schemas {
          * @maximum 2592000
          */
       lookback_seconds?: number;
+      /** Deprecate only: true to keep a materialized view refreshing after it is deprecated. By default, accepting a deprecate suggestion also stops the view's refreshes and deletes its stored table, unless other views or syncs depend on it. */
+      keep_materialized?: boolean;
     }
 
     export interface AccessControlResourceDefault {
@@ -2170,6 +2172,7 @@ export namespace Schemas {
     /**
      * * `custom_property` - Custom property
      * * `relationship` - Relationship
+     * * `account_field` - Account field
      */
     export type AccountPropertyPinKindEnum = typeof AccountPropertyPinKindEnum[keyof typeof AccountPropertyPinKindEnum];
 
@@ -2177,6 +2180,7 @@ export namespace Schemas {
     export const AccountPropertyPinKindEnum = {
       CustomProperty: 'custom_property',
       Relationship: 'relationship',
+      AccountField: 'account_field',
     } as const;
 
     /**
@@ -17585,6 +17589,12 @@ export namespace Schemas {
       explicit_datetime_to?: string | null;
     }
 
+    export interface BettermodeFeedbackSignalExtra {
+      status: string | null;
+      url: string | null;
+      created_at: string | null;
+    }
+
     export interface BetterstackIncidentSignalExtra {
       url: string | null;
       started_at: string | null;
@@ -23284,6 +23294,32 @@ export namespace Schemas {
       initial_permission_mode?: InitialPermissionModeEnum;
     }
 
+    export interface CliAuthorize {
+      /**
+         * base64url SHA-256 of the CLI's PKCE code_verifier, without padding.
+         * @pattern ^[A-Za-z0-9_-]{43}$
+         */
+      code_challenge: string;
+    }
+
+    export interface CliAuthorized {
+      /** One-time code for the CLI to exchange within two minutes. */
+      code: string;
+    }
+
+    export interface CliExchange {
+      /**
+         * Code from the authorize step.
+         * @maxLength 128
+         */
+      code: string;
+      /**
+         * PKCE code_verifier whose S256 challenge was authorized.
+         * @pattern ^[A-Za-z0-9._~-]{43,128}$
+         */
+      code_verifier: string;
+    }
+
     export type ClickhouseEventProperties = { [key: string]: unknown };
 
     /**
@@ -25283,6 +25319,8 @@ export namespace Schemas {
       validation_report: ContentAutopilotValidationReport;
       /** Repository-relative export path. */
       readonly file_path: string;
+      /** Existing or intended public URL. */
+      readonly target_url: string;
       readonly created_at: string;
       readonly updated_at: string;
     }
@@ -36480,6 +36518,107 @@ export namespace Schemas {
     }
 
     /**
+     * * `web` - Web
+     * * `cli` - CLI
+     */
+    export type DevTokenClientEnum = typeof DevTokenClientEnum[keyof typeof DevTokenClientEnum];
+
+
+    export const DevTokenClientEnum = {
+      Web: 'web',
+      Cli: 'cli',
+    } as const;
+
+    /**
+     * * `live` - Live
+     * * `revoked` - Revoked
+     * * `expired` - Expired
+     */
+    export type DevTokenStatusEnum = typeof DevTokenStatusEnum[keyof typeof DevTokenStatusEnum];
+
+
+    export const DevTokenStatusEnum = {
+      Live: 'live',
+      Revoked: 'revoked',
+      Expired: 'expired',
+    } as const;
+
+    export interface DevToken {
+      /** Token id, used to revoke it. */
+      id: string;
+      /** Where the token was minted.
+       *
+       * * `web` - Web
+       * * `cli` - CLI */
+      client: DevTokenClientEnum;
+      /**
+         * Most the token can spend, in USD.
+         * @pattern ^-?\d{0,8}(?:\.\d{0,2})?$
+         */
+      cap_usd: string;
+      /** When the token was minted. */
+      created_at: string;
+      /**
+         * When the gateway stops accepting the token.
+         * @nullable
+         */
+      expires_at: string | null;
+      /**
+         * When the token was revoked, if it was.
+         * @nullable
+         */
+      revoked_at: string | null;
+      /** Whether the token still works: live, revoked or expired.
+       *
+       * * `live` - Live
+       * * `revoked` - Revoked
+       * * `expired` - Expired */
+      status: DevTokenStatusEnum;
+    }
+
+    export interface DevTokenRefusal {
+      /** Stable refusal code, for example daily_limit or not_staff. */
+      code: string;
+      /** Human-readable reason. */
+      detail: string;
+    }
+
+    export interface DevTokenRevoke {
+      /**
+         * Token to revoke. Omit to revoke all of the user's live tokens.
+         * @nullable
+         */
+      id?: string | null;
+    }
+
+    export interface DevTokenRevoked {
+      /** How many tokens the gateway revoked. */
+      revoked_count: number;
+    }
+
+    export interface DevTokenUsage {
+      /**
+         * Most token caps one user can mint in 24 hours, in USD.
+         * @pattern ^-?\d{0,8}(?:\.\d{0,2})?$
+         */
+      daily_cap_usd: string;
+      /**
+         * Token caps the user minted in the last 24 hours, in USD.
+         * @pattern ^-?\d{0,8}(?:\.\d{0,2})?$
+         */
+      used_usd: string;
+      /**
+         * Cap of each new token, in USD.
+         * @pattern ^-?\d{0,8}(?:\.\d{0,2})?$
+         */
+      token_cap_usd: string;
+      /** Lifetime of each new token, in seconds. */
+      ttl_seconds: number;
+      /** Tokens the user minted in the last 24 hours, newest first, including revoked and expired ones. */
+      tokens: DevToken[];
+    }
+
+    /**
      * * `Desktop` - Desktop
      * * `Mobile` - Mobile
      * * `Tablet` - Tablet
@@ -38161,6 +38300,12 @@ export namespace Schemas {
          * @nullable
          */
       readonly icon_path: string | null;
+    }
+
+    export interface DiscourseFeedbackSignalExtra {
+      topic_id: string | null;
+      category_id: string | null;
+      created_at: string | null;
     }
 
     /**
@@ -54217,6 +54362,12 @@ export namespace Schemas {
       Mobile: 'mobile',
     } as const;
 
+    export interface FormbricksFeedbackSignalExtra {
+      survey_id: string | null;
+      finished: string | null;
+      created_at: string | null;
+    }
+
     /**
      * * `allowed` - allowed
      * * `blocked` - blocked
@@ -54259,6 +54410,14 @@ export namespace Schemas {
       status: string | null;
       tags: unknown[];
       created_at: string | null;
+    }
+
+    export interface GainsightPxFeedbackSignalExtra {
+      score: string | null;
+      question_type: string | null;
+      content_type: string | null;
+      engagement_id: string | null;
+      date: string | null;
     }
 
     export interface GapAction {
@@ -62008,6 +62167,7 @@ export namespace Schemas {
      * * `filtered_by_traffic_type` - The insight already filters on traffic type
      * * `hidden_property` - A property the check reads is hidden from you
      * * `invalid_filter` - The project's internal and test users filter cannot run
+     * * `on_request` - The check would read a lot of data, so it runs only on request
      */
     export type InsightDataCheckSkipReasonEnum = typeof InsightDataCheckSkipReasonEnum[keyof typeof InsightDataCheckSkipReasonEnum];
 
@@ -62021,6 +62181,7 @@ export namespace Schemas {
       FilteredByTrafficType: 'filtered_by_traffic_type',
       HiddenProperty: 'hidden_property',
       InvalidFilter: 'invalid_filter',
+      OnRequest: 'on_request',
     } as const;
 
     /**
@@ -62082,7 +62243,8 @@ export namespace Schemas {
        * * `too_few_sampled_events` - The sample has too few events to give a share
        * * `filtered_by_traffic_type` - The insight already filters on traffic type
        * * `hidden_property` - A property the check reads is hidden from you
-       * * `invalid_filter` - The project's internal and test users filter cannot run */
+       * * `invalid_filter` - The project's internal and test users filter cannot run
+       * * `on_request` - The check would read a lot of data, so it runs only on request */
       skip_reason: InsightDataCheckSkipReasonEnum | null;
       /** `counted` when the check counted every event on the days checked, `sampled` when it read a sample. Null when the check did not run.
        *
@@ -62147,6 +62309,8 @@ export namespace Schemas {
      * * `passed` - No data issues found
      * * `warning` - A check found a small issue
      * * `problem` - A check found a large issue
+     * * `partial` - Some checks could not run, and the others found no issue
+     * * `on_request` - The checks would read a lot of data, so they run only on request
      * * `no_events` - No events to check
      * * `unsupported` - This kind of insight cannot be checked
      * * `inconclusive` - No check could run
@@ -62158,6 +62322,8 @@ export namespace Schemas {
       Passed: 'passed',
       Warning: 'warning',
       Problem: 'problem',
+      Partial: 'partial',
+      OnRequest: 'on_request',
       NoEvents: 'no_events',
       Unsupported: 'unsupported',
       Inconclusive: 'inconclusive',
@@ -62197,11 +62363,13 @@ export namespace Schemas {
     }
 
     export interface InsightDataChecks {
-      /** The worst result across the checks. `no_events` when no event matches the insight's events, filters and date range. `unsupported` when the insight has no event series to check, such as a SQL insight, and when a property the checks read is hidden from the caller. `inconclusive` when no check could run.
+      /** The worst result across the checks. `no_events` when no event matches the insight's events, filters and date range. `unsupported` when the insight has no event series to check, such as a SQL insight, and when a property the checks read is hidden from the caller. `inconclusive` when no check could run. `partial` when some checks could not run and the others found nothing. `on_request` when the checks would read a lot of data for a quick check, so they did not run: send `depth` `full` to run them.
        *
        * * `passed` - No data issues found
        * * `warning` - A check found a small issue
        * * `problem` - A check found a large issue
+       * * `partial` - Some checks could not run, and the others found no issue
+       * * `on_request` - The checks would read a lot of data, so they run only on request
        * * `no_events` - No events to check
        * * `unsupported` - This kind of insight cannot be checked
        * * `inconclusive` - No check could run */
@@ -62212,6 +62380,18 @@ export namespace Schemas {
       coverage: InsightDataChecksCoverage | null;
     }
 
+    /**
+     * * `quick` - Read within a small budget, so the checks can run on every load
+     * * `full` - Read with the same limits as the insight's own query
+     */
+    export type InsightDataChecksDepthEnum = typeof InsightDataChecksDepthEnum[keyof typeof InsightDataChecksDepthEnum];
+
+
+    export const InsightDataChecksDepthEnum = {
+      Quick: 'quick',
+      Full: 'full',
+    } as const;
+
     export interface InsightDataChecksRequest {
       /** The insight query to check, in the shape an insight stores it: an `InsightVizNode` with its `source`. Pass the query of a saved insight, or one that is not saved yet. */
       query: _InsightQuerySchema;
@@ -62220,6 +62400,11 @@ export namespace Schemas {
          * @maxLength 128
          */
       client_query_id?: string;
+      /** `quick`, the default, reads within a small budget so the checks can run on every load. On an insight they would read a lot of data for, a quick check does not run and `status` is `on_request`. `full` runs the checks with the same limits as the insight's own query.
+       *
+       * * `quick` - Read within a small budget, so the checks can run on every load
+       * * `full` - Read with the same limits as the insight's own query */
+      depth?: InsightDataChecksDepthEnum;
     }
 
     export interface InsightPlatformAlertCondition {
@@ -64361,6 +64546,15 @@ export namespace Schemas {
       status: string | null;
       internet_exposure: string | null;
       start_time: string | null;
+    }
+
+    export interface LangsmithFeedbackSignalExtra {
+      key: string | null;
+      score: string | null;
+      value: string | null;
+      run_id: string | null;
+      trace_id: string | null;
+      created_at: string | null;
     }
 
     /**
@@ -69519,6 +69713,32 @@ export namespace Schemas {
       readonly last_seen_at: string | null;
     }
 
+    export interface MintedDevToken {
+      /** Token id, used to revoke it. */
+      id: string;
+      /** The phe_ bearer. Shown once; only its hash is stored. */
+      token: string;
+      /**
+         * Most the token can spend, in USD.
+         * @pattern ^-?\d{0,8}(?:\.\d{0,2})?$
+         */
+      cap_usd: string;
+      /** When the gateway stops accepting the token. */
+      expires_at: string;
+      /** Base URL of the AI gateway the token is valid on. */
+      gateway_url: string;
+      /** Product the token's spend is attributed to. */
+      product: string;
+    }
+
+    export interface MintlifyFeedbackSignalExtra {
+      path: string | null;
+      helpful: string | null;
+      status: string | null;
+      source: string | null;
+      created_at: string | null;
+    }
+
     /**
      * * `chunk_not_uploaded` - Source map not uploaded
      * * `no_source_map_linked` - Script links no source map
@@ -71306,6 +71526,8 @@ export namespace Schemas {
       kind: ScoreDefinitionKindEnum;
       /** Current scorer display name. */
       name: string;
+      /** Current compact label. Blank uses the full name. */
+      short_name: string;
       /** Current scorer description. */
       description: string;
       /** Whether the scorer is archived. */
@@ -71645,6 +71867,14 @@ export namespace Schemas {
       next_cursor: string | null;
       /** Scorer-version summary page; each group includes all matching results. */
       results: OfflineScorerSummary[];
+    }
+
+    export interface OkendoReviewSignalExtra {
+      rating: string | null;
+      status: string | null;
+      product_name: string | null;
+      is_recommended: string | null;
+      date_created: string | null;
     }
 
     export interface OnboardWarehouseTeamRequest {
@@ -75918,6 +76148,8 @@ export namespace Schemas {
     export interface ScoreDefinition {
       readonly id: string;
       readonly name: string;
+      /** Optional compact label for table headers and other compact views. */
+      readonly short_name: string;
       readonly description: string;
       /** Project tag names assigned to this resource. */
       readonly tags: readonly string[];
@@ -79936,7 +80168,22 @@ export namespace Schemas {
       lookback_seconds?: number;
     }
 
-    export type WarehouseSuggestionPayload = WarehouseSuggestionCertifyPayload | WarehouseSuggestionDeprecatePayload | WarehouseSuggestionMaterializePayload;
+    export interface WarehouseSuggestionUnmaterializePayload {
+      /** Name of the rarely read materialized view to turn back into a plain view. */
+      subject_name: string;
+      /** Time its refreshes take in a month, in seconds. */
+      refresh_seconds_per_month: number;
+      /** Bytes its refreshes read in a month. */
+      refresh_bytes_per_month: number;
+      /** Estimated time its reads would take in a month if each read computed the view, in seconds. The estimate uses a full refresh per read, so it leans high. */
+      live_seconds_per_month: number;
+      /** Estimated bytes its reads would scan in a month if each read computed the view. */
+      live_bytes_per_month: number;
+      /** How long one read would take once the view is computed on read, in seconds. Nine in ten of its refreshes finished within this time. */
+      read_seconds: number;
+    }
+
+    export type WarehouseSuggestionPayload = WarehouseSuggestionCertifyPayload | WarehouseSuggestionDeprecatePayload | WarehouseSuggestionMaterializePayload | WarehouseSuggestionUnmaterializePayload;
 
     /**
      * Queries people ran per place they ran them, such as sql_editor, dashboard, insight or mcp.
@@ -79973,6 +80220,7 @@ export namespace Schemas {
      * * `certify` - Certify
      * * `deprecate` - Deprecate
      * * `materialize` - Materialize
+     * * `unmaterialize` - Unmaterialize
      */
     export type WarehouseSuggestionKindEnum = typeof WarehouseSuggestionKindEnum[keyof typeof WarehouseSuggestionKindEnum];
 
@@ -79981,6 +80229,7 @@ export namespace Schemas {
       Certify: 'certify',
       Deprecate: 'deprecate',
       Materialize: 'materialize',
+      Unmaterialize: 'unmaterialize',
     } as const;
 
     /**
@@ -80045,11 +80294,12 @@ export namespace Schemas {
       created_asset: WarehouseSuggestionCreatedAsset;
       /** Who accepted or dismissed this suggestion. Null while it is open. */
       reviewed_by: WarehouseSuggestionReviewer | null;
-      /** What the suggestion proposes: certify, deprecate or materialize the subject.
+      /** What the suggestion proposes: certify, deprecate, materialize or unmaterialize the subject. unmaterialize turns a rarely read materialized view back into a plain view computed on read.
        *
        * * `certify` - Certify
        * * `deprecate` - Deprecate
-       * * `materialize` - Materialize */
+       * * `materialize` - Materialize
+       * * `unmaterialize` - Unmaterialize */
       kind: WarehouseSuggestionKindEnum;
       /** Whether the subject is a saved query (view) or a warehouse table.
        *
@@ -86142,12 +86392,16 @@ export namespace Schemas {
     }
 
     export interface TeamCustomerAnalyticsPinnedAccountProperty {
-      /** Definition type for this default pinned account property.
+      /** Type of this default pinned account property: a custom property, a relationship, or a built-in account field.
        *
        * * `custom_property` - Custom property
-       * * `relationship` - Relationship */
+       * * `relationship` - Relationship
+       * * `account_field` - Account field */
       kind: AccountPropertyPinKindEnum;
-      /** Project-scoped custom property or relationship definition UUID. */
+      /**
+         * Project-scoped custom property or relationship definition UUID. For an account_field pin, the account field name, such as stripe_customer_id.
+         * @maxLength 64
+         */
       id: string;
     }
 
@@ -87852,6 +88106,11 @@ export namespace Schemas {
          * @maxLength 255
          */
       name?: string;
+      /**
+         * Updated compact label. Blank uses the full name.
+         * @maxLength 40
+         */
+      short_name?: string;
       /**
          * Updated scorer description.
          * @nullable
@@ -90101,12 +90360,16 @@ export namespace Schemas {
     }
 
     export interface PinnedAccountProperty {
-      /** Definition type for this pinned account property.
+      /** Type of this pinned account property: a custom property, a relationship, or a built-in account field.
        *
        * * `custom_property` - Custom property
-       * * `relationship` - Relationship */
+       * * `relationship` - Relationship
+       * * `account_field` - Account field */
       kind: AccountPropertyPinKindEnum;
-      /** Team-scoped custom property or relationship definition UUID. */
+      /**
+         * Team-scoped custom property or relationship definition UUID. For an account_field pin, the account field name, such as stripe_customer_id.
+         * @maxLength 64
+         */
       id: string;
     }
 
@@ -94668,6 +94931,12 @@ export namespace Schemas {
     export interface PulsePins {
       /** Numbers the person keeps at the start of the key numbers, in order. Suggestions fill the free places. Only the first 4 distinct keys are kept. At most 20 entries. */
       pins: PulsePin[];
+    }
+
+    export interface QualtricsFeedbackSignalExtra {
+      survey_id: string | null;
+      recorded_date: string | null;
+      finished: string | null;
     }
 
     /**
@@ -99290,6 +99559,38 @@ export namespace Schemas {
       created_date: string | null;
     }
 
+    export interface UsersnapFeedbackSignalExtra {
+      feedback_number: string | null;
+      public_link: string | null;
+      status_type: string | null;
+      priority: string | null;
+      created_at: string | null;
+      labels: unknown[];
+    }
+
+    export interface TypeformFeedbackSignalExtra {
+      form_id: string | null;
+      submitted_at: string | null;
+    }
+
+    export interface SurveymonkeyFeedbackSignalExtra {
+      survey_id: string | null;
+      date_created: string | null;
+      response_status: string | null;
+    }
+
+    export interface SurvicateFeedbackSignalExtra {
+      survey_id: string | null;
+      collected_at: string | null;
+      url: string | null;
+    }
+
+    export interface SurveysparrowFeedbackSignalExtra {
+      survey_id: string | null;
+      completed: string | null;
+      completed_time: string | null;
+    }
+
     export interface ZohoCrmTicketSignalExtra {
       case_number: string | null;
       status: string | null;
@@ -99358,7 +99659,28 @@ export namespace Schemas {
       created_at: string | null;
     }
 
-    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | JiraIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | CheckFailedSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | AnalyticsAnomalyInvestigationSignalExtra | HealthCheckSignalExtra | EngineeringAnalyticsCIFlakyCheckSignalExtra | EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra | EngineeringAnalyticsCIDurationRegressionSignalExtra | FreshdeskTicketSignalExtra | FreshserviceTicketSignalExtra | FrontConversationSignalExtra | GorgiasTicketSignalExtra | KustomerConversationSignalExtra | DixaConversationSignalExtra | PlainThreadSignalExtra | GitlabIssueSignalExtra | GiteaIssueSignalExtra | ShortcutStorySignalExtra | SentryIssueSignalExtra | RollbarItemSignalExtra | BugsnagErrorSignalExtra | HoneybadgerFaultSignalExtra | RaygunErrorGroupSignalExtra | DatadogSignalExtra | SnykScannerFindingSignalExtra | SonarqubeScannerFindingSignalExtra | SemgrepScannerFindingSignalExtra | Rapid7InsightvmScannerFindingSignalExtra | FeaturebaseFeedbackSignalExtra | FrillFeedbackSignalExtra | AhaFeedbackSignalExtra | UservoiceFeedbackSignalExtra | ProductboardFeedbackSignalExtra | CannyFeedbackSignalExtra | AsknicelyFeedbackSignalExtra | RetentlyFeedbackSignalExtra | AppfiguresReviewSignalExtra | AppfollowReviewSignalExtra | JudgemeReviewsReviewSignalExtra | IntercomTicketSignalExtra | HubspotTicketSignalExtra | Dynamics365TicketSignalExtra | ZohoCrmTicketSignalExtra | GoogleSearchConsoleSearchOpportunitySignalExtra | PagerdutyIncidentSignalExtra | OpsgenieAlertSignalExtra | IncidentIoIncidentSignalExtra | FirehydrantIncidentSignalExtra | SquadcastIncidentSignalExtra | ServicenowIncidentSignalExtra | SolarwindsServiceDeskIncidentSignalExtra | GrafanaIrmIncidentSignalExtra | XmattersIncidentSignalExtra | LaceworkScannerFindingSignalExtra | OrcaSecurityScannerFindingSignalExtra | TenableVulnerabilityManagementScannerFindingSignalExtra | BetterstackIncidentSignalExtra | AsanaIssueSignalExtra | MondayIssueSignalExtra | PlaneIssueSignalExtra | AzureDevopsIssueSignalExtra | MonteCarloAlertSignalExtra | BigeyeIssueSignalExtra | TriggerDevErrorSignalExtra | ChecklyErrorGroupSignalExtra | RoarkIssueSignalExtra;
+    export interface SleekplanFeedbackSignalExtra {
+      status: string | null;
+      type: string | null;
+      total_up: string | null;
+      created: string | null;
+    }
+
+    export interface SprigFeedbackSignalExtra {
+      question_type: string | null;
+      survey_id: string | null;
+      created_at: string | null;
+    }
+
+    export interface TrustpilotReviewSignalExtra {
+      stars: string | null;
+      language: string | null;
+      status: string | null;
+      source: string | null;
+      created_at: string | null;
+    }
+
+    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | JiraIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | CheckFailedSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | AnalyticsAnomalyInvestigationSignalExtra | HealthCheckSignalExtra | EngineeringAnalyticsCIFlakyCheckSignalExtra | EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra | EngineeringAnalyticsCIDurationRegressionSignalExtra | FreshdeskTicketSignalExtra | FreshserviceTicketSignalExtra | FrontConversationSignalExtra | GorgiasTicketSignalExtra | KustomerConversationSignalExtra | DixaConversationSignalExtra | PlainThreadSignalExtra | GitlabIssueSignalExtra | GiteaIssueSignalExtra | ShortcutStorySignalExtra | SentryIssueSignalExtra | RollbarItemSignalExtra | BugsnagErrorSignalExtra | HoneybadgerFaultSignalExtra | RaygunErrorGroupSignalExtra | DatadogSignalExtra | SnykScannerFindingSignalExtra | SonarqubeScannerFindingSignalExtra | SemgrepScannerFindingSignalExtra | Rapid7InsightvmScannerFindingSignalExtra | FeaturebaseFeedbackSignalExtra | FrillFeedbackSignalExtra | AhaFeedbackSignalExtra | UservoiceFeedbackSignalExtra | ProductboardFeedbackSignalExtra | CannyFeedbackSignalExtra | AsknicelyFeedbackSignalExtra | RetentlyFeedbackSignalExtra | UsersnapFeedbackSignalExtra | TypeformFeedbackSignalExtra | QualtricsFeedbackSignalExtra | SurveymonkeyFeedbackSignalExtra | FormbricksFeedbackSignalExtra | SurvicateFeedbackSignalExtra | SurveysparrowFeedbackSignalExtra | AppfiguresReviewSignalExtra | AppfollowReviewSignalExtra | JudgemeReviewsReviewSignalExtra | IntercomTicketSignalExtra | HubspotTicketSignalExtra | Dynamics365TicketSignalExtra | ZohoCrmTicketSignalExtra | GoogleSearchConsoleSearchOpportunitySignalExtra | PagerdutyIncidentSignalExtra | OpsgenieAlertSignalExtra | IncidentIoIncidentSignalExtra | FirehydrantIncidentSignalExtra | SquadcastIncidentSignalExtra | ServicenowIncidentSignalExtra | SolarwindsServiceDeskIncidentSignalExtra | GrafanaIrmIncidentSignalExtra | XmattersIncidentSignalExtra | LaceworkScannerFindingSignalExtra | OrcaSecurityScannerFindingSignalExtra | TenableVulnerabilityManagementScannerFindingSignalExtra | BetterstackIncidentSignalExtra | AsanaIssueSignalExtra | MondayIssueSignalExtra | PlaneIssueSignalExtra | AzureDevopsIssueSignalExtra | MonteCarloAlertSignalExtra | BigeyeIssueSignalExtra | TriggerDevErrorSignalExtra | ChecklyErrorGroupSignalExtra | RoarkIssueSignalExtra | SleekplanFeedbackSignalExtra | BettermodeFeedbackSignalExtra | DiscourseFeedbackSignalExtra | MintlifyFeedbackSignalExtra | LangsmithFeedbackSignalExtra | SprigFeedbackSignalExtra | GainsightPxFeedbackSignalExtra | TrustpilotReviewSignalExtra | OkendoReviewSignalExtra;
 
     export type SignalMatchMetadata = MatchedMetadata | NoMatchMetadata;
 
@@ -102758,6 +103080,11 @@ export namespace Schemas {
          */
       name: string;
       /**
+         * Optional compact label. Blank uses the full name.
+         * @maxLength 40
+         */
+      short_name?: string;
+      /**
          * Optional human-readable description.
          * @nullable
          */
@@ -102775,6 +103102,11 @@ export namespace Schemas {
     }
 
     export interface ScoreDefinitionNewVersion {
+      /**
+         * Updated compact label, saved with this version.
+         * @maxLength 40
+         */
+      short_name?: string;
       /**
          * Updated scorer name, saved with this version.
          * @maxLength 255
@@ -123685,6 +124017,7 @@ export namespace Schemas {
      *
      * * `Cohort` - Cohort
      * * `CrossProjectDashboard` - CrossProjectDashboard
+     * * `DevGatewayToken` - DevGatewayToken
      * * `FeatureFlag` - FeatureFlag
      * * `Person` - Person
      * * `Group` - Group
@@ -123797,6 +124130,7 @@ export namespace Schemas {
     export const ActivityLogListScope = {
       Cohort: 'Cohort',
       CrossProjectDashboard: 'CrossProjectDashboard',
+      DevGatewayToken: 'DevGatewayToken',
       FeatureFlag: 'FeatureFlag',
       Person: 'Person',
       Group: 'Group',
@@ -123895,6 +124229,7 @@ export namespace Schemas {
     /**
      * * `Cohort` - Cohort
      * * `CrossProjectDashboard` - CrossProjectDashboard
+     * * `DevGatewayToken` - DevGatewayToken
      * * `FeatureFlag` - FeatureFlag
      * * `Person` - Person
      * * `Group` - Group
@@ -123995,6 +124330,7 @@ export namespace Schemas {
     export const ActivityLogListScopesItem = {
       Cohort: 'Cohort',
       CrossProjectDashboard: 'CrossProjectDashboard',
+      DevGatewayToken: 'DevGatewayToken',
       FeatureFlag: 'FeatureFlag',
       Person: 'Person',
       Group: 'Group',
@@ -131149,8 +131485,24 @@ export namespace Schemas {
     } as const;
 
     export type InsightsDataChecksRetrieveParams = {
+    /**
+     * `quick`, the default, reads within a small budget so the checks can run on every load. On an insight they would read a lot of data for, a quick check does not run and `status` is `on_request`. `full` runs the checks with the same limits as the insight's own query.
+     *
+     * * `quick` - Read within a small budget, so the checks can run on every load
+     * * `full` - Read with the same limits as the insight's own query
+     * @minLength 1
+     */
+    depth?: InsightsDataChecksRetrieveDepth;
     format?: InsightsDataChecksRetrieveFormat;
     };
+
+    export type InsightsDataChecksRetrieveDepth = typeof InsightsDataChecksRetrieveDepth[keyof typeof InsightsDataChecksRetrieveDepth];
+
+
+    export const InsightsDataChecksRetrieveDepth = {
+      Quick: 'quick',
+      Full: 'full',
+    } as const;
 
     export type InsightsDataChecksRetrieveFormat = typeof InsightsDataChecksRetrieveFormat[keyof typeof InsightsDataChecksRetrieveFormat];
 
@@ -131765,7 +132117,7 @@ export namespace Schemas {
      */
     order_by?: string;
     /**
-     * Search scorers by name or description.
+     * Search scorers by name, short name, or description.
      */
     search?: string;
     /**
@@ -136981,6 +137333,7 @@ export namespace Schemas {
      * * `certify` - Certify
      * * `deprecate` - Deprecate
      * * `materialize` - Materialize
+     * * `unmaterialize` - Unmaterialize
      * @minLength 1
      */
     kind?: WarehouseSuggestionsListKind;
@@ -137016,6 +137369,7 @@ export namespace Schemas {
       Certify: 'certify',
       Deprecate: 'deprecate',
       Materialize: 'materialize',
+      Unmaterialize: 'unmaterialize',
     } as const;
 
     export type WarehouseSuggestionsListStatus = typeof WarehouseSuggestionsListStatus[keyof typeof WarehouseSuggestionsListStatus];

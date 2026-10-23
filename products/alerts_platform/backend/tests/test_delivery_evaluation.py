@@ -10,6 +10,8 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
+from posthog.utils import absolute_uri
+
 from products.alerts_platform.backend.delivery import delivery_paths, describers, legacy_webhook
 from products.alerts_platform.backend.delivery.destinations import list_alert_destination_groups
 from products.alerts_platform.backend.delivery.evaluation import LIVE_DELIVERY_FLAG, deliver_evaluation
@@ -28,6 +30,7 @@ from products.alerts_platform.backend.facade.contracts import (
     EvaluationAnnouncement,
     IncidentAction,
     LegacyEventEmission,
+    MessageLink,
     SourceKind,
 )
 from products.alerts_platform.backend.models import PlatformAlertConfiguration
@@ -414,7 +417,7 @@ class TestDeliverEvaluation(APIBaseTest):
         assert RecordingTransport.sends == []
         assert outcome.sent == 0
 
-    def test_every_message_links_to_the_alert_page_the_request_names(self) -> None:
+    def test_every_message_links_to_the_alert_page_the_request_names_and_to_its_project(self) -> None:
         url = "https://app.example.com/project/7/logs/alerts/legacy-1"
 
         with (
@@ -429,7 +432,9 @@ class TestDeliverEvaluation(APIBaseTest):
         ):
             deliver_evaluation(replace(_request(self.team.id), source_alert_url=url))
 
-        assert [m.alert_url for _, m in RecordingTransport.sends] == [url]
+        assert [(m.alert_url, m.project) for _, m in RecordingTransport.sends] == [
+            (url, MessageLink(label=self.team.name, url=absolute_uri(f"/project/{self.team.id}")))
+        ]
 
     def test_an_evaluation_that_announced_nothing_sends_nothing(self) -> None:
         outcome = self._run(None, {FIRING_EVENT: [_group(SLACK)]})

@@ -3411,6 +3411,50 @@ export interface RetentlyFeedbackSignalExtraApi {
     created_date: string | null
 }
 
+export interface UsersnapFeedbackSignalExtraApi {
+    feedback_number: string | null
+    public_link: string | null
+    status_type: string | null
+    priority: string | null
+    created_at: string | null
+    labels: unknown[]
+}
+
+export interface TypeformFeedbackSignalExtraApi {
+    form_id: string | null
+    submitted_at: string | null
+}
+
+export interface QualtricsFeedbackSignalExtraApi {
+    survey_id: string | null
+    recorded_date: string | null
+    finished: string | null
+}
+
+export interface SurveymonkeyFeedbackSignalExtraApi {
+    survey_id: string | null
+    date_created: string | null
+    response_status: string | null
+}
+
+export interface FormbricksFeedbackSignalExtraApi {
+    survey_id: string | null
+    finished: string | null
+    created_at: string | null
+}
+
+export interface SurvicateFeedbackSignalExtraApi {
+    survey_id: string | null
+    collected_at: string | null
+    url: string | null
+}
+
+export interface SurveysparrowFeedbackSignalExtraApi {
+    survey_id: string | null
+    completed: string | null
+    completed_time: string | null
+}
+
 export interface AppfiguresReviewSignalExtraApi {
     stars: string | null
     version: string | null
@@ -3643,6 +3687,72 @@ export interface RoarkIssueSignalExtraApi {
     created_at: string | null
 }
 
+export interface SleekplanFeedbackSignalExtraApi {
+    status: string | null
+    type: string | null
+    total_up: string | null
+    created: string | null
+}
+
+export interface BettermodeFeedbackSignalExtraApi {
+    status: string | null
+    url: string | null
+    created_at: string | null
+}
+
+export interface DiscourseFeedbackSignalExtraApi {
+    topic_id: string | null
+    category_id: string | null
+    created_at: string | null
+}
+
+export interface MintlifyFeedbackSignalExtraApi {
+    path: string | null
+    helpful: string | null
+    status: string | null
+    source: string | null
+    created_at: string | null
+}
+
+export interface LangsmithFeedbackSignalExtraApi {
+    key: string | null
+    score: string | null
+    value: string | null
+    run_id: string | null
+    trace_id: string | null
+    created_at: string | null
+}
+
+export interface SprigFeedbackSignalExtraApi {
+    question_type: string | null
+    survey_id: string | null
+    created_at: string | null
+}
+
+export interface GainsightPxFeedbackSignalExtraApi {
+    score: string | null
+    question_type: string | null
+    content_type: string | null
+    engagement_id: string | null
+    date: string | null
+}
+
+export interface TrustpilotReviewSignalExtraApi {
+    stars: string | null
+    language: string | null
+    status: string | null
+    source: string | null
+    created_at: string | null
+}
+
+export interface OkendoReviewSignalExtraApi {
+    rating: string | null
+    status: string | null
+    product_name: string | null
+    is_recommended: string | null
+    date_created: string | null
+}
+
 export type SignalExtraApi =
     | SessionProblemSignalExtraApi
     | LlmEvalSignalExtraApi
@@ -3693,6 +3803,13 @@ export type SignalExtraApi =
     | CannyFeedbackSignalExtraApi
     | AsknicelyFeedbackSignalExtraApi
     | RetentlyFeedbackSignalExtraApi
+    | UsersnapFeedbackSignalExtraApi
+    | TypeformFeedbackSignalExtraApi
+    | QualtricsFeedbackSignalExtraApi
+    | SurveymonkeyFeedbackSignalExtraApi
+    | FormbricksFeedbackSignalExtraApi
+    | SurvicateFeedbackSignalExtraApi
+    | SurveysparrowFeedbackSignalExtraApi
     | AppfiguresReviewSignalExtraApi
     | AppfollowReviewSignalExtraApi
     | JudgemeReviewsReviewSignalExtraApi
@@ -3723,6 +3840,15 @@ export type SignalExtraApi =
     | TriggerDevErrorSignalExtraApi
     | ChecklyErrorGroupSignalExtraApi
     | RoarkIssueSignalExtraApi
+    | SleekplanFeedbackSignalExtraApi
+    | BettermodeFeedbackSignalExtraApi
+    | DiscourseFeedbackSignalExtraApi
+    | MintlifyFeedbackSignalExtraApi
+    | LangsmithFeedbackSignalExtraApi
+    | SprigFeedbackSignalExtraApi
+    | GainsightPxFeedbackSignalExtraApi
+    | TrustpilotReviewSignalExtraApi
+    | OkendoReviewSignalExtraApi
 
 export interface SpecificityMetadataApi {
     /** Title of the PR the specificity gate evaluated. */

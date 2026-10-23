@@ -88,12 +88,9 @@ class SessionQueryRunner(AnalyticsQueryRunner[SessionQueryResponse]):
 
         query = self._build_query()
 
-        # Evaluation reads one session by id, so it skips the full per-team catalog build (see
-        # query_ai_events). Interactive reads keep the full catalog because their request modifiers
-        # can name warehouse tables.
-        database = (
-            Database.create_for_posthog_tables(self.team, modifiers=self.modifiers) if self.for_evaluation else None
-        )
+        # The query reads only ai_events or events and takes no property filters, so it skips the full
+        # per-team catalog build, which takes seconds on a project with a large data warehouse.
+        database = Database.create_for_posthog_tables(self.team, modifiers=self.modifiers)
         with self.timings.measure("session_query_ai_events_execute"), tags_context(product=Product.LLM_ANALYTICS):
             tag_queries(ai_query_source="dedicated_table")
             query_result = self.paginator.execute_hogql_query(
@@ -135,7 +132,9 @@ class SessionQueryRunner(AnalyticsQueryRunner[SessionQueryResponse]):
                     timings=self.timings,
                     modifiers=self.modifiers,
                     limit_context=self.limit_context,
-                    context=HogQLContext(team_id=self.team.pk, user=self.user, use_new_events_schema=events_schema),
+                    context=HogQLContext(
+                        team_id=self.team.pk, user=self.user, use_new_events_schema=events_schema, database=database
+                    ),
                 )
 
         columns: list[str] = query_result.columns or []
