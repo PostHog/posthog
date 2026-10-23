@@ -150,6 +150,7 @@ class Feature(StrEnum):
     # A 30 day aggregate that runs on every AI observability dashboard mount and trace view, so its
     # load is worth attributing separately from the tab queries it sits alongside.
     INSTRUMENTATION_CHECKLIST = "instrumentation_checklist"
+    AI_GATEWAY_DEV_USAGE = "ai_gateway_dev_usage"
 
 
 class FallbackTags(TypedDict):
