@@ -14,7 +14,7 @@ from posthog.models import Team
 
 from products.signals.backend.activity_summary.config import ActivitySummaryConfig, read_config
 from products.signals.backend.activity_summary.logic import is_stale
-from products.signals.backend.activity_summary.queue import is_team_enrolled
+from products.signals.backend.activity_summary.queue import is_team_enrolled_for_read
 from products.signals.backend.models import UserActivitySummary, UserActivitySummaryVersion
 
 DEFAULT_VERSIONS_LIMIT = 5
@@ -86,7 +86,7 @@ def _products(value: Any) -> tuple[str, ...]:
 
 def _readable_config(team: Team) -> ActivitySummaryConfig | None:
     config = read_config()
-    return config if is_team_enrolled(config, team) else None
+    return config if is_team_enrolled_for_read(config, team) else None
 
 
 def get_summary(team: Team, user_id: int) -> ActivitySummaryView | None:
