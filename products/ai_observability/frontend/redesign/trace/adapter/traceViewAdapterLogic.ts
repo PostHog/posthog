@@ -116,7 +116,7 @@ export interface traceViewAdapterLogicMeta {
         header: (
             traceName: string,
             traceHasError: boolean,
-            neighbours: any,
+            neighbours: TraceNeighboursApi | null,
             searchParams: Record<string, any>
         ) => TraceHeaderProps
         detailData: (
