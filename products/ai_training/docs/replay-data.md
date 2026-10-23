@@ -424,7 +424,7 @@ Nothing in v4 is kept for good. Each kind of data has a fixed lifetime, and a de
 | Fetched images                 | `images-v4` `images/url/`                                        | 38 days after the last write. The fetcher copies an image onto itself when a job refers to it and the copy is more than 7 days old | S3 expiration                 |
 | Team month and session keys    | `ai-research-replay-v4-keys`                                     | Until the start of the fifth month after `key_month`                                                                               | DynamoDB TTL                  |
 | Tombstones                     | `ai-research-replay-v4-keys`                                     | The same expiry as the row they replace                                                                                            | DynamoDB TTL                  |
-| Fetch history and robots cache | `ai-research-v4-image-fetch-history`                             | Until the key row of its month expires                                                                                             | DynamoDB TTL                  |
+| Fetch history and robots cache | `ai-research-v4-image-fetch-history`                             | URL history: 8 days after the end of its month. Robots and tdmrep cache: at least 30 days                                          | DynamoDB TTL                  |
 | Index records                  | Kafka `ai_research_v4_index`                                     | 7 days                                                                                                                             | Topic retention               |
 | Fetch jobs, with raw URLs      | Kafka `ai_research_v4_image_fetch`, its retry topics and its DLQ | 24 hours                                                                                                                           | Topic retention               |
 | Seen and blocked sessions      | `ai-research-v4` Redis, `@posthog/ai-research-v4/`               | The main lane's expiry, or earlier under memory pressure                                                                           | Redis expiry and LRU eviction |
@@ -468,6 +468,8 @@ The recorder streams each block into the encoder. Read a block as a stream: a Br
 - Some URLs stay as they arrived: relative URLs, remote URLs outside image slots (links, frames, text, CSS custom properties and other CSS properties), the `image-set()` candidates the recorder does not choose, URLs inside a compressed value that did not decode or that the decode budget skipped, and URL text written in another form than the recorder read it, for example with a CSS escape. The recorder counts the last kind as `outcome="unrewritten"`.
 - Before the rewrite, the recorder writes again any JSON string that holds an escape capture would not write, for example `\/`, so an escaped URL is found too. A scheme matches in any letter case.
 - If a refused URL is still in a block after the rewrite, the recorder drops the block and counts it as `dropped_blocks_total{outcome="declined_unrewritten"}`, so no refused URL is stored.
+- The recorder reads object keys as the player does: it writes an escaped key, such as `"\u0073rc"`, in its plain form before it inspects the event, and it takes the last copy of a repeated key.
+- The recorder drops a block that it cannot check in full, and counts the reason in `dropped_blocks_total`: an image-slot URL longer than 8 KiB (`url_too_long`), more than 10,000 image-slot URLs (`too_many_urls`) or more than 2 MiB of them (`too_many_url_bytes`), or a mutation with more than 200,000 attribute changes (`too_many_attribute_items`). It sends no fetch job for a dropped block.
 - When the text of a rewritten URL also appears outside an image slot in the same block, it is replaced there too.
 - `hash` is the first 22 characters of the base64url HMAC-SHA256, as in v3.
 
@@ -546,6 +548,7 @@ This holds for the blocks that one recorder process inspected. After a rebalance
 
 - `full_snapshots` counts only snapshots that decoded.
 - `events_before_first_full_snapshot` counts the session's events before its first decoded full snapshot.
+- `host` is the host of the first page URL. An IP-address host is stored as `[ip_address]`, as v3 does, and a host longer than 253 bytes is stored as null.
 - `navigations` counts URL changes from Meta events and from posthog-js `$url_changed` events, so single-page apps count too.
 - `node_cap_reached` is true when the recorder could not check a window for orphan mutations: the window passed the node cap, a snapshot or mutation did not decode, the window was evicted and came back, or the recorder dropped the session's DOM state to stay within its memory budget.
 - `byte_size` counts the event bytes as they arrived. `written_jsonl_bytes` counts the block's lines as the recorder wrote them, after it expanded compressed values and removed images, and before Brotli. `max_written_event_bytes` is the longest of those lines. Use these two for memory and size limits.
@@ -579,7 +582,8 @@ The fetcher keeps a crawl history per URL reference, so per team and month, in i
 - The first job for a reference fetches the image from its origin.
 - A later job before the v3 refetch time does not contact the origin. When the stored copy is more than 7 days old, the fetcher copies it onto itself. Otherwise it drops the job.
 - A job after the v3 refetch time sends a conditional request with the stored `ETag` or `Last-Modified`. A `304` refreshes the stored copy by a copy onto itself, and a `200` replaces it.
-- The history item expires with the key row of its month.
+- The history item expires 8 days after the end of its month, as v3 history does. A reference carries the month of its write, so no job refers to it after that.
+- An item that does not parse, for example one that a newer build wrote, reads as a miss. The fetcher counts it and fetches the image again.
 - The history holds no URL in plaintext. It binds the stored validators to an HMAC of the response URL under the team month URL key, and sends them only when the job's URL has the same HMAC.
 
 A URL is therefore fetched from its origin about once per team and month, as v3 fetches it about once in 30 days.
