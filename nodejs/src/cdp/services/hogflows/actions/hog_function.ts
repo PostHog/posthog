@@ -406,7 +406,7 @@ export class HogFunctionHandler implements ActionHandler {
         const send = action.type === 'function_email' ? invocation.state.send : undefined
         const hogFunction = await instrumentFn(
             { key: 'hogFlow.action.hogFunction.buildHogFunction', sendException: false },
-            () => this.hogFlowFunctionsService.buildHogFunction(invocation.hogFlow, action.config, action.name, send)
+            () => this.hogFlowFunctionsService.buildHogFunction(invocation.hogFlow, action.config, action.name)
         )
         const hogFunctionInvocation = await instrumentFn(
             { key: 'hogFlow.action.hogFunction.buildInvocation', sendException: false },
