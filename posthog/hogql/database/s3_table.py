@@ -17,6 +17,7 @@ _AWS_S3_ENDPOINT_RE = re.compile(r"s3(?:[.-][a-z0-9-]+)*\.amazonaws\.com(?:\.cn)
 _AWS_S3_VIRTUAL_HOST_RE = re.compile(r"(?P<bucket>.+)\.(?P<endpoint>s3(?:[.-][a-z0-9-]+)*\.amazonaws\.com(?:\.cn)?)")
 _AWS_REGION_RE = re.compile(r"(?:^|[.-])(?P<region>[a-z]{2,4}(?:-[a-z0-9]+)+-\d)(?:\.|$)")
 _AZURE_BLOB_HOST_SUFFIX = ".blob.core.windows.net"
+_AZURE_BLOB_ACCOUNT_URL_RE = re.compile(r"(https://[A-Za-z0-9-]+\.blob\.core\.windows\.net)/")
 _FORMAT_LABELS = {
     "CSV": "CSV",
     "CSVWithNames": "CSV with headers",
@@ -104,6 +105,10 @@ def parse_duckdb_s3_source(url: str) -> DuckDBS3Source | None:
         use_ssl=parsed.scheme == "https",
         url_style=url_style,
     )
+
+
+def is_azure_blob_url(url: str) -> bool:
+    return _AZURE_BLOB_ACCOUNT_URL_RE.match(url) is not None
 
 
 def build_function_call(
@@ -203,18 +208,14 @@ def build_function_call(
         return return_expr(expr)
 
     # Azure
-    if re.match(r"^https:\/\/.+\.blob\.core\.windows\.net\/", url):
-        regex_result = re.search(r"(https:\/\/.+\.blob\.core\.windows\.net)\/(.+?)\/(.*)", url)
-        if regex_result is None:
+    if azure_match := _AZURE_BLOB_ACCOUNT_URL_RE.match(url):
+        container_name, separator, blob_name = url[azure_match.end() :].partition("/")
+        if not container_name or not separator:
             raise ExposedHogQLError("Can't parse Azure blob storage URL")
 
-        groups = regex_result.groups()
-        if len(groups) < 3:
-            raise ExposedHogQLError("Can't parse Azure blob storage URL")
-
-        storage_account_url = add_param(groups[0])
-        container = add_param(groups[1])
-        blob_path = add_param(groups[2])
+        storage_account_url = add_param(azure_match.group(1))
+        container = add_param(container_name)
+        blob_path = add_param(blob_name)
 
         if not access_key or not access_secret:
             raise ExposedHogQLError("Azure blob storage has no access key or secret")

@@ -347,14 +347,33 @@ class TestGetCountEngineChoice:
 
 
 class TestChdbEngineChoiceByFormat:
-    def _table(self, table_format: str, has_credential: bool) -> DataWarehouseTable:
+    def _table(
+        self, table_format: str, has_credential: bool, url_pattern: str = "https://bucket.example.com/t/"
+    ) -> DataWarehouseTable:
         return DataWarehouseTable(
             name="t",
             format=table_format,
             team=Team(id=1),
-            url_pattern="https://bucket.example.com/t/",
+            url_pattern=url_pattern,
             credential=DataWarehouseCredential(access_key="key", access_secret="secret") if has_credential else None,
         )
+
+    @pytest.mark.parametrize("method,clickhouse_result", [("get_columns", [("id", "String")]), ("get_count", [(7,)])])
+    def test_azure_reads_run_on_the_cluster(self, method: str, clickhouse_result: list[tuple]) -> None:
+        table = self._table(
+            DataWarehouseTable.TableFormat.Parquet, True, "https://acct.blob.core.windows.net/container/t/*.parquet"
+        )
+        with (
+            patch("products.warehouse_sources.backend.models.table.TEST", False),
+            patch("products.warehouse_sources.backend.models.table.run_chdb_query") as mock_run_chdb,
+            patch(
+                "products.warehouse_sources.backend.models.table.sync_execute", return_value=clickhouse_result
+            ) as mock_sync_execute,
+        ):
+            getattr(table, method)()
+
+        assert not mock_run_chdb.called
+        assert "azureBlobStorage(" in mock_sync_execute.call_args.args[0]
 
     @pytest.mark.parametrize(
         "table_format,has_credential,uses_chdb",
@@ -442,7 +461,7 @@ class TestRunChdbQuery:
         assert child_env["AWS_REGION"] == "us-east-1"
         assert child_env["AWS_EC2_METADATA_DISABLED"] == "true"
         assert child_env["https_proxy"] == "http://web-1:x@egress-proxy.example:4750/"
-        assert mock_run.call_args.kwargs["input"] == "SET s3_max_redirects = 0; SELECT 1"
+        assert mock_run.call_args.kwargs["input"] == "SET s3_max_redirects = 0; SET s3_retry_attempts = 0; SELECT 1"
 
     @pytest.mark.parametrize(
         "stderr",

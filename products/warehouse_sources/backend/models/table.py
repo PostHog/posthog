@@ -31,6 +31,7 @@ from posthog.hogql.database.models import DatabaseField, FieldOrTable, StructDat
 from posthog.hogql.database.s3_table import (
     DataWarehouseTable as HogQLDataWarehouseTable,
     build_function_call,
+    is_azure_blob_url,
 )
 from posthog.hogql.escape_sql import (
     backquote_clickhouse_identifier,
@@ -281,7 +282,7 @@ _CHDB_SUBPROCESS_PROXY_ENV_VARS = ("HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY")
 # redirects by default, so a URL that passes validation can send chdb to an internal address. The
 # ClickHouse cluster checks every hop against remote_url_allow_hosts. chdb has no such list, so it
 # follows no redirect, and a URL that needs one fails over to the cluster.
-_CHDB_GUARD_SETTINGS: dict[str, str | int] = {"s3_max_redirects": 0}
+_CHDB_GUARD_SETTINGS: dict[str, str | int] = {"s3_max_redirects": 0, "s3_retry_attempts": 0}
 
 
 def run_chdb_query(query: str, timeout: float = CHDB_QUERY_TIMEOUT_SECONDS) -> str:
@@ -745,6 +746,9 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         URL the team supplied, so its Delta reads go to the cluster, which checks every hop against
         remote_url_allow_hosts. A table without a credential reads a URL that PostHog built.
         """
+        # chdb's Azure client ignores the egress proxy and connects directly.
+        if is_azure_blob_url(self.url_pattern):
+            return False
         return read_format != DataWarehouseTableFormat.Delta or self.credential_id is None
 
     def _describe_with_chdb(
