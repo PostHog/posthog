@@ -16,6 +16,7 @@ from posthog.models import Team
 from products.product_analytics.backend.facade.models import Insight
 from products.signals.backend.anomaly_scores.emission import SCORER_DISTINCT_ID
 from products.signals.backend.anomaly_scores.read import SeriesSummary, prior_rate, rank_series, rollup
+from products.signals.backend.anomaly_scores.search import MAX_INSIGHT_SERIES
 
 NOW = datetime.datetime(2026, 10, 23, 12, tzinfo=datetime.UTC)
 
@@ -213,6 +214,18 @@ class TestAnomalySearchAPI(ClickhouseTestMixin, APIBaseTest):
             True,
             None,
             10.0,
+        )
+
+    def test_insight_caps_series_at_the_scorer_maximum(self) -> None:
+        for index in range(MAX_INSIGHT_SERIES + 1):
+            self._score(_day(22), score=0.5, flag=0, series_key=f"series_{index}")
+
+        body = self._get("insight", insight_id=self.insight.id, date_from="2026-10-19").json()
+
+        assert (len(body["series"]), body["series_count"], body["truncated"]) == (
+            MAX_INSIGHT_SERIES,
+            MAX_INSIGHT_SERIES + 1,
+            True,
         )
 
     def test_insight_returns_404_for_an_insight_the_user_cannot_read(self) -> None:
