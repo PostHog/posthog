@@ -25,7 +25,7 @@ pub enum SymbolSetsSubcommand {
     Download(DownloadArgs),
     /// Extract a local symbol set binary file (decompress and split)
     Extract(ExtractArgs),
-    /// Resolve one captured frame against an uploaded symbol set by ref
+    /// Resolve one captured frame against an uploaded symbol set by ref or local file
     Resolve(crate::resolve::ResolveArgs),
 }
 

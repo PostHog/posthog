@@ -108,7 +108,7 @@ The standalone `posthog-cli dsym upload` command is unchanged and still recommen
 
 ## Resolving a captured frame
 
-`posthog-cli symbol-sets resolve` downloads an uploaded symbol set by ref and resolves one raw exception frame. It requires CLI credentials and network access:
+`posthog-cli symbol-sets resolve` resolves one raw exception frame against an uploaded symbol set. By default, it downloads the set by ref using CLI credentials:
 
 ```sh
 posthog-cli symbol-sets resolve --ref chunk-123 --frame-file frame.json
@@ -116,11 +116,17 @@ posthog-cli symbol-sets resolve --ref chunk-123 --frame-file frame.json
 posthog-cli symbol-sets resolve --ref chunk-123 --frame '{"platform":"node:javascript","chunk_id":"chunk-123","lineno":1,"colno":0}'
 ```
 
-The frame's `chunk_id` (or Java `map_id`) must match `--ref`. For `apple` and `native` frames, pass the matching event `$debug_images` entry with `--debug-image '<json>'`. The command checks its debug ID and rebases the instruction address.
+If you already have the uploaded symbol-set binary, pass its path instead of downloading it. The local file does not require API credentials; normal CLI telemetry is unchanged:
+
+```sh
+posthog-cli symbol-sets resolve uploaded.bin --frame-file frame.json
+```
+
+The frame supplies its `chunk_id` (Java `map_id`, or the native debug image's `debug_id`). When downloading, `--ref` is required and must match that value. With a local file, `--ref` is optional; if supplied, the command checks it against the frame. For `apple` and `native` frames, pass the matching event `$debug_images` entry with `--debug-image '<json>'`. The command checks its debug ID and rebases the instruction address.
 
 JS source-and-map, Hermes, ProGuard, dSYM, and ELF symbol sets return the same JSON shape: `{"frames":[{"source":...,"line":...,"column":...,"function":...,"module":...,"hasContent":...}]}`. Unavailable fields are `null`. An address may expand into multiple inlined frames. A failed lookup, download, decode, or mapping exits nonzero with a stage-specific error.
 
-The command checks one frame against the downloaded set. It does not reproduce Cymbal's full exception-resolution pipeline or prove that an event selected the expected release. For offline artifact inspection, use `posthog-cli symbol-sets extract` on a downloaded file.
+The command checks one frame against the selected set. It does not reproduce Cymbal's full exception-resolution pipeline or prove that an event selected the expected release. To inspect the artifact's contents, use `posthog-cli symbol-sets extract`.
 
 ## Configuring sourcemap upload concurrency
 

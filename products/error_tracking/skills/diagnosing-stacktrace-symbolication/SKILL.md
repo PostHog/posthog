@@ -82,10 +82,11 @@ Interpret the row:
 - `has_uploaded_file: false` means the upload did not complete.
 - A non-null `failure_reason` means PostHog could not parse or load the uploaded symbol data.
 
-To test the captured frame against the uploaded symbol set, save its raw JSON as `frame.json`. With CLI credentials and network access, run:
+To test the captured frame against the uploaded symbol set, save its raw JSON as `frame.json`. Download by ref with CLI credentials, or use the symbol-set binary downloaded through MCP:
 
 ```bash
 posthog-cli symbol-sets resolve --ref "$CHUNK_ID" --frame-file frame.json
+posthog-cli symbol-sets resolve symbolset.bin --frame-file frame.json
 ```
 
 Use the `map_id` for Java, or the debug image's `debug_id` for Apple and native frames (also pass that image as `--debug-image '<json>'`). Compare the returned `frames` entries with the expected original source. A lookup, download, or mapping error identifies the stage that failed. This check resolves one frame against one selected set; it does not reproduce Cymbal's full exception handling or release selection.

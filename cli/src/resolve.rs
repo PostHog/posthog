@@ -1,4 +1,4 @@
-//! Resolve one frame against a symbol set downloaded by ref.
+//! Resolve one frame against an uploaded symbol set, downloaded by ref or read from a file.
 //! This does not reproduce Cymbal's selection of the set for an exception.
 use std::{
     fs,
@@ -19,9 +19,11 @@ use symbolic::{
 
 #[derive(Args)]
 pub struct ResolveArgs {
-    /// Symbol-set ref selected by the exception's frame (chunk ID, map ID or debug ID)
-    #[arg(long)]
-    pub r#ref: String,
+    /// Uploaded symbol-set binary. When provided, use these bytes instead of downloading by ref.
+    pub file: Option<PathBuf>,
+    /// Symbol-set ref (chunk ID, map ID or debug ID). Required when downloading; optional for a local file.
+    #[arg(long, required_unless_present = "file")]
+    pub r#ref: Option<String>,
     /// A raw exception frame as JSON (platform: node:javascript, web:javascript, java, hermes, apple, native)
     #[arg(
         long,
@@ -244,17 +246,22 @@ fn read_frame(args: &ResolveArgs) -> Result<Value> {
     serde_json::from_str(&input).context("invalid frame JSON")
 }
 
-fn download_symbol_set_with(
+fn load_symbol_set_with(
+    file: Option<&PathBuf>,
     r#ref: &str,
     resolve_ref: impl FnOnce(&str) -> Result<String>,
     download_bytes: impl FnOnce(&str) -> Result<Vec<u8>>,
 ) -> Result<Vec<u8>> {
+    if let Some(file) = file {
+        return fs::read(file)
+            .with_context(|| format!("reading uploaded symbol set from {}", file.display()));
+    }
     let id =
         resolve_ref(r#ref).with_context(|| format!("looking up symbol set ref {:?}", r#ref))?;
     download_bytes(&id).with_context(|| format!("downloading symbol set {id}"))
 }
 
-pub fn resolve(args: &ResolveArgs) -> Result<()> {
+fn resolve_frames(args: &ResolveArgs) -> Result<Value> {
     let frame = read_frame(args)?;
     let image: Option<Value> = args
         .debug_image
@@ -264,14 +271,14 @@ pub fn resolve(args: &ResolveArgs) -> Result<()> {
         .context("invalid --debug-image JSON")?;
     let platform = field(&frame, "platform")?;
     let selected = frame_ref(&frame, platform, image.as_ref())?;
-    if selected != args.r#ref {
-        bail!(
-            "frame ref {selected:?} does not match uploaded set {:?}",
-            args.r#ref
-        );
+    if let Some(expected) = args.r#ref.as_deref() {
+        if selected != expected {
+            bail!("frame ref {selected:?} does not match requested set {expected:?}");
+        }
     }
-    let data = download_symbol_set_with(
-        &args.r#ref,
+    let data = load_symbol_set_with(
+        args.file.as_ref(),
+        args.r#ref.as_deref().unwrap_or(selected),
         crate::api::symbol_sets::resolve_ref,
         crate::api::symbol_sets::download_bytes,
     )?;
@@ -305,7 +312,11 @@ pub fn resolve(args: &ResolveArgs) -> Result<()> {
         }
         _ => bail!("unsupported platform: {platform}"),
     };
-    crate::safe_println!("{}", render_frames(result));
+    Ok(render_frames(result))
+}
+
+pub fn resolve(args: &ResolveArgs) -> Result<()> {
+    crate::safe_println!("{}", resolve_frames(args)?);
     Ok(())
 }
 
@@ -315,8 +326,71 @@ mod tests {
     use posthog_symbol_data::write_symbol_data;
 
     #[test]
+    fn local_file_uses_frame_ref_when_flag_is_absent() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("symbol-set.bin");
+        let data = write_symbol_data(SourceAndMap {
+            minified_source: "throw Error();".into(),
+            sourcemap: r#"{"version":3,"sources":["src/boom.js"],"names":[],"mappings":"AAAA"}"#
+                .into(),
+        })
+        .unwrap();
+        fs::write(&file, data).unwrap();
+        let args = ResolveArgs {
+            file: Some(file),
+            r#ref: None,
+            frame: Some(
+                r#"{"platform":"node:javascript","chunk_id":"chunk-1","lineno":1,"colno":0}"#
+                    .into(),
+            ),
+            frame_file: None,
+            debug_image: None,
+        };
+        assert_eq!(
+            resolve_frames(&args).unwrap()["frames"][0]["source"],
+            "src/boom.js"
+        );
+        let args = ResolveArgs {
+            r#ref: Some("other-chunk".into()),
+            ..args
+        };
+        assert!(resolve_frames(&args)
+            .unwrap_err()
+            .to_string()
+            .contains("does not match requested set"));
+    }
+
+    #[test]
+    fn local_file_skips_lookup_and_download() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("symbol-set.bin");
+        fs::write(&file, [1, 2, 3]).unwrap();
+        let bytes = load_symbol_set_with(
+            Some(&file),
+            "chunk-1",
+            |_| panic!("local file should not trigger lookup"),
+            |_| panic!("local file should not trigger download"),
+        )
+        .unwrap();
+        assert_eq!(bytes, [1, 2, 3]);
+
+        fs::remove_file(&file).unwrap();
+        let error = load_symbol_set_with(
+            Some(&file),
+            "chunk-1",
+            |_| panic!("local file should not trigger lookup"),
+            |_| panic!("local file should not trigger download"),
+        )
+        .unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("reading uploaded symbol set from"));
+    }
+
+    #[test]
     fn remote_bytes_are_looked_up_by_ref_then_downloaded() {
-        let bytes = download_symbol_set_with(
+        let bytes = load_symbol_set_with(
+            None,
             "chunk-1",
             |r| {
                 assert_eq!(r, "chunk-1");
@@ -329,7 +403,8 @@ mod tests {
         )
         .unwrap();
         assert_eq!(bytes, [4, 5]);
-        let lookup_error = download_symbol_set_with(
+        let lookup_error = load_symbol_set_with(
+            None,
             "chunk-1",
             |_| anyhow::bail!("not found"),
             |_| panic!("download should not run after lookup failure"),
@@ -338,7 +413,8 @@ mod tests {
         assert!(lookup_error
             .to_string()
             .contains("looking up symbol set ref"));
-        let error = download_symbol_set_with(
+        let error = load_symbol_set_with(
+            None,
             "chunk-1",
             |_| Ok("set-id".into()),
             |_| anyhow::bail!("not available"),
@@ -357,7 +433,8 @@ mod tests {
         )
         .unwrap();
         let args = ResolveArgs {
-            r#ref: "chunk-1".into(),
+            file: None,
+            r#ref: Some("chunk-1".into()),
             frame: None,
             frame_file: Some(frame_file.clone()),
             debug_image: None,
