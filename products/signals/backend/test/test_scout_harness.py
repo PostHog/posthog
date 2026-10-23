@@ -1229,6 +1229,32 @@ class TestPromptBuilder(BaseTest):
             assert "metric-list" not in unused
             assert "information_schema.metrics" not in unused
 
+    @parameterized.expand(
+        [
+            ("signal_channel", [], False),
+            ("emit_only", ["emit_report"], True),
+            ("edit_only", ["edit_report"], True),
+        ]
+    )
+    def test_report_tags_in_use_render_only_for_a_report_scout(
+        self, name: str, allowed_tools: list[str], listed: bool
+    ) -> None:
+        skill_name = f"signals-scout-tags-{name}"
+        LLMSkill.objects.create(
+            team=self.team, name=skill_name, description="Tags scout", body="watch", allowed_tools=allowed_tools
+        )
+        loaded = load_skill_for_run(self.team, skill_name)
+        kwargs: dict = {
+            "run_id": "00000000-0000-0000-0000-000000000abc",
+            "team_id": self.team.id,
+            "started_at": datetime(2026, 5, 1, 12, 34, 56, tzinfo=UTC),
+        }
+
+        prompt = build_run_prompt(loaded, **kwargs, report_tags_in_use=["cost-spike", "tracking-gap"])
+        assert ("<report_tags_in_use>\ncost-spike, tracking-gap\n</report_tags_in_use>" in prompt) is listed
+        assert "# Report tags in use" not in build_run_prompt(loaded, **kwargs, report_tags_in_use=[])
+        assert ("`tags` on an edit is the report's whole set" in prompt) is ("edit_report" in allowed_tools)
+
     def test_report_channel_renders_report_persona_and_guidance(self) -> None:
         LLMSkill.objects.create(
             team=self.team,
