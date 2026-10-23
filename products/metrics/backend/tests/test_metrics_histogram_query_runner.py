@@ -22,6 +22,7 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.metrics.backend.hogql_queries.metrics_histogram_query_runner import MetricsHistogramQueryRunner
+from products.metrics.backend.metric_query_runner import MetricQueryRunner
 from products.metrics.backend.tests._seeder import seed_metric, truncate_metrics_tables
 
 
@@ -128,6 +129,25 @@ class TestMetricsHistogramQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(response.bounds, [0.1, 0.2, 0.4, 0.8])
         self.assertEqual([row[1] for row in response.counts], [0, 5, 5, 5])
+
+    def test_merged_counts_keep_their_total(self):
+        # (0, 1.0] splits over four finer buckets: 1 observation must not round away to 0.
+        self._seed_histogram([(self.anchor, [1, 0])], bounds=[1.0])
+        self._seed_histogram([(self.anchor, [0, 0, 0, 0, 0])], bounds=[0.25, 0.5, 0.75, 1.0])
+
+        response = self._run()
+
+        self.assertEqual(sum(row[1] for row in response.counts), 1)
+
+    def test_rejects_a_large_grid_before_merging(self):
+        self._seed_histogram([(self.anchor, [10, 0, 0, 0])])
+
+        with (
+            patch.object(MetricQueryRunner, "merged_distributions", side_effect=AssertionError("merged")),
+            patch("products.metrics.backend.hogql_queries.metrics_histogram_query_runner.MAX_GRID_CELLS", 1),
+            self.assertRaisesRegex(Exception, "heatmap grid would hold"),
+        ):
+            self._run()
 
     def test_merges_mixed_bucket_layouts_onto_their_union(self):
         self._seed_histogram([(self.anchor, [10, 0, 0, 0])], bounds=[0.1, 0.5, 1.0])

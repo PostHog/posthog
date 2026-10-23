@@ -13,6 +13,7 @@ from products.metrics.backend.metric_query_runner import (
     _histogram_quantile,
     _merge_histograms,
     _pick_interval,
+    _resolution_edges,
 )
 
 
@@ -61,16 +62,34 @@ class TestExponentialUpperEdges:
         [
             ("positive_buckets", [1.0, 2.0, 4.0], [1, 2, 3], [1.0, 2.0, 4.0, 8.0], [0, 1, 2, 3]),
             ("zero_bucket_first", [0.0, 1.0, 2.0], [5, 1, 1], [0.0, 1.0, 2.0, 4.0], [5, 0, 1, 1]),
-            ("one_bucket_keeps_the_lower_edge", [1.0], [3], [1.0], [3]),
+            # One bucket gives no base: it becomes a zero-width bucket at its lower edge, which is inside the true range.
+            ("one_bucket_sits_on_its_lower_edge", [1.0], [3], [1.0, 1.0], [0, 3]),
+            # Negative bucket i is [-base**(i+1), -base**i): ingest stores -base**i, closest to zero first.
+            ("negative_buckets_ascend", [-1.0, -2.0], [1, 2], [-4.0, -2.0, -1.0], [0, 2, 1]),
+            (
+                "zero_between_negative_and_positive",
+                [0.0, -1.0, -2.0, 1.0, 2.0],
+                [5, 1, 2, 3, 4],
+                # The zero bucket stays zero-width at 0 instead of spreading over (-1, 0].
+                [-4.0, -2.0, -1.0, 0.0, 0.0, 1.0, 2.0, 4.0],
+                [0, 2, 1, 0, 5, 0, 3, 4],
+            ),
             ("empty", [], [], [], []),
         ]
     )
     def test_upper_edges(self, _name, bounds, counts, expected_bounds, expected_counts):
         assert _exponential_upper_edges(bounds, counts) == (expected_bounds, expected_counts)
 
-    def test_quantile_lands_inside_the_true_bucket(self):
-        bounds, counts = _exponential_upper_edges([0.1, 0.2, 0.4], [0, 10, 0])
-        assert abs(_histogram_quantile(0.5, bounds, counts) - 0.3) < 1e-9
+    @parameterized.expand(
+        [
+            ("positive", [0.1, 0.2, 0.4], [0, 10, 0], 0.3),
+            ("one_bucket", [1.0], [10], 1.0),
+            ("negative", [-1.0, -2.0, 1.0, 2.0], [0, 10, 0, 0], -3.0),
+        ]
+    )
+    def test_quantile_lands_inside_the_true_bucket(self, _name, bounds, counts, expected):
+        upper_bounds, upper_counts = _exponential_upper_edges(bounds, counts)
+        assert abs(_histogram_quantile(0.5, upper_bounds, upper_counts) - expected) < 1e-9
 
 
 class TestMergeHistograms:
@@ -101,6 +120,25 @@ class TestMergeHistograms:
                 [1.0, 0.0, 3.0],
             ),
             ("one_layout_is_unchanged", [([0.1, 0.5], [1.0, 2.0, 3.0])], [0.1, 0.5], [1.0, 2.0, 3.0]),
+            (
+                "edges_from_an_empty_layout_still_split",
+                [([1.0], [10.0, 0.0]), ([0.5], [0.0, 0.0])],
+                [0.5, 1.0],
+                [5.0, 5.0, 0.0],
+            ),
+            ("no_edges_is_one_open_bucket", [([], [5.0]), ([1.0], [0.0, 0.0])], [1.0], [5.0, 0.0]),
+            (
+                "counts_past_the_edges_are_overflow",
+                [([1.0], [1.0, 2.0, 3.0]), ([2.0], [0.0, 0.0])],
+                [1.0, 2.0],
+                [1.0, 5.0, 0.0],
+            ),
+            (
+                "overlapping_layouts_spread_by_width",
+                [([1.0, 3.0], [0.0, 4.0, 0.0]), ([2.0, 4.0], [0.0, 4.0, 0.0])],
+                [1.0, 2.0, 3.0, 4.0],
+                [0.0, 2.0, 4.0, 2.0, 0.0],
+            ),
         ]
     )
     def test_merge(self, _name, distributions, expected_bounds, expected_counts):
@@ -111,6 +149,29 @@ class TestMergeHistograms:
     def test_total_count_is_kept(self):
         _, counts = _merge_histograms([([0.1, 0.3, 0.9], [5.0, 7.0, 11.0, 2.0]), ([0.2, 1.0], [3.0, 4.0, 1.0])])
         assert sum(counts) == pytest.approx(33.0)
+
+
+class TestResolutionEdges:
+    @parameterized.expand(
+        [
+            ("one_layout_keeps_every_edge", [([0.1, 0.3], [1.0, 1.0, 0.0])], [0.1, 0.3]),
+            # Rebucketing a coarse (1, 10] bucket onto finer edges adds no precision.
+            (
+                "coarse_bucket_hides_finer_edges",
+                [([1.0, 10.0], [0.0, 4.0, 0.0]), ([2.0, 4.0, 10.0], [0.0] * 4)],
+                [1.0, 10.0],
+            ),
+            (
+                "empty_bucket_hides_nothing",
+                [([1.0, 10.0], [4.0, 0.0, 0.0]), ([2.0, 4.0], [0.0] * 3)],
+                [1.0, 2.0, 4.0, 10.0],
+            ),
+            ("overflow_hides_edges_above_it", [([1.0], [0.0, 3.0]), ([2.0, 4.0], [0.0] * 3)], [1.0]),
+        ]
+    )
+    def test_resolution_edges(self, _name, distributions, expected):
+        edges, _ = _merge_histograms(distributions)
+        assert _resolution_edges(distributions, edges) == expected
 
 
 class TestFormulaParser:

@@ -9,8 +9,8 @@ import re
 import math
 import bisect
 import datetime as dt
-from collections.abc import Sequence
-from typing import Any, Literal
+from collections.abc import Iterator, Sequence
+from typing import Any, Literal, NamedTuple
 from zoneinfo import ZoneInfo
 
 from posthog.hogql import ast
@@ -155,22 +155,58 @@ def _histogram_quantile(quantile: float, bounds: list[float], counts: list[float
     return bounds[-1]
 
 
-def _exponential_upper_edges(bounds: list[float], counts: list[Any]) -> tuple[list[float], list[Any]]:
-    """Convert an exponential histogram's stored lower edges into the upper edges that the quantile reads.
+class MergedDistribution(NamedTuple):
+    bounds: list[float]
+    counts: list[float]
+    # The edges the quantile estimate is accurate to; see `_resolution_edges`.
+    resolution_bounds: list[float]
+    fingerprints: set[int]
 
-    Ingest stores the lower edge `base**i` of each positive bucket `(base**i, base**(i+1)]`.
-    The bucket below the first one is empty and the last bucket ends one `base` step up.
-    One positive bucket gives no `base`, so it keeps the lower edge.
+
+def _exponential_upper_edges(bounds: list[float], counts: list[Any]) -> tuple[list[float], list[Any]]:
+    """Convert an exponential histogram's stored edges into ascending upper edges for the quantile.
+
+    Ingest stores the zero bucket as 0, then for each negative bucket `[-base**(i+1), -base**i)` its edge
+    nearest zero, then for each positive bucket `(base**i, base**(i+1)]` its lower edge. Consecutive
+    stored edges give `base`. A sign with only one bucket gives no `base`, so that bucket becomes zero-width
+    at its stored edge, which is inside its true range. Empty buckets fill the gaps between ranges.
     """
-    positive = [index for index, bound in enumerate(bounds) if bound > 0]
-    if len(positive) < 2:
-        return bounds, counts
-    first, last = positive[0], positive[-1]
-    base = bounds[first + 1] / bounds[first]
-    return (
-        [*bounds[: last + 1], bounds[last] * base, *bounds[last + 1 :]],
-        [*counts[:first], 0, *counts[first:]],
-    )
+    negative = [(bound, count) for bound, count in zip(bounds, counts) if bound < 0]
+    positive = [(bound, count) for bound, count in zip(bounds, counts) if bound > 0]
+    buckets: list[tuple[float, float, Any]] = [(0.0, 0.0, count) for bound, count in zip(bounds, counts) if bound == 0]
+    if negative:
+        base = negative[1][0] / negative[0][0] if len(negative) > 1 else 1.0
+        buckets += [(bound * base, bound, count) for bound, count in negative]
+    if positive:
+        base = positive[1][0] / positive[0][0] if len(positive) > 1 else 1.0
+        buckets += [(bound, bound * base, count) for bound, count in positive]
+    buckets.sort(key=lambda bucket: (bucket[1], bucket[0]))
+
+    edges: list[float] = []
+    ascending: list[Any] = []
+    for lower, upper, count in buckets:
+        previous = edges[-1] if edges else min(0.0, upper)
+        if lower != previous:
+            edges.append(lower)
+            ascending.append(0)
+        edges.append(upper)
+        ascending.append(count)
+    return edges, ascending
+
+
+def _source_buckets(bounds: Sequence[float], counts: Sequence[float]) -> Iterator[tuple[float, float, float]]:
+    """Yield `(lower, upper, count)` for each bucket that holds observations.
+
+    Counts past the last edge are the overflow bucket, whose upper edge is infinite. With no edges at
+    all, every observation is in one bucket that is open at both ends.
+    """
+    for index, count in enumerate(counts):
+        if not count:
+            continue
+        if index >= len(bounds):
+            yield (bounds[-1] if bounds else -math.inf), math.inf, count
+        else:
+            yield (bounds[index - 1] if index > 0 else min(0.0, bounds[0])), bounds[index], count
 
 
 def _merge_histograms(distributions: Sequence[tuple[list[float], list[float]]]) -> tuple[list[float], list[float]]:
@@ -179,6 +215,7 @@ def _merge_histograms(distributions: Sequence[tuple[list[float], list[float]]]) 
     A source bucket spreads over the union buckets it covers, in proportion to their width, which is the
     same linear assumption the quantile interpolation makes. A source overflow bucket goes to the next
     union bucket above its lowest edge, so its quantile stays near that edge as Prometheus reports it.
+    One sweep over the bucket ends keeps the work near-linear in the number of source buckets.
     """
     layouts = {tuple(bounds) for bounds, _ in distributions}
     if len(layouts) == 1:
@@ -192,26 +229,55 @@ def _merge_histograms(distributions: Sequence[tuple[list[float], list[float]]]) 
 
     edges = sorted({bound for layout in layouts for bound in layout})
     merged = [0.0] * (len(edges) + 1)
+    density_changes: dict[float, float] = {}
+    open_changes: dict[float, int] = {}
     for bounds, counts in distributions:
-        for index, count in enumerate(counts):
-            if not count:
-                continue
-            lower = bounds[index - 1] if index > 0 else min(0.0, bounds[0])
-            if index >= len(bounds):
+        for lower, upper, count in _source_buckets(bounds, counts):
+            if upper == math.inf:
                 merged[bisect.bisect_right(edges, lower)] += count
-                continue
-            upper = bounds[index]
-            target = bisect.bisect_left(edges, upper)
-            if upper <= lower:
-                merged[target] += count
-                continue
-            first = bisect.bisect_right(edges, lower)
-            for union_index in range(first, target + 1):
-                union_lower = edges[union_index - 1] if union_index > 0 else min(0.0, edges[0])
-                overlap = min(edges[union_index], upper) - max(union_lower, lower)
-                if overlap > 0:
-                    merged[union_index] += count * overlap / (upper - lower)
+            elif upper <= lower:
+                merged[bisect.bisect_left(edges, upper)] += count
+            else:
+                density = count / (upper - lower)
+                density_changes[lower] = density_changes.get(lower, 0.0) + density
+                density_changes[upper] = density_changes.get(upper, 0.0) - density
+                open_changes[lower] = open_changes.get(lower, 0) + 1
+                open_changes[upper] = open_changes.get(upper, 0) - 1
+
+    density = 0.0
+    open_buckets = 0
+    # The union edges split the sweep too, so each segment lies inside one union bucket.
+    positions = sorted({*density_changes, *edges})
+    for position, following in zip(positions, positions[1:]):
+        open_buckets += open_changes.get(position, 0)
+        # Reset when no bucket is open, so float error cannot leave a tiny density behind.
+        density = density + density_changes.get(position, 0.0) if open_buckets else 0.0
+        if density > 0:
+            merged[bisect.bisect_left(edges, following)] += density * (following - position)
     return edges, merged
+
+
+def _resolution_edges(distributions: Sequence[tuple[list[float], list[float]]], edges: list[float]) -> list[float]:
+    """The merged edges that no source bucket with observations straddles.
+
+    Splitting a coarse bucket onto finer edges adds no precision, so only these edges tell how close
+    the quantile estimate is to the true value.
+    """
+    coverage = [0] * (len(edges) + 1)
+    for bounds, counts in distributions:
+        for lower, upper, _ in _source_buckets(bounds, counts):
+            start = bisect.bisect_right(edges, lower)
+            end = len(edges) if upper == math.inf else bisect.bisect_left(edges, upper)
+            if start < end:
+                coverage[start] += 1
+                coverage[end] -= 1
+    resolution: list[float] = []
+    straddled = 0
+    for index, edge in enumerate(edges):
+        straddled += coverage[index]
+        if not straddled:
+            resolution.append(edge)
+    return resolution
 
 
 # Target about 60 chart buckets.
@@ -645,7 +711,8 @@ class MetricQueryRunner:
         self._raise_on_truncation(response.results)
 
         rows: list[dict[str, Any]] = []
-        for key, (bounds, counts, fingerprints) in self.merged_distributions(response.results).items():
+        for key, merged in self.merged_distributions(response.results).items():
+            bounds, counts = merged.bounds, merged.counts
             if sum(counts) <= 0:
                 # The bucket has no computable increase. Return a gap, not zero.
                 continue
@@ -654,15 +721,15 @@ class MetricQueryRunner:
                     "time": key[0].isoformat() if isinstance(key[0], dt.datetime) else key[0],
                     "value": _finite_or_none(_histogram_quantile(self.quantile, bounds, counts)),
                     "labels": {group.key: key[1 + index] for index, group in enumerate(self.group_by)},
-                    "series_fingerprints": sorted(fingerprints),
-                    "histogram_bounds": bounds,
+                    "series_fingerprints": sorted(merged.fingerprints),
+                    "histogram_bounds": merged.resolution_bounds,
                 }
             )
         return rows
 
     def merged_distributions(
         self, results: list[Any], edges: Sequence[float] = ()
-    ) -> dict[tuple[Any, ...], tuple[list[float], list[float], set[int]]]:
+    ) -> dict[tuple[Any, ...], MergedDistribution]:
         """Merge the rows of `_build_histogram_query` into one distribution per (time, *group labels).
 
         Each row holds one bucket layout. Exponential layouts move between emissions and custom
@@ -680,10 +747,16 @@ class MetricQueryRunner:
             layouts.setdefault(key, []).append((bounds, counts))
             fingerprints.setdefault(key, set()).update(row[3 + group_count])
         extra = [(list(edges), [0.0] * (len(edges) + 1))] if edges else []
-        return {
-            key: (*_merge_histograms([*distributions, *extra]), fingerprints[key])
-            for key, distributions in layouts.items()
-        }
+        merged: dict[tuple[Any, ...], MergedDistribution] = {}
+        for key, distributions in layouts.items():
+            bounds, counts = _merge_histograms([*distributions, *extra])
+            merged[key] = MergedDistribution(
+                bounds=bounds,
+                counts=counts,
+                resolution_bounds=_resolution_edges(distributions, bounds),
+                fingerprints=fingerprints[key],
+            )
+        return merged
 
     def histogram_edges(self, results: list[Any]) -> list[float]:
         """The union of the bucket upper edges in the rows of `_build_histogram_query`."""
@@ -893,7 +966,8 @@ class MetricQueryRunner:
                         multiIf(
                             aggregation_temporality = 'delta', counts_f,
                             empty(prev_counts), arrayMap(x -> 0.0, counts_f),
-                            prev_bounds != histogram_bounds, arrayMap(x -> 0.0, counts_f),
+                            prev_bounds != histogram_bounds OR length(prev_counts) != length(counts_f),
+                                arrayMap(x -> 0.0, counts_f),
                             arrayAll((c, p) -> c >= p, counts_f, prev_counts), arrayMap((c, p) -> c - p, counts_f, prev_counts),
                             counts_f
                         ) AS contribution_counts

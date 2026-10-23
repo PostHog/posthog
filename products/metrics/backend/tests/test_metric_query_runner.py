@@ -1534,7 +1534,19 @@ class TestHistogramQuantileRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(rows), 1)
         # Union edges [0.1, 0.2, 0.5, 0.6, 1.0, 2.0] get counts [10, 0, 7.5, 2.5, 0, 0, 0], so p75 is 2/3 into (0.2, 0.5].
         self.assertAlmostEqual(rows[0]["value"], 0.4)
-        self.assertEqual(rows[0]["histogram_bounds"], [0.1, 0.2, 0.5, 0.6, 1.0, 2.0])
+        # The (0.2, 0.6] bucket holds observations, so the 0.5 edge adds no precision.
+        self.assertEqual(rows[0]["histogram_bounds"], [0.1, 0.2, 0.6, 1.0, 2.0])
+
+    def test_cumulative_bucket_count_change_does_not_fail(self):
+        # metrics4 keeps one bounds array per series-hour, so samples can carry more counts than bounds.
+        self._seed_histogram(
+            [
+                (self.anchor + dt.timedelta(seconds=0), [1, 1, 1, 0]),
+                (self.anchor + dt.timedelta(seconds=30), [2, 2, 2, 0, 0]),
+            ],
+            temporality="cumulative",
+        )
+        self.assertEqual(self._run(0.5), [])
 
     def test_exponential_histogram_reads_upper_edges(self):
         # Ingest stores lower edges [0.1, 0.2, 0.4]: every value is in (0.2, 0.4].

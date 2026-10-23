@@ -68,12 +68,20 @@ const floorToTwoSignificant = (value: number): number => {
 
 /** Custom bucket edges that cover the plotted values with room on both sides. */
 export function suggestedBucketEdges(values: number[]): number[] {
-    const positive = values.filter((value) => Number.isFinite(value) && value > 0)
-    if (!positive.length) {
+    // A loop, not Math.min(...values): a long chart exceeds the engine's argument limit.
+    let min = Infinity
+    let max = -Infinity
+    for (const value of values) {
+        if (Number.isFinite(value) && value > 0) {
+            min = Math.min(min, value)
+            max = Math.max(max, value)
+        }
+    }
+    if (min === Infinity) {
         return []
     }
-    const from = Math.min(...positive) / 2
-    const to = Math.max(...positive) * 2
+    const from = min / 2
+    const to = max * 2
     const step = Math.max(SUGGESTED_EDGE_STEP, (to / from) ** (1 / (MAX_SUGGESTED_EDGES - 1)))
     const edges: number[] = []
     for (let edge = from; edges.length < MAX_SUGGESTED_EDGES; edge *= step) {
@@ -83,4 +91,25 @@ export function suggestedBucketEdges(values: number[]): number[] {
         }
     }
     return [...new Set(edges)]
+}
+
+/** Copy-paste examples that set custom buckets. Ingested names go in as escaped string literals, so a
+ * crafted metric name or unit cannot add code to the snippet. */
+export function customBucketSnippet(metric: string, unit: string, edges: number[]): string {
+    const list = edges.join(', ')
+    return [
+        '# OpenTelemetry',
+        'meter.create_histogram(',
+        `    ${JSON.stringify(metric)},`,
+        `    unit=${JSON.stringify(unit)},`,
+        `    explicit_bucket_boundaries_advisory=[${list}],`,
+        ')',
+        '',
+        '# Prometheus client',
+        'Histogram(',
+        `    ${JSON.stringify(metric)},`,
+        '    "...",',
+        `    buckets=[${list}, float("inf")],`,
+        ')',
+    ].join('\n')
 }

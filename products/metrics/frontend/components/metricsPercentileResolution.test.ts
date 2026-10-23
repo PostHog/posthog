@@ -1,5 +1,5 @@
 import { OtelMetricTypeEnumApi } from '../generated/api.schemas'
-import { coarsePercentileResolution, suggestedBucketEdges } from './metricsPercentileResolution'
+import { coarsePercentileResolution, customBucketSnippet, suggestedBucketEdges } from './metricsPercentileResolution'
 import { supportsHistogramQuantile } from './metricsViewerLogic'
 
 const DJANGO_BUCKETS = [0.1, 0.3, 0.9, 2.7, 8.1]
@@ -50,9 +50,28 @@ describe('suggestedBucketEdges', () => {
         edges.slice(1).forEach((edge, index) => expect(edge / edges[index]).toBeLessThanOrEqual(1.6))
     })
 
+    it('handles more values than a function call can take as arguments', () => {
+        const values = Array.from({ length: 1_000_000 }, (_, index) => 0.1 + (index % 100) / 100)
+
+        expect(() => suggestedBucketEdges(values)).not.toThrow()
+    })
+
     it('returns no edges without positive values', () => {
         expect(suggestedBucketEdges([])).toEqual([])
         expect(suggestedBucketEdges([0])).toEqual([])
+    })
+})
+
+describe('customBucketSnippet', () => {
+    it('writes ingested names as string literals that cannot break out of the snippet', () => {
+        const unit = 's", description=__import__("os").system("id"), x="'
+
+        const snippet = customBucketSnippet('http.duration', unit, [0.1, 0.2])
+
+        expect(snippet).toContain(`unit=${JSON.stringify(unit)},`)
+        expect(snippet).not.toContain('description=__import__("os")')
+        expect(snippet).toContain('explicit_bucket_boundaries_advisory=[0.1, 0.2]')
+        expect(snippet).toContain('buckets=[0.1, 0.2, float("inf")]')
     })
 })
 

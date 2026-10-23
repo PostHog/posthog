@@ -239,7 +239,8 @@ class TestMetricsSqlMode(ClickhouseTestMixin, APIBaseTest):
 
         # The builder merges the layouts onto their union edges. SQL mode still asks for one layout.
         results = self._run(clauses=[MetricsQueryClause(**clause) for clause in fixture["builder"]["clauses"]])
-        assert results[0].histogramBounds == [10.0, 100.0]
+        # The worker's (0, 100] bucket straddles the api's 10 edge, so the estimate is only accurate to 100.
+        assert results[0].histogramBounds == [100.0]
         with pytest.raises(Exception, match="different histogram bounds"):
             self._run(clauses=[], language="sql", sql=fixture["sql"])
 

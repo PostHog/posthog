@@ -6,12 +6,10 @@ import { LemonBanner, LemonModal, LemonTag } from '@posthog/lemon-ui'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 
 import { formatMetricValue } from '../panels/metricsUnits'
-import { coarsePercentileResolution, suggestedBucketEdges } from './metricsPercentileResolution'
+import { coarsePercentileResolution, customBucketSnippet, suggestedBucketEdges } from './metricsPercentileResolution'
 import type { MetricsViewerSeries } from './metricsViewerLogic'
 
 const EXPONENTIAL_ENV = 'OTEL_EXPORTER_OTLP_METRICS_DEFAULT_HISTOGRAM_AGGREGATION=base2_exponential_bucket_histogram'
-
-const formatEdges = (edges: number[]): string => edges.map((edge) => `${edge}`).join(', ')
 
 /** Warns that the percentile lines snap between a few wide buckets, and shows how to get sharper ones. */
 export function MetricsPercentileResolutionHint({
@@ -116,21 +114,7 @@ export function MetricsPercentileResolutionHint({
                                 posthog.capture('metrics percentile resolution snippet copied', { option: 'custom' })
                             }
                         >
-                            {[
-                                '# OpenTelemetry',
-                                'meter.create_histogram(',
-                                `    "${metric}",`,
-                                `    unit="${unit ?? 's'}",`,
-                                `    explicit_bucket_boundaries_advisory=[${formatEdges(suggested)}],`,
-                                ')',
-                                '',
-                                '# Prometheus client',
-                                'Histogram(',
-                                `    "${metric}",`,
-                                '    "...",',
-                                `    buckets=[${formatEdges(suggested)}, float("inf")],`,
-                                ')',
-                            ].join('\n')}
+                            {customBucketSnippet(metric, unit ?? 's', suggested)}
                         </CodeSnippet>
                     </section>
                 </div>
