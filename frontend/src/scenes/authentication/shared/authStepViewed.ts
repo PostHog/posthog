@@ -16,15 +16,15 @@ export type AuthStep =
     | 'signup_pending_invite'
     | 'verify_email'
 
-/** One event for every screen of the login and signup flow, so a single funnel covers both. The
- * OAuth client is attached when the person arrived from a signed-out `/oauth/authorize`. */
-export function captureAuthStepViewed(step: AuthStep, entry: AuthEntry | null): void {
+/** The OAuth client a signed-out `/oauth/authorize` sent the person from, for every auth event.
+ * pinned: analytics property names */
+export function pendingOAuthConnectionProperties(): { oauth_client_name?: string; oauth_client_id?: string } {
     const connection = readPendingOAuthConnection()
+    return { oauth_client_name: connection?.clientName, oauth_client_id: connection?.clientId }
+}
+
+/** One event for every screen of the login and signup flow, so a single funnel covers both. */
+export function captureAuthStepViewed(step: AuthStep, entry: AuthEntry | null): void {
     // pinned: analytics event name
-    posthog.capture('auth step viewed', {
-        step,
-        entry,
-        oauth_client_name: connection?.clientName,
-        oauth_client_id: connection?.clientId,
-    })
+    posthog.capture('auth step viewed', { step, entry, ...pendingOAuthConnectionProperties() })
 }

@@ -22,7 +22,22 @@ import { arrivedFromWebsiteLogic } from '../shared/arrivedFromWebsiteLogic'
 import { Auth } from './Auth'
 import { authLogic } from './authLogic'
 
-type StepOption = 'Email' | 'Login' | 'Login code' | 'Signup credentials' | 'Signup profile' | 'Pending invite'
+const STEP_OPTIONS = [
+    'Email',
+    'Login',
+    'Login code',
+    'New person on an SSO domain',
+    'Signup credentials',
+    'Signup profile',
+    'Pending invite',
+] as const
+type StepOption = (typeof STEP_OPTIONS)[number]
+const NEW_ACCOUNT_STEPS: StepOption[] = [
+    'New person on an SSO domain',
+    'Signup credentials',
+    'Signup profile',
+    'Pending invite',
+]
 
 type StoryArgs = {
     entry: 'login' | 'signup'
@@ -54,14 +69,7 @@ const meta: Meta<StoryArgs> = {
         step: {
             control: 'select',
             name: 'Step',
-            options: [
-                'Email',
-                'Login',
-                'Login code',
-                'Signup credentials',
-                'Signup profile',
-                'Pending invite',
-            ] satisfies StepOption[],
+            options: [...STEP_OPTIONS],
         },
         cloud: { control: 'boolean', name: 'Cloud' },
         region: { control: 'select', options: ['US', 'EU'], name: 'Region', if: { arg: 'cloud' } },
@@ -146,9 +154,9 @@ const Template: StoryFn<StoryArgs> = ({
         },
         post: {
             '/api/login/precheck': {
-                account_exists: step !== 'Signup credentials' && step !== 'Signup profile' && step !== 'Pending invite',
+                account_exists: !NEW_ACCOUNT_STEPS.includes(step),
                 sso_enforcement: enforcement,
-                saml_available: samlAvailable,
+                saml_available: samlAvailable || step === 'New person on an SSO domain',
             },
             '/api/signup/precheck': {
                 email_exists: false,
@@ -257,3 +265,7 @@ SignupProfile.args = { step: 'Signup profile' }
 
 export const PendingInvite: StoryFn<StoryArgs> = Template.bind({})
 PendingInvite.args = { step: 'Pending invite' }
+
+export const NewPersonOnSSODomain: StoryFn<StoryArgs> = Template.bind({})
+NewPersonOnSSODomain.storyName = 'New person on an SSO domain'
+NewPersonOnSSODomain.args = { step: 'New person on an SSO domain' }

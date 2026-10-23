@@ -8,7 +8,7 @@ import { signupLogic } from 'scenes/authentication/signup/signupForm/signupLogic
 import { UseDifferentEmailLink } from '../components/UseDifferentEmailLink'
 
 export function PendingInviteStep(): JSX.Element {
-    const { signupPanelEmail, pendingInvite, pendingInviteResent, isPendingInviteResending } = useValues(signupLogic)
+    const { signupEmail, pendingInvite, pendingInviteResent, isPendingInviteResending } = useValues(signupLogic)
     const { resendPendingInvite, dismissPendingInvite } = useActions(signupLogic)
     const org = pendingInvite?.organization_name ?? 'your team'
 
@@ -19,7 +19,7 @@ export function PendingInviteStep(): JSX.Element {
                 sub={
                     <span>
                         <b className="text-primary">{org}</b> <span>invited</span>{' '}
-                        <span className="AuthScene__mono">{signupPanelEmail.email}</span>{' '}
+                        <span className="AuthScene__mono">{signupEmail}</span>{' '}
                         <span>to join them on PostHog. The invite link is in your inbox.</span>
                     </span>
                 }
@@ -39,7 +39,7 @@ export function PendingInviteStep(): JSX.Element {
                         fullWidth
                         data-attr="pending-invite-resend"
                         loading={isPendingInviteResending}
-                        onClick={() => resendPendingInvite(signupPanelEmail.email)}
+                        onClick={() => resendPendingInvite(signupEmail)}
                     >
                         Resend invite email
                     </LemonButton>

@@ -30,8 +30,7 @@ describe('signupLogic — email error surfacing', () => {
 
     it('redirects to the email panel and shows the error when the final POST fails with an email error', async () => {
         // Advance through email panel (precheck passes)
-        logic.actions.setSignupPanelEmailValue('email', 'test@example.com')
-        logic.actions.submitSignupPanelEmail()
+        logic.actions.precheckSignupEmail('test@example.com')
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.panel).toBe(1)
 
@@ -54,9 +53,7 @@ describe('signupLogic — email error surfacing', () => {
 
         // User should be sent back to step 0 with the email error shown there
         expect(logic.values.panel).toBe(0)
-        expect(logic.values.signupPanelEmailManualErrors.email).toBe(
-            'There is already an account with this email address.'
-        )
+        expect(logic.values.signupEmailError).toBe('There is already an account with this email address.')
     })
 })
 
@@ -87,8 +84,7 @@ describe('signupLogic — pending invite banner', () => {
     })
 
     it('shows the pending invite banner instead of advancing the panel', async () => {
-        logic.actions.setSignupPanelEmailValue('email', 'alice@acme.com')
-        logic.actions.submitSignupPanelEmail()
+        logic.actions.precheckSignupEmail('alice@acme.com')
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.pendingInvite).toEqual({ organization_name: 'Acme Corp' })
         expect(logic.values.panel).toBe(0)
@@ -100,16 +96,14 @@ describe('signupLogic — pending invite banner', () => {
                 '/api/signup/precheck': () => [200, { email_exists: false, pending_invite: null }],
             },
         })
-        logic.actions.setSignupPanelEmailValue('email', 'stranger@nowhere.com')
-        logic.actions.submitSignupPanelEmail()
+        logic.actions.precheckSignupEmail('stranger@nowhere.com')
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.pendingInvite).toBeNull()
         expect(logic.values.panel).toBe(1)
     })
 
     it('advances the panel when the user dismisses the banner', async () => {
-        logic.actions.setSignupPanelEmailValue('email', 'alice@acme.com')
-        logic.actions.submitSignupPanelEmail()
+        logic.actions.precheckSignupEmail('alice@acme.com')
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.pendingInvite).not.toBeNull()
         logic.actions.dismissPendingInvite()
@@ -120,8 +114,7 @@ describe('signupLogic — pending invite banner', () => {
 
     it('skips the banner when skip_invite_check=1 is on the URL', async () => {
         router.actions.push('/signup', { skip_invite_check: '1' })
-        logic.actions.setSignupPanelEmailValue('email', 'alice@acme.com')
-        logic.actions.submitSignupPanelEmail()
+        logic.actions.precheckSignupEmail('alice@acme.com')
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.pendingInvite).toBeNull()
         expect(logic.values.panel).toBe(1)
@@ -149,8 +142,7 @@ describe('signupLogic — retrying a panel after a failed submit', () => {
     let signupRequestCount: number
 
     const advanceToOnboardingPanel = async (): Promise<void> => {
-        logic.actions.setSignupPanelEmailValue('email', 'free@example.com')
-        logic.actions.submitSignupPanelEmail()
+        logic.actions.precheckSignupEmail('free@example.com')
         await expectLogic(logic).toFinishAllListeners()
         logic.actions.setSignupPanelAuthValue('password', 'Str0ng-Test-Pass!')
         logic.actions.submitSignupPanelAuth()
@@ -192,20 +184,16 @@ describe('signupLogic — retrying a panel after a failed submit', () => {
     })
 
     it('advances when a different email is submitted after an account-exists error', async () => {
-        logic.actions.setSignupPanelEmailValue('email', 'taken@example.com')
-        logic.actions.submitSignupPanelEmail()
+        logic.actions.precheckSignupEmail('taken@example.com')
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.panel).toBe(0)
-        expect(logic.values.signupPanelEmailManualErrors.email).toBe(
-            'There is already an account with this email address.'
-        )
+        expect(logic.values.signupEmailError).toBe('There is already an account with this email address.')
 
-        logic.actions.setSignupPanelEmailValue('email', 'free@example.com')
-        logic.actions.submitSignupPanelEmail()
+        logic.actions.precheckSignupEmail('free@example.com')
         await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values.panel).toBe(1)
-        expect(logic.values.signupPanelEmailManualErrors.email).toBeUndefined()
+        expect(logic.values.signupEmailError).toBeNull()
     })
 
     it('reissues the signup request when onboarding is submitted again after a generic error', async () => {
@@ -234,8 +222,7 @@ describe('signupLogic — name handling', () => {
     let signupRequestBody: Record<string, any> | null
 
     const advanceToOnboardingPanel = async (): Promise<void> => {
-        logic.actions.setSignupPanelEmailValue('email', 'test@example.com')
-        logic.actions.submitSignupPanelEmail()
+        logic.actions.precheckSignupEmail('test@example.com')
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.panel).toBe(1)
         logic.actions.setSignupPanelAuthValue('password', 'Str0ng-Test-Pass!')
@@ -414,8 +401,7 @@ describe('signupLogic — name handling', () => {
         expect(logic.values.signupPanelAuthManualErrors.password).toBeTruthy()
 
         logic.actions.setPanel(0)
-        logic.actions.setSignupPanelEmailValue('email', 'other@example.com')
-        logic.actions.submitSignupPanelEmail()
+        logic.actions.precheckSignupEmail('other@example.com')
         await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values.panel).toBe(1)

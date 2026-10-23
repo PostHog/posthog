@@ -34,6 +34,12 @@ describe('authLogic', () => {
             'login',
         ],
         [
+            'a new email on a domain with optional SAML',
+            { ...COMPLETED, account_exists: false, saml_available: true },
+            { isDemo: false, canCreateOrg: true },
+            'login',
+        ],
+        [
             'a new email where no organization can be created',
             { ...COMPLETED, account_exists: false },
             { isDemo: false, canCreateOrg: false },
@@ -51,15 +57,20 @@ describe('authLogic', () => {
 
     describe('funnel events', () => {
         let accountExists: boolean
+        let holdPrecheck: Promise<void> | null
 
         beforeEach(() => {
             accountExists = false
+            holdPrecheck = null
             useMocks({
                 get: {
                     '/_preflight': () => [200, { ...preflightJson, can_create_org: true }],
                 },
                 post: {
-                    '/api/login/precheck': () => [200, { account_exists: accountExists, saml_available: false }],
+                    '/api/login/precheck': async () => {
+                        await holdPrecheck
+                        return [200, { account_exists: accountExists, saml_available: false }]
+                    },
                     '/api/signup/precheck': () => [200, { email_exists: false, pending_invite: null }],
                 },
             })
@@ -85,28 +96,47 @@ describe('authLogic', () => {
         it.each<[string, boolean, AuthAccountPath, string]>([
             ['a new email', false, 'signup', 'signup_credentials'],
             ['an existing account', true, 'login', 'login'],
-        ])(
-            'reports each step of %s once, with the routing decision between them',
-            async (_name, exists, path, step) => {
-                accountExists = exists
-                loginLogic.actions.setLoginValue('email', 'person@example.com')
+        ])('reports each step of %s once, plus the routing decision', async (_name, exists, path, step) => {
+            accountExists = exists
+            loginLogic.actions.setLoginValue('email', 'person@example.com')
 
-                await expectLogic(authLogic, () => authLogic.actions.continueWithEmail()).toDispatchActions([
-                    'chooseAccountPath',
-                ])
-                if (path === 'signup') {
-                    await expectLogic(signupLogic).toDispatchActions(['submitSignupPanelEmailSuccess'])
-                }
+            await expectLogic(authLogic, () => authLogic.actions.continueWithEmail()).toDispatchActions([
+                'chooseAccountPath',
+            ])
+            if (path === 'signup') {
+                await expectLogic(signupLogic).toDispatchActions(['finishSignupEmailPrecheck'])
+            }
 
-                expect(capturedEvents()).toEqual([
-                    ['auth step viewed', expect.objectContaining({ step: 'email', entry: 'signup' })],
+            const [first, ...rest] = capturedEvents()
+            expect(first).toEqual(['auth step viewed', expect.objectContaining({ step: 'email', entry: 'signup' })])
+            expect(rest).toHaveLength(2)
+            expect(rest).toEqual(
+                expect.arrayContaining([
                     [
                         'auth email submitted',
                         expect.objectContaining({ entry: 'signup', routed_to: path, account_exists: exists }),
                     ],
                     ['auth step viewed', expect.objectContaining({ step, entry: 'signup' })],
                 ])
-            }
-        )
+            )
+        })
+
+        it('ignores a precheck answer for an email the person has since changed', async () => {
+            accountExists = true
+            let releasePrecheck = (): void => {}
+            holdPrecheck = new Promise((resolve) => {
+                releasePrecheck = resolve
+            })
+            loginLogic.actions.setLoginValue('email', 'first@example.com')
+            authLogic.actions.continueWithEmail()
+            loginLogic.actions.setLoginValue('email', 'second@example.com')
+            releasePrecheck()
+
+            await expectLogic(loginLogic).toDispatchActions(['precheckSuccess'])
+            await expectLogic(authLogic).toNotHaveDispatchedActions(['chooseAccountPath']).toMatchValues({
+                step: 'email',
+                isEmailSubmitting: false,
+            })
+        })
     })
 })

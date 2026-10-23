@@ -21,7 +21,7 @@ export function SignupProfileStep(): JSX.Element {
         challengeRequired,
         turnstileSiteKey,
         turnstileToken,
-        signupPanelEmail,
+        signupEmail,
     } = useValues(signupLogic)
     const { preflight } = useValues(preflightLogic)
     const { setTurnstileToken, setPanel } = useActions(signupLogic)
@@ -67,8 +67,7 @@ export function SignupProfileStep(): JSX.Element {
                 title="Tell us about yourself"
                 sub={
                     <span>
-                        <span>Setting up the account for</span>{' '}
-                        <span className="AuthScene__mono">{signupPanelEmail.email}</span>
+                        <span>Setting up the account for</span> <span className="AuthScene__mono">{signupEmail}</span>
                     </span>
                 }
             />
@@ -86,7 +85,7 @@ export function SignupProfileStep(): JSX.Element {
                                     e.preventDefault()
                                     openSupportForm({
                                         kind: 'support',
-                                        email: signupPanelEmail.email,
+                                        email: signupEmail,
                                     })
                                 }}
                                 className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-warning"
@@ -141,7 +140,7 @@ export function SignupProfileStep(): JSX.Element {
                         siteKey={turnstileSiteKey}
                         onSuccess={setTurnstileToken}
                         tokenReceived={!!turnstileToken}
-                        email={signupPanelEmail.email}
+                        email={signupEmail}
                     />
                 ) : (
                     <LemonButton
