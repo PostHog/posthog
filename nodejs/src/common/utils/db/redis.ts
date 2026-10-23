@@ -7,15 +7,10 @@ import { logger } from '../../utils/logger'
 import { killGracefully } from '../../utils/utils'
 import { captureException } from '../posthog'
 
-/** Number of Redis error events until the server is killed gracefully. */
+/** Redis errors a fatal client tolerates. The next error stops the process. */
 const REDIS_ERROR_COUNTER_LIMIT = 10
 const NON_FATAL_CONNECT_TIMEOUT_MS = 10_000
 
-/**
- * Configuration for a Redis connection.
- * Consumers should build this config inline where they create Redis connections,
- * rather than relying on centralized builder functions.
- */
 export interface RedisConnectionConfig {
     url: string
     options?: RedisOptions
@@ -28,9 +23,6 @@ export interface RedisConnectionConfig {
     exitOnRepeatedErrors?: boolean
 }
 
-/**
- * Configuration needed to create Redis pool instances.
- */
 export interface RedisPoolConfig {
     connection: RedisConnectionConfig
     poolMinSize: number
