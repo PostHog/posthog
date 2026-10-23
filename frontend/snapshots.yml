@@ -7234,6 +7234,14 @@ snapshots:
         hash: v1.k794b7964.813ee6fa8c0a5d7f47883c875a17acf297b9862e9e42414ced9f0a7add680faa.2Zjf5z5DUlOijGyDJtgDa1_D52Th6qvsI1Am1FslNI0
     products-data-catalog-metric-lineage--no-warehouse-access--light:
         hash: v1.k794b7964.d24fc4898fd69d316912802e328f3a6e2e94cee4cf106d8893597da97dbf73af.UOfef0QXupztuN6lJ1r5vYH5FiYFRHx_eqHRlY-34CQ
+    products-data-catalog-new-metric--narrow-scene-with-table--dark:
+        hash: v1.k794b7964.612300913154783461e647024e161dae3bc887fadc35fe3b397a986bcd5c9035.1kodjxCxylTRlTOWF95lcdrWm05jWbDd2ZVNxQYApVo
+    products-data-catalog-new-metric--narrow-scene-with-table--light:
+        hash: v1.k794b7964.075e14816af95799b47f2a367326ba6ed51bbbd4c08af95e0fd2b08fa83d94cb.-S5rEe2pnXLsj1HN-XR1ig6kqvSwKd8b2fgfL5zSfu0
+    products-data-catalog-new-metric--sql-with-result--dark:
+        hash: v1.k794b7964.c193797397e4219755a68e428a30e2f2792b516e81407ce0bba6afa5705e2864.AIwRUBWQZyXyZtQJ6xtmGkK_bUektmCAgrlSLXu1hvs
+    products-data-catalog-new-metric--sql-with-result--light:
+        hash: v1.k794b7964.a6b6357d6d7ca719f4d9508f35e647fb64c6749213f763b876d24ee1b2ab7fff.BjYXpwtfAhhCU2yo-a17U0kP6SkEF2gi5uAj69hUcsI
     products-data-modeling-lineage-graph--canvas--dark:
         hash: v1.k794b7964.dfc9cecd5fe04ca15b3030156b8a22b1e7e856ca02ba62a45acb9f18e8e4363f.OMoHNsARLj6RjX4bCuo2KF33IMbCanui8ZqWzGhIczk
     products-data-modeling-lineage-graph--canvas--light:
