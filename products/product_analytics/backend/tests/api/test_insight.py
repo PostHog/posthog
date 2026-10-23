@@ -18,13 +18,14 @@ from unittest.case import skip
 from unittest.mock import ANY, patch
 
 from django.db import connection
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
     DataTableNode,
@@ -74,7 +75,7 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile, Text
 from products.product_analytics.backend.facade.models import Insight, InsightVariable
 from products.product_analytics.backend.models.insight import InsightViewed
-from products.product_analytics.backend.presentation.insight import chart_display_filter
+from products.product_analytics.backend.presentation.insight import chart_display_filter, parse_property_names_param
 from products.subscriptions.backend.facade.testing import (
     create_subscription,
     create_subscription_delivery,
@@ -4141,45 +4142,37 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertNotEqual(initial_metadata, updated_metadata)
 
     def test_listing_insights_filtered_by_property_name(self):
-        def trends_query_with_property(property_key: str) -> dict:
-            return {
-                "kind": NodeKind.INSIGHT_VIZ_NODE.value,
-                "source": {
-                    "kind": InsightNodeKind.TRENDS_QUERY.value,
-                    "series": [
-                        {
-                            "kind": NodeKind.EVENTS_NODE.value,
-                            "event": "$pageview",
-                            "properties": [{"key": property_key, "type": "event", "value": "x"}],
-                        }
-                    ],
+        def insight_with_properties(*names: str) -> Insight:
+            # No query, so the save hook keeps the seeded metadata.
+            return Insight.objects.create(
+                team=self.team,
+                created_by=self.user,
+                query_metadata={
+                    "events": [],
+                    "properties": [{"type": "event", "name": name} for name in names],
+                    "updated_at": "2026-01-01T00:00:00Z",
                 },
-            }
+            )
 
-        browser_insight = Insight.objects.create(
-            query=trends_query_with_property("$browser"), team=self.team, created_by=self.user
-        )
-        os_insight = Insight.objects.create(
-            query=trends_query_with_property("$os"), team=self.team, created_by=self.user
+        browser_insight = insight_with_properties("$browser")
+        browser_and_os_insight = insight_with_properties("$browser", "$os")
+        os_insight = insight_with_properties("$os")
+
+        def listed_ids(properties_param: str) -> list[int]:
+            response = self.client.get(f"/api/projects/{self.team.id}/insights/", data={"properties": properties_param})
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            return [insight["id"] for insight in response.json()["results"]]
+
+        self.assertCountEqual(listed_ids(json.dumps(["$browser"])), [browser_insight.id, browser_and_os_insight.id])
+        self.assertCountEqual(listed_ids(json.dumps(["$browser", "$os"])), [browser_and_os_insight.id])
+        # Old clients sent property-filter dicts under this param; those must stay a no-op
+        self.assertCountEqual(
+            listed_ids(json.dumps([{"key": "$browser"}])),
+            [browser_insight.id, browser_and_os_insight.id, os_insight.id],
         )
 
-        response = self.client.get(
-            f"/api/projects/{self.team.id}/insights/", data={"properties": json.dumps(["$browser"])}
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        ids = [insight["id"] for insight in response.json()["results"]]
-        self.assertIn(browser_insight.id, ids)
-        self.assertNotIn(os_insight.id, ids)
-
-        # Ancient clients sent property-filter dicts under this param; those must stay a no-op
-        response = self.client.get(
-            f"/api/projects/{self.team.id}/insights/",
-            data={"properties": json.dumps([{"key": "$browser"}])},
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        ids = [insight["id"] for insight in response.json()["results"]]
-        self.assertIn(browser_insight.id, ids)
-        self.assertIn(os_insight.id, ids)
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/", data={"properties": "not json"})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_updating_insight_with_no_query_changes_does_not_update_query_metadata(self):
         """
@@ -4848,3 +4841,18 @@ class TestInsightBulkSetTestAccountFilter(ClickhouseTestMixin, APIBaseTest, Quer
             team=ANY,
             request=ANY,
         )
+
+
+class TestParsePropertyNamesParam(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("malformed_json", '["$browser"'),
+            ("null", "null"),
+            ("number", "42"),
+            ("string", '"$browser"'),
+            ("object", '{"name": "$browser"}'),
+        ]
+    )
+    def test_rejects_anything_but_a_json_list(self, _name: str, raw: str) -> None:
+        with self.assertRaises(ValidationError):
+            parse_property_names_param(raw)

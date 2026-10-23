@@ -81,9 +81,12 @@ class Command(BaseCommand):
         Processes insights in small batches to minimize memory usage.
         Uses proper row locking to prevent race conditions.
         """
-        # Regenerate when metadata is missing entirely or predates the properties key
+        # Regenerate when metadata is missing entirely or predates the properties key. A queryless
+        # insight has nothing to regenerate from, so its row would match on every batch and the loop
+        # would never end.
         base_query = Insight.objects_including_soft_deleted.filter(
-            Q(query_metadata__isnull=True) | Q(query_metadata={}) | Q(query_metadata__properties__isnull=True)
+            Q(query_metadata__isnull=True) | Q(query_metadata={}) | Q(query_metadata__properties__isnull=True),
+            query__isnull=False,
         )
 
         if team_id:

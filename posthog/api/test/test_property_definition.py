@@ -1142,6 +1142,12 @@ class TestPropertyUsageMetricsRequestSerializer(SimpleTestCase):
             ["too many properties", {"properties": [{"name": f"p{i}"} for i in range(101)]}],
             ["missing name", {"properties": [{"type": "event"}]}],
             ["invalid type", {"properties": [{"type": "insight", "name": "$browser"}]}],
+            ["group without group type index", {"properties": [{"type": "group", "name": "industry"}]}],
+            ["group type index on an event property", {"properties": [{"name": "$browser", "group_type_index": 0}]}],
+            [
+                "group type index out of range",
+                {"properties": [{"type": "group", "name": "industry", "group_type_index": 5}]},
+            ],
         ]
     )
     def test_invalid_payload(self, _name: str, data: dict[str, Any]) -> None:
@@ -1152,6 +1158,11 @@ class TestPropertyUsageMetricsRequestSerializer(SimpleTestCase):
         assert serializer.is_valid()
         assert serializer.validated_data["properties"] == [{"type": "event", "name": "$browser"}]
 
+    def test_keeps_surrounding_whitespace_in_names(self) -> None:
+        serializer = PropertyUsageMetricsRequestSerializer(data={"properties": [{"name": " plan "}]})
+        assert serializer.is_valid()
+        assert serializer.validated_data["properties"][0]["name"] == " plan "
+
 
 class TestPropertyUsageMetricsAPI(APIBaseTest):
     def setUp(self):
@@ -1160,8 +1171,15 @@ class TestPropertyUsageMetricsAPI(APIBaseTest):
 
     @patch("posthog.taxonomy.property_definition_api.sync_execute")
     def test_returns_counts_zero_fills_and_caches(self, mock_sync_execute) -> None:
-        mock_sync_execute.return_value = [("property:event:$browser", 42)]
-        payload = {"properties": [{"type": "event", "name": "$browser"}, {"name": "$os"}]}
+        mock_sync_execute.return_value = [("property:event:$browser", 42), ("property:group:1:industry", 7)]
+        payload = {
+            "properties": [
+                {"type": "event", "name": "$browser"},
+                {"name": "$os"},
+                {"type": "group", "name": "industry", "group_type_index": 0},
+                {"type": "group", "name": "industry", "group_type_index": 1},
+            ]
+        }
 
         response = self.client.post(
             f"/api/projects/{self.team.pk}/property_definitions/usage_metrics/", payload, format="json"
@@ -1170,10 +1188,13 @@ class TestPropertyUsageMetricsAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {
             "results": [
-                {"type": "event", "name": "$browser", "query_usage_30_day": 42},
-                {"type": "event", "name": "$os", "query_usage_30_day": 0},
+                {"type": "event", "name": "$browser", "group_type_index": None, "query_usage_30_day": 42},
+                {"type": "event", "name": "$os", "group_type_index": None, "query_usage_30_day": 0},
+                {"type": "group", "name": "industry", "group_type_index": 0, "query_usage_30_day": 0},
+                {"type": "group", "name": "industry", "group_type_index": 1, "query_usage_30_day": 7},
             ]
         }
+        assert mock_sync_execute.call_args.kwargs["team_id"] == self.team.pk
 
         response = self.client.post(
             f"/api/projects/{self.team.pk}/property_definitions/usage_metrics/", payload, format="json"

@@ -2,7 +2,13 @@ from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
 
-from posthog.hogql_queries.utils.event_usage import MAX_PROPERTIES_LOGGED_PER_QUERY, log_event_usage_from_query_metadata
+from parameterized import parameterized
+
+from posthog.hogql_queries.utils.event_usage import (
+    MAX_EVENTS_LOGGED_PER_QUERY,
+    MAX_PROPERTIES_LOGGED_PER_QUERY,
+    log_event_usage_from_query_metadata,
+)
 
 
 class TestLogEventUsageFromQueryMetadata(SimpleTestCase):
@@ -21,6 +27,8 @@ class TestLogEventUsageFromQueryMetadata(SimpleTestCase):
                 "properties": [
                     {"type": "event", "name": "$browser"},
                     {"type": "person", "name": "email"},
+                    {"type": "group", "group_type_index": 0, "name": "industry"},
+                    {"type": "group", "group_type_index": 1, "name": "industry"},
                 ],
             },
             team_id=42,
@@ -28,35 +36,59 @@ class TestLogEventUsageFromQueryMetadata(SimpleTestCase):
         )
 
         payloads = [call.kwargs["data"] for call in producer.produce.call_args_list]
-        self.assertEqual(len(payloads), 3)
+        self.assertEqual(len(payloads), 5)
 
         property_payloads = [payload for payload in payloads if payload["app_source"] == "property_usage"]
         self.assertEqual(
             {payload["instance_id"] for payload in property_payloads},
-            {"property:event:$browser", "property:person:email"},
+            {
+                "property:event:$browser",
+                "property:person:email",
+                "property:group:0:industry",
+                "property:group:1:industry",
+            },
         )
         for payload in property_payloads:
             self.assertEqual(payload["team_id"], 42)
             self.assertEqual(payload["metric_name"], "viewed")
             self.assertEqual(payload["app_source_id"], "7")
 
+    @parameterized.expand(
+        [
+            (
+                "events",
+                {"events": [f"event_{i}" for i in range(60)], "properties": []},
+                MAX_EVENTS_LOGGED_PER_QUERY,
+            ),
+            (
+                "properties",
+                {"events": [], "properties": [{"type": "event", "name": f"prop_{i}"} for i in range(60)]},
+                MAX_PROPERTIES_LOGGED_PER_QUERY,
+            ),
+        ]
+    )
     @patch("posthog.hogql_queries.utils.event_usage.get_producer")
-    def test_caps_properties_per_query(self, mock_get_producer):
+    def test_caps_references_per_query(self, _name, query_metadata, cap, mock_get_producer):
         producer = self._producer(mock_get_producer)
 
-        log_event_usage_from_query_metadata(
-            {"events": [], "properties": [{"type": "event", "name": f"prop_{i}"} for i in range(60)]},
-            team_id=42,
-        )
+        log_event_usage_from_query_metadata(query_metadata, team_id=42)
 
-        self.assertEqual(producer.produce.call_count, MAX_PROPERTIES_LOGGED_PER_QUERY)
+        self.assertEqual(producer.produce.call_count, cap)
 
     @patch("posthog.hogql_queries.utils.event_usage.get_producer")
     def test_skips_malformed_property_entries(self, mock_get_producer):
         producer = self._producer(mock_get_producer)
 
         log_event_usage_from_query_metadata(
-            {"properties": ["nope", {"type": "event"}, {"name": "x"}, {"type": "event", "name": "ok"}]},
+            {
+                "properties": [
+                    "nope",
+                    {"type": "event"},
+                    {"name": "x"},
+                    {"type": "group", "name": "no_index"},
+                    {"type": "event", "name": "ok"},
+                ]
+            },
             team_id=42,
         )
 

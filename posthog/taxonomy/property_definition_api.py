@@ -7,7 +7,7 @@ from typing import Any, Optional, Self, Union, cast
 
 from django.core.cache import cache
 from django.db import connections
-from django.db.models import Field, Manager, QuerySet
+from django.db.models import Field, Manager, QuerySet, TextChoices
 from django.http import Http404
 from django.shortcuts import get_object_or_404
 
@@ -96,21 +96,33 @@ MAX_USAGE_METRICS_PROPERTIES = 100
 USAGE_METRICS_CACHE_TTL_SECONDS = 24 * 60 * 60
 
 
+class PropertyUsageType(TextChoices):
+    EVENT = "event"
+    PERSON = "person"
+    GROUP = "group"
+    SESSION = "session"
+
+
 @frozen
 class _PropertyUsageKey:
     type: str
     name: str
+    group_type_index: int | None = None
+
+    @property
+    def instance_id(self) -> str:
+        return property_usage_instance_id(self.type, self.name, self.group_type_index)
 
 
 def _usage_metrics_cache_key(team_id: int, key: _PropertyUsageKey) -> str:
     # Property names can contain characters that are invalid in cache keys; hash them.
-    digest = hashlib.sha256(f"{key.type}:{key.name}".encode()).hexdigest()[:32]
+    digest = hashlib.sha256(key.instance_id.encode()).hexdigest()[:32]
     return f"property_definition:usage_30d:{team_id}:{digest}"
 
 
 def _fetch_property_usage(team: Team, keys: list[_PropertyUsageKey]) -> dict[_PropertyUsageKey, int]:
     tag_queries(product=Product.PRODUCT_ANALYTICS, feature=Feature.PROPERTY_DEFINITION_SCENE)
-    instance_ids = {property_usage_instance_id(key.type, key.name): key for key in keys}
+    instance_ids = {key.instance_id: key for key in keys}
     rows = sync_execute(
         """
         SELECT instance_id, sum(count)
@@ -129,6 +141,7 @@ def _fetch_property_usage(team: Team, keys: list[_PropertyUsageKey]) -> dict[_Pr
             "after": relative_date_parse("30d", team.timezone_info).strftime("%Y-%m-%dT%H:%M:%S"),
             "instance_ids": list(instance_ids),
         },
+        team_id=team.pk,
     )
     counts = dict.fromkeys(keys, 0)
     for instance_id, total in rows or []:
@@ -140,11 +153,32 @@ def _fetch_property_usage(team: Team, keys: list[_PropertyUsageKey]) -> dict[_Pr
 
 class PropertyUsageEntrySerializer(serializers.Serializer):
     type = serializers.ChoiceField(
-        choices=PROPERTY_DEFINITION_TYPES,
-        default="event",
+        choices=PropertyUsageType.choices,
+        default=PropertyUsageType.EVENT,
         help_text="Property definition type the name belongs to.",
     )
-    name = serializers.CharField(max_length=400, help_text="Property name, for example `$current_url`.")
+    name = serializers.CharField(
+        max_length=400,
+        # Names are exact identities, so ` plan` and `plan` are different properties.
+        trim_whitespace=False,
+        help_text="Property name, for example `$current_url`.",
+    )
+    group_type_index = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=0,
+        max_value=GROUP_TYPES_LIMIT - 1,
+        help_text="Group type index of a group property. Required when `type` is `group`, otherwise omit it.",
+    )
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        group_type_index = attrs.get("group_type_index")
+        if attrs["type"] == PropertyUsageType.GROUP:
+            if group_type_index is None:
+                raise ValidationError({"group_type_index": "Group properties need a group type index."})
+        elif group_type_index is not None:
+            raise ValidationError({"group_type_index": "Only group properties take a group type index."})
+        return attrs
 
 
 class PropertyUsageMetricsRequestSerializer(serializers.Serializer):
@@ -163,10 +197,14 @@ class PropertyUsageMetricsRequestSerializer(serializers.Serializer):
 
 class PropertyUsageMetricsItemSerializer(serializers.Serializer):
     type = serializers.ChoiceField(
-        choices=PROPERTY_DEFINITION_TYPES,
+        choices=PropertyUsageType.choices,
         help_text="Property definition type the name belongs to.",
     )
     name = serializers.CharField(help_text="Property name.")
+    group_type_index = serializers.IntegerField(
+        allow_null=True,
+        help_text="Group type index of a group property, null for other types.",
+    )
     query_usage_30_day = serializers.IntegerField(
         help_text=(
             "Number of query executions in the last 30 days that referenced this property, "
@@ -1065,7 +1103,8 @@ class PropertyDefinitionViewSet(
     @action(methods=["POST"], detail=False, required_scopes=["property_definition:read"], url_path="usage_metrics")
     def usage_metrics(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> response.Response:
         keys = [
-            _PropertyUsageKey(type=entry["type"], name=entry["name"]) for entry in request.validated_data["properties"]
+            _PropertyUsageKey(type=entry["type"], name=entry["name"], group_type_index=entry.get("group_type_index"))
+            for entry in request.validated_data["properties"]
         ]
 
         cache_keys = {key: _usage_metrics_cache_key(self.team_id, key) for key in set(keys)}
@@ -1085,8 +1124,16 @@ class PropertyDefinitionViewSet(
                 timeout=USAGE_METRICS_CACHE_TTL_SECONDS,
             )
 
-        results = [{"type": key.type, "name": key.name, "query_usage_30_day": counts.get(key, 0)} for key in keys]
-        return response.Response({"results": results})
+        results = [
+            {
+                "type": key.type,
+                "name": key.name,
+                "group_type_index": key.group_type_index,
+                "query_usage_30_day": counts.get(key, 0),
+            }
+            for key in keys
+        ]
+        return response.Response(PropertyUsageMetricsResponseSerializer({"results": results}).data)
 
     def destroy(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         instance: PropertyDefinition = self.get_object()

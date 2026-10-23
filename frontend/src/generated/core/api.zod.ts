@@ -1171,21 +1171,32 @@ export const PropertyDefinitionsBulkUpdateTagsCreateBody = /* @__PURE__ */ zod.o
 export const propertyDefinitionsUsageMetricsCreateBodyPropertiesItemTypeDefault = `event`
 export const propertyDefinitionsUsageMetricsCreateBodyPropertiesItemNameMax = 400
 
+export const propertyDefinitionsUsageMetricsCreateBodyPropertiesItemGroupTypeIndexMin = 0
+export const propertyDefinitionsUsageMetricsCreateBodyPropertiesItemGroupTypeIndexMax = 4
+
 export const PropertyDefinitionsUsageMetricsCreateBody = /* @__PURE__ */ zod.object({
     properties: zod
         .array(
             zod.object({
                 type: zod
                     .enum(['event', 'person', 'group', 'session'])
-                    .describe('\* `event` - event\n\* `person` - person\n\* `group` - group\n\* `session` - session')
+                    .describe('\* `event` - Event\n\* `person` - Person\n\* `group` - Group\n\* `session` - Session')
                     .default(propertyDefinitionsUsageMetricsCreateBodyPropertiesItemTypeDefault)
                     .describe(
-                        'Property definition type the name belongs to.\n\n\* `event` - event\n\* `person` - person\n\* `group` - group\n\* `session` - session'
+                        'Property definition type the name belongs to.\n\n\* `event` - Event\n\* `person` - Person\n\* `group` - Group\n\* `session` - Session'
                     ),
                 name: zod
                     .string()
                     .max(propertyDefinitionsUsageMetricsCreateBodyPropertiesItemNameMax)
                     .describe('Property name, for example `$current_url`.'),
+                group_type_index: zod
+                    .number()
+                    .min(propertyDefinitionsUsageMetricsCreateBodyPropertiesItemGroupTypeIndexMin)
+                    .max(propertyDefinitionsUsageMetricsCreateBodyPropertiesItemGroupTypeIndexMax)
+                    .nullish()
+                    .describe(
+                        'Group type index of a group property. Required when `type` is `group`, otherwise omit it.'
+                    ),
             })
         )
         .describe('Properties to fetch 30-day query usage for, at most 100 per request.'),

@@ -1,3 +1,4 @@
+import pytest
 from posthog.test.base import BaseTest
 
 from django.core.management import call_command
@@ -48,3 +49,14 @@ class TestBackfillInsightsQueryMetadata(BaseTest):
 
         insight.refresh_from_db()
         assert insight.query_metadata == current_metadata
+
+    @pytest.mark.timeout(60)
+    def test_finishes_when_a_queryless_insight_has_legacy_metadata(self):
+        insight = self._create_insight_with_legacy_metadata()
+        legacy_metadata = {"events": ["$pageview"], "updated_at": "2025-01-01T00:00:00Z"}
+        Insight.objects_including_soft_deleted.filter(pk=insight.pk).update(query=None, query_metadata=legacy_metadata)
+
+        call_command("backfill_insights_query_metadata", team_id=self.team.pk, sleep_interval=0)
+
+        insight.refresh_from_db()
+        assert insight.query_metadata == legacy_metadata

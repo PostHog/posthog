@@ -5459,10 +5459,10 @@ export interface BulkUpdateTagsResponseApi {
 }
 
 /**
- * * `event` - event
- * * `person` - person
- * * `group` - group
- * * `session` - session
+ * * `event` - Event
+ * * `person` - Person
+ * * `group` - Group
+ * * `session` - Session
  */
 export type PropertyUsageTypeEnumApi = (typeof PropertyUsageTypeEnumApi)[keyof typeof PropertyUsageTypeEnumApi]
 
@@ -5476,16 +5476,23 @@ export const PropertyUsageTypeEnumApi = {
 export interface PropertyUsageEntryApi {
     /** Property definition type the name belongs to.
      *
-     * * `event` - event
-     * * `person` - person
-     * * `group` - group
-     * * `session` - session */
+     * * `event` - Event
+     * * `person` - Person
+     * * `group` - Group
+     * * `session` - Session */
     type?: PropertyUsageTypeEnumApi
     /**
      * Property name, for example `$current_url`.
      * @maxLength 400
      */
     name: string
+    /**
+     * Group type index of a group property. Required when `type` is `group`, otherwise omit it.
+     * @minimum 0
+     * @maximum 4
+     * @nullable
+     */
+    group_type_index?: number | null
 }
 
 export interface PropertyUsageMetricsRequestApi {
@@ -5496,13 +5503,18 @@ export interface PropertyUsageMetricsRequestApi {
 export interface PropertyUsageMetricsItemApi {
     /** Property definition type the name belongs to.
      *
-     * * `event` - event
-     * * `person` - person
-     * * `group` - group
-     * * `session` - session */
+     * * `event` - Event
+     * * `person` - Person
+     * * `group` - Group
+     * * `session` - Session */
     type: PropertyUsageTypeEnumApi
     /** Property name. */
     name: string
+    /**
+     * Group type index of a group property, null for other types.
+     * @nullable
+     */
+    group_type_index: number | null
     /** Number of query executions in the last 30 days that referenced this property, including cached insight views. */
     query_usage_30_day: number
 }

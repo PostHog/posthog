@@ -95112,10 +95112,10 @@ export namespace Schemas {
     } as const;
 
     /**
-     * * `event` - event
-     * * `person` - person
-     * * `group` - group
-     * * `session` - session
+     * * `event` - Event
+     * * `person` - Person
+     * * `group` - Group
+     * * `session` - Session
      */
     export type PropertyUsageTypeEnum = typeof PropertyUsageTypeEnum[keyof typeof PropertyUsageTypeEnum];
 
@@ -95130,28 +95130,40 @@ export namespace Schemas {
     export interface PropertyUsageEntry {
       /** Property definition type the name belongs to.
        *
-       * * `event` - event
-       * * `person` - person
-       * * `group` - group
-       * * `session` - session */
+       * * `event` - Event
+       * * `person` - Person
+       * * `group` - Group
+       * * `session` - Session */
       type?: PropertyUsageTypeEnum;
       /**
          * Property name, for example `$current_url`.
          * @maxLength 400
          */
       name: string;
+      /**
+         * Group type index of a group property. Required when `type` is `group`, otherwise omit it.
+         * @minimum 0
+         * @maximum 4
+         * @nullable
+         */
+      group_type_index?: number | null;
     }
 
     export interface PropertyUsageMetricsItem {
       /** Property definition type the name belongs to.
        *
-       * * `event` - event
-       * * `person` - person
-       * * `group` - group
-       * * `session` - session */
+       * * `event` - Event
+       * * `person` - Person
+       * * `group` - Group
+       * * `session` - Session */
       type: PropertyUsageTypeEnum;
       /** Property name. */
       name: string;
+      /**
+         * Group type index of a group property, null for other types.
+         * @nullable
+         */
+      group_type_index: number | null;
       /** Number of query executions in the last 30 days that referenced this property, including cached insight views. */
       query_usage_30_day: number;
     }
