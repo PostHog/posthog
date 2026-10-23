@@ -2,14 +2,16 @@ import { useActions } from 'kea'
 
 import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
 
+import { notNowCondition } from '../suggestionCopy'
 import { warehouseSuggestionsLogic } from '../warehouseSuggestionsLogic'
 
 export interface DismissSuggestionMenuProps {
     suggestionId: string
+    kind: string
     disabledReason?: string
 }
 
-export function DismissSuggestionMenu({ suggestionId, disabledReason }: DismissSuggestionMenuProps): JSX.Element {
+export function DismissSuggestionMenu({ suggestionId, kind, disabledReason }: DismissSuggestionMenuProps): JSX.Element {
     const { dismissSuggestion } = useActions(warehouseSuggestionsLogic)
 
     return (
@@ -20,7 +22,7 @@ export function DismissSuggestionMenu({ suggestionId, disabledReason }: DismissS
                     onClick: () => dismissSuggestion(suggestionId, 'not_useful'),
                 },
                 {
-                    label: 'Not now. Suggested again if reads grow.',
+                    label: `Not now. ${notNowCondition(kind)}`,
                     onClick: () => dismissSuggestion(suggestionId, 'not_now'),
                 },
                 { label: 'Something else', onClick: () => dismissSuggestion(suggestionId, 'other') },

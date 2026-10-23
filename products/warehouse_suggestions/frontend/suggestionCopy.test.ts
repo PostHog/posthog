@@ -1,5 +1,11 @@
 import type { WarehouseSuggestionMaterializePayloadApi } from './generated/api.schemas'
-import { UNKNOWN_SOURCES_CAVEAT, dataAgeLabel, suggestedScheduleHint, todayAgeLabel } from './suggestionCopy'
+import {
+    UNKNOWN_SOURCES_CAVEAT,
+    dataAgeLabel,
+    notNowCondition,
+    suggestedScheduleHint,
+    todayAgeLabel,
+} from './suggestionCopy'
 
 const DAY = 24 * 60 * 60
 const HOUR = 60 * 60
@@ -46,5 +52,14 @@ describe('suggestionCopy', () => {
         [null, 'saves more than it costs'],
     ])('explains a %s interval with its own reason', (basis, reason) => {
         expect(suggestedScheduleHint(basis, '1 day')).toContain(reason)
+    })
+
+    it.each([
+        ['certify', 'reads grow'],
+        ['deprecate', 'refreshes cost'],
+        ['materialize', 'save a lot more'],
+        ['unmaterialize', 'save a lot more'],
+    ])('says what has to grow before a not-now %s suggestion returns', (kind, condition) => {
+        expect(notNowCondition(kind)).toContain(condition)
     })
 })

@@ -45,7 +45,14 @@ import type {
 } from './generated/api.schemas'
 import type { WarehouseSuggestionDismissalReasonEnumApi } from './generated/api.schemas'
 import { INTERVAL_SECONDS, intervalForSeconds } from './refreshIntervals'
-import { MonthlySaving, SavingsSummary, isMaterializePayload, monthlySaving, savesTime } from './suggestionCopy'
+import {
+    MonthlySaving,
+    SavingsSummary,
+    isMaterializePayload,
+    monthlySaving,
+    notNowCondition,
+    savesTime,
+} from './suggestionCopy'
 
 export type StripState = 'loading' | 'error' | 'hidden' | 'warming_up' | 'not_eligible' | 'active' | 'all_done'
 export type SuggestionSurface = 'models' | 'catalog'
@@ -85,10 +92,11 @@ const ACCEPT_OPTION_FIELDS = new Set([
     'unique_key',
     'lookback_seconds',
 ])
-const DISMISSED_MESSAGES: Record<DismissWarehouseSuggestionApi['reason'], string> = {
-    not_useful: 'Dismissed. Not suggested again.',
-    not_now: 'Dismissed. Suggested again if reads grow.',
-    other: 'Dismissed. Not suggested again.',
+const NOT_SUGGESTED_AGAIN = 'Dismissed. Not suggested again.'
+const CHECKING_INCREMENTAL_REASON = 'Checking whether it can refresh incrementally'
+
+function dismissedMessage(reason: DismissWarehouseSuggestionApi['reason'], kind: string): string {
+    return reason === 'not_now' ? `Dismissed. ${notNowCondition(kind)}` : NOT_SUGGESTED_AGAIN
 }
 
 function suggestionWorth(suggestion: WarehouseSuggestionApi): [number, number] {
@@ -366,7 +374,8 @@ export interface warehouseSuggestionsLogicMeta {
         ) => WarehouseSuggestionApi | null
         materializeDisabledReason: (
             materializeInterval: DataModelingSyncInterval | null,
-            refreshDraft: IncrementalConfigDraft
+            refreshDraft: IncrementalConfigDraft,
+            incrementalCheckLoading: boolean
         ) => string | null
         materializeIntervalShorterThanSuggested: (
             materializeModalSuggestion: WarehouseSuggestionApi | null,
@@ -592,10 +601,17 @@ export const warehouseSuggestionsLogic: LogicWrapper<warehouseSuggestionsLogicTy
                     (suggestions ?? []).find((suggestion) => suggestion.id === id) ?? null,
             ],
             materializeDisabledReason: [
-                (s) => [s.materializeInterval, s.refreshDraft],
-                (interval: DataModelingSyncInterval | null, draft: IncrementalConfigDraft): string | null => {
+                (s) => [s.materializeInterval, s.refreshDraft, s.incrementalCheckLoading],
+                (
+                    interval: DataModelingSyncInterval | null,
+                    draft: IncrementalConfigDraft,
+                    checkLoading: boolean
+                ): string | null => {
                     if (!interval) {
                         return PICK_INTERVAL_REASON
+                    }
+                    if (checkLoading) {
+                        return CHECKING_INCREMENTAL_REASON
                     }
                     if (draft.enabled && (!draft.incrementalKey || draft.uniqueKey.length === 0)) {
                         return INCOMPLETE_INCREMENTAL_REASON
@@ -803,13 +819,18 @@ export const warehouseSuggestionsLogic: LogicWrapper<warehouseSuggestionsLogicTy
                     if (values.actionsInFlight[id]) {
                         return
                     }
+                    const kind = values.suggestions?.find((suggestion) => suggestion.id === id)?.kind ?? ''
+                    const project = projectId()
                     actions.setActionInFlight(id, true)
                     actions.hideSuggestion(id)
                     try {
-                        await warehouseSuggestionsDismissCreate(projectId(), id, { reason, note })
-                        lemonToast.success(DISMISSED_MESSAGES[reason], {
+                        await warehouseSuggestionsDismissCreate(project, id, { reason, note })
+                        lemonToast.success(dismissedMessage(reason, kind), {
                             toastId: `warehouse-suggestion-dismissed-${id}`,
-                            button: { label: 'Undo', action: () => actions.undoDismiss(id) },
+                            button: {
+                                label: 'Undo',
+                                action: () => void resumeDismissedSuggestion(props.surface, project, id),
+                            },
                         })
                     } catch (error) {
                         actions.restoreSuggestion(id)
@@ -822,22 +843,7 @@ export const warehouseSuggestionsLogic: LogicWrapper<warehouseSuggestionsLogicTy
                     }
                 },
                 undoDismiss: async ({ id }) => {
-                    if (values.actionsInFlight[id]) {
-                        return
-                    }
-                    actions.setActionInFlight(id, true)
-                    try {
-                        const resumed = await warehouseSuggestionsResumeCreate(projectId(), id)
-                        actions.suggestionResumed(resumed)
-                        actions.restoreSuggestion(id)
-                    } catch (error) {
-                        reportFailure(error, 'Could not bring the suggestion back.')
-                        if (isStale(error)) {
-                            actions.loadSuggestions()
-                        }
-                    } finally {
-                        actions.setActionInFlight(id, false)
-                    }
+                    await resumeDismissedSuggestion(props.surface, projectId(), id)
                 },
             }
         }),
@@ -845,6 +851,27 @@ export const warehouseSuggestionsLogic: LogicWrapper<warehouseSuggestionsLogicTy
             actions.reload()
         }),
     ])
+
+async function resumeDismissedSuggestion(surface: SuggestionSurface, project: string, id: string): Promise<void> {
+    const mounted = (): ReturnType<typeof warehouseSuggestionsLogic.build> | null =>
+        warehouseSuggestionsLogic.findMounted({ surface })
+    if (mounted()?.values.actionsInFlight[id]) {
+        return
+    }
+    mounted()?.actions.setActionInFlight(id, true)
+    try {
+        const resumed = await warehouseSuggestionsResumeCreate(project, id)
+        mounted()?.actions.suggestionResumed(resumed)
+        mounted()?.actions.restoreSuggestion(id)
+    } catch (error) {
+        reportFailure(error, 'Could not bring the suggestion back.')
+        if (isStale(error)) {
+            mounted()?.actions.loadSuggestions()
+        }
+    } finally {
+        mounted()?.actions.setActionInFlight(id, false)
+    }
+}
 
 function isConflict(error: unknown): boolean {
     return error instanceof ApiError && error.status === CONFLICT_STATUS

@@ -167,6 +167,17 @@ export function readTimeLabel(seconds: number): string {
     return `Each read takes about ${countOf(wholeSeconds, 'second', 'seconds')}`
 }
 
+const NOT_NOW_CONDITIONS: Record<string, string> = {
+    certify: 'Suggested again if reads grow a lot.',
+    deprecate: 'Suggested again if its refreshes cost a lot more.',
+    materialize: 'Suggested again if it would save a lot more.',
+    unmaterialize: 'Suggested again if it would save a lot more.',
+}
+
+export function notNowCondition(kind: string): string {
+    return NOT_NOW_CONDITIONS[kind] ?? 'Suggested again if the case for it grows a lot.'
+}
+
 export function certificationSummaryText(suggestions: WarehouseSuggestionApi[]): string {
     const certify = suggestions.filter((suggestion) => suggestion.kind === 'certify').length
     const deprecate = suggestions.filter((suggestion) => suggestion.kind === 'deprecate').length

@@ -78,7 +78,11 @@ export function UnmaterializeSuggestionRow({
                     >
                         Stop materializing
                     </LemonButton>
-                    <DismissSuggestionMenu suggestionId={suggestion.id} disabledReason={blockedReason} />
+                    <DismissSuggestionMenu
+                        suggestionId={suggestion.id}
+                        kind={suggestion.kind}
+                        disabledReason={blockedReason}
+                    />
                 </>
             }
         />

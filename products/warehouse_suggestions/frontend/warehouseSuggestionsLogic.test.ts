@@ -246,6 +246,7 @@ describe('warehouseSuggestionsLogic', () => {
             mockAccept.mockRejectedValue(new ApiError('refused', 400, undefined, { detail: 'Not allowed.', attr }))
             await mountLogic()
             logic.actions.openMaterializeModal(MATERIALIZE.id)
+            await expectLogic(logic).toFinishAllListeners()
 
             logic.actions.confirmMaterialize()
 
@@ -277,6 +278,7 @@ describe('warehouseSuggestionsLogic', () => {
         mockAccept.mockResolvedValue({ ...INCREMENTAL, status: 'accepted' })
         await mountLogic()
         logic.actions.openMaterializeModal(INCREMENTAL.id)
+        await expectLogic(logic).toFinishAllListeners()
         logic.actions.setRefreshDraft(change)
 
         logic.actions.confirmMaterialize()
@@ -316,6 +318,7 @@ describe('warehouseSuggestionsLogic', () => {
         mockAccept.mockResolvedValue({ ...MATERIALIZE, status: 'accepted' })
         await mountLogic()
         logic.actions.openMaterializeModal(MATERIALIZE.id)
+        await expectLogic(logic).toFinishAllListeners()
         logic.actions.setRefreshDraft({ enabled: true, incrementalKey: 'day', uniqueKey: ['day'] })
 
         logic.actions.confirmMaterialize()
@@ -345,6 +348,34 @@ describe('warehouseSuggestionsLogic', () => {
 
         expect(logic.values.materializeDisabledReason).toEqual('Select the incremental column and unique key columns')
         expect(mockAccept).not.toHaveBeenCalled()
+    })
+
+    it('does not materialize while the incremental check is still running', async () => {
+        let finishCheck: (
+            check: Awaited<ReturnType<typeof warehouseSavedQueriesCheckIncrementalCreate>>
+        ) => void = () => {}
+        mockSavedQuery.mockResolvedValue({
+            query: { query: 'SELECT * FROM events' },
+        } as Awaited<ReturnType<typeof warehouseSavedQueriesRetrieve>>)
+        mockCheck.mockReturnValue(new Promise((resolve) => (finishCheck = resolve)))
+        await mountLogic()
+        logic.actions.openMaterializeModal(MATERIALIZE.id)
+        await checksRequested(1)
+
+        logic.actions.confirmMaterialize()
+
+        expect(logic.values.materializeDisabledReason).toEqual('Checking whether it can refresh incrementally')
+        expect(mockAccept).not.toHaveBeenCalled()
+        finishCheck({
+            eligible: true,
+            key_candidates: ['day'],
+            unique_key_candidates: ['day'],
+            key_candidate_types: {},
+            blockers: [],
+            warnings: [],
+        })
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.materializeDisabledReason).toBeNull()
     })
 
     it('keeps the open view check when an earlier view check resolves last', async () => {
@@ -522,6 +553,22 @@ describe('warehouseSuggestionsLogic', () => {
         await expectLogic(logic).toDispatchActions(['suggestionResumed', 'restoreSuggestion'])
         expect(mockResume).toHaveBeenCalledWith(expect.any(String), MATERIALIZE.id)
         expect(logic.values.surfaceSuggestions.map((suggestion) => suggestion.id)).toEqual([MATERIALIZE.id])
+    })
+
+    it('brings a dismissed row back through the toast Undo even after the logic unmounted', async () => {
+        mockDismiss.mockResolvedValue({ ...MATERIALIZE, status: 'dismissed' })
+        mockResume.mockResolvedValue({ ...MATERIALIZE, status: 'proposed' })
+        await mountLogic()
+        logic.actions.dismissSuggestion(MATERIALIZE.id, 'not_now')
+        await expectLogic(logic).toFinishAllListeners()
+        const [message, options] = (lemonToast.success as jest.Mock).mock.calls[0]
+        logic.unmount()
+
+        options.button.action()
+        await new Promise((resolve) => setTimeout(resolve, 0))
+
+        expect(message).toEqual('Dismissed. Suggested again if it would save a lot more.')
+        expect(mockResume).toHaveBeenCalledWith(expect.any(String), MATERIALIZE.id)
     })
 
     it('keeps the row hidden when undo fails', async () => {

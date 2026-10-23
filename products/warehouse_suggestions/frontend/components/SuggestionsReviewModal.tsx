@@ -17,45 +17,60 @@ export function SuggestionsReviewModal({ title, summary, children }: Suggestions
     const { reviewOpen, status, stripState, listedSuggestions } = useValues(warehouseSuggestionsLogic)
     const { closeReview } = useActions(warehouseSuggestionsLogic)
     const bodyRef = useRef<HTMLDivElement>(null)
+    const returnFocusRef = useRef<HTMLSpanElement>(null)
     useFocusFollowsRemovedRow(
         bodyRef,
         listedSuggestions.map((suggestion) => suggestion.id)
     )
 
+    const focusSurfaceIfOpenerLeft = (): void => {
+        if (document.activeElement === null || document.activeElement === document.body) {
+            returnFocusRef.current?.focus()
+        }
+    }
+
     return (
-        <LemonModal
-            isOpen={reviewOpen}
-            onClose={closeReview}
-            title={title}
-            description={stripState === 'active' ? summary : undefined}
-            width={820}
-            footer={
-                <div className="flex w-full flex-wrap items-center justify-between gap-2">
-                    <span className="min-w-0 flex-1 whitespace-normal text-xs text-muted">
-                        <span>Based on read counts from the query log. PostHog never reads your query text.</span>
-                        {status?.refreshed_at && (
-                            <>
-                                <span> Refreshed </span>
-                                <TZLabel time={status.refreshed_at} showPopover={false} />
-                                <span>.</span>
-                            </>
-                        )}
-                    </span>
-                    <LemonButton type="secondary" onClick={closeReview}>
-                        Close
-                    </LemonButton>
-                </div>
-            }
-        >
-            <div ref={bodyRef} className="@container/suggestions -mx-2">
-                <div className="divide-y divide-primary">{children}</div>
-                {stripState === 'all_done' && (
-                    <div tabIndex={-1} data-suggestions-done className="px-3 py-6 text-center text-sm text-secondary">
-                        All caught up. New suggestions appear as reads build up.
+        <>
+            <span ref={returnFocusRef} tabIndex={-1} data-suggestions-return-focus className="sr-only" />
+            <LemonModal
+                isOpen={reviewOpen}
+                onClose={closeReview}
+                onAfterClose={focusSurfaceIfOpenerLeft}
+                title={title}
+                description={stripState === 'active' ? summary : undefined}
+                width={820}
+                footer={
+                    <div className="flex w-full flex-wrap items-center justify-between gap-2">
+                        <span className="min-w-0 flex-1 whitespace-normal text-xs text-muted">
+                            <span>Based on read counts from the query log. PostHog never reads your query text.</span>
+                            {status?.refreshed_at && (
+                                <>
+                                    <span> Refreshed </span>
+                                    <TZLabel time={status.refreshed_at} showPopover={false} />
+                                    <span>.</span>
+                                </>
+                            )}
+                        </span>
+                        <LemonButton type="secondary" onClick={closeReview}>
+                            Close
+                        </LemonButton>
                     </div>
-                )}
-            </div>
-        </LemonModal>
+                }
+            >
+                <div ref={bodyRef} className="@container/suggestions -mx-2">
+                    <div className="divide-y divide-primary">{children}</div>
+                    {stripState === 'all_done' && (
+                        <div
+                            tabIndex={-1}
+                            data-suggestions-done
+                            className="px-3 py-6 text-center text-sm text-secondary"
+                        >
+                            All caught up. New suggestions appear as usage changes.
+                        </div>
+                    )}
+                </div>
+            </LemonModal>
+        </>
     )
 }
 

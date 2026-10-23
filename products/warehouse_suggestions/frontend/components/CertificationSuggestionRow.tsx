@@ -94,6 +94,7 @@ export function CertificationSuggestionRow({ suggestion, windowDays }: Certifica
                     </LemonButton>
                     <DismissSuggestionMenu
                         suggestionId={suggestion.id}
+                        kind={suggestion.kind}
                         disabledReason={blockedReason ?? (inFlight ? 'Working' : undefined)}
                     />
                 </>
