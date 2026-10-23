@@ -159,6 +159,13 @@ class TestBuildCompatibilityHint:
         assert hint is not None
         assert ("toFloat(properties.x)" in hint) == expects_cast_advice
 
+    def test_combinator_suffix_message_names_no_function(self) -> None:
+        hint = build_compatibility_hint(
+            "Code: 43. DB::Exception: Illegal type String of argument for aggregate function with Array suffix. "
+            "Must be array. (ILLEGAL_TYPE_OF_ARGUMENT)"
+        )
+        assert hint is None
+
     def test_long_printed_property_aggregate_is_matched_and_shortened(self) -> None:
         expression = (
             "sum(toFloat64OrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'order_total'), ''), "
