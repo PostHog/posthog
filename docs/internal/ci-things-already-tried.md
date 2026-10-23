@@ -209,7 +209,7 @@ Two things make this look inactive:
 The selection was also active for draft PRs only for some time. The team wanted a stable merge queue first.
 
 [#85530](https://github.com/PostHog/posthog/pull/85530) then extended the selection to PRs that are ready for review. [#88265](https://github.com/PostHog/posthog/pull/88265) put the Django selection and the product selection in one job.
-Read the comment at the top of `.github/workflows/ci-backend.yml` for the current rules.
+The comment under `pull_request:` in `.depot/workflows/ci-backend.yml` explains which tests run on each type of pull request.
 
 The jest and Playwright suites made the same move later, so `ready_for_review` no longer buys a full matrix anywhere.
 Selection now runs on drafts and ready PRs alike in `ci-backend.yml`, `ci-frontend.yml`, `ci-storybook.yml`, and `ci-e2e-playwright.yml`, and the merge queue's `trunk-merge/**` run is the only full gate.
