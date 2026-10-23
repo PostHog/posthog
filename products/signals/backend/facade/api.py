@@ -89,6 +89,10 @@ from products.signals.backend.report_urls import (
     report_path as report_path,
 )
 from products.signals.backend.scout_harness.create_access import can_create_scout
+from products.signals.backend.scout_harness.limits import (
+    # Re-exported so a workflow step's note is capped at the same length as a manual run's note.
+    MAX_RUN_NOTE_CHARS as MAX_RUN_NOTE_CHARS,
+)
 from products.signals.backend.scout_harness.run_gates import (
     # Re-exported so the workflows endpoint can branch on why a fire was refused without reaching
     # into the scout harness. Every decision behind them stays Signals-side.
@@ -763,6 +767,9 @@ async def emit_signal(
     remediation: SignalRemediation | None = None,
     idempotency_key: str | None = None,
     signal_id: str | None = None,
+    sync_with_source: bool = False,
+    source_match_signal_id: str | None = None,
+    source_match_report_id: str | None = None,
 ) -> None:
     """
     Emit a signal for grouping and potential report generation, fire-and-forget.
@@ -795,6 +802,10 @@ async def emit_signal(
             investigating from scratch. Not required by any existing source.
         idempotency_key: Optional stable key for callers that may retry. Repeated calls with
             the same key, source product, and source type start at most one emitter workflow.
+        sync_with_source: Route a new material version of the same source record back to its
+            existing report instead of relying on semantic matching.
+        source_match_signal_id: Existing signal matched by durable source identity, when known.
+        source_match_report_id: Existing report matched by durable source identity, when known.
 
     Example:
         await emit_signal(
@@ -913,6 +924,9 @@ async def emit_signal(
         weight=weight,
         extra=extra or {},
         remediation=remediation_dict,
+        sync_with_source=sync_with_source,
+        source_match_signal_id=source_match_signal_id,
+        source_match_report_id=source_match_report_id,
     )
 
     # Ensure the buffer workflow is running (idempotent)
@@ -1727,3 +1741,27 @@ def disable_scout_for_product(*, team_id: int, skill_name: str, source_product: 
         .delete()
     )
     return deleted > 0
+
+
+def notify_report_task_push(
+    *,
+    team_id: int,
+    task_id: str,
+    run_id: str,
+    kind: str,
+    pull_request_url: str | None = None,
+    on_enqueued: Callable[[], None] | None = None,
+) -> bool:
+    from products.signals.backend.inbox_push_notifications import (
+        notify_report_task_update,  # noqa: PLC0415 — keep the sender off the facade import path
+    )
+    from products.tasks.backend.models import TaskRun  # noqa: PLC0415 — legacy task storage shared with signals
+
+    task_run = TaskRun.objects.filter(team_id=team_id, task_id=task_id, id=run_id).select_related("task").first()
+    return (
+        notify_report_task_update(
+            task_run=task_run, kind=kind, pull_request_url=pull_request_url, on_enqueued=on_enqueued
+        )
+        if task_run is not None
+        else False
+    )

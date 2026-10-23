@@ -263,8 +263,8 @@ If a session cannot be resolved, try another example. If none resolve, report th
             "generation and get its `trace_id`."
         )
         detail_tools_section = (
-            "- **`sample_generation_details(generation_ids)`**: generation data including input, output, model, "
-            "tokens, and trace ID. Call this before citing.\n"
+            "- **`sample_generation_details(generation_ids)`**: 500-character head-and-tail input previews, "
+            "output previews, model, token counts including cache usage, and trace ID. Call this before citing.\n"
             "- **`get_generation_detail(generation_id)`**: complete data for one generation and its evaluation "
             "results.\n"
             "- **`get_generation_text_repr(generation_id)`**: canonical rendering for a generation."
@@ -276,7 +276,9 @@ If a session cannot be resolved, try another example. If none resolve, report th
 3. Call `add_citation(generation_id=generation_id, trace_id=trace_id, reason=reason)` for each example you use.
 4. Reference the generation ID inline with single backticks so the renderer can link it.
 
-If a generation cannot be resolved, try another example. If none resolve, report the data-quality limitation."""
+If a generation cannot be resolved, try another example. If none resolve, report the data-quality limitation.
+
+Sample previews omit content. You must call `get_generation_detail` before claiming that captured input is truncated or instrumentation is broken. Low `input_tokens` alone is not evidence of missing input: inspect `cache_read_input_tokens` and `cache_creation_input_tokens` as well as the complete input."""
         detail_step = "Call `sample_generation_details(...)` on 3-5 useful examples."
     else:
         raise ValueError(f"Unsupported evaluation target: {evaluation_target}")

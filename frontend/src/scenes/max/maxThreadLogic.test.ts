@@ -1471,7 +1471,7 @@ describe('maxThreadLogic', () => {
 
             await expectLogic(logic, () => {
                 logic.actions.processNotebookUpdate('test-notebook-id', { type: 'doc', content: [] } as any)
-            }).toDispatchActions(['processNotebookUpdate'])
+            }).toFinishAllListeners()
 
             expect(openNotebookSpy).toHaveBeenCalledWith('test-notebook-id', NotebookTarget.Scene, expect.any(Function))
             expect(router.values.location.pathname).toContain(urls.notebook('test-notebook-id'))
@@ -1492,7 +1492,7 @@ describe('maxThreadLogic', () => {
 
             await expectLogic(logic, () => {
                 logic.actions.processNotebookUpdate(notebookId, { type: 'doc', content: [] } as any)
-            }).toDispatchActions(['processNotebookUpdate'])
+            }).toFinishAllListeners()
 
             expect(findMountedSpy).toHaveBeenCalledWith({ shortId: notebookId })
             expect(routerActionsSpy).not.toHaveBeenCalled()
@@ -1510,7 +1510,7 @@ describe('maxThreadLogic', () => {
 
             await expectLogic(logic, () => {
                 logic.actions.processNotebookUpdate(notebookId, { type: 'doc', content: [] } as any)
-            }).toDispatchActions(['processNotebookUpdate'])
+            }).toFinishAllListeners()
 
             expect(notebookLogicFindMountedSpy).toHaveBeenCalledWith({ shortId: notebookId })
             expect(routerActionsSpy).not.toHaveBeenCalled()

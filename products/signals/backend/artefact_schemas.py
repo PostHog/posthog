@@ -509,8 +509,9 @@ class RankingScore(BaseModel):
         return self
 
 
-# Reason code shared by the dismissal writer (the state API) and the corrections reader
-# (`repo_corrections`), defined here so the two cannot drift apart.
+# Reason-only routing feedback still needs to reach the authoring scout.
+DISMISSAL_REASON_WRONG_ASSIGNEE = "wrong_assignee"
+# Shared by the dismissal writer and repository-corrections reader so they cannot drift apart.
 DISMISSAL_REASON_WRONG_REPO = "wrong_repo"
 # Reason codes that claim the issue is fixed, rather than stating a preference about the report.
 # A later matching signal contradicts the claim, so the grouping stage treats these dismissals the

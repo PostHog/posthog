@@ -84,6 +84,7 @@ from posthog.plugins.plugin_server_api import (
     get_hog_flow_in_flight_count,
     rerun_hog_invocations,
 )
+from posthog.scopes import scopes_not_covered
 from posthog.synthetic_user import SyntheticUser
 from posthog.user_permissions import UserPermissions
 from posthog.utils import relative_date_parse_with_delta_mapping
@@ -1094,6 +1095,30 @@ def _existing_email_from_by_action(instance: WorkflowEditState) -> dict[str, lis
     return result
 
 
+def _run_scout_note(inputs: object) -> str:
+    """The "Run scout" step's note template, normalized to bare text. Blank is no note."""
+    note_input = inputs.get("note") if isinstance(inputs, dict) else None
+    value = note_input.get("value") if isinstance(note_input, dict) else None
+    return value.strip() if isinstance(value, str) else ""
+
+
+def _live_run_scout_notes_by_action(instance: WorkflowEditState) -> dict[str, str]:
+    """Live "Run scout" note templates keyed by action id. The draft is not read: restoring a
+    revision and approving a suggestion write the draft without this check, so a note found only
+    in the draft has no proof that someone with skill editor access wrote it."""
+    result: dict[str, str] = {}
+    for stored_action in instance.actions or []:
+        if not isinstance(stored_action, dict) or not stored_action.get("id"):
+            continue
+        config = stored_action.get("config") or {}
+        if config.get("template_id") != _RUN_SCOUT_TEMPLATE_ID:
+            continue
+        note = _run_scout_note(config.get("inputs"))
+        if note:
+            result[stored_action["id"]] = note
+    return result
+
+
 def _event_config_has_event_or_action(event_config: dict) -> bool:
     # An "events to wait for" / conversion entry that targets neither events nor actions compiles to
     # always-true bytecode and would fire on every incoming event. Action-based entries (events empty,
@@ -1784,6 +1809,44 @@ class HogFlowActionSerializer(serializers.Serializer):
         if not serializer.is_valid():
             raise serializers.ValidationError({"inputs": serializer.errors})
 
+    def _validate_run_scout_note(self, action_id: object, inputs: object) -> None:
+        """A note puts event-derived prose in front of a scout agent on every fire, so writing or
+        changing one needs the same two legs as a manual run's note: the `llm_skill:write` key
+        scope and skill editor access. A note already live on the step keeps validating, so a
+        person without that access can still edit the rest of the workflow."""
+        note = _run_scout_note(inputs)
+        if not note:
+            return
+        if note == (self.context.get("live_run_scout_notes") or {}).get(action_id):
+            return
+        get_team = self.context.get("get_team")
+        # No team outside a request (internal re-saves), so nothing new is being authored.
+        if get_team is None:
+            return
+        request = self.context.get("request")
+        scopes = get_authenticator_scopes(getattr(request, "successful_authenticator", None))
+        if scopes is not None and "*" not in scopes and scopes_not_covered(scopes, ["llm_skill:write"]):
+            raise serializers.ValidationError(
+                {"inputs": {"note": "Adding a note to Run scout needs a key with the llm_skill:write scope."}}
+            )
+        user = getattr(request, "user", None)
+        if user is None or not user.is_authenticated or isinstance(user, SyntheticUser):
+            return
+        team = get_team()
+        if not UserAccessControl(user=user, team=team.parent_team or team).check_access_level_for_resource(
+            "llm_skill", "editor"
+        ):
+            raise serializers.ValidationError(
+                {
+                    "inputs": {
+                        "note": (
+                            "Adding a note to Run scout requires editor access to skills, because the scout "
+                            "reads it on every run. Remove the note, or ask an admin for skill editor access."
+                        )
+                    }
+                }
+            )
+
     def validate(self, data):
         is_draft = self.context.get("is_draft")
         # Drafts from the web builder stay lenient (incomplete graphs save fine); programmatic callers
@@ -2067,6 +2130,8 @@ class HogFlowActionSerializer(serializers.Serializer):
                     self._validate_classify_action(data["config"]["inputs"])
                 if template_id == _REPLAY_VISION_TEMPLATE_ID:
                     self._validate_replay_vision_action(data["config"].get("inputs") or {}, strict=strict)
+                if template_id == _RUN_SCOUT_TEMPLATE_ID:
+                    self._validate_run_scout_note(data.get("id"), data["config"].get("inputs"))
 
         # Branch types fan out via 'branch' edges indexed into these arrays; a node stored without
         # its array crashes the editor panel and assigns nothing at runtime. Presence is only
@@ -3454,6 +3519,8 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             # newly written custom sender addresses to the verified-domain rule. Draft wins over
             # live for the same reason as secrets: it is the value the client last saw.
             self.context["existing_action_email_from"] = _existing_email_from_by_action(instance)
+            # Live "Run scout" notes, so only a new or changed note needs skill editor access.
+            self.context["live_run_scout_notes"] = _live_run_scout_notes_by_action(instance)
 
         # Warehouse-table triggers are row-scoped: step inputs may use the `{record.x}` alias for the
         # synced row. Flag it before child action validation so function-input compilation rewrites it.
