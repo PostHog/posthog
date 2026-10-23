@@ -129,6 +129,33 @@ const isMatchingSqlQuery = (
     query.source.query === reference.source.query &&
     objectsEqual(query.source.variables ?? {}, reference.source.variables ?? {})
 
+// A tile's query carries the dashboard's filters in these fields (QueryRunner.apply_dashboard_filters).
+// Saving them back bakes the filters into the insight, nested one property group deeper per save.
+const DASHBOARD_FILTERED_SOURCE_KEYS = [
+    'properties',
+    'dateRange',
+    'breakdownFilter',
+    'interval',
+    'filterTestAccounts',
+    'compareFilter',
+] as const
+
+const withStoredDashboardFilteredFields = (query: Node, storedQuery: Node | null | undefined): Node => {
+    if (!isInsightVizNode(query) || !isInsightVizNode(storedQuery) || query.source.kind !== storedQuery.source.kind) {
+        return query
+    }
+    const source: Record<string, any> = { ...query.source }
+    const storedSource: Record<string, any> = storedQuery.source
+    for (const key of DASHBOARD_FILTERED_SOURCE_KEYS) {
+        if (key in storedSource) {
+            source[key] = storedSource[key]
+        } else {
+            delete source[key]
+        }
+    }
+    return { ...query, source } as InsightVizNode
+}
+
 export type SqlVisualizationUpdate =
     | { type: 'chart-type'; display: ChartDisplayType }
     | { type: 'display-options'; query: VisualizationNode }
@@ -869,8 +896,13 @@ export const insightDataLogic = kea<insightDataLogicType>([
                 // Breakpoints cannot cancel PATCHes that have already started, so serialize them per insight.
                 await cache.displayOptionsSave
                 breakpoint()
+                const shortId = values.insight.short_id
+                const storedInsight =
+                    props.dashboardId != null && shortId ? await insightsApi.getByShortId(shortId, true) : null
+                breakpoint()
+                const persistedQuery = withStoredDashboardFilteredFields(query, storedInsight?.query)
                 const save = withTimeout(
-                    (signal) => insightsApi.update(insightId, { query }, { signal }),
+                    (signal) => insightsApi.update(insightId, { query: persistedQuery }, { signal }),
                     15_000,
                     'Saving display options timed out'
                 )

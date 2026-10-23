@@ -1,5 +1,7 @@
 import json
 
+from unittest.mock import patch
+
 from django.test import SimpleTestCase
 
 from posthog.renderers import SafeJSONRenderer
@@ -93,3 +95,21 @@ class TestCleanDataForJSON(SimpleTestCase):
                 ],
             },
         )
+
+    def test_renders_payload_nested_deeper_than_orjson_allows(self):
+        response: dict = {}
+        node = response
+        for _ in range(300):
+            node["values"] = [{}]
+            node = node["values"][0]
+        node["key"] = "platform"
+
+        with patch("posthog.renderers.capture_exception") as mock_capture:
+            data = SafeJSONRenderer().render(response)
+
+        self.assertEqual(json.loads(data), response)
+        mock_capture.assert_called_once()
+
+    def test_still_raises_for_unserializable_payload(self):
+        with self.assertRaises(TypeError):
+            SafeJSONRenderer().render({"value": object()})
