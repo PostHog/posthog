@@ -237,6 +237,13 @@ class TransactionalEmailViewSetMixin(TeamAndOrgViewSetMixin):
         except WorkflowNotFound:
             return
 
+    def _require_workflow_create(self) -> None:
+        if is_authenticated_via_project_secret_api_key(self.request):
+            return
+        # Access to one workflow lets a member through the viewset's checks, but this request creates a new one.
+        if not self.user_access_control.check_access_level_for_resource("hog_flow", "editor"):
+            raise exceptions.PermissionDenied("You need editor access to workflows to create a new one.")
+
     @staticmethod
     def _auth_method(request: Request) -> str:
         return "project_secret_api_key" if is_authenticated_via_project_secret_api_key(request) else "user"

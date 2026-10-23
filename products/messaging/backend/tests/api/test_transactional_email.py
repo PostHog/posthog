@@ -932,6 +932,12 @@ class TestTransactionalEmailWorkflowAccess(APIBaseTest):
                 {"to": "user@example.com", "template": {"key": "password-reset"}},
             ),
             (
+                "send_rendered_email",
+                "post",
+                "messaging/send/email/",
+                {"to": "user@example.com", "template_key": "password-reset", "subject": "Hi", "html": "<p>Hi</p>"},
+            ),
+            (
                 "update",
                 "patch",
                 "messaging_templates/{id}/",
@@ -1036,3 +1042,18 @@ class TestTransactionalEmailWorkflowAccess(APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
         template.refresh_from_db()
         assert template.transactional_hog_flow_id == linked_hog_flow_id
+
+    def test_a_member_who_cannot_create_workflows_cannot_send_under_a_new_key(self, mock_post, _flag):
+        self._login_member("viewer@example.com", {None: "viewer", str(self.hog_flow_id): "editor"})
+        workflows_before = HogFlow.objects.filter(team=self.team).count()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/messaging/send/email/",
+            {"to": "user@example.com", "template_key": "welcome", "subject": "Welcome", "html": "<p>Hi</p>"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        assert HogFlow.objects.filter(team=self.team).count() == workflows_before
+        assert not TransactionalEmailKey.objects.for_team(self.team.id).exists()
+        mock_post.assert_not_called()

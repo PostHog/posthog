@@ -26,6 +26,7 @@ from products.messaging.backend.facade.transactional_email import (
     SenderNotVerified,
     code_send_from,
     rendered_content,
+    require_code_email_access,
 )
 from products.messaging.backend.presentation.views.send_email_fields import PlainAddressField
 from products.messaging.backend.presentation.views.transactional_email_api import (
@@ -354,6 +355,12 @@ class MessagingSendViewSet(TransactionalEmailViewSetMixin, viewsets.ViewSet):
         key = data["template_key"]
         if refused := invalid_template_key(key, attr="template_key"):
             return self._refuse(refused)
+        require_code_email_access(
+            self.team_id,
+            key,
+            require_workflow_editor=self._require_workflow_editor,
+            require_workflow_create=self._require_workflow_create,
+        )
         usage = {"addressed_by": "template_key"}
         content = rendered_content(subject=data["subject"], html=data.get("html", ""), text=data.get("text", ""))
         try:

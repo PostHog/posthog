@@ -19,6 +19,7 @@ from products.messaging.backend.services.transactional_email import (
     code_send_from,
     make_transactional,
     rendered_content,
+    require_code_email_access,
     send_email,
     sender_address_error,
 )
@@ -40,6 +41,7 @@ __all__ = [
     "code_send_from",
     "make_transactional",
     "rendered_content",
+    "require_code_email_access",
     "send_email",
     "sender_address_error",
 ]

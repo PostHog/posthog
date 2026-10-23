@@ -27,7 +27,6 @@ from posthog.event_usage import report_user_action
 from posthog.models import User
 from posthog.models.integration import Integration
 from posthog.models.tag import tagify
-from posthog.permissions import is_authenticated_via_project_secret_api_key
 
 from products.cdp.backend.presentation.hog_functions import build_html_wrap_design
 from products.messaging.backend.facade.api import (
@@ -1008,13 +1007,6 @@ class MessageTemplatesViewSet(
             },
             "transactional_hog_flow_id": template.transactional_hog_flow_id,
         }
-
-    def _require_workflow_create(self) -> None:
-        if is_authenticated_via_project_secret_api_key(self.request):
-            return
-        # Access to one workflow lets a member through the viewset's checks, but an upload can create a new one.
-        if not self.user_access_control.check_access_level_for_resource("hog_flow", "editor"):
-            raise exceptions.PermissionDenied("You need editor access to workflows to upload a new template.")
 
     def _report_template_upload(self, request: Any, outcome: dict[str, Any]) -> None:
         self._report_api_usage(request, "transactional email template uploaded", outcome)

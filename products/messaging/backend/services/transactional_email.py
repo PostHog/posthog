@@ -2,6 +2,7 @@
 per send, so sends get the workflow's metrics, run history and versions."""
 
 import re
+from collections.abc import Callable
 from email.utils import parseaddr
 from typing import Any
 from uuid import UUID
@@ -290,6 +291,28 @@ def _key_workflow_id(team_id: int, key: str) -> UUID:
             raise
     # A concurrent first send made the key's workflow after this one looked for it, so this send uses that one.
     return keys.get(key=key).hog_flow_id
+
+
+def require_code_email_access(
+    team_id: int,
+    key: str,
+    *,
+    require_workflow_editor: Callable[[UUID], None],
+    require_workflow_create: Callable[[], None],
+) -> None:
+    """Run the access check for the workflow a rendered send under `key` runs in, or for the one it creates."""
+    template = MessageTemplate.objects.filter(team_id=team_id, key=key, deleted=False).first()
+    if template is not None:
+        if template.transactional_hog_flow_id is not None:
+            require_workflow_editor(template.transactional_hog_flow_id)
+        return
+    hog_flow_id = (
+        TransactionalEmailKey.objects.for_team(team_id).filter(key=key).values_list("hog_flow_id", flat=True).first()
+    )
+    if hog_flow_id is not None and _workflow_exists(team_id, hog_flow_id):
+        require_workflow_editor(hog_flow_id)
+    else:
+        require_workflow_create()
 
 
 def code_send_from(team_id: int, address: str | None) -> SendFrom:
