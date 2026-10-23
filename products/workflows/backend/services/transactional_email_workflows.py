@@ -154,13 +154,17 @@ def _flow_fields(name: str, actions: list[dict]) -> dict:
     }
 
 
-def resolve_transactional_email_sender(team_id: int, requested_id: int | None) -> int:
-    """The requested sender, or the project's default when none is requested. Raise when it isn't verified."""
-    sender_id = requested_id or (
+def _default_sender_id(team_id: int) -> int | None:
+    return (
         TeamWorkflowsConfig.objects.filter(team_id=team_id)
         .values_list("default_email_integration_id", flat=True)
         .first()
     )
+
+
+def resolve_transactional_email_sender(team_id: int, requested_id: int | None) -> int:
+    """The requested sender, or the project's default when none is requested. Raise when it isn't verified."""
+    sender_id = requested_id or _default_sender_id(team_id)
     sender = Integration.objects.filter(team_id=team_id, kind="email", id=sender_id).first() if sender_id else None
     if sender is None or not sender.config.get("verified"):
         raise TransactionalEmailSenderUnavailable()
@@ -182,11 +186,18 @@ def _sender_on_domain(team_id: int, email: str) -> int:
             on_domain.append(sender.id)
     if not on_domain:
         raise TransactionalEmailSenderUnavailable()
+    default_sender_id = _default_sender_id(team_id)
+    if default_sender_id is not None and default_sender_id in on_domain:
+        return default_sender_id
     return on_domain[0]
 
 
 def code_send_sender(*, team_id: int, email: str | None, name: str | None) -> TransactionalEmailSender:
-    """The verified sender for a code send from `email`, or the project's default sender without one."""
+    """The verified sender for a code send from `email`, or the project's default sender without one.
+
+    A sender with the exact address wins. Otherwise a sender on the address's domain sends it: the project's
+    default sender when it is on that domain, else the oldest one. Its name and reply-to apply when the send sets
+    none."""
     if email is None:
         return TransactionalEmailSender(
             integration_id=resolve_transactional_email_sender(team_id, None), email=None, name=None
