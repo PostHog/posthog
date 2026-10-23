@@ -476,8 +476,10 @@ def _managed_warehouse_exemption(
     if not _is_managed_warehouse_host(host):
         return None
 
-    from products.managed_warehouse.backend.facade.api import get_managed_warehouse_target  # noqa: PLC0415
-    from products.managed_warehouse.backend.facade.api import managed_warehouse_ingress_ips  # noqa: PLC0415
+    from products.managed_warehouse.backend.facade.api import (
+        get_managed_warehouse_target,  # noqa: PLC0415
+        managed_warehouse_ingress_ips,  # noqa: PLC0415
+    )
     from products.warehouse_sources.backend.facade.models import MANAGED_WAREHOUSE_SOURCE_PREFIX  # noqa: PLC0415
 
     organization_id = _managed_warehouse_organization_id(team_id)
