@@ -73,6 +73,7 @@ const SURFACE_KINDS: Record<SuggestionSurface, string[]> = {
 const VIEW_IN_SQL_EDITOR_KINDS = ['materialize', 'unmaterialize']
 const CONFLICT_STATUS = 409
 const NOT_FOUND_STATUS = 404
+const FORBIDDEN_STATUS = 403
 const PICK_INTERVAL_REASON = 'Pick how often it refreshes'
 const INCOMPLETE_INCREMENTAL_REASON = 'Select the incremental column and unique key columns'
 const ACCEPTED_MESSAGES: Record<string, (suggestion: WarehouseSuggestionApi) => string> = {
@@ -176,6 +177,7 @@ export interface warehouseSuggestionsLogicValues {
     acceptConfirmSuggestion: WarehouseSuggestionApi | null
     acceptConfirmSuggestionId: string | null
     actionsInFlight: Record<string, boolean>
+    featureForbidden: boolean
     hiddenSuggestionIds: string[]
     incrementalCheck: IncrementalEligibilityApi | null
     incrementalCheckLoading: boolean
@@ -385,6 +387,7 @@ export interface warehouseSuggestionsLogicMeta {
             suggestions: WarehouseSuggestionApi[] | null,
             status: WarehouseSuggestionStatusApi | null,
             loadError: boolean,
+            featureForbidden: boolean,
             surfaceSuggestions: WarehouseSuggestionApi[],
             hiddenSuggestionIds: string[],
             leavingSuggestionIds: string[]
@@ -547,8 +550,18 @@ export const warehouseSuggestionsLogic: LogicWrapper<warehouseSuggestionsLogicTy
                 false,
                 {
                     reload: () => false,
-                    loadSuggestionsFailure: () => true,
-                    loadStatusFailure: () => true,
+                    loadSuggestionsSuccess: () => false,
+                    loadStatusSuccess: () => false,
+                    loadSuggestionsFailure: (_, { errorObject }) => !isForbidden(errorObject),
+                    loadStatusFailure: (_, { errorObject }) => !isForbidden(errorObject),
+                },
+            ],
+            featureForbidden: [
+                false,
+                {
+                    reload: () => false,
+                    loadSuggestionsFailure: (_, { errorObject }) => isForbidden(errorObject),
+                    loadStatusFailure: (_, { errorObject }) => isForbidden(errorObject),
                 },
             ],
         })),
@@ -632,6 +645,7 @@ export const warehouseSuggestionsLogic: LogicWrapper<warehouseSuggestionsLogicTy
                     s.suggestions,
                     s.status,
                     s.loadError,
+                    s.featureForbidden,
                     s.surfaceSuggestions,
                     s.hiddenSuggestionIds,
                     s.leavingSuggestionIds,
@@ -640,15 +654,16 @@ export const warehouseSuggestionsLogic: LogicWrapper<warehouseSuggestionsLogicTy
                     suggestions: WarehouseSuggestionApi[] | null,
                     status: WarehouseSuggestionStatusApi | null,
                     loadError: boolean,
+                    featureForbidden: boolean,
                     surfaceSuggestions: WarehouseSuggestionApi[],
                     hiddenIds: string[],
                     leavingIds: string[]
                 ): StripState => {
-                    if (loadError) {
-                        return 'error'
+                    if (featureForbidden) {
+                        return 'hidden'
                     }
                     if (suggestions === null || status === null) {
-                        return 'loading'
+                        return loadError ? 'error' : 'loading'
                     }
                     if (surfaceSuggestions.length > 0) {
                         return 'active'
@@ -871,6 +886,10 @@ async function resumeDismissedSuggestion(surface: SuggestionSurface, project: st
     } finally {
         mounted()?.actions.setActionInFlight(id, false)
     }
+}
+
+function isForbidden(error: unknown): boolean {
+    return error instanceof ApiError && error.status === FORBIDDEN_STATUS
 }
 
 function isConflict(error: unknown): boolean {

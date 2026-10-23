@@ -187,6 +187,28 @@ describe('warehouseSuggestionsLogic', () => {
         expect(logic.values.stripState).toEqual(expected)
     })
 
+    it('stays hidden when the backend says the feature is off for this organization', async () => {
+        mockStatus.mockRejectedValue(new ApiError('forbidden', 403, undefined, { detail: 'not enabled' }))
+        mockList.mockRejectedValue(new ApiError('forbidden', 403, undefined, { detail: 'not enabled' }))
+        logic = warehouseSuggestionsLogic({ surface: 'models' })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadSuggestionsFailure', 'loadStatusFailure'])
+
+        expect(logic.values.stripState).toEqual('hidden')
+    })
+
+    it('keeps the list and the open dialog when a background reload fails', async () => {
+        await mountLogic()
+        logic.actions.openReview()
+        mockList.mockRejectedValue(new ApiError('server error', 500, undefined, { detail: 'boom' }))
+
+        logic.actions.loadSuggestions()
+        await expectLogic(logic).toDispatchActions(['loadSuggestionsFailure'])
+
+        expect(logic.values.stripState).toEqual('active')
+        expect(logic.values.reviewOpen).toBe(true)
+    })
+
     it('shows the error state when the status request fails, and retry loads both again', async () => {
         mockStatus.mockRejectedValueOnce(new Error('status is down'))
         logic = warehouseSuggestionsLogic({ surface: 'models' })
