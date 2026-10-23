@@ -1583,7 +1583,7 @@ jobs:
     ordered_image_alias:
         name: Publish ordered image alias
         needs: posthog_build
-        if: ${{ needs.posthog_build.result == 'success' && github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true' && vars.ORDERED_IMAGE_ALIAS_PAUSED != 'true' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+        if: ${{ needs.posthog_build.result == 'success' && github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true' && vars.ORDERED_IMAGE_ALIAS_PAUSED != 'true' && github.ref == 'refs/heads/master' }}
         runs-on: ubuntu-24.04
         timeout-minutes: 5
         continue-on-error: true
