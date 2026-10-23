@@ -26,18 +26,34 @@ type Result = ExplainChartData & { [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]: str
 const RENDERED_NOTE =
     'The person sees the walkthrough rendered inline: the chart, every chapter, each cause and each piece of evidence. Do not write any of that again in any form, not as a recap, a bullet list or a summary of the moments. Your whole reply is at most three short sentences: which chapter to start with, one caveat the walkthrough cannot show if there is one, and one next step you offer. If the person says the walkthrough did not load, give the findings in text.'
 
-// The markers sit on a time series, so a chart shown as a number, pie, table or slope is drawn as a line chart.
+// The markers sit on one value over time. These displays draw that as they are.
 const TIME_SERIES_DISPLAYS = new Set([
     'ActionsLineGraph',
     'ActionsLineGraphCumulative',
     'ActionsBar',
+    'ActionsUnstackedBar',
     'ActionsAreaGraph',
     'ActionsStackedBar',
 ])
 
+// These show a total over the range, so the walkthrough draws the line behind it. Any other display is refused.
+const TOTAL_DISPLAYS = new Set([
+    'Auto',
+    'BoldNumber',
+    'Metric',
+    'ActionsPie',
+    'ActionsDonut',
+    'ActionsProportionBar',
+    'ActionsBarValue',
+    'ActionsTable',
+    'WorldMap',
+    'CalendarHeatmap',
+    'SlopeGraph',
+])
+
 const NOT_TRENDS = 'This tool only explains trends charts. For other kinds, write the explanation in the chat instead.'
-const BOX_PLOT =
-    'This tool explains a trends chart over time, and a box plot shows a distribution. Write the explanation in the chat instead.'
+const NOT_OVER_TIME =
+    'This tool explains a trends chart that shows one value over time, and this chart does not. Write the explanation in the chat instead.'
 
 // The walkthrough redraws evidence through `query-trends`, whose schema is narrower than a TrendsQuery's, so evidence
 // it would refuse keeps its link and no chart.
@@ -56,12 +72,13 @@ function asTrendsQuery(query: unknown): StoryTrendsQuery {
     }
     const trends = { ...inner } as StoryTrendsQuery
     const display = trends.trendsFilter?.display
-    if (display === 'BoxPlot') {
-        throw new Error(BOX_PLOT)
+    if (typeof display !== 'string' || TIME_SERIES_DISPLAYS.has(display)) {
+        return trends
     }
-    if (typeof display === 'string' && !TIME_SERIES_DISPLAYS.has(display)) {
-        trends.trendsFilter = { ...trends.trendsFilter, display: 'ActionsLineGraph' }
+    if (!TOTAL_DISPLAYS.has(display)) {
+        throw new Error(NOT_OVER_TIME)
     }
+    trends.trendsFilter = { ...trends.trendsFilter, display: 'ActionsLineGraph' }
     return trends
 }
 

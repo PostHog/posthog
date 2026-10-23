@@ -68,20 +68,67 @@ describe('explain-chart', () => {
         expect(result[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]).toContain('"A gap in November"')
     })
 
-    it.each([
-        ['a funnel', { kind: 'FunnelsQuery', series: [] }, 'only explains trends charts'],
-        ['a box plot', { kind: 'TrendsQuery', series: [], trendsFilter: { display: 'BoxPlot' } }, 'box plot'],
-    ])('refuses %s', async (_, source, message) => {
-        const context = createContext({ kind: 'InsightVizNode', source })
+    it.each([['a funnel', { kind: 'FunnelsQuery', series: [] }, 'only explains trends charts']])(
+        'refuses %s',
+        async (_, source, message) => {
+            const context = createContext({ kind: 'InsightVizNode', source })
 
-        await expect(
-            explainChartHandler(context, {
-                insightId: 'abc12345',
-                series: 0,
-                headline: 'Conversion fell.',
-                chapters: [{ title: 'A drop', start: '2026-10-02' }],
-            })
-        ).rejects.toThrow(message)
+            await expect(
+                explainChartHandler(context, {
+                    insightId: 'abc12345',
+                    series: 0,
+                    headline: 'Conversion fell.',
+                    chapters: [{ title: 'A drop', start: '2026-10-02' }],
+                })
+            ).rejects.toThrow(message)
+        }
+    )
+
+    it.each([
+        ...[
+            'ActionsLineGraph',
+            'ActionsLineGraphCumulative',
+            'ActionsBar',
+            'ActionsUnstackedBar',
+            'ActionsAreaGraph',
+            'ActionsStackedBar',
+        ].map((display) => [display, display] as const),
+        ...[
+            'Auto',
+            'BoldNumber',
+            'Metric',
+            'ActionsPie',
+            'ActionsDonut',
+            'ActionsProportionBar',
+            'ActionsBarValue',
+            'ActionsTable',
+            'WorldMap',
+            'CalendarHeatmap',
+            'SlopeGraph',
+        ].map((display) => [display, 'ActionsLineGraph'] as const),
+        ...['BoxPlot', 'TwoDimensionalHeatmap', 'ScatterPlot', 'SomeFutureDisplay'].map(
+            (display) => [display, null] as const
+        ),
+    ])('handles a %s chart', async (display, drawnAs) => {
+        const context = createContext({
+            kind: 'InsightVizNode',
+            source: { kind: 'TrendsQuery', series: [], trendsFilter: { display } },
+        })
+        const call = explainChartHandler(context, {
+            insightId: 'abc12345',
+            series: 0,
+            headline: 'One day stands out.',
+            chapters: [{ title: 'A spike on October 2', start: '2026-10-02' }],
+        })
+
+        if (drawnAs === null) {
+            await expect(call).rejects.toThrow('one value over time')
+            return
+        }
+        await call
+        expect(context.api.query({ projectId: '1' }).runQuery).toHaveBeenCalledWith({
+            query: expect.objectContaining({ trendsFilter: { display: drawnAs } }),
+        })
     })
 
     it('keeps a chart only for evidence that query-trends can draw again', async () => {
