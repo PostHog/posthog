@@ -15,6 +15,7 @@ store = ["dep:async-trait", "dep:aws-sdk-dynamodb", "dep:aws-sdk-kms", "dep:chro
 
 [dependencies]
 aes-gcm = "0.10"
+anyhow = { workspace = true }
 async-trait = { workspace = true, optional = true }
 aws-sdk-dynamodb = { workspace = true, optional = true }
 aws-sdk-kms = { workspace = true, optional = true }
@@ -24,10 +25,20 @@ futures = { workspace = true, optional = true }
 governor = { workspace = true, optional = true }
 hkdf = "0.12"
 hmac = { workspace = true }
+libdeflater = { workspace = true }
+lz4 = { workspace = true }
 md5 = "0.8"
+memchr = "2"
 moka = { workspace = true, optional = true }
+percent-encoding = { workspace = true }
+public-suffix = { workspace = true }
 rand = { workspace = true, optional = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
 thiserror = { workspace = true }
+url = { workspace = true }
 tokio = { workspace = true, optional = true }
+zstd = { workspace = true }
+
+[dev-dependencies]
+flate2 = { workspace = true }
