@@ -39,7 +39,7 @@ concurrency:
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
-    # Cache-bust knob. Keep in sync with ci-backend.yml, which saves these caches.
+    # Keep SCHEMA_CACHE_EPOCH in sync with .depot/workflows/ci-backend.yml so schema cache keys match.
     SCHEMA_CACHE_EPOCH: v2
     # Django SECRET_KEY for cryptographic signing (sessions, CSRF, etc.) - test-only, not used in production
     SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461b81b72'
@@ -164,7 +164,7 @@ jobs:
                   if [ "$HEAD_AGE_SECONDS" -lt 86400 ]; then
                       echo "prefix_key=posthog-schema-mig-${SCHEMA_CACHE_EPOCH}-" >> $GITHUB_OUTPUT
                   fi
-                  # Must match ci-backend.yml's save-side computation byte for byte or the key never hits.
+                  # Match the inputs and hashing in .depot/workflows/ci-backend.yml to find its schema dump.
                   MIG_FILES=$(git ls-tree -r --format='%(objectname) %(path)' "$MERGE_BASE" \
                       | grep -E '/migrations/[^/]+\.py$|^[0-9a-f]+ uv\.lock$' \
                       | grep -vE '/(clickhouse|async_migrations)/migrations/' \
