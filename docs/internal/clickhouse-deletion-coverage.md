@@ -106,8 +106,8 @@ The gate runs before shard processing and again during verification, with the sa
 
 `sharded_person_group_membership` has no age-based TTL.
 It stores distinct IDs and historical group associations, but no person properties.
-Customer analytics resolves current distinct-ID mappings and live person properties when it reads membership.
-Aliases resolve to one person. Deleted mappings and deleted persons do not appear in those reads.
+Cleanup checks current distinct-ID mappings and live persons before it removes membership.
+Deleted mappings and deleted persons count as missing identities.
 
 The `customer-analytics-membership-cleanup` Temporal schedule owns physical person and group cleanup.
 It does not change the existing person or group deletion processes.
