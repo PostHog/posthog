@@ -3,7 +3,6 @@
 import re
 import base64
 import binascii
-from pathlib import PurePosixPath
 from typing import Any
 
 from rest_framework import serializers
@@ -57,7 +56,8 @@ class EmailAttachmentSerializer(serializers.Serializer):
     def validate_filename(self, value: str) -> str:
         if FILENAME_FORBIDDEN.search(value):
             raise serializers.ValidationError("Use a file name without paths or line breaks, such as `invite.ics`.")
-        extension = PurePosixPath(value.rstrip(". ")).suffix.lstrip(".").lower()
+        name = value.rstrip(". ")
+        extension = name.rpartition(".")[2].lower() if "." in name else ""
         if extension in BLOCKED_EXTENSIONS:
             raise serializers.ValidationError(
                 f"Mailbox providers block `.{extension}` files. Send a link to the file instead."

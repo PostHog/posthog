@@ -129,6 +129,7 @@ class TestSendEmailAttachments(SimpleTestCase):
             ("over_the_count", [attachment(filename=f"file{i}.txt") for i in range(11)]),
             ("blocked_extension", [attachment(filename="setup.EXE")]),
             ("blocked_extension_with_a_trailing_dot", [attachment(filename="setup.exe. ")]),
+            ("blocked_extension_alone", [attachment(filename=".exe")]),
             ("filename_with_a_line_break", [attachment(filename="invite\r\n.ics")]),
             ("filename_with_a_path", [attachment(filename="../invite.ics")]),
             ("filename_too_long", [attachment(filename="a" * 252 + ".ics")]),
