@@ -146,6 +146,8 @@ describe('warehouseSuggestionsLogic', () => {
     beforeEach(() => {
         initKeaTests()
         jest.clearAllMocks()
+        mockSavedQuery.mockReset()
+        mockCheck.mockReset()
         jest.spyOn(lemonToast, 'error').mockImplementation(() => 'toast')
         jest.spyOn(lemonToast, 'success').mockImplementation(() => 'toast')
         mockStatus.mockResolvedValue(ACTIVE_STATUS)
@@ -281,6 +283,33 @@ describe('warehouseSuggestionsLogic', () => {
 
         await expectLogic(logic).toDispatchActions(['suggestionAccepted'])
         expect(mockAccept).toHaveBeenCalledWith(expect.any(String), INCREMENTAL.id, expectedBody)
+    })
+
+    it('materializes with a full refresh when the view can no longer refresh incrementally', async () => {
+        mockList.mockResolvedValue(page([INCREMENTAL]))
+        mockSavedQuery.mockResolvedValue({
+            query: { query: 'SELECT * FROM events' },
+        } as Awaited<ReturnType<typeof warehouseSavedQueriesRetrieve>>)
+        mockCheck.mockResolvedValue({
+            eligible: false,
+            key_candidates: [],
+            unique_key_candidates: [],
+            key_candidate_types: {},
+            blockers: ['The query has no column that grows over time.'],
+            warnings: [],
+        })
+        mockAccept.mockResolvedValue({ ...INCREMENTAL, status: 'accepted' })
+        await mountLogic()
+        logic.actions.openMaterializeModal(INCREMENTAL.id)
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.confirmMaterialize()
+        await expectLogic(logic).toDispatchActions(['suggestionAccepted'])
+
+        expect(mockAccept).toHaveBeenCalledWith(expect.any(String), INCREMENTAL.id, {
+            refresh_interval_seconds: 86400,
+            refresh_mode: 'full',
+        })
     })
 
     it('switching a full proposal to incremental sends the mode and the keys', async () => {

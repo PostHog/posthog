@@ -747,7 +747,14 @@ export const warehouseSuggestionsLogic: LogicWrapper<warehouseSuggestionsLogicTy
                     })
                 },
                 loadIncrementalCheckSuccess: ({ incrementalCheck }) => {
-                    if (!incrementalCheck || values.refreshDraft.incrementalKey) {
+                    if (!incrementalCheck) {
+                        return
+                    }
+                    if (!incrementalCheck.eligible || incrementalCheck.key_candidates.length === 0) {
+                        actions.setRefreshDraft({ enabled: false })
+                        return
+                    }
+                    if (values.refreshDraft.incrementalKey) {
                         return
                     }
                     actions.setRefreshDraft({ incrementalKey: incrementalCheck.key_candidates[0] ?? null })
