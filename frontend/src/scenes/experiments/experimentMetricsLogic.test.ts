@@ -713,7 +713,8 @@ describe('experimentMetricsLogic', () => {
                 post: {
                     // A terminal run, so the refresh does not arm a poll timer.
                     '/api/projects/:team_id/experiments/:id/metrics_recalculation/': async ({ request }) => {
-                        postedTriggers.push((await request.json()).trigger)
+                        const body = (await request.json()) as { trigger: string }
+                        postedTriggers.push(body.trigger)
                         return [201, completedRecalculation2]
                     },
                 },
