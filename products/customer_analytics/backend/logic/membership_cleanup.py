@@ -133,9 +133,6 @@ class MembershipCleanupStore:
         )
         return [MembershipKey(group_type_index=row[0], group_key=row[1], distinct_id=row[2]) for row in rows]
 
-    def get_existence(self, team_id: int, keys: Sequence[MembershipKey]) -> MembershipExistence:
-        return get_membership_existence(team_id, keys)
-
     def _delete(self, team_id: int, keys: Sequence[MembershipKey] | None = None) -> None:
         target = CONFIG_TARGET if keys is None else MEMBERSHIP_TARGET
         predicate = "team_id = %(team_id)s"
@@ -271,7 +268,7 @@ def _run_batch(
     keys = store.list_keys(input.team_id, scan.cursor)
     all_keys = list(set(keys + [_get_key(candidate) for candidate in pending]))
     deleted_team = not Team.objects.filter(id=input.team_id).exists()
-    existence = store.get_existence(input.team_id, all_keys)
+    existence = get_membership_existence(input.team_id, all_keys)
     now = timezone.now()
     recovered = 0
     overdue = 0

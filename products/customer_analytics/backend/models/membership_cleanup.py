@@ -22,6 +22,7 @@ class MembershipCleanupScan(TeamScopedRootMixin):
 
 class MembershipCleanupCandidate(TeamScopedRootMixin):
     team_id = models.BigIntegerField()
+    # Keep unbounded group keys and distinct IDs out of the unique index.
     key_hash = models.CharField(max_length=64)
     group_type_index = models.PositiveSmallIntegerField()
     group_key = models.TextField()
