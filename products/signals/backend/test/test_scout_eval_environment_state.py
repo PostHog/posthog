@@ -1,4 +1,6 @@
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
+from typing import Literal
 from uuid import uuid4
 
 from posthog.test.base import BaseTest
@@ -24,11 +26,50 @@ from products.signals.backend.scout_harness.eval_environment.schema import (
     ScoutEnvironmentUser,
 )
 from products.signals.backend.scout_harness.eval_environment.state import ScoutEnvironmentState
+from products.signals.backend.scout_harness.lazy_seed import (
+    HARNESS_SEEDED_BY,
+    CanonicalSkill,
+    CanonicalSkillFile,
+    _compute_canonical_hash,
+)
 from products.skills.backend.models.skills import LLMSkill
 from products.tasks.backend.models import TaskRun
 
 
 class TestScoutEnvironmentState(BaseTest):
+    def _companion_skill(
+        self, origin: Literal["canonical", "custom"], *, diverged: bool = False
+    ) -> ScoutEnvironmentSkill:
+        canonical = CanonicalSkill(
+            name="example-companion",
+            description="Supporting guidance.",
+            body="Read the supporting reference.",
+            allowed_tools=("query-run",),
+            files=(
+                CanonicalSkillFile(
+                    path="references/example.md", content="Supporting evidence.", content_type="text/markdown"
+                ),
+            ),
+            source_path=Path("/tmp/example-companion"),
+        )
+        return ScoutEnvironmentSkill(
+            id=uuid4(),
+            name=canonical.name,
+            description=canonical.description,
+            body="Read the team's supporting reference." if diverged else canonical.body,
+            allowed_tools=list(canonical.allowed_tools),
+            version=2,
+            origin=origin,
+            category="",
+            created_by="source-owner",
+            owners=["source-member"],
+            files={file.path: file.content for file in canonical.files},
+            file_content_types={file.path: file.content_type for file in canonical.files},
+            metadata={"seeded_by": HARNESS_SEEDED_BY, "canonical_hash": _compute_canonical_hash(canonical)}
+            if origin == "canonical" or diverged
+            else {},
+        )
+
     def setUp(self) -> None:
         super().setUp()
         self.checkpoint = datetime(2030, 6, 4, 12, tzinfo=UTC)
@@ -119,23 +160,21 @@ class TestScoutEnvironmentState(BaseTest):
                 ScoutEnvironmentState.seed(self.case, self.receipt)
         seed_users.assert_not_called()
 
-    def test_restores_linked_history_with_local_operator_identity_and_rejects_dirty_reuse(self) -> None:
-        companion = ScoutEnvironmentSkill(
-            id=uuid4(),
-            name="example-companion",
-            body="Read the supporting reference.",
-            version=2,
-            origin="custom",
-            category="",
-            created_by="source-owner",
-            owners=["source-member"],
-            files={"references/example.md": "Supporting evidence."},
-            file_content_types={"references/example.md": "text/markdown"},
+    @parameterized.expand(["custom", "canonical", "diverged_custom"])
+    def test_restores_linked_history_with_local_operator_identity_and_rejects_dirty_reuse(self, source: str) -> None:
+        companion = self._companion_skill(
+            "canonical" if source == "canonical" else "custom", diverged=source == "diverged_custom"
         )
         self.case = self.case.model_copy(update={"companion_skills": [companion]})
-        with patch(
-            "products.signals.backend.scout_harness.eval_environment.state.PreparedEnvironment.assert_local",
-            return_value=self.receipt.databases,
+        with (
+            patch(
+                "products.signals.backend.scout_harness.lazy_seed.canonical_skill_names",
+                return_value=frozenset({companion.name}),
+            ),
+            patch(
+                "products.signals.backend.scout_harness.eval_environment.state.PreparedEnvironment.assert_local",
+                return_value=self.receipt.databases,
+            ),
         ):
             result = ScoutEnvironmentState.seed(self.case, self.receipt)
             ScoutEnvironmentState.verify(self.case, self.receipt, result)
@@ -143,6 +182,9 @@ class TestScoutEnvironmentState(BaseTest):
                 ScoutEnvironmentState.seed(self.case, self.receipt)
         config = SignalScoutConfig.objects.for_team(self.team.id).get(id=result.config_id)
         restored_companion = LLMSkill.objects.get(team_id=self.team.id, name=companion.name)
+        self.assertEqual(restored_companion.body, companion.body)
+        self.assertEqual(restored_companion.description, companion.description)
+        self.assertEqual(restored_companion.allowed_tools, companion.allowed_tools)
         self.assertEqual(restored_companion.version, companion.version)
         self.assertEqual(restored_companion.category, companion.category)
         self.assertEqual(restored_companion.files.get().content, "Supporting evidence.")
@@ -177,12 +219,49 @@ class TestScoutEnvironmentState(BaseTest):
             note.created_at, self.case.state.notes[0].created_at + timedelta(seconds=result.time_delta_seconds)
         )
         SignalScratchpad.objects.for_team(self.team.id).filter(id=memory.id).update(content="Changed baseline")
-        with patch(
-            "products.signals.backend.scout_harness.eval_environment.state.PreparedEnvironment.assert_local",
-            return_value=self.receipt.databases,
+        with (
+            patch(
+                "products.signals.backend.scout_harness.lazy_seed.canonical_skill_names",
+                return_value=frozenset({companion.name}),
+            ),
+            patch(
+                "products.signals.backend.scout_harness.eval_environment.state.PreparedEnvironment.assert_local",
+                return_value=self.receipt.databases,
+            ),
         ):
             with self.assertRaisesRegex(ValueError, "baseline changed"):
                 ScoutEnvironmentState.verify(self.case, self.receipt, result)
+
+    @parameterized.expand(
+        ["canonical", "body", "description", "allowed_tools", "file", "missing_files", "diverged_custom"]
+    )
+    def test_preflight_hashes_complete_staged_companion_content_without_database_queries(self, change: str) -> None:
+        companion = self._companion_skill(
+            "custom" if change == "diverged_custom" else "canonical", diverged=change == "diverged_custom"
+        )
+        if change == "body":
+            companion = companion.model_copy(update={"body": "Different instructions."})
+        elif change == "description":
+            companion = companion.model_copy(update={"description": "Different guidance."})
+        elif change == "allowed_tools":
+            companion = companion.model_copy(update={"allowed_tools": []})
+        elif change == "file":
+            companion = companion.model_copy(update={"files": {"references/example.md": "Different evidence."}})
+        elif change == "missing_files":
+            companion = companion.model_copy(update={"files": {}, "file_content_types": {}})
+        case = self.case.model_copy(update={"companion_skills": [companion]})
+        with (
+            patch(
+                "products.signals.backend.scout_harness.lazy_seed.canonical_skill_names",
+                return_value=frozenset({companion.name}),
+            ),
+            self.assertNumQueries(0),
+        ):
+            if change in {"canonical", "diverged_custom"}:
+                ScoutEnvironmentState.validate_input(case, self.receipt)
+            else:
+                with self.assertRaisesRegex(ValueError, "declared origin"):
+                    ScoutEnvironmentState.validate_input(case, self.receipt)
 
     def test_unknown_relationship_rolls_back_the_whole_starting_state(self) -> None:
         corrupted = self.case.model_copy(

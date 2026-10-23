@@ -204,19 +204,39 @@ class ScoutEnvironmentState:
 
     @classmethod
     def _validate_skill(cls, source_skill: ScoutEnvironmentSkill) -> None:
-        skill = LLMSkill(name=source_skill.name, metadata=source_skill.metadata)
-        if scout_skill_row_origin(skill) != source_skill.origin:
+        skill = LLMSkill(
+            id=source_skill.id,
+            name=source_skill.name,
+            description=source_skill.description,
+            body=source_skill.body,
+            allowed_tools=source_skill.allowed_tools,
+            metadata=source_skill.metadata,
+            version=source_skill.version,
+            category=source_skill.category,
+            license=source_skill.license,
+            compatibility=source_skill.compatibility,
+        )
+        files = [
+            LLMSkillFile(
+                skill=skill,
+                path=path,
+                content=content,
+                content_type=source_skill.file_content_types.get(path, "text/plain"),
+            )
+            for path, content in source_skill.files.items()
+        ]
+        if scout_skill_row_origin(skill, files=files) != source_skill.origin:
             raise ValueError("Scout skill metadata does not preserve its declared origin.")
         cls._validate_model_fields(
             LLMSkill, {"license": source_skill.license, "compatibility": source_skill.compatibility}
         )
-        for path, content in source_skill.files.items():
+        for file in files:
             cls._validate_model_fields(
                 LLMSkillFile,
                 {
-                    "path": path,
-                    "content": content,
-                    "content_type": source_skill.file_content_types.get(path, "text/plain"),
+                    "path": file.path,
+                    "content": file.content,
+                    "content_type": file.content_type,
                 },
             )
 
