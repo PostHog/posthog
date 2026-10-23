@@ -262,7 +262,6 @@ class TestRunInsight(SimpleTestCase):
             ("timeout", ClickHouseQueryTimeOut(), "too_expensive"),
             ("access_denied", TableAccessDeniedError("no access"), "access_denied"),
             ("unknown_table", QueryError("Unknown table `deleted_table`."), "broken_query"),
-            ("unresolved_table", ResolutionError("Unknown table `deleted_table`."), "broken_query"),
             ("unsupported", UnsupportedInsightError("not trends"), "unsupported"),
         ]
     )
@@ -280,6 +279,7 @@ class TestRunInsight(SimpleTestCase):
     @parameterized.expand(
         [
             ("cluster_memory", ClickHouseClusterMemoryLimitExceeded()),
+            ("internal_resolver", ResolutionError("Type already resolved for Field (FieldType). Can't run again.")),
             ("unknown", RuntimeError("boom")),
         ]
     )

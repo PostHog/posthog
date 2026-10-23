@@ -16,7 +16,7 @@ import structlog
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
-from posthog.hogql.errors import QueryError, ResolutionError, TableAccessDeniedError
+from posthog.hogql.errors import QueryError, TableAccessDeniedError
 
 from posthog.dataclasses import frozen
 from posthog.exceptions import (
@@ -159,7 +159,8 @@ def failure_status(error: Exception) -> str | None:
     # A subclass of QueryError, so check it first.
     if isinstance(error, TableAccessDeniedError):
         return STATUS_ACCESS_DENIED
-    if isinstance(error, QueryError | ResolutionError):
+    # Only the exposed invalid-query error, such as an unknown table. ResolutionError is internal to the engine.
+    if isinstance(error, QueryError):
         return STATUS_BROKEN_QUERY
     return None
 
