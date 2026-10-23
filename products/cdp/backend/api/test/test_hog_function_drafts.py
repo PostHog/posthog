@@ -725,3 +725,115 @@ class TestHogFunctionRevisions(DraftTestCase):
         restored_draft = HogFunction.objects.get(id=function_id).draft
         assert restored_draft is not None
         assert restored_draft["hog"] == LIVE_HOG
+
+
+INTEGRATION_KEYS = ("integration", "integration_key", "integration_field", "requires_field", "requiredScopes")
+
+INTEGRATION_INPUTS_SCHEMA: list[dict[str, Any]] = [
+    {
+        "key": "oauth",
+        "type": "integration",
+        "integration": "google-ads",
+        "requiredScopes": "https://www.googleapis.com/auth/adwords",
+        "label": "Account",
+        "required": True,
+    }
+]
+
+INTEGRATION_MAPPING_INPUTS_SCHEMA: list[dict[str, Any]] = [
+    {
+        "key": "conversionActionId",
+        "type": "integration_field",
+        "integration_key": "oauth",
+        "integration_field": "google_ads_conversion_action",
+        "requires_field": "oauth",
+        "label": "Conversion action",
+        "required": True,
+    }
+]
+
+
+def _without_integration_keys(inputs_schema: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [{key: value for key, value in item.items() if key not in INTEGRATION_KEYS} for item in inputs_schema]
+
+
+def _mapping(name: str, inputs_schema: list[dict[str, Any]]) -> dict[str, Any]:
+    return {"name": name, "inputs_schema": inputs_schema, "inputs": {"conversionActionId": {"value": "123"}}}
+
+
+class TestHogFunctionIntegrationKeys(DraftTestCase):
+    def _create_integration_destination(self) -> str:
+        return self._create(
+            hog="print(inputs.oauth)",
+            inputs_schema=INTEGRATION_INPUTS_SCHEMA,
+            inputs={"oauth": {"value": 1}},
+            mappings=[_mapping("Purchase", INTEGRATION_MAPPING_INPUTS_SCHEMA)],
+        )
+
+    def test_agent_mapping_edit_keeps_integration_keys_it_cannot_send(self):
+        function_id = self._create_integration_destination()
+        live = HogFunction.objects.get(id=function_id)
+        live_config = (live.inputs_schema, live.mappings)
+
+        # The MCP tool strips the integration keys from every schema, so the agent resends the
+        # existing mapping without them when it adds a mapping.
+        draft = self._stage(
+            function_id,
+            {
+                "inputs_schema": _without_integration_keys(INTEGRATION_INPUTS_SCHEMA),
+                "mappings": [
+                    _mapping("Purchase", _without_integration_keys(INTEGRATION_MAPPING_INPUTS_SCHEMA)),
+                    _mapping("Signup", _without_integration_keys(INTEGRATION_MAPPING_INPUTS_SCHEMA)),
+                ],
+            },
+        )["draft"]
+
+        assert draft["inputs_schema"] == INTEGRATION_INPUTS_SCHEMA
+        assert draft["mappings"][0]["inputs_schema"] == INTEGRATION_MAPPING_INPUTS_SCHEMA
+        # A new mapping has no stored schema to copy from, so it stays as the caller sent it.
+        assert draft["mappings"][1]["inputs_schema"] == _without_integration_keys(INTEGRATION_MAPPING_INPUTS_SCHEMA)
+
+        response = self.client.post(self._url(function_id, "/discard_draft"))
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        live.refresh_from_db()
+        assert (live.inputs_schema, live.mappings) == live_config
+
+    def test_agent_edit_that_changes_the_input_type_unbinds_the_integration(self):
+        function_id = self._create_integration_destination()
+
+        draft = self._stage(
+            function_id,
+            {"mappings": [_mapping("Purchase", [{"key": "conversionActionId", "type": "string", "label": "ID"}])]},
+        )["draft"]
+
+        assert draft["mappings"][0]["inputs_schema"] == [{"key": "conversionActionId", "type": "string", "label": "ID"}]
+
+    def test_later_agent_edit_copies_integration_keys_from_the_staged_draft(self):
+        function_id = self._create(
+            hog="print(inputs.oauth)", inputs_schema=INTEGRATION_INPUTS_SCHEMA, inputs={"oauth": {"value": 1}}
+        )
+        # The mapping exists only in the staged draft, so the live config has nothing to copy from.
+        HogFunction.objects.filter(id=function_id).update(
+            draft={"mappings": [_mapping("Purchase", INTEGRATION_MAPPING_INPUTS_SCHEMA)]}
+        )
+
+        draft = self._stage(
+            function_id,
+            {"mappings": [_mapping("Purchase", _without_integration_keys(INTEGRATION_MAPPING_INPUTS_SCHEMA))]},
+        )["draft"]
+
+        assert draft["mappings"][0]["inputs_schema"] == INTEGRATION_MAPPING_INPUTS_SCHEMA
+
+    def test_rename_leaves_the_stored_schemas_alone(self):
+        function_id = self._create_integration_destination()
+        before = HogFunction.objects.get(id=function_id)
+
+        self._stage(function_id, {"name": "Renamed"})
+
+        after = HogFunction.objects.get(id=function_id)
+        assert after.draft is None
+        assert (after.inputs_schema, after.mappings, after.version) == (
+            before.inputs_schema,
+            before.mappings,
+            before.version,
+        )
