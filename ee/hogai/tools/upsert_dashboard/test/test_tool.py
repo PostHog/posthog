@@ -1840,8 +1840,13 @@ class TestUpsertDashboardTool(BaseTest):
         await DashboardTile.objects.acreate(dashboard=dashboard, text=text, layouts={})
         return dashboard, insight, subscription, rate
 
+    @parameterized.expand([False, True])
     @patch("posthog.event_usage.posthoganalytics.capture")
-    async def test_duplicate_dashboard_keeps_variables_and_chart_settings(self, mock_capture: MagicMock) -> None:
+    async def test_duplicate_dashboard_keeps_variables_and_chart_settings(
+        self, enforce_2fa: bool, mock_capture: MagicMock
+    ) -> None:
+        self.organization.enforce_2fa = enforce_2fa
+        await self.organization.asave(update_fields=["enforce_2fa"])
         source, source_insight, subscription, rate = await self._create_variable_dashboard()
 
         _, artifact = await self._create_tool()._arun_impl(

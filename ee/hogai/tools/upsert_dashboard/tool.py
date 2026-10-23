@@ -20,7 +20,6 @@ from posthog.schema import (
 )
 
 from posthog.api.sharing_publish_gate import check_can_add_insight_to_shared_dashboard
-from posthog.auth import SessionAuthentication
 from posthog.event_usage import EventSource, report_user_action
 from posthog.sync import database_sync_to_async
 from posthog.utils import pluralize
@@ -343,8 +342,10 @@ class UpsertDashboardTool(MaxTool):
     ) -> Dashboard:
         http_request = HttpRequest()
         http_request.method = "GET"
-        http_request.user = self._user
-        request = Request(http_request, authenticators=[SessionAuthentication()])
+        request = Request(http_request)
+        request.user = self._user
+        request.auth = None
+        request._authenticator = None
         serializer = DashboardSerializer(
             data={
                 "use_dashboard": source.id,
