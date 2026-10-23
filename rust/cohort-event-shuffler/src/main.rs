@@ -37,6 +37,7 @@ fn main() -> Result<()> {
 async fn async_main(config: Config) -> Result<()> {
     init_tracing();
     log_startup(&config);
+    let settings = config.shuffler_settings()?;
 
     let mut manager = Manager::builder(SERVICE_NAME)
         .with_global_shutdown_timeout(Duration::from_secs(30))
@@ -108,13 +109,7 @@ async fn async_main(config: Config) -> Result<()> {
         .await;
     });
 
-    let shuffler = EventShuffler::new(
-        consumer,
-        producer,
-        team_index,
-        consumer_handle,
-        config.shuffler_settings(),
-    );
+    let shuffler = EventShuffler::new(consumer, producer, team_index, consumer_handle, settings);
     tokio::spawn(async move {
         shuffler.process().await;
     });

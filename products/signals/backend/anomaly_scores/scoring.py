@@ -10,6 +10,8 @@ import numpy as np
 
 from posthog.schema import BreakdownFilter, ChartDisplayType, DateRange, IntervalType, TrendsQuery
 
+from posthog.hogql.constants import LimitContext
+
 from posthog.api.services.query import ExecutionMode
 from posthog.caching.calculate_results import calculate_for_query_based_insight
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
@@ -193,18 +195,25 @@ def score_insight(
         user=insight.created_by,
         query_override=scoring_query.model_dump(exclude_none=True),
         analytics_props={"source": EventSource.SELF_DRIVING},
+        # The async context raises the ClickHouse timeout to minutes. One slow insight must not hold a tick.
+        limit_context=LimitContext.QUERY,
     )
     if calculation.result is None:
         raise RuntimeError(f"No results for insight {insight.pk}")
 
     timezone = team.timezone_info
     series: list[ScoredSeries] = []
+    key_counts: dict[str, int] = {}
     for result in cast(list[dict[str, Any]], calculation.result)[: limits.max_series]:
         buckets = [_parse_bucket(day, timezone) for day in result.get("days") or []]
         breakdown_value = _breakdown_label(result.get("breakdown_value"))
+        key = series_key(insight.pk, _series_definition(scoring_query, result), breakdown_value)
+        repeats = key_counts.get(key, 0)
+        key_counts[key] = repeats + 1
         series.append(
             ScoredSeries(
-                series_key=series_key(insight.pk, _series_definition(scoring_query, result), breakdown_value),
+                # Lines that differ only by name share a key. Event uuids come from the key, so each repeat needs its own.
+                series_key=key if repeats == 0 else _short_hash({"key": key, "repeat": repeats}),
                 label=str(result.get("label") or ""),
                 breakdown_value=breakdown_value,
                 points=score_series(

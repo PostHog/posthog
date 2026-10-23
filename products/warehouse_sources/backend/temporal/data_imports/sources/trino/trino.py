@@ -26,6 +26,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import DEFAULT_CHUNK_SIZE
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.interruptible_wait import (
+    interruptible_wait,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
     ValidateDatabaseHostMixin,
     log_connection_open,
@@ -164,6 +167,12 @@ TRINO_PERMANENT_SYNC_ERROR_MESSAGES = frozenset(
         TRINO_CLUSTER_ACCESS_DENIED_ERROR,
     }
 )
+# The managed-Trino control plane's own wording when it mints a tenant's compute-pool grant before
+# the pool coordinator has finished admitting that tenant. The request was never dispatched, so a
+# retry is safe, and the race clears within a few seconds once admission catches up.
+TRINO_TENANT_NOT_ADMITTED_ERROR = "is not admitted to the pool yet"
+_TENANT_ADMISSION_RETRY_ATTEMPTS = 4
+_TENANT_ADMISSION_RETRY_BACKOFF_SECONDS = 1.0
 POSTHOG_MANAGED_TRINO_HOST_PATTERN = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.dw\.(?:dev|eu|us)\.postwh\.com")
 # Trino's OPA access control can issue one column-filter request per table, so keep
 # discovery batches comfortably below the HTTP client's outstanding-request limit.
@@ -384,6 +393,19 @@ def discover_trino_schemas(
     return discover_trino_catalog(cursor, catalog=config.catalog, schema=config.schema, names=names)
 
 
+def _execute_with_tenant_admission_retry(cursor: Cursor, query: str, parameters: list[object]) -> None:
+    from trino.exceptions import HttpError  # noqa: PLC0415 — keeps the optional driver off startup paths
+
+    for attempt in range(1, _TENANT_ADMISSION_RETRY_ATTEMPTS + 1):
+        try:
+            cursor.execute(query, parameters)
+            return
+        except HttpError as exc:
+            if attempt == _TENANT_ADMISSION_RETRY_ATTEMPTS or TRINO_TENANT_NOT_ADMITTED_ERROR not in str(exc).lower():
+                raise
+            interruptible_wait(_TENANT_ADMISSION_RETRY_BACKOFF_SECONDS * attempt)
+
+
 def discover_trino_catalog(
     cursor: Cursor,
     *,
@@ -403,7 +425,7 @@ def discover_trino_catalog(
         table_query += " AND table_schema = ?"
         parameters.append(schema)
     table_query += " ORDER BY table_schema, table_name"
-    cursor.execute(table_query, parameters)
+    _execute_with_tenant_admission_retry(cursor, table_query, parameters)
 
     requested = set(names) if names is not None else None
     table_names_by_schema: dict[str, list[str]] = {}
@@ -429,7 +451,7 @@ def discover_trino_catalog(
                 f"WHERE table_schema = ? AND table_name IN ({placeholders}) "
                 "ORDER BY table_schema, table_name, ordinal_position"
             )
-            cursor.execute(column_query, [schema_name, *table_name_batch])
+            _execute_with_tenant_admission_retry(cursor, column_query, [schema_name, *table_name_batch])
             for row_schema, table_name, column_name, data_type, is_nullable in cursor.fetchall():
                 tables.setdefault((str(row_schema), str(table_name)), []).append(
                     TrinoColumn(

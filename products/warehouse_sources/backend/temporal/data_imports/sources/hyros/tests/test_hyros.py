@@ -139,15 +139,23 @@ class TestHyrosSourcePagination:
         assert result.raised is None
         assert [(row["platform"], row["adSourceId"]) for row in result.rows] == [("FACEBOOK", "238"), (None, None)]
 
-    def test_full_refresh_endpoint_never_filters_by_date(self) -> None:
+    @parameterized.expand(
+        [
+            ("Stages", "/v1/api/v1.0/stages"),
+            ("Carts", "/v1/api/v1.0/carts"),
+            ("CustomCosts", "/v1/api/v1.0/custom-costs"),
+        ]
+    )
+    def test_full_refresh_endpoint_never_filters_by_date(self, endpoint: str, path: str) -> None:
         result = _driver().run(
-            "Stages",
+            endpoint,
             [_response([{"id": "1"}])],
             should_use_incremental_field=True,
             db_incremental_field_last_value=datetime(2026, 3, 4, tzinfo=UTC),
         )
 
         assert result.raised is None
+        assert result.paths == [path]
         assert result.queries == [{"pageSize": ("250",)}]
 
 

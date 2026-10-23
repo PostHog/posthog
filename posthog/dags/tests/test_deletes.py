@@ -1321,18 +1321,23 @@ def test_the_survivor_count_retries_before_reporting_unknown(failing_attempts: i
 
 
 @pytest.mark.parametrize(
-    "blocking_job",
+    "guarded_job,blocking_job",
     [
-        deletes_job,
+        (deletes_job, deletes_job),
         # A squash run blocks whatever its age: manual_deletes_job's preflight can go stale
         # before the sensor launches the run, so the guard checks squash again at run start.
-        squash_person_overrides,
+        (deletes_job, squash_person_overrides),
+        (deletes_job, monthly_old_events_cleanup_job),
+        (monthly_old_events_cleanup_job, deletes_job),
+        (monthly_old_events_cleanup_job, squash_person_overrides),
     ],
 )
-def test_the_deletes_guard_yields_to_an_executing_deletes_or_squash_run(blocking_job: dagster.JobDefinition):
-    assert "ensure_no_concurrent_deletes_run" in deletes_job.graph.node_names()
+def test_the_deletes_guard_yields_to_an_executing_run_that_mutates_events(
+    guarded_job: dagster.JobDefinition, blocking_job: dagster.JobDefinition
+):
+    assert "ensure_no_concurrent_deletes_run" in guarded_job.graph.node_names()
 
-    @dagster.job(name=deletes_job.name)
+    @dagster.job(name=guarded_job.name)
     def guard_only_job() -> None:
         ensure_no_concurrent_deletes_run()
 
@@ -1351,6 +1356,7 @@ def test_the_deletes_guard_yields_to_an_executing_deletes_or_squash_run(blocking
         # A run that has not started yet blocks here even though the in-job guard ignores it: it
         # is a collision about to happen, and the manual trigger has launched nothing yet.
         (squash_person_overrides, dagster.DagsterRunStatus.NOT_STARTED),
+        (monthly_old_events_cleanup_job, dagster.DagsterRunStatus.STARTED),
     ],
 )
 def test_the_manual_trigger_refuses_while_the_weekly_chain_is_active(

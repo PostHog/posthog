@@ -17,7 +17,7 @@ dependencies = [
     "asyncstdlib==3.13.1",
     "beautifulsoup4==4.12.3",
     "boto3==1.40.49",
-    "brotli==1.2.0",
+    "brotli==1.2.1",
     "celery==5.6.3",
     "celery-redbeat==2.3.3",
     "certifi==2026.10.19",
@@ -105,7 +105,7 @@ dependencies = [
     "paramiko~=3.5.0",
     "pillow==12.3.0",
     "protobuf~=6.31.1",
-    "posthoganalytics==7.75.0",
+    "posthoganalytics==7.75.6",
     "polars==1.37.1",
     "psycopg2-binary==2.9.11",
     "psycopg[binary]==3.2.10",
@@ -323,7 +323,7 @@ proto-codegen = [
 required-version = ">=0.10.2"
 add-bounds = "major"
 exclude-newer = "7 days"
-exclude-newer-package = { certifi = false, hogql-parser = false, hogql-parser-rs = false, deltalite = false, posthoganalytics = false, pixelhog = false, django = false, modal = false, posthog-hogland = false, google-ads = false, grpcio = false }
+exclude-newer-package = { brotli = false, certifi = false, hogql-parser = false, hogql-parser-rs = false, deltalite = false, posthoganalytics = false, pixelhog = false, django = false, modal = false, posthog-hogland = false, google-ads = false, grpcio = false }
 # posthoganalytics 8 removes legacy capture. The SDK release bot rewrites the
 # dependency spec on every release, so this constraint is what stops a new major from
 # landing by accident. Lift it in the migration PR that moves the call sites.
@@ -757,14 +757,6 @@ ignore_imports = [
     "products.batch_exports.backend.presentation.views.batch_export.exports -> products.batch_exports.backend.service",
     "products.batch_exports.backend.presentation.views.batch_export.exports -> products.batch_exports.backend.temporal.destinations.constants",
     "products.batch_exports.backend.presentation.views.batch_export.exports -> products.batch_exports.backend.temporal.sql.events",
-    # TODO: subscriptions presentation wave. The viewsets and model serializers moved from ee/
-    # with their ORM access: the product's own subscription models and the dashboard models
-    # behind dashboard and tile selection. Thin them to parse -> facade -> serialize and delete
-    # each entry. backend:contract-check stays off until this list is empty.
-    "products.subscriptions.backend.presentation.views -> products.dashboards.backend.models.dashboard",
-    "products.subscriptions.backend.presentation.views -> products.dashboards.backend.models.dashboard_tile",
-    "products.subscriptions.backend.presentation.views -> products.subscriptions.backend.models.subscription",
-    "products.subscriptions.backend.presentation.views -> products.subscriptions.backend.models.subscription_context",
 ]
 
 # routes.py is the one module core reads to assemble a product's API router, so it is the

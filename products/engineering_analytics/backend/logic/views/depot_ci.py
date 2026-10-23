@@ -73,8 +73,7 @@ _DEFAULT_SANDBOX_LABELS = '["depot-ubuntu-24.04"]'
 # pull request association as the run's own.
 _REPOSITORY_ID = 1
 
-# The hand-off between the engines, as .github/workflows/ci-backend.yml and .depot/workflows/ci-backend.yml
-# name its two ends.
+# Historical job names identify relay and hand-off rows that the union must deduplicate.
 _GITHUB_HANDOFF_JOB = "Hand off backend tests to Depot CI"
 _GITHUB_RELAY_JOB = "Django Tests Pass"
 _DEPOT_WAIT_JOB_KEY_SUFFIX = ":wait-for-handoff"
