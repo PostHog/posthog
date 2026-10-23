@@ -53,7 +53,7 @@ from posthog.schema import QueryStatus
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.errors import ExposedHogQLError
+from posthog.hogql.errors import ExposedHogQLError, QueryError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import HogQLQueryExecutor
 from posthog.hogql.visitor import clone_expr
@@ -156,6 +156,9 @@ _QUERY_SIZE_MESSAGE = "The query is too large to materialize. Simplify it (e.g. 
 _RESULT_SIZE_MESSAGE = (
     "The materialized result is too large (over the frame size budget). "
     "Select fewer columns or aggregate before materializing."
+)
+_LOGS_CLUSTER_MESSAGE = (
+    "Notebooks can't load logs, trace spans, or metrics yet. Run this query in the SQL editor instead."
 )
 _MID_STREAM_ERROR_MESSAGE = "The query failed while its result was streaming. Adjust it and re-run."
 # ClickHouse exception codes worth a specific user-facing message when a query dies
@@ -432,6 +435,10 @@ def _generate_sql(
     context.values.clear()
     sql, resolved = executor.generate_clickhouse_sql()
     seconds = time.perf_counter() - started
+    # Both write paths connect to the main cluster, and logs-cluster tables exist only on the
+    # logs cluster. Fail before the DESCRIBE so the user sees why, not an unknown-table error.
+    if resolved.workload == Workload.LOGS:
+        raise QueryError(_LOGS_CLUSTER_MESSAGE)
     # The executor keeps the database it built on its own `dataclasses.replace` copy, so
     # without this hand-back the shared context still looks empty and the next pass builds a
     # second one. It resets the per-execution state it shares by reference, so a database
