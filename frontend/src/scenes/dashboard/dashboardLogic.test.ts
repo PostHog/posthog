@@ -1046,6 +1046,91 @@ describe('dashboardLogic', () => {
                 expect(logic.values.waitingTileRefresh).toBeNull()
             })
 
+            it.each([
+                { name: 'insight tiles', widgetsPerTile: 0 },
+                { name: 'insight and widget tiles', widgetsPerTile: 1 },
+            ])(
+                'runs at most four loads at once when the viewer opens several groups during a refresh of $name',
+                async ({ widgetsPerTile }) => {
+                    const groupKeys = ['a', 'b', 'c']
+                    const insightTile = dashboards[5].tiles[1]
+                    const tile = (id: number, groupKey?: string): DashboardTile => ({
+                        ...insightTile,
+                        id,
+                        group_key: groupKey,
+                        insight: { ...insightTile.insight!, id, short_id: `${id}` as InsightShortId },
+                    })
+                    const widgetTile = (id: number, groupKey?: string): DashboardTile => ({
+                        ...WIDGET_TILE,
+                        id,
+                        group_key: groupKey,
+                    })
+                    const tilesIn = (groupKey: string | undefined, offset: number): DashboardTile[] =>
+                        Array.from({ length: 4 }, (_, index) => [
+                            tile(offset + index, groupKey),
+                            ...(widgetsPerTile ? [widgetTile(offset + 50 + index, groupKey)] : []),
+                        ]).flat()
+                    dashboards[5] = {
+                        ...dashboards[5],
+                        customization: {
+                            groups: Object.fromEntries(groupKeys.map((groupKey) => [groupKey, { collapsed: true }])),
+                        },
+                        tiles: [
+                            ...tilesIn(undefined, 1000),
+                            ...groupKeys.flatMap((groupKey, index) => tilesIn(groupKey, 2000 + index * 100)),
+                        ],
+                    }
+                    await mountDashboard()
+
+                    let running = 0
+                    let maxRunning = 0
+                    const finishers: (() => void)[] = []
+                    const track = <T>(signal: AbortSignal | undefined, value: T): Promise<T> =>
+                        new Promise((resolve, reject) => {
+                            let settled = false
+                            const settleWith = (finish: () => void) => (): void => {
+                                if (!settled) {
+                                    settled = true
+                                    running--
+                                    finish()
+                                }
+                            }
+                            running++
+                            maxRunning = Math.max(maxRunning, running)
+                            signal?.addEventListener(
+                                'abort',
+                                settleWith(() => reject(new DOMException('Aborted', 'AbortError')))
+                            )
+                            finishers.push(settleWith(() => resolve(value)))
+                        })
+                    refreshInsight.mockImplementation((...args) => track(args[5]?.signal, args[1]))
+                    fetchRunWidgetsMock.mockImplementation((_projectId, _dashboardId, tileIds, options) =>
+                        track(
+                            options?.signal,
+                            tileIds.map((tileId) => ({
+                                tile_id: tileId,
+                                widget_type: 'error_tracking_list' as const,
+                                result: {},
+                                error: null,
+                            }))
+                        )
+                    )
+                    refreshInsight.mockClear()
+
+                    logic.actions.triggerDashboardRefresh()
+                    groupKeys.forEach((groupKey) => logic.actions.toggleTileGroup(groupKey))
+                    for (let round = 0; round < 100 && (finishers.length > 0 || round < 2); round++) {
+                        finishers.shift()?.()
+                        await new Promise((resolve) => setTimeout(resolve, 0))
+                    }
+                    await expectLogic(logic).toFinishAllListeners()
+
+                    expect(maxRunning).toBe(4)
+                    expect(new Set(refreshInsight.mock.calls.map((call) => call[1].short_id)).size).toBe(16)
+                    expect(logic.values.waitingTileRefresh).toBeNull()
+                }
+            )
+
             it('keeps an opened group waiting when the viewer cancels a filter preview that took over its load', async () => {
                 groupTiles({ target: { collapsed: true } })
                 await mountDashboard()
