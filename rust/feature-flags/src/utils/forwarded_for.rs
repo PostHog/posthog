@@ -3,8 +3,10 @@
 //! Each proxy appends the address of its peer, so the entries on the right come from our
 //! edge and the entries on the left come from the caller, who can write any value there.
 
-use axum::http::HeaderMap;
+use axum::http::{HeaderMap, HeaderName};
 use std::net::IpAddr;
+
+const X_FORWARDED_FOR: HeaderName = HeaderName::from_static("x-forwarded-for");
 
 /// The chains that reach the flags service have a few entries, and a caller can send any number.
 pub const MAX_FORWARDED_ADDRESSES: usize = 20;
@@ -40,12 +42,11 @@ pub fn parse_entry(entry: &str) -> Option<IpAddr> {
 }
 
 /// Right to left, so that padding on the left cannot push the entries our edge appended
-/// past [`MAX_FORWARDED_ADDRESSES`].
+/// past [`MAX_FORWARDED_ADDRESSES`]. The header lookup waits for the first `next`, so a
+/// caller that never reads the addresses pays nothing.
 pub fn addresses(headers: &HeaderMap) -> impl Iterator<Item = IpAddr> + '_ {
-    headers
-        .get_all("x-forwarded-for")
-        .iter()
-        .rev()
+    std::iter::once_with(|| headers.get_all(X_FORWARDED_FOR))
+        .flat_map(|values| values.into_iter().rev())
         // Split the bytes, not a `str`, because a caller can add non-ASCII bytes to the
         // value that our edge appends to, and `to_str` would reject the whole value.
         .flat_map(|value| value.as_bytes().rsplit(|&byte| byte == b','))
