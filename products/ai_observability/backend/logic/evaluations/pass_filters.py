@@ -35,13 +35,10 @@ class PassRules:
     passes: ast.Expr
 
 
-def build_evaluation_pass_filters(
-    team_id: int, evaluation_ids: Sequence[str] | None = None
-) -> contracts.EvaluationPassFilters:
-    """`evaluation_ids` limits the rules to the runs of those evaluations, for a read that filters on them."""
+def build_evaluation_pass_filters(team_id: int) -> contracts.EvaluationPassFilters:
     graded_branches: list[str] = []
     passed_branches: list[str] = []
-    for evaluation_id, definition in _own_rules(team_id, evaluation_ids):
+    for evaluation_id, definition in _own_rules(team_id, None):
         matches_evaluation = f"{_EVALUATION_ID} = {escape_hogql_string(evaluation_id)}"
         # An evaluation without a pass rule grades none of its runs, including boolean runs from before it
         # switched to sentiment, which the default branch would otherwise grade.
@@ -138,10 +135,8 @@ def _own_rules(
     team_id: int, evaluation_ids: Sequence[str] | None
 ) -> Iterator[tuple[str, EvaluationReportOutcomeDefinition | None]]:
     """Each evaluation whose runs the default rule does not grade, with its rule, or None for a config that no longer
-    loads. Soft-deleted evaluations stay in, because their past events still need their own rule. Reads the writer,
-    because a receiver of evaluation_output_changed calls this right after the commit, before a replica can catch
-    up."""
-    evaluations = Evaluation.objects.using("default").filter(team_id=team_id)
+    loads. Soft-deleted evaluations stay in, because their past events still need their own rule."""
+    evaluations = Evaluation.objects.filter(team_id=team_id)
     if evaluation_ids is not None:
         evaluations = evaluations.filter(id__in=evaluation_ids)
     evaluations_with_own_rule = evaluations.filter(
