@@ -294,7 +294,8 @@ class HealthContext:
     # ingestion never writes an event definition for is absent, because its absence proves nothing.
     events_received: Mapping[str, bool]
     exposures: ExposureTotals | None
-    # None when not loaded. Only the health endpoint loads it, because it can query the exposures.
+    # None when not loaded. The health endpoint loads it. The exposure answer loads it only when the sample ratio test
+    # fails, because the load can query the exposures and `srm` is the only exposure check that reads it.
     flag_history: FlagHistory | FlagHistoryNotChecked | None
     # None when not loaded or unknown. Only the health endpoint loads it, because it queries the events.
     condition_set_traffic: ConditionSetTraffic | None

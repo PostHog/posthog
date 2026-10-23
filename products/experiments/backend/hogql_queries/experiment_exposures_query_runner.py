@@ -32,11 +32,19 @@ from posthog.clickhouse.query_tagging import Product, tag_queries, tags_context
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.extensions import get_or_create_team_extension
+from posthog.models.user import User
 
+from products.access_control.backend.facade.api import (
+    get_restricted_properties_with_group_type_index_for_team,
+    split_restricted_property_names,
+)
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import LazyComputationResult
-from products.experiments.backend.facade.contracts import ExperimentHealth
+from products.experiments.backend.facade.contracts import ExperimentHealth, ExperimentHealthReaderAccess
 from products.experiments.backend.health.checks.bias_risk import evaluate_bias_risk
+from products.experiments.backend.health.checks.srm import reads_flag_history
 from products.experiments.backend.health.context import ExposureTotals, load_health_context
+from products.experiments.backend.health.exposure_gate import load_flag_history
 from products.experiments.backend.health.registry import (
     EXPOSURE_HEALTH_CHECKS,
     evaluate as evaluate_health,
@@ -308,8 +316,36 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             total_exposures=total_exposures,
         )
 
+    def _can_read_flag_history(self) -> bool:
+        # The flag's history stays behind the flag's own access controls, as on the health endpoint. A userless run
+        # and principals that are not users, such as service tokens, read none. A query runner can't see a token's
+        # scopes, so unlike the health endpoint this doesn't require `activity_log:read`.
+        if not isinstance(self.user, User):
+            return False
+        return UserAccessControl(user=self.user, team=self.team).check_access_level_for_object(
+            self.experiment.feature_flag, required_level="viewer"
+        )
+
+    def _flag_history_reader_access(self) -> ExperimentHealthReaderAccess:
+        restrictions = get_restricted_properties_with_group_type_index_for_team(
+            user=self.user if isinstance(self.user, User) else None, team_id=self.team.pk
+        )
+        return ExperimentHealthReaderAccess(
+            can_read_flag_history=self._can_read_flag_history(),
+            # The reader is already querying the exposure events.
+            can_query_events=True,
+            denied_event_properties=split_restricted_property_names(restrictions).event,
+        )
+
     def _evaluate_health(self, exposures: ExposureTotals) -> ExperimentHealth:
-        return evaluate_health(load_health_context(self.experiment, exposures), EXPOSURE_HEALTH_CHECKS)
+        flag_history = (
+            load_flag_history(self.experiment, reader_access=self._flag_history_reader_access())
+            if reads_flag_history(exposures)
+            else None
+        )
+        return evaluate_health(
+            load_health_context(self.experiment, exposures, flag_history=flag_history), EXPOSURE_HEALTH_CHECKS
+        )
 
     @staticmethod
     def _health_findings(health: ExperimentHealth) -> list[ExperimentExposureHealthFinding]:
@@ -465,4 +501,9 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
     def get_cache_payload(self) -> dict:
         payload = super().get_cache_payload()
         payload["experiment_exposures_response_version"] = 2
+        # The sample ratio finding can name a split change from the flag's history, so a reader who can't read the
+        # history must not get a cached answer of one who can. A userless run reads no history, so its answer is safe
+        # for every reader and keeps the shared key.
+        if self.user is not None and not self._can_read_flag_history():
+            payload["flag_history_hidden"] = True
         return payload

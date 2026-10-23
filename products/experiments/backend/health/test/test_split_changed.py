@@ -6,6 +6,8 @@ from unittest import TestCase
 
 from parameterized import parameterized
 
+from posthog.schema import MultipleVariantHandling
+
 from products.experiments.backend.facade.contracts import (
     ExperimentHealthFinding,
     ExperimentHealthFindingActionKind,
@@ -16,7 +18,13 @@ from products.experiments.backend.facade.contracts import (
 from products.experiments.backend.health.checks.flag_change_findings import flag_history_not_readable
 from products.experiments.backend.health.checks.flag_state import flag_state
 from products.experiments.backend.health.checks.split_changed import split_changed_mid_run
-from products.experiments.backend.health.context import FlagHistoryNotCheckedReason, HealthContext, parse_flag_state
+from products.experiments.backend.health.checks.srm import srm
+from products.experiments.backend.health.context import (
+    ExposureTotals,
+    FlagHistoryNotCheckedReason,
+    HealthContext,
+    parse_flag_state,
+)
 from products.experiments.backend.health.skips import (
     FLAG_DELETED,
     NEEDS_VARIANTS,
@@ -472,3 +480,45 @@ class TestSplitChangedMidRun(TestCase):
             "with a conclusion, or adjust the variant distribution of the linked feature flag to resume proper A/B "
             "testing.",
         )
+
+
+UNEVEN_TOTALS = ExposureTotals(
+    total_exposures={"control": 700, "test": 300},
+    multiple_variant_handling=MultipleVariantHandling.EXCLUDE,
+    sample_ratio_mismatch_p_value=0.00001,
+    hours_since_launch=72,
+    counts_groups=False,
+)
+
+
+class TestSrmAfterSplitChange(TestCase):
+    @parameterized.expand(
+        [
+            ("rebalanced_after_people_were_exposed", _context(EVEN, UNEVEN), "split_changed"),
+            ("rebalanced_before_4_people", _context(EVEN, UNEVEN, exposed_units=4), None),
+            ("not_checked", _context(EVEN, UNEVEN, not_checked=FlagHistoryNotCheckedReason.EXPOSURE_FILTERS), None),
+            ("history_not_loaded", replace(_context(EVEN, UNEVEN), flag_history=None), None),
+        ]
+    )
+    def test_names_a_split_change_that_moved_exposed_people(
+        self, _name: str, ctx: HealthContext, subcode: str | None
+    ) -> None:
+        finding = srm(replace(ctx, exposures=UNEVEN_TOTALS))
+
+        assert isinstance(finding, ExperimentHealthFinding)
+        self.assertEqual(
+            (finding.subcode, finding.severity),
+            (
+                subcode,
+                ExperimentHealthFindingSeverity.WARNING if subcode is None else ExperimentHealthFindingSeverity.INFO,
+            ),
+        )
+        if subcode is not None:
+            self.assertEqual(
+                finding.detail,
+                "The distribution of users across variants doesn't match your current rollout percentages "
+                "(p < 0.001). The variant split changed after launch while people were exposed, so some of them got "
+                "their variants from another split. This check compares everyone with the current split, so the "
+                'mismatch is expected. Follow the steps in "The variant split changed after launch" to fix the '
+                "results.",
+            )
