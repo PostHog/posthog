@@ -1,19 +1,13 @@
 """Turn a known HogQL compatibility rejection into the rewrite that HogQL accepts.
 
 HogQL is close enough to ClickHouse SQL that callers write plain ClickHouse and get a rejection
-that states the rule but not the way out: ``greatest`` is binary here, ``LIKE`` takes no ``\\_``
-escape, and ``CAST`` knows a short list of type names. The error names the construct, so the caller
-knows which call failed, and then retries the same shape because nothing told it what HogQL accepts
-instead. Each rule below adds the one accepted rewrite for a failure we see repeatedly.
+that states the rule but not the way out: ``LIKE`` takes no ``\\_`` escape, and ``CAST`` knows a
+short list of type names. The error names the construct, so the caller knows which call failed, and
+then retries the same shape because nothing told it what HogQL accepts instead. Each rule
+below adds the one accepted rewrite for a failure we see repeatedly.
 """
 
 import re
-
-# ClickHouse takes any number of arguments for these; HogQL caps both at 2, and nesting is exact
-# rather than approximate because both are associative. `test_nesting_rewrite_is_actually_accepted`
-# pins the cap against the validator, so lifting it in `mapping.py` fails a test rather than leaving
-# this advice quietly wrong.
-NESTABLE_BINARY_FUNCTIONS = ("greatest", "least")
 
 # The type names `visit_type_cast` accepts, one per target type. Anything else — including every
 # width-suffixed ClickHouse spelling such as `Float64` — is rejected.
@@ -42,17 +36,8 @@ _DECIMAL_PREFIX = "decimal"
 _CAST_WRAPPER_RE = re.compile(r"^(?:nullable|lowcardinality)\((.*)\)$")
 _CAST_WIDTH_RE = re.compile(r"^u?(.+?)\d*$")
 
-_TOO_MANY_ARGS_RE = re.compile(r"Function '(\w+)' expects (\d+) arguments?, found (\d+)")
 _BAD_ESCAPE_RE = re.compile(r"unrecognised escape '\\(.)'")
 _BAD_CAST_RE = re.compile(r"Unsupported type cast to '([^']{1,40})'")
-
-
-def _nested_call(name: str, arity: int) -> str:
-    """Render the accepted nesting for an over-arity call, e.g. `greatest(x1, greatest(x2, x3))`."""
-    call = f"x{arity}"
-    for position in range(arity - 1, 0, -1):
-        call = f"{name}(x{position}, {call})"
-    return call
 
 
 def _normalize_cast_type(type_name: str) -> str:
@@ -75,24 +60,11 @@ def suggest_cast_type(type_name: str) -> str | None:
 
 def build_compatibility_hint(error_message: str) -> str | None:
     """Build an additive hint naming the accepted rewrite, or None if no rule matches."""
-    for rule in (_arity_rewrite, _escape_rewrite, _cast_rewrite):
+    for rule in (_escape_rewrite, _cast_rewrite):
         rewrite = rule(error_message)
         if rewrite is not None:
             return f"<hogql_compatibility_hint>\n{rewrite}\n</hogql_compatibility_hint>"
     return None
-
-
-def _arity_rewrite(error_message: str) -> str | None:
-    match = _TOO_MANY_ARGS_RE.search(error_message)
-    if match is None:
-        return None
-    name, expected, found = match.group(1), int(match.group(2)), int(match.group(3))
-    if name not in NESTABLE_BINARY_FUNCTIONS or expected != 2 or found <= 2:
-        return None
-    return (
-        f"`{name}` takes exactly 2 arguments in HogQL, unlike ClickHouse. Nest two-argument calls "
-        f"instead: {_nested_call(name, found)}."
-    )
 
 
 def _escape_rewrite(error_message: str) -> str | None:

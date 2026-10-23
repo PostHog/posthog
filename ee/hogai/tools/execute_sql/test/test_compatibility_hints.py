@@ -30,30 +30,6 @@ class TestBuildCompatibilityHint:
     def test_none_for_unrelated_error(self) -> None:
         assert build_compatibility_hint("Unknown table `charges`.") is None
 
-    @parameterized.expand(
-        [
-            ("greatest", "Function 'greatest' expects 2 arguments, found 3", "greatest(x1, greatest(x2, x3))"),
-            ("least", "Function 'least' expects 2 arguments, found 3", "least(x1, least(x2, x3))"),
-            (
-                "four_args",
-                "Function 'greatest' expects 2 arguments, found 4",
-                "greatest(x1, greatest(x2, greatest(x3, x4)))",
-            ),
-        ]
-    )
-    def test_over_arity_suggests_nesting(self, _name: str, message: str, expected_rewrite: str) -> None:
-        hint = build_compatibility_hint(message)
-        assert hint is not None
-        assert expected_rewrite in hint
-
-    def test_under_arity_gets_no_nesting_rewrite(self) -> None:
-        # Nesting cannot fix a call that has too few arguments, so the rule must not fire.
-        assert build_compatibility_hint("Function 'greatest' expects 2 arguments, found 1") is None
-
-    def test_over_arity_on_other_function_gets_no_nesting_rewrite(self) -> None:
-        # `bar` is genuinely 4-argument in ClickHouse too — nesting would be wrong advice.
-        assert build_compatibility_hint("Function 'bar' expects 4 arguments, found 5") is None
-
     def test_bad_escape_suggests_escaped_backslash_and_position(self) -> None:
         hint = build_compatibility_hint("unrecognised escape '\\_'")
         assert hint is not None
@@ -82,7 +58,7 @@ class TestBuildCompatibilityHint:
         assert "CAST(x AS" not in hint
 
     def test_hint_is_delimited(self) -> None:
-        hint = build_compatibility_hint("Function 'greatest' expects 2 arguments, found 3")
+        hint = build_compatibility_hint("Unsupported type cast to 'float64'")
         assert hint is not None
         assert hint.startswith("<hogql_compatibility_hint>")
         assert hint.endswith("</hogql_compatibility_hint>")
