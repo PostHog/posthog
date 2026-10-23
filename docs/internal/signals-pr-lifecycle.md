@@ -14,9 +14,9 @@ Monitoring means implementation is complete and outcome verification is pending.
 
 A Monitoring period begins with an explicit, timezone-aware implementation-complete timestamp supplied by the server. Merge-driven entry can use the linked PR's recorded `merged_at`, even when its webhook arrives later. The lifecycle never substitutes receipt time for a missing implementation timestamp. Repeated entry preserves the original period; archive and restore preserve it too. Reopening implementation clears the start so a later implementation creates a new period. Resolving after verification keeps the implementation timestamp for history.
 
-The backend `complete_implementation` service records a durable attempt and freezes this report's pending or active, unexpired check IDs and authored-definition versions in the same transaction as Monitoring entry. Kind, approval, missing configuration, and missing or zero soak do not remove a check from this selection. Stale checks receive expiry records before selection. No applicable checks, or a disabled Monitoring flag, resolve directly without a verification attempt. Carried-over checks lose their earlier evidence and dispatch claims while keeping their remaining runs. Duplicate completion and archive/restore retain the snapshot; reopening creates a new attempt when implementation completes again. Existing state APIs and PR-merge handlers do not call this service yet.
+The backend `complete_implementation` service records a durable attempt and freezes this report's pending or active, unexpired check IDs and authored-definition versions in the same transaction as Monitoring entry. Kind, approval, missing configuration, and missing or zero soak do not remove a check from this selection. Stale checks receive expiry records before selection. No applicable checks, or a disabled Monitoring flag, resolve directly without a verification attempt. Carried-over checks lose their earlier evidence and dispatch claims while keeping their remaining runs. Duplicate completion and archive/restore retain the snapshot; reopening creates a new attempt when implementation completes again. The single and bulk state APIs share this service. PR-merge handlers still resolve directly.
 
-Monitoring keeps the researched report available for verification and new matching signals, without starting another implementation. Enabled responses expose the server-owned start time, and implementation work is done while the report itself remains unfinished. A Monitoring child keeps its parent plan open, and child rollups cannot finish a Monitoring parent. The single and bulk state APIs still accept only suppressed, potential, and resolved targets; neither manual entry controls nor automatic PR-merge entry are available.
+Monitoring keeps the researched report available for verification and new matching signals, without starting another implementation. Enabled responses expose the server-owned start time, and implementation work is done while the report itself remains unfinished. A Monitoring child keeps its parent plan open, and child rollups cannot finish a Monitoring parent. The single and bulk state APIs accept the Monitoring target. Start monitoring appears after follow-up checks load and at least one exists; the service decides whether any remain applicable when the request runs. Existing Monitoring reports can be finished manually, reopened, or archived. Manual completion records caller attribution and explicitly states that automatic verification and an evidence amendment were not performed. PR merges continue to resolve reports.
 
 Disabled organizations treat stored Monitoring reports as Resolved across reads, filters, counts, sorting, actions, recurrence handling, work state, plan rollups, and background checks. Responses omit the Monitoring start field and the inbox offers no Monitoring controls. Monitoring entry is refused. Restoring a report archived from Monitoring returns it to Resolved while disabled. Reads preserve the stored status.
 
@@ -44,6 +44,14 @@ A `part_of` link written on a step that already closed runs the check as well, b
 It continues up a plan of plans, and skips a plan that is waiting on a replacement.
 It also skips a plan that carries its own open, draft, or unknown PR, because that plan's own work decides its status.
 
+## Manual implementation-completion integration
+
+Manual entry calls `complete_implementation` from `SignalReportViewSet._transition_report_state`, shared by single and bulk writes, after the report is locked and refund and merge-survivor restrictions have passed. The service receives the literal `team_id`, `report_id`, server-owned `monitoring_started_at`, caller `attribution`, `actor_user`, and `close_pr_on_resolve=True`. The outer report lock uses `select_for_update(no_key=True)` so concurrent check activity can write its report foreign key. Both APIs refresh the caller's report after the service saves its separately loaded instance and return the resulting status.
+
+The service records stale expiries before selecting this report's pending or active, unexpired checks, independently of kind and approval. Historical terminal checks, standalone metrics, and related reports' checks do not qualify. No applicable checks resolve directly without a verified-success claim. Applicable checks enter Monitoring with the current attempt's durable membership and version snapshot. Missing Monitoring configuration or soak blocks verification; zero soak is valid. Carried-over active checks require fresh evidence.
+
+Archive and restore preserve the attempt and original start, including expiry recovery and saved interim observations. Reopening implementation clears the period; completing implementation again creates a fresh attempt. Disabled or unavailable evaluations refuse new manual entry and use the existing Resolved fallback. Final evaluation, automatic completion, amendments, and PR-merge entry remain separate work.
+
 ## Follow-up checks
 
 Scout and research guidance asks for a verified live observation metric when a central quantitative claim comes from events.
@@ -51,6 +59,12 @@ A count can justify a metric without a chart or a change over time.
 The metric must match the finding's filters, population, exclusions, window, and aggregation.
 When no useful supported metric can measure that claim, the summary states the specific limitation in one short sentence.
 Qualitative findings can omit metrics.
+
+Observation metrics support HogQL filters that compare direct event fields or event properties with literal values.
+Boolean operations, arithmetic, and literal lists are supported; other function calls and subqueries remain unreadable.
+Report reads, research selection, and snapshot refresh use the same filter check.
+Snapshot refresh still requires access to both the live query and the shared measurement.
+A viewer with a property grant can read the live query while the team's default property restrictions keep the shared snapshot hidden.
 
 Research writes measurable outcome goals as `metric_threshold` report checks and investigative goals as `agent` checks. A metric check stores a bounded live query, baseline, comparison, and soak window; the query and display format are copied from its report metric when it names one. The check waits for the report to resolve, then the coordinator runs it and records a verdict. Metric checks keep the configured soak separate from their query window and wait until that full window contains only post-resolution data. Each run pins absolute query bounds to avoid reusing a pre-resolution cached result. Reopening clears the measurement start; the next resolution starts it again. Existing active metric checks without a recorded start begin their window at the first coordinator tick. New metric checks validate count, rate, duration, baseline, and threshold values using the same rules as report metrics; existing configurations remain readable. A later research pass reviews every open check, preserves unchanged checks and their approvals, replaces changed checks, and retires omitted checks. A failed verification turn leaves existing checks alone. Verification can revise only Expected impact; other summary sections and their chart links must remain intact. The full replacement schedule, including its soak and measurement window, must finish before the 90-day horizon. The Follow-up checks sidebar shows schedules and results for both kinds. The Expected impact section uses the same metric checks to show goals and charts, behind the person-level `signals-expected-impact` display flag. A person can mark those measurements "Looks good" as a quality signal; approval does not control scheduling or execution. The "Suggest different metrics" action starts a discussion that can atomically replace relevant open metric checks while preserving unrelated checks. A failed replacement leaves the original running, and a successful replacement starts unapproved. Report observation metrics remain separate from these forward-looking checks.
 
@@ -65,6 +79,10 @@ Custom HogQL aggregations are parsed before a metric or check is authored. Inval
 Protected research runs require analytics access before a person can resume or warm a successor. The successor’s bound sandbox can read the verified source history through authenticated log routes, but cannot modify the source run.
 
 ## Monitoring metric definitions
+
+The report detail action is **Start monitoring**, with the tooltip “PostHog watches to make sure the fix works”. It is hidden until follow-up checks have loaded and when none are set. The implementation-completion service remains responsible for selecting applicable checks and deciding whether entry creates a Monitoring attempt or resolves directly.
+
+**Resolve** on a Monitoring report resolves it manually and cancels its remaining pending and active follow-up checks in the same transaction. Historical terminal checks and other reports' checks are preserved. Results already in flight cannot revive canceled checks. Its reasons are **Verified manually**, **No action needed**, **Was already fixed before this report**, and **Something else…**. The `verified_manually` reason is separate from `fixed_outside_posthog`, requires an enabled Monitoring period, and is preserved with caller attribution. A separate attributed log entry records that automatic verification and an evidence amendment were not performed, preserving the full 4,000-character limit for the user's feedback note.
 
 Open checks on Monitoring reports expose a server-derived `monitoring_timing` field when `signals-report-monitoring` is enabled. The field separates a scheduled or due interim measurement from the end of that check's soak window, and identifies paused, archived, unarmed, expired, or incomplete timing. It is omitted for other checks and when the flag is disabled or unavailable. Timing reads do not arm checks, change their schedules, or decide outcomes.
 
@@ -149,16 +167,27 @@ This is prompt guidance, not an enforced access control, and it does not validat
 
 ## Reviewer notifications
 
-Research suggests reviewers from relevant commit authors and recent code activity. It also checks the finding's relevant paths against `owners.yaml` and the connected repository's CODEOWNERS. When they disagree, the `owners.yaml` owner comes first and a routable CODEOWNERS owner follows. A human edit to the report's reviewer list stays in place on later research runs. Missing ownership files or paths leave the existing author-based suggestions unchanged. Scout-authored reports use their own reviewer selection guidance.
-
-The `signals-research-reviewer-selection` flag lets research choose reviewers and preserve its selected order.
+With `signals-research-reviewer-selection` enabled, the research agent chooses report recipients in relevance order.
+Ownership files, CODEOWNERS, code history, report findings, and human corrections supply evidence for that choice.
+They cannot replace it with an ownership-first or commit-count selection.
 Research first reads recent human corrections from the project profile, which is available on every plan.
 It also reads relevant notes, older activity logs when available, and `reviewer:` scratchpad entries.
 Corrections apply only to the affected area. Research does not save its own choices as reviewer memory.
 The existing limit remains three reviewers.
 
-The pipeline skips a reviewer row when ordered identities and authorization evidence are unchanged.
-A different explanation alone does not add a row. Human edits retain precedence.
+A missing, malformed, or entirely ineligible decision retains valid existing recipients and records a failed selection.
+An explicit empty decision clears automatic recipients while preserving pins and confirmed lists.
+The artefact write path rechecks project access before saving; if all proposed candidates have become ineligible, it retains valid existing recipients.
+Report recipients need project access, but do not need GitHub accounts.
+Scout and custom-agent reports also preserve the agent's selected order through the existing artefact path.
+The saved list drives both the Inbox index and notification recipients; no later ownership selector reranks it.
+
+With research selection disabled, research uses the legacy ownership-and-commit selector.
+That rollback does not release corrections or bypass the artefact rules.
+The legacy resolver also remains an independent task-runner permission check; selecting a report recipient does not authorize a task.
+
+The pipeline skips a reviewer row when the accepted content is unchanged.
+Human corrections retain precedence.
 A real selection change after the first Slack notification can still leave that notification out of date.
 Automatic reviewer changes do not send additional Slack notifications.
 
@@ -175,7 +204,13 @@ The same access rule applies when a reviewer is added later.
 If no suggested reviewer has access, the ready report still goes to the configured team channel without reviewer mentions.
 The notification activity retries transient ClickHouse reads before it claims the report for delivery.
 
-When an implementation pull request reaches the report, the worker requests reviews from suggested reviewers with connected GitHub accounts. It sends up to 15 reviewers per request. It skips the pull request author, existing assignees, the DRI it assigns, people with pending requests, and people who submitted a review. If GitHub rejects one reviewer, the worker continues with the other reviewers. Under the DRI rule, one assignee remains responsible for the pull request.
+When an implementation pull request has one assignee, the worker requests that person's review, even when another person or team request exists.
+This makes the owner's work visible in both GitHub assignment and review-request lists.
+Without a single owner, it requests the highest-ranked eligible report reviewer only when no person or team request exists.
+Each attempt requests at most one person. It never removes existing requests.
+The worker skips the author, pending recipients, completed reviewers, and people whose review request was removed.
+Incomplete review or removal history prevents a new request.
+Personal assignment settings control ownership; they do not disable review requests.
 
 ## Assignment decisions
 
@@ -224,7 +259,7 @@ The same artefact table stores `reviewer_corrections`, with pins, exclusions, co
 Corrections and membership are saved atomically with the existing actor and process attribution.
 The first protected reviewer write recovers old corrections from reviewer deltas matched to activity records, under the report lock.
 It saves the result once. Reads use saved corrections; before recovery, they mark reports with old human edits as needing review.
-During rollout, automatic task start and PR owner selection wait for that recovery.
+During rollout, automatic task start and PR assignment wait for that recovery.
 A human-authored snapshot alone does not prove approval of the complete list.
 Incomplete history stops automatic changes until a person confirms the current list through the API.
 
@@ -254,6 +289,73 @@ Generic artefact PATCH and DELETE cannot change reviewer history, and clients ca
 If stored reviewer data is invalid, a person can replace the list with matching state, even with the writer flag off.
 The repair keeps the old rows and existing corrections. It does not confirm the list or clear the history-review marker.
 
+### Shared report and PR assignment
+
+With `signals-research-reviewer-selection` and `signals-assignment-writer` enabled, the saved report assignment supplies candidates for one PR owner.
+`signals-assignment-side-effects` must allow delivery. The legacy DRI flag does not change this rule.
+
+```mermaid
+flowchart LR
+    A{{Research or scout reads feedback}} --> B[Choose assignees]
+    B --> C[Check access and human corrections]
+    C --> D[(suggested_reviewers)]
+    D --> E[Inbox report]
+    D --> F[Check personal settings, accounts, and GitHub access]
+    F --> G[First eligible recipient becomes PR owner]
+    E --> H[Human edit and reason]
+    H --> I[(Existing corrections and notes)]
+    I --> A
+    classDef phBlue fill:#1d4aff,stroke:#1d4aff,color:#fff;
+    classDef phRed fill:#f54e00,stroke:#f54e00,color:#fff;
+    classDef phYellow fill:#f9bd2b,stroke:#f9bd2b,color:#000;
+    classDef phGray fill:#e5e7eb,stroke:#c7ccd1,color:#000;
+    class A phBlue;
+    class G phRed;
+    class E,H phYellow;
+    class B,C,D,F,I phGray;
+```
+
+The worker maps selected project members to their current personal GitHub accounts and checks repository assignability.
+Each attempt checks at most ten eligible candidates, in the saved order.
+It assigns the first eligible person whose **Assign me on GitHub** setting is on, then stops.
+A missing settings row, a missing GitHub account, or lost access skips that person. The worker can choose the next saved recipient, but nobody outside the report.
+If no saved recipient qualifies, the PR remains unassigned.
+The personal setting does not remove anyone from the report. Claims and owning teams do not change the selected list or its order.
+The report remains the source of the assignment. Logs record unavailable accounts, permission failures, and GitHub delivery failures.
+
+The worker rechecks the report state, personal settings, account links, project access, GitHub state, and delivery controls before assigning.
+Queued work and retries use the current personal setting.
+Existing GitHub assignees and manual unassignment remain authoritative. Incomplete human-edit history blocks automatic assignment.
+The legacy DRI path also respects report exclusions and rechecks human choices before assignment.
+Claimants and suggested reviewers must be active project members to receive assignments or review requests.
+This first version selects an owner only when the PR is unassigned. Synchronizing later report edits to an already assigned PR remains follow-up work.
+That work must preserve human GitHub changes and use the same ordered report candidates.
+GitHub's final read and write are not atomic, so a small external race remains.
+
+There is no separate PR model call, evidence collector, decision cache, or assignment artefact.
+The existing task permission checks remain separate. Report assignment does not authorize an agent to run under that person's account.
+GitHub review requests still use the current report list, subject to the existing request policy.
+
+The first loop trial uses one correction with a reason, a new related report, and an unrelated control case.
+Inspect the existing research trace and selection reason, then check the saved report list and PR assignment.
+Confirm that feedback changes the relevant choice and leaves the unrelated case unchanged.
+Confirm that selected people with the GitHub setting off remain on the report but receive no automatic GitHub assignment.
+The live trial remains pending; automated delivery tests do not establish research selection quality.
+
+### Identity and organization changes
+
+`resolve_reviewers.py` maps linked PostHog and GitHub identities in both directions. The existing `scout-members-list` tool
+exposes project members and known GitHub accounts to agents. Personal GitHub integrations and GitHub OAuth provide identity links;
+some existing lookup paths also use the GitHub App installer identity. Report recipients can use PostHog user UUIDs without GitHub accounts.
+
+The PR worker uses current personal GitHub integrations and OAuth links. It does not use the team installer identity as a personal link or discover new accounts.
+Verified discovery for unlinked accounts remains future work. It should extend the existing member tools, record the source and age of each link,
+and reject uncertain or conflicting matches. Similar names alone do not prove an identity.
+
+Access loss removes an ineligible report recipient on the next protected reviewer write. A team move with access retained changes selection evidence;
+it does not cancel a human pin. No general process currently finds and reassesses all old reports after organization changes.
+Such a process remains future work and must use the same correction rules. Existing manual GitHub choices remain authoritative.
+
 ### Rollout and rollback
 
 | Control                           | Allows                                                                                                                           |
@@ -262,6 +364,9 @@ The repair keeps the old rows and existing corrections. It does not confirm the 
 | `signals-assignment-side-effects` | Existing Slack delivery, automatic task start, GitHub assignment, review requests, and ready-state changes for enrolled reports. |
 
 Both flags support organization targeting and require explicit enablement.
+The existing `signals-research-reviewer-selection` flag controls research selection and, with the writer enabled, shared report and PR assignment.
+PR delivery also requires the side-effect flag, including before a report enters the writer.
+Disabling research selection restores the legacy PR policies. Saved report corrections remain protected.
 They use local evaluation, so a report lock never waits for the flag service.
 Missing flag definitions keep the new behavior disabled.
 Enable the writer with side effects disabled to test real assignment changes without external delivery or task start.

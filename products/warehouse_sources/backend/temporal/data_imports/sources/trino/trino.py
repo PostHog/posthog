@@ -167,6 +167,7 @@ TRINO_PERMANENT_SYNC_ERROR_MESSAGES = frozenset(
         TRINO_CLUSTER_ACCESS_DENIED_ERROR,
     }
 )
+MANAGED_WAREHOUSE_TRINO_SOURCE_TYPE = "trino"
 # The managed-Trino control plane's own wording when it mints a tenant's compute-pool grant before
 # the pool coordinator has finished admitting that tenant. The request was never dispatched, so a
 # retry is safe, and the race clears within a few seconds once admission catches up.
@@ -732,7 +733,12 @@ class TrinoImplementation(SQLSourceImplementation[TrinoSourceConfig, Any, Any], 
     @contextmanager
     def connect(self, config: TrinoSourceConfig, *, team_id: int | None = None) -> Iterator[Any]:
         if team_id is not None:
-            is_valid, error = self.is_database_host_valid(config.host, team_id)
+            # The managed-warehouse exemption is keyed on the source type and the port, so the
+            # connect path asks for it the same way validation does. Without both, a managed
+            # Trino source validates and then refuses every sync.
+            is_valid, error = self.is_database_host_valid(
+                config.host, team_id, port=config.port, source_type=MANAGED_WAREHOUSE_TRINO_SOURCE_TYPE
+            )
             if not is_valid:
                 raise ValueError(error or "Invalid Trino host.")
         # A UTC session makes any time zone conversion Trino still does in a filter deterministic.
