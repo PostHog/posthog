@@ -880,7 +880,7 @@ export class EmailService {
                 cause: decision.cause,
             })
         }
-        result.logs.push(logEntry(presentation.logLevel, `Skipping send: ${decision.detail}`))
+        result.logs.push(logEntry(presentation.logLevel, `Skipping send. ${decision.detail}`))
         if (!isTest) {
             result.metrics.push({
                 team_id: invocation.teamId,

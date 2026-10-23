@@ -110,7 +110,7 @@ export class EmailValidationService {
         }
         const undeliverable = await this.findUndeliverable(rawEmail, invocation.teamId)
         return undeliverable
-            ? this.skip(invocation.teamId, undeliverable.reason, `Skipping send: ${undeliverable.message}`)
+            ? this.skip(invocation.teamId, undeliverable.reason, `Skipping send. ${undeliverable.message}`)
             : null
     }
 
