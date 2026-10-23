@@ -125,7 +125,8 @@ def apply_where_filter(
     When bucket_fn is set (range variables), wrap the filter value with the
     bucket function so the comparison matches the bucketed column values.
     """
-    right_expr: ast.Expr = ast.Constant(value=coerce_filter_value(value, column_type))
+    constant_value = value if value_wrapper_fns or bucket_fn else coerce_filter_value(value, column_type)
+    right_expr: ast.Expr = ast.Constant(value=constant_value)
     for fn in reversed(value_wrapper_fns or []):
         right_expr = ast.Call(name=fn, args=[right_expr])
     if bucket_fn:
