@@ -711,6 +711,86 @@
         },
         "feature_entitlement": "audit_logs"
     },
+    "aeo-prompts-get": {
+        "description": "Get one AI citation tracking prompt by id, with its topic, on/off state, when it last ran, and `latest_checks`, the newest result per answer engine. Get the id from `aeo-prompts-list`.",
+        "category": "AI citation tracking",
+        "feature": "aeo",
+        "summary": "Get a tracked AI prompt",
+        "title": "Get a tracked AI prompt",
+        "required_scopes": ["web_analytics:read"],
+        "api_operations": ["GET /api/projects/{project_id}/aeo_prompts/{id}/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "aeo-citation-tracking"
+    },
+    "aeo-prompts-import": {
+        "description": "Add prompts to the project's AI citation tracking set, up to 2000 per call. Each item has the `prompt` text, an optional `topic` and an optional `external_visibility` (0-100). Prompts are matched to existing ones by normalized text (case and whitespace ignored), so importing the same set again does not create duplicates: a match updates the topic and visibility and keeps the prompt's on/off state. Empty prompts, and prompts too long for the answer engines, are skipped. Returns the `created`, `updated` and `skipped` counts. New prompts run in the next daily check. Write prompts the way a person would ask an AI assistant, and ask the user to confirm the list before you import it.",
+        "category": "AI citation tracking",
+        "feature": "aeo",
+        "summary": "Import AI prompts to track",
+        "title": "Import AI prompts to track",
+        "required_scopes": ["web_analytics:write"],
+        "api_operations": ["POST /api/projects/{project_id}/aeo_prompts/bulk_import/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "aeo-citation-tracking"
+    },
+    "aeo-prompts-list": {
+        "description": "List the project's AI citation tracking prompts: the questions PostHog asks AI answer engines every day to check whether their answers cite the project's site. Each prompt has its text, topic, on/off state (`active`), when it last ran (`last_checked_at`) and `latest_checks`, the newest result per engine (`cited`, `check_failed`, `checked_at`). Filter by `topic` (use `aeo-prompts-topics-list` for the valid values; an empty string selects prompts with no topic) and by `active`. Results are paginated with `limit`/`offset` and ordered by topic, then rank. Use it to find prompts that are not cited, to audit the prompt set, or to find a prompt id before calling `aeo-prompts-update`.",
+        "category": "AI citation tracking",
+        "feature": "aeo",
+        "summary": "List tracked AI prompts",
+        "title": "List tracked AI prompts",
+        "required_scopes": ["web_analytics:read"],
+        "api_operations": ["GET /api/projects/{project_id}/aeo_prompts/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "aeo-citation-tracking"
+    },
+    "aeo-prompts-topics-list": {
+        "description": "List the topics in the project's AI citation tracking prompt set, with the number of prompts in each. An empty topic groups the prompts that have no topic. Use the values as the `topic` filter of `aeo-prompts-list`.",
+        "category": "AI citation tracking",
+        "feature": "aeo",
+        "summary": "List tracked AI prompt topics",
+        "title": "List tracked AI prompt topics",
+        "required_scopes": ["web_analytics:read"],
+        "api_operations": ["GET /api/projects/{project_id}/aeo_prompts/topics/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "aeo-citation-tracking"
+    },
+    "aeo-prompts-update": {
+        "description": "Turn one AI citation tracking prompt on (`active: true`) or off (`active: false`). Only active prompts run in the daily check. Turning a prompt off keeps its past results, and turning it on again resumes the checks. This is the only field you can change; the prompt text and topic change only through `aeo-prompts-import`. Returns the updated prompt.",
+        "category": "AI citation tracking",
+        "feature": "aeo",
+        "summary": "Turn a tracked AI prompt on or off",
+        "title": "Turn a tracked AI prompt on or off",
+        "required_scopes": ["web_analytics:write"],
+        "api_operations": ["PATCH /api/projects/{project_id}/aeo_prompts/{id}/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "aeo-citation-tracking"
+    },
     "agent-feedback": {
         "description": "Send feedback about anything PostHog to the PostHog team. Set `feedback_type` to route it: `product` (any PostHog product or feature — insights, session replay, feature flags, the data warehouse, web analytics, error tracking, etc.; put the area in `product_area`), `mcp` (this MCP server itself — a tool, input schema, response format, error, or these instructions; set `category`), `docs`, `scout` (reserved for scheduled scout runs reporting an improvement opportunity in the canonical PostHog scout skill steering the run; set `scout_skill_name`, `scout_skill_version`, and `scout_category`, and generalize — describe the pattern, never the project's data), or `other`. ALL sentiments are welcome via `sentiment` (`positive`/`neutral`/`negative`/`mixed`) — praise and feature requests are useful signal, not just problems. Good triggers: a confusing or broken product experience, a papercut that slowed the task down, a missing capability you worked around, a feature request, an unhelpful error, or something that worked really well. Keep `summary` to one sentence and write the free-text fields as clear, concise bullet points, quoting the product surface, tool name, parameter, or error text where possible. Include a concrete `suggested_improvement` whenever you can name one. Do not include user PII or sensitive query content. The user can also ask you to send feedback directly (e.g. 'make a PostHog feedback for this'). IMPORTANT: submitting feedback does NOT mean your work is done — keep going and finish the user's task using the other available tools. This tool is a side channel to the PostHog team, not a way to end the conversation.",
         "category": "Feedback",
@@ -7102,6 +7182,22 @@
         },
         "feature_flag": "customer-analytics-feature-requests"
     },
+    "feature-requests-link-github-create": {
+        "description": "Link a Customer analytics feature request to one GitHub issue. Pass the request id, its current `expected_version`, the id of a GitHub integration connected to the project, and the issue URL. Pull request URLs are rejected, and a request can have only one linked issue. Link an issue only when it describes the same customer problem and one feature would close both. The link syncs the issue state to the request: a closed issue sets the status to completed or won't fix, and a reopened issue restores the earlier status. The response contains the request with its `github_link` and the next version.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "Link feature request to GitHub issue",
+        "title": "Link feature request to GitHub issue",
+        "required_scopes": ["customer_analytics:write"],
+        "api_operations": ["POST /api/projects/{project_id}/feature_requests/{id}/link_github/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "customer-analytics-feature-requests"
+    },
     "feature-requests-list": {
         "description": "List Customer analytics feature requests linked to accounts the caller can access. Filter by search text, lifecycle status, priority, product area, account, or archive state. Active requests are returned by default. Each request includes its active visible account links, account-specific evidence, product areas, and version. For bulk reads and aggregations, query `system.feature_requests` and its related system tables.",
         "category": "Customer analytics",
@@ -11696,7 +11792,7 @@
         }
     },
     "project-get": {
-        "description": "Retrieve a project and its settings. Omit the ID to get the caller's active project. This is the one tool\nthat returns the project API token, which is safe to put in client-side code. Project listing, project\nupdates and the session context leave it out, so ask for a single project when you need the token.",
+        "description": "Retrieve a project and its settings. Omit the ID to get the caller's active project. This is the one tool\nthat returns the project API token. Project listing, project updates and the session context leave it out,\nso ask for a single project when you need the token.\n\nWhen you install or configure a PostHog SDK, use `api_token` as the project token and `api_host` as the\nSDK's `api_host` (the ingestion host for this project's region). The token is public, so it can ship in\nclient-side bundles, but treat it as configuration: read it from the app's environment variable and write\nthe real value to the local env file (for example `.env.local` or `.env`). Never hard-code the token or the\nhost in source files, and never use them as fallback defaults.",
         "category": "Core",
         "feature": "core",
         "summary": "Get project",
