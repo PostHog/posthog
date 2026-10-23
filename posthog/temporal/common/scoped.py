@@ -5,6 +5,8 @@ from typing import Any, ParamSpec, TypeVar
 
 import posthoganalytics
 
+from posthog.temporal.common.posthog_client import is_expected_activity_failure
+
 P = ParamSpec("P")
 R = TypeVar("R")
 
@@ -23,8 +25,15 @@ def scoped_temporal(fresh: bool = False, capture_exceptions: bool = True) -> Cal
 
         @functools.wraps(func)
         async def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
-            with posthoganalytics.new_context(fresh=fresh, capture_exceptions=capture_exceptions):
-                return await func(*args, **kwargs)
+            # Capture here instead of in new_context so expected failures (egress budget sheds,
+            # cancellations) skip error tracking, as they do in the worker interceptor.
+            with posthoganalytics.new_context(fresh=fresh, capture_exceptions=False):
+                try:
+                    return await func(*args, **kwargs)
+                except Exception as error:
+                    if capture_exceptions and not is_expected_activity_failure(error):
+                        posthoganalytics.capture_exception(error)
+                    raise
 
         return wrapper
 
