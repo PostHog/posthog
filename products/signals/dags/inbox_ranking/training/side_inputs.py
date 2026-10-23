@@ -104,7 +104,7 @@ def load_report_sources(client, bucket: str, prefix: str, partition_key: str) ->
     end = datetime.date.fromisoformat(partition_key)
     days = settings.INBOX_RANKING_TRAINING_LOOKBACK_DAYS + REPORT_SOURCES_MARGIN_DAYS
     frames: list[pd.DataFrame] = []
-    for offset in range(days, -1, -1):
+    for offset in range(days + 1):
         day = (end - datetime.timedelta(days=offset)).isoformat()
         table = read_parquet_if_exists(
             client,
