@@ -1,3 +1,4 @@
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
@@ -32,6 +33,23 @@ class TestUptimeMonitorAPI(APIBaseTest):
 
         assert self.client.delete(self._url(monitor_id)).status_code == status.HTTP_204_NO_CONTENT
         assert not UptimeMonitor.objects.for_team(self.team.id).exists()
+
+    def test_list_pages_newest_first(self, _flag: MagicMock) -> None:
+        with time_machine.travel("2026-01-01", tick=False):
+            older = UptimeMonitor.objects.for_team(self.team.id).create(
+                team=self.team, name="Older", url="https://example.com"
+            )
+        with time_machine.travel("2026-01-02", tick=False):
+            newer = UptimeMonitor.objects.for_team(self.team.id).create(
+                team=self.team, name="Newer", url="https://example.com"
+            )
+
+        first = self.client.get(self._url(), {"limit": 1}).json()
+        second = self.client.get(self._url(), {"limit": 1, "offset": 1}).json()
+
+        assert first["count"] == 2
+        assert [m["id"] for m in first["results"]] == [str(newer.id)]
+        assert [m["id"] for m in second["results"]] == [str(older.id)]
 
     def test_invalid_body_is_rejected(self, _flag: MagicMock) -> None:
         response = self.client.post(self._url(), {"name": "Site", "url": "not a url"}, format="json")

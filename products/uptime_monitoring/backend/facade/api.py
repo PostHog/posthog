@@ -36,8 +36,10 @@ def _to_contract(monitor: UptimeMonitorModel) -> contracts.UptimeMonitor:
     )
 
 
-def list_monitors(team_id: int) -> list[contracts.UptimeMonitor]:
-    return [_to_contract(m) for m in monitors.list_monitors(team_id)]
+def list_monitors(team_id: int, *, limit: int, offset: int) -> tuple[list[contracts.UptimeMonitor], int]:
+    """One page of the team's monitors, newest first, and the total count, paged in SQL."""
+    page, count = monitors.list_monitors(team_id, limit=limit, offset=offset)
+    return [_to_contract(m) for m in page], count
 
 
 def get_monitor(team_id: int, monitor_id: UUID) -> contracts.UptimeMonitor:

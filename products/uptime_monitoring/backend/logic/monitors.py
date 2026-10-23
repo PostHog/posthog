@@ -12,8 +12,9 @@ def get_monitor(team_id: int, monitor_id: UUID) -> UptimeMonitor:
         raise UptimeMonitorNotFoundError(f"Uptime monitor {monitor_id} not found") from e
 
 
-def list_monitors(team_id: int) -> list[UptimeMonitor]:
-    return list(UptimeMonitor.objects.for_team(team_id).order_by("-created_at"))
+def list_monitors(team_id: int, *, limit: int, offset: int) -> tuple[list[UptimeMonitor], int]:
+    monitors = UptimeMonitor.objects.for_team(team_id)
+    return list(monitors.order_by("-created_at", "id")[offset : offset + limit]), monitors.count()
 
 
 def create_monitor(team_id: int, created_by_id: int | None, data: CreateUptimeMonitorInput) -> UptimeMonitor:
