@@ -133,7 +133,12 @@ describe('experimentLogic', () => {
             bias_risk: { multiple_variant_percentage: 5 },
             health_findings: [{ code: 'srm' }, { code: 'bias_risk_multiple_excluded' }],
         }
-        const noServerVerdicts = { srm_server: null, zero_exposures_server: null, bias_risk_server: null }
+        const noServerVerdicts = {
+            srm_server: null,
+            zero_exposures_server: null,
+            zero_exposures_cause: null,
+            bias_risk_server: null,
+        }
 
         it.each([
             {
@@ -198,10 +203,15 @@ describe('experimentLogic', () => {
                 exposures: {
                     timeseries: [{ variant: 'control' }, { variant: 'test' }],
                     total_exposures: { control: 0, test: 0 },
-                    health_findings: [{ code: 'zero_exposures' }],
+                    health_findings: [{ code: 'zero_exposures', subcode: 'flag_not_called' }],
                 },
                 handling: undefined,
-                expected: { health_ui: 'warnings', exposures_total: 0, zero_exposures_server: true },
+                expected: {
+                    health_ui: 'warnings',
+                    exposures_total: 0,
+                    zero_exposures_server: true,
+                    zero_exposures_cause: 'flag_not_called',
+                },
             },
         ])(
             'reports the exposure state with the completed refresh: $desc',

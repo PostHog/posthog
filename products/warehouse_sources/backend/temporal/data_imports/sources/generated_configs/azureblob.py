@@ -13,12 +13,14 @@ class AzureBlobCombineFilesConfig(config.Config):
 
 
 @config.config
-class AzureBlobSourceConfig(config.Config):
-    account_name: str
-    container: str
-    account_key: str
-    path: str | None = None
-    file_pattern: str | None = None
-    file_format: Literal["infer", "csv", "csv_no_header", "jsonl", "parquet", "delta"] = config.value(default="infer")
+class AzureBlobFileFormatConfig(config.Config):
+    selection: Literal["infer", "csv", "csv_no_header", "jsonl", "parquet", "delta"] = "infer"
     csv_allow_double_quotes: bool = config.value(default=config.str_to_bool("true"), converter=config.str_to_bool)
+
+
+@config.config
+class AzureBlobSourceConfig(config.Config):
+    url_pattern: str
+    account_key: str
+    file_format: AzureBlobFileFormatConfig
     combine_files: AzureBlobCombineFilesConfig | None = None

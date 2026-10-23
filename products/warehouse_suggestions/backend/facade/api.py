@@ -1,7 +1,7 @@
 """Facade for warehouse_suggestions."""
 
 from collections.abc import Sequence
-from datetime import timedelta
+from dataclasses import asdict
 from typing import TYPE_CHECKING
 from uuid import UUID
 
@@ -13,6 +13,7 @@ from ..logic.payloads import payload_from_json, payload_view, source_table_ids
 from ..logic.rules import RULES
 from ..models import WarehouseSuggestion, WarehouseSuggestionTeamConfig
 from .contracts import (
+    AcceptOptions,
     CatalogEditAccessRequiredError,
     SubjectEditAccessRequiredError,
     SubjectKinds,
@@ -142,7 +143,7 @@ def accept_suggestion(
     suggestion_id: UUID,
     *,
     user: "User",
-    refresh_interval: timedelta | None,
+    options: AcceptOptions,
     was_impersonated: bool,
     subject_kinds: SubjectKinds,
 ) -> Suggestion:
@@ -151,12 +152,16 @@ def accept_suggestion(
     outcome = accept.accept(
         team.pk,
         row.id,
-        accept.AcceptRequest(
-            team=team, user=user, refresh_interval=refresh_interval, was_impersonated=was_impersonated
-        ),
+        accept.AcceptRequest(team=team, user=user, options=options, was_impersonated=was_impersonated),
     )
     if outcome.newly_accepted:
-        report_outcomes(SuggestionOutcome.ACCEPTED, [outcome.suggestion], team=team, user=user)
+        report_outcomes(
+            SuggestionOutcome.ACCEPTED,
+            [outcome.suggestion],
+            team=team,
+            user=user,
+            properties={"changed_fields": list(outcome.changed_fields), **asdict(outcome.savings)},
+        )
     return _single_contract(team.pk, user_access_control, outcome.suggestion, access)
 
 
@@ -234,6 +239,8 @@ def _to_contract(row: WarehouseSuggestion, access: SubjectAccess, payload: Sugge
         dismissal_note=row.dismissal_note,
         created_asset=row.created_asset,
         asset_outcome=WarehouseSuggestionAssetOutcome(row.asset_outcome) if row.asset_outcome else None,
+        realized_seconds_saved_per_month=row.realized_seconds_saved_per_month,
+        realized_bytes_saved_per_month=row.realized_bytes_saved_per_month,
         can_act=access.can_act_on(row),
     )
 

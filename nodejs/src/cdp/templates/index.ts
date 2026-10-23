@@ -41,6 +41,7 @@ import { template as posthogRunScoutTemplate } from './_destinations/posthog_sig
 import { template as posthogCreateTaskTemplate } from './_destinations/posthog_tasks/posthog-create-task.template'
 import { template as posthogAddToStaticCohortTemplate } from './_destinations/posthog_workflows/posthog-add-to-static-cohort.template'
 import { template as posthogClassifyTemplate } from './_destinations/posthog_workflows/posthog-classify.template'
+import { template as posthogOptOutOfMessagesTemplate } from './_destinations/posthog_workflows/posthog-opt-out-of-messages.template'
 import { template as posthogSetHogflowVariableTemplate } from './_destinations/posthog_workflows/posthog-set-variable.template'
 import { template as posthogSlackDmTeamMemberTemplate } from './_destinations/posthog_workflows/posthog-slack-dm-team-member.template'
 import { template as pushTemplate } from './_destinations/push/push.template'
@@ -117,6 +118,7 @@ export const HOG_FUNCTION_TEMPLATES_DESTINATIONS: HogFunctionTemplate[] = [
     posthogRunScoutTemplate,
     posthogClassifyTemplate,
     posthogAddToStaticCohortTemplate,
+    posthogOptOutOfMessagesTemplate,
     posthogSlackDmTeamMemberTemplate,
     posthogReplayVisionTemplate,
     posthogCreateAccountTemplate,

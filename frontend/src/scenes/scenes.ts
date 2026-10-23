@@ -668,6 +668,8 @@ export const redirects: Record<
     },
     '/web/ai-search': urls.webAnalyticsPagePerformance(),
 
+    // A short link to share. It opens a new personal API key with the source map upload scopes filled in.
+    '/source-maps-key': combineUrl(urls.settings('user-api-keys'), { preset: 'source_map_upload' }).url,
     '/events': urls.activity(),
     '/events/:id/*': ({ id, _ }, { event }) => {
         const query = getEventLookupQuery(id)
@@ -692,9 +694,6 @@ export const redirects: Record<
     '/events/properties/:id': ({ id }) => urls.propertyDefinition(tryDecodeURIComponent(id)),
     '/events/stats': urls.eventDefinitions(),
     '/events/stats/:id': ({ id }) => urls.eventDefinition(id),
-    // The scene lives at /feature_flags (underscore); catch the hyphenated variant so it doesn't 404
-    '/feature-flags': urls.featureFlags(),
-    '/feature-flags/:id': ({ id }) => urls.featureFlag(id),
     '/i/:shortId': ({ shortId }) => urls.insightView(shortId),
     '/instance': urls.instanceStatus(),
     '/instance/query_performance': urls.experimentsStaffTools(),

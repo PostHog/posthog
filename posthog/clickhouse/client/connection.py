@@ -109,6 +109,7 @@ class ClickHouseUser(StrEnum):
     # Notebook frame materializations (Temporal worker streaming to the object store)
     NOTEBOOKS = "notebooks"
     ERROR_TRACKING = "error_tracking"
+    EXPERIMENTS = "experiments"  # experiment metric recalculation workers; API reads use APP
     SIGNALS = "signals"
     ENDPOINTS = "endpoints"
     BILLING = "billing"

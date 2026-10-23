@@ -440,6 +440,24 @@ export const ErrorTrackingExpanded: Story = {
     },
 }
 
+/** Connected tools in the roster, with Jira (synced but off) and two category gaps recommended under it. */
 export const ExternalSourcesConnected: Story = {
     args: { externalConnections: true },
+}
+
+/** The add-source catalog: every external source by category, with status tags for the ones already in use. */
+export const SourceCatalogOpen: Story = {
+    args: { externalConnections: true },
+    play: async ({ canvasElement }) => {
+        await userEvent.click(await within(canvasElement).findByText('Add source', { exact: true }))
+    },
+}
+
+/** The connect step inside the catalog, reached by picking a source that is not synced yet. */
+export const SourceCatalogConnectStep: Story = {
+    args: { externalConnections: true },
+    play: async ({ canvasElement }) => {
+        await userEvent.click(await within(canvasElement).findByText('Add source', { exact: true }))
+        await userEvent.click(await within(document.body).findByLabelText('Connect GitLab'))
+    },
 }

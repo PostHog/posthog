@@ -23,6 +23,7 @@ use cohort_stream_processor::merge::gc::MergeGcSweeper;
 use cohort_stream_processor::merge::redrive::RedriveSweeper;
 use cohort_stream_processor::observability;
 use cohort_stream_processor::observability::disk::SharedDiskUtilization;
+use cohort_stream_processor::observability::store_files::StoreFilesSweeper;
 use cohort_stream_processor::observability::store_stats::{DiskProbe, StoreStatsSweeper};
 use cohort_stream_processor::observability::tokio_monitor::TokioRuntimeMonitor;
 use cohort_stream_processor::partitions::{
@@ -48,10 +49,13 @@ use cohort_stream_processor::workers::{
     MergeWorkerDeps, PersonSeedDeps, ReconcileBacklog, ReconcileDeps,
 };
 
+// Under `hotpath-alloc`, `#[hotpath::main]` installs its counting allocator around jemalloc instead.
+#[cfg(not(feature = "hotpath-alloc"))]
 common_alloc::used!();
 
 const SERVICE_NAME: &str = "cohort-stream-processor";
 
+#[hotpath::main(allocator = common_alloc::DefaultAllocator)]
 fn main() -> Result<()> {
     let config = Config::init_from_env()
         .context("Failed to load configuration from environment variables")?;
@@ -64,6 +68,7 @@ fn main() -> Result<()> {
     let runtime = runtime_builder
         .build()
         .context("Failed to build tokio runtime")?;
+    hotpath::tokio_runtime!(runtime.handle());
 
     runtime.block_on(async_main(config))
 }
@@ -556,6 +561,17 @@ async fn async_main(config: Config) -> Result<()> {
         "store_stats",
         consumer_handle.shutdown_token(),
     ));
+    tokio::spawn(run_sweep_loop(
+        StoreFilesSweeper::new(
+            PathBuf::from(&config.store_path),
+            config
+                .checkpoint_enabled
+                .then(|| PathBuf::from(&config.checkpoint_local_dir)),
+        ),
+        config.stats_publish_interval(),
+        "store_files",
+        consumer_handle.shutdown_token(),
+    ));
     tokio::spawn(
         TokioRuntimeMonitor::new(
             &tokio::runtime::Handle::current(),
@@ -822,5 +838,10 @@ fn init_tracing() {
             .boxed()
     };
 
-    tracing_subscriber::registry().with(log_layer).init();
+    let subscriber = tracing_subscriber::registry().with(log_layer);
+    // Without `hotpath`, this returns an unfiltered no-op layer. That layer lifts the max level to
+    // TRACE, so every DEBUG/TRACE call site builds its event, sqlx's per-query log included.
+    #[cfg(feature = "hotpath")]
+    let subscriber = subscriber.with(hotpath::sqlx_tracing_layer());
+    subscriber.init();
 }

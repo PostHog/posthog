@@ -10,7 +10,7 @@ from botocore.auth import SigV4Auth
 from botocore.awsrequest import AWSRequest
 from botocore.credentials import Credentials
 from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.aws_organizations.settings import (
     AWS_ORGANIZATIONS_ENDPOINTS,
@@ -30,7 +30,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_organi
     TARGET_PREFIXES,
     AwsOrganizationsEndpointConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    make_tracked_session,
+    retry_with_deadline,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import BoundedRetry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -215,7 +218,7 @@ class AwsOrganizationsClient:
 
     # Throttling arrives as HTTP 400 with the code in the body, which the tracked transport's
     # status-code retries can't see, so there is no compounding here.
-    @retry(
+    @retry_with_deadline(
         retry=retry_if_exception_type((AwsOrganizationsRetryableError, requests.ConnectionError, requests.Timeout)),
         stop=stop_after_attempt(MAX_RETRY_ATTEMPTS),
         wait=wait_exponential_jitter(initial=RETRY_INITIAL_WAIT_SECONDS, max=RETRY_MAX_WAIT_SECONDS),

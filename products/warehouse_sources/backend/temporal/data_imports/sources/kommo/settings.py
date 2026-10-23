@@ -20,6 +20,9 @@ class KommoEndpoint:
     params: dict[str, Any] = field(default_factory=dict)
     # Endpoints that return their whole collection in one unpaginated response.
     paginated: bool = True
+    # Endpoints read once per catalog: `path` carries a `{catalog_id}` placeholder that the
+    # fan-out over the Catalogs endpoint fills in.
+    per_catalog: bool = False
 
 
 # `order[updated_at]=asc` is set on every endpoint that documents it, so rows arrive in the
@@ -98,6 +101,18 @@ ENDPOINT_CONFIG: dict[str, KommoEndpoint] = {
         data_selector="_embedded.catalogs",
         primary_key=["id"],
     ),
+    "CatalogElements": KommoEndpoint(
+        path=f"{API_BASE_PATH}/catalogs/{{catalog_id}}/elements",
+        data_selector="_embedded.elements",
+        primary_key=["catalog_id", "id"],
+        per_catalog=True,
+    ),
+    "CatalogCustomFields": KommoEndpoint(
+        path=f"{API_BASE_PATH}/catalogs/{{catalog_id}}/custom_fields",
+        data_selector="_embedded.custom_fields",
+        primary_key=["catalog_id", "id"],
+        per_catalog=True,
+    ),
     "LeadCustomFields": KommoEndpoint(
         path=f"{API_BASE_PATH}/leads/custom_fields",
         data_selector="_embedded.custom_fields",
@@ -112,6 +127,25 @@ ENDPOINT_CONFIG: dict[str, KommoEndpoint] = {
         path=f"{API_BASE_PATH}/companies/custom_fields",
         data_selector="_embedded.custom_fields",
         primary_key=["id"],
+    ),
+    # Field group ids are strings, and the predefined group is `default` for every entity type.
+    "LeadCustomFieldGroups": KommoEndpoint(
+        path=f"{API_BASE_PATH}/leads/custom_fields/groups",
+        data_selector="_embedded.custom_field_groups",
+        primary_key=["id"],
+        paginated=False,
+    ),
+    "ContactCustomFieldGroups": KommoEndpoint(
+        path=f"{API_BASE_PATH}/contacts/custom_fields/groups",
+        data_selector="_embedded.custom_field_groups",
+        primary_key=["id"],
+        paginated=False,
+    ),
+    "CompanyCustomFieldGroups": KommoEndpoint(
+        path=f"{API_BASE_PATH}/companies/custom_fields/groups",
+        data_selector="_embedded.custom_field_groups",
+        primary_key=["id"],
+        paginated=False,
     ),
     "LeadTags": KommoEndpoint(
         path=f"{API_BASE_PATH}/leads/tags",

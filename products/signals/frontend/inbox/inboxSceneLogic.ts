@@ -145,9 +145,7 @@ export function mergeSignalRuns(scoutRuns: SignalScoutRunSummary[], signalTasks:
 }
 
 /**
- * Which pane of the scout detail page is open. The main column holds Reports, Runs, Trials and Signals; the
- * rail holds Told and Learned. One value covers both, because below the detail page's container
- * breakpoint the rail's tabs join the main tab bar and only one pane shows at a time.
+ * Which pane of the scout detail page is open. One tab bar holds every pane, so one pane shows at a time.
  *
  * `null` means nobody has chosen: the page picks Reports when the scout has any, else Runs.
  */
@@ -331,8 +329,13 @@ function captureOpenWhenRanked(
 ): void {
     const previousReportId = cache.previousReportId ?? null
     const deadline = Date.now() + OPEN_RANK_WAIT_MS
+    let sent = false
 
     const fire = (resolved: ReturnType<typeof findReportRank>, options?: CaptureOptions): void => {
+        if (sent) {
+            return
+        }
+        sent = true
         cache.pendingOpenCapture = undefined
         cache.disposables.dispose('openRank')
         captureInboxReportOpened(
@@ -367,11 +370,20 @@ function captureOpenWhenRanked(
 
     cache.pendingOpenCapture = (options?: CaptureOptions) => fire(findReportRank(tracking.report.id), options)
     fireWhenReady(true)
-    if (!cache.pendingOpenCapture) {
+    if (sent) {
         return
     }
+    // kea-disposables runs this setup again on each resume. A resume without a pause replaces the
+    // stored cleanup and leaves the earlier interval running, so each tick checks `sent` and stops
+    // itself rather than rely on `dispose` alone.
     cache.disposables.add(() => {
-        const interval = setInterval(() => fireWhenReady(false), OPEN_RANK_POLL_MS)
+        const interval = setInterval(() => {
+            if (sent) {
+                clearInterval(interval)
+                return
+            }
+            fireWhenReady(false)
+        }, OPEN_RANK_POLL_MS)
         return () => clearInterval(interval)
     }, 'openRank')
 }

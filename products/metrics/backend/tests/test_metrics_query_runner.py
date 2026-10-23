@@ -44,7 +44,8 @@ class TestMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def _runner(self, query: MetricsQuery) -> MetricsQueryRunner:
         return MetricsQueryRunner(query=query, team=self.team)
 
-    def test_translates_schema_node_to_facade_request(self) -> None:
+    @parameterized.expand([("fixed", "minute"), ("dashboard_variable", "$window")])
+    def test_translates_schema_node_to_facade_request(self, _name: str, interval: str) -> None:
         query = MetricsQuery(
             clauses=[
                 MetricsQueryClause(
@@ -58,11 +59,21 @@ class TestMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 )
             ],
             dateRange=DateRange(date_from="2026-09-19T00:00:00Z", date_to="2026-09-19T01:00:00Z"),
-            interval="minute",
+            interval=interval,
             formula=None,
         )
 
-        request = self._runner(query)._to_request()
+        runner = self._runner(query)
+        runner.apply_dashboard_filters(
+            DashboardFilter(
+                metricVariables=[
+                    MetricsDashboardVariable(
+                        name="window", source="custom", current=MetricsDashboardVariableSelection(values=["1m"])
+                    )
+                ]
+            )
+        )
+        request = runner._to_request()
 
         clause = request.clauses[0]
         assert clause.metric_name == "http_requests_total"
@@ -74,29 +85,6 @@ class TestMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert clause.group_by[0].scope is AttributeScope.AUTO
         assert request.interval == "minute"
         assert (request.date_to - request.date_from) == dt.timedelta(hours=1)
-
-    @time_machine.travel("2026-09-19T12:00:00Z", tick=False)
-    def test_dashboard_label_filters_can_use_dashboard_variables(self) -> None:
-        runner = MetricsQueryRunner(
-            query=MetricsQuery(clauses=[MetricsQueryClause(name="a", metricName="queue_depth", aggregation="sum")]),
-            team=self.team,
-        )
-
-        runner.apply_dashboard_filters(
-            DashboardFilter(
-                metricFilters=[MetricsQueryFilter(key="job", op="eq", value="$job")],
-                metricVariables=[
-                    MetricsDashboardVariable(
-                        name="job",
-                        source="custom",
-                        customValues=["api"],
-                        current=MetricsDashboardVariableSelection(values=["api"]),
-                    )
-                ],
-            )
-        )
-
-        assert runner.query.variables is not None and runner.query.variables["job"].values == ["api"]
 
     def test_sql_tiles_check_the_budget_and_load_all_options_before_taking_a_concurrency_slot(self) -> None:
         events: list[str] = []
@@ -322,7 +310,7 @@ class TestMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert runner.query.dateRange.date_from == "-7d"
         assert runner.query.dateRange.date_to == "-1d"
 
-    def test_dashboard_metric_filters_apply_to_every_clause(self) -> None:
+    def test_saved_dashboard_metric_filters_do_not_apply(self) -> None:
         own_filter = MetricsQueryFilter(key="namespace", op="eq", value="posthog")
         query = MetricsQuery(
             clauses=[
@@ -335,8 +323,8 @@ class TestMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         runner.apply_dashboard_filters(DashboardFilter(metricFilters=[dashboard_filter]))
 
-        assert runner.query.clauses[0].filters == [own_filter, dashboard_filter]
-        assert runner.query.clauses[1].filters == [dashboard_filter]
+        assert runner.query.clauses[0].filters == [own_filter]
+        assert runner.query.clauses[1].filters is None
 
     def test_dashboard_property_filters_do_not_apply(self) -> None:
         query = MetricsQuery(clauses=[MetricsQueryClause(name="a", metricName="queue_depth", aggregation="sum")])

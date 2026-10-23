@@ -64,6 +64,8 @@ class GoogleAnalyticsQuotaExceededError(Exception):
     Deliberately NOT matched by `get_non_retryable_errors` so Temporal retries
     the activity later (the resumable source picks up from the last saved
     chunk), which is the right recovery for hourly/daily property token quotas.
+    An incremental run that already read past the watermark does not raise it:
+    the run ends early instead, so the next run continues from the promoted watermark.
     Tagged `(retryable)` so `GoogleAnalyticsSource.get_retryable_errors` can
     keep this self-recovering failure out of error tracking.
     """

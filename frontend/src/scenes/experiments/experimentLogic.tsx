@@ -397,7 +397,6 @@ export interface experimentLogicValues {
     statsMethod: ExperimentStatsMethod
     unfreezeExposureLoading: boolean
     unmodifiedExperiment: Experiment | null
-    usesNewQueryRunner: boolean
     variants: MultivariateFlagVariant[]
 }
 
@@ -993,8 +992,7 @@ export interface experimentLogicMeta {
             exposures: any,
             exposuresLoading: boolean
         ) => ExposureChecksState
-        usesNewQueryRunner: (experiment: Experiment) => boolean
-        hasMinimumExposureForResults: (exposures: any, usesNewQueryRunner: boolean) => boolean
+        hasMinimumExposureForResults: (exposures: any) => boolean
         exposureCriteria: (experiment: Experiment) => ExperimentExposureCriteria | undefined
         hasMetrics: (experiment: Experiment) => boolean
         browserNoMetricsWarning: (hasMetrics: boolean, isExperimentLaunched: boolean) => boolean
@@ -2660,9 +2658,10 @@ export const experimentLogic = kea<experimentLogicType>([
             null as any,
             {
                 loadExposures: async (refresh: boolean = false) => {
-                    const { experiment, usesNewQueryRunner } = values
+                    const { experiment } = values
 
-                    if (!usesNewQueryRunner) {
+                    // The legacy page shows no exposures, but its variant exclusion toggle still dispatches this.
+                    if (isLegacyExperiment(experiment)) {
                         // A bare `return` would make kea error ("Reducer returned undefined")
                         return values.exposures
                     }
@@ -2876,34 +2875,9 @@ export const experimentLogic = kea<experimentLogicType>([
             (isExperimentLaunched: boolean, exposures: any, exposuresLoading: boolean): ExposureChecksState =>
                 exposureChecksState(isExperimentLaunched, exposures, exposuresLoading),
         ],
-        usesNewQueryRunner: [
-            (s) => [s.experiment],
-            (experiment: Experiment): boolean => {
-                const hasLegacyMetrics = isLegacyExperiment(experiment)
-
-                const allMetrics = [...experiment.metrics, ...experiment.metrics_secondary, ...experiment.saved_metrics]
-                const hasExperimentMetrics = allMetrics.some((query) => query.kind === NodeKind.ExperimentMetric)
-
-                if (hasExperimentMetrics) {
-                    return true
-                }
-
-                if (hasLegacyMetrics) {
-                    return false
-                }
-
-                // If the experiment has no experiment metrics, we use the new query runner
-                return true
-            },
-        ],
         hasMinimumExposureForResults: [
-            (s) => [s.exposures, s.usesNewQueryRunner],
-            (exposures: ExperimentExposureQueryResponse, usesNewQueryRunner: boolean): boolean => {
-                // Not relevant for old metrics
-                if (!usesNewQueryRunner) {
-                    return true
-                }
-
+            (s) => [s.exposures],
+            (exposures: ExperimentExposureQueryResponse): boolean => {
                 if (!exposures || !exposures.total_exposures) {
                     return false
                 }

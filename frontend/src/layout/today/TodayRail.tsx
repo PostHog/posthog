@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { TodayAccountMenu } from './TodayAccountMenu'
-import { TodayOrgMenu } from './TodayOrgMenu'
+import { TodayMoreMenu } from './TodayMoreMenu'
 import { TODAY_PANES, TODAY_RAIL_FOOTER_PANES, TODAY_RAIL_PANES } from './todayRailItems'
 import { TodayRailTile } from './TodayRailTile'
 import { TODAY_RAIL_WIDTH, TodayRailPane, railPaneHref, todayShellLogic } from './todayShellLogic'
@@ -10,7 +10,7 @@ import { TODAY_RAIL_WIDTH, TodayRailPane, railPaneHref, todayShellLogic } from '
 const RAIL_DATA_ATTRS: Partial<Record<TodayRailPane, string>> = { settings: 'today-settings' }
 
 export function TodayRail(): JSX.Element {
-    const { activePane } = useValues(todayShellLogic)
+    const { activePane, effectivePhaiView } = useValues(todayShellLogic)
     const { clickRailPane } = useActions(todayShellLogic)
 
     const renderTile = (pane: TodayRailPane): JSX.Element => (
@@ -19,7 +19,7 @@ export function TodayRail(): JSX.Element {
             label={TODAY_PANES[pane].label}
             icon={TODAY_PANES[pane].icon}
             active={activePane === pane}
-            to={railPaneHref(pane)}
+            to={railPaneHref(pane, effectivePhaiView)}
             onClick={() => clickRailPane(pane)}
             dataAttr={RAIL_DATA_ATTRS[pane] ?? `today-rail-${pane}`}
         />
@@ -28,13 +28,13 @@ export function TodayRail(): JSX.Element {
     return (
         <nav
             aria-label="Main"
-            className="TodayShell__rail flex shrink-0 flex-col items-center gap-3 bg-[var(--chrome)] pt-1.5 pb-3"
+            className="TodayShell__rail flex shrink-0 flex-col items-center gap-3 bg-[var(--chrome)] pt-3 pb-3"
             // eslint-disable-next-line react/forbid-dom-props
             style={{ width: TODAY_RAIL_WIDTH }}
         >
-            <TodayOrgMenu />
             {TODAY_RAIL_PANES.map(renderTile)}
             <div className="mt-auto flex w-full flex-col items-center gap-3">
+                <TodayMoreMenu />
                 {TODAY_RAIL_FOOTER_PANES.map(renderTile)}
             </div>
             <TodayAccountMenu />

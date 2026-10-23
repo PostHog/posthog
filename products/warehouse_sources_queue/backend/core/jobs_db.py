@@ -1000,6 +1000,16 @@ _UNFINISHED_EARLIER_BATCHES_SQL = f"""
       AND b.latest_state <> 'succeeded'
 """
 
+_UNFINISHED_BATCHES_OF_JOBS_SQL = f"""
+    SELECT count(*), MIN(b.batch_index), COALESCE(array_agg(DISTINCT b.latest_state), '{{}}')
+    FROM {BATCH_TABLE} b
+    WHERE b.job_id = ANY(%(job_ids)s)
+      AND b.team_id = %(team_id)s
+      AND b.schema_id = %(schema_id)s
+      AND b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+      AND b.latest_state <> 'succeeded'
+"""
+
 
 # Batch metadata key for the watermark that the loaded batches of a run cover once this batch and
 # every earlier batch of the run are loaded. Only the producer writes it (see `get_loaded_prefix_sync`).
@@ -1217,6 +1227,8 @@ class PendingBatch:
             "cdc_table_mode": self.metadata.get("cdc_table_mode"),
             "destination_ids": self.destination_ids or [],
             "external_destination_ids": self.metadata.get("external_destination_ids"),
+            "replace_scope": self.metadata.get("replace_scope"),
+            "continued_job_ids": self.metadata.get("continued_job_ids"),
         }
 
 
@@ -2117,6 +2129,52 @@ class BatchQueue:
                     with conn.transaction():
                         conn.execute("SELECT set_config('statement_timeout', %s, true)", (str(statement_timeout_ms),))
                         row = conn.execute(_UNFINISHED_EARLIER_BATCHES_SQL, params).fetchone()
+                except psycopg.errors.QueryCanceled:
+                    raise
+                except psycopg.OperationalError:
+                    pool.discard(conn)
+                    if attempt == 2:
+                        raise
+                    continue
+                assert row is not None
+                count, first_batch_index, states = row
+                return UnfinishedEarlierBatches(
+                    count=count, first_batch_index=first_batch_index, states=tuple(sorted(states))
+                )
+        raise AssertionError("unreachable")
+
+    @staticmethod
+    def get_unfinished_batches_of_jobs_sync(
+        database_url: str,
+        *,
+        team_id: int,
+        schema_id: str,
+        job_ids: list[str],
+        connect_timeout_seconds: int = 10,
+        statement_timeout_ms: int = UNFINISHED_EARLIER_BATCHES_STATEMENT_TIMEOUT_MS,
+    ) -> UnfinishedEarlierBatches:
+        """The batches of ``job_ids`` that did not reach 'succeeded'.
+
+        The loader asks this before a run that continues the cursor of these jobs
+        completes. Their batches hold the rows before that cursor, so one that did
+        not load means the continuing run is not complete. Same pool and retry as
+        :meth:`get_unfinished_earlier_batches_sync`.
+
+        Raises ``psycopg.errors.QueryCanceled`` past ``statement_timeout_ms``.
+        """
+        pool = _sync_connection_pool(database_url, connect_timeout_seconds)
+        params = {
+            "team_id": team_id,
+            "schema_id": schema_id,
+            "job_ids": job_ids,
+        }
+        for attempt in (1, 2):
+            with pool.connection() as conn:
+                try:
+                    # The timeout is transaction-local, so it never leaks into the pooled session.
+                    with conn.transaction():
+                        conn.execute("SELECT set_config('statement_timeout', %s, true)", (str(statement_timeout_ms),))
+                        row = conn.execute(_UNFINISHED_BATCHES_OF_JOBS_SQL, params).fetchone()
                 except psycopg.errors.QueryCanceled:
                     raise
                 except psycopg.OperationalError:

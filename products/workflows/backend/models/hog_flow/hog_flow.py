@@ -1,3 +1,4 @@
+from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any, Final
 
 from django.db import models, transaction
@@ -8,6 +9,7 @@ from django.utils.functional import Promise
 import structlog
 
 from posthog.helpers.encrypted_fields import EncryptedJSONStringField
+from posthog.models.tagged_items_relation import Taggable
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDTModel
 from posthog.plugins.plugin_server_api import reload_hog_flows_on_workers
@@ -127,22 +129,68 @@ def literal_static_cohort_id(inputs: Any) -> int | None:
     return cohort_id
 
 
-def static_cohort_ids(actions: Any) -> set[int]:
-    """The cohorts that the "Add to static cohort" steps in these actions add people to.
+def _function_step_inputs(actions: Any, template_id: str) -> Iterator[Any]:
+    """The inputs of each function action that runs the template.
 
-    Only function actions count, because the serializer checks cohort access for those alone.
+    Only function actions count, because the serializer validates template inputs for those alone.
     """
-    cohort_ids: set[int] = set()
     for action in actions if isinstance(actions, list) else []:
         if not isinstance(action, dict) or action.get("type") != "function":
             continue
         config = action.get("config")
-        if not isinstance(config, dict) or config.get("template_id") != ADD_TO_STATIC_COHORT_TEMPLATE_ID:
-            continue
-        cohort_id = literal_static_cohort_id(config.get("inputs"))
-        if cohort_id is not None:
-            cohort_ids.add(cohort_id)
-    return cohort_ids
+        if isinstance(config, dict) and config.get("template_id") == template_id:
+            yield config.get("inputs")
+
+
+def static_cohort_ids(actions: Any) -> set[int]:
+    """The cohorts that the "Add to static cohort" steps in these actions add people to."""
+    cohort_ids = (
+        literal_static_cohort_id(inputs) for inputs in _function_step_inputs(actions, ADD_TO_STATIC_COHORT_TEMPLATE_ID)
+    )
+    return {cohort_id for cohort_id in cohort_ids if cohort_id is not None}
+
+
+# The "Opt out of messages" step. Its template lives in the plugin server.
+OPT_OUT_OF_MESSAGES_TEMPLATE_ID: Final[str] = "template-posthog-opt-out-of-messages"
+# The step's category value for all marketing messages. Matches the messaging product's reserved preference key.
+ALL_MARKETING_CATEGORY_ID: Final[str] = "$all"
+
+
+def literal_opt_out_category_id(inputs: Any) -> str | None:
+    """The message category id an "Opt out of messages" step names as a plain value, or None."""
+    category_input = inputs.get("category_id") if isinstance(inputs, dict) else None
+    category_id = category_input.get("value") if isinstance(category_input, dict) else None
+    if not isinstance(category_id, str) or not category_id.strip():
+        return None
+    return category_id.strip()
+
+
+def opt_out_category_ids(actions: Any) -> set[str]:
+    """The message categories that the "Opt out of messages" steps in these actions opt people out of."""
+    category_ids = (
+        literal_opt_out_category_id(inputs)
+        for inputs in _function_step_inputs(actions, OPT_OUT_OF_MESSAGES_TEMPLATE_ID)
+    )
+    return {category_id for category_id in category_ids if category_id is not None}
+
+
+# Trigger types the executor re-checks before each step: an event trigger against its filters, and a
+# cohort trigger against the person's membership in its cohort.
+RECHECKED_TRIGGER_TYPES: Final[frozenset[str]] = frozenset({"event", "cohort"})
+
+
+def exit_condition_that_runs(trigger_type: str | None, exit_condition: str | None) -> str | None:
+    """The exit condition a run of this trigger actually follows.
+
+    On a trigger the executor cannot re-check, "exit when the trigger no longer matches" never fires.
+    """
+    if trigger_type in RECHECKED_TRIGGER_TYPES:
+        return exit_condition
+    if exit_condition == HogFlowExitCondition.TRIGGER_NOT_MATCHED:
+        return HogFlowExitCondition.ONLY_AT_END
+    if exit_condition == HogFlowExitCondition.TRIGGER_NOT_MATCHED_OR_CONVERSION:
+        return HogFlowExitCondition.CONVERSION
+    return exit_condition
 
 
 def hog_flow_origin_product_choices() -> list[tuple[str, str | Promise]]:
@@ -150,7 +198,8 @@ def hog_flow_origin_product_choices() -> list[tuple[str, str | Promise]]:
     return list(HogFlow.OriginProduct.choices)
 
 
-class HogFlow(UUIDTModel):
+# nosemgrep: no-new-uuidt-models -- an existing model, and its stored ids cannot change.
+class HogFlow(Taggable, UUIDTModel):
     """
     Stores the version, layout and other meta information for each HogFlow
     """

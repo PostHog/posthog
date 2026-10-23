@@ -256,6 +256,8 @@ fn inject_credentials(cmd: &mut Command, invocation_context: Option<&InvocationC
         "POSTHOG_PROJECT_ID",
         "POSTHOG_CLI_PROJECT_ID",
         "POSTHOG_CLI_ENV_ID",
+        "POSTHOG_ORGANIZATION_ID",
+        "POSTHOG_CLI_ORGANIZATION_ID",
     ]) {
         cmd.env("POSTHOG_CLI_PROJECT_ID", &config.env_id);
     }

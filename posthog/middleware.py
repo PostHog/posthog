@@ -41,7 +41,7 @@ from statshog.defaults.django import statsd
 from posthog.api.shared import UserBasicSerializer
 from posthog.clickhouse.client.execute import clickhouse_query_counter
 from posthog.clickhouse.query_tagging import QueryCounter, get_query_tag_value, reset_query_tags, tag_queries
-from posthog.cloud_utils import is_cloud, is_dev_mode
+from posthog.cloud_utils import is_cloud, is_dev_mode, is_hobby
 from posthog.constants import AUTH_BACKEND_KEYS
 from posthog.event_usage import get_event_source, get_mcp_properties, sanitize_header_value
 from posthog.geoip import get_geoip_properties
@@ -457,7 +457,7 @@ class AutoProjectMiddleware:
             elif path_parts[0] == "notebooks":
                 notebook_short_id = path_parts[1]
                 return Notebook.objects.filter(deleted=False, short_id=notebook_short_id)
-            elif path_parts[0] == "feature_flags":
+            elif path_parts[0] in ("feature_flags", "feature-flags"):
                 feature_flag_id = path_parts[1]
                 if feature_flag_id.isnumeric():
                     # nosemgrep: idor-lookup-without-team (permission check via middleware prevents access)
@@ -552,7 +552,6 @@ API_REQUESTS_LATENCY_SECONDS = Histogram(
 class CHQueries:
     def __init__(self, get_response):
         self.get_response = get_response
-        self.logger = structlog.get_logger(__name__)
 
     def __call__(self, request: HttpRequest):
         """Install monkey-patch on demand.
@@ -566,7 +565,7 @@ class CHQueries:
         user = cast(User, request.user)
 
         with suppress(Exception):
-            if request_id := structlog.get_context(self.logger).get("request_id"):
+            if request_id := structlog.contextvars.get_contextvars().get("request_id"):
                 tag_queries(http_request_id=uuid.UUID(request_id))
 
         tag_queries(
@@ -1228,6 +1227,26 @@ class AutoLogoutImpersonateMiddleware:
         return self.get_response(request)
 
 
+class UnversionedStaticPathMiddleware:
+    """Serves /static/<version>/<file> as /static/<file>.
+
+    A posthog-js client with `strict_script_versioning` asks for its extension scripts under
+    a version folder. Cloud serves those from a versioned CDN bucket. A self-hosted instance
+    holds one build of each script, so any version gets that build, as an unversioned request
+    does. Only self-hosted instances rewrite, so a request on cloud never changes.
+    """
+
+    VERSIONED_STATIC_PATH = re.compile(r"^/static/\d+\.\d+\.\d+(?:-[\w.]+)?/")
+
+    def __init__(self, get_response: Callable[[HttpRequest], HttpResponse]) -> None:
+        self.get_response = get_response
+
+    def __call__(self, request: HttpRequest) -> HttpResponse:
+        if is_hobby():
+            request.path_info = self.VERSIONED_STATIC_PATH.sub("/static/", request.path_info, count=1)
+        return self.get_response(request)
+
+
 class Fix204Middleware:
     """
     Remove the 'Content-Type', 'Content-Length' and 'X-Content-Type-Options: nosniff' headers and set content to empty string for HTTP 204 response (and only those).
@@ -1544,6 +1563,14 @@ READ_ONLY_IMPERSONATION_ALLOWLISTED_PATHS: list[tuple[str, str | re.Pattern]] = 
     ("POST", re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/endpoints/[^/]+/materialization_preview/?$")),
     ("POST", re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/endpoints/last_execution_times/?$")),
     ("POST", re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/persons/batch_by_distinct_ids/?$")),
+    # POST but read-only: reads how the person's key properties changed within an insight data point's
+    # time window. It takes the data point's actors query as the body, which is why it is not a GET. The
+    # action is named exactly, because the same detail prefix hosts the mutating person actions
+    # (delete_property, update_property, split).
+    (
+        "POST",
+        re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/persons/[^/]+/properties_timeline/?$"),
+    ),
     # POST but read-only: loads stack frame records (source context) for error tracking UI
     ("POST", re.compile(r"^/api/(environments|projects)/([0-9]+|@current)/error_tracking/stack_frames/batch_get/?$")),
     # POST but read-only: returns metadata about available incremental fields / columns
@@ -1688,6 +1715,7 @@ class ImpersonationReadOnlyMiddleware:
 IMPERSONATION_BLOCKED_PATHS: list[str] = [
     "/api/users/",
     "/api/personal_api_keys/",
+    "/api/ai_gateway/dev_tokens/",
 ]
 
 

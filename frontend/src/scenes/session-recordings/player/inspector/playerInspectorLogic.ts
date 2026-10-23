@@ -1809,6 +1809,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                                 : level === 'warn'
                                   ? 'warning'
                                   : undefined,
+                        windowNumber: windowNumberForID(undefined),
                         key: `log-${logEntry.uuid}`,
                     } satisfies InspectorListItemLog)
                 }

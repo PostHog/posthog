@@ -21,6 +21,18 @@ describe('ArtefactLogList', () => {
     })
 
     it.each([
+        ['resolved', 'already_fixed', 'Report resolved', 'Already fixed'],
+        ['resolved', 'no_action_needed', 'Report resolved', 'No action needed'],
+        ['suppressed', 'already_fixed', 'Report dismissed', 'Already fixed'],
+        ['potential', 'other', 'Report snoozed', 'Something else…'],
+        [undefined, 'already_fixed', 'Report feedback added', 'Already fixed'],
+    ])('labels feedback by its recorded verdict %s and reason %s', (state, reason, title, reasonLabel) => {
+        render(<ArtefactLogList reportId="report-1" artefacts={[makeArtefact({ state, reason }, 'dismissal')]} />)
+        expect(screen.getByText(title)).toBeInTheDocument()
+        expect(screen.getByText(reasonLabel)).toBeInTheDocument()
+    })
+
+    it.each([
         ['a replacement recommendation', true, undefined, 'Replacement recommended'],
         ['a kept PR', false, undefined, 'Still the right fix'],
         ['a capped request', false, 'revision_limit', 'Replacement limit reached'],

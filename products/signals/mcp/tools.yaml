@@ -7,6 +7,30 @@ feature: signals
 url_prefix: /inbox
 ui_apps: {}
 tools:
+    activity-summary-get:
+        operation: signals_activity_summary_list
+        enabled: true
+        title: Get your activity summary
+        description: >
+            Get a summary of what the current user has been working on in this project: a one-page markdown profile, a
+            short headline, the main focus areas with the day each was last seen, and the PostHog products they use. It
+            is built only from the user's own recent activity in PostHog, such as tasks they gave to PostHog AI and
+            things they created, changed or opened. It updates at most once a day, when there is enough new activity.
+            Use it to tailor answers and suggestions to what this person works on. `status: not_ready` means no summary
+            exists yet, which is normal for new or quiet users. `stale: true` means a newer version will replace it
+            soon. A 404 means activity summaries are not available for this project.
+        feature_flag: activity-summary
+    activity-summary-versions-list:
+        operation: signals_activity_summary_versions_retrieve
+        enabled: true
+        title: List your activity summary versions
+        description: >
+            List earlier versions of the current user's activity summary in this project, newest first, to see how their
+            focus changed over time. Each version has a headline, the focus areas and `recent_shift`, which says what
+            changed since the version before it. The list leaves out the profile to stay small. Pass `version` to get
+            one version with its full profile. A 404 means activity summaries are not available for this project, or
+            that the requested version does not exist.
+        feature_flag: activity-summary
     inbox-report-actions-list:
         operation: signals_reports_actions_list
         enabled: true

@@ -629,6 +629,7 @@ const insightsList = (): ToolBase<
                 dashboards: params.dashboards,
                 date_from: params.date_from,
                 date_to: params.date_to,
+                display: params.display,
                 exclude_bi: params.exclude_bi,
                 favorited: params.favorited,
                 include_dashboards: params.include_dashboards,

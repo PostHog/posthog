@@ -24,6 +24,7 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.oauth_provenance import SANDBOX_OAUTH_APP_CLIENT_IDS
 
 from products.signals.backend.models import (
+    SignalFirstReportNotification,
     SignalScoutConfig,
     SignalScoutSuggestionSet,
     SignalSourceConfig,
@@ -242,6 +243,9 @@ class TestInboxOnboarding(APIBaseTest):
         assert config.autostart_enabled is automatic_implementation
         assert config.default_autostart_priority == "P1"
         assert config.onboarding["activated_by"] == self.user.id
+        notification = SignalFirstReportNotification.objects.for_team(self.team.id).get()
+        assert notification.activated_by_id == self.user.id
+        assert notification.queued_at is None
         assert capture.call_args.kwargs["properties"]["variant"] == variant
         assert capture.call_args.kwargs["properties"] == {
             "$set_once": {"email": self.user.email},

@@ -23,10 +23,10 @@ describe('todayShellLogic', () => {
         ['/project/1/ai', 'spaces'],
         ['/project/1/ai/history', 'spaces'],
         ['/project/1/spaces/abc', 'spaces'],
-        ['/project/1/feature_flags/920847', 'products'],
+        ['/project/1/feature-flags/920847', 'products'],
         ['/project/1/insights/abc', 'analytics'],
         ['/project/1/insights', 'analytics'],
-        ['/project/1/feature_flags', 'products'],
+        ['/project/1/feature-flags', 'products'],
         ['/project/1/data-management/destinations', 'products'],
         ['/project/1/web', 'analytics'],
         ['/project/1/marketing', 'analytics'],
@@ -83,11 +83,13 @@ describe('todayShellLogic', () => {
     })
 
     test.each([
-        ['home', '/home'],
-        ['spaces', '/spaces/new'],
-        ['analytics', '/airplane'],
-        ['products', '/airplane'],
-    ] as const)('opens the %s section when its rail item is picked', (pane, pathname) => {
+        ['home', false, '/home'],
+        ['spaces', true, '/spaces/new'],
+        ['spaces', false, '/ai'],
+        ['analytics', false, '/analytics/product-analytics'],
+        ['products', false, '/airplane'],
+    ] as const)('opens the %s section when its rail item is picked, sandbox %s', (pane, sandbox, pathname) => {
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: sandbox })
         const logic = todayShellLogic()
         logic.mount()
 

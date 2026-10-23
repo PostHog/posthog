@@ -222,6 +222,10 @@ pub const STORE_SST_BYTES: &str = "store_sst_bytes";
 pub const STORE_LIVE_DATA_BYTES: &str = "store_live_data_bytes";
 /// Estimated key count, labelled by `cf` (gauge).
 pub const STORE_ESTIMATE_NUM_KEYS: &str = "store_estimate_num_keys";
+/// Bytes in the store directory and the local checkpoints, labelled by file `kind`
+/// (`sst`|`wal`|`info_log`|`manifest`|`other`|`checkpoint`) (gauge). `checkpoint` counts only the
+/// local checkpoint files that the live store does not share.
+pub const STORE_FILE_BYTES: &str = "store_file_bytes";
 
 /// Size of the filesystem holding the store (gauge, bytes).
 pub const STORE_DISK_TOTAL_BYTES: &str = "store_disk_total_bytes";
@@ -623,6 +627,12 @@ pub const PERSON_SEED_REKEY_PRODUCE_FAILURE_TOTAL: &str =
 /// produce-failure counters before concluding produces are failing.**
 pub const SEED_REGISTER_REPAIRS_TOTAL: &str = "cohort_seed_register_repairs_total";
 
+/// Composed-cohort membership changes a person seed apply emitted for a cohort it recomposed only
+/// because the cohort had no row for the person, labelled by `kind` (`entered`|`left`) (counter).
+/// Counted when the writes commit, like [`SEED_REGISTER_REPAIRS_TOTAL`]. Expect these in bulk on the
+/// first run of a composed cohort whose leaves earlier runs already seeded, and rarely after.
+pub const SEED_COMPOSED_ROW_REPAIRS_TOTAL: &str = "cohort_seed_composed_row_repairs_total";
+
 /// Persons whose Stage 2 inputs a seed apply read through shared store sections (counter).
 /// Attempt-based: a held run counts its persons, and so does the redelivery that replays it.
 /// **Do not divide [`STAGE2_COHORTS_EVALUATED`] by this**, because that counter is settled-based and
@@ -939,6 +949,7 @@ mod tests {
         assert_eq!(STORE_SST_BYTES, "store_sst_bytes");
         assert_eq!(STORE_LIVE_DATA_BYTES, "store_live_data_bytes");
         assert_eq!(STORE_ESTIMATE_NUM_KEYS, "store_estimate_num_keys");
+        assert_eq!(STORE_FILE_BYTES, "store_file_bytes");
         assert_eq!(STORE_DISK_TOTAL_BYTES, "store_disk_total_bytes");
         assert_eq!(STORE_DISK_AVAILABLE_BYTES, "store_disk_available_bytes");
         assert_eq!(STORE_DISK_UTILIZATION_PCT, "store_disk_utilization_pct");
@@ -1094,6 +1105,10 @@ mod tests {
         assert_eq!(
             SEED_REGISTER_REPAIRS_TOTAL,
             "cohort_seed_register_repairs_total"
+        );
+        assert_eq!(
+            SEED_COMPOSED_ROW_REPAIRS_TOTAL,
+            "cohort_seed_composed_row_repairs_total"
         );
         assert_eq!(
             SEED_RECOMPUTE_PERSONS_TOTAL,

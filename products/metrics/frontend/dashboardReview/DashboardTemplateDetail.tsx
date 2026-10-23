@@ -43,10 +43,9 @@ function PreviewDashboard({ dashboardId }: { dashboardId: number }): JSX.Element
 }
 
 export function DashboardTemplateDetail(): JSX.Element {
-    const { template, templateLoading, previewDashboardId, previewLoading, previewError, reviewable } = useValues(
-        metricsDashboardReviewSceneLogic
-    )
-    const { approveTemplate, rejectTemplate } = useActions(metricsDashboardReviewSceneLogic)
+    const { template, templateLoading, previewDashboardId, previewLoading, previewError, reviewable, regenerable } =
+        useValues(metricsDashboardReviewSceneLogic)
+    const { approveTemplate, rejectTemplate, confirmRegenerate } = useActions(metricsDashboardReviewSceneLogic)
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const { dataProcessingAccepted, dataProcessingApprovalDisabledReason } = useValues(maxGlobalLogic)
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
@@ -103,6 +102,17 @@ export function DashboardTemplateDetail(): JSX.Element {
                                     Edit with PostHog AI
                                 </span>
                             </LemonButton>
+                            {regenerable && (
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    onClick={confirmRegenerate}
+                                    loading={templateLoading}
+                                    data-attr="metrics-dashboard-review-regenerate"
+                                >
+                                    Regenerate
+                                </LemonButton>
+                            )}
                             {reviewable && template.status !== 'rejected' && (
                                 <LemonButton
                                     type="secondary"

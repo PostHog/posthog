@@ -27,6 +27,8 @@ def is_html_artifact(name: str, content_type: str) -> bool:
     return mime_type == "text/html" or name.lower().endswith((".html", ".htm"))
 
 
+PERMISSION_REQUEST_ID_MAX_LENGTH = 200
+
 # Shared with the MCP server (services/mcp/src/hono/constants.ts): one flag decides both whether
 # the MCP serves product skills through `learn` and whether a sandbox launches without bundled skills.
 MCP_EXEC_SKILLS_FEATURE_FLAG = "mcp-exec-skills"
@@ -207,19 +209,11 @@ def get_vm_sandbox_flag_payload(*, distinct_id: str, organization_id: str) -> ob
     )
 
 
-def vm_sandbox_allowed_origins(*, distinct_id: str, organization_id: str) -> set[str]:
-    """Allowed origin products from the VM-sandbox flag; empty when off (payload only resolves on match)."""
-    return vm_sandbox_allowed_origin_products(
-        get_vm_sandbox_flag_payload(distinct_id=distinct_id, organization_id=organization_id)
-    )
-
-
 MAX_CUSTOM_IMAGES_PER_TEAM = 20
 MAX_CUSTOM_IMAGES_PER_USER = 10
 TASK_SESSION_MAX_SIZE_BYTES = 10 * 1024 * 1024
 TASK_SESSION_UPLOAD_FORM_OVERHEAD_BYTES = 64 * 1024
 
-STREAM_VIA_PROXY_FEATURE_FLAG = "tasks-stream-via-proxy"
 OVERLAP_CLONE_BOOT_FEATURE_FLAG = "tasks-overlap-clone-boot"
 DESKTOP_WORKSPACE_WARM_FEATURE_FLAG = "task-cloud-desktop-workspace-warm"
 # Kill switch: rtk command-output compression is on by default in cloud sandboxes;
@@ -229,6 +223,10 @@ RTK_DISABLED_FEATURE_FLAG = "tasks-rtk-disabled"
 BENJAMIN_FEATURE_FLAG = "task-cloud-run-benjamin-plus"
 CLAUDE_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG = "posthog-code-claude-own-subscription-cloud"
 CODEX_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG = "posthog-code-codex-own-subscription-cloud"
+OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAGS: dict[str, str] = {
+    "claude": CLAUDE_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG,
+    "codex": CODEX_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG,
+}
 # The plan name a person reads when a subscription run is refused. Every layer that gates,
 # refuses, or explains one of these runs takes the name from here.
 SUBSCRIPTION_PLAN_NAMES: dict[str, str] = {"claude": "Claude plan", "codex": "ChatGPT plan"}

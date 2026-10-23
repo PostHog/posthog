@@ -656,7 +656,7 @@ describe('onboardingLogic — flow composition', () => {
             [ProductKey.PRODUCT_ANALYTICS, /quickstart|insight/i],
             [ProductKey.WEB_ANALYTICS, /web/i],
             [ProductKey.SESSION_REPLAY, /replay/i],
-            [ProductKey.FEATURE_FLAGS, /feature_flag/i],
+            [ProductKey.FEATURE_FLAGS, /feature-flags/i],
             [ProductKey.SURVEYS, /survey/i],
             [ProductKey.ERROR_TRACKING, /error-tracking/i],
             [ProductKey.AI_OBSERVABILITY, /ai-observability/i],

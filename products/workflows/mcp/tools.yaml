@@ -145,7 +145,6 @@ tools:
             save_draft: true
         ui_app: workflow-data-suggestions
         hooks: workflows/dataSuggestionCreateHooks
-        feature_flag: workflows-data-suggestions
         response:
             include:
                 - status
@@ -162,7 +161,6 @@ tools:
             up to five minutes. 'ready' lists the suggestions, 'unavailable' or 'ai_not_approved' means there are none
             to show. Present them the same way as workflows-data-suggestions-list.
         ui_app: workflow-data-suggestions
-        feature_flag: workflows-data-suggestions
         response:
             include:
                 - status
@@ -196,7 +194,6 @@ tools:
             workflows-data-suggestions-create. 'ai_not_approved' means the organization has not approved AI data
             processing; 'unavailable' means there is nothing to suggest right now.
         ui_app: workflow-data-suggestions
-        feature_flag: workflows-data-suggestions
         response:
             include:
                 - status
@@ -301,11 +298,12 @@ tools:
         title: List workflows
         description: >
             List all workflows in the project. Returns workflows with their name, description, status
-            (draft/active/archived), version, trigger configuration, and timestamps. Pass search=<text> to find a
-            workflow by its name or description, or, when neither matches, by a step name or the subject, preheader or
-            body text of an email it sends (live or pending draft), and read its id. Most workflows-* tools take that
-            value as 'id'; workflows-blast-radius, workflows-run-batch and workflows-schedule-create take it as
-            'workflow_id'.
+            (draft/active/archived), version, trigger configuration, tags, and timestamps. Pass search=<text> to find a
+            workflow by its name, description or a tag, or, when none of those match, by a step name or the subject,
+            preheader or body text of an email it sends (live or pending draft), and read its id. Most workflows-* tools
+            take that value as 'id'; workflows-blast-radius, workflows-run-batch and workflows-schedule-create take it
+            as 'workflow_id'. Pass tags='["growth"]' (a JSON-encoded list) to return only workflows that carry at least
+            one of those tags.
         ui_app: workflow-list
     workflows-list-batch-jobs:
         operation: hog_flows_batch_jobs_list
@@ -521,8 +519,8 @@ tools:
             workflows or messaging, or asks to build an email, SMS or push workflow in a project that may not send yet.
             For each open step, tell the user what it needs and share its app_url, since channel and domain setup happen
             in the app. An email workflow can be drafted before ready_to_send_email is true, but it cannot send until it
-            is. Automations that only post to Slack or call webhooks need none of these steps. When
-            data_suggestions_available is true, offer workflows-data-suggestions-list once setup is done.
+            is. Automations that only post to Slack or call webhooks need none of these steps. Offer
+            workflows-data-suggestions-list once setup is done.
         ui_app: workflow-setup-status
         feature_flag: workflows-mcp-onboarding
     workflows-stats:
@@ -607,11 +605,12 @@ tools:
         enrich_url: '{id}/workflow'
         title: Update workflow
         description: >
-            Updates workflow fields a graph patch can't express: name, description, exit_condition, conversion,
+            Updates workflow fields a graph patch can't express: name, description, tags, exit_condition, conversion,
             trigger_masking, variables. Graph content (actions/edges) is rejected here - a partial list would silently
             drop every step it omits - so all graph edits go through workflows-patch-graph. On an active workflow,
-            content fields stage a draft (published with workflows-publish) while name/description apply immediately.
-            Status changes go through workflows-enable / workflows-archive.
+            content fields stage a draft (published with workflows-publish) while name, description and tags apply
+            immediately. tags replaces the whole tag list, so send the tags to keep as well as the new ones. Status
+            changes go through workflows-enable / workflows-archive.
         exclude_params:
             - status
             - actions

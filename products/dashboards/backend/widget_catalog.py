@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Any, NotRequired, TypedDict
+
+from rest_framework import exceptions
 
 from products.dashboards.backend.widget_specs.registry import WIDGET_SPECS
 
@@ -39,8 +42,25 @@ WIDGET_CATALOG: dict[str, WidgetCatalogEntry] = {
 }
 
 
-def get_widget_catalog_entries() -> list[WidgetCatalogEntry]:
-    return list(WIDGET_CATALOG.values())
+def get_widget_catalog_entries(widget_types: Sequence[str] | None = None) -> list[WidgetCatalogEntry]:
+    if not widget_types:
+        return list(WIDGET_CATALOG.values())
+    requested = set(widget_types)
+    return [entry for widget_type, entry in WIDGET_CATALOG.items() if widget_type in requested]
+
+
+def parse_widget_type_filter(raw_values: Sequence[str]) -> list[str]:
+    """Parse `widget_type` query values. Each value can hold one type or a comma-separated list."""
+    widget_types = list(dict.fromkeys(part.strip() for raw in raw_values for part in raw.split(",") if part.strip()))
+    unknown = [widget_type for widget_type in widget_types if widget_type not in WIDGET_CATALOG]
+    if unknown:
+        raise exceptions.ValidationError(
+            {
+                "widget_type": f"Unknown widget type: {', '.join(unknown)}. "
+                f"Valid types: {', '.join(sorted(WIDGET_CATALOG))}."
+            }
+        )
+    return widget_types
 
 
 def get_widget_product_access_denied_message(required_product_access: str) -> str:

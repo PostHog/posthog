@@ -320,13 +320,16 @@ describe('DiscussReportButton', () => {
         ['the PR needs review', true, withPullRequest(makeReport(), 'open', 'review_required')],
         ['the PR is already merged', true, withPullRequest(makeReport(), 'merged', 'approved')],
         ['the flag is off', false, withPullRequest(makeReport(), 'open', 'approved')],
-    ])('does not offer the Ask AI menu when %s', async (_name, flagEnabled, report) => {
+    ])('does not offer Get it merged when %s', async (_name, flagEnabled, report) => {
         featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_GET_IT_MERGED], {
             [FEATURE_FLAGS.INBOX_GET_IT_MERGED]: flagEnabled,
         })
+        const user = userEvent.setup()
         render(<DiscussReportButton report={report} reportUrl="https://app/report-1" />)
 
-        expect(screen.queryByTestId('inbox-report-ask-ai-actions')).not.toBeInTheDocument()
+        await user.click(screen.getByTestId('inbox-report-ask-ai-actions'))
+        expect(screen.getByTestId('inbox-report-ask-ai-quick-submit')).toBeInTheDocument()
+        expect(screen.queryByText('Get it merged')).not.toBeInTheDocument()
     })
 
     async function setChecks(report: SignalReport, conclusion: 'failure' | 'success'): Promise<void> {
@@ -373,9 +376,39 @@ describe('DiscussReportButton', () => {
         })
         const report = withPullRequest(makeReport(), state, 'review_required')
         await setChecks(report, conclusion)
+        const user = userEvent.setup()
         render(<DiscussReportButton report={report} reportUrl="https://app/report-1" />)
 
-        expect(screen.queryByTestId('inbox-report-ask-ai-actions')).not.toBeInTheDocument()
+        await user.click(screen.getByTestId('inbox-report-ask-ai-actions'))
+        expect(screen.queryByText('Make it green')).not.toBeInTheDocument()
+    })
+
+    it('fills the quick ask from a suggestion and sends it in the background on Enter', async () => {
+        const user = userEvent.setup()
+        render(<DiscussReportButton report={makeReport([SUGGESTION])} reportUrl="https://app/report-1" />)
+
+        await user.click(screen.getByTestId('inbox-report-ask-ai-actions'))
+        await user.click(screen.getByText(SUGGESTION))
+        expect(discussReport).not.toHaveBeenCalled()
+        await user.keyboard('{Enter}')
+        await user.keyboard('{Enter}')
+
+        expect(discussReport).toHaveBeenCalledTimes(1)
+        expect(discussReport).toHaveBeenCalledWith(
+            expect.objectContaining({ id: 'report-1' }),
+            'https://app/report-1',
+            SUGGESTION,
+            undefined,
+            undefined,
+            undefined,
+            true
+        )
+        expect(jest.mocked(captureInboxReportAction).mock.calls[0][0].extra).toEqual({
+            question_source: 'suggested',
+            suggestion_count: 1,
+            launch_mode: 'background',
+        })
+        expect(sidePanelStateLogic.values.sidePanelOpen).toBe(false)
     })
 
     it('does not invite actions where the kickoff wrapper would only answer', async () => {

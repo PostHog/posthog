@@ -400,14 +400,14 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         inMenu: false,
     },
     [NodeKind.ExperimentTrendsQuery]: {
-        name: 'Experiment Trends Result',
-        description: 'View experiment trend result.',
+        name: 'Legacy experiment trends metric',
+        description: 'Trends metric from the legacy experiments engine. Its results are no longer available.',
         icon: IconFlask,
         inMenu: false,
     },
     [NodeKind.ExperimentFunnelsQuery]: {
-        name: 'Experiment Funnels Result',
-        description: 'View experiment funnel result.',
+        name: 'Legacy experiment funnel metric',
+        description: 'Funnel metric from the legacy experiments engine. Its results are no longer available.',
         icon: IconFlask,
         inMenu: false,
     },
@@ -587,6 +587,11 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     [NodeKind.AccountsTableQuery]: {
         name: 'Accounts table',
         icon: IconPieChart,
+        inMenu: false,
+    },
+    [NodeKind.AccountUsersQuery]: {
+        name: 'Account users',
+        icon: IconPerson,
         inMenu: false,
     },
     [NodeKind.EndpointsUsageOverviewQuery]: {
