@@ -1,0 +1,57 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "identifiers": {
+            "description": "Who the email is for, used to attribute engagement events.",
+            "properties": {
+                "distinct_id": {
+                    "anyOf": [
+                        {
+                            "maxLength": 400,
+                            "type": "string"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Distinct ID of the recipient's person. The email's engagement events (sent, delivered, opened, clicked, bounced) and the send itself are recorded against that person. Defaults to the recipient's email address. The template can't read the person's properties, so pass everything it needs in `message_data`."
+                }
+            },
+            "type": "object"
+        },
+        "message_data": {
+            "additionalProperties": {},
+            "description": "Data for the template's Liquid placeholders, available as `variables`. For example `{\"reset_link\": \"https://...\"}` fills `{{ variables.reset_link }}`.",
+            "propertyNames": {
+                "type": "string"
+            },
+            "type": "object"
+        },
+        "template": {
+            "description": "The template to send, by key or by id.",
+            "properties": {
+                "hash": {
+                    "description": "Content hash of the template you hold, as `v1:` and 64 hex characters. When PostHog never published that content, the send answers `template_outdated` and sends nothing. Only with `key`.",
+                    "type": "string"
+                },
+                "id": {
+                    "description": "ID of the template, for templates made in PostHog. Give either `key` or `id`.",
+                    "type": "string"
+                },
+                "key": {
+                    "description": "Key of the template, as uploaded with `PUT /api/projects/@current/messaging_templates/by_key/{key}/`. Give either `key` or `id`.",
+                    "type": "string"
+                }
+            },
+            "type": "object"
+        },
+        "to": {
+            "description": "Email address of the recipient.",
+            "format": "email",
+            "pattern": "^(?!\\.)(?!.*\\.\\.)([A-Za-z0-9_'+\\-\\.]*)[A-Za-z0-9_+-]@([A-Za-z0-9][A-Za-z0-9\\-]*\\.)+[A-Za-z]{2,}$",
+            "type": "string"
+        }
+    },
+    "required": ["to", "template"],
+    "type": "object"
+}
