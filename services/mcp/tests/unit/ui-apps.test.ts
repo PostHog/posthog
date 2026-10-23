@@ -280,11 +280,12 @@ describe('ui-apps', () => {
                 app_name: 'Chart Walkthrough',
                 description: 'A walkthrough of a chart',
                 render_ui: {
-                    component_import: '../components/InsightStory',
-                    view_component: 'InsightStory',
+                    component_import: '../components/ExplainChart',
+                    view_component: 'ExplainChart',
                     view_prop: 'data',
-                    data_type: 'InsightStoryData',
+                    data_type: 'ExplainChartData',
                     link_prop: 'openLink',
+                    app_prop: 'app',
                 },
             })
             if (!storyConfig.render_ui) {
@@ -307,7 +308,7 @@ describe('ui-apps', () => {
                     config: { ...queryResultsConfig, render_ui: queryResultsConfig.render_ui },
                 },
                 {
-                    appKey: 'insight-story',
+                    appKey: 'explain-chart',
                     type: 'custom',
                     config: { ...storyConfig, render_ui: storyConfig.render_ui },
                 },
@@ -326,7 +327,7 @@ describe('ui-apps', () => {
             expect(code).toContain("import { Component } from '../components/Component'")
             expect(code).toContain("'query-results': ({ data }) => <Component data={data} />")
             expect(code).toContain(
-                "'insight-story': ({ data, openLink }) => <InsightStory data={data as InsightStoryData} openLink={openLink} />"
+                "'explain-chart': ({ data, openLink, app }) => <ExplainChart data={data as ExplainChartData} openLink={openLink} app={app} />"
             )
             expect(code).toContain(
                 "'survey-list': ({ data, app }) => <SurveyListContent data={data as SurveyListData} app={app} />"
