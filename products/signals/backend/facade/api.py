@@ -1741,3 +1741,27 @@ def disable_scout_for_product(*, team_id: int, skill_name: str, source_product: 
         .delete()
     )
     return deleted > 0
+
+
+def notify_report_task_push(
+    *,
+    team_id: int,
+    task_id: str,
+    run_id: str,
+    kind: str,
+    pull_request_url: str | None = None,
+    on_enqueued: Callable[[], None] | None = None,
+) -> bool:
+    from products.signals.backend.inbox_push_notifications import (
+        notify_report_task_update,  # noqa: PLC0415 — keep the sender off the facade import path
+    )
+    from products.tasks.backend.models import TaskRun  # noqa: PLC0415 — legacy task storage shared with signals
+
+    task_run = TaskRun.objects.filter(team_id=team_id, task_id=task_id, id=run_id).select_related("task").first()
+    return (
+        notify_report_task_update(
+            task_run=task_run, kind=kind, pull_request_url=pull_request_url, on_enqueued=on_enqueued
+        )
+        if task_run is not None
+        else False
+    )

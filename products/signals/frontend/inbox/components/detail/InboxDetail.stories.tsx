@@ -264,6 +264,27 @@ export const ReportReadyToImplement: Story = {
     ),
 }
 
+export const ReportClaimedByTeammate: Story = {
+    decorators: [readyToImplementMocks],
+    render: () => (
+        <Frame>
+            <ReportDetail
+                report={{
+                    ...reportTabReports[0],
+                    assignee: {
+                        claim_id: '019e64b8-0000-7000-8000-000000000098',
+                        kind: 'user',
+                        user: { id: 1, uuid: 'u-1', email: 'octo@example.com', first_name: 'Octo', last_name: 'Cat' },
+                        task_id: null,
+                        agent: null,
+                        claimed_at: '2026-06-10T10:00:00Z',
+                    },
+                }}
+            />
+        </Frame>
+    ),
+}
+
 export const ReportWithMetrics: Story = {
     render: () => (
         <Frame>

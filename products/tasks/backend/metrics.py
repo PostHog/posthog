@@ -449,6 +449,12 @@ DESKTOP_ACCESS_DECISIONS_TOTAL = Counter(
     labelnames=["outcome"],
 )
 
+DESKTOP_ACCESS_FLAG_UNRESOLVED_TOTAL = Counter(
+    "posthog_tasks_desktop_access_flag_unresolved_total",
+    "PostHog Desktop access flag evaluations that returned no boolean value",
+    labelnames=["flag"],
+)
+
 
 def observe_compute_quota_check(outcome: ComputeQuotaOutcome) -> None:
     COMPUTE_QUOTA_CHECK_TOTAL.labels(outcome=outcome).inc()
@@ -802,3 +808,7 @@ def observe_code_usage_gate_check(*, outcome: CodeUsageGateOutcome) -> None:
 
 def observe_desktop_access_decision(*, outcome: DesktopAccessOutcome) -> None:
     DESKTOP_ACCESS_DECISIONS_TOTAL.labels(outcome=outcome).inc()
+
+
+def observe_desktop_access_flag_unresolved(*, flag: str) -> None:
+    DESKTOP_ACCESS_FLAG_UNRESOLVED_TOTAL.labels(flag=flag).inc()

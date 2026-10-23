@@ -196,7 +196,7 @@ Ranges ending at or before that boundary are rejected.
 Existing backfills keep their stored windows; **Retry remaining** applies the boundary when it creates a new backfill.
 
 Generation references get up to three lookup attempts.
-A final miss for a backfill reference fails the run without reporting an exception to error tracking.
+A final miss for a backfill reference records the evaluation as skipped with `generation_not_found`, emits no `$ai_evaluation` event, and reports no exception to error tracking.
 Live references marked `awaiting_ingestion` wait 15 seconds between misses and still report the final miss.
 
 A backfill that stops on its own shows as **Interrupted**, with a stop reason.
@@ -288,6 +288,10 @@ Existing reports remain accessible through the Reports tab and the report list, 
 The report agent's `list_all_eval_results` and `sample_eval_results` tools cap each response at 30,000 characters.
 Large results reduce the number of examples returned; each returned example keeps its complete category list.
 The tools indicate when examples are omitted, and aggregate counts and pass rates still cover the full period.
+
+The report agent's `sample_generation_details` tool keeps the beginning and end of input and input-state previews within 500 characters, with an elision marker.
+Both sampled and full generation details include input, output, cache-read, and cache-creation token counts.
+The agent must inspect full generation details before claiming captured input is truncated or instrumentation is broken. Previews and low input token counts alone are insufficient evidence.
 
 ## Browser compatibility
 

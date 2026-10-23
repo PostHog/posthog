@@ -3802,7 +3802,6 @@ export namespace Schemas {
       filterTestAccounts?: boolean | null;
       /** Time granularity forced onto every insight that supports one. Absent/null = inherit. */
       interval?: IntervalType | null;
-      /** Metric label matchers ANDed into every metrics tile. Other tiles ignore them. */
       metricFilters?: MetricsQueryFilter[] | null;
       /** Variables that metrics tiles refer to as `$name`. Other tiles ignore them. */
       metricVariables?: MetricsDashboardVariable[] | null;
@@ -13060,6 +13059,15 @@ export namespace Schemas {
       snapshots: ApproveSnapshotInput[];
     }
 
+    export interface AppsignalIssueSignalExtra {
+      state: string | null;
+      severity: string | null;
+      namespace: string | null;
+      occurrence_count: string | null;
+      created_at: string | null;
+      last_occurred_at: string | null;
+    }
+
     export interface ArchiveExperiment {
       /** When the linked feature flag is still enabled, also disable and archive it along with the experiment. Has no effect if the flag is already disabled (it is archived either way). */
       disable_feature_flag?: boolean;
@@ -14987,6 +14995,23 @@ export namespace Schemas {
       servers: AvailableServer[];
     }
 
+    export interface AwsGuarddutyScannerFindingSignalExtra {
+      type: string | null;
+      severity: string | null;
+      region: string | null;
+      created_at: string | null;
+    }
+
+    export interface AwsInspectorScannerFindingSignalExtra {
+      type: string | null;
+      severity: string | null;
+      status: string | null;
+      fix_available: string | null;
+      exploit_available: string | null;
+      region: string | null;
+      first_observed_at: string | null;
+    }
+
     export type AwsS3DestinationConfigType = typeof AwsS3DestinationConfigType[keyof typeof AwsS3DestinationConfigType];
 
 
@@ -15096,6 +15121,15 @@ export namespace Schemas {
     export const AwsS3DestinationRequestTypeEnum = {
       AwsS3: 'AwsS3',
     } as const;
+
+    export interface AwsSecurityHubScannerFindingSignalExtra {
+      severity_label: string | null;
+      compliance_status: string | null;
+      workflow_status: string | null;
+      record_state: string | null;
+      region: string | null;
+      created_at: string | null;
+    }
 
     /**
      * * `DKIM` - DKIM
@@ -15211,6 +15245,15 @@ export namespace Schemas {
       readonly sending_status: SendingStatusEnum;
       /** Open findings, if any, with AWS's remediation guidance. */
       readonly findings: readonly AwsTenantFinding[];
+    }
+
+    export interface AzureApplicationInsightsIssueSignalExtra {
+      problem_id: string | null;
+      exception_type: string | null;
+      role_name: string | null;
+      occurrences: string | null;
+      first_seen: string | null;
+      last_seen: string | null;
     }
 
     export type AzureBlobDestinationConfigType = typeof AzureBlobDestinationConfigType[keyof typeof AzureBlobDestinationConfigType];
@@ -27246,6 +27289,15 @@ export namespace Schemas {
       source: string;
     }
 
+    export interface CursorIssueSignalExtra {
+      repo: string | null;
+      pr_number: string | null;
+      commit_sha: string | null;
+      bugs_found: string | null;
+      publication_status: string | null;
+      timestamp: string | null;
+    }
+
     /**
      * * `text` - text
      * * `link` - link
@@ -28011,7 +28063,52 @@ export namespace Schemas {
     export type DashboardPersistedVariables = { [key: string]: unknown } | null;
 
     /**
-     * Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles.
+     * * `blue` - Blue
+     * * `purple` - Purple
+     * * `green` - Green
+     * * `yellow` - Yellow
+     * * `orange` - Orange
+     * * `red` - Red
+     */
+    export type DashboardTileGroupColorEnum = typeof DashboardTileGroupColorEnum[keyof typeof DashboardTileGroupColorEnum];
+
+
+    export const DashboardTileGroupColorEnum = {
+      Blue: 'blue',
+      Purple: 'purple',
+      Green: 'green',
+      Yellow: 'yellow',
+      Orange: 'orange',
+      Red: 'red',
+    } as const;
+
+    export interface DashboardTileGroup {
+      /**
+         * Heading for the group. When it is blank or omitted, the heading shows the number of tiles.
+         * @maxLength 200
+         */
+      title?: string;
+      /** Whether the group starts closed. Defaults to false. When a viewer opens or closes the group, their browser keeps that choice and it wins over this default. */
+      collapsed?: boolean;
+      /** Color of a dot before the group heading. Null or omitted shows no dot.
+       *
+       * * `blue` - Blue
+       * * `purple` - Purple
+       * * `green` - Green
+       * * `yellow` - Yellow
+       * * `orange` - Orange
+       * * `red` - Red */
+      color?: DashboardTileGroupColorEnum | null;
+    }
+
+    /**
+     * Settings for tile groups, keyed by the tiles' group_key. Each group shows as a band of its tiles under a heading that viewers can open and close. Viewers who do not have bands yet see only the group title above its tiles. A write replaces the whole map. Send an empty object or null to remove all group settings.
+     * @nullable
+     */
+    export type DashboardGroups = {[key: string]: DashboardTileGroup} | null;
+
+    /**
+     * Deprecated: use groups. Titles for tile groups, keyed by group_key. A write replaces all titles and keeps the other group settings. Send an empty object or null to clear titles. Do not send it with groups.
      * @nullable
      */
     export type DashboardGroupTitles = {[key: string]: string} | null;
@@ -28067,7 +28164,12 @@ export namespace Schemas {
     } as const;
 
     /**
-     * Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles.
+     * Settings for tile groups, keyed by the tiles' group_key. Each group shows as a band of its tiles under a heading that viewers can open and close. Viewers who do not have bands yet see only the group title above its tiles. A write replaces the whole map. Send an empty object or null to remove all group settings.
+     */
+    export type DashboardCustomizationGroups = {[key: string]: DashboardTileGroup};
+
+    /**
+     * Deprecated: use groups. Titles for tile groups, keyed by group_key. A write replaces all titles and keeps the other group settings. Send an empty object or null to clear titles. Do not send it with groups.
      */
     export type DashboardCustomizationGroupTitles = {[key: string]: string};
 
@@ -28086,7 +28188,9 @@ export namespace Schemas {
        * * `horizontal` - horizontal
        * * `stable` - stable */
       layout_compaction?: LayoutCompactionEnum;
-      /** Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles. */
+      /** Settings for tile groups, keyed by the tiles' group_key. Each group shows as a band of its tiles under a heading that viewers can open and close. Viewers who do not have bands yet see only the group title above its tiles. A write replaces the whole map. Send an empty object or null to remove all group settings. */
+      groups?: DashboardCustomizationGroups;
+      /** Deprecated: use groups. Titles for tile groups, keyed by group_key. A write replaces all titles and keeps the other group settings. Send an empty object or null to clear titles. Do not send it with groups. */
       group_titles?: DashboardCustomizationGroupTitles;
     }
 
@@ -28174,7 +28278,12 @@ export namespace Schemas {
        * * `stable` - stable */
       layout_compaction?: LayoutCompactionEnum;
       /**
-         * Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles.
+         * Settings for tile groups, keyed by the tiles' group_key. Each group shows as a band of its tiles under a heading that viewers can open and close. Viewers who do not have bands yet see only the group title above its tiles. A write replaces the whole map. Send an empty object or null to remove all group settings.
+         * @nullable
+         */
+      groups?: DashboardGroups;
+      /**
+         * Deprecated: use groups. Titles for tile groups, keyed by group_key. A write replaces all titles and keeps the other group settings. Send an empty object or null to clear titles. Do not send it with groups.
          * @nullable
          */
       group_titles?: DashboardGroupTitles;
@@ -28552,7 +28661,7 @@ export namespace Schemas {
       /** Whether to show the tile's description underneath its title on the dashboard. Works for every tile type. The description itself is unaffected and still comes from the tile's insight, text, or widget content — this only toggles whether it renders on the dashboard. */
       show_description?: boolean;
       /**
-         * Key that puts this tile in a group with the other tiles that have the same key on this dashboard. Set the group's title in the dashboard's group_titles. Null or an empty string removes the tile from its group.
+         * Key that puts this tile in a group with the other tiles that have the same key on this dashboard. Set the group's title and style in the dashboard's groups. Null or an empty string removes the tile from its group.
          * @maxLength 100
          * @nullable
          */
@@ -39591,6 +39700,12 @@ export namespace Schemas {
          * @maxItems 10
          */
       links?: ReportLinkWrite[];
+      /**
+         * The report's full set of slug tags, at most 10. Replaces the report's tags rather than adding to them, so send every tag you want kept. Omit the field (or send null) to leave them untouched, and send an empty list to remove them. Reuse a slug the project already uses before you coin a new one.
+         * @maxItems 10
+         * @nullable
+         */
+      tags?: string[] | null;
       /** Set this only when your rewrite changes what the fix should be: a different root cause, a different file or layer, a materially wider or narrower scope. More evidence for the same fix is not a reason, because the report's open pull request already implements it. Setting it true records a replacement decision for a ready report. Policy and eligibility checks gate the replacement. The existing pull request closes only after a successful, verified replacement. Technical failures retry automatically; policy blocks wait for a new edit or research trigger. Only honored alongside a `title` or `summary` that actually changes, and only within the first four content revisions, including revisions that did not request replacement. When the flag is not applied, `warnings` says why. */
       supersedes_implementation?: boolean;
       /** Optional new actionability call, for when new evidence changed your judgment. Replaces the report's actionability decision and re-runs autostart: `immediately_actionable` can open a draft PR, `requires_human_input` and `not_actionable` stop autostart from opening one. The report's inbox status does not change. Send it with `actionability_explanation`, and with `already_addressed` when the issue is handled, since the three replace the decision as one unit.
@@ -39666,6 +39781,11 @@ export namespace Schemas {
          * @nullable
          */
       suggested_prompts_set: number | null;
+      /**
+         * How many tags the report now carries, or null if the edit left them as they were (the field omitted, or a re-send of what was already stored). 0 means the edit removed the report's tags.
+         * @nullable
+         */
+      tags_set: number | null;
       /** Whether this edit actually rewrote the report's title or summary. False for a note, a reviewer change, or a re-send of the text the report already had. */
       is_content_revision: boolean;
       /** How many times a scout has rewritten this report's title or summary, counting this edit. */
@@ -40262,6 +40382,11 @@ export namespace Schemas {
          * @maxItems 10
          */
       links?: ReportLinkWrite[];
+      /**
+         * Optional slug tags that group the report with related ones, at most 10. Write lowercase kebab-case slugs that name the category of the report (`cost-spike`, `tracking-gap`), not the specific entity. Reuse a slug the project already uses before you coin a new one. Near-miss formats are normalized to slugs, and a tag that is empty or longer than 50 characters after normalization is rejected.
+         * @maxItems 10
+         */
+      tags?: string[];
       /**
          * Optional name for this emission, unique within the run. Reuse it verbatim to retry a call whose outcome you don't know (a timeout, a dropped connection): the retry returns the report the first call authored, with `idempotent_replay` true, instead of a second report. Omit it and the report's own content is the key, which covers a retry of the identical call — pass one when a retry might reword the report.
          * @maxLength 200
@@ -41797,6 +41922,62 @@ export namespace Schemas {
       current_from: string;
     }
 
+    /**
+     * * `own_code` - Own Code
+     * * `third_party` - Third Party
+     * * `network` - Network
+     * * `bots` - Bots
+     * * `expected` - Expected
+     * * `unclear` - Unclear
+     */
+    export type IssueSummaryCategoryEnum = typeof IssueSummaryCategoryEnum[keyof typeof IssueSummaryCategoryEnum];
+
+
+    export const IssueSummaryCategoryEnum = {
+      OwnCode: 'own_code',
+      ThirdParty: 'third_party',
+      Network: 'network',
+      Bots: 'bots',
+      Expected: 'expected',
+      Unclear: 'unclear',
+    } as const;
+
+    export interface ErrorTrackingIssueSummary {
+      /** What the error is and where it happens, in plain language. */
+      what_happened: string;
+      /** The model's best guess at the cause. A hypothesis to check against the code, never a finding. */
+      likely_cause: string;
+      /** Which users, sessions or platforms the error reaches. */
+      who_is_affected: string;
+      /** One concrete step to investigate or fix the error. */
+      suggested_next_step: string;
+      /** Where the error most likely comes from. 'own_code' is a bug in the application's code, 'third_party' a third-party script, browser extension or dependency, 'network' a network or connectivity failure, 'bots' automated traffic, 'expected' handled behavior that needs no fix, and 'unclear' means the stack trace does not tell. Absent when no category was inferred.
+       *
+       * * `own_code` - Own Code
+       * * `third_party` - Third Party
+       * * `network` - Network
+       * * `bots` - Bots
+       * * `expected` - Expected
+       * * `unclear` - Unclear */
+      category?: IssueSummaryCategoryEnum;
+      /** When the summary was written. */
+      generated_at: string;
+    }
+
+    /**
+     * * `ready` - Ready
+     * * `generating` - Generating
+     * * `unavailable` - Unavailable
+     */
+    export type IssueSummaryStatusEnum = typeof IssueSummaryStatusEnum[keyof typeof IssueSummaryStatusEnum];
+
+
+    export const IssueSummaryStatusEnum = {
+      Ready: 'ready',
+      Generating: 'generating',
+      Unavailable: 'unavailable',
+    } as const;
+
     export interface ErrorTrackingIssueDetail {
       /** Error tracking issue ID. */
       id: string;
@@ -41857,6 +42038,14 @@ export namespace Schemas {
       sparkline?: number[];
       /** Aggregate over matching events. Returned only when includeBreakdown is true. */
       breakdown?: ErrorTrackingIssueBreakdown;
+      /** A model-written summary of the issue. Present only when summary_status is 'ready'. Treat likely_cause as a hypothesis, not a fact. */
+      summary?: ErrorTrackingIssueSummary;
+      /** 'ready' means summary is present. 'generating' means a summary may still be written: call once more after a few seconds, and continue without it if the status does not change. 'unavailable' means no summary exists for this issue and none is being written.
+       *
+       * * `ready` - Ready
+       * * `generating` - Generating
+       * * `unavailable` - Unavailable */
+      summary_status: IssueSummaryStatusEnum;
     }
 
     /**
@@ -55629,6 +55818,17 @@ export namespace Schemas {
       WholeWindow: 'whole_window',
       PerInterval: 'per_interval',
     } as const;
+
+    export interface GooglePlayConsoleIssueSignalExtra {
+      issue_type: string | null;
+      code_location: string | null;
+      report_count: string | null;
+      affected_users: string | null;
+      first_version: string | null;
+      last_version: string | null;
+      last_report_time: string | null;
+      issue_url: string | null;
+    }
 
     export interface GoogleSearchConsoleSearchOpportunitySignalExtra {
       page: string;
@@ -70049,6 +70249,12 @@ export namespace Schemas {
       dashboard_id: number | null;
     }
 
+    export interface MicrosoftDefenderCloudAppsScannerFindingSignalExtra {
+      severity_value: string | null;
+      resolution_status_value: string | null;
+      timestamp: string | null;
+    }
+
     export interface MinimalPerson {
       /** Numeric person ID. */
       readonly id: number;
@@ -80954,6 +81160,16 @@ export namespace Schemas {
          * @nullable
          */
       dismissal_note: string | null;
+      /**
+         * Query time an accepted materialize or unmaterialize suggestion saved over the last 30 days, scaled to a month: what the view would cost without the change minus what it costs now. For materialize, people's reads cost what they cost per read before acceptance, at today's read volume, and the cost now is those reads plus refreshes. For unmaterialize, the cost without the change is its refreshes, and the cost now is every read. Negative when the change costs more than it saves. Null until 30 days have passed since acceptance, when a materialized view has no refresh in that time, and for other kinds.
+         * @nullable
+         */
+      realized_seconds_saved_per_month: number | null;
+      /**
+         * Bytes read that an accepted materialize or unmaterialize suggestion saved over the last 30 days, scaled to a month, measured the same way as realized_seconds_saved_per_month.
+         * @nullable
+         */
+      realized_bytes_saved_per_month: number | null;
       /** Whether the caller has edit access to the subject and so may accept, dismiss or resume. */
       can_act: boolean;
     }
@@ -86723,7 +86939,13 @@ export namespace Schemas {
     }
 
     /**
-     * Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles.
+     * Settings for tile groups, keyed by the tiles' group_key. Each group shows as a band of its tiles under a heading that viewers can open and close. Viewers who do not have bands yet see only the group title above its tiles. A write replaces the whole map. Send an empty object or null to remove all group settings.
+     * @nullable
+     */
+    export type PatchedPatchedDashboardOpenApiGroups = {[key: string]: DashboardTileGroup} | null;
+
+    /**
+     * Deprecated: use groups. Titles for tile groups, keyed by group_key. A write replaces all titles and keeps the other group settings. Send an empty object or null to clear titles. Do not send it with groups.
      * @nullable
      */
     export type PatchedPatchedDashboardOpenApiGroupTitles = {[key: string]: string} | null;
@@ -86775,7 +86997,12 @@ export namespace Schemas {
        * * `stable` - stable */
       layout_compaction?: LayoutCompactionEnum;
       /**
-         * Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles.
+         * Settings for tile groups, keyed by the tiles' group_key. Each group shows as a band of its tiles under a heading that viewers can open and close. Viewers who do not have bands yet see only the group title above its tiles. A write replaces the whole map. Send an empty object or null to remove all group settings.
+         * @nullable
+         */
+      groups?: PatchedPatchedDashboardOpenApiGroups;
+      /**
+         * Deprecated: use groups. Titles for tile groups, keyed by group_key. A write replaces all titles and keeps the other group settings. Send an empty object or null to clear titles. Do not send it with groups.
          * @nullable
          */
       group_titles?: PatchedPatchedDashboardOpenApiGroupTitles;
@@ -87087,6 +87314,18 @@ export namespace Schemas {
     export interface TeamFeatureFlagPolicyConfig {
       /** When enabled, a new feature flag needs at least one tag, and a tagged flag cannot lose its last one. A create that declares it comes from a survey, experiment, early access feature, product tour, or web experiment is exempt, because those forms have no tag input. The caller sets that declaration, so a flag can still be created without a tag. */
       require_tags?: boolean;
+      /**
+         * Domains to block from feature flag requests (/flags and /decide), up to 100. A domain also covers its subdomains. It is compared with the Origin header, or with the Referer header when Origin is missing. Entries are stored lowercase without duplicates. A pasted URL is reduced to its domain, and an internationalized domain is stored as punycode.
+         * @maxItems 1000
+         * @items.maxLength 2000
+         */
+      blocked_hosts?: string[];
+      /**
+         * IPv4 or IPv6 addresses or CIDR ranges to block from feature flag requests (/flags and /decide), up to 100. Ranges can be /8 or narrower for IPv4 and /16 or narrower for IPv6. Entries are stored in canonical form without duplicates, and an IPv4-mapped IPv6 address is stored as IPv4.
+         * @maxItems 1000
+         * @items.maxLength 2000
+         */
+      blocked_ips?: string[];
     }
 
     /**
@@ -100329,7 +100568,7 @@ export namespace Schemas {
       created_at: string | null;
     }
 
-    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | JiraIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | CheckFailedSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | AnalyticsAnomalyInvestigationSignalExtra | HealthCheckSignalExtra | EngineeringAnalyticsCIFlakyCheckSignalExtra | EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra | EngineeringAnalyticsCIDurationRegressionSignalExtra | FreshdeskTicketSignalExtra | FreshserviceTicketSignalExtra | FrontConversationSignalExtra | GorgiasTicketSignalExtra | KustomerConversationSignalExtra | DixaConversationSignalExtra | PlainThreadSignalExtra | GitlabIssueSignalExtra | GiteaIssueSignalExtra | ShortcutStorySignalExtra | SentryIssueSignalExtra | RollbarItemSignalExtra | BugsnagErrorSignalExtra | HoneybadgerFaultSignalExtra | RaygunErrorGroupSignalExtra | DatadogSignalExtra | SnykScannerFindingSignalExtra | SonarqubeScannerFindingSignalExtra | SemgrepScannerFindingSignalExtra | Rapid7InsightvmScannerFindingSignalExtra | FeaturebaseFeedbackSignalExtra | FrillFeedbackSignalExtra | AhaFeedbackSignalExtra | UservoiceFeedbackSignalExtra | ProductboardFeedbackSignalExtra | CannyFeedbackSignalExtra | AsknicelyFeedbackSignalExtra | RetentlyFeedbackSignalExtra | UsersnapFeedbackSignalExtra | TypeformFeedbackSignalExtra | QualtricsFeedbackSignalExtra | SurveymonkeyFeedbackSignalExtra | FormbricksFeedbackSignalExtra | SurvicateFeedbackSignalExtra | SurveysparrowFeedbackSignalExtra | AppfiguresReviewSignalExtra | AppfollowReviewSignalExtra | JudgemeReviewsReviewSignalExtra | IntercomTicketSignalExtra | HubspotTicketSignalExtra | Dynamics365TicketSignalExtra | ZohoCrmTicketSignalExtra | GoogleSearchConsoleSearchOpportunitySignalExtra | HelpscoutConversationSignalExtra | DecagonConversationSignalExtra | VitallyConversationSignalExtra | PagerdutyIncidentSignalExtra | OpsgenieAlertSignalExtra | IncidentIoIncidentSignalExtra | FirehydrantIncidentSignalExtra | SquadcastIncidentSignalExtra | ServicenowIncidentSignalExtra | SolarwindsServiceDeskIncidentSignalExtra | GrafanaIrmIncidentSignalExtra | XmattersIncidentSignalExtra | LaceworkScannerFindingSignalExtra | OrcaSecurityScannerFindingSignalExtra | TenableVulnerabilityManagementScannerFindingSignalExtra | BetterstackIncidentSignalExtra | AsanaIssueSignalExtra | MondayIssueSignalExtra | PlaneIssueSignalExtra | AzureDevopsIssueSignalExtra | MonteCarloAlertSignalExtra | BigeyeIssueSignalExtra | DynatraceIncidentSignalExtra | StatuspageIncidentSignalExtra | CronitorIncidentSignalExtra | InstatusIncidentSignalExtra | TriggerDevErrorSignalExtra | ChecklyErrorGroupSignalExtra | RoarkIssueSignalExtra | SleekplanFeedbackSignalExtra | BettermodeFeedbackSignalExtra | DiscourseFeedbackSignalExtra | MintlifyFeedbackSignalExtra | LangsmithFeedbackSignalExtra | SprigFeedbackSignalExtra | GainsightPxFeedbackSignalExtra | TrustpilotReviewSignalExtra | OkendoReviewSignalExtra;
+    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | JiraIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | CheckFailedSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | AnalyticsAnomalyInvestigationSignalExtra | HealthCheckSignalExtra | EngineeringAnalyticsCIFlakyCheckSignalExtra | EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra | EngineeringAnalyticsCIDurationRegressionSignalExtra | FreshdeskTicketSignalExtra | FreshserviceTicketSignalExtra | FrontConversationSignalExtra | GorgiasTicketSignalExtra | KustomerConversationSignalExtra | DixaConversationSignalExtra | PlainThreadSignalExtra | GitlabIssueSignalExtra | GiteaIssueSignalExtra | ShortcutStorySignalExtra | SentryIssueSignalExtra | RollbarItemSignalExtra | BugsnagErrorSignalExtra | HoneybadgerFaultSignalExtra | RaygunErrorGroupSignalExtra | DatadogSignalExtra | SnykScannerFindingSignalExtra | SonarqubeScannerFindingSignalExtra | SemgrepScannerFindingSignalExtra | Rapid7InsightvmScannerFindingSignalExtra | FeaturebaseFeedbackSignalExtra | FrillFeedbackSignalExtra | AhaFeedbackSignalExtra | UservoiceFeedbackSignalExtra | ProductboardFeedbackSignalExtra | CannyFeedbackSignalExtra | AsknicelyFeedbackSignalExtra | RetentlyFeedbackSignalExtra | UsersnapFeedbackSignalExtra | TypeformFeedbackSignalExtra | QualtricsFeedbackSignalExtra | SurveymonkeyFeedbackSignalExtra | FormbricksFeedbackSignalExtra | SurvicateFeedbackSignalExtra | SurveysparrowFeedbackSignalExtra | AppfiguresReviewSignalExtra | AppfollowReviewSignalExtra | JudgemeReviewsReviewSignalExtra | IntercomTicketSignalExtra | HubspotTicketSignalExtra | Dynamics365TicketSignalExtra | ZohoCrmTicketSignalExtra | GoogleSearchConsoleSearchOpportunitySignalExtra | HelpscoutConversationSignalExtra | DecagonConversationSignalExtra | VitallyConversationSignalExtra | PagerdutyIncidentSignalExtra | OpsgenieAlertSignalExtra | IncidentIoIncidentSignalExtra | FirehydrantIncidentSignalExtra | SquadcastIncidentSignalExtra | ServicenowIncidentSignalExtra | SolarwindsServiceDeskIncidentSignalExtra | GrafanaIrmIncidentSignalExtra | XmattersIncidentSignalExtra | LaceworkScannerFindingSignalExtra | OrcaSecurityScannerFindingSignalExtra | TenableVulnerabilityManagementScannerFindingSignalExtra | BetterstackIncidentSignalExtra | AsanaIssueSignalExtra | MondayIssueSignalExtra | PlaneIssueSignalExtra | AzureDevopsIssueSignalExtra | MonteCarloAlertSignalExtra | BigeyeIssueSignalExtra | DynatraceIncidentSignalExtra | StatuspageIncidentSignalExtra | CronitorIncidentSignalExtra | InstatusIncidentSignalExtra | GooglePlayConsoleIssueSignalExtra | AzureApplicationInsightsIssueSignalExtra | AppsignalIssueSignalExtra | CursorIssueSignalExtra | TriggerDevErrorSignalExtra | ChecklyErrorGroupSignalExtra | RoarkIssueSignalExtra | SleekplanFeedbackSignalExtra | BettermodeFeedbackSignalExtra | DiscourseFeedbackSignalExtra | MintlifyFeedbackSignalExtra | LangsmithFeedbackSignalExtra | SprigFeedbackSignalExtra | GainsightPxFeedbackSignalExtra | TrustpilotReviewSignalExtra | OkendoReviewSignalExtra | AwsSecurityHubScannerFindingSignalExtra | AwsGuarddutyScannerFindingSignalExtra | AwsInspectorScannerFindingSignalExtra | MicrosoftDefenderCloudAppsScannerFindingSignalExtra;
 
     export type SignalMatchMetadata = MatchedMetadata | NoMatchMetadata;
 
@@ -106415,6 +106654,8 @@ export namespace Schemas {
       pull_requests?: string[];
       /** Explicitly end another actor's claim and take ownership. */
       takeover?: boolean;
+      /** With takeover, the claim the caller expects to replace. The takeover is rejected when a different claim is active, so a takeover based on a stale read cannot replace a newer claim. */
+      takeover_claim_id?: string;
       /** Compatibility alias for adding one PR. Prefer pull_requests for new callers. */
       pr_url?: string;
       /** Release ownership while preserving any attached pull request. */
@@ -124776,6 +125017,9 @@ export namespace Schemas {
      * * `DataQualityCheck` - DataQualityCheck
      * * `DataQualityCheckSchedule` - DataQualityCheckSchedule
      * * `WarehouseSuggestion` - WarehouseSuggestion
+     * * `AccessControl` - AccessControl
+     * * `DataWarehouseTable` - DataWarehouseTable
+     * * `DataWarehouseJoin` - DataWarehouseJoin
      * * `Billing` - Billing
      * * `Loop` - Loop
      * * `StamphogRepoConfig` - StamphogRepoConfig
@@ -124890,6 +125134,9 @@ export namespace Schemas {
       DataQualityCheck: 'DataQualityCheck',
       DataQualityCheckSchedule: 'DataQualityCheckSchedule',
       WarehouseSuggestion: 'WarehouseSuggestion',
+      AccessControl: 'AccessControl',
+      DataWarehouseTable: 'DataWarehouseTable',
+      DataWarehouseJoin: 'DataWarehouseJoin',
       Billing: 'Billing',
       Loop: 'Loop',
       StamphogRepoConfig: 'StamphogRepoConfig',
@@ -124990,6 +125237,9 @@ export namespace Schemas {
      * * `DataQualityCheck` - DataQualityCheck
      * * `DataQualityCheckSchedule` - DataQualityCheckSchedule
      * * `WarehouseSuggestion` - WarehouseSuggestion
+     * * `AccessControl` - AccessControl
+     * * `DataWarehouseTable` - DataWarehouseTable
+     * * `DataWarehouseJoin` - DataWarehouseJoin
      * * `Billing` - Billing
      * * `Loop` - Loop
      * * `StamphogRepoConfig` - StamphogRepoConfig
@@ -125092,6 +125342,9 @@ export namespace Schemas {
       DataQualityCheck: 'DataQualityCheck',
       DataQualityCheckSchedule: 'DataQualityCheckSchedule',
       WarehouseSuggestion: 'WarehouseSuggestion',
+      AccessControl: 'AccessControl',
+      DataWarehouseTable: 'DataWarehouseTable',
+      DataWarehouseJoin: 'DataWarehouseJoin',
       Billing: 'Billing',
       Loop: 'Loop',
       StamphogRepoConfig: 'StamphogRepoConfig',
