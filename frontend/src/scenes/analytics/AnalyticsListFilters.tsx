@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconEye, IconHide, IconTrends } from '@posthog/icons'
+import { IconTrends } from '@posthog/icons'
 import { Button, ToggleGroup, ToggleGroupItem } from '@posthog/quill'
 
 import { fullName } from 'lib/utils/strings'
@@ -9,6 +9,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { tagsModel } from '~/models/tagsModel'
 
+import { AnalyticsDisplayMenu } from './AnalyticsDisplayMenu'
 import { AnalyticsFilterOption, AnalyticsFilterPicker } from './AnalyticsFilterPicker'
 import { analyticsListLogic } from './analyticsListLogic'
 import { AnalyticsOwnerAvatar } from './AnalyticsOwner'
@@ -19,7 +20,7 @@ import { ANALYTICS_TYPES, AnalyticsTypeFilter } from './analyticsUtils'
 /** Search, type, creator and the personal toggle, all one height so the row reads as one bar. */
 export function AnalyticsListFilters(): JSX.Element {
     const { filters, filtersActive, searchInput, scope, insightsHidden } = useValues(analyticsListLogic)
-    const { setSearchInput, setFilters, clearFilters, setInsightsHidden } = useActions(analyticsListLogic)
+    const { setSearchInput, setFilters, clearFilters } = useActions(analyticsListLogic)
     const { tags: allTags, tagsLoading } = useValues(tagsModel)
     const { loadTagsIfNeeded } = useActions(tagsModel)
     const { meFirstMembers, membersLoading } = useValues(membersLogic)
@@ -53,7 +54,10 @@ export function AnalyticsListFilters(): JSX.Element {
                     <IconTrends />
                     All
                 </ToggleGroupItem>
-                {ANALYTICS_TYPES.map((info) => (
+                {ANALYTICS_TYPES.filter(
+                    // A link can still open the insight type, so its tab stays while it is the one shown.
+                    (info) => !insightsHidden || info.type !== 'insight' || filters.type === 'insight'
+                ).map((info) => (
                     <ToggleGroupItem
                         key={info.type}
                         value={info.type}
@@ -97,23 +101,14 @@ export function AnalyticsListFilters(): JSX.Element {
                 emptyText="No tag matches"
                 dataAttr="analytics-list-tags"
             />
-            {filters.type === 'all' && (
-                <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-8"
-                    onClick={() => setInsightsHidden(!insightsHidden)}
-                    data-attr="analytics-list-hide-insights"
-                >
-                    {insightsHidden ? <IconEye /> : <IconHide />}
-                    <span>{insightsHidden ? 'Show insights' : 'Hide insights'}</span>
-                </Button>
-            )}
             {filtersActive && (
                 <Button variant="link-muted" size="sm" onClick={() => clearFilters()} data-attr="analytics-list-clear">
                     Clear filters
                 </Button>
             )}
+            <div className="ml-auto">
+                <AnalyticsDisplayMenu />
+            </div>
         </div>
     )
 }
