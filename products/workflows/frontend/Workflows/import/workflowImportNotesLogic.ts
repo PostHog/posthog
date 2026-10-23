@@ -3,7 +3,7 @@ import { loaders } from 'kea-loaders'
 
 import { ApiConfig } from 'lib/api'
 
-import { workflowImportsList } from 'products/workflows/frontend/generated/api'
+import { workflowImportsForWorkflowRetrieve } from 'products/workflows/frontend/generated/api'
 import { WorkflowImportNoteApi, WorkflowImportRecordApi } from 'products/workflows/frontend/generated/api.schemas'
 
 export interface WorkflowImportNotesLogicProps {
@@ -60,10 +60,17 @@ export const workflowImportNotesLogic = kea<workflowImportNotesLogicType>([
             null as WorkflowImportRecordApi | null,
             {
                 loadImportRecord: async () => {
-                    const records = await workflowImportsList(String(ApiConfig.getCurrentTeamId()), {
-                        hog_flow_id: props.id,
-                    })
-                    return records[0] ?? null
+                    try {
+                        return await workflowImportsForWorkflowRetrieve(String(ApiConfig.getCurrentTeamId()), {
+                            hog_flow_id: props.id,
+                        })
+                    } catch (error: any) {
+                        // Most workflows were never imported, which the endpoint answers with a 404.
+                        if (error?.status === 404) {
+                            return null
+                        }
+                        throw error
+                    }
                 },
             },
         ],
