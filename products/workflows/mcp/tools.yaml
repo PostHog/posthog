@@ -482,6 +482,7 @@ tools:
             complaint rates (project-wide and per workflow, worst first), the AWS SES verdict, per-mailbox-provider
             health, and any suspension. sending_allowance, aws and reputation are null for a user without project-wide
             workflow access.
+        feature_flag: workflows-sending-tier-requests
         response:
             include:
                 - sending_allowance
@@ -495,7 +496,6 @@ tools:
                 - email_sending_suspended_at
                 - email_sending_suspension_reason
             selectable: true
-        feature_flag: workflows-sending-tier-requests
     workflows-restore-revision:
         operation: hog_flows_revisions_restore_create
         enabled: true
