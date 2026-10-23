@@ -110,6 +110,9 @@ def trends_query_for(insight: Insight, profile: ScoringProfile) -> TrendsQuery:
         raise UnsupportedInsightError("Insight shows a single value, not a time series")
     if trends.trendsFilter and trends.trendsFilter.display == ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE:
         raise UnsupportedInsightError("Cumulative insights are not scored")
+    if trends.trendsFilter and trends.trendsFilter.display == ChartDisplayType.CALENDAR_HEATMAP:
+        # The chart has its own runner and shows hours of the week, not a time series.
+        raise UnsupportedInsightError("Calendar heatmaps are not scored")
     interval_scoring(profile, _interval(trends))
     return trends
 

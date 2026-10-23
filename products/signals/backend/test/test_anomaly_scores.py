@@ -270,6 +270,13 @@ class TestTrendsQueryFor(SimpleTestCase):
                 ).model_dump(exclude_none=True),
             ),
             (
+                "calendar_heatmap",
+                TrendsQuery(
+                    series=[EventsNode(event="$pageview")],
+                    trendsFilter=TrendsFilter(display=ChartDisplayType.CALENDAR_HEATMAP),
+                ).model_dump(exclude_none=True),
+            ),
+            (
                 "minute_interval",
                 TrendsQuery(series=[EventsNode(event="$pageview")], interval=IntervalType.MINUTE).model_dump(
                     exclude_none=True
