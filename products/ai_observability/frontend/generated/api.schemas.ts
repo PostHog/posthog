@@ -2613,6 +2613,234 @@ export interface PatchedEvaluationApi {
     readonly user_access_level?: string | null
 }
 
+/**
+ * Null when the evaluation has no passing rule, or the run was not graded by it.
+ */
+export type EvaluationRunApiOutcome = (typeof EvaluationRunApiOutcome)[keyof typeof EvaluationRunApiOutcome] | null
+
+export const EvaluationRunApiOutcome = {
+    Passed: 'passed',
+    Failed: 'failed',
+} as const
+
+export interface EvaluationRunApi {
+    timestamp: string
+    /** Null when the evaluation has no passing rule, or the run was not graded by it. */
+    outcome: EvaluationRunApiOutcome
+    /** The evaluator's reasoning, cut to about 1,000 characters. */
+    reasoning: string | null
+    /** The generation the run graded. Null for trace and session runs. */
+    targetEventId: string | null
+    traceId: string | null
+}
+
+export interface EvaluationRunsApi {
+    /** Newest first. */
+    results: EvaluationRunApi[]
+}
+
+export interface ScoreScaleApi {
+    min: number
+    max: number
+}
+
+export interface ScoreBucketApi {
+    label: string
+    count: number
+}
+
+export interface ScoreHistogramApi {
+    scale: ScoreScaleApi
+    /** One bucket per integer on a small integer scale, else ten equal buckets across the scale. */
+    buckets: ScoreBucketApi[]
+}
+
+export type EvaluationsOverviewIntervalEnumApi =
+    (typeof EvaluationsOverviewIntervalEnumApi)[keyof typeof EvaluationsOverviewIntervalEnumApi]
+
+export const EvaluationsOverviewIntervalEnumApi = {
+    Hour: 'hour',
+    Day: 'day',
+} as const
+
+export interface PassFailCountsApi {
+    passed: number
+    failed: number
+}
+
+export interface ScoreDistributionApi {
+    mean: number
+    /** The configured score bounds, or null when the evaluation sets none. */
+    scale: ScoreScaleApi | null
+}
+
+export interface PassRateSummaryApi {
+    kind: 'pass_rate'
+    passed: number
+    failed: number
+    /** Counts in the previous period, or null when it graded too few to compare. */
+    previous: PassFailCountsApi | null
+    /** The score of numeric evaluations with a passing rule. */
+    score: ScoreDistributionApi | null
+}
+
+export interface ScoreSummaryApi {
+    kind: 'score'
+    /** Null when the current period scored nothing. */
+    score: ScoreDistributionApi | null
+    previousMean: number | null
+}
+
+export interface CategoryCountApi {
+    key: string
+    label: string
+    count: number
+    /** Percentage of the previous period's graded runs with this category, or null when it graded too few to compare. */
+    previousShare: number | null
+}
+
+export interface CategoriesSummaryApi {
+    kind: 'categories'
+    multiple: boolean
+    /** Sorted by count, most frequent first. */
+    categories: CategoryCountApi[]
+    /** Multiple-selection runs that returned no category. */
+    noCategoriesCount: number
+}
+
+export interface SentimentSummaryApi {
+    kind: 'sentiment'
+    positive: number
+    neutral: number
+    negative: number
+    previousNegativeShare: number | null
+}
+
+export interface EvaluationResultTrendApi {
+    /** Headline value per bucket, aligned with the overview's `buckets`. Null where nothing was graded. */
+    values: (number | null)[]
+    /** Graded runs per bucket. */
+    volume: number[]
+}
+
+export type ResultChangeUnitEnumApi = (typeof ResultChangeUnitEnumApi)[keyof typeof ResultChangeUnitEnumApi]
+
+export const ResultChangeUnitEnumApi = {
+    Pp: 'pp',
+    Points: 'points',
+} as const
+
+export interface ResultChangeApi {
+    /** Signed difference against the previous period, rounded for display. */
+    value: number
+    unit: ResultChangeUnitEnumApi
+    /** What changed when it is not the headline, such as a category label. */
+    subject: string | null
+}
+
+export type AttentionReasonsEnumApi = (typeof AttentionReasonsEnumApi)[keyof typeof AttentionReasonsEnumApi]
+
+export const AttentionReasonsEnumApi = {
+    Errored: 'errored',
+    Silent: 'silent',
+    Worse: 'worse',
+} as const
+
+export type BucketStatusEnumApi = (typeof BucketStatusEnumApi)[keyof typeof BucketStatusEnumApi]
+
+export const BucketStatusEnumApi = {
+    None: 'none',
+    Dip: 'dip',
+    Normal: 'normal',
+} as const
+
+export interface EvaluationResultApi {
+    id: string
+    name: string
+    directoryName: string | null
+    evaluationType: string
+    outputType: string
+    enabled: boolean
+    /** Why the evaluation stopped with an error, as an evaluation status reason, or null when it has none. */
+    statusReason: string | null
+    createdBy: string | null
+    gradedCount: number
+    /** Graded runs in the previous period, or null when none. */
+    previousGradedCount: number | null
+    notApplicableCount: number
+    /** Runs skipped before scoring. */
+    skippedCount: number
+    /** The latest graded run in the current or previous period. */
+    lastRunAt: string | null
+    summary: PassRateSummaryApi | ScoreSummaryApi | CategoriesSummaryApi | SentimentSummaryApi
+    trend: EvaluationResultTrendApi
+    /** Change against the previous period, or null when not comparable. */
+    change: ResultChangeApi | null
+    lowEvidence: boolean
+    attentionReasons: AttentionReasonsEnumApi[]
+    /** Each bucket against the previous period. A bucket with too few graded runs to judge is never a dip. */
+    bucketStatus: BucketStatusEnumApi[]
+    /** Key of the category a categorical evaluation's trend follows. */
+    trackedCategory: string | null
+}
+
+/**
+ * The same figure for both periods, over only the evaluations with results in both.
+ */
+export interface PeriodComparisonApi {
+    current: number
+    previous: number
+}
+
+export interface OverviewSentimentApi {
+    evaluationId: string
+    negativeShare: number
+    previousShare: number | null
+}
+
+export interface OverviewTotalsApi {
+    graded: number
+    /** Graded runs in each period, over evaluations with results in both. Null when none has. */
+    gradedComparison: PeriodComparisonApi | null
+    gradedTrend: number[]
+    sentiment: OverviewSentimentApi | null
+}
+
+export interface PassRateOverviewEntryApi {
+    evaluationId: string
+    rate: number
+    lowEvidence: boolean
+}
+
+export interface PassRateOverviewApi {
+    /** Enabled pass rate evaluations, lowest rate first. */
+    entries: PassRateOverviewEntryApi[]
+    /** Median of the per-evaluation pass rates without low evidence. */
+    median: number | null
+    /** Median pass rate in each period, over evaluations with results in both. Null when none has. */
+    medianComparison: PeriodComparisonApi | null
+    /** Median pass rate per bucket, aligned with `buckets`. */
+    medianTrend: (number | null)[]
+}
+
+export interface EvaluationsOverviewApi {
+    /** Start of the period, in the project's timezone. */
+    start: string
+    /** End of the period, exclusive. */
+    end: string
+    previousStart: string
+    /** End of the previous period. While the current period runs, the previous one stops at the same point, so both cover the same length of time. */
+    previousEnd: string
+    /** `hour` for a period of two days or less, else `day`. */
+    interval: EvaluationsOverviewIntervalEnumApi
+    /** Start of each bucket, in the project's timezone. Every series is aligned with it. The first bucket can start before `start`. */
+    buckets: string[]
+    evaluations: EvaluationResultApi[]
+    /** Totals over the enabled evaluations. */
+    totals: OverviewTotalsApi
+    passRateOverview: PassRateOverviewApi
+}
+
 export type TestHogRequestApiOutputConfigOptionsItem = {
     /**
      * Stable category key.
@@ -5425,6 +5653,77 @@ export type EvaluationsBackfillsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+}
+
+export type EvaluationsRunsRetrieveParams = {
+    /**
+     * Start of the period: a date for the whole day in the project's timezone, or an ISO 8601 datetime. Defaults to 13 days before `date_to`.
+     */
+    date_from?: string
+    /**
+     * End of the period: a date includes that whole day, a datetime is an exclusive instant. Defaults to today.
+     */
+    date_to?: string
+    /**
+     * How many runs to return, newest first.
+     * @minimum 1
+     * @maximum 50
+     */
+    limit?: number
+    /**
+     * Only runs with this outcome under the evaluation's passing rule. Without it, every graded run, including scored, categorized and sentiment runs. An evaluation without a passing rule rejects this filter with a 400.
+     *
+     * * `passed` - Passed
+     * * `failed` - Failed
+     * @minLength 1
+     */
+    outcome?: EvaluationsRunsRetrieveOutcome
+    /**
+     * Skip the result cached for the last five minutes and compute it again.
+     */
+    refresh?: boolean
+}
+
+export type EvaluationsRunsRetrieveOutcome =
+    (typeof EvaluationsRunsRetrieveOutcome)[keyof typeof EvaluationsRunsRetrieveOutcome]
+
+export const EvaluationsRunsRetrieveOutcome = {
+    Passed: 'passed',
+    Failed: 'failed',
+} as const
+
+export type EvaluationsScoreDistributionRetrieveParams = {
+    /**
+     * Start of the period: a date for the whole day in the project's timezone, or an ISO 8601 datetime. Defaults to 13 days before `date_to`.
+     */
+    date_from?: string
+    /**
+     * End of the period: a date includes that whole day, a datetime is an exclusive instant. Defaults to today.
+     */
+    date_to?: string
+    /**
+     * Skip the result cached for the last five minutes and compute it again.
+     */
+    refresh?: boolean
+}
+
+export type EvaluationsOverviewRetrieveParams = {
+    /**
+     * Start of the period: a date for the whole day in the project's timezone, or an ISO 8601 datetime. Defaults to 13 days before `date_to`.
+     */
+    date_from?: string
+    /**
+     * End of the period: a date includes that whole day, a datetime is an exclusive instant. Defaults to today.
+     */
+    date_to?: string
+    /**
+     * Only these evaluations. Defaults to every evaluation the user can see.
+     */
+    evaluation_ids?: string[]
+    /**
+     * Skip the result cached for the last five minutes and compute it again.
+     */
+    refresh?: boolean
 }
 
 export type LlmAnalyticsClusteringJobsListParams = {
