@@ -127,7 +127,7 @@ class TestInjectIncrementalFilter(SimpleTestCase):
     @parameterized.expand(
         [
             ("upper_bound", False, "{key} >= {since} AND {key} < {until}"),
-            ("null_keys_included", True, "({key} >= {since} AND {key} < {until}) OR {key} IS NULL"),
+            ("null_keys_included", True, "({key} >= {since} AND {key} < {until}) OR isNull({key})"),
         ]
     )
     def test_a_bounded_window_filters_the_source_and_the_guard(

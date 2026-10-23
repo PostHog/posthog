@@ -75,13 +75,7 @@ def _window_predicate(key: ast.Expr, *, since: Any, until: Any, include_null_key
         bounded = ast.And(exprs=[bounded, _compare(key, ast.CompareOperationOp.Lt, until)])
     if not include_null_keys:
         return bounded
-    is_null = ast.CompareOperation(
-        left=clone_expr(key),
-        right=ast.Constant(value=None),
-        op=ast.CompareOperationOp.Eq,
-        is_null_comparison_style=True,
-    )
-    return ast.Or(exprs=[bounded, is_null])
+    return ast.Or(exprs=[bounded, ast.Call(name="isNull", args=[clone_expr(key)])])
 
 
 def _compare(key: ast.Expr, op: ast.CompareOperationOp, value: Any) -> ast.CompareOperation:
