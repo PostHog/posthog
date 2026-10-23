@@ -32,7 +32,6 @@ ANOMALY_SCORING_FLAG_DISTINCT_ID = "signals_anomaly_scoring"
 class IntervalScoring:
     """How one interval is scored. The detector is any registered detector config, so swapping it needs no code."""
 
-    lookback: str
     min_points: int
     detector: dict[str, Any]
 
@@ -64,10 +63,10 @@ def _zscore(window: int) -> dict[str, Any]:
 DEFAULT_PROFILE = ScoringProfile(
     name="default-v1",
     intervals={
-        IntervalType.HOUR: IntervalScoring(lookback="-28d", min_points=336, detector=_zscore(336)),
-        IntervalType.DAY: IntervalScoring(lookback="-365d", min_points=56, detector=_zscore(56)),
-        IntervalType.WEEK: IntervalScoring(lookback="-156w", min_points=52, detector=_zscore(52)),
-        IntervalType.MONTH: IntervalScoring(lookback="-60m", min_points=24, detector=_zscore(24)),
+        IntervalType.HOUR: IntervalScoring(min_points=336, detector=_zscore(336)),
+        IntervalType.DAY: IntervalScoring(min_points=56, detector=_zscore(56)),
+        IntervalType.WEEK: IntervalScoring(min_points=52, detector=_zscore(52)),
+        IntervalType.MONTH: IntervalScoring(min_points=24, detector=_zscore(24)),
     },
 )
 
