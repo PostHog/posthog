@@ -12,7 +12,7 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
-from posthog.models import Organization, Team
+from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.models.scoping import team_scope
 
 from products.signals.backend.artefact_schemas import (
@@ -58,6 +58,7 @@ from products.signals.backend.scout_report import (
 )
 from products.signals.backend.scout_report.judge import resolve_authored_report_status
 from products.signals.backend.scout_report.persistence import _report_metrics_unchanged
+from products.signals.backend.slack_inbox_notifications import resolve_suggested_reviewer_user_ids
 from products.signals.backend.spend import signal_spend_totals
 from products.tasks.backend.models import Task, TaskRun
 
@@ -102,21 +103,31 @@ class TestScoutReportPersistence(BaseTest):
         )
         return run
 
-    def test_empty_selection_enrolls_a_new_report_in_the_writer(self) -> None:
+    @parameterized.expand([False, True])
+    def test_agent_selection_enrolls_a_new_report_in_the_writer(self, selected: bool) -> None:
+        member = User.objects.create(email="scout-reviewer@example.com")
+        OrganizationMembership.objects.create(user=member, organization=self.organization)
+        chosen = [member, self.user] if selected else []
         with (
             patch("products.signals.backend.reviewer_rules.assignment_writer_enabled", return_value=True),
             patch("products.signals.backend.assignment_flags.feature_enabled_or_false", return_value=False),
         ):
             result = create_scout_report(
                 team_id=self.team.id,
-                title="A report without reviewers",
-                summary="No suitable owner was selected.",
+                title="A report with an agent reviewer decision",
+                summary="Checked current responsibility.",
                 signals=[ScoutReportSignal(description="A synthetic finding", source_id="example", weight=1.0)],
                 attribution=ArtefactAttribution.system(),
+                suggested_reviewers=SuggestedReviewers(
+                    root=[SuggestedReviewerEntry(user_uuid=str(user.uuid)) for user in chosen]
+                ),
             )
             snapshot = ReviewerRules.read_for_report(team_id=self.team.id, report_id=result.report_id)
             assert snapshot.state.corrections_id is not None
-            assert snapshot.reviewers == ()
+            assert [entry.user_uuid for entry in snapshot.reviewers] == [str(user.uuid) for user in chosen]
+            assert resolve_suggested_reviewer_user_ids(SignalReport.objects.get(id=result.report_id)) == {
+                user.id for user in chosen
+            }
             assert not assignment_side_effects_allowed(team_id=self.team.id, report_id=result.report_id)
 
     @parameterized.expand(
