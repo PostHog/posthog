@@ -167,12 +167,16 @@ from products.dashboards.backend.widget_access import (
     check_widget_tile_product_access,
     get_widget_api_scope_error,
     get_widget_product_access_error,
+    is_api_key_or_oauth_request,
 )
 from products.dashboards.backend.widget_availability import get_widget_feature_enabled
 from products.dashboards.backend.widget_catalog import get_widget_catalog_entries, parse_widget_type_filter
 from products.dashboards.backend.widget_create import create_widget_tile, prepare_widget_tile_create
 from products.dashboards.backend.widget_layouts import collect_dashboard_sm_layouts_for_dashboard
-from products.dashboards.backend.widget_query_throttle import get_dashboard_widget_query_throttle_error
+from products.dashboards.backend.widget_query_throttle import (
+    get_dashboard_chart_widget_session_throttle_error,
+    get_dashboard_widget_query_throttle_error,
+)
 from products.dashboards.backend.widget_registry import (
     EXPECTED_WIDGET_TYPES,
     SESSION_REPLAY_LIST_WIDGET_TYPE,
@@ -3903,7 +3907,13 @@ class DashboardsViewSet(
                 continue
 
             spec = get_widget_spec(widget.widget_type)
-            widget_throttle_error = get_dashboard_widget_query_throttle_error(request, self)
+            widget_throttle_error = (
+                get_dashboard_chart_widget_session_throttle_error(request, self)
+                if spec is not None
+                and spec.session_throttle == "per_viewer"
+                and not is_api_key_or_oauth_request(request)
+                else get_dashboard_widget_query_throttle_error(request, self)
+            )
             if widget_throttle_error:
                 results_by_id[tile_id] = {
                     "tile_id": tile_id,

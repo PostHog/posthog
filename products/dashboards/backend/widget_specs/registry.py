@@ -90,6 +90,10 @@ class WidgetSpec:
     # filters like one. run_widgets then passes `dashboard_id`, the effective `dashboard_filters` and
     # `force_refresh` (a manual refresh) to `query_fn`.
     receives_dashboard_filters: bool = False
+    # "shared": every run counts against the shared per-team widget query throttle. "per_viewer": a browser
+    # session counts against a per-viewer chart throttle instead, so dashboards full of chart tiles don't use up
+    # the team's quota for every other widget. API key and OAuth requests always use the shared throttle.
+    session_throttle: Literal["shared", "per_viewer"] = "shared"
     # Config keys left out of the config that shared and public dashboards receive.
     public_config_exclude: tuple[str, ...] = ()
 
@@ -316,6 +320,7 @@ def _load_widget_specs() -> dict[str, WidgetSpec]:
             filter_fields=(),
             creation_flag="metrics",
             receives_dashboard_filters=True,
+            session_throttle="per_viewer",
             # Shared dashboards show a placeholder for widget tiles, so the query text has no reason to leave.
             public_config_exclude=("query",),
         ),
