@@ -27,6 +27,7 @@ import {
 } from '@/hono/analytics'
 import { MCP_EXEC_SKILLS_FEATURE_FLAG } from '@/hono/constants'
 import { InstructionsBuilder } from '@/hono/instructions'
+import { MCP_INTENT_PROMPT_FLAG } from '@/hono/intent-prompt'
 import type { ResolvedState } from '@/hono/request-state-resolver'
 import { MCPClientProfile } from '@/lib/client-detection'
 import { MCP_NO_DATA_INSTALL_NOTICE_FLAG } from '@/lib/no-data-guard'
@@ -158,67 +159,57 @@ describe('Hono MCP analytics contexts', () => {
         expect(mockCapture).not.toHaveBeenCalled()
     })
 
-    it.each(
-        [false, true].flatMap((impersonated) =>
-            [false, true].flatMap((suppressed) =>
-                [false, true].map((isError) => ({ impersonated, suppressed, isError }))
-            )
+    it.each([
+        { impersonated: true, isError: false },
+        { impersonated: true, isError: true },
+        { impersonated: false, isError: false },
+        { impersonated: false, isError: true },
+    ])('passes impersonated=$impersonated to the SDK with isError=$isError', async ({ impersonated, isError }) => {
+        const state = makeState({ isImpersonated: impersonated, suppressAnalytics: impersonated })
+
+        await trackToolCall('user-get', 12, isError, state, {
+            is_impersonated: !impersonated,
+            suppress_analytics: !impersonated,
+        })
+        await trackInitEvent(state)
+        await trackToolsList(['user-get'], state)
+        await trackExecuteSqlGeneration('execute-sql', { query: 'SELECT 1' }, state, { durationMs: 12, isError })
+        await trackToolSpan('user-get', state, { input: {}, output: {}, durationMs: 12, isError })
+        await trackSkillInvoked(state, { source: 'posthog', skill: 'test-skill', readKind: 'skill' })
+
+        expect(mockCaptureToolCall).toHaveBeenCalledWith(
+            expect.objectContaining({
+                toolName: 'user-get',
+                isError,
+                properties: expect.objectContaining({
+                    is_impersonated: impersonated,
+                    suppress_analytics: impersonated,
+                }),
+            })
         )
-    )(
-        'passes impersonated=$impersonated, suppressed=$suppressed, isError=$isError to the SDK',
-        async ({ impersonated, suppressed, isError }) => {
-            const state = makeState({ isImpersonated: impersonated, suppressAnalytics: suppressed })
-
-            await trackToolCall('user-get', 12, isError, state, {
-                is_impersonated: !impersonated,
-                suppress_analytics: !suppressed,
-            })
-            await trackInitEvent(state)
-            await trackToolsList(['user-get'], state, {
-                intent_prompt_status: 'trial',
-                intent_prompt_text: 'State the abstract task objective.',
-                intent_prompt_hash: 'synthetic-hash',
-            })
-            await trackExecuteSqlGeneration('execute-sql', { query: 'SELECT 1' }, state, { durationMs: 12, isError })
-            await trackToolSpan('user-get', state, { input: {}, output: {}, durationMs: 12, isError })
-            await trackSkillInvoked(state, { source: 'posthog', skill: 'test-skill', readKind: 'skill' })
-
-            expect(mockCaptureToolCall).toHaveBeenCalledWith(
+        for (const capture of [mockCaptureInitialize, mockCaptureToolsList]) {
+            expect(capture).toHaveBeenCalledWith(
                 expect.objectContaining({
-                    toolName: 'user-get',
-                    isError,
                     properties: expect.objectContaining({
                         is_impersonated: impersonated,
-                        suppress_analytics: suppressed,
+                        suppress_analytics: impersonated,
                     }),
                 })
             )
-            for (const capture of [mockCaptureInitialize, mockCaptureToolsList]) {
-                expect(capture).toHaveBeenCalledWith(
-                    expect.objectContaining({
-                        properties: expect.objectContaining({
-                            is_impersonated: impersonated,
-                            suppress_analytics: suppressed,
-                        }),
-                    })
-                )
-            }
-            const listing = mockCaptureToolsList.mock.calls[0]![0]
-            expect(listing.sessionId).toBe('session-uuid')
-            expect(listing.conversationId).toBe('conversation-request')
-            if (impersonated || suppressed) {
-                expect(listing.properties).not.toHaveProperty('intent_prompt_status')
-                expect(listing.properties).not.toHaveProperty('intent_prompt_text')
-                expect(listing.properties).not.toHaveProperty('intent_prompt_hash')
-            } else {
-                expect(listing.properties).toMatchObject({ intent_prompt_status: 'trial' })
-            }
-            expect(mockCapture).toHaveBeenCalledTimes(3)
-            for (const [event] of mockCapture.mock.calls) {
-                expect(event.properties.suppress_analytics).toBe(suppressed)
-            }
         }
-    )
+        expect(mockCapture).toHaveBeenCalledTimes(3)
+        for (const [event] of mockCapture.mock.calls) {
+            expect(event.properties.suppress_analytics).toBe(impersonated)
+        }
+    })
+
+    it.each([true, false, undefined])('records the evaluated intent prompt flag: %s', async (flagValue) => {
+        const state = makeState({ toolFeatureFlags: { [MCP_INTENT_PROMPT_FLAG]: flagValue } })
+
+        await trackToolCall('user-get', 12, false, state)
+
+        expect(mockCaptureToolCall.mock.calls[0]![0].properties[`$feature/${MCP_INTENT_PROMPT_FLAG}`]).toBe(flagValue)
+    })
 
     it('emits request properties on $mcp fields and session properties on mcp_session fields', async () => {
         await trackInitEvent(makeState())

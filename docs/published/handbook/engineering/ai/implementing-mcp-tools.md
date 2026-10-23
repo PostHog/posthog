@@ -110,21 +110,9 @@ Start with a release condition matching one authenticated user's distinct ID; do
 
 Clients cache tool schemas. Refresh the client's tool list or reconnect after deployment before collecting trial data.
 Use the targeted user's calls after that refresh for offline evaluation, and record when the payload changes.
-Each `$mcp_tools_list` event records the analytics prompt actually present in the returned tool schemas:
-
-- `intent_prompt_status`: `default` or `trial` when a single SDK-injected description is observed; `injection_failed` when SDK preparation throws; `not_injected` when no analytics context field was added; `unknown` when descriptions differ or do not match the configured trial.
-- `intent_prompt_text`: the exact served description, with `intent_prompt_hash` as its SHA-256 digest. Editing the payload therefore changes the hash without requiring a separate version field.
-- `intent_prompt_tools`: the tools that received that description. Existing application-owned `context` fields are excluded.
-
-These are trial-specific properties passed through the SDK's existing `captureToolsList` API, not new `$mcp_*` fields.
-Impersonated and analytics-suppressed requests omit these properties and remain subject to the existing SDK capture suppression.
-Only put abstract, non-sensitive instructions in the flag payload: that configured text is captured verbatim.
-
-For offline comparison, match a call to the most recent preceding tools-list event for the same authenticated user, client, and existing session or conversation handle, and require that the called tool appears in `intent_prompt_tools`.
-Use the recorded hash from that listing, not the flag value evaluated at call time.
-Leave calls with no matching listing, missing correlation handles, or an ambiguous prompt as unknown; do not count them as controls.
-A listing records what the server served, not proof that the model consumed it. Reused or concurrent client sessions can make attribution ambiguous.
-This tracking starts after deployment and cannot establish exposure for earlier calls.
+Each `$mcp_tool_call` records the evaluated flag as `$feature/mcp-intent-prompt`: `true` for enabled and `false` for disabled.
+If evaluation is unavailable, the property is omitted. This records flag assignment; clients may still have cached an earlier prompt.
+The server does not capture the prompt text separately.
 
 This collection trial changes no tool results and adds no recommendations or elicitation.
 Evaluate intent against independently recorded abstract task goals, checking invented goals, identifying details, and appropriate uncertainty.

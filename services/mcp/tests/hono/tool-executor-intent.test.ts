@@ -198,7 +198,6 @@ describe('ToolExecutor analytics capture', () => {
     })
 
     it.each([true, false])('isolates intent descriptions with single exec=%s', async (useSingleExec) => {
-        const capture = vi.spyOn(getPostHogClient(), 'captureToolsList').mockImplementation(() => {})
         const tool = catalog.getFilteredTools({ scopes: ['*'] }).find((entry) => entry.name === 'projects-get')!
         const state = makeToolExecutorState([tool], { useSingleExec })
         const prompt = 'State the task objective before the tool action. Omit identifying details.'
@@ -210,32 +209,10 @@ describe('ToolExecutor analytics capture', () => {
             intentPrompt: prompt,
         })
         const other = await executor.handleToolsList({ ...state, distinctId: 'another-user' })
-        await executor.handleToolsList({ ...state, intentPrompt: `${prompt} State the desired outcome.` })
         vi.spyOn(getPostHogClient(), 'prepareToolList').mockImplementationOnce(() => {
             throw new Error('Synthetic SDK preparation failure')
         })
         const fallback = await executor.handleToolsList({ ...state, intentPrompt: prompt })
-
-        await vi.waitFor(() => expect(capture).toHaveBeenCalledTimes(5))
-        const captured = capture.mock.calls.map(([data]) => data.properties!)
-        expect(captured[0]).toMatchObject({
-            intent_prompt_status: 'default',
-            intent_prompt_text: (result.tools[0]!.inputSchema.properties?.context as { description: string })
-                .description,
-            intent_prompt_hash: expect.stringMatching(/^[a-f0-9]{64}$/),
-            intent_prompt_tools: result.tools.map((entry) => entry.name),
-        })
-        expect(captured[1]).toMatchObject({
-            intent_prompt_status: 'trial',
-            intent_prompt_text: prompt,
-            intent_prompt_hash: expect.stringMatching(/^[a-f0-9]{64}$/),
-            intent_prompt_tools: treatment.tools.map((entry) => entry.name),
-        })
-        expect(captured[2]?.intent_prompt_hash).toBe(captured[0]?.intent_prompt_hash)
-        expect(captured[3]?.intent_prompt_hash).not.toBe(captured[1]?.intent_prompt_hash)
-        expect(captured[4]?.intent_prompt_status).toBe('injection_failed')
-        expect(captured[4]).not.toHaveProperty('intent_prompt_text')
-        expect(captured[4]).not.toHaveProperty('intent_prompt_hash')
 
         const entry = result.tools[0]!
         const properties = entry.inputSchema.properties as Record<string, unknown>
@@ -250,36 +227,6 @@ describe('ToolExecutor analytics capture', () => {
         if (useSingleExec) {
             expect(properties).toHaveProperty('command')
         }
-    })
-
-    it.each([
-        {
-            label: 'application-owned context',
-            inputSchema: {
-                type: 'object' as const,
-                properties: { context: { type: 'string', description: 'Application-owned context' } },
-            },
-        },
-        {
-            label: 'complex schema',
-            inputSchema: { type: 'object' as const, oneOf: [{ type: 'object' }] },
-        },
-    ])('does not claim trial exposure for $label', async ({ inputSchema }) => {
-        const capture = vi.spyOn(getPostHogClient(), 'captureToolsList').mockImplementation(() => {})
-        const tool = catalog.getFilteredTools({ scopes: ['*'] }).find((entry) => entry.name === 'projects-get')!
-        vi.spyOn(catalog, 'getPreBuiltEntries').mockReturnValue([{ name: tool.name, inputSchema }])
-
-        await executor.handleToolsList(
-            makeToolExecutorState([tool], {
-                intentPrompt: 'State the abstract task objective.',
-                useSingleExec: false,
-            })
-        )
-
-        await vi.waitFor(() => expect(capture).toHaveBeenCalledOnce())
-        expect(capture.mock.calls[0]![0].properties).toMatchObject({ intent_prompt_status: 'not_injected' })
-        expect(capture.mock.calls[0]![0].properties).not.toHaveProperty('intent_prompt_text')
-        expect(capture.mock.calls[0]![0].properties).not.toHaveProperty('intent_prompt_hash')
     })
 
     it.each([
