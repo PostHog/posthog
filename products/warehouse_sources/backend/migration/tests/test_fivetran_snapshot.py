@@ -13,6 +13,7 @@ from products.warehouse_sources.backend.migration.fivetran.client import (
     FivetranAuthError,
     FivetranClient,
     FivetranCredentials,
+    FivetranWriteBlockedError,
 )
 from products.warehouse_sources.backend.migration.fivetran.snapshot import fetch_snapshot, parse_connection
 from products.warehouse_sources.backend.migration.secrets import strip_secrets
@@ -240,3 +241,14 @@ class TestStripSecrets(SimpleTestCase):
     )
     def test_strip(self, _name: str, config: dict[str, Any], expected: dict[str, Any]) -> None:
         assert strip_secrets(config) == expected
+
+
+class TestReadOnlyClient(SimpleTestCase):
+    @parameterized.expand([("POST",), ("PATCH",), ("PUT",), ("DELETE",)])
+    def test_write_methods_never_leave_posthog(self, method: str) -> None:
+        # A closed local port: if the guard ever fails, the call errors here instead of reaching Fivetran.
+        client = FivetranClient(
+            FivetranCredentials(api_key=FAKE_API_KEY, api_secret=FAKE_API_SECRET), base_url="http://127.0.0.1:9"
+        )
+        with pytest.raises(FivetranWriteBlockedError):
+            client._session.request(method, "http://127.0.0.1:9/connections/conn_example")

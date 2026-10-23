@@ -3,6 +3,8 @@ from dataclasses import field
 from typing import Any
 
 import requests
+from requests.adapters import BaseAdapter
+from requests.models import PreparedRequest
 
 from posthog.dataclasses import frozen
 
@@ -41,6 +43,8 @@ class FivetranClient:
             capture=False,
         )
         self._session.auth = (credentials.api_key, credentials.api_secret)
+        for prefix in ("https://", "http://"):
+            self._session.mount(prefix, _ReadOnlyAdapter(self._session.get_adapter(prefix)))
 
     def get_account_info(self) -> dict[str, Any]:
         return self._get("/account/info")
@@ -77,6 +81,29 @@ class FivetranClient:
         if not response.ok:
             raise _error_for(response)
         return response.json().get("data") or {}
+
+
+class FivetranWriteBlockedError(Exception):
+    pass
+
+
+class _ReadOnlyAdapter(BaseAdapter):
+    """Refuses every request that is not a GET, then hands the rest to the wrapped adapter."""
+
+    def __init__(self, inner: BaseAdapter) -> None:
+        super().__init__()
+        self._inner = inner
+
+    def send(self, request: PreparedRequest, *args: Any, **kwargs: Any) -> requests.Response:
+        # The key opens the customer's live account, so a write must fail here even if a caller adds one.
+        if (request.method or "").upper() != "GET":
+            raise FivetranWriteBlockedError(
+                f"Refusing {request.method} {request.url}: the Fivetran client is read-only."
+            )
+        return self._inner.send(request, *args, **kwargs)
+
+    def close(self) -> None:
+        self._inner.close()
 
 
 def _error_for(response: requests.Response) -> FivetranAPIError:
