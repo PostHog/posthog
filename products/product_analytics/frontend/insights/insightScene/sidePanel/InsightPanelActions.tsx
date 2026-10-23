@@ -4,6 +4,7 @@ import { router } from 'kea-router'
 import { IconCode2, IconCopy, IconEndpoints, IconGraph, IconPencil, IconPeople } from '@posthog/icons'
 
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
+import { openSaveAsCohortDialog } from 'lib/components/openSaveAsCohortDialog'
 import { captureImageLogic } from 'lib/components/Scenes/InsightOrDashboard/captureImageLogic'
 import { SceneAddToDashboardButton } from 'lib/components/Scenes/InsightOrDashboard/SceneAddToDashboardButton'
 import { SceneAddToNotebookDropdownMenu } from 'lib/components/Scenes/InsightOrDashboard/SceneAddToNotebookDropdownMenu'
@@ -37,7 +38,6 @@ import { metricsLogic } from 'products/data_catalog/frontend/metricsLogic'
 import { endpointLogic } from 'products/endpoints/frontend/endpointLogic'
 
 import { insightModalsLogic } from '../insightModalsLogic'
-import { openSaveAsCohortDialog } from './insightSidePanelDialogs'
 
 const RESOURCE_TYPE = 'insight'
 
