@@ -6430,6 +6430,7 @@ export namespace Schemas {
      * * `experiment_results` - Experiment Results
      * * `experiments_list` - Experiments List
      * * `logs_list` - Logs List
+     * * `metrics_table` - Metrics Table
      * * `notebook_widget` - Notebook Widget
      * * `session_replay_list` - Session Replay List
      * * `survey_results` - Survey Results
@@ -6442,6 +6443,7 @@ export namespace Schemas {
         | "experiment_results"
         | "experiments_list"
         | "logs_list"
+        | "metrics_table"
         | "notebook_widget"
         | "session_replay_list"
         | "survey_results";
@@ -6580,6 +6582,48 @@ export namespace Schemas {
         savedViewId: string | null;
     }>;
     export type CanvasAppWidgetConfig = Partial<{ canvasId: string | null }>;
+    export type MetricsTableFilter = {
+        /**
+         * Label key to filter on, e.g. `http.response.status_code`.
+         */
+        key: string;
+        op?: ("eq" | "neq" | "regex" | "not_regex") | undefined;
+        /**
+         * Label value, or a regular expression for `regex` and `not_regex`.
+         */
+        value: string;
+    };
+    export type MetricsTableColumn = {
+        /**
+         * Column header, e.g. `Requests/s`.
+         */
+        label: string;
+        /**
+         * Name of the metric this column reads.
+         */
+        metricName: string;
+        /**
+         * How each time bucket of a row is computed. `rate` and `increase` read counters.
+         */
+        aggregation:
+            | "rate"
+            | "increase"
+            | "sum"
+            | "avg"
+            | "min"
+            | "max"
+            | "histogram_quantile";
+        quantile?: (number | null) | undefined;
+        filters?: Array<MetricsTableFilter> | undefined;
+    };
+    export type MetricsTableWidgetConfig = Partial<{
+        dateRange: WidgetDateRange | null;
+        groupBy: string | null;
+        columns: Array<MetricsTableColumn>;
+        orderByColumn: number;
+        orderDirection: "ASC" | "DESC";
+        limit: number;
+    }>;
     export type DashboardWidgetConfig =
         | NotebookWidgetConfig
         | ActivityEventsListWidgetConfig
@@ -6590,7 +6634,8 @@ export namespace Schemas {
         | SurveyResultsWidgetConfig
         | LogsListWidgetConfig
         | ConversationsRecentTicketsWidgetConfig
-        | CanvasAppWidgetConfig;
+        | CanvasAppWidgetConfig
+        | MetricsTableWidgetConfig;
     export type DashboardPatchWidgetOpenApi = Partial<{
         id: string;
         widget_type: DashboardWidgetTypeEnum;
