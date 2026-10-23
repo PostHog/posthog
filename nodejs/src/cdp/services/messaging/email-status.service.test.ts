@@ -39,8 +39,8 @@ describe('EmailStatusService', () => {
                 team_id: 2,
                 message_id: messageId,
                 status: 'bounced',
-                // bounced ranks 5: 5 * 2^48 + the status time in ms
-                version: 1409167536253736,
+                // bounced ranks 6: 6 * 2^48 + the status time in ms
+                version: 1690642512964392,
                 created_at: '2026-10-22 07:00:00.123000',
                 status_at: '2026-10-22 07:05:00.456000',
                 reason: 'hard',
@@ -49,12 +49,15 @@ describe('EmailStatusService', () => {
         ])
     })
 
-    it('ranks a later status above an earlier one that arrives after it', async () => {
-        const change = { teamId: 2, messageId, recipientHash: 'a1b2' }
-        await service.record({ ...change, status: 'delivered', at: new Date('2026-10-22T07:01:00Z') })
-        await service.record({ ...change, status: 'sent', at: new Date('2026-10-22T07:02:00Z') })
+    it.each([['delivered' as const], ['failed' as const]])(
+        'ranks %s above a sent that arrives after it',
+        async (later) => {
+            const change = { teamId: 2, messageId, recipientHash: 'a1b2' }
+            await service.record({ ...change, status: later, at: new Date('2026-10-22T07:01:00Z') })
+            await service.record({ ...change, status: 'sent', at: new Date('2026-10-22T07:02:00Z') })
 
-        const [delivered, sent] = producedRows()
-        expect(delivered.version as number).toBeGreaterThan(sent.version as number)
-    })
+            const [laterRow, sent] = producedRows()
+            expect(laterRow.version as number).toBeGreaterThan(sent.version as number)
+        }
+    )
 })

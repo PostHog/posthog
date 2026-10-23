@@ -256,6 +256,8 @@ const transactionalStatusChange = (
                 at: new Date(rec.complaint.timestamp),
                 reason: rec.complaint.complaintFeedbackType,
             }
+        case 'Reject':
+            return { ...change, status: 'failed', at: new Date(rec.mail.timestamp), reason: 'rejected' }
         default:
             return null
     }

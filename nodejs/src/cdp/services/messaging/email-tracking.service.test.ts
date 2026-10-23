@@ -517,6 +517,12 @@ describe('EmailTrackingService', () => {
                     complaintDetail('abuse'),
                     { status: 'complained', status_at: '2026-10-22 07:03:00.000000', reason: 'abuse' },
                 ],
+                [
+                    'a reject as failed',
+                    'Reject',
+                    { reject: { reason: 'Bad content' } },
+                    { status: 'failed', status_at: '2026-10-22 07:00:00.500000', reason: 'rejected' },
+                ],
             ])('records %s', async (_name, eventType, detail, expected) => {
                 const res = await postSesEvent(eventType, detail, { ph_recipient_hash: ['a1b2'] })
 

@@ -26,16 +26,16 @@ export const emailStatusMissingRecipientHash = new Counter({
 })
 
 // The rank is the high part of the row version, so a status only moves forward: a late `sent`
-// never replaces `delivered`. Statuses of equal rank are both final and the later one wins.
+// never replaces `delivered`. `failed` ranks above `sent` because SES can reject an email it accepted.
 const STATUS_RANK = {
     queued: 0,
     unknown: 1,
     skipped: 2,
-    failed: 2,
     sent: 3,
-    delivered: 4,
-    bounced: 5,
-    complained: 6,
+    failed: 4,
+    delivered: 5,
+    bounced: 6,
+    complained: 7,
 } as const
 
 export type EmailStatus = keyof typeof STATUS_RANK
