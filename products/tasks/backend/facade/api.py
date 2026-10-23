@@ -6424,6 +6424,7 @@ def relay_task_run_message(
             message_id=message_id,
             trace_id=trace_id,
             offer_reply_suggestions=True,
+            offer_feature_tip=True,
         )
     except Exception:
         logger.exception("task_run_relay_message_enqueue_failed", extra={"run_id": str(run.id)})
