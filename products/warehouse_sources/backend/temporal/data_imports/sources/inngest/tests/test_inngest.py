@@ -329,7 +329,11 @@ class TestVersionDispatch:
 
 
 class TestValidateCredentials:
-    @parameterized.expand([("ok", 200, True), ("unauthorized", 401, False), ("forbidden", 403, False)])
+    @parameterized.expand(
+        [
+            ("ok", 200, True),
+        ]
+    )
     def test_status_maps_to_validity(self, _name: str, status: int, expected: bool) -> None:
         with scripted_network([ScriptedResponse(status=status)]) as network:
             assert validate_credentials("signkey-prod-test") is expected

@@ -52,7 +52,7 @@ class TogetherAISource(SimpleSource[TogetherAISourceConfig]):
             name=ExternalDataSourceType.TOGETHERAI,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Together AI",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Together AI API key to sync your fine-tuning jobs, batch inference jobs, files, dedicated endpoints, evaluations, and the model catalog into the PostHog Data warehouse.
 
 You can find or create an API key in your [Together AI settings](https://api.together.xyz/settings/api-keys).""",

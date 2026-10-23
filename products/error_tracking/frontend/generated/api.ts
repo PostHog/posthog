@@ -60,6 +60,7 @@ import type {
     ErrorTrackingRecommendationApi,
     ErrorTrackingRecommendationsListParams,
     ErrorTrackingRecommendationsRefreshCreateParams,
+    ErrorTrackingRecommendationsSourceMapsExamplesRetrieveParams,
     ErrorTrackingReleaseApi,
     ErrorTrackingReleaseCreateRequestApi,
     ErrorTrackingReleaseUpdateRequestApi,
@@ -89,6 +90,7 @@ import type {
     ErrorTrackingSymbolSetFinishUploadApi,
     ErrorTrackingSymbolSetsListParams,
     GitProviderFileLinkResolveResponseApi,
+    MissingSymbolsExamplesApi,
     PaginatedErrorTrackingAlertListApi,
     PaginatedErrorTrackingAssignmentRuleListApi,
     PaginatedErrorTrackingBypassRuleListApi,
@@ -1211,7 +1213,7 @@ export const getErrorTrackingQueryIssueCreateUrl = (projectId: string) => {
 }
 
 /**
- * Fetch one error tracking issue with impact counts, top in_app frame, latest release, and optional sparkline and event breakdown.
+ * Fetch one error tracking issue with impact counts, trend, top in_app frame, first and latest release, and optional sparkline and event breakdown.
  * @summary Get compact error tracking issue details
  */
 export const errorTrackingQueryIssueCreate = async (
@@ -1365,6 +1367,43 @@ export const errorTrackingRecommendationsRestoreCreate = async (
         ...options,
         method: 'POST',
     })
+}
+
+export const getErrorTrackingRecommendationsSourceMapsExamplesRetrieveUrl = (
+    projectId: string,
+    params: ErrorTrackingRecommendationsSourceMapsExamplesRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/error_tracking/recommendations/source_maps_examples/?${stringifiedParams}`
+        : `/api/projects/${projectId}/error_tracking/recommendations/source_maps_examples/`
+}
+
+/**
+ * List the files and builds whose recent stack frames miss source maps, mapping files or debug symbols on one platform, with the reason and how many frames each covers.
+ * @summary List frames missing symbols
+ */
+export const errorTrackingRecommendationsSourceMapsExamplesRetrieve = async (
+    projectId: string,
+    params: ErrorTrackingRecommendationsSourceMapsExamplesRetrieveParams,
+    options?: RequestInit
+): Promise<MissingSymbolsExamplesApi> => {
+    return apiMutator<MissingSymbolsExamplesApi>(
+        getErrorTrackingRecommendationsSourceMapsExamplesRetrieveUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getErrorTrackingReleasesListUrl = (projectId: string, params?: ErrorTrackingReleasesListParams) => {

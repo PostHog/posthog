@@ -72,7 +72,7 @@ You can find both under [API keys](https://stytch.com/dashboard/api-keys) in you
 Every Stytch project is either a consumer project or a B2B project, and the two have separate tables. The `users` and `sessions` tables are only available for consumer projects, and the `organizations` and `members` tables only for B2B projects.""",
             iconPath="/static/services/stytch.png",
             docsUrl="https://posthog.com/docs/cdp/sources/stytch",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

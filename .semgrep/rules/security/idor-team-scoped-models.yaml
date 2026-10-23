@@ -125,6 +125,7 @@ rules:
                               |ContentAutopilotProposal
                               |ContentAutopilotRun
                               |ContentAutopilotSiteProfile
+                              |ConversionRecommendationRun
                               |Conversation
                               |ConversationDelivery
                               |ConversationDeliveryPart
@@ -141,8 +142,8 @@ rules:
                               |CustomPropertySyncRun
                               |CustomPropertyValue
                               |DAG
-                              |DailyBriefing
                               |TodayHighlights
+                              |TodayPulsePins
                               |Dashboard
                               |DashboardTemplate
                               |DashboardWidget
@@ -160,7 +161,6 @@ rules:
                               |DataWarehouseExpression
                               |DataWarehouseJoin
                               |DataWarehouseManagedViewSet
-                              |DataWarehouseModelPath
                               |DataWarehouseSavedQuery
                               |DataWarehouseSavedQueryColumnAnnotation
                               |DataWarehouseSavedQueryDraft
@@ -194,6 +194,7 @@ rules:
                               |ErrorTrackingIssue
                               |ErrorTrackingIssueChange
                               |ErrorTrackingIssueFingerprintV2
+                              |ErrorTrackingIssueSummary
                               |ErrorTrackingRelease
                               |ErrorTrackingRecommendation
                               |ErrorTrackingSettings
@@ -346,6 +347,7 @@ rules:
                               |QuickFilter
                               |QuickFilterContext
                               |ReplayObservation
+                              |ReplayObservationFeedDismissal
                               |ReplayObservationLabel
                               |ReplayObservationMedia
                               |ReplayObservationRequest
@@ -380,10 +382,12 @@ rules:
                               |SessionRecordingPlaylist
                               |SharingConfiguration
                               |SignalEmissionRecord
+                              |SignalFirstReportNotification
                               |SignalReport
                               |SignalReportAction
                               |SignalReportArtefact
                               |SignalReportCheck
+                              |SignalReportMonitoringAttempt
                               |SignalReportGithubComment
                               |SignalReportPullRequest
                               |SignalReportAssignment
@@ -402,10 +406,12 @@ rules:
                               |SignalScoutStructuredOutput
                               |SignalScoutSuggestionSet
                               |SignalScoutBackgroundBand
+                              |SignalSpend
                               |SignalScratchpad
                               |SignalProjectProfile
                               |SingleSessionSummary
                               |SlackThreadTaskMapping
+                              |SlackThreadJoin
                               |SourceBatch
                               |SourceGroupLease
                               |StreamlitApp
@@ -414,7 +420,9 @@ rules:
                               |SubscriptionDelivery
                               |PlatformAlert
                               |PlatformAlertConfiguration
+                              |PlatformAlertDeliveryPath
                               |PlatformAlertThread
+                              |AlertDestination
                               |Survey
                               |SurveyResponseArchive
                               |TableCertification
@@ -454,7 +462,10 @@ rules:
                               |TracesRetentionRule
                               |TracingView
                               |UploadedMedia
+                              |UptimeMonitor
                               |UserInterview
+                              |UserActivitySummaryQueueState
+                              |UserActivitySummaryVersion
                               |UserInterviewTopic
                               |UserRepoPreference
                               |VisionAlertConfiguration
@@ -596,6 +607,7 @@ rules:
                         |ContentAutopilotProposal
                         |ContentAutopilotRun
                         |ContentAutopilotSiteProfile
+                        |ConversionRecommendationRun
                         |Conversation
                         |ConversationDelivery
                         |ConversationDeliveryPart
@@ -612,8 +624,8 @@ rules:
                         |CustomPropertySyncRun
                         |CustomPropertyValue
                         |DAG
-                        |DailyBriefing
                         |TodayHighlights
+                        |TodayPulsePins
                         |Dashboard
                         |DashboardTemplate
                         |DashboardWidget
@@ -631,7 +643,6 @@ rules:
                         |DataWarehouseExpression
                         |DataWarehouseJoin
                         |DataWarehouseManagedViewSet
-                        |DataWarehouseModelPath
                         |DataWarehouseSavedQuery
                         |DataWarehouseSavedQueryColumnAnnotation
                         |DataWarehouseSavedQueryDraft
@@ -665,6 +676,7 @@ rules:
                         |ErrorTrackingIssue
                         |ErrorTrackingIssueChange
                         |ErrorTrackingIssueFingerprintV2
+                        |ErrorTrackingIssueSummary
                         |ErrorTrackingRelease
                         |ErrorTrackingRecommendation
                         |ErrorTrackingSettings
@@ -807,6 +819,7 @@ rules:
                         |QuickFilter
                         |QuickFilterContext
                         |ReplayObservation
+                        |ReplayObservationFeedDismissal
                         |ReplayObservationLabel
                         |ReplayObservationMedia
                         |ReplayObservationRequest
@@ -841,10 +854,12 @@ rules:
                         |SessionRecordingPlaylist
                         |SharingConfiguration
                         |SignalEmissionRecord
+                        |SignalFirstReportNotification
                         |SignalReport
                         |SignalReportAction
                         |SignalReportArtefact
                         |SignalReportCheck
+                        |SignalReportMonitoringAttempt
                         |SignalReportGithubComment
                         |SignalReportPullRequest
                         |SignalReportAssignment
@@ -863,10 +878,12 @@ rules:
                         |SignalScoutStructuredOutput
                         |SignalScoutSuggestionSet
                         |SignalScoutBackgroundBand
+                        |SignalSpend
                         |SignalScratchpad
                         |SignalProjectProfile
                         |SingleSessionSummary
                         |SlackThreadTaskMapping
+                        |SlackThreadJoin
                         |SourceBatch
                         |SourceGroupLease
                         |StreamlitApp
@@ -875,7 +892,9 @@ rules:
                         |SubscriptionDelivery
                         |PlatformAlert
                         |PlatformAlertConfiguration
+                        |PlatformAlertDeliveryPath
                         |PlatformAlertThread
+                        |AlertDestination
                         |Survey
                         |SurveyResponseArchive
                         |TableCertification
@@ -914,7 +933,10 @@ rules:
                         |TracesRetentionRule
                         |TracingView
                         |UploadedMedia
+                        |UptimeMonitor
                         |UserInterview
+                        |UserActivitySummaryQueueState
+                        |UserActivitySummaryVersion
                         |UserInterviewTopic
                         |UserRepoPreference
                         |VisionAlertConfiguration
@@ -1025,6 +1047,7 @@ rules:
                         |ColumnConfiguration
                         |Conversation
                         |ConversationRestoreToken
+                        |ConversionRecommendationRun
                         |CoreEvent
                         |CoreMemory
                         |CustomerJourney
@@ -1040,7 +1063,6 @@ rules:
                         |DataWarehouseCredential
                         |DataWarehouseJoin
                         |DataWarehouseManagedViewSet
-                        |DataWarehouseModelPath
                         |DataWarehouseSavedQuery
                         |DataWarehouseSavedQueryDraft
                         |DataWarehouseSavedQueryFolder
@@ -1177,9 +1199,11 @@ rules:
                         |SessionRecordingViewed
                         |SharingConfiguration
                         |SignalEmissionRecord
+                        |SignalFirstReportNotification
                         |SignalReport
                         |SignalReportArtefact
                         |SignalReportCheck
+                        |SignalReportMonitoringAttempt
                         |SignalReportSlackThread
                         |SignalReportTask
                         |SignalSourceConfig
@@ -1233,7 +1257,6 @@ rules:
                         |UserGroup
                         |UserInterview
                         |UserInterviewTopic
-                        |UserProductList
                         |UserRepoPreference
                         |WarehouseSuggestionTeamConfig
                         |WebAnalyticsFilterPreset
@@ -1496,7 +1519,6 @@ rules:
                           (?x)(
                               AccountAuditCredential
                               |CommunitySkillVote
-                              |DashboardPrivilege
                               |GitHubInstallRequest
                               |PersonalAPIKey
                               |ScoreDefinitionVersion
@@ -1554,7 +1576,6 @@ rules:
                     (?x)(
                         AccountAuditCredential
                         |CommunitySkillVote
-                        |DashboardPrivilege
                         |GitHubInstallRequest
                         |PersonalAPIKey
                         |ScoreDefinitionVersion
@@ -1643,6 +1664,7 @@ rules:
                       regex: |
                           (?x)(
                               AgentMemory
+                              |DevGatewayToken
                               |FileSystemHomeFolder
                               |FileSystemShortcut
                               |FileSystemViewLog
@@ -1651,9 +1673,9 @@ rules:
                               |MCPServerInstallation
                               |Reminder
                               |SessionRecordingViewed
+                              |UserActivitySummary
                               |UserFacetSettings
                               |UserHomeSettings
-                              |UserProductList
                               |UserScenePersonalisation
                               |WebAnalyticsUserConfig
                           )$
@@ -1718,6 +1740,7 @@ rules:
                 regex: |
                     (?x)(
                         AgentMemory
+                        |DevGatewayToken
                         |FileSystemHomeFolder
                         |FileSystemShortcut
                         |FileSystemViewLog
@@ -1725,9 +1748,9 @@ rules:
                         |KernelRuntime
                         |Reminder
                         |SessionRecordingViewed
+                        |UserActivitySummary
                         |UserFacetSettings
                         |UserHomeSettings
-                        |UserProductList
                         |UserScenePersonalisation
                         |WebAnalyticsUserConfig
                     )$

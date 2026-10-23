@@ -39,7 +39,7 @@ def test_mcp_analytics_default_template_includes_users_and_sessions() -> None:
             "name": "$mcp_initialize",
             "custom_name": "users",
             "math": "hogql",
-            "math_hogql": "count(DISTINCT person_id)",
+            "math_hogql": "count(DISTINCT distinct_id)",
         },
         {
             "kind": "EventsNode",

@@ -15,6 +15,11 @@ In production it is driven by `SignalsScoutCoordinatorWorkflow` (periodic tick e
   The read-only endpoint is `GET /api/projects/:id/signals/scout/configs/tool_catalogue/` in `views.py`.
   It omits superseded tools and reports scope requirements and feature conditions.
   Callers must evaluate feature flags for the project.
+  `scout_held_mcp_tools` is the one answer to what a narrowed run holds: the picked list, `SCOUT_RUN_CONTEXT_TOOLS`, and the always-available tools.
+- `tool_policy.py`
+  Refuses API writes a narrowed run did not pick a tool for. The runner stamps `allowed_mcp_tools` on `Task.state` (`mcp_tool_allowlist`) while `scouts-tool-access` is on, and `APIScopePermission` calls `scout_tool_denial` through `facade/tool_policy.py` for every request from a task-bound token.
+  A non-GET request, or one that needs a write scope, passes only when its path and view match an `api_operations` entry of a held tool (`posthog/mcp_tool_operations.py`) or of `SANDBOX_HARNESS_OPERATIONS`. The method counts because some actions change state behind a read scope.
+  A new non-GET endpoint the agent server or harness calls with the run's token belongs in `SANDBOX_HARNESS_OPERATIONS`. A hand-written MCP tool that makes a non-GET call lists its endpoints in `services/mcp/schema/tool-definitions.json`.
 
 - `runner.py`
   Per-run entrypoint (`arun_signals_scout` / `run_signals_scout`). Inserts the `SignalScoutRun` row, builds the prompt + toolset, spawns the sandbox session, pumps the agent loop until budget exhaustion or natural completion, finalizes the run, and returns a `RunResult`. The activity wrapper in `temporal/agentic/scout_scheduler.py` delegates straight to this.
@@ -183,6 +188,7 @@ In production it is driven by `SignalsScoutCoordinatorWorkflow` (periodic tick e
   The fourth dispatch source (`TRIGGERED_BY_CHECK`): a forward-looking check attached to an inbox report, asking a scout to re-establish the report's claim after a soak window. It runs on the scout its config names, or on `signals-scout-inbox-validation` when it names none, which is the common case because most reports are pipeline-authored. It reuses `run_gates` in full, but stamps no `last_run_at` and never feeds the failure-streak breaker, because the check owns the clock and the scout's cadence decides nothing about it. A lane that cannot run records an errored result on the report naming the reason; a refusal that clears on its own defers the check instead.
 - **Coordinator** — `temporal/agentic/scout_coordinator.py` and `scout_scheduler.py`.
   Polls every `COORDINATOR_INTERVAL_MINUTES = 30`; dispatches each scout whose per-scout schedule (`run_interval_minutes`, default every 24 hours, or an optional project-local cron `run_cron_schedule` that takes precedence) is due, most-overdue first, hard cap `MAX_RUNS_PER_TICK` per tick (flag-tunable via `max_runs_per_tick_global`), `ScheduleOverlapPolicy.SKIP` to drop ticks rather than queue them.
+  Each tick captures `signals_scout_coordinator_tick` (the global ceiling, dispatched and globally deferred runs) and one `signals_scout_capacity_tick` per project with due runs (`due`, `dispatched`, `deferred`, `deferred_reason` of `per_tick`, `per_day` or `global`, the resolved caps, `runs_last_24h`, `enabled_scouts`, `max_enabled_scouts`). The events carry the limits the tick resolved, so a chart compares usage to the live flag payload and keeps no copy of it.
   A dispatched rolling-interval scout has its `last_run_at` stamped at its own stable slot on the tick grid (`_slot_anchor`, keyed on a digest of the config id), not at the post-fan-out wall clock.
   That is what keeps dispatch spread across the day: a wall-clock anchor accumulated each tick's planning and fan-out latency, so a cohort eventually slipped onto the next tick and merged into that tick's cohort, and every merge made the resulting wave slower to fan out and more likely to slip again.
   Anchoring on the grid also returns a run deferred by a per-team cap or a missed tick to the slot it was meant to have, instead of re-anchoring wherever it happened to land.
@@ -226,3 +232,7 @@ In production it is driven by `SignalsScoutCoordinatorWorkflow` (periodic tick e
   Metrics default to `date_from: "-13d"` with a daily interval. This gives 14 inclusive buckets, including today. A longer window keeps only the trailing 14 strip buckets, while the whole-window value covers the full window. Do not author comparisons. Non-currency units are lowercase. Currency units use uppercase ISO codes such as `USD`.
 - **If you add or rename a workflow/activity in `temporal/agentic/`, update `posthog/temporal/tests/ai/test_module_integrity.py` (`TestSignalsProductModuleIntegrity`) to match.**
 - **If you change the harness layout or tool surface, update this file to match.**
+
+### Narrowed scout API writes
+
+`tool_policy.py` checks held tools at the API boundary, including soft-delete payloads on shared PATCH endpoints. Harness and scout run writes must target the token-bound task’s current run; report artefacts are not a harness bypass. `test_scout_tool_policy.py` covers these boundaries and nested skill file paths.

@@ -60,6 +60,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers 
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.cursor import SourceCursorManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
+    SSH_HANDSHAKE_EOF_ERROR as _SSH_HANDSHAKE_EOF_ERROR,
     open_ssh_tunnel,
     pinned_host_kwargs,
 )
@@ -382,6 +383,15 @@ _CONNECTION_DROPPED_ERROR_SUBSTRINGS = (
     # "no error details available" suffix is the signal — libpq only omits the message in this local,
     # pre-handshake case, so it never matches a genuine (and permanent) server-reported rejection.
     "connection is bad: no error details available",
+    # A TCP proxy/load balancer fronting the actual Postgres backend (common on providers that put
+    # a public endpoint in front of a private-network database) reports a failed connect to its own
+    # upstream as a bare FATAL error: "FATAL:  failed to connect to upstream <ip>:<port>". The proxy
+    # itself answered fine; the backend behind it was momentarily unreachable (a restart, failover,
+    # or scaling event on the provider's private network) — the same transient class as Supavisor's
+    # "{:error, :econnrefused}"/"{:error, :etimedout}" above, just worded by a different proxy. A
+    # fresh reconnect recovers once the backend is reachable again. Match the stable phrase and
+    # exclude the volatile upstream ip:port.
+    "failed to connect to upstream",
 )
 
 # Supavisor (Supabase's connection pooler) doesn't surface a dropped upstream connection with a
@@ -1418,6 +1428,18 @@ def _is_pooler_login_cooldown_error(error: BaseException) -> bool:
     return "server login has been failing" in message and "server_login_retry" in message
 
 
+def _is_activity_cancelled(error: BaseException) -> bool:
+    """True when `error` is Temporal cancelling the activity, not a genuine query failure.
+
+    Temporal can inject a `temporalio.exceptions.CancelledError` (an `Exception` subclass) into
+    whatever statement is running when the activity is cancelled or hits its
+    `start_to_close_timeout` — here, typically the catalog query inside a best-effort metadata
+    probe. Match on the type name rather than importing temporalio into this module, mirroring
+    `sync_lock._is_cancellation`.
+    """
+    return type(error).__name__ == "CancelledError"
+
+
 def _rls_active_from_conn(
     connection: psycopg.Connection,
     schema: str | None,
@@ -1501,6 +1523,9 @@ def _rls_active_from_conn(
         # `_xmin_capable_tables_from_conn`, which already degrades quietly for it). A pooler
         # login-retry cooldown (e.g. a duckgres-backed source's own metadata store momentarily
         # can't log in) is the same self-healing shape — see `_is_pooler_login_cooldown_error`.
+        # Temporal cancelling the activity mid-probe (user cancelled the sync, or the activity hit
+        # its `start_to_close_timeout`) is the same shape too: the sync is ending regardless of
+        # what this best-effort lookup returns, so there's nothing to fix here.
         # Still capture genuinely unexpected failures.
         if (
             not connection.closed
@@ -1510,6 +1535,7 @@ def _rls_active_from_conn(
             and not _is_unsupported_statement_timeout_error(e)
             and not _is_statement_timeout_error(e)
             and not _is_pooler_login_cooldown_error(e)
+            and not _is_activity_cancelled(e)
         ):
             capture_exception(e)
         return {}
@@ -2827,6 +2853,15 @@ def _has_duplicate_primary_keys(
         # follows fails on the same denial — already surfaced as non-retryable with an actionable
         # message via `get_non_retryable_errors`. Propagate rather than capture it as noise.
         raise
+    except psycopg.errors.RaiseException:
+        # SQLSTATE P0001, raised only by a plain `RAISE EXCEPTION` inside a PL/pgSQL function —
+        # never by Postgres itself. Since this source only reads, it's almost always a row-level
+        # security policy or computed-column function blocking the SELECT, and the extraction
+        # that follows hits the same raise. Swallowing it as "no duplicate keys" would be a false
+        # negative and double the error-tracking noise. Propagate so it surfaces once, through
+        # the same non-retryable classification (where the message names an access denial) as the
+        # extraction failure; a transient custom raise stays retryable either way.
+        raise
     except psycopg.OperationalError:
         # A connection-level failure here (e.g. a foreign-data-wrapper server refusing a new
         # connection with "too many connections") means the probe never ran — swallowing it as
@@ -2871,7 +2906,8 @@ def resolve_postgres_keyset(
 ) -> PostgresKeyset:
     """Decide how far this run can go: no seek, seek only, or seek plus a durable checkpoint."""
     if should_use_incremental_field:
-        # Already resumable from its persisted watermark, and seeking would double the work.
+        # v3 moves the watermark only when the run's load completes, so a cut-off attempt restarts from the old
+        # watermark unless the handoff checkpoint applies. A keyset seek on top of that would double the work.
         return PostgresKeyset(reason="incremental_sync")
     if is_xmin:
         # An xmin read appends deltas, so restarting it from key 0 would duplicate what it wrote.
@@ -3534,6 +3570,16 @@ def _get_table(
                 table=table_name,
                 error=str(e),
             )
+            # `cursor.connection.transaction()` rolls back the BEGIN it opened when the probe
+            # raises, but psycopg only logs and swallows a rollback that itself fails (e.g. the
+            # client-side deadline above canceled the probe mid-flight) instead of raising —
+            # silently leaving the session `InFailedSqlTransaction`. Clear it defensively so every
+            # later statement on this connection (the read-replica check, primary key lookup, the
+            # actual read) doesn't fail as a downstream symptom of this best-effort probe.
+            try:
+                cursor.connection.rollback()
+            except Exception:
+                pass
 
     columns = []
     for name, data_type, nullable, numeric_precision_candidate, numeric_scale_candidate in metadata_rows:
@@ -3604,16 +3650,6 @@ def _get_table(
         table_type = "view"
 
     return Table(name=table_name, parents=(schema,), columns=columns, type=table_type)
-
-
-# paramiko raises a bare, message-less EOFError from `start_client` when the SSH gateway accepts
-# the TCP connection but closes it during the SSH handshake — a non-SSH service on the port, a
-# bastion refusing PostHog's IPs, or a proxy that resets the stream. sshtunnel doesn't wrap it (it
-# only translates *auth* failures into BaseSSHTunnelForwarderError), so it escapes with an empty
-# `str()`, matching no non-retryable rule and retrying forever. `_tunnel_with_handshake_translation`
-# turns it into this stable, classifiable message (see `PostgresSource.get_non_retryable_errors`) —
-# same gateway-configuration class as a wrapped "Could not establish session to SSH gateway".
-_SSH_HANDSHAKE_EOF_ERROR = "SSH gateway closed the connection during the SSH handshake"
 
 
 @contextmanager
@@ -4755,6 +4791,17 @@ def postgres_source(
             )
         )
 
+    # One statement with `ORDER BY <incremental field>` proves the order for the whole run. A read
+    # per partition, per window or per LIMIT/OFFSET page issues several statements, so it does not.
+    reads_one_ordered_statement = (
+        should_use_incremental_field
+        and incremental_field is not None
+        and xmin_bounds is None
+        and not is_duckdb
+        and not use_window_chunking
+        and not use_per_partition_chunking
+    )
+
     return SourceResponse(
         name=name,
         items=lambda: get_rows(chunk_size),
@@ -4767,6 +4814,7 @@ def postgres_source(
         # position to another pod, and one that could checkpoint but reads through a server cursor
         # has no position to hand over. `supports_resume` defaults to True, so this must be explicit.
         supports_resume=can_checkpoint and takes_keyset_path,
+        sort_mode="asc" if reads_one_ordered_statement else None,
     )
 
 

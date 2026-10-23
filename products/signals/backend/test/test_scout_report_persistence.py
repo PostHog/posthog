@@ -4,10 +4,11 @@ from datetime import UTC, datetime
 
 import pytest
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, Mock, patch
 
 from django.apps import apps
 from django.db import DatabaseError
+from django.utils import timezone
 
 from parameterized import parameterized
 
@@ -24,6 +25,7 @@ from products.signals.backend.artefact_schemas import (
     TaskRunArtefact,
     TitleChange,
 )
+from products.signals.backend.assignment_flags import assignment_side_effects_allowed
 from products.signals.backend.models import (
     MAX_SCOUT_REPORT_NOTES,
     ArtefactAttribution,
@@ -35,6 +37,7 @@ from products.signals.backend.models import (
 from products.signals.backend.report_charts import MAX_REPORT_CHARTS, ReportChart
 from products.signals.backend.report_metrics import ReportMetric
 from products.signals.backend.report_prompts import MAX_SUGGESTED_PROMPT_LENGTH, MAX_SUGGESTED_PROMPTS
+from products.signals.backend.reviewer_rules import ReviewerRules
 from products.signals.backend.scout_harness.tools.emit import SOURCE_PRODUCT, SOURCE_TYPE
 from products.signals.backend.scout_report import (
     InvalidScoutReportError,
@@ -54,6 +57,8 @@ from products.signals.backend.scout_report import (
 )
 from products.signals.backend.scout_report.judge import resolve_authored_report_status
 from products.signals.backend.scout_report.persistence import _report_metrics_unchanged
+from products.signals.backend.spend import signal_spend_totals
+from products.tasks.backend.models import Task, TaskRun
 
 PERSISTENCE_MODULE = "products.signals.backend.scout_report.persistence"
 
@@ -95,6 +100,23 @@ class TestScoutReportPersistence(BaseTest):
             skill_version=1,
         )
         return run
+
+    def test_empty_selection_enrolls_a_new_report_in_the_writer(self) -> None:
+        with (
+            patch("products.signals.backend.reviewer_rules.assignment_writer_enabled", return_value=True),
+            patch("products.signals.backend.assignment_flags.feature_enabled_or_false", return_value=False),
+        ):
+            result = create_scout_report(
+                team_id=self.team.id,
+                title="A report without reviewers",
+                summary="No suitable owner was selected.",
+                signals=[ScoutReportSignal(description="A synthetic finding", source_id="example", weight=1.0)],
+                attribution=ArtefactAttribution.system(),
+            )
+            snapshot = ReviewerRules.read_for_report(team_id=self.team.id, report_id=result.report_id)
+            assert snapshot.state.corrections_id is not None
+            assert snapshot.reviewers == ()
+            assert not assignment_side_effects_allowed(team_id=self.team.id, report_id=result.report_id)
 
     @parameterized.expand(
         [
@@ -147,7 +169,8 @@ class TestScoutReportPersistence(BaseTest):
         assert raised.value.existing.status == SignalReport.Status.READY
         assert SignalReport.objects.filter(team=self.team).count() == 1
 
-    def test_create_writes_report_with_bound_signals_metadata(self) -> None:
+    @parameterized.expand([(False,), (True,)])
+    def test_create_writes_report_with_bound_signals_metadata(self, legacy: bool) -> None:
         # The load-bearing contract (decision #5): each backing signal is written to the embeddings
         # pipeline with report_id pre-set, as a signals/signal row, so every read-side consumer
         # (source filter/chips, /signals/ tab, inbox-validation) resolves it like a pipeline signal.
@@ -188,6 +211,38 @@ class TestScoutReportPersistence(BaseTest):
         doc_ids = [call.kwargs["document_id"] for call in self.emit_mock.call_args_list]
         assert len(set(doc_ids)) == 2
         assert result.signal_document_ids == doc_ids
+        assert str(report.triggering_signal_id) == doc_ids[0]
+        if legacy:
+            report.triggering_signal_id = None
+            report.save(update_fields=["triggering_signal_id"])
+        task = Task.objects.create(
+            team=self.team,
+            title="Implement finding",
+            signal_report=report,
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+        )
+        now = timezone.now()
+        with (
+            patch(
+                "products.signals.backend.signal_metadata.execute_hogql_query",
+                return_value=Mock(results=[(doc_ids[0], "Example observation", "{}", now, now)]),
+            ),
+            patch("posthog.temporal.common.client.async_connect", new=AsyncMock()),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            TaskRun.objects.create(
+                team=self.team,
+                task=task,
+                environment=TaskRun.Environment.CLOUD,
+                state={
+                    "ai_stage": "implementation",
+                    "unprocessed_request_ids": [],
+                    "token_cost": {"model": {"provider": {"cost_microusd": 10_001}}},
+                },
+            )
+        assert signal_spend_totals(team_id=self.team.id, signal_ids=doc_ids) == {doc_ids[0]: 5.0001}
+        report.refresh_from_db()
+        assert str(report.triggering_signal_id) == doc_ids[0]
 
         # Provenance: a note artefact marks the report scout-authored and is attributed to the task.
         note = SignalReportArtefact.objects.get(report_id=result.report_id, type=SignalReportArtefact.ArtefactType.NOTE)
@@ -505,7 +560,8 @@ class TestScoutReportPersistence(BaseTest):
         assert SignalReportArtefact.ArtefactType.SAFETY_JUDGMENT in types
         assert SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT in types
 
-    def test_soft_delete_re_emits_tombstone_preserving_id_and_timestamp(self) -> None:
+    @patch("posthog.temporal.common.client.async_connect")
+    def test_soft_delete_preserves_signal_identity(self, connect: AsyncMock) -> None:
         # Soft-delete is a re-emit of the same document_id with metadata.deleted=True; the original
         # timestamp must be preserved so the tombstone lands in the same ReplacingMergeTree partition
         # and supersedes the live row rather than adding a sibling. The target report must be one the
@@ -529,11 +585,13 @@ class TestScoutReportPersistence(BaseTest):
             timestamp=ts,
             source_id="obs-1",
         )
-        kwargs = self.emit_mock.call_args.kwargs
-        assert kwargs["document_id"] == document_id
-        assert kwargs["timestamp"] == ts
-        assert kwargs["metadata"]["deleted"] is True
-        assert kwargs["metadata"]["report_id"] == report.report_id
+        call = connect.return_value.start_workflow.call_args
+        assert call.args[1].signal_id == document_id
+        assert call.args[1].team_id == self.team.id
+        change = call.kwargs["start_signal_args"][0]
+        assert change.deleted is True
+        assert change.expected_report_id == report.report_id
+        self.emit_mock.assert_not_called()
 
     def test_create_rejects_duplicate_supplied_document_ids(self) -> None:
         # Two backing signals sharing a document_id would collapse in the ReplacingMergeTree, leaving

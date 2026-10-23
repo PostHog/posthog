@@ -444,6 +444,7 @@ def test_sample_payload_omits_streamed_response_body():
         "x-sn-apikey",
         "x-auth-token",
         "X-Metabase-Session",
+        "KALSHI-ACCESS-SIGNATURE",
         "Cookie",
         "Set-Cookie",
         "Proxy-Authorization",
@@ -501,6 +502,12 @@ def test_scrub_body_redacts_webhook_signing_secret():
     out = _scrub_body('{"webhooks": [{"id": "hook-1", "secret": "signing-secret"}]}')
     assert isinstance(out, dict)
     assert out["webhooks"][0]["secret"] == "REDACTED"
+
+
+def test_scrub_body_redacts_postback_verification_token():
+    out = _scrub_body('{"advertisers": [{"network_advertiser_id": 135, "verification_token": "postback-token"}]}')
+    assert isinstance(out, dict)
+    assert out["advertisers"][0]["verification_token"] == "REDACTED"
 
 
 def test_scrub_body_redacts_preauthenticated_download_urls():

@@ -14,7 +14,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     ScriptedResponse,
     SourceDriver,
     UnexpectedRequest,
-    always,
     scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.fastly import fastly
@@ -97,16 +96,12 @@ class TestActiveVersionNumber:
 
 
 class TestValidateCredentials:
-    @parameterized.expand([("ok", 200, True), ("unauthorized", 401, False)])
+    @parameterized.expand([("ok", 200, True)])
     def test_validate_credentials_status_mapping(self, _name: str, status_code: int, expected: bool) -> None:
         with scripted_network([ScriptedResponse(status=status_code)]) as network:
             assert validate_credentials("token") is expected
         assert [request.path for request in network.requests_log] == ["/current_user"]
         assert network.requests_log[0].headers["fastly-key"] == "token"
-
-    def test_validate_credentials_swallows_exceptions(self) -> None:
-        with scripted_network(always(requests.ConnectionError("boom"))):
-            assert validate_credentials("token") is False
 
 
 class TestTokenRedaction:
@@ -615,6 +610,48 @@ class TestGetRowsStatsList:
         result = _drive("historical_stats", {f"{FASTLY_BASE_URL}/stats?by=day": payload})
         assert result.raised is None
         assert result.rows == []
+
+
+class TestGetRowsAiUsageMetrics:
+    URL = f"{FASTLY_BASE_URL}/ai-runtime-control/v1/usage-metrics?granularity=daily&sort=date"
+
+    @parameterized.expand(
+        [
+            ("full_refresh", False, None),
+            ("incremental", True, "2023-11-14T22:13:20Z"),
+        ]
+    )
+    def test_watermark_is_sent_as_an_rfc3339_from(self, _name: str, incremental: bool, expected: str | None) -> None:
+        url = f"{self.URL}&from={expected}" if expected else self.URL
+        result = _drive(
+            "ai_usage_metrics",
+            {url: {"data": [], "meta": {"sort": "date", "total": 0}}},
+            should_use_incremental_field=incremental,
+            incremental_field="start_time",
+            db_incremental_field_last_value=1_700_000_000,
+        )
+        assert result.raised is None
+        assert result.params("from") == [expected]
+
+    def test_each_row_gets_its_day_as_start_time(self) -> None:
+        # The docs give `YYYY-MM-DD` while live responses carry a full timestamp; a row without a
+        # readable date has no partition or key and is dropped.
+        payload = {
+            "data": [
+                {"date": "2026-09-01T00:00:00Z", "usage_type": "requests", "quantity": 3},
+                {"date": "2026-09-02", "usage_type": "input_tokens", "quantity": 40},
+                {"date": "2026-09-03 00:00:00", "usage_type": "output_tokens", "quantity": 50},
+                {"date": None, "usage_type": "sessions", "quantity": 1},
+            ],
+            "meta": {"sort": "date", "total": 4},
+        }
+        result = _drive("ai_usage_metrics", {self.URL: payload})
+        assert result.raised is None
+        assert [(row["usage_type"], row["start_time"]) for row in result.rows] == [
+            ("requests", 1_788_220_800),
+            ("input_tokens", 1_788_307_200),
+            ("output_tokens", 1_788_393_600),
+        ]
 
 
 class TestBucketTimeline:

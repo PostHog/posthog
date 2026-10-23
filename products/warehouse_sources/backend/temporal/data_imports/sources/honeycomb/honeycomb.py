@@ -2,13 +2,16 @@ import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from typing import Any
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urljoin, urlsplit
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    make_tracked_session,
+    retry_with_deadline,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.honeycomb.settings import (
@@ -46,12 +49,26 @@ SLO_COUNTS_HISTORY_LOOKBACK = timedelta(days=90)
 SLO_COUNTS_HISTORY_WINDOW = timedelta(days=7)
 SECONDS_PER_HOUR = 3600
 
+# Largest page Honeycomb's cursor-paginated endpoints accept.
+CURSOR_PAGE_SIZE = 100
+# How far back a full refresh (or the first incremental sync) reads Signal historical anomalies.
+SIGNAL_ANOMALIES_LOOKBACK = timedelta(days=90)
+# Each historical anomalies walk covers one window per Signal; the API caps a window at 30 days.
+SIGNAL_ANOMALIES_WINDOW = timedelta(days=7)
+# Only resolved anomalies are listed, so one that started before the watermark appears only after
+# it ends. Incremental syncs re-read this far behind the watermark and merge dedupes the overlap.
+SIGNAL_ANOMALIES_REREAD = timedelta(days=7)
+
 
 class HoneycombRetryableError(Exception):
     pass
 
 
 class HoneycombSloCountsUnavailableError(Exception):
+    pass
+
+
+class HoneycombUnsafeUrlError(Exception):
     pass
 
 
@@ -65,6 +82,8 @@ class HoneycombResumeConfig:
     dataset_slug: str | None = None
     # The same bookmark for the board views fan-out, which walks boards instead of datasets.
     board_id: str | None = None
+    # The next page URL of a cursor-paginated environment endpoint (signals).
+    next_url: str | None = None
 
 
 def _get_headers(api_key: str) -> dict[str, str]:
@@ -78,14 +97,20 @@ def _base_url(region: str) -> str:
     return HONEYCOMB_BASE_URLS.get(region, HONEYCOMB_BASE_URLS["us"])
 
 
-@retry(
+@retry_with_deadline(
     retry=retry_if_exception_type((HoneycombRetryableError, requests.ReadTimeout, requests.ConnectionError)),
     stop=stop_after_attempt(5),
     wait=wait_exponential_jitter(initial=1, max=60),
     reraise=True,
 )
-def _fetch_page(session: requests.Session, url: str, headers: dict[str, str], logger: FilteringBoundLogger):
-    response = session.get(url, headers=headers, timeout=60)
+def _fetch_page(
+    session: requests.Session,
+    url: str,
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+    allow_redirects: bool = True,
+):
+    response = session.get(url, headers=headers, timeout=60, allow_redirects=allow_redirects)
 
     # Honeycomb rate limits per key/team and returns 429 on exceed; retry those plus
     # transient 5xx with exponential backoff.
@@ -146,6 +171,46 @@ def _fetch_slo_counts_buckets(
         raise
     buckets = data.get("buckets") if isinstance(data, dict) else None
     return buckets if isinstance(buckets, list) else []
+
+
+def _is_same_origin(url: str, base_url: str) -> bool:
+    candidate, base = urlsplit(url), urlsplit(base_url)
+    return (candidate.scheme, candidate.netloc) == (base.scheme, base.netloc)
+
+
+def _iter_cursor_pages(
+    session: requests.Session,
+    base_url: str,
+    url: str,
+    headers: dict[str, str],
+    response_key: str,
+    logger: FilteringBoundLogger,
+) -> Iterator[tuple[list[dict[str, Any]], str | None]]:
+    """Walk a cursor-paginated endpoint, yielding each page's rows with the next page's URL.
+
+    Rows sit under ``response_key`` and ``links.next`` holds a relative URL for the next page,
+    null on the last one. The API key rides in a header on every request, so a next link or
+    redirect that leaves the Honeycomb origin fails the sync instead of being followed."""
+    while True:
+        if not _is_same_origin(url, base_url):
+            raise HoneycombUnsafeUrlError(f"Honeycomb: refusing to request a URL outside {base_url}")
+        response = _fetch_page(session, url, headers, logger, allow_redirects=False)
+        if response.is_redirect:
+            raise HoneycombUnsafeUrlError(f"Honeycomb: refusing to follow a redirect from {base_url}")
+        data = response.json()
+        if not isinstance(data, dict):
+            logger.warning(f"Honeycomb: expected a JSON object from {url}, got {type(data).__name__}; skipping")
+            return
+        rows = data.get(response_key)
+        links = data.get("links")
+        next_path = links.get("next") if isinstance(links, dict) else None
+        next_url = urljoin(base_url, next_path) if next_path else None
+        if next_url == url:
+            next_url = None
+        yield (rows if isinstance(rows, list) else []), next_url
+        if next_url is None:
+            return
+        url = next_url
 
 
 def _to_epoch_seconds(value: Any) -> int | None:
@@ -341,6 +406,79 @@ def _iter_slo_counts_history(
         window_start = window_end
 
 
+def _iter_signals(
+    session: requests.Session,
+    base_url: str,
+    headers: dict[str, str],
+    config: HoneycombEndpointConfig,
+    logger: FilteringBoundLogger,
+    manager: ResumableSourceManager[HoneycombResumeConfig],
+) -> Iterator[list[dict[str, Any]]]:
+    """Emit every Signal page by page, bookmarking the next page's URL."""
+    assert config.response_key is not None
+    resume = manager.load_state() if manager.can_resume() else None
+    if resume is not None and resume.next_url is not None and _is_same_origin(resume.next_url, base_url):
+        url = resume.next_url
+        logger.debug(f"Honeycomb: resuming {config.name} from {url}")
+    else:
+        url = f"{base_url}{config.path}?{urlencode({'page[size]': CURSOR_PAGE_SIZE})}"
+
+    for rows, next_url in _iter_cursor_pages(session, base_url, url, headers, config.response_key, logger):
+        if next_url is not None:
+            manager.save_state(HoneycombResumeConfig(next_url=next_url))
+        if rows:
+            yield rows
+        else:
+            manager.safe_point()
+
+
+def _iter_signal_historical_anomalies(
+    session: requests.Session,
+    base_url: str,
+    headers: dict[str, str],
+    config: HoneycombEndpointConfig,
+    logger: FilteringBoundLogger,
+    manager: ResumableSourceManager[HoneycombResumeConfig],
+    db_incremental_field_last_value: Any,
+) -> Iterator[list[dict[str, Any]]]:
+    """Emit resolved anomalies page by page, walking time windows oldest first across every Signal.
+
+    Each page is yielded as it arrives, so a checkpoint can move the watermark into the current
+    window before every Signal is read. That loses no rows: the watermark never passes the window
+    end, and the next sync re-reads SIGNAL_ANOMALIES_REREAD (at least one window) behind it."""
+    assert config.response_key is not None
+    now = int(datetime.now(UTC).timestamp())
+    floor = now - int(SIGNAL_ANOMALIES_LOOKBACK.total_seconds())
+    watermark = _to_epoch_seconds(db_incremental_field_last_value)
+    start = floor if watermark is None else max(watermark - int(SIGNAL_ANOMALIES_REREAD.total_seconds()), floor)
+
+    signals_url = f"{base_url}/1/signals?{urlencode({'page[size]': CURSOR_PAGE_SIZE})}"
+    signal_ids: list[str] = []
+    for signals, _ in _iter_cursor_pages(session, base_url, signals_url, headers, "signals", logger):
+        signal_ids.extend(signal["id"] for signal in signals)
+        manager.safe_point()
+
+    window_seconds = int(SIGNAL_ANOMALIES_WINDOW.total_seconds())
+    window_start = start
+    while window_start < now:
+        window_end = min(window_start + window_seconds, now)
+        query = urlencode({"start_time": window_start, "end_time": window_end, "page[size]": CURSOR_PAGE_SIZE})
+        for signal_id in signal_ids:
+            url = f"{base_url}{config.path.format(signal_id=signal_id)}?{query}"
+            try:
+                for anomalies, _ in _iter_cursor_pages(session, base_url, url, headers, config.response_key, logger):
+                    if anomalies:
+                        yield [{**anomaly, "signal_id": signal_id} for anomaly in anomalies]
+                    else:
+                        manager.safe_point()
+            except requests.HTTPError as exc:
+                # A Signal deleted since the listing 404s; its anomalies are genuinely gone.
+                if exc.response is None or exc.response.status_code != 404:
+                    raise
+                manager.safe_point()
+        window_start = window_end
+
+
 def get_rows(
     api_key: str,
     region: str,
@@ -371,6 +509,16 @@ def get_rows(
 
     if config.scope == HoneycombScope.PER_SLO_TIME_WINDOW:
         yield from _iter_slo_counts_history(session, base_url, headers, config, logger, db_incremental_field_last_value)
+        return
+
+    if config.scope == HoneycombScope.ENVIRONMENT_PAGINATED:
+        yield from _iter_signals(session, base_url, headers, config, logger, resumable_source_manager)
+        return
+
+    if config.scope == HoneycombScope.PER_SIGNAL_TIME_WINDOW:
+        yield from _iter_signal_historical_anomalies(
+            session, base_url, headers, config, logger, resumable_source_manager, db_incremental_field_last_value
+        )
         return
 
     yield from _iter_fan_out(session, base_url, headers, config, logger, resumable_source_manager)

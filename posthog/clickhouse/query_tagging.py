@@ -50,6 +50,7 @@ class Product(StrEnum):
     API = "api"
     AUTORESEARCH = "autoresearch"
     BATCH_EXPORT = "batch_export"
+    CANVAS = "canvas"
     COHORTS = "cohorts"
     CONVERSATIONS = "conversations"
     CUSTOMER_ANALYTICS = "customer_analytics"
@@ -238,7 +239,7 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             return {"product": Product.LOGS}
         case NodeKind.METRICS_QUERY | NodeKind.METRICS_HISTOGRAM_QUERY:
             return {"product": Product.METRICS}
-        case NodeKind.ACCOUNTS_TABLE_QUERY:
+        case NodeKind.ACCOUNTS_TABLE_QUERY | NodeKind.ACCOUNT_USERS_QUERY:
             return {"product": Product.CUSTOMER_ANALYTICS}
         case NodeKind.RECORDINGS_QUERY | NodeKind.SESSION_BATCH_EVENTS_QUERY:
             return {"product": Product.REPLAY}
@@ -328,8 +329,6 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             | NodeKind.INSIGHT_ACTORS_QUERY
             | NodeKind.INSIGHT_ACTORS_QUERY_OPTIONS
             | NodeKind.FUNNELS_ACTORS_QUERY
-            | NodeKind.FUNNEL_CORRELATION_QUERY
-            | NodeKind.FUNNEL_CORRELATION_ACTORS_QUERY
             | NodeKind.PATHS_V2_ACTORS_QUERY
             # data-source nodes, not full queries
             | NodeKind.EVENTS_NODE
@@ -392,6 +391,13 @@ class DagsterTags(BaseModel):
 
     op_name: Optional[str] = None
     asset_key: Optional[str] = None
+
+
+_PRODUCT_TAG_VALUES = frozenset(member.value for member in Product) | frozenset(member.value for member in ProductKey)
+
+
+def is_known_product_tag(value: str) -> bool:
+    return value in _PRODUCT_TAG_VALUES
 
 
 class QueryTags(BaseModel):

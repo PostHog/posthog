@@ -17,6 +17,14 @@ PROJECT_ID_FANOUT = DependentEndpointConfig(
     parent_field_renames={"id": "project_id"},
 )
 
+USER_ID_FANOUT = DependentEndpointConfig(
+    parent_name="Users",
+    resolve_param="user_id",
+    resolve_field="id",
+    include_from_parent=["id"],
+    parent_field_renames={"id": "user_id"},
+)
+
 
 @dataclass(frozen=True)
 class BugherdChainedFanoutConfig:
@@ -35,7 +43,7 @@ class BugherdChainedFanoutConfig:
     parent_field_renames: dict[str, str]
 
 
-TASK_COMMENTS_FANOUT = BugherdChainedFanoutConfig(
+TASK_ID_FANOUT = BugherdChainedFanoutConfig(
     parent_name="Tasks",
     resolve_fields={"project_id": "project_id", "task_id": "id"},
     include_from_parent=["id", "project_id"],
@@ -80,6 +88,19 @@ BUGHERD_ENDPOINTS: dict[str, BugherdEndpointConfig] = {
     "Users": BugherdEndpointConfig(
         name="Users",
         path="/api_v2/users.json",
+        data_selector="users",
+    ),
+    # The same User objects as `Users`, split by seat type: team members versus guests.
+    # The User schema carries no member/guest flag, so these lists are the only place
+    # the distinction appears.
+    "Members": BugherdEndpointConfig(
+        name="Members",
+        path="/api_v2/users/members.json",
+        data_selector="users",
+    ),
+    "Guests": BugherdEndpointConfig(
+        name="Guests",
+        path="/api_v2/users/guests.json",
         data_selector="users",
     ),
     "Projects": BugherdEndpointConfig(
@@ -155,7 +176,30 @@ BUGHERD_ENDPOINTS: dict[str, BugherdEndpointConfig] = {
         # so treat the ID as task-scoped rather than global.
         primary_key=["task_id", "id"],
         partition_key="created_at",
-        chained_fanout=TASK_COMMENTS_FANOUT,
+        chained_fanout=TASK_ID_FANOUT,
+    ),
+    # Screenshots and files on a task. Like comments, the endpoint has no timestamp
+    # filter, so full refresh.
+    "TaskAttachments": BugherdEndpointConfig(
+        name="TaskAttachments",
+        path="/api_v2/projects/{project_id}/tasks/{task_id}/attachments.json",
+        data_selector="attachments",
+        # Addressed by project, task and attachment ID, so the ID is task-scoped.
+        primary_key=["task_id", "id"],
+        partition_key="created_at",
+        chained_fanout=TASK_ID_FANOUT,
+    ),
+    # The user-to-project membership join: one row per project a user belongs to. Each
+    # row is a full Project object, so `id` is the project ID. The `created_since`
+    # filter only reports projects created after the watermark, which would miss a user
+    # added to an older project, so this stays full refresh.
+    "UserProjects": BugherdEndpointConfig(
+        name="UserProjects",
+        path="/api_v2/users/{user_id}/projects.json",
+        data_selector="projects",
+        primary_key=["user_id", "id"],
+        partition_key="created_at",
+        fanout=USER_ID_FANOUT,
     ),
 }
 

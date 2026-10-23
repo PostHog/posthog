@@ -32,6 +32,7 @@ from posthog.dags.deletes import (
     _count_through,
     _count_unswept_rows,
     _delete_predicate_params,
+    _watermark_holders,
     cleanup_old_events_by_partition,
     delete_events,
     deletes_job,
@@ -47,7 +48,7 @@ from posthog.dags.deletes import (
 )
 from posthog.dags.person_overrides import squash_person_overrides
 from posthog.dags.tests.conftest import insert_flag_evaluations
-from posthog.models.async_deletion import AsyncDeletion, DeletionType
+from posthog.models.async_deletion import AsyncDeletion, DeletionRunLog, DeletionRunStatus, DeletionType
 from posthog.models.deletion_targets import DEFAULT_DELETION_TARGETS, EVENTS, PERSONAL_DATA_TARGETS, TargetPlacement
 from posthog.models.event.sql import EVENTS_DATA_TABLE, EVENTS_JSON_DATA_TABLE
 from posthog.models.events_retention_config import OrganizationEventsRetentionConfig, TeamEventsRetentionConfig
@@ -162,9 +163,16 @@ def test_full_job_person_deletes(cluster: ClickhouseCluster):
     # Check overrides is correct
     oldest_override_timestamp = cluster.any_host(get_oldest_override_timestamp).result()
     assert oldest_override_timestamp == timestamp - timedelta(hours=hour_delay - 1)
+    assert _watermark_holders(cluster, timestamp - timedelta(hours=hour_delay - 3)) == [
+        {
+            "team_id": 0,
+            "rows": 2,
+            "oldest": (timestamp - timedelta(hours=hour_delay - 1)).replace(tzinfo=UTC).isoformat(),
+        }
+    ]
 
     # Run the deletion job
-    deletes_job.execute_in_process(
+    result = deletes_job.execute_in_process(
         run_config={"ops": {"create_pending_deletions_table": {"config": {"timestamp": timestamp.isoformat()}}}},
         resources={"cluster": cluster},
     )
@@ -202,6 +210,13 @@ def test_full_job_person_deletes(cluster: ClickhouseCluster):
     post_override_deletions = AsyncDeletion.objects.filter(created_at__gt=oldest_override_timestamp)
     assert len(post_override_deletions) == hour_delay
     assert not all(deletion.delete_verified_at is not None for deletion in post_override_deletions)
+
+    run_log = DeletionRunLog.objects.get(dagster_run_id=result.dagster_run.run_id)
+    assert run_log.status == DeletionRunStatus.SUCCEEDED
+    assert run_log.watermark == oldest_override_timestamp.replace(tzinfo=UTC)
+    assert run_log.loaded_counts == {"Person": delete_count - hour_delay}
+    assert run_log.skipped_person_deletions == hour_delay
+    assert run_log.oldest_skipped_created_at == min(d.created_at for d in post_override_deletions)
 
     # Verify the temporary tables were cleaned up
     table = PendingDeletesTable(timestamp=timestamp)
@@ -1306,18 +1321,23 @@ def test_the_survivor_count_retries_before_reporting_unknown(failing_attempts: i
 
 
 @pytest.mark.parametrize(
-    "blocking_job",
+    "guarded_job,blocking_job",
     [
-        deletes_job,
+        (deletes_job, deletes_job),
         # A squash run blocks whatever its age: manual_deletes_job's preflight can go stale
         # before the sensor launches the run, so the guard checks squash again at run start.
-        squash_person_overrides,
+        (deletes_job, squash_person_overrides),
+        (deletes_job, monthly_old_events_cleanup_job),
+        (monthly_old_events_cleanup_job, deletes_job),
+        (monthly_old_events_cleanup_job, squash_person_overrides),
     ],
 )
-def test_the_deletes_guard_yields_to_an_executing_deletes_or_squash_run(blocking_job: dagster.JobDefinition):
-    assert "ensure_no_concurrent_deletes_run" in deletes_job.graph.node_names()
+def test_the_deletes_guard_yields_to_an_executing_run_that_mutates_events(
+    guarded_job: dagster.JobDefinition, blocking_job: dagster.JobDefinition
+):
+    assert "ensure_no_concurrent_deletes_run" in guarded_job.graph.node_names()
 
-    @dagster.job(name=deletes_job.name)
+    @dagster.job(name=guarded_job.name)
     def guard_only_job() -> None:
         ensure_no_concurrent_deletes_run()
 
@@ -1336,6 +1356,7 @@ def test_the_deletes_guard_yields_to_an_executing_deletes_or_squash_run(blocking
         # A run that has not started yet blocks here even though the in-job guard ignores it: it
         # is a collision about to happen, and the manual trigger has launched nothing yet.
         (squash_person_overrides, dagster.DagsterRunStatus.NOT_STARTED),
+        (monthly_old_events_cleanup_job, dagster.DagsterRunStatus.STARTED),
     ],
 )
 def test_the_manual_trigger_refuses_while_the_weekly_chain_is_active(

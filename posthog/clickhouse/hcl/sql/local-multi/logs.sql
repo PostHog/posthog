@@ -267,8 +267,9 @@ CREATE TABLE posthog.logs_pattern_buckets (
   severity_text LowCardinality(String),
   pattern_version UInt8,
   pattern String,
+  retention_days SimpleAggregateFunction(max, UInt16),
   log_count SimpleAggregateFunction(sum, UInt64)
-) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/noshard/posthog.logs_pattern_buckets', '{replica}-{shard}') PRIMARY KEY (team_id, time_bucket, service_name, namespace, environment, severity_text, pattern_version) ORDER BY (team_id, time_bucket, service_name, namespace, environment, severity_text, pattern_version, pattern) PARTITION BY toDate(time_bucket) TTL time_bucket + toIntervalDay(42) SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
+) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/noshard/posthog.logs_pattern_buckets', '{replica}-{shard}') PRIMARY KEY (team_id, time_bucket, service_name, namespace, environment, severity_text, pattern_version) ORDER BY (team_id, time_bucket, service_name, namespace, environment, severity_text, pattern_version, pattern) PARTITION BY toDate(time_bucket) TTL time_bucket + toIntervalDay(greatest(42, retention_days)) SETTINGS index_granularity = 8192, ttl_only_drop_parts = 0;
 CREATE TABLE posthog.logs_pattern_buckets_distributed (
   team_id Int32,
   time_bucket DateTime('UTC') CODEC(DoubleDelta, ZSTD(1)),
@@ -278,6 +279,7 @@ CREATE TABLE posthog.logs_pattern_buckets_distributed (
   severity_text LowCardinality(String),
   pattern_version UInt8,
   pattern String,
+  retention_days SimpleAggregateFunction(max, UInt16),
   log_count SimpleAggregateFunction(sum, UInt64)
 ) ENGINE = Distributed('posthog_single_shard', 'posthog', 'logs_pattern_buckets');
 CREATE TABLE posthog.logs_volume_buckets (
@@ -797,135 +799,6 @@ CREATE TABLE posthog.query_log_archive (
   exception_name String,
   ProfileEvents Map(String, UInt64)
 ) ENGINE = Distributed('ops', 'posthog', 'sharded_query_log_archive_v3');
-CREATE TABLE posthog.query_log_archive_v3 (
-  initial_query_start_time DateTime64(6, 'UTC'),
-  team_id Int64,
-  initial_query_id String,
-  is_initial_query SimpleAggregateFunction(max, UInt8),
-  hostname SimpleAggregateFunction(max, LowCardinality(String)),
-  user SimpleAggregateFunction(max, LowCardinality(String)),
-  type SimpleAggregateFunction(max, Enum8('QueryStart'=1, 'QueryFinish'=2, 'ExceptionBeforeStart'=3, 'ExceptionWhileProcessing'=4)),
-  event_time_microseconds SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
-  query_duration_ms SimpleAggregateFunction(max, UInt64),
-  read_rows SimpleAggregateFunction(sum, UInt64),
-  read_bytes SimpleAggregateFunction(sum, UInt64),
-  written_rows SimpleAggregateFunction(sum, UInt64),
-  written_bytes SimpleAggregateFunction(sum, UInt64),
-  result_rows SimpleAggregateFunction(sum, UInt64),
-  result_bytes SimpleAggregateFunction(sum, UInt64),
-  memory_usage SimpleAggregateFunction(max, UInt64),
-  memory_usage_sum SimpleAggregateFunction(sum, UInt64),
-  peak_threads_usage SimpleAggregateFunction(sum, UInt64),
-  execution_count SimpleAggregateFunction(sum, UInt64),
-  current_database SimpleAggregateFunction(max, LowCardinality(String)),
-  query SimpleAggregateFunction(max, String),
-  normalized_query_hash SimpleAggregateFunction(max, UInt64),
-  query_kind_by_root SimpleAggregateFunction(max, Tuple(UInt8, String)),
-  tables SimpleAggregateFunction(max, Array(String)),
-  exception_code SimpleAggregateFunction(max, Int32),
-  exception SimpleAggregateFunction(max, String),
-  stack_trace SimpleAggregateFunction(max, String),
-  ProfileEvents_SelectedRows SimpleAggregateFunction(sum, UInt64),
-  ProfileEvents_SelectedBytes SimpleAggregateFunction(sum, UInt64),
-  ProfileEvents_RealTimeMicroseconds SimpleAggregateFunction(sum, UInt64),
-  ProfileEvents_OSCPUVirtualTimeMicroseconds SimpleAggregateFunction(sum, UInt64),
-  ProfileEvents_UserTimeMicroseconds SimpleAggregateFunction(sum, UInt64),
-  ProfileEvents_SystemTimeMicroseconds SimpleAggregateFunction(sum, UInt64),
-  ProfileEvents_SelectedParts SimpleAggregateFunction(sum, UInt64),
-  ProfileEvents_SelectedMarks SimpleAggregateFunction(sum, UInt64),
-  ProfileEvents_NetworkReceiveBytes SimpleAggregateFunction(sum, UInt64),
-  ProfileEvents_NetworkSendBytes SimpleAggregateFunction(sum, UInt64),
-  ProfileEvents_ReadBufferFromFileDescriptorReadBytes SimpleAggregateFunction(sum, UInt64),
-  ProfileEvents_WriteBufferFromFileDescriptorWriteBytes SimpleAggregateFunction(sum, UInt64),
-  ProfileEvents_S3Clients SimpleAggregateFunction(sum, UInt64),
-  ProfileEvents_S3DeleteObjects SimpleAggregateFunction(sum, UInt64),
-  ProfileEvents_S3CopyObject SimpleAggregateFunction(sum, UInt64),
-  ProfileEvents_S3ListObjects SimpleAggregateFunction(sum, UInt64),
-  ProfileEvents_S3HeadObject SimpleAggregateFunction(sum, UInt64),
-  ProfileEvents_S3GetObjectAttributes SimpleAggregateFunction(sum, UInt64),
-  ProfileEvents_S3CreateMultipartUpload SimpleAggregateFunction(sum, UInt64),
-  ProfileEvents_S3UploadPartCopy SimpleAggregateFunction(sum, UInt64),
-  ProfileEvents_S3UploadPart SimpleAggregateFunction(sum, UInt64),
-  ProfileEvents_S3AbortMultipartUpload SimpleAggregateFunction(sum, UInt64),
-  ProfileEvents_S3CompleteMultipartUpload SimpleAggregateFunction(sum, UInt64),
-  ProfileEvents_S3PutObject SimpleAggregateFunction(sum, UInt64),
-  ProfileEvents_S3GetObject SimpleAggregateFunction(sum, UInt64),
-  ProfileEvents_ReadBufferFromS3Bytes SimpleAggregateFunction(sum, UInt64),
-  ProfileEvents_WriteBufferFromS3Bytes SimpleAggregateFunction(sum, UInt64),
-  lc_org_id SimpleAggregateFunction(max, String),
-  lc_user_id SimpleAggregateFunction(max, Int64),
-  lc_session_id SimpleAggregateFunction(max, String),
-  lc_is_impersonated SimpleAggregateFunction(max, Bool),
-  lc_workflow SimpleAggregateFunction(max, LowCardinality(String)),
-  lc_kind SimpleAggregateFunction(max, LowCardinality(String)),
-  lc_id SimpleAggregateFunction(max, String),
-  lc_route_id SimpleAggregateFunction(max, String),
-  lc_access_method SimpleAggregateFunction(max, LowCardinality(String)),
-  lc_api_key_label SimpleAggregateFunction(max, String),
-  lc_api_key_mask SimpleAggregateFunction(max, String),
-  lc_query_type SimpleAggregateFunction(max, LowCardinality(String)),
-  lc_product SimpleAggregateFunction(max, LowCardinality(String)),
-  lc_chargeable SimpleAggregateFunction(max, Bool),
-  lc_name SimpleAggregateFunction(max, String),
-  lc_request_name SimpleAggregateFunction(max, String),
-  lc_client_query_id SimpleAggregateFunction(max, String),
-  lc_dashboard_id SimpleAggregateFunction(max, Int64),
-  lc_insight_id SimpleAggregateFunction(max, Int64),
-  lc_cohort_id SimpleAggregateFunction(max, Int64),
-  lc_batch_export_id SimpleAggregateFunction(max, String),
-  lc_experiment_id SimpleAggregateFunction(max, Int64),
-  lc_experiment_feature_flag_key SimpleAggregateFunction(max, String),
-  lc_alert_config_id SimpleAggregateFunction(max, String),
-  lc_feature SimpleAggregateFunction(max, LowCardinality(String)),
-  lc_table_id SimpleAggregateFunction(max, String),
-  lc_warehouse_query SimpleAggregateFunction(max, Bool),
-  lc_person_on_events_mode SimpleAggregateFunction(max, LowCardinality(String)),
-  lc_service_name SimpleAggregateFunction(max, LowCardinality(String)),
-  lc_workload SimpleAggregateFunction(max, LowCardinality(String)),
-  lc_query__kind SimpleAggregateFunction(max, LowCardinality(String)),
-  lc_query__query SimpleAggregateFunction(max, String),
-  lc_query SimpleAggregateFunction(max, String),
-  lc_modifiers SimpleAggregateFunction(max, String),
-  lc_temporal__workflow_namespace SimpleAggregateFunction(max, LowCardinality(String)),
-  lc_temporal__workflow_type SimpleAggregateFunction(max, LowCardinality(String)),
-  lc_temporal__workflow_id SimpleAggregateFunction(max, String),
-  lc_temporal__workflow_run_id SimpleAggregateFunction(max, String),
-  lc_temporal__activity_type SimpleAggregateFunction(max, LowCardinality(String)),
-  lc_temporal__activity_id SimpleAggregateFunction(max, String),
-  lc_temporal__attempt SimpleAggregateFunction(max, Int64),
-  lc_dagster__job_name SimpleAggregateFunction(max, LowCardinality(String)),
-  lc_dagster__run_id SimpleAggregateFunction(max, String),
-  lc_dagster__owner SimpleAggregateFunction(max, LowCardinality(String)),
-  lc_experiment_name SimpleAggregateFunction(max, String),
-  lc_experiment_metric_name SimpleAggregateFunction(max, String),
-  lc_experiment_execution_path SimpleAggregateFunction(max, LowCardinality(String)),
-  lc_experiment_metric_type SimpleAggregateFunction(max, LowCardinality(String)),
-  lc_experiment_funnel_order_type SimpleAggregateFunction(max, LowCardinality(String)),
-  lc_experiment_exposures_path SimpleAggregateFunction(max, LowCardinality(String)),
-  lc_experiment_metric_events_path SimpleAggregateFunction(max, LowCardinality(String)),
-  lc_experiment_query_surface SimpleAggregateFunction(max, LowCardinality(String)),
-  lc_experiment_precompute_table SimpleAggregateFunction(max, String),
-  lc_experiment_query_group_id SimpleAggregateFunction(max, String),
-  lc_experiment_precompute_skip_reason SimpleAggregateFunction(max, LowCardinality(String)),
-  lc_experiment_scan_date_from SimpleAggregateFunction(max, String),
-  lc_experiment_scan_date_to SimpleAggregateFunction(max, String),
-  lc_precompute_window_start SimpleAggregateFunction(max, String),
-  lc_precompute_window_end SimpleAggregateFunction(max, String),
-  lc_plan_fingerprint SimpleAggregateFunction(max, String),
-  lc_estimated_rows SimpleAggregateFunction(max, Int64),
-  lc_estimated_bytes SimpleAggregateFunction(max, Int64),
-  query_id String,
-  event_time DateTime('UTC'),
-  event_date Date,
-  query_start_time DateTime('UTC'),
-  query_start_time_microseconds DateTime64(6, 'UTC'),
-  query_kind LowCardinality(String),
-  formatted_query String,
-  query_shape String,
-  hogql_shape String,
-  exception_name String,
-  ProfileEvents Map(String, UInt64)
-) ENGINE = Distributed('ops', 'posthog', 'sharded_query_log_archive_v3');
 CREATE TABLE posthog.trace_attributes (
   team_id Int32,
   original_expiry_time_bucket DateTime64(0),
@@ -1231,6 +1104,55 @@ FROM
     GROUP BY
       team_id, time_bucket, original_expiry_time_bucket, service_name, resource_fingerprint, severity_text, attributes
   );
+CREATE MATERIALIZED VIEW posthog.logs34_to_pattern_buckets TO posthog.logs_pattern_buckets (team_id Int32, time_bucket DateTime('UTC'), service_name LowCardinality(String), namespace LowCardinality(String), environment LowCardinality(String), severity_text LowCardinality(String), pattern_version UInt8, pattern String, retention_days SimpleAggregateFunction(max, UInt16), log_count SimpleAggregateFunction(sum, UInt64)) AS SELECT
+  team_id,
+  time_bucket,
+  service_name,
+  namespace,
+  environment,
+  severity_text,
+  pattern_version,
+  pattern,
+  maxSimpleState(retention_days) AS retention_days,
+  sumSimpleState(1) AS log_count
+FROM
+  (
+    SELECT
+      team_id,
+      toStartOfInterval(timestamp, toIntervalSecond(300), 'UTC') AS time_bucket,
+      service_name,
+      if(
+        (resource_attributes['k8s.namespace.name']) != '',
+        resource_attributes['k8s.namespace.name'],
+        resource_attributes['service.namespace']
+      ) AS namespace,
+      if(
+        (resource_attributes['deployment.environment.name']) != '',
+        resource_attributes['deployment.environment.name'],
+        if(
+          (resource_attributes['deployment.environment']) != '',
+          resource_attributes['deployment.environment'],
+          resource_attributes['env']
+        )
+      ) AS environment,
+      lower(severity_text) AS severity_text,
+      pattern_version,
+      pattern,
+      toUInt16(
+        least(
+          intDiv(
+            greatest(dateDiff('microsecond', time_bucket, original_expiry_timestamp), 0)
+            + 86399999999,
+            86400000000
+          ),
+          3650
+        )
+      ) AS retention_days
+    FROM posthog.logs34
+    WHERE pattern_version != 0
+  )
+GROUP BY
+  team_id, time_bucket, service_name, namespace, environment, severity_text, pattern_version, pattern;
 CREATE MATERIALIZED VIEW posthog.logs34_to_resource_attributes3 TO posthog.log_attributes3 (team_id Int32, time_bucket DateTime64(0), original_expiry_time_bucket DateTime64(0), service_name LowCardinality(String), resource_fingerprint UInt64, attribute_key LowCardinality(String), attribute_value String, attribute_type LowCardinality(String), severity_text LowCardinality(String), attribute_count SimpleAggregateFunction(sum, UInt64)) AS SELECT
   team_id,
   time_bucket,

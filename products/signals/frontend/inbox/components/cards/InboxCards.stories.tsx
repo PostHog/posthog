@@ -247,7 +247,7 @@ const impactReports: SignalReport[] = [
 ]
 
 export const ReportCardWithImpact: Story = {
-    parameters: { featureFlags: [FEATURE_FLAGS.INBOX_REDESIGN, FEATURE_FLAGS.SIGNALS_REPORT_METRICS] },
+    parameters: { featureFlags: [FEATURE_FLAGS.SIGNALS_REPORT_METRICS] },
     render: () => (
         <CardList>
             {impactReports.map((report) => (
@@ -267,7 +267,7 @@ const RANKING = {
     stale: false,
 }
 
-// Under the Engage sort: a lift, a probability with no lift, an unscored report, and a report edited after scoring.
+// Under the Engage sort: a lift above 1x, a lift below 1x, a probability with no lift, an unscored report, and a report edited after scoring.
 const rankedReports: SignalReport[] = [
     makeReport({
         title: 'Checkout button does nothing on Safari',
@@ -276,8 +276,14 @@ const rankedReports: SignalReport[] = [
         ranking: {
             ...RANKING,
             scores: { open: 0.91, action: 0.78, fixed: 0.33, pr_merged: 0.52 },
-            lifts: { open: 1.1, action: 2.1, fixed: 2.2, pr_merged: 2.6 },
+            lifts: { open: 0.6, action: 2.1, fixed: 6.0, pr_merged: 2.6 },
         },
+    }),
+    makeReport({
+        title: 'Tooltip flickers on the funnel chart',
+        priority: 'P3',
+        source_products: ['session_replay'],
+        ranking: { ...RANKING, scores: { action: 0.21 }, lifts: { action: 0.6 } },
     }),
     makeReport({
         title: 'Slow dashboard load for large projects',
@@ -294,7 +300,6 @@ const rankedReports: SignalReport[] = [
 ]
 
 export const ReportCardRankingTags: Story = {
-    parameters: { featureFlags: [FEATURE_FLAGS.INBOX_REDESIGN] },
     render: () => (
         <CardList>
             {rankedReports.map((report) => (
@@ -303,7 +308,7 @@ export const ReportCardRankingTags: Story = {
         </CardList>
     ),
     play: async ({ canvas }) => {
-        await userEvent.hover(await canvas.findByText('2.1x engage'))
+        await userEvent.hover(await canvas.findByText('2.1x more likely'))
     },
 }
 

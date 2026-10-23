@@ -124,6 +124,7 @@ describe('buildToolDomainsBlock', () => {
             'archive',
             'calculate',
             'cancel',
+            'check',
             'claim',
             'complete',
             'compose',

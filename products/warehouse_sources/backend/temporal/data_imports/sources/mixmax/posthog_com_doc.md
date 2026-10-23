@@ -4,15 +4,11 @@ sidebar: Docs
 showTitle: true
 availability: { free: full, selfServe: full, enterprise: full }
 sourceId: MixMax
-beta: true
 ---
 
 import SourceSetupIntro from "../\_snippets/source-setup-intro.mdx"
 import SyncModes from "../\_snippets/sync-modes.mdx"
 import TroubleshootingLink from "../\_snippets/dw-troubleshooting-link.mdx"
-import AlphaRelease from "../\_snippets/alpha-release.mdx"
-
-<AlphaRelease />
 
 [Mixmax](https://www.mixmax.com) is a sales-engagement and email-productivity platform for Gmail (sequences, meeting scheduling, snippets, and live email tracking). This connector syncs your Mixmax sequences, messages, snippets, rules, live feed, and related resources into the PostHog Data warehouse so you can join outreach activity with your product and revenue data.
 
@@ -40,6 +36,8 @@ PostHog authenticates every request with this token (sent as the `X-API-Token` h
 Mixmax's API does not expose a server-side "modified since" filter, so every table is synced as **full refresh** — each sync re-reads the resource and replaces the table. Because of Mixmax's fixed rate limit (120 requests per minute), prefer a modest sync frequency, especially for high-volume tables like the live feed.
 
 The `live_feed_events` table makes one request per live feed message, so it is not selected by default. Enable it only if you need per-event detail, and expect a large live feed to take a while to sync.
+
+The `sequence_recipients` table makes at least one request per sequence, and `team_members` makes one request per team. Mixmax lists at most 10,000 recipients per sequence through the API, so recipients past that limit are not synced.
 
 ## Configuration
 

@@ -106,7 +106,7 @@ class PromptWatchSource(ResumableSource[PromptWatchSourceConfig, PromptWatchResu
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="Promptwatch",
             iconPath="/static/services/promptwatch.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption=(
                 "Create a read-only API key in Promptwatch under Settings > API Keys. "
                 "Requires the Explore plan or higher. Syncs use your account's API units (hourly request quota). "

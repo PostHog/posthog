@@ -1,11 +1,11 @@
 import io
-import math
 import time
 import uuid
 import socket
+import asyncio
 import importlib
 import urllib.request
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from datetime import (
     UTC,
     datetime,
@@ -35,8 +35,11 @@ from products.warehouse_sources.backend.scheduling.shadow import (
     DECISION_SKIP_OUT_OF_SCOPE,
     DECISION_SKIP_OVERLAP,
     DECISION_WOULD_FIRE,
+    REFRESH_SLOT_KEY,
+    SCHEDULER_LANE,
     SYNC_EXTRACT_KIND,
     SYNC_EXTRACT_LANE,
+    TICK_SLOT_KEY,
     EvaluationResult,
     SchemaCadence,
     evaluate_due,
@@ -47,6 +50,7 @@ from products.warehouse_sources.backend.scheduling.shadow import (
     schedule_offset,
     window_boundary,
 )
+from products.warehouse_sources_queue.backend.core.generic_jobs import JOB_LEASE_TABLE
 from products.warehouse_sources_queue.backend.core.scheduler_state import (
     SCHEDULER_DECISION_TABLE,
     SCHEDULER_STATE_TABLE,
@@ -212,6 +216,14 @@ def _due_row(schema_id: str, team_id: int, now_epoch: int) -> DueSchedule:
     )
 
 
+async def _wait_until(condition: Callable[[], Awaitable[bool]], timeout: float = 10.0) -> None:
+    deadline = time.monotonic() + timeout
+    while not await condition():
+        if time.monotonic() > deadline:
+            raise TimeoutError("condition not met")
+        await asyncio.sleep(0.05)
+
+
 def _reset_queue_jobs() -> str:
     db_url = get_test_database_url()
     with psycopg.Connection.connect(db_url, autocommit=True) as conn:
@@ -371,6 +383,129 @@ class TestShadowSchedulerTick:
             ).fetchall()
         return {row[0] for row in rows}
 
+    def _set_tick_slot(self, db_url: str, assignments: str) -> None:
+        with psycopg.Connection.connect(db_url, autocommit=True) as conn:
+            conn.execute(
+                f"UPDATE {JOB_LEASE_TABLE} SET {assignments} WHERE lane = %s AND group_key = %s",
+                (SCHEDULER_LANE, TICK_SLOT_KEY),
+            )
+
+    @pytest.mark.parametrize(
+        "lose_slot",
+        [
+            pytest.param("expires_at = now() - interval '1 second'", id="slot_expired"),
+            pytest.param(
+                "owner_token = 'other-pod', expires_at = now() + interval '60 seconds'", id="slot_taken_by_other_pod"
+            ),
+        ],
+    )
+    def test_leader_stops_draining_after_losing_the_tick_slot(self, team, lose_slot):
+        schema_ids, db_url = self._setup_due_schemas(team, 5)
+        scheduler = ShadowScheduler(ShadowSchedulerConfig(database_url=db_url, claim_limit=2))
+
+        # The health report runs after each committed batch, so the slot is lost between batches.
+        async_to_sync(scheduler._tick)(lambda: self._set_tick_slot(db_url, lose_slot))
+
+        assert len(self._decided_keys(db_url)) == 2
+        assert len(self._overdue_keys(db_url)) == 3
+
+    def test_new_leader_waits_for_the_batch_of_a_leader_whose_slot_expired(self, team, monkeypatch):
+        schema_ids, db_url = self._setup_due_schemas(team, 4)
+        old_leader = ShadowScheduler(
+            ShadowSchedulerConfig(database_url=db_url, claim_limit=2, tick_interval_seconds=1.0)
+        )
+        new_leader = ShadowScheduler(ShadowSchedulerConfig(database_url=db_url, claim_limit=2))
+        real_evaluate_due = scheduler_runner.evaluate_due
+        evaluations: list[tuple[str, str]] = []
+
+        async def scenario() -> None:
+            old_leader_in_batch = asyncio.Event()
+            release_old_leader = asyncio.Event()
+
+            async def evaluate_due(conn, due, now_epoch):
+                current_task = asyncio.current_task()
+                assert current_task is not None
+                task_name = current_task.get_name()
+                evaluations.append((task_name, "start"))
+                if task_name == "old" and not old_leader_in_batch.is_set():
+                    old_leader_in_batch.set()
+                    await release_old_leader.wait()
+                result = await real_evaluate_due(conn, due, now_epoch)
+                evaluations.append((task_name, "end"))
+                return result
+
+            monkeypatch.setattr(scheduler_runner, "evaluate_due", evaluate_due)
+
+            async with await psycopg.AsyncConnection.connect(db_url, autocommit=True) as probe:
+
+                async def tick_slot_expired() -> bool:
+                    cursor = await probe.execute(
+                        f"SELECT expires_at <= now() FROM {JOB_LEASE_TABLE} WHERE lane = %s AND group_key = %s",
+                        (SCHEDULER_LANE, TICK_SLOT_KEY),
+                    )
+                    row = await cursor.fetchone()
+                    return bool(row and row[0])
+
+                async def new_leader_blocked_or_draining() -> bool:
+                    if any(name == "new" for name, _ in evaluations):
+                        return True
+                    cursor = await probe.execute(
+                        "SELECT count(*) FROM pg_stat_activity WHERE datname = current_database()"
+                        " AND wait_event_type = 'Lock' AND query LIKE %s",
+                        (f"%{JOB_LEASE_TABLE}%",),
+                    )
+                    row = await cursor.fetchone()
+                    return bool(row and row[0])
+
+                old_tick = asyncio.create_task(old_leader._tick(lambda: None), name="old")
+                await asyncio.wait_for(old_leader_in_batch.wait(), timeout=10)
+                await _wait_until(tick_slot_expired)
+                new_tick = asyncio.create_task(new_leader._tick(lambda: None), name="new")
+                await _wait_until(new_leader_blocked_or_draining)
+                release_old_leader.set()
+                await asyncio.wait_for(asyncio.gather(old_tick, new_tick), timeout=10)
+
+        async_to_sync(scenario)()
+
+        assert evaluations[:2] == [("old", "start"), ("old", "end")]
+        assert {name for name, _ in evaluations[2:]} == {"new"}
+        assert self._decided_keys(db_url) == schema_ids
+        assert self._overdue_keys(db_url) == set()
+
+    @pytest.mark.parametrize("refresh_problem", ["hangs", "raises"])
+    def test_refresh_problem_does_not_delay_the_drain(self, team, monkeypatch, refresh_problem):
+        schema_ids, db_url = self._setup_due_schemas(team, 3)
+        scheduler = ShadowScheduler(ShadowSchedulerConfig(database_url=db_url, tick_interval_seconds=30))
+
+        async def scenario() -> None:
+            refresh_entered = asyncio.Event()
+
+            async def refresh(conn):
+                refresh_entered.set()
+                if refresh_problem == "hangs":
+                    await asyncio.Event().wait()
+                raise RuntimeError("refresh failed")
+
+            monkeypatch.setattr(scheduler, "_refresh", refresh)
+
+            async def all_decided() -> bool:
+                async with await psycopg.AsyncConnection.connect(db_url) as conn:
+                    cursor = await conn.execute(f"SELECT schedule_key FROM {SCHEDULER_DECISION_TABLE}")
+                    return {row[0] for row in await cursor.fetchall()} == schema_ids
+
+            shutdown = asyncio.Event()
+            run = asyncio.create_task(scheduler.run(shutdown, lambda: None))
+            try:
+                await asyncio.wait_for(refresh_entered.wait(), timeout=10)
+                await _wait_until(all_decided)
+            finally:
+                shutdown.set()
+                await asyncio.wait_for(run, timeout=10)
+
+        async_to_sync(scenario)()
+
+        assert self._overdue_keys(db_url) == set()
+
     @pytest.mark.parametrize(
         "schema_count,claim_limit,expected_batches",
         [
@@ -384,9 +519,6 @@ class TestShadowSchedulerTick:
         self, team, monkeypatch, schema_count, claim_limit, expected_batches
     ):
         schema_ids, db_url = self._setup_due_schemas(team, schema_count)
-        monkeypatch.setattr(
-            scheduler_runner.JobsTable, "try_acquire_sentinel_slot", AsyncMock(side_effect=[True, False])
-        )
         due_per_tick = MagicMock()
         monkeypatch.setattr(scheduler_runner, "DUE_PER_TICK", due_per_tick)
         health_reporter = MagicMock()
@@ -401,11 +533,6 @@ class TestShadowSchedulerTick:
 
     def test_drain_budget_defers_remaining_backlog_to_next_tick(self, team, monkeypatch):
         schema_ids, db_url = self._setup_due_schemas(team, 3)
-        monkeypatch.setattr(
-            scheduler_runner.JobsTable,
-            "try_acquire_sentinel_slot",
-            AsyncMock(side_effect=[True, False, True, False]),
-        )
         scheduler = ShadowScheduler(ShadowSchedulerConfig(database_url=db_url, claim_limit=2, drain_budget_seconds=0))
 
         async_to_sync(scheduler._tick)(lambda: None)
@@ -413,6 +540,7 @@ class TestShadowSchedulerTick:
         assert len(first_tick_keys) == 2
         assert self._overdue_keys(db_url) == schema_ids - first_tick_keys
 
+        self._set_tick_slot(db_url, "expires_at = now() - interval '1 second'")
         async_to_sync(scheduler._tick)(lambda: None)
         assert self._decided_keys(db_url) == schema_ids
         assert self._overdue_keys(db_url) == set()
@@ -438,11 +566,6 @@ class TestShadowSchedulerTick:
             await original_insert(conn, records)
             raise RuntimeError("decision write failed")
 
-        monkeypatch.setattr(
-            scheduler_runner.JobsTable,
-            "try_acquire_sentinel_slot",
-            AsyncMock(side_effect=[True, False]),
-        )
         monkeypatch.setattr(
             scheduler_runner,
             "evaluate_due",
@@ -484,11 +607,6 @@ class TestShadowSchedulerTick:
             )
 
         monkeypatch.setattr(
-            scheduler_runner.JobsTable,
-            "try_acquire_sentinel_slot",
-            AsyncMock(side_effect=[True, False]),
-        )
-        monkeypatch.setattr(
             scheduler_runner,
             "evaluate_due",
             AsyncMock(return_value=EvaluationResult(records=(record,), missed_windows=0)),
@@ -513,11 +631,11 @@ class TestShadowSchedulerTick:
 
 @pytest.mark.django_db(transaction=True)
 class TestShadowSchedulerRefresh:
-    def _refresh(self, db_url: str, page_size: int, health_reporter: Callable[[], None] = lambda: None) -> None:
+    def _refresh(self, db_url: str, page_size: int) -> None:
         async def run() -> None:
             scheduler = ShadowScheduler(ShadowSchedulerConfig(database_url=db_url, refresh_page_size=page_size))
             async with await psycopg.AsyncConnection.connect(db_url, autocommit=True) as conn:
-                await scheduler._refresh(conn, health_reporter)
+                await scheduler._refresh(conn)
 
         async_to_sync(run)()
 
@@ -544,13 +662,11 @@ class TestShadowSchedulerRefresh:
         _create_schema(team, source, name="out_of_scope", should_sync=False)
         in_scope_gauge = MagicMock()
         monkeypatch.setattr(scheduler_runner, "SCHEMAS_IN_SCOPE", in_scope_gauge)
-        health_reporter = MagicMock()
 
-        self._refresh(db_url, page_size, health_reporter)
+        self._refresh(db_url, page_size)
 
         assert self._state_keys(db_url) == schema_ids
         in_scope_gauge.set.assert_called_once_with(schema_count)
-        assert health_reporter.call_count >= math.ceil(schema_count / page_size)
 
     @pytest.mark.parametrize("page_size", [1, 2, 10])
     def test_paged_refresh_deletes_schemas_that_left_scope(self, team, page_size):
@@ -566,6 +682,42 @@ class TestShadowSchedulerRefresh:
         self._refresh(db_url, page_size)
 
         assert self._state_keys(db_url) == {str(schema.id) for schema in schemas[1:4]}
+
+    @pytest.mark.parametrize(
+        "slot_owner,slot_expires_in_seconds,expected_refresh",
+        [
+            pytest.param(None, None, True, id="no_slot_yet"),
+            pytest.param("other-pod", 300, False, id="other_pod_refreshed_this_interval"),
+            pytest.param("this-pod", 300, False, id="this_pod_refreshed_this_interval"),
+            pytest.param("other-pod", -1, True, id="refresh_interval_elapsed"),
+        ],
+    )
+    def test_refresh_runs_once_per_refresh_interval(
+        self, monkeypatch, slot_owner, slot_expires_in_seconds, expected_refresh
+    ):
+        db_url = self._reset_state()
+        scheduler = ShadowScheduler(ShadowSchedulerConfig(database_url=db_url))
+        with psycopg.Connection.connect(db_url, autocommit=True) as conn:
+            ensure_generic_job_tables(conn)
+            truncate_generic_job_tables(conn)
+            if slot_owner is not None:
+                conn.execute(
+                    f"""
+                    INSERT INTO {JOB_LEASE_TABLE} (lane, group_key, owner_token, expires_at, acquired_at, updated_at)
+                    VALUES (%s, %s, %s, now() + make_interval(secs => %s), now(), now())
+                    """,
+                    (
+                        SCHEDULER_LANE,
+                        REFRESH_SLOT_KEY,
+                        scheduler._owner_token if slot_owner == "this-pod" else slot_owner,
+                        slot_expires_in_seconds,
+                    ),
+                )
+        refresh = AsyncMock()
+        monkeypatch.setattr(scheduler, "_refresh", refresh)
+
+        assert async_to_sync(scheduler._refresh_if_due)() is expected_refresh
+        assert refresh.await_count == int(expected_refresh)
 
 
 class TestSchedulerMetricsEndpoint:

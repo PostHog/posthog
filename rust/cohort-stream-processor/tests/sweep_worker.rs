@@ -20,7 +20,7 @@ use async_trait::async_trait;
 use chrono_tz::America::New_York;
 use chrono_tz::Asia::Kolkata;
 use chrono_tz::{Tz, UTC};
-use cohort_stream_processor::consumers::{CohortStreamEvent, EventDispatcher};
+use cohort_stream_processor::consumers::{BootReadiness, CohortStreamEvent, EventDispatcher};
 use cohort_stream_processor::filters::{
     CatalogHandle, CohortId, FilterCatalog, TeamFilters, TeamFiltersBuilder, TeamId,
 };
@@ -39,7 +39,9 @@ use cohort_stream_processor::store::{
     BehavioralKey, CohortStore, LeafStateKey, OffloadConfig, OffloadMode, PersonRecordKey,
     Stage2Key, StoreConfig, StoreHandle,
 };
-use cohort_stream_processor::workers::{process_event, MergeWorkerDeps, Stage1Worker};
+use cohort_stream_processor::workers::{
+    process_event, EvictionRestore, MergeWorkerDeps, Stage1Worker,
+};
 use common_kafka::kafka_producer::KafkaProduceError;
 use serde_json::{json, Value};
 use tempfile::TempDir;
@@ -288,7 +290,7 @@ fn spawn_worker(
     sink: Arc<dyn MembershipSink>,
     tracker: Arc<OffsetTracker>,
 ) -> (mpsc::Sender<Vec<ShuffleMessage>>, Stage1Worker) {
-    spawn_worker_with_restore(store, catalog, sink, tracker, false)
+    spawn_worker_with_restore(store, catalog, sink, tracker, EvictionRestore::Skip)
 }
 
 /// Like [`spawn_worker`] but with the durable-restart `EvictionQueue` rebuild on: the worker re-seeds
@@ -299,7 +301,14 @@ fn spawn_worker_durable(
     sink: Arc<dyn MembershipSink>,
     tracker: Arc<OffsetTracker>,
 ) -> (mpsc::Sender<Vec<ShuffleMessage>>, Stage1Worker) {
-    spawn_worker_with_restore(store, catalog, sink, tracker, true)
+    let rebuild = BootReadiness::new(catalog.clone()).rebuild_started();
+    spawn_worker_with_restore(
+        store,
+        catalog,
+        sink,
+        tracker,
+        EvictionRestore::Rebuild(rebuild),
+    )
 }
 
 /// Like [`spawn_worker`] but pinned to a given offload mode instead of the default `All`.
@@ -320,7 +329,7 @@ fn spawn_worker_with_mode(
         sink,
         tracker,
         MergeWorkerDeps::capture(),
-        false,
+        EvictionRestore::Skip,
     );
     (tx, worker)
 }
@@ -330,7 +339,7 @@ fn spawn_worker_with_restore(
     catalog: Arc<CatalogHandle>,
     sink: Arc<dyn MembershipSink>,
     tracker: Arc<OffsetTracker>,
-    durable_restore: bool,
+    restore: EvictionRestore,
 ) -> (mpsc::Sender<Vec<ShuffleMessage>>, Stage1Worker) {
     let (tx, rx) = mpsc::channel(16);
     let rx = WorkerInbox::live_only(rx);
@@ -342,7 +351,7 @@ fn spawn_worker_with_restore(
         sink,
         tracker,
         MergeWorkerDeps::capture(),
-        durable_restore,
+        restore,
     );
     (tx, worker)
 }
@@ -371,7 +380,7 @@ fn spawn_worker_prefilled(
         sink,
         tracker,
         MergeWorkerDeps::capture(),
-        false,
+        EvictionRestore::Skip,
     )
 }
 
@@ -2255,11 +2264,17 @@ async fn dispatch_sweeper_routes_an_end_to_end_eviction() {
     let sweeper = DispatchSweeper::with_clock(dispatcher.clone(), margin_ms, Arc::new(move || now));
     sweeper.run_once().await;
 
-    // Drain the worker through a revoke so it processes the queued event then the routed sweep before
-    // we assert. The `Left` can only come from the sweep evicting the member (a revoke alone never
-    // emits one), so its presence proves the routed `Sweep` reached the worker and fired.
-    dispatcher.revoke_partition_sync(0);
-    dispatcher.revoke_partition_drain(0).await;
+    // The `Left` can only come from the sweep evicting the member, so its arrival proves the routed
+    // `Sweep` reached the worker and fired.
+    let start = std::time::Instant::now();
+    while sink.changes().len() < 2 {
+        assert!(
+            start.elapsed() < std::time::Duration::from_secs(10),
+            "the routed sweep never evicted the member: {:?}",
+            sink.changes(),
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
 
     let changes = sink.changes();
     assert_eq!(

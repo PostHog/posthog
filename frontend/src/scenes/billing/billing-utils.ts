@@ -702,7 +702,7 @@ export function formatProductNames(names: string[]): string {
  * Get the consequence message for a product when it reaches its usage limit
  */
 export function getUsageLimitConsequence(productName: string): string {
-    if (productName === 'Data warehouse') {
+    if (productName === 'Data warehouse' || productName === 'Sources') {
         return 'data will not be synced'
     }
     if (productName === 'Feature flags & Experiments') {
@@ -724,7 +724,7 @@ export function buildUsageLimitReachedMessage(
     products: Array<{ type?: string | null; name: string; subscribed: boolean | null }>,
     hasBillingAccess: boolean = true,
     minimumBillingAccessLevel: OrganizationMembershipLevel = OrganizationMembershipLevel.Admin,
-    billingManagedByPartnerNotice: string | null = null
+    selfServeBillingNotice: string | null = null
 ): {
     title: string
     message: string
@@ -743,10 +743,10 @@ export function buildUsageLimitReachedMessage(
     const consequenceText = consequences.join(' and ')
     const title = products.length === 1 ? 'Usage limit reached' : 'Usage limits reached'
 
-    if (billingManagedByPartnerNotice && !allSubscribed) {
+    if (selfServeBillingNotice && !allSubscribed) {
         return {
             title,
-            message: `You have reached the usage limit for ${productListText}. ${capitalizeFirstLetter(consequenceText)}. ${billingManagedByPartnerNotice}`,
+            message: `You have reached the usage limit for ${productListText}. ${capitalizeFirstLetter(consequenceText)}. ${selfServeBillingNotice}`,
         }
     }
 

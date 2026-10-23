@@ -62,7 +62,7 @@ class CalComSource(ResumableSource[CalComSourceConfig, CalComResumeConfig]):
             name=ExternalDataSourceType.CALCOM,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Cal.com",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Cal.com API key to pull your scheduling data into the PostHog Data warehouse.
 
 You can create an API key under **Settings → Security → API keys** in [Cal.com](https://app.cal.com/settings/developer/api-keys). The key grants read access to your bookings, attendees, event types, schedules, teams, and webhooks.

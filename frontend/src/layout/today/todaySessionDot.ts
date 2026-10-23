@@ -15,7 +15,7 @@ const STARTING_LABELS: Record<string, string> = { not_started: 'Starting', queue
  * so every settled state shares the same quiet ring.
  */
 export function todaySessionDot(
-    item: Pick<TodayWorkItem, 'status' | 'runEnvironment'>,
+    item: Pick<TodayWorkItem, 'status' | 'runEnvironment' | 'runMode'>,
     unread: boolean
 ): TodaySessionDot {
     const { status } = item
@@ -27,7 +27,8 @@ export function todaySessionDot(
     if (startingLabel && item.runEnvironment === 'cloud') {
         return { mark: 'spinner', faint: false, label: startingLabel }
     }
-    if (status === 'in_progress') {
+    // An interactive run stays `in_progress` between turns, so only a background run shows the spinner.
+    if (status === 'in_progress' && item.runMode !== 'interactive') {
         return { mark: 'spinner', faint: false, label: 'Working' }
     }
     if (unread) {

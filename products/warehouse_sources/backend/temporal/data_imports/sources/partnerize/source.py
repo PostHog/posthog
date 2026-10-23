@@ -52,7 +52,7 @@ class PartnerizeSource(ResumableSource[PartnerizeSourceConfig, PartnerizeResumeC
             name=ExternalDataSourceType.PARTNERIZE,
             category=DataWarehouseSourceCategory.ADVERTISING,
             label="Partnerize",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             keywords=["affiliate", "performance horizon", "ascend"],
             caption="""Enter your Partnerize API credentials to pull your partnership and affiliate marketing data into the PostHog Data warehouse.
 

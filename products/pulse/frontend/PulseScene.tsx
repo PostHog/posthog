@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 
-import { IconPencil, IconPlusSmall, IconPulse, IconTrash } from '@posthog/icons'
+import { IconPencil, IconPlus, IconPlusSmall, IconPulse, IconTrash } from '@posthog/icons'
+import { Button } from '@posthog/quill'
 
 import { NotFound } from 'lib/components/NotFound'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -36,6 +37,7 @@ export function PulseScene(): JSX.Element {
     const isEnabled = useFeatureFlag('PULSE')
     const { briefConfigs, selectedConfigId, showAiConsentBanner } = useValues(pulseLogic)
     const { selectConfig, openConfigModal } = useActions(pulseLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     if (!isEnabled) {
         return <NotFound object="Pulse" caption="This feature is not enabled for your project." />
@@ -48,12 +50,26 @@ export function PulseScene(): JSX.Element {
                 description={PULSE_DESCRIPTION}
                 resourceType={{ type: 'default_icon_type', forceIcon: <IconPulse /> }}
                 actions={
-                    <>
-                        <LemonButton type="secondary" icon={<IconPlusSmall />} onClick={() => openConfigModal(null)}>
-                            New config
-                        </LemonButton>
-                        <RunBriefButton />
-                    </>
+                    todayRailNav ? (
+                        <>
+                            <Button variant="outline" onClick={() => openConfigModal(null)}>
+                                <IconPlus />
+                                New config
+                            </Button>
+                            <RunBriefButton />
+                        </>
+                    ) : (
+                        <>
+                            <LemonButton
+                                type="secondary"
+                                icon={<IconPlusSmall />}
+                                onClick={() => openConfigModal(null)}
+                            >
+                                New config
+                            </LemonButton>
+                            <RunBriefButton />
+                        </>
+                    )
                 }
             />
 

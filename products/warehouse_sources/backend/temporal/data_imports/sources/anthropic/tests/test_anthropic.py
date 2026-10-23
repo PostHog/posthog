@@ -9,6 +9,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.s
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.anthropic.anthropic import (
     ANALYTICS_ACCESS_MISSING,
+    INVALID_ADMIN_KEY_MESSAGE,
+    STANDARD_KEY_MESSAGE,
+    VALIDATION_UNREACHABLE_MESSAGE,
     AnthropicResumeConfig,
     _analytics_windows,
     _claude_code_start_day,
@@ -231,45 +234,24 @@ class TestUsageReportGroupByFallback:
 
 
 class TestValidateCredentials:
-    @parameterized.expand([("ok", 200, True), ("forbidden_scope", 403, True), ("unauthorized", 401, False)])
-    def test_status_mapping(self, _name: str, status: int, expected: bool) -> None:
+    @parameterized.expand(
+        [
+            ("ok", "sk-ant-admin-test", 200, (True, None)),
+            ("forbidden_scope", "sk-ant-admin-test", 403, (True, None)),
+            ("unauthorized", "sk-ant-admin-test", 401, (False, INVALID_ADMIN_KEY_MESSAGE)),
+            ("standard_key", "sk-ant-api03-test", 401, (False, STANDARD_KEY_MESSAGE)),
+            ("server_error", "sk-ant-admin-test", 503, (False, VALIDATION_UNREACHABLE_MESSAGE)),
+        ]
+    )
+    def test_status_mapping(self, _name: str, api_key: str, status: int, expected: tuple[bool, str | None]) -> None:
         # 403 is accepted at create time (real key, unprobed scope); 401 means a bad key.
         with scripted_network([ScriptedResponse(status=status)]) as network:
-            assert validate_credentials("sk-ant-admin-test") is expected
+            assert validate_credentials(api_key) == expected
         assert network.requests_log[0].path == "/v1/organizations/users"
         assert network.requests_log[0].param("limit") == "1"
 
 
 class TestNonRetryableErrors:
-    @parameterized.expand(
-        [
-            (
-                "unauthorized",
-                "401 Client Error: Unauthorized for url: https://api.anthropic.com/v1/organizations/users?limit=1",
-            ),
-            (
-                "forbidden",
-                "403 Client Error: Forbidden for url: https://api.anthropic.com/v1/organizations/cost_report",
-            ),
-        ]
-    )
-    def test_credential_errors_are_non_retryable(self, _name: str, observed_error: str) -> None:
-        non_retryable = AnthropicSource().get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable)
-
-    @parameterized.expand(
-        [
-            ("read_timeout", "HTTPSConnectionPool(host='api.anthropic.com', port=443): Read timed out."),
-            (
-                "server_error",
-                "500 Server Error: Internal Server Error for url: https://api.anthropic.com/v1/organizations/users",
-            ),
-        ]
-    )
-    def test_transient_errors_remain_retryable(self, _name: str, other_error: str) -> None:
-        non_retryable = AnthropicSource().get_non_retryable_errors()
-        assert not any(key in other_error for key in non_retryable)
-
     @parameterized.expand(
         [
             (
@@ -383,6 +365,20 @@ class TestClaudeCodeDayFanOut:
         assert len(result.rows) == 1
         assert result.params("page") == ["P2"]
         assert result.params("starting_at") == [today.isoformat()]
+
+    def test_waits_out_a_rate_limit_that_asks_for_an_hour(self) -> None:
+        today = datetime.now(UTC).date()
+        result = _driver().run(
+            "claude_code_analytics",
+            [
+                ScriptedResponse(status=429, headers={"Retry-After": "3600"}),
+                _cc_page([_cc_record()], has_more=False, next_page=None),
+            ],
+            incremental_field="date",
+            db_incremental_field_last_value=_midnight(today),
+        )
+        assert result.raised is None
+        assert len(result.rows) == 1
 
 
 class TestRetiredEndpoint:

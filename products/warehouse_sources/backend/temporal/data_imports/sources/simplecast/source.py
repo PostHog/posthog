@@ -58,7 +58,7 @@ class SimpleCastSource(ResumableSource[SimpleCastSourceConfig, SimpleCastResumeC
             name=ExternalDataSourceType.SIMPLECAST,
             category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             label="SimpleCast",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Simplecast API token to pull your podcast data into the PostHog Data warehouse.
 
 You can create an API token on the **Private Apps** page in [Simplecast](https://dashboard.simplecast.com). The token grants read access to the podcasts your account can see.

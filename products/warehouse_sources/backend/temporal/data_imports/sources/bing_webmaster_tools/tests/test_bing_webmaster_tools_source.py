@@ -9,6 +9,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bing_webma
 from products.warehouse_sources.backend.temporal.data_imports.sources.bing_webmaster_tools.source import (
     BingWebmasterToolsSource,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bingwebmastertools import (
     BingWebmasterToolsSourceConfig,
@@ -42,10 +43,13 @@ class TestBingWebmasterToolsSource:
         # Static endpoint catalog with no I/O; must opt in so public docs render the table list.
         assert self.source.lists_tables_without_credentials is True
 
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["query_stats"])
+    def test_throttle_fault_is_retryable_not_disabling(self):
+        # A rate-limit fault must keep Temporal retrying the activity (it is not a permanent
+        # account/credential problem) and must stay out of error tracking as noise.
+        error_message = "Bing Webmaster Tools GetUserSites failed with status 400: ERROR!!! ThrottleUser"
 
-        assert [schema.name for schema in schemas] == ["query_stats"]
+        assert error_message_matches(error_message, self.source.get_retryable_errors())
+        assert not error_message_matches(error_message, self.source.get_non_retryable_errors())
 
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
     def test_source_for_pipeline_plumbs_schema_name(self, endpoint):

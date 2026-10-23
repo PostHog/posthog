@@ -59,7 +59,7 @@ You can create an API key under **Settings → Code & analytics → API** in you
             iconPath="/static/services/thinkific_courses.png",
             docsUrl="https://posthog.com/docs/cdp/sources/thinkific-courses",
             keywords=["lms", "elearning", "e-learning", "courses", "thinkific"],
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

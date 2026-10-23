@@ -63,6 +63,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
     HostNotAllowedError,
     check_resolved_addresses,
     host_lookup_is_skipped,
+    note_oob_domain,
     open_ssh_tunnel,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -625,6 +626,23 @@ def _is_transient_vitess_dial_timeout(e: BaseException) -> bool:
     return _VITESS_DIAL_TOKEN in args_text and _VITESS_DIAL_TIMEOUT_TOKEN in args_text
 
 
+# Vitess/PlanetScale vtgate surfaces this 1105 error (gRPC `Unavailable`, the same status as
+# `_is_transient_tablet_unavailable`'s `code = Unavailable` wrapping) when its tablet discovery
+# has zero serving tablets for the target keyspace/shard/tablet-type at the moment the connection
+# is opened — a failover, a restart, or a rollout that briefly leaves no tablet registered as
+# healthy. A fresh attempt after a short backoff usually lands once a tablet comes back online.
+# Match the stable `vtgate connection error: no endpoints` phrase, excluding the volatile attempt
+# count and reqid that follow it.
+_VITESS_NO_ENDPOINTS_TOKEN = "vtgate connection error: no endpoints"
+
+
+def _is_transient_vitess_no_endpoints(e: BaseException) -> bool:
+    """Return True if a Vitess vtgate found no serving tablet endpoints — a transient blip."""
+    if not isinstance(e, pymysql.err.OperationalError):
+        return False
+    return _VITESS_NO_ENDPOINTS_TOKEN in " ".join(str(arg) for arg in e.args)
+
+
 # MySQL/MariaDB error 1040 (ER_CON_COUNT_ERROR): the server refuses a *new* connection because
 # `max_connections` is already reached. A transient capacity condition on the customer's database,
 # not a misconfiguration — a slot frees the moment another connection closes — so a fresh attempt
@@ -675,6 +693,8 @@ def _pinned_addresses(host: str, port: int, connect_timeout: int, team_id: int |
     or a resolver "try again" answer raises the error pymysql raises for its own failed lookup,
     so the transient-connect retry runs a fresh lookup on the next attempt.
     """
+    note_oob_domain(host, team_id)
+
     if host_lookup_is_skipped():
         return ()
 
@@ -954,6 +974,7 @@ def _connect_with_transient_retry(kwargs: dict[str, Any], team_id: int | None) -
                 or _is_transient_connect_broken_pipe(e)
                 or _is_transient_packet_sequence_error(e)
                 or _is_transient_vitess_dial_timeout(e)
+                or _is_transient_vitess_no_endpoints(e)
                 or _is_transient_tiproxy_unavailable(e)
                 or _is_transient_no_available_tidb_instances(e)
                 or _is_transient_too_many_connections(e)
@@ -1076,7 +1097,8 @@ def _retry_on_transient_tablet_unavailable(
     failing sync setup on the first blip and surfacing it as captured error-tracking
     noise. Non-transient errors re-raise immediately — the predicates only match the gRPC
     `Unavailable` status, a mid-reparent primary, a dial-timeout reaching a backend tablet,
-    a TiProxy failover, or a plain peer-reset connection drop, all self-healing.
+    a vtgate with no serving tablet endpoints, a TiProxy failover, or a plain peer-reset
+    connection drop, all self-healing.
     """
     attempt = 0
     while True:
@@ -1088,6 +1110,7 @@ def _retry_on_transient_tablet_unavailable(
                 _is_transient_tablet_unavailable(e)
                 or _is_transient_vitess_reparent(e)
                 or _is_transient_vitess_dial_timeout(e)
+                or _is_transient_vitess_no_endpoints(e)
                 or _is_transient_tiproxy_unavailable(e)
                 or _is_transient_metadata_query_reset(e)
             ):
@@ -2232,4 +2255,7 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
             # The streaming path can't be resumed across pods (its cursor is bound to one connection),
             # so this run is not cheaply resumable — treated as non-resumable for shutdown handling.
             supports_resume=False,
+            # One streamed statement with `ORDER BY <incremental field>`. The FORCE INDEX retry
+            # keeps the clause and runs only before the first row.
+            sort_mode="asc" if should_use_incremental_field and incremental_field is not None else None,
         )

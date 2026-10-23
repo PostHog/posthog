@@ -54,7 +54,7 @@ class HexSource(ResumableSource[HexSourceConfig, HexResumeConfig]):
             name=ExternalDataSourceType.HEX,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="Hex",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Hex API token to pull your Hex projects, run history, cells, queried tables, data connections, agent threads, users, groups, and collections into the PostHog Data warehouse.
 
 You can create an API token in Hex under **Workspace settings > API keys**. A personal token inherits your permissions; workspace tokens are available on some plans and can read across the workspace. The threads table needs a token from a user with the Manager role or higher.
@@ -91,6 +91,11 @@ If your workspace runs on a single-tenant or self-hosted Hex deployment, enter i
             "401 Client Error": "Invalid Hex API token. Please generate a new token in your Hex workspace settings and reconnect.",
             "403 Client Error": "Your Hex API token lacks the required permissions. Please check the token's access and try again.",
             HOST_NOT_ALLOWED_ERROR: "The Hex workspace URL is not allowed. Please use your workspace's Hex URL.",
+            # Hex's structured error code for a semantically-rejected request (seen on GetProjectRuns
+            # for a specific project, e.g. one in a state its run history can't be queried in).
+            # Matched on the stable error code rather than the per-request URL; every retry sends the
+            # identical request and fails identically, so there's nothing to gain from retrying.
+            "code=UNPROCESSABLE_CONTENT": "Hex rejected a request as unprocessable. This is usually caused by the state of a specific project in your Hex workspace rather than something PostHog can retry. Check the project in Hex, or contact Hex support if this persists.",
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

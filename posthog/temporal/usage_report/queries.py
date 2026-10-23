@@ -69,6 +69,7 @@ from posthog.tasks.usage_report import (
     get_teams_with_hog_function_calls_in_period,
     get_teams_with_hog_function_fetch_calls_in_period,
     get_teams_with_logs_bytes_in_period,
+    get_teams_with_logs_distinct_patterns_in_period,
     get_teams_with_logs_records_in_period,
     get_teams_with_logs_retention_byte_days_in_period,
     get_teams_with_logs_retention_bytes_in_period,
@@ -306,6 +307,7 @@ QUERIES: list[QuerySpec] = [
             "dotnet_events": "teams_with_dotnet_events_count_in_period",
             "elixir_events": "teams_with_elixir_events_count_in_period",
             "unity_events": "teams_with_unity_events_count_in_period",
+            "roblox_events": "teams_with_roblox_events_count_in_period",
             "rust_events": "teams_with_rust_events_count_in_period",
         },
         timeout_minutes=30,
@@ -570,6 +572,10 @@ QUERIES: list[QuerySpec] = [
     QuerySpec(
         name="teams_with_logs_retention_byte_days_in_period",
         fn=get_teams_with_logs_retention_byte_days_in_period,
+    ),
+    QuerySpec(
+        name="teams_with_logs_distinct_patterns_in_period",
+        fn=get_teams_with_logs_distinct_patterns_in_period,
     ),
     # ---- ClickHouse: APM tracing ---------------------------------------------
     QuerySpec(

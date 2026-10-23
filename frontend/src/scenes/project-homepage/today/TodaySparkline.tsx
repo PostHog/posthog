@@ -7,6 +7,7 @@ import {
     type LineChartConfig,
     type Series,
     type TooltipContext,
+    TooltipSurface,
 } from '@posthog/quill-charts'
 
 import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
@@ -43,7 +44,7 @@ export function TodaySparkline({
     labels: string[]
     tone: TodayTone
     emphasizeLast: number
-    formatValue: (value: number) => string
+    formatValue?: (value: number) => string
 }): JSX.Element {
     const theme = useChartTheme()
     const palette = useTodayTonePalette()
@@ -69,25 +70,25 @@ export function TodaySparkline({
             showGrid: false,
             showAxisLines: false,
             showTickMarks: false,
-            showCrosshair: true,
+            showCrosshair: !!formatValue,
             curve: 'linear',
             floatBaseline: true,
             margins: { top: 4, right: 4, bottom: 4, left: 1 },
-            tooltip: { enabled: true, placement: 'follow-data' },
+            tooltip: { enabled: !!formatValue, placement: 'follow-data' },
         }),
-        []
+        [formatValue]
     )
     const tooltip = useCallback(
         (context: TooltipContext): JSX.Element | null => {
             const value = context.seriesData[0]?.value
-            if (value === undefined || Number.isNaN(value)) {
+            if (!formatValue || value === undefined || Number.isNaN(value)) {
                 return null
             }
             return (
-                <div className="rounded-md border border-border bg-background px-2 py-1 shadow-sm">
-                    <div className="text-xs text-muted-foreground">{context.label}</div>
-                    <div className="text-xs font-medium tabular-nums text-foreground">{formatValue(value)}</div>
-                </div>
+                <TooltipSurface>
+                    <div className="opacity-70">{context.label}</div>
+                    <div className="font-medium tabular-nums">{formatValue(value)}</div>
+                </TooltipSurface>
             )
         },
         [formatValue]

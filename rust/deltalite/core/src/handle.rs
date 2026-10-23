@@ -23,9 +23,12 @@ use std::time::{Duration, Instant};
 
 use arrow_array::RecordBatch;
 use arrow_schema::SchemaRef;
+use deltalake::kernel::transaction::CommitProperties;
+use deltalake::operations::restore::RestoreMetrics;
 use deltalake::table::config::TablePropertiesExt as _;
 use deltalake::DeltaTable;
 use metrics::counter;
+use serde_json::Value;
 
 use crate::errors::{Error, Result};
 use crate::limits::{env_switch, switch_setting};
@@ -432,6 +435,42 @@ impl TableHandle {
             }
         }
         Ok(stats)
+    }
+
+    /// Fails when a vacuum deleted a file of `version`.
+    pub async fn restore(
+        &mut self,
+        version: u64,
+        commit_metadata: Option<HashMap<String, Value>>,
+    ) -> Result<RestoreMetrics> {
+        let result = self.restore_refreshed(version, commit_metadata).await;
+        self.prefetch.clear();
+        result
+    }
+
+    async fn restore_refreshed(
+        &mut self,
+        version: u64,
+        commit_metadata: Option<HashMap<String, Value>>,
+    ) -> Result<RestoreMetrics> {
+        self.refresh().await?;
+        let mut builder = self
+            .table
+            .clone()
+            .restore()
+            .with_version_to_restore(version);
+        if let Some(metadata) = commit_metadata {
+            builder =
+                builder.with_commit_properties(CommitProperties::default().with_metadata(metadata));
+        }
+        let (table, metrics) = builder.await?;
+        if self.adopt_commit_snapshot {
+            self.table.state = table.state;
+            self.list_on_next_refresh = self.on_checkpoint_boundary();
+        } else {
+            self.refresh().await?;
+        }
+        Ok(metrics)
     }
 
     /// The open cost, handed out once so per-upsert stats sum to the handle's total.

@@ -58,4 +58,45 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "docs_url": "https://docs.fintoc.com/api/movements-api/movements/movements-list",
         "columns": {"id": "Movement identifier.", "post_date": "Date the bank posts the movement."},
     },
+    "payment_methods": {
+        "description": "Saved customer payment instruments, such as cards, bank transfers, and direct debit mandates.",
+        "docs_url": "https://docs.fintoc.com/api/payments-api/payment-methods/payment-methods-list",
+        "columns": {
+            "id": "Payment method identifier.",
+            "type": "Payment method type. Its details are under a column with the same name.",
+            "customer": "Identifier of the customer that owns the payment method.",
+            "created_at": "Time the payment method was created.",
+        },
+    },
+    "disputes": {
+        "description": "Disputes opened against payment intents, with their status and documentation deadline.",
+        "docs_url": "https://docs.fintoc.com/api/payments-api/disputes/disputes-list",
+        "columns": {
+            "id": "Dispute identifier.",
+            "amount": "Disputed amount, in the smallest currency unit.",
+            "resource_id": "Identifier of the disputed payment intent.",
+            "status": "Dispute status: waiting_documentation, in_review, won, lost, expired, or canceled.",
+            "created_at": "Time the dispute was created.",
+        },
+    },
+    "business_accounts": {
+        "description": "Fintoc business accounts of the organization, with their available balance and owner entity.",
+        "docs_url": "https://docs.fintoc.com/api/business-accounts-api/accounts/accounts-list",
+        "columns": {
+            "id": "Business account identifier.",
+            "available_balance": "Available balance, in the smallest currency unit.",
+            "status": "Account status: active, blocked, or closed.",
+        },
+    },
+    "business_account_movements": {
+        "description": "Every balance change of the business accounts, such as transfers, returns, and fees.",
+        "docs_url": "https://docs.fintoc.com/api/business-accounts-api/movements/movements-list",
+        "columns": {
+            "id": "Movement identifier.",
+            "account_id": "Identifier of the business account.",
+            "balance": "Account balance right after the movement, in the smallest currency unit.",
+            "resource_id": "Identifier of the resource that originated the movement, such as a transfer.",
+            "transaction_date": "Time Fintoc recorded the movement in the account.",
+        },
+    },
 }
