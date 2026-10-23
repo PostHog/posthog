@@ -37,7 +37,7 @@ _STATUSES_BY_RECIPIENT_QUERY = """
 SELECT {latest_status}
 FROM email_status
 WHERE team_id = %(team_id)s
-  AND recipient_hash = %(recipient_hash)s
+  AND recipient_hash IN %(recipient_hashes)s
   AND created_at >= %(since)s
   {cursor_clause}
 GROUP BY message_id, created_at
@@ -48,16 +48,29 @@ LIMIT %(limit)s
 
 def email_recipient_hash(recipient: str) -> str | None:
     """The address as the email pipeline hashes it, so a lookup finds its emails without storing the address."""
-    salt_key = next(iter(settings.ENCRYPTION_SALT_KEYS), "").strip()
-    if not salt_key:
-        return None
+    hashes = _recipient_hashes(recipient)
+    return hashes[0] if hashes else None
+
+
+def _recipient_hashes(recipient: str) -> list[str]:
+    # The pipeline hashes with the first salt key. An email recorded before a key rotation holds an older key's hash.
+    salt_keys = [salt_key.strip() for salt_key in settings.ENCRYPTION_SALT_KEYS]
+    if not salt_keys or not salt_keys[0]:
+        return []
+    address = recipient.strip().lower().encode()
+    return [_keyed_hash(salt_key, address) for salt_key in salt_keys if salt_key]
+
+
+def _keyed_hash(salt_key: str, address: bytes) -> str:
     key = hmac.new(salt_key.encode(), RECIPIENT_HASH_CONTEXT, hashlib.sha256).digest()
-    return hmac.new(key, recipient.strip().lower().encode(), hashlib.sha256).hexdigest()
+    return hmac.new(key, address, hashlib.sha256).hexdigest()
 
 
 def get_email_status(team_id: int, message_id: UUID) -> EmailStatusRecord | None:
     """None for an unknown id, another team's id, and an email whose first status has not arrived yet."""
     created_at = _created_at(message_id)
+    if created_at is None:
+        return None
     rows = _execute(
         team_id,
         "email_status_by_id",
@@ -76,10 +89,15 @@ def list_email_statuses_by_recipient(
     team_id: int, recipient: str, *, since: datetime, limit: int, cursor: EmailStatusCursor | None = None
 ) -> list[EmailStatusRecord]:
     """The latest status of each email sent to the address since `since`, newest first, after `cursor`."""
-    recipient_hash = email_recipient_hash(recipient)
-    if recipient_hash is None:
+    recipient_hashes = _recipient_hashes(recipient)
+    if not recipient_hashes:
         return []
-    params: dict[str, Any] = {"team_id": team_id, "recipient_hash": recipient_hash, "since": since, "limit": limit}
+    params: dict[str, Any] = {
+        "team_id": team_id,
+        "recipient_hashes": tuple(recipient_hashes),
+        "since": since,
+        "limit": limit,
+    }
     cursor_clause = ""
     if cursor is not None:
         cursor_clause = "AND (created_at, message_id) < (%(cursor_created_at)s, %(cursor_message_id)s)"
@@ -93,9 +111,13 @@ def _execute(team_id: int, query_type: str, query: str, params: dict[str, Any]) 
         return sync_execute(query, params)
 
 
-def _created_at(message_id: UUID) -> datetime:
+def _created_at(message_id: UUID) -> datetime | None:
     # A message id is a UUIDT, whose first 48 bits are its creation time in milliseconds.
-    return datetime.fromtimestamp(int(message_id.hex[:12], 16) / 1000, UTC)
+    created_ms = int(message_id.hex[:12], 16)
+    # Another UUID can decode to a time past what datetime holds. No email was created after now.
+    if created_ms > (datetime.now(UTC) + CREATED_AT_MARGIN).timestamp() * 1000:
+        return None
+    return datetime.fromtimestamp(created_ms / 1000, UTC)
 
 
 def _record(row: tuple[Any, ...]) -> EmailStatusRecord:
