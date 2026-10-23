@@ -550,8 +550,6 @@ export const warehouseSuggestionsLogic: LogicWrapper<warehouseSuggestionsLogicTy
                 false,
                 {
                     reload: () => false,
-                    loadSuggestionsSuccess: () => false,
-                    loadStatusSuccess: () => false,
                     loadSuggestionsFailure: (_, { errorObject }) => !isForbidden(errorObject),
                     loadStatusFailure: (_, { errorObject }) => !isForbidden(errorObject),
                 },

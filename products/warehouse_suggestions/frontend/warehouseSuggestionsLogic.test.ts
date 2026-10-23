@@ -211,18 +211,39 @@ describe('warehouseSuggestionsLogic', () => {
         expect(logic.values.reviewOpen).toBe(true)
     })
 
-    it('shows the error state when the status request fails, and retry loads both again', async () => {
-        mockStatus.mockRejectedValueOnce(new Error('status is down'))
-        logic = warehouseSuggestionsLogic({ surface: 'models' })
-        logic.mount()
-        await expectLogic(logic).toDispatchActions(['loadStatusFailure'])
-        expect(logic.values.stripState).toEqual('error')
+    it.each(['status', 'list'])(
+        'shows the error state when the %s request fails while the other succeeds, and retry loads both again',
+        async (failing) => {
+            let finishOther: () => void = () => {}
+            const otherSettles = new Promise<void>((resolve) => (finishOther = resolve))
+            if (failing === 'status') {
+                mockStatus.mockRejectedValueOnce(new Error('down'))
+                mockList.mockImplementationOnce(async () => {
+                    await otherSettles
+                    return page([MATERIALIZE])
+                })
+            } else {
+                mockList.mockRejectedValueOnce(new Error('down'))
+                mockStatus.mockImplementationOnce(async () => {
+                    await otherSettles
+                    return ACTIVE_STATUS
+                })
+            }
+            logic = warehouseSuggestionsLogic({ surface: 'models' })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions([
+                failing === 'status' ? 'loadStatusFailure' : 'loadSuggestionsFailure',
+            ])
+            finishOther()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.stripState).toEqual('error')
 
-        logic.actions.reload()
+            logic.actions.reload()
 
-        await expectLogic(logic).toDispatchActions(['loadSuggestionsSuccess', 'loadStatusSuccess'])
-        expect(logic.values.stripState).toEqual('active')
-    })
+            await expectLogic(logic).toDispatchActions(['loadSuggestionsSuccess', 'loadStatusSuccess'])
+            expect(logic.values.stripState).toEqual('active')
+        }
+    )
 
     it('keeps a card hidden when the list reloads while its dismiss is still running', async () => {
         let finish: (value: WarehouseSuggestionApi) => void = () => {}
