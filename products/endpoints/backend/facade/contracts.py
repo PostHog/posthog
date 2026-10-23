@@ -32,7 +32,7 @@ class EndpointInfo:
 
 @dataclass(frozen=True)
 class EndpointVersionInfo:
-    """Query snapshot for one endpoint version. Saved-query renames may rewrite table references in place."""
+    """An immutable query snapshot for one endpoint version."""
 
     id: UUID
     endpoint_id: UUID

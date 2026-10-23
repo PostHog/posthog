@@ -62,7 +62,7 @@ import { joinsDataLogic } from 'products/data_warehouse/frontend/shared/logics/j
 import { buildSelectAllQuery } from 'products/data_warehouse/frontend/utils'
 import { ExternalDataSourceTypeEnumApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
-import { dataWarehouseViewsLogic } from '../../saved_queries/dataWarehouseViewsLogic'
+import { dataWarehouseViewsLogic, renameDataWarehouseSavedQuery } from '../../saved_queries/dataWarehouseViewsLogic'
 import { validateSavedQueryName } from '../../saved_queries/savedQueryNameValidation'
 import { draftsLogic } from '../draftsLogic'
 import { renderTableCount } from '../editorSceneLogic'
@@ -177,6 +177,8 @@ export const QueryDatabase = ({
         updateDataWarehouseSavedQueryFolder,
         deleteDataWarehouseSavedQuery,
         loadDataWarehouseSavedQueryDownstreamReferences,
+        loadDataWarehouseSavedQueries,
+        refreshDatabaseSchema,
     } = useActions(dataWarehouseViewsLogic)
     const { deleteJoin } = useActions(joinsDataLogic)
     const { expressionsByFieldName } = useValues(expressionModalLogic)
@@ -193,11 +195,12 @@ export const QueryDatabase = ({
     } = useActions(sqlEditorLogic)
     const { isEmbeddedMode, sourceQuery } = useValues(sqlEditorLogic)
     useMountedLogic(sqlEditorLogic)
+    const renamingViewId = renamingView?.id
     useEffect(() => {
-        if (renamingView) {
-            loadDataWarehouseSavedQueryDownstreamReferences(renamingView.id)
+        if (renamingViewId) {
+            loadDataWarehouseSavedQueryDownstreamReferences(renamingViewId)
         }
-    }, [renamingView?.id, loadDataWarehouseSavedQueryDownstreamReferences])
+    }, [renamingViewId, loadDataWarehouseSavedQueryDownstreamReferences])
     // Project-wide warehouse write actions (Add join, Materialization) — gated at the
     // resource level regardless of per-object creator bypass. Per-object actions like
     // Edit view use the view's own user_access_level inline below.
@@ -1066,7 +1069,10 @@ export const QueryDatabase = ({
                             >
                                 <ButtonPrimitive menuItem>Query</ButtonPrimitive>
                             </DropdownMenuItem>
-                            {!isEmbeddedMode && item.record.type === 'view' && item.record.isSavedQuery ? (
+                            {!isEmbeddedMode &&
+                            item.record.type === 'view' &&
+                            item.record.isSavedQuery &&
+                            item.record.view?.managed_viewset_kind === null ? (
                                 <DropdownMenuItem
                                     asChild
                                     onClick={(e) => {
@@ -1478,15 +1484,11 @@ export const QueryDatabase = ({
                     }
                     validateName={validateSavedQueryName}
                     onClose={() => setRenamingView(null)}
-                    onSubmit={async (name, rewriteDownstreamSQL) => {
-                        await dataWarehouseViewsLogic.asyncActions.updateDataWarehouseSavedQuery({
-                            id: renamingView.id,
-                            name,
-                            rewrite_downstream_sql: rewriteDownstreamSQL,
-                        })
-                        lemonToast.success(
-                            rewriteDownstreamSQL ? 'View renamed and downstream SQL updated' : 'View renamed'
-                        )
+                    onSubmit={async (name) => {
+                        await renameDataWarehouseSavedQuery(renamingView.id, name)
+                        loadDataWarehouseSavedQueries()
+                        refreshDatabaseSchema()
+                        lemonToast.success('View renamed')
                     }}
                 />
             ) : null}

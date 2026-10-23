@@ -88,7 +88,10 @@ export interface DataWarehouseSavedQueryUpdate extends Partial<DataWarehouseSave
     edited_history_id?: string
     folder_id?: string | null
     soft_update?: boolean
-    rewrite_downstream_sql?: boolean
+}
+
+export async function renameDataWarehouseSavedQuery(viewId: string, name: string): Promise<void> {
+    await api.dataWarehouseSavedQueries.update(viewId, { name })
 }
 
 // A plain function, not a logic action: the toast that calls it can outlive the logic, and an

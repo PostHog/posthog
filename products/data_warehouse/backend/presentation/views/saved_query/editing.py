@@ -15,7 +15,6 @@ from rest_framework import exceptions, serializers
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import (
     MODELS_NAMESPACE_QUERY_ERROR,
-    Database,
     is_reserved_models_name,
     models_namespace_chain,
 )
@@ -23,7 +22,6 @@ from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.placeholders import FindPlaceholders
 from posthog.hogql.printer import prepare_and_print_ast
-from posthog.hogql.rename import rewrite_table_references
 
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
@@ -45,7 +43,6 @@ from products.data_modeling.backend.facade.models import (
     validate_saved_query_name,
 )
 from products.data_tools.backend.facade.models import DataWarehouseSavedQueryFolder
-from products.data_warehouse.backend.facade.api import rewrite_registered_sql_references
 from products.data_warehouse.backend.presentation.views.column_annotation_base import upsert_annotation
 from products.warehouse_sources.backend.facade.hogql import (
     get_view_or_table_by_name,
@@ -139,13 +136,6 @@ INCREMENTAL_CONFIG_CHANGED_REFUSAL = (
 class DataWarehouseSavedQuerySerializer(
     view_state.DataWarehouseSavedQuerySerializerMixin, UserAccessControlSerializerMixin, serializers.ModelSerializer
 ):
-    rewrite_downstream_sql = serializers.BooleanField(
-        write_only=True,
-        required=False,
-        default=False,
-        help_text="Rewrite known saved-query and SQL endpoint references when renaming this view.",
-    )
-
     @extend_schema_field(
         {
             "type": "object",
@@ -261,7 +251,6 @@ class DataWarehouseSavedQuerySerializer(
             "edited_history_id",
             "latest_history_id",
             "soft_update",
-            "rewrite_downstream_sql",
             "is_materialized",
             "origin",
             "is_test",
@@ -354,7 +343,6 @@ class DataWarehouseSavedQuerySerializer(
         validated_data["team_id"] = self.context["team_id"]
         validated_data["created_by"] = self.context["request"].user
         validated_data["origin"] = DataWarehouseSavedQuery.Origin.DATA_WAREHOUSE
-        validated_data.pop("rewrite_downstream_sql", None)
         soft_update = validated_data.pop("soft_update", False)
         has_description = "description" in validated_data
         description = validated_data.pop("description", None)
@@ -438,7 +426,6 @@ class DataWarehouseSavedQuerySerializer(
         return view
 
     def update(self, instance: Any, validated_data: Any) -> Any:
-        rewrite_downstream_sql = validated_data.pop("rewrite_downstream_sql", False)
         has_description = "description" in validated_data
         description = validated_data.pop("description", None)
 
@@ -611,14 +598,7 @@ class DataWarehouseSavedQuerySerializer(
                 except Exception as e:
                     capture_exception(e)
                     logger.exception("Failed to sync saved query to DAG", saved_query_name=view.name)
-                    if rewrite_downstream_sql and name_changed:
-                        raise serializers.ValidationError(
-                            "Could not update view lineage. No changes were made. Try again."
-                        ) from None
                     modeling_api.adopt_saved_query_without_edges(view.team_id, view.id, _lineage_sync_error_detail(e))
-
-            if rewrite_downstream_sql and name_changed:
-                self._rewrite_downstream_sql_references(view, before_update.name)
 
         self._report_view_action(
             "view updated",
@@ -626,7 +606,6 @@ class DataWarehouseSavedQuerySerializer(
             {
                 "query_changed": query_changed,
                 "name_changed": before_update.name != view.name,
-                "rewrite_downstream_sql": rewrite_downstream_sql,
                 "description_changed": has_description,
                 "sync_frequency": sync_frequency if frequency_changed else None,
                 "soft_update": soft_update,
@@ -634,62 +613,6 @@ class DataWarehouseSavedQuerySerializer(
             team,
         )
         return view
-
-    def _rewrite_downstream_sql_references(self, view: DataWarehouseSavedQuery, old_name: str) -> None:
-        dependent_ids = modeling_api.dependent_saved_query_ids(view.team_id, {view.id}).get(view.id, frozenset())
-        dependent_views = DataWarehouseSavedQuery.objects.filter(
-            team_id=view.team_id, id__in=dependent_ids, deleted=False
-        ).exclude(origin=DataWarehouseSavedQuery.Origin.ENDPOINT)
-        dependent_views = list(dependent_views)
-        user_access_control = self.user_access_control
-        if user_access_control is None:
-            raise exceptions.PermissionDenied("You need edit access to every affected view to rename this view.")
-        user_access_control.preload_object_access_controls(dependent_views)
-        if any(
-            not user_access_control.check_access_level_for_object(dependent, "editor") for dependent in dependent_views
-        ):
-            raise exceptions.PermissionDenied("You need edit access to every affected view to rename this view.")
-
-        request = self.context["request"]
-        database = Database.create_for(team_id=view.team_id, user=cast(User, request.user))
-
-        for dependent in dependent_views:
-            if dependent.managed_viewset_id is not None:
-                raise serializers.ValidationError(
-                    "A managed view depends on this view and cannot be rewritten. No changes were made."
-                )
-            query = dependent.query
-            sql = query.get("query") if isinstance(query, dict) else None
-            if not isinstance(sql, str):
-                raise serializers.ValidationError(
-                    "A downstream saved query has no SQL that can be rewritten. No changes were made."
-                )
-            try:
-                rewritten_sql, count = rewrite_table_references(sql, old_name, view.name)
-                rewritten_sql, namespace_count = rewrite_table_references(
-                    rewritten_sql, f"models.{old_name}", f"models.{view.name}"
-                )
-            except Exception:
-                raise serializers.ValidationError(
-                    "Could not safely rewrite a downstream saved query. No changes were made."
-                ) from None
-            if count + namespace_count == 0:
-                raise serializers.ValidationError(
-                    "A downstream saved query could not be matched to this view. No changes were made."
-                )
-
-            context = {**self.context, "database": database}
-            serializer = DataWarehouseSavedQuerySerializer(
-                dependent,
-                data={"query": {**query, "query": rewritten_sql}, "soft_update": True},
-                partial=True,
-                context=context,
-            )
-            serializer.is_valid(raise_exception=True)
-            updated_dependent = serializer.save()
-            modeling_api.sync_saved_query_to_dag(updated_dependent)
-
-        rewrite_registered_sql_references(view.team_id, old_name, view.name, self.user_access_control)
 
     def validate_query(self, query):
         if not isinstance(query, dict):
@@ -745,13 +668,6 @@ class DataWarehouseSavedQuerySerializer(
 
     def validate(self, attrs):
         attrs = super().validate(attrs)
-
-        if attrs.get("rewrite_downstream_sql") and (
-            self.instance is None or attrs.get("name", self.instance.name) == self.instance.name
-        ):
-            raise serializers.ValidationError(
-                {"rewrite_downstream_sql": "Rename this view to rewrite its SQL references."}
-            )
 
         # Falls back to the stored config so editing the query of an already-incremental view is
         # checked too. Otherwise a query that incremental cannot serve would save while the view

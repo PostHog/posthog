@@ -51,8 +51,6 @@ _LAZY = {
     "delete_webhook_and_hog_function": "logic.external_data_source.webhooks",
     "get_or_create_webhook_hog_function": "logic.external_data_source.webhooks",
     "get_webhook_url": "logic.external_data_source.webhooks",
-    "register_sql_reference_rewrite_handler": "rename_hooks",
-    "rewrite_registered_sql_references": "rename_hooks",
     "reconcile_webhook_events": "logic.external_data_source.webhooks",
     "store_webhook_extra_inputs": "logic.external_data_source.webhooks",
     "WebhookConsumerConfig": "logic.webhook_consumer.config",
