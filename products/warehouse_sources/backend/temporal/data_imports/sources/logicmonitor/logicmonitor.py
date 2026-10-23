@@ -1,7 +1,7 @@
 import re
 import time
-from collections.abc import Iterator
-from dataclasses import replace
+from collections.abc import Iterable, Iterator
+from dataclasses import field, replace
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -15,11 +15,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     rest_api_resource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import BearerTokenAuth
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    build_dependent_resource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     OffsetPaginator,
     SinglePagePaginator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ClientConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.logicmonitor import (
@@ -27,7 +31,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.logicmonitor.settings import (
     API_VERSION,
+    DEVICE_FANOUTS,
     ENDPOINTS,
+    FANOUT_PRIMARY_KEYS,
     FIELDS,
     MAX_ALERTS_PER_WINDOW,
     PAGE_SIZE,
@@ -48,6 +54,19 @@ class LogicMonitorResumeConfig:
     window_end: int = 0
     sync_end: int = 0
     complete: bool = False
+    fanout_state: dict[str, Any] | None = None
+
+
+@frozen
+class FanoutEndpoint:
+    name: str
+    path: str
+    page_size: int = PAGE_SIZE
+    incremental_fields: list[Any] = field(default_factory=list)
+    default_incremental_field: str | None = None
+
+
+FANOUT_ENDPOINTS = {name: FanoutEndpoint(name=name, path=ENDPOINTS[name]) for name in ("devices", *DEVICE_FANOUTS)}
 
 
 def portal_url(value: str) -> str:
@@ -105,6 +124,17 @@ class LogicMonitorClient:
         self.base_url = f"{portal_url(config.portal_url)}/santaba/rest/"
         self.token = config.bearer_token
 
+    def client_config(self, paginator: OffsetPaginator) -> ClientConfig:
+        return {
+            "base_url": self.base_url,
+            "auth": {"type": "bearer", "token": self.token},
+            "headers": {"X-Version": API_VERSION},
+            "allowed_hosts": [],
+            "allow_redirects": False,
+            "request_timeout": 60,
+            "paginator": paginator,
+        }
+
     def validate_credentials(self) -> tuple[bool, str | None]:
         client = RESTClient(
             base_url=self.base_url,
@@ -135,12 +165,45 @@ class LogicMonitorClient:
     ) -> SourceResponse:
         if inputs.schema_name not in ENDPOINTS:
             raise ValueError(f"Unknown LogicMonitor table: {inputs.schema_name}")
+        if inputs.schema_name in DEVICE_FANOUTS:
+            return SourceResponse(
+                name=inputs.schema_name,
+                items=lambda: self.device_fanout_rows(inputs, manager),
+                primary_keys=FANOUT_PRIMARY_KEYS,
+                sort_mode=None,
+                on_complete=manager.clear_state,
+            )
         return SourceResponse(
             name=inputs.schema_name,
             items=lambda: self.iter_rows(inputs, manager),
             primary_keys=PRIMARY_KEYS,
             sort_mode=None,
             on_complete=manager.clear_state,
+        )
+
+    def device_fanout_rows(
+        self, inputs: SourceInputs, manager: ResumableSourceManager[LogicMonitorResumeConfig]
+    ) -> Iterable[Any]:
+        saved = manager.load_state() if manager.can_resume() else None
+
+        def save_checkpoint(fanout_state: dict[str, Any] | None) -> None:
+            if fanout_state:
+                manager.save_state(LogicMonitorResumeConfig(fanout_state=fanout_state))
+
+        return build_dependent_resource(
+            endpoint_configs=FANOUT_ENDPOINTS,
+            child_endpoint=inputs.schema_name,
+            fanout=DEVICE_FANOUTS[inputs.schema_name],
+            client_config=self.client_config(OffsetPaginator(limit=PAGE_SIZE, limit_param="size", total_path="total")),
+            path_format_values={},
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
+            db_incremental_field_last_value=None,
+            page_size_param=None,
+            parent_endpoint_extra={"data_selector": "items", "data_selector_required": True},
+            child_endpoint_extra={"data_selector": "items", "data_selector_required": True},
+            resume_hook=save_checkpoint,
+            initial_paginator_state=saved.fanout_state if saved else None,
         )
 
     def iter_rows(
@@ -159,15 +222,7 @@ class LogicMonitorClient:
                 params["sort"] = "startEpoch"
             paginator_class = AlertPaginator if is_alerts else OffsetPaginator
             config: RESTAPIConfig = {
-                "client": {
-                    "base_url": self.base_url,
-                    "auth": {"type": "bearer", "token": self.token},
-                    "headers": {"X-Version": API_VERSION},
-                    "allowed_hosts": [],
-                    "allow_redirects": False,
-                    "request_timeout": 60,
-                    "paginator": paginator_class(limit=PAGE_SIZE, limit_param="size", total_path="total"),
-                },
+                "client": self.client_config(paginator_class(limit=PAGE_SIZE, limit_param="size", total_path="total")),
                 "resources": [
                     {
                         "name": inputs.schema_name,
