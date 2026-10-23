@@ -6,6 +6,7 @@ import {
   type McpToolPolicy,
   PostHogHttpClient,
   type StoredLogEntry,
+  sleepWithBackoff,
   type TaskRunUpdate,
   taskRunStateSchema,
 } from "@posthog/agent-contracts";
@@ -51,6 +52,8 @@ export class CodexSubscriptionTokenError extends Error {
     this.name = "CodexSubscriptionTokenError";
   }
 }
+
+const MCP_TOOLS_FETCH_RETRIES = 2;
 
 export class PostHogAPIError extends Error {
   constructor(
@@ -164,9 +167,11 @@ export class PostHogAPIClient {
     return this.apiRequest<Task>(`/api/projects/${teamId}/tasks/${taskId}/`);
   }
 
-  async getMcpRuntimeConfiguration(
-    servers: McpServerConnection[],
-  ): Promise<{ servers: McpServerConnection[]; policies: McpToolPolicy[] }> {
+  async getMcpRuntimeConfiguration(servers: McpServerConnection[]): Promise<{
+    servers: McpServerConnection[];
+    policies: McpToolPolicy[];
+    failedServers: string[];
+  }> {
     const resolved = await Promise.all(
       servers.map(async (server) => {
         const installationId = this.mcpInstallationId(server.url);
@@ -175,15 +180,7 @@ export class PostHogAPIClient {
         }
 
         try {
-          const response = await this.apiRequest<{
-            results?: Array<{
-              tool_name: string;
-              approval_state?: McpToolApprovalState;
-              description?: string;
-            }>;
-          }>(
-            `/api/environments/${this.getTeamId()}/mcp_server_installations/${installationId}/tools/`,
-          );
+          const response = await this.getMcpInstallationTools(installationId);
           const policies = (response.results ?? []).flatMap((tool) =>
             tool.approval_state
               ? [
@@ -209,7 +206,36 @@ export class PostHogAPIClient {
     return {
       servers: resolved.flatMap((entry) => (entry ? [entry.server] : [])),
       policies: resolved.flatMap((entry) => entry?.policies ?? []),
+      failedServers: servers.flatMap((server, index) =>
+        resolved[index] ? [] : [server.name],
+      ),
     };
+  }
+
+  private async getMcpInstallationTools(installationId: string): Promise<{
+    results?: Array<{
+      tool_name: string;
+      approval_state?: McpToolApprovalState;
+      description?: string;
+    }>;
+  }> {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await this.apiRequest(
+          `/api/environments/${this.getTeamId()}/mcp_server_installations/${installationId}/tools/`,
+        );
+      } catch (error) {
+        // A timeout is not retried: it already spent the full transfer budget.
+        const transient =
+          (error instanceof PostHogAPIError && error.retryable) ||
+          error instanceof TypeError;
+        if (!transient || attempt >= MCP_TOOLS_FETCH_RETRIES) throw error;
+        await sleepWithBackoff(attempt, {
+          initialDelayMs: 250,
+          maxDelayMs: 1000,
+        });
+      }
+    }
   }
 
   async approveMcpTool(

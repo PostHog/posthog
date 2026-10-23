@@ -3178,6 +3178,11 @@ describe("AgentServer HTTP Mode", () => {
       const exposed = testServer as unknown as {
         mcpToolPolicies: Map<string, unknown>;
         posthogAPI: { approveMcpTool: typeof approveMcpTool };
+        productLaunch: { originProduct?: string };
+      };
+      exposed.productLaunch = {
+        ...exposed.productLaunch,
+        originProduct: "posthog_ai",
       };
       exposed.mcpToolPolicies = new Map([
         [
@@ -3208,7 +3213,9 @@ describe("AgentServer HTTP Mode", () => {
     it("keys loaded approvals by the sanitized names the SDK reports", async () => {
       const testServer = createServer() as unknown as {
         posthogAPI: { getMcpRuntimeConfiguration: unknown };
-        loadMcpToolApprovals: () => Promise<Record<string, string>>;
+        loadMcpToolApprovals: (
+          servers: unknown[],
+        ) => Promise<Record<string, string>>;
       };
       testServer.posthogAPI.getMcpRuntimeConfiguration = vi.fn(async () => ({
         servers: [],
@@ -3220,9 +3227,10 @@ describe("AgentServer HTTP Mode", () => {
             approvalState: "needs_approval",
           },
         ],
+        failedServers: [],
       }));
 
-      expect(await testServer.loadMcpToolApprovals()).toEqual({
+      expect(await testServer.loadMcpToolApprovals([])).toEqual({
         mcp__Datadog__EU___get_metrics: "needs_approval",
       });
     });
@@ -3277,13 +3285,19 @@ describe("AgentServer HTTP Mode", () => {
         label: "a background run",
         mode: "background" as const,
         connected: true,
-        originProduct: undefined,
+        originProduct: "posthog_ai",
       },
       {
         label: "an interactive run with no client",
         mode: "interactive" as const,
         connected: false,
-        originProduct: undefined,
+        originProduct: "posthog_ai",
+      },
+      {
+        label: "a workflow run that teammates can answer",
+        mode: "interactive" as const,
+        connected: true,
+        originProduct: "workflow",
       },
       {
         label: "a Slack run whose prompts are auto-answered",
@@ -3629,7 +3643,10 @@ describe("AgentServer HTTP Mode", () => {
           clientConnection: { extMethod: ReturnType<typeof vi.fn> };
         } | null;
         mcpRelayServer: { mcpServers: unknown[] } | null;
-        posthogAPI: { getTaskRun: ReturnType<typeof vi.fn> };
+        posthogAPI: {
+          getTaskRun: ReturnType<typeof vi.fn>;
+          getMcpRuntimeConfiguration: ReturnType<typeof vi.fn>;
+        };
         contextSelectionAPI: PostHogAPIClient;
         handleAcpTransportMessage(message: unknown): void;
         executeCommand(
@@ -3658,6 +3675,11 @@ describe("AgentServer HTTP Mode", () => {
         getTaskRun: vi.fn(async () => {
           throw new Error("run fetch unavailable");
         }),
+        getMcpRuntimeConfiguration: vi.fn(async () => ({
+          servers: [],
+          policies: [],
+          failedServers: [],
+        })),
       };
     }
 
@@ -3780,6 +3802,40 @@ describe("AgentServer HTTP Mode", () => {
         mcpServers: Array<Record<string, unknown>>;
       };
       expect(forwarded.mcpServers[0]).not.toHaveProperty("description");
+
+      testServer.session = null;
+    });
+
+    it("reloads MCP tool approvals for the refreshed server list", async () => {
+      const testServer = exposeRefresh(createServer());
+      const extMethod = vi.fn(async () => ({ refreshed: true }));
+      attachSession(testServer, extMethod);
+      testServer.mcpRelayServer = null;
+      testServer.posthogAPI.getMcpRuntimeConfiguration.mockResolvedValue({
+        servers: [],
+        policies: [
+          {
+            serverName: "metrics",
+            toolName: "get_stats",
+            installationId: "installation-2",
+            approvalState: "needs_approval",
+          },
+        ],
+        failedServers: [],
+      });
+
+      await testServer.executeCommand("refresh_session", {
+        mcpServers: [
+          { type: "http", name: "metrics", url: "https://mcp", headers: [] },
+        ],
+      });
+
+      const forwarded = (extMethod.mock.calls[0] as unknown[])[1] as {
+        mcpToolApprovals: Record<string, string>;
+      };
+      expect(forwarded.mcpToolApprovals).toEqual({
+        mcp__metrics__get_stats: "needs_approval",
+      });
 
       testServer.session = null;
     });

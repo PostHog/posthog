@@ -253,8 +253,12 @@ const PENDING_ARTIFACT_MAX_ATTEMPTS = 4;
 const PENDING_ARTIFACT_RETRY_DELAY_MS = 500;
 
 const POSTHOG_AI_ORIGIN_PRODUCT = "posthog_ai";
-// The backend permission broker auto-answers every prompt on these runs.
-const SLACK_ORIGIN_PRODUCT = "slack";
+// Only the creator can answer prompts on these runs, so the run's credentials
+// speak for whoever approves. Team-controlled and auto-answered origins stay out.
+const CREATOR_CONTROLLED_ORIGIN_PRODUCTS = new Set([
+  POSTHOG_AI_ORIGIN_PRODUCT,
+  "user_created",
+]);
 
 function mcpToolApprovalCancel(
   policy: McpToolPolicy,
@@ -662,10 +666,16 @@ export class AgentServer {
     return this.mcpRelayServer.mcpServers;
   }
 
-  private async loadMcpToolApprovals(): Promise<McpToolApprovals> {
-    const { policies } = await this.posthogAPI.getMcpRuntimeConfiguration(
-      this.config.mcpServers ?? [],
-    );
+  private async loadMcpToolApprovals(
+    servers: McpServerConnection[],
+  ): Promise<McpToolApprovals> {
+    const { policies, failedServers } =
+      await this.posthogAPI.getMcpRuntimeConfiguration(servers);
+    if (failedServers.length > 0) {
+      this.logger.warn("Failed to load MCP tool approval states", {
+        servers: failedServers,
+      });
+    }
     this.mcpToolPolicies = new Map(
       policies.map((policy) => [
         mcpToolKey({
@@ -1919,7 +1929,12 @@ export class AgentServer {
 
         return await this.session.clientConnection.extMethod(
           POSTHOG_METHODS.REFRESH_SESSION,
-          { mcpServers: toAcpMcpServers(refreshedMcpServers) },
+          {
+            mcpServers: toAcpMcpServers(refreshedMcpServers),
+            mcpToolApprovals: await this.loadMcpToolApprovals(
+              mcpServers as McpServerConnection[],
+            ),
+          },
         );
       }
 
@@ -2197,7 +2212,7 @@ export class AgentServer {
         Promise.all([
           this.fetchTaskRunForSessionContext(payload.task_id, payload.run_id),
           this.fetchTaskForSessionContext(payload.task_id),
-          this.loadMcpToolApprovals(),
+          this.loadMcpToolApprovals(this.config.mcpServers ?? []),
         ]),
       );
     const launchSources = {
@@ -5184,7 +5199,9 @@ export class AgentServer {
         if (gatedMcpTool) {
           if (
             mode !== "background" &&
-            this.productLaunch.originProduct !== SLACK_ORIGIN_PRODUCT &&
+            CREATOR_CONTROLLED_ORIGIN_PRODUCTS.has(
+              this.productLaunch.originProduct ?? "",
+            ) &&
             this.hasReachableClient()
           ) {
             return this.relayMcpToolApproval(params, gatedMcpTool);
