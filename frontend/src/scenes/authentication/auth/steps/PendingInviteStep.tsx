@@ -1,0 +1,59 @@
+import { useActions, useValues } from 'kea'
+
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { AuthCardTitle } from 'scenes/authentication/shared/authScene/AuthCardTitle'
+import { AuthSceneCard } from 'scenes/authentication/shared/authScene/AuthScene'
+import { signupLogic } from 'scenes/authentication/signup/signupForm/signupLogic'
+
+import { UseDifferentEmailLink } from '../components/UseDifferentEmailLink'
+
+export function PendingInviteStep(): JSX.Element {
+    const { signupPanelEmail, pendingInvite, pendingInviteResent, isPendingInviteResending } = useValues(signupLogic)
+    const { resendPendingInvite, dismissPendingInvite } = useActions(signupLogic)
+    const org = pendingInvite?.organization_name ?? 'your team'
+
+    return (
+        <AuthSceneCard footer={<UseDifferentEmailLink />}>
+            <AuthCardTitle
+                title="You've already been invited"
+                sub={
+                    <span>
+                        <b className="text-primary">{org}</b> <span>invited</span>{' '}
+                        <span className="AuthScene__mono">{signupPanelEmail.email}</span>{' '}
+                        <span>to join them on PostHog. The invite link is in your inbox.</span>
+                    </span>
+                }
+                className="mb-5"
+            />
+            {pendingInviteResent ? (
+                <div className="flex gap-2 items-start py-2.5 px-3 text-sm text-primary text-left bg-success-highlight border border-success rounded">
+                    <span className="font-bold text-success">✓</span>
+                    <span>Sent. Look for an email from {org}. The link inside takes you straight in.</span>
+                </div>
+            ) : (
+                <div className="flex flex-col gap-2.5">
+                    <LemonButton
+                        type="primary"
+                        size="large"
+                        center
+                        fullWidth
+                        data-attr="pending-invite-resend"
+                        loading={isPendingInviteResending}
+                        onClick={() => resendPendingInvite(signupPanelEmail.email)}
+                    >
+                        Resend invite email
+                    </LemonButton>
+                    <LemonButton
+                        size="large"
+                        center
+                        fullWidth
+                        data-attr="pending-invite-create-own-org"
+                        onClick={() => dismissPendingInvite()}
+                    >
+                        I'd rather create my own organization
+                    </LemonButton>
+                </div>
+            )}
+        </AuthSceneCard>
+    )
+}

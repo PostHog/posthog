@@ -38,6 +38,12 @@ export interface AuthenticateResponseType {
 }
 
 export interface PrecheckResponseType {
+    /**
+     * Whether an active account uses this email. Absent (from an older server or a failed precheck)
+     * means unknown, and the auth page then shows the login step, so an existing account is never
+     * sent into signup.
+     */
+    account_exists?: boolean
     sso_enforcement?: SSOProvider | null
     saml_available: boolean
     oidc_available?: boolean
@@ -220,7 +226,6 @@ export interface loginLogicValues {
     restrictToProviders: SSOProvider[] | null
     showCodeVerificationErrors: boolean
     showLoginErrors: boolean
-    signupUrl: string
     wasSignedOutForSessionRisk: boolean
 }
 
@@ -387,7 +392,6 @@ export interface loginLogicMeta {
             precheckResponse: PrecheckResponseType,
             isPasswordLoginUnavailable: boolean
         ) => SSOProvider[] | null
-        signupUrl: (searchParams: Record<string, any>) => string
         wasSignedOutForSessionRisk: (searchParams: Record<string, any>) => boolean
     }
 }
@@ -584,13 +588,6 @@ export const loginLogic = kea<loginLogicType>([
             (s) => [s.precheckResponse, s.isPasswordLoginUnavailable],
             (precheckResponse: PrecheckResponseType, isPasswordLoginUnavailable: boolean): SSOProvider[] | null =>
                 isPasswordLoginUnavailable ? (precheckResponse.social_providers ?? []) : null,
-        ],
-        signupUrl: [
-            () => [router.selectors.searchParams],
-            (searchParams: Record<string, string>) => {
-                const nextParam = getRelativeNextPath(searchParams['next'], location)
-                return nextParam ? `/signup?next=${encodeURIComponent(nextParam)}` : '/signup'
-            },
         ],
         wasSignedOutForSessionRisk: [
             () => [router.selectors.searchParams],

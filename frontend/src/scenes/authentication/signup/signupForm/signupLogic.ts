@@ -71,8 +71,6 @@ export interface signupLogicValues {
     preflight: PreflightStatus | null // preflightLogic
     challengeNonce: string | null
     challengeRequired: boolean
-    emailCaseNotice: string | undefined
-    emailWasNormalized: boolean
     isPasskeyRegistering: boolean
     isPendingInviteResending: boolean
     isSignupPanelAuthSubmitting: boolean
@@ -81,7 +79,6 @@ export interface signupLogicValues {
     isSignupPanelEmailValid: boolean
     isSignupPanelOnboardingSubmitting: boolean
     isSignupPanelOnboardingValid: boolean
-    loginUrl: string
     panel: number
     passkeyError: string | null
     passkeyRegistered: boolean
@@ -127,9 +124,6 @@ export interface signupLogicActions {
     dismissPendingInvite: () => {
         value: true
     }
-    normalizeEmailWithDelay: (email: string) => {
-        email: string
-    }
     registerPasskey: () => {
         value: true
     }
@@ -153,9 +147,6 @@ export interface signupLogicActions {
     }
     setChallengeRequired: (required: boolean) => {
         required: boolean
-    }
-    setEmailNormalized: (wasNormalized: boolean) => {
-        wasNormalized: boolean
     }
     setPanel: (panel: number) => {
         panel: number
@@ -286,8 +277,6 @@ export interface signupLogicActions {
 export interface signupLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         validatedPassword: (signupPanelAuth: SignupPanelAuthForm) => ValidatedPasswordResult
-        emailCaseNotice: (emailWasNormalized: boolean) => string | undefined
-        loginUrl: (searchParams: Record<string, any>) => string
     }
 }
 
@@ -300,8 +289,6 @@ export const signupLogic = kea<signupLogicType>([
     })),
     actions(() => ({
         setPanel: (panel: number) => ({ panel }),
-        normalizeEmailWithDelay: (email: string) => ({ email }),
-        setEmailNormalized: (wasNormalized: boolean) => ({ wasNormalized }),
         // Passkey actions
         registerPasskey: true,
         setPasskeyRegistered: (registered: boolean) => ({ registered }),
@@ -325,12 +312,6 @@ export const signupLogic = kea<signupLogicType>([
             0,
             {
                 setPanel: (_, { panel }) => panel,
-            },
-        ],
-        emailWasNormalized: [
-            false,
-            {
-                setEmailNormalized: (_, { wasNormalized }) => wasNormalized,
             },
         ],
         passkeyRegistered: [
@@ -625,19 +606,6 @@ export const signupLogic = kea<signupLogicType>([
                 return validatePassword(signupPanelAuth.password)
             },
         ],
-        emailCaseNotice: [
-            (s) => [s.emailWasNormalized],
-            (emailWasNormalized: boolean): string | undefined => {
-                return emailWasNormalized ? '⚠ Your email was automatically converted to lowercase' : undefined
-            },
-        ],
-        loginUrl: [
-            () => [router.selectors.searchParams],
-            (searchParams: Record<string, string>) => {
-                const nextParam = getRelativeNextPath(searchParams['next'], location)
-                return nextParam ? `/login?next=${encodeURIComponent(nextParam)}` : '/login'
-            },
-        ],
     }),
     listeners(({ actions, values }) => ({
         dismissPendingInvite: () => {
@@ -655,21 +623,6 @@ export const signupLogic = kea<signupLogicType>([
                 lemonToast.error('Could not resend the invite email. Please try again.')
             } finally {
                 actions.setPendingInviteResending(false)
-            }
-        },
-        normalizeEmailWithDelay: async ({ email }, breakpoint) => {
-            await breakpoint(500)
-
-            const hasUppercase = /[A-Z]/.test(email)
-            if (hasUppercase) {
-                actions.setSignupPanelEmailValue('email', email.toLowerCase())
-                actions.setEmailNormalized(true)
-            }
-        },
-        setSignupPanelEmailValue: ({ name, value }) => {
-            if (name.toString() === 'email' && typeof value === 'string') {
-                actions.setEmailNormalized(false)
-                actions.normalizeEmailWithDelay(value)
             }
         },
         setPasskeyRegistered: ({ registered }) => {
@@ -764,21 +717,18 @@ export const signupLogic = kea<signupLogicType>([
                     )
                 }
             }
-            if (email) {
-                if (values.preflight?.demo) {
-                    // In demo mode no password is needed, so we can log in right away
-                    // This allows us to give a quick login link in the `generate_demo_data` command
-                    // X and Y are placeholders, irrelevant because the account should already exists
-                    actions.setSignupPanelEmailValues({ email })
-                    actions.setSignupPanelOnboardingValues({
-                        name: 'X',
-                        organization_name: 'Y',
-                        role_at_organization: 'other',
-                    })
-                    actions.submitSignupPanelOnboarding()
-                } else {
-                    actions.setSignupPanelEmailValue('email', email)
-                }
+            // Outside demo mode, `authLogic` puts `?email=` into the shared email field
+            if (email && values.preflight?.demo) {
+                // In demo mode no password is needed, so we can log in right away
+                // This allows us to give a quick login link in the `generate_demo_data` command
+                // X and Y are placeholders, irrelevant because the account should already exists
+                actions.setSignupPanelEmailValues({ email })
+                actions.setSignupPanelOnboardingValues({
+                    name: 'X',
+                    organization_name: 'Y',
+                    role_at_organization: 'other',
+                })
+                actions.submitSignupPanelOnboarding()
             }
         },
     })),

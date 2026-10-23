@@ -1,0 +1,156 @@
+import { useActions, useValues } from 'kea'
+import { useEffect, useState } from 'react'
+
+import { SocialLoginButtons } from 'lib/components/SocialLoginButton/SocialLoginButton'
+import { usePrevious } from 'lib/hooks/usePrevious'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
+import { isWebKitBrowser } from 'lib/utils/dom'
+import { isEmail } from 'lib/utils/url'
+import { loginLogic } from 'scenes/authentication/login/loginLogic'
+import { SessionRiskBanner } from 'scenes/authentication/login/SessionRiskBanner'
+import { AuthCardTitle } from 'scenes/authentication/shared/authScene/AuthCardTitle'
+import { AuthSceneCard } from 'scenes/authentication/shared/authScene/AuthScene'
+import { RegionField } from 'scenes/authentication/shared/authScene/RegionField'
+import { useLastLoginMethod } from 'scenes/authentication/shared/lastLoginMethod'
+import { pendingOAuthConnectionLogic, reviewAccessCopy } from 'scenes/authentication/shared/pendingOAuthConnectionLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+
+import { authLogic } from '../authLogic'
+import { HighlightedName } from '../components/HighlightedName'
+import { LoginErrorBanner } from '../components/LoginErrorBanner'
+
+function EmailStepTitle(): JSX.Element {
+    const { entry } = useValues(authLogic)
+    const { pendingConnection } = useValues(pendingOAuthConnectionLogic)
+    const isReturning = useLastLoginMethod() !== null
+
+    if (pendingConnection) {
+        return (
+            <AuthCardTitle
+                title={
+                    <>
+                        <span>Log in or sign up to connect </span>
+                        <HighlightedName>{pendingConnection.clientName}</HighlightedName>
+                    </>
+                }
+                sub={reviewAccessCopy(pendingConnection, "Once you're in")}
+            />
+        )
+    }
+    if (entry === 'signup') {
+        return <AuthCardTitle title="Get started" sub="Make your product self-driving." />
+    }
+    return (
+        <AuthCardTitle
+            title={
+                <>
+                    <span>{isReturning ? 'Log in to ' : 'Log in or sign up to '}</span>
+                    <HighlightedName>@PostHog</HighlightedName>
+                </>
+            }
+            sub={
+                isReturning
+                    ? "Welcome back. Let's go ship something."
+                    : "Enter your email to continue. If you're new, we'll create your account next."
+            }
+        />
+    )
+}
+
+export function EmailStep(): JSX.Element {
+    const { login, precheckResponse } = useValues(loginLogic)
+    const { setLoginValue, precheck } = useActions(loginLogic)
+    const { entry, emailError, isEmailSubmitting } = useValues(authLogic)
+    const { continueWithEmail } = useActions(authLogic)
+    const { preflight } = useValues(preflightLogic)
+    const lastLoginMethod = useLastLoginMethod()
+    const prevEmail = usePrevious(login.email)
+    const [showJoinOrg, setShowJoinOrg] = useState(false)
+
+    // An autofilled address is prechecked at once, so a passkey prompt can open before Continue
+    useEffect(() => {
+        const charDelta = login.email.length - (prevEmail?.length ?? 0)
+        const isAutofill = charDelta > 1
+
+        if (isAutofill && isEmail(login.email, { requireTLD: true }) && precheckResponse.status === 'pending') {
+            precheck({ email: login.email })
+        }
+    }, [login.email, prevEmail, precheckResponse.status, precheck])
+
+    return (
+        <AuthSceneCard>
+            <EmailStepTitle />
+            <SessionRiskBanner className="mb-4" />
+            <LoginErrorBanner />
+            <form
+                className="flex flex-col gap-4"
+                noValidate
+                onSubmit={(e) => {
+                    e.preventDefault()
+                    continueWithEmail()
+                }}
+            >
+                <RegionField />
+                <LemonField.Pure label="Email" htmlFor="auth-email" error={emailError}>
+                    <LemonInput
+                        id="auth-email"
+                        className="ph-ignore-input"
+                        // pinned: Playwright and autocapture select these per entry URL
+                        data-attr={entry === 'signup' ? 'signup-email' : 'login-email'}
+                        type="email"
+                        autoFocus
+                        placeholder="you@yourcompany.com"
+                        // The `webauthn` token enables passkey autofill (conditional UI),
+                        // which we only offer on WebKit; elsewhere the auto-modal handles passkeys.
+                        autoComplete={isWebKitBrowser() ? 'username webauthn' : 'username'}
+                        value={login.email}
+                        onChange={(value) => setLoginValue('email', value)}
+                        status={emailError ? 'danger' : 'default'}
+                        fullWidth
+                    />
+                </LemonField.Pure>
+                <LemonButton
+                    type="primary"
+                    size="large"
+                    center
+                    fullWidth
+                    htmlType="submit"
+                    // pinned: `signup-start` is the signup funnel's existing first-step attribute
+                    data-attr={entry === 'signup' ? 'signup-start' : 'login-email-continue'}
+                    loading={isEmailSubmitting}
+                >
+                    Continue
+                </LemonButton>
+            </form>
+            {!preflight?.demo && (
+                <SocialLoginButtons
+                    topDivider
+                    caption="or continue with"
+                    captionLocation="top"
+                    lastUsedProvider={lastLoginMethod}
+                    showPasskey={entry === 'login'}
+                />
+            )}
+            {entry === 'signup' && !preflight?.demo && (
+                <div className="mt-4 text-center">
+                    <button
+                        type="button"
+                        data-attr="signup-join-existing-org"
+                        className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-secondary text-xs"
+                        onClick={() => setShowJoinOrg((v) => !v)}
+                    >
+                        Trying to join an existing organization?
+                    </button>
+                    {showJoinOrg && (
+                        <p className="AuthScene__note mt-3 py-3 px-3.5 text-xs leading-relaxed text-secondary text-left border border-dashed rounded">
+                            You'll need your invite link. When a teammate invites you, we email you a personal link.
+                            Didn't get one? Check spam, or ask them to resend it from their members settings.
+                        </p>
+                    )}
+                </div>
+            )}
+        </AuthSceneCard>
+    )
+}
