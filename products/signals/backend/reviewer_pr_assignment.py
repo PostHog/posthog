@@ -1,7 +1,8 @@
 """Apply report assignments and request reviews on implementation pull requests.
 
 With research selection and the assignment writer enabled, the report's saved reviewers
-supply the PR assignees. GitHub access checks can reject a person but never select another.
+supply the PR assignees. Personal preferences and GitHub access checks can reject a person
+but never select another.
 Existing GitHub assignments and manual unassignment remain authoritative.
 
 Other projects retain the legacy DRI and opt-in policies. Task execution permission is
@@ -457,7 +458,7 @@ def dri_candidate_logins(
     return list(dict.fromkeys(login for login in candidates if login))
 
 
-def _report_assignee_logins(team: Team, snapshot: ReviewerSnapshot) -> list[str]:
+def _report_assignee_logins(team: Team, snapshot: ReviewerSnapshot, *, require_opt_in: bool = True) -> list[str]:
     linked = resolve_org_github_login_to_users(
         team.id, [entry.github_login for entry in snapshot.reviewers if entry.github_login and not entry.user_uuid]
     )
@@ -468,13 +469,15 @@ def _report_assignee_logins(team: Team, snapshot: ReviewerSnapshot) -> list[str]
         for entry in snapshot.reviewers
     ]
     uuids = [entry.user_uuid for entry in identities if entry.user_uuid]
+    if not uuids:
+        return []
     members = (
         team.all_users_with_access(user_uuids=uuids)
         .filter(is_active=True)
         .prefetch_related(*_github_identity_prefetches())
-        if uuids
-        else []
     )
+    if require_opt_in:
+        members = members.filter(signal_autonomy_config__github_assign_on_pull_request=True)
     logins = {
         str(member.uuid): login.lower()
         for member in members
@@ -612,7 +615,7 @@ def assign_reviewers_to_pull_request(*, team_id: int, report_id: str, pr_url: st
             reviewers = (
                 []
                 if snapshot.corrections.needs_review
-                else _report_assignee_logins(Team.objects.get(id=team_id), snapshot)
+                else _report_assignee_logins(Team.objects.get(id=team_id), snapshot, require_opt_in=False)
             )
         except Exception:
             logger.exception(
