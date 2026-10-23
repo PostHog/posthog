@@ -1578,7 +1578,7 @@ describe('EmailService', () => {
             expect(sentCommand.input.EmailTags[1]).toEqual({ Name: 'category', Value: 'password_reset' })
         })
 
-        it("sends a code send's attachments as one raw message that keeps the invite and PostHog's headers", async () => {
+        it("sends a code send's attachments beside its recipients and PostHog's headers", async () => {
             sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
             const invite = 'BEGIN:VCALENDAR\r\nMETHOD:REQUEST\r\nEND:VCALENDAR\r\n'
             invocation.hogFunction.metadata = {
@@ -1593,15 +1593,11 @@ describe('EmailService', () => {
                 ],
             }
             invocation.queueParameters = createEmailParams({
-                html: `<p>Hi</p><img src="cid:logo"><p>${'a'.repeat(5000)}</p>`,
+                html: '<p>Hi</p><img src="cid:logo">',
                 cc: 'jane@example.com',
                 bcc: 'audit@example.com',
                 replyTo: 'help@example.com',
-                headers: [
-                    { name: 'X-Entity-Ref-ID', value: 'order-123' },
-                    { name: 'key', value: 'invoice' },
-                    { name: 'value', value: '123' },
-                ],
+                headers: [{ name: 'X-Entity-Ref-ID', value: 'order-123' }],
                 tags: [{ name: 'category', value: 'invite' }],
             })
 
@@ -1609,7 +1605,6 @@ describe('EmailService', () => {
 
             expect(result.error).toBeUndefined()
             const { input } = sendEmailSpy.mock.calls[0][0] as { input: any }
-            expect(input.Content.Simple).toBeUndefined()
             expect(input).toMatchObject({
                 FromEmailAddress: '"Test User" <test@posthog-test.com>',
                 Destination: {
@@ -1617,26 +1612,33 @@ describe('EmailService', () => {
                     CcAddresses: ['jane@example.com'],
                     BccAddresses: ['audit@example.com'],
                 },
+                ReplyToAddresses: ['help@example.com'],
                 TenantName: `team-${team.id}`,
             })
             expect(input.EmailTags.map((t: { Name: string }) => t.Name)).toEqual(['ph_id', 'category'])
-            const mime = Buffer.from(input.Content.Raw.Data).toString('utf8')
-            const head = mime.slice(0, mime.indexOf('\r\n\r\n'))
-            expect(head).toMatch(/^Content-Type: multipart\/mixed;/m)
-            expect(head).toMatch(/^Subject: Test Subject$/m)
-            expect(head).toMatch(/^Cc: jane@example\.com$/m)
-            expect(head).toMatch(/^Reply-To: help@example\.com$/m)
-            expect(head).toMatch(/^X-Entity-Ref-ID: order-123$/im)
-            expect(head).toMatch(/^Key: invoice$/m)
-            expect(head).toMatch(/^Value: 123$/m)
-            expect(head).toMatch(/^X-PostHog-Tracking-Code: \S+$/im)
-            expect(head).toMatch(/^Auto-Submitted: auto-generated$/m)
-            expect(head).not.toMatch(/^Bcc:/im)
-            expect(mime).toMatch(/Content-Type: text\/calendar; method=REQUEST; name=invite\.ics/)
-            expect(mime).toMatch(/Content-Disposition: attachment; filename=invite\.ics/)
-            expect(mime).toContain(Buffer.from(invite).toString('base64'))
-            expect(mime).toMatch(/Content-Id: <logo>/i)
-            expect(mime.split('\r\n').every((line) => line.length <= 998)).toBe(true)
+            expect(input.Content.Simple.Headers.map((h: { Name: string }) => h.Name)).toEqual([
+                'X-Entity-Ref-ID',
+                'X-PostHog-Tracking-Code',
+                'Auto-Submitted',
+            ])
+            expect(input.Content.Simple.Attachments).toEqual([
+                {
+                    FileName: 'invite.ics',
+                    RawContent: Buffer.from(invite),
+                    ContentType: 'text/calendar; method=REQUEST',
+                    ContentId: undefined,
+                    ContentDisposition: 'ATTACHMENT',
+                    ContentTransferEncoding: 'BASE64',
+                },
+                {
+                    FileName: 'logo.png',
+                    RawContent: Buffer.from('png'),
+                    ContentType: undefined,
+                    ContentId: 'logo',
+                    ContentDisposition: 'INLINE',
+                    ContentTransferEncoding: 'BASE64',
+                },
+            ])
         })
 
         it('attaches the X-PostHog-Tracking-Code header carrying the full signed code', async () => {
