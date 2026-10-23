@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 
 import { IconChevronDown, IconChevronRight } from '@posthog/icons'
-import { LemonButton, LemonTable } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonTable } from '@posthog/lemon-ui'
 
 import { BIConfig } from '~/queries/schema/schema-business-intelligence'
 import { ChartSettings } from '~/queries/schema/schema-general'
@@ -10,6 +10,9 @@ import { captureBIWorksheetAction } from './biEditorAnalytics'
 import { getBIFieldPillLabel } from './biEditorTypes'
 import { biPivotCellKey, biPivotKey, BIPivotMember, buildBIPivotModel, visibleBIPivotMembers } from './biPivot'
 import { formatBIMeasure, getBIResultMeasures } from './biResultPresentation'
+
+// Virtualization still needs a full-width scroll area, which browsers cap even with only a few cells mounted.
+const MAX_PIVOT_MEASURE_COLUMNS = 10000
 
 export function BIPivotTable({
     config,
@@ -36,6 +39,13 @@ export function BIPivotTable({
     const measures = getBIResultMeasures(config, chartSettings)
     const rows = useMemo(() => visibleBIPivotMembers(model.rows, collapsedRows, true), [model.rows, collapsedRows])
     const visibleColumns = visibleBIPivotMembers(model.columns, collapsedColumns, !!config.totals?.subtotals)
+    if (visibleColumns.length * measures.length > MAX_PIVOT_MEASURE_COLUMNS) {
+        return (
+            <LemonBanner type="info">
+                This pivot has more than 10,000 measure columns. Reduce the column dimensions or use Top N.
+            </LemonBanner>
+        )
+    }
     const toggle = (member: BIPivotMember, side: 'rows' | 'columns'): void => {
         const setter = side === 'rows' ? setCollapsedRows : setCollapsedColumns
         setter((current) => {
