@@ -257,7 +257,12 @@ impl AggregateFunnelRow {
 
             // Go backwards until you hit a match or you get to the previous mandatory step
             while previous_step_index > 0
-                && (previous_timestamp == 0.0 || !in_match_window)
+                && (previous_timestamp == 0.0
+                    || !in_match_window
+                    || (processing_multiple_events
+                        && vars.entered_timestamp[previous_step_index]
+                            .uuids
+                            .contains(&event.uuid)))
                 && args.optional_steps.contains(&(previous_step_index as i8))
             {
                 previous_step_index -= 1;
@@ -409,5 +414,49 @@ mod tests {
         for (step, uuid) in [3, 4, 5].iter().enumerate() {
             assert_eq!(results[0].3[step][0], Uuid::from_u128(*uuid));
         }
+    }
+
+    #[rstest]
+    #[case(3, vec![2])]
+    #[case(4, vec![2, 3])]
+    fn optional_steps_can_skip_an_event_used_by_the_required_step(
+        #[case] num_steps: usize,
+        #[case] optional_steps: Vec<i8>,
+        #[values("ordered", "strict")] funnel_order_type: &str,
+    ) {
+        let args = Args {
+            num_steps,
+            conversion_window_limit: 3600,
+            breakdown_attribution_type: "first_touch".to_string(),
+            funnel_order_type: funnel_order_type.to_string(),
+            prop_vals: vec![PropVal::Int(0)],
+            optional_steps,
+            value: vec![
+                Event {
+                    timestamp: 1.0,
+                    uuid: Uuid::from_u128(1),
+                    breakdown: PropVal::Int(0),
+                    steps: vec![1],
+                },
+                Event {
+                    timestamp: 2.0,
+                    uuid: Uuid::from_u128(2),
+                    breakdown: PropVal::Int(0),
+                    steps: (2..=num_steps as i8).collect(),
+                },
+                Event {
+                    timestamp: 2.0,
+                    uuid: Uuid::from_u128(3),
+                    breakdown: PropVal::Int(0),
+                    steps: vec![1],
+                },
+            ],
+        };
+
+        let results = run(&args);
+        assert_eq!(results[0].0, 1);
+        assert_eq!(results[0].4, 1 | (1 << (num_steps - 1)));
+        assert_eq!(results[0].3[0][0], Uuid::from_u128(3));
+        assert_eq!(results[0].3[num_steps - 1][0], Uuid::from_u128(2));
     }
 }

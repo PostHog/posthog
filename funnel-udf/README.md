@@ -29,6 +29,8 @@ The Python debug functions use the existing scripts, which echo their input and 
 
 ## Design decisions
 
+- Optional matches can be skipped when the same event also matches a required step. One event must not count twice on a selected path.
+- Unversioned binaries use the current event layout. Replay queries must use that layout even while cloud queries select an older UDF version.
 - We tried writing the UDFs in Python, but this cause ClickHouse nodes to crash as the garbage collector could not keep up. As such we're now writing the functions in Rust.
 - We're using `cross-rs` to compile the binaries - it's a cross platfrom rust compiler.
 

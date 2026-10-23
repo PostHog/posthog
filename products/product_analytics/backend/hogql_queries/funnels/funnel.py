@@ -6,6 +6,7 @@ from posthog.schema import BreakdownAttributionType, BreakdownType, StepOrderVal
 
 from posthog.hogql import ast
 from posthog.hogql.constants import DEFAULT_RETURNED_ROWS, HogQLQuerySettings
+from posthog.hogql.functions.udfs import UDFS
 from posthog.hogql.parser import parse_expr, parse_select
 
 from posthog.hogql_queries.utils.breakdowns import NOT_IN_COHORT_ID
@@ -383,10 +384,11 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
             and self.context.actorsQuery is not None
             and self.context.actorsQuery.includeRecordings
         ):
+            uses_step_event_slots = UDFS["aggregate_funnel"].clickhouse_name == "aggregate_funnel" or UDF_VERSION >= 13
             if self.context.includeFinalMatchingEvents:
                 required_step_indexes = self._required_step_indexes()
                 # step_reached counts required steps only. UDF v13+ keeps matched events in their own step slot.
-                if UDF_VERSION >= 13 and len(required_step_indexes) < len(self.context.query.series):
+                if uses_step_event_slots and len(required_step_indexes) < len(self.context.query.series):
                     required_step_slots = ",".join(str(i + 1) for i in required_step_indexes)
                     return [
                         parse_expr(
@@ -400,7 +402,7 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
             if absolute_actors_step is None:
                 raise ValueError("Missing funnelStep actors query property")
             funnelStep = self.context.actorsQuery.funnelStep
-            if UDF_VERSION >= 13 and funnelStep is not None and funnelStep < 0:
+            if uses_step_event_slots and funnelStep is not None and funnelStep < 0:
                 # The drop-off condition matches on the prior required step, so read the recordings from the same step
                 absolute_actors_step = self._prior_required_step_index(abs(funnelStep) - 1)
             return [parse_expr(f"matched_events_array[{absolute_actors_step + 1}] as matching_events")]

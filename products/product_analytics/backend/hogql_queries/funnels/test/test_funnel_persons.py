@@ -641,12 +641,19 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
         self.assertCountEqual(set(results[0][1]["distinct_ids"]), {"person1", "anon1"})
         self.assertCountEqual(set(results[1][1]["distinct_ids"]), {"person2", "anon2"})
 
-    @parameterized.expand([(12, False), (12, True), (13, False), (13, True)])
+    @parameterized.expand([(12, False), (12, True), (13, False), (13, True), (None, False), (None, True)])
     @time_machine.travel("2021-05-02", tick=False)
-    def test_optional_funnel_step_recordings(self, udf_version: int, visit_optional_steps: bool) -> None:
+    def test_optional_funnel_step_recordings(self, udf_version: int | None, visit_optional_steps: bool) -> None:
         with (
-            patch("products.product_analytics.backend.hogql_queries.funnels.funnel.UDF_VERSION", udf_version),
-            patch.object(UDFS["aggregate_funnel"], "clickhouse_name", f"aggregate_funnel_v{udf_version}"),
+            patch(
+                "products.product_analytics.backend.hogql_queries.funnels.funnel.UDF_VERSION",
+                udf_version if udf_version is not None else 12,
+            ),
+            patch.object(
+                UDFS["aggregate_funnel"],
+                "clickhouse_name",
+                f"aggregate_funnel_v{udf_version}" if udf_version is not None else "aggregate_funnel",
+            ),
         ):
             optional_steps = {2, 4}
             visited_steps = [1, 3]
@@ -696,7 +703,7 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
                     )
                     self.assertEqual(results[0][2][0]["events"][0]["uuid"], UUID(int=expected_step))
 
-            if udf_version >= 13:
+            if udf_version != 12:
                 runner = FunnelsQueryRunner(query=query, team=self.team)
                 runner.context.actorsQuery = FunnelsActorsQuery(source=query, funnelStep=-5, includeRecordings=True)
                 runner.context.includeFinalMatchingEvents = True
