@@ -7,6 +7,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { AuthBanner } from 'scenes/authentication/shared/authScene/AuthBanner'
 import { AuthCardTitle } from 'scenes/authentication/shared/authScene/AuthCardTitle'
+import { AUTH_NOTES } from 'scenes/authentication/shared/authScene/authNotes'
 import { AuthScene, AuthSceneCard } from 'scenes/authentication/shared/authScene/AuthScene'
 import { ERROR_MESSAGES } from 'scenes/authentication/shared/loginErrorMessages'
 import { SupportModalButton } from 'scenes/authentication/shared/SupportModalButton'
@@ -151,7 +152,7 @@ export function ExporterLogin(props: ExporterLoginProps): JSX.Element {
 
     return (
         // A white-labelled share shows no PostHog branding, so it drops the corner notes and the logo
-        <AuthScene notes={props.whitelabel ? [] : ['// someone shared this with you', '// unlock to take a look']}>
+        <AuthScene notes={props.whitelabel ? [] : AUTH_NOTES.exporter.default}>
             <AuthSceneCard top={props.whitelabel ? null : undefined} footer={<SupportModalButton />}>
                 <AuthCardTitle
                     title="Access share"

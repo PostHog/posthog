@@ -12,6 +12,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonRow } from 'lib/lemon-ui/LemonRow'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
+import { AUTH_NOTES } from 'scenes/authentication/shared/authScene/authNotes'
 import { AuthScene, AuthSceneCard } from 'scenes/authentication/shared/authScene/AuthScene'
 import { SceneExport } from 'scenes/sceneTypes'
 
@@ -90,7 +91,7 @@ export function PreflightCheck(): JSX.Element {
     )
 
     return (
-        <AuthScene notes={['// self-hosting posthog', '// checking the plumbing']}>
+        <AuthScene notes={AUTH_NOTES.preflight.default}>
             <AuthSceneCard footer={footer}>
                 <div className="Preflight">
                     {!preflightMode ? (

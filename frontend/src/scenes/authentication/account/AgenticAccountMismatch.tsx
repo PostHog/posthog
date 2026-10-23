@@ -5,6 +5,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { AuthBanner } from 'scenes/authentication/shared/authScene/AuthBanner'
 import { AuthCardTitle } from 'scenes/authentication/shared/authScene/AuthCardTitle'
+import { AUTH_NOTES } from 'scenes/authentication/shared/authScene/authNotes'
 import { AuthScene, AuthSceneCard } from 'scenes/authentication/shared/authScene/AuthScene'
 import { SceneExport } from 'scenes/sceneTypes'
 import { userLogic } from 'scenes/userLogic'
@@ -26,7 +27,7 @@ export function AgenticAccountMismatch(): JSX.Element {
     const nextUrl = state ? `/api/agentic/authorize?state=${encodeURIComponent(state)}` : null
 
     return (
-        <AuthScene notes={['// two accounts', '// one browser']}>
+        <AuthScene notes={AUTH_NOTES.accountMismatch.default}>
             <AuthSceneCard>
                 <AuthCardTitle title="Account mismatch" sub="Let's get you into the right one." />
                 <div className="flex flex-col gap-3">

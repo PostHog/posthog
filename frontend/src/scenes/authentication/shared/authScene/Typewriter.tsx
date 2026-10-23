@@ -3,8 +3,8 @@ import { useState, useEffect } from 'react'
 import { inStorybookTestRunner } from 'lib/utils/dom'
 
 /** Types the two mono corner notes (// ...), honoring reduced-motion. Presentational only. */
-export function Typewriter({ lines }: { lines: string[] }): JSX.Element {
-    const full = lines.join('\n')
+export function Typewriter({ lines }: { lines: readonly string[] }): JSX.Element {
+    const full = lines.map((line) => `// ${line}`).join('\n')
     // Visual regression snapshots run without reduced motion, and the timer would leave the notes half typed
     const reduce =
         inStorybookTestRunner() ||

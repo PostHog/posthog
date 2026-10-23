@@ -12,6 +12,7 @@ import {
 } from 'lib/integrations/githubSetupErrors'
 import { AuthBanner } from 'scenes/authentication/shared/authScene/AuthBanner'
 import { AuthCardTitle } from 'scenes/authentication/shared/authScene/AuthCardTitle'
+import { AUTH_NOTES, type AuthNotes } from 'scenes/authentication/shared/authScene/authNotes'
 import { AuthScene, AuthSceneCard } from 'scenes/authentication/shared/authScene/AuthScene'
 import { SceneExport } from 'scenes/sceneTypes'
 
@@ -146,6 +147,7 @@ export function AccountConnected({ kind }: AccountConnectedProps): JSX.Element {
         return (
             <AccountConnectedCard
                 title="This link is not valid"
+                notes={AUTH_NOTES.accountConnected.invalid}
                 sub="Return to PostHog from the product you started from."
             />
         )
@@ -167,6 +169,13 @@ export function AccountConnected({ kind }: AccountConnectedProps): JSX.Element {
             }
             title={startedFromChat && isPending ? `${label} install needs approval` : headline(kind, label, isError)}
             sub={showLoginLine ? `You can now log into PostHog using ${label}.` : undefined}
+            notes={
+                startedFromChat && isPending
+                    ? AUTH_NOTES.accountConnected.pending
+                    : isError
+                      ? AUTH_NOTES.accountConnected.failed
+                      : AUTH_NOTES.accountConnected.connected
+            }
         >
             {startedFromChat ? (
                 <AuthBanner variant={isPending ? 'warning' : isError ? 'danger' : 'note'}>
@@ -197,15 +206,17 @@ function AccountConnectedCard({
     icon,
     title,
     sub,
+    notes,
     children,
 }: {
     icon?: ReactNode
     title: string
     sub?: string
+    notes: AuthNotes
     children?: ReactNode
 }): JSX.Element {
     return (
-        <AuthScene notes={['// all connected', '// back to work']}>
+        <AuthScene notes={notes}>
             <AuthSceneCard>
                 {icon && <div className="flex justify-center mb-3">{icon}</div>}
                 <AuthCardTitle title={title} sub={sub} />

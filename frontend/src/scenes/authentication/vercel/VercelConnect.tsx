@@ -10,6 +10,7 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { AuthBanner } from 'scenes/authentication/shared/authScene/AuthBanner'
 import { AuthCardTitle } from 'scenes/authentication/shared/authScene/AuthCardTitle'
+import { AUTH_NOTES, type AuthNotes } from 'scenes/authentication/shared/authScene/authNotes'
 import { AuthScene, AuthSceneCard } from 'scenes/authentication/shared/authScene/AuthScene'
 import { SceneExport } from 'scenes/sceneTypes'
 
@@ -161,6 +162,7 @@ export function VercelConnect(): JSX.Element {
         return (
             <VercelCard
                 title="Account linked"
+                notes={AUTH_NOTES.vercelConnect.linked}
                 sub={
                     <>
                         <span>Your PostHog organization</span> <strong>{linkedOrgName}</strong>{' '}
@@ -191,7 +193,7 @@ export function VercelConnect(): JSX.Element {
 
     if (error && !sessionInfo) {
         return (
-            <VercelCard title="Something went wrong">
+            <VercelCard title="Something went wrong" notes={AUTH_NOTES.vercelConnect.error}>
                 <AuthBanner variant="danger">{error}</AuthBanner>
                 <LemonButton fullWidth type="secondary" center size="large" onClick={() => window.close()}>
                     Close
@@ -262,9 +264,19 @@ export function VercelConnect(): JSX.Element {
     )
 }
 
-function VercelCard({ title, sub, children }: { title: string; sub?: ReactNode; children: ReactNode }): JSX.Element {
+function VercelCard({
+    title,
+    sub,
+    notes = AUTH_NOTES.vercelConnect.pick,
+    children,
+}: {
+    title: string
+    sub?: ReactNode
+    notes?: AuthNotes
+    children: ReactNode
+}): JSX.Element {
     return (
-        <AuthScene notes={['// vercel, meet posthog', '// pick an organization']}>
+        <AuthScene notes={notes}>
             <AuthSceneCard>
                 <AuthCardTitle title={title} sub={sub} />
                 <div className="flex flex-col gap-3">{children}</div>

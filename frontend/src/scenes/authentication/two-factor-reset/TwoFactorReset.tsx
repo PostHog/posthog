@@ -6,6 +6,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { AuthBanner } from 'scenes/authentication/shared/authScene/AuthBanner'
 import { AuthCardTitle } from 'scenes/authentication/shared/authScene/AuthCardTitle'
+import { AUTH_NOTES, type AuthNotes } from 'scenes/authentication/shared/authScene/authNotes'
 import { AuthScene, AuthSceneCard } from 'scenes/authentication/shared/authScene/AuthScene'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -20,14 +21,16 @@ export const scene: SceneExport = {
 function TwoFactorResetCard({
     title,
     sub,
+    notes = AUTH_NOTES.twoFactorReset.reset,
     children,
 }: {
     title: string
     sub?: string
+    notes?: AuthNotes
     children: ReactNode
 }): JSX.Element {
     return (
-        <AuthScene notes={['// locked out?', "// let's fix that"]}>
+        <AuthScene notes={notes}>
             <AuthSceneCard>
                 <AuthCardTitle title={title} sub={sub} />
                 <div className="flex flex-col gap-3">{children}</div>
@@ -77,7 +80,11 @@ export function TwoFactorReset(): JSX.Element {
 
     if (resetComplete) {
         return (
-            <TwoFactorResetCard title="2FA has been reset" sub="You can log in without 2FA now.">
+            <TwoFactorResetCard
+                title="2FA has been reset"
+                sub="You can log in without 2FA now."
+                notes={AUTH_NOTES.twoFactorReset.done}
+            >
                 <AuthBanner variant="note">
                     We recommend setting up 2FA again after logging in to keep your account secure.
                 </AuthBanner>
@@ -90,7 +97,7 @@ export function TwoFactorReset(): JSX.Element {
 
     if (!validatedResetToken?.success) {
         return (
-            <TwoFactorResetCard title="Unable to reset 2FA">
+            <TwoFactorResetCard title="Unable to reset 2FA" notes={AUTH_NOTES.twoFactorReset.invalid}>
                 <AuthBanner variant="danger">
                     {validatedResetToken?.error ||
                         'This reset link is invalid or has expired. Please contact your administrator to request a new link.'}

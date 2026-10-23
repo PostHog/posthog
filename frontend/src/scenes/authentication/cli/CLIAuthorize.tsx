@@ -10,6 +10,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import type { ScopeAccessLevel } from 'lib/scopes'
 import { AuthBanner } from 'scenes/authentication/shared/authScene/AuthBanner'
 import { AuthCardTitle } from 'scenes/authentication/shared/authScene/AuthCardTitle'
+import { AUTH_NOTES } from 'scenes/authentication/shared/authScene/authNotes'
 import { AuthScene, AuthSceneCard } from 'scenes/authentication/shared/authScene/AuthScene'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -43,7 +44,7 @@ export function CLIAuthorize(): JSX.Element {
         useActions(cliAuthorizeLogic)
 
     return (
-        <AuthScene notes={['// hello, terminal', '// only grant what you need']}>
+        <AuthScene notes={isSuccess ? AUTH_NOTES.cliAuthorize.authorized : AUTH_NOTES.cliAuthorize.authorize}>
             <AuthSceneCard>
                 {isSuccess ? (
                     <>
