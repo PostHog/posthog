@@ -489,8 +489,9 @@ def _refuse_reserved_history_columns(
         taken = [column for column in taken if column not in existing]
     if taken:
         raise ValidationError(
-            f"A history table can't store a column named {' or '.join(taken)}, because PostHog uses that name. "
-            "Rename the column on your database, or choose the consolidated table only for this table."
+            f"A history table can't store the column {' or '.join(taken)}, because PostHog uses valid_from and "
+            "valid_to to record when each version was current. Rename the column on your database, or choose "
+            "the consolidated table only for this table."
         )
 
 

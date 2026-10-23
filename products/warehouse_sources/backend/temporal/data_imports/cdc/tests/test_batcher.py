@@ -22,6 +22,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import
     build_scd2_table,
     enrich_delete_rows,
     enrich_toast_omitted_rows,
+    history_column_collisions,
     is_history_table_mode,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import CDCReservedColumnError
@@ -710,6 +711,26 @@ class TestScd2TimestampType:
         assert result.schema.field(SCD2_VALID_FROM_COLUMN).type == ts
         assert result.schema.field(SCD2_VALID_TO_COLUMN).type == ts
         assert result.column(SCD2_VALID_TO_COLUMN).to_pylist()[0] is not None
+
+
+class TestHistoryColumnCollisions:
+    @parameterized.expand(
+        [
+            ("exact_name", ["id", "valid_to"], None, None, ["valid_to"]),
+            ("name_the_load_renames", ["id", "validFrom", "VALID_TO"], None, None, ["VALID_TO", "validFrom"]),
+            ("left_out_of_enabled_columns", ["id", "validFrom"], ["id"], None, []),
+            ("kept_as_the_incremental_field", ["id", "valid_from"], [], "valid_from", ["valid_from"]),
+        ]
+    )
+    def test_names_the_source_columns_that_collide(
+        self,
+        _name: str,
+        column_names: list[str],
+        enabled_columns: list[str] | None,
+        incremental_field: str | None,
+        expected: list[str],
+    ) -> None:
+        assert history_column_collisions(column_names, enabled_columns, ["id"], incremental_field) == expected
 
 
 class TestIsHistoryTableMode:

@@ -95,6 +95,14 @@ from products.warehouse_sources.backend.presentation.views.source_api_versions i
 from . import base, connection_options, credential_store, helpers, webhook_setup
 
 
+def _payload_enabled_columns(schema: dict[str, Any]) -> list[str] | None:
+    """`None` syncs every column. `[]` syncs only the always-retained key and incremental field."""
+    payload_enabled_columns = schema.get("enabled_columns")
+    if not isinstance(payload_enabled_columns, list):
+        return None
+    return [str(column) for column in payload_enabled_columns if isinstance(column, str)]
+
+
 class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializers.ModelSerializer):
     account_id = serializers.CharField(write_only=True)
     client_secret = serializers.CharField(write_only=True)
@@ -1465,9 +1473,7 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                     and isinstance(schema.get("name"), str)
                     and history_column_collisions(
                         [column[0] for column in getattr(source_schemas_by_name.get(schema["name"]), "columns", [])],
-                        [column for column in schema["enabled_columns"] if isinstance(column, str)]
-                        if isinstance(schema.get("enabled_columns"), list)
-                        else None,
+                        _payload_enabled_columns(schema),
                         pk_columns_by_table.get(schema["name"]),
                     )
                 }
@@ -1478,9 +1484,10 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                     status=status.HTTP_400_BAD_REQUEST,
                     data={
                         "message": (
-                            "A history table can't store a column named valid_from or valid_to, because PostHog "
-                            "uses those names. Rename the column on your database, or choose the consolidated "
-                            f"table only for these tables: {', '.join(tables_with_validity_column)}."
+                            "A history table can't store a column that loads as valid_from or valid_to, because "
+                            "PostHog uses those names to record when each version was current. Rename the column on "
+                            "your database, or choose the consolidated table only for these tables: "
+                            f"{', '.join(tables_with_validity_column)}."
                         )
                     },
                 )
@@ -1510,15 +1517,7 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
             primary_key_columns = schema.get("primary_key_columns")
             sync_time_of_day = schema.get("sync_time_of_day")
             should_sync = schema.get("should_sync", False)
-            payload_enabled_columns = schema.get("enabled_columns")
-            if isinstance(payload_enabled_columns, list):
-                # `[]` and `None` are distinct: `None` means sync all columns, `[]` means
-                # sync only the always-retained PK + incremental field.
-                enabled_columns: list[str] | None = [
-                    str(column) for column in payload_enabled_columns if isinstance(column, str)
-                ]
-            else:
-                enabled_columns = None
+            enabled_columns = _payload_enabled_columns(schema)
 
             payload_row_filters = schema.get("row_filters")
             row_filters: list[dict[str, Any]] | None = (

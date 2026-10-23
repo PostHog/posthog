@@ -7,6 +7,7 @@ import pyarrow as pa
 
 from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import CDCReservedColumnError
 from products.warehouse_sources.backend.temporal.data_imports.cdc.types import ChangeEvent
+from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 
 # CDC metadata column names — database-agnostic
 CDC_OP_COLUMN = "_ph_cdc_op"
@@ -62,13 +63,16 @@ def history_column_collisions(
     primary_keys: list[str] | None,
     incremental_field: str | None = None,
 ) -> list[str]:
-    """Source columns that capture would write into the history table under its validity column names."""
+    """Source columns that the history table would receive under its validity column names."""
     synced = set(column_names)
     # The same projection capture applies (`filter_columns_by_enabled_columns`), kept inline because
     # that module's package imports Django models and this one sits on the capture path.
     if enabled_columns is not None:
         synced &= {*enabled_columns, *(primary_keys or []), *([incremental_field] if incremental_field else [])}
-    return sorted({SCD2_VALID_FROM_COLUMN, SCD2_VALID_TO_COLUMN} & synced)
+    # The load renames columns to snake_case before the history transform adds the validity columns,
+    # so `validFrom` collides too. The source names are returned, because those are what a user renames.
+    validity_columns = {SCD2_VALID_FROM_COLUMN, SCD2_VALID_TO_COLUMN}
+    return sorted(name for name in synced if NamingConvention.normalize_identifier(name) in validity_columns)
 
 
 # Columns that are CDC/SCD2 metadata — always filled from the event itself,
