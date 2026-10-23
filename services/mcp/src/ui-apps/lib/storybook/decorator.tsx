@@ -1,6 +1,6 @@
 import './theme.css'
 
-import type { StoryFn } from '@storybook/react'
+import type { StoryContext, StoryFn } from '@storybook/react'
 import type { ReactElement } from 'react'
 
 /**
@@ -55,10 +55,13 @@ const mcpAppsCssVariables: Record<string, string> = {
     '--font-weight-bold': '700',
 }
 
-/** Decorator that injects MCP Apps host CSS variables onto the story root. */
-export function McpThemeDecorator(Story: StoryFn): ReactElement {
+/** Decorator that injects MCP Apps host CSS variables onto the story root. Set `parameters.mcpMaxWidth` for a story wider than a chat column. */
+export function McpThemeDecorator(Story: StoryFn, context: StoryContext): ReactElement {
     return (
         <div
+            // Opts the subtree into Quill's tokens, which components read directly as `var(--card)` and the like.
+            data-quill
+            data-mcp-storybook
             style={
                 {
                     ...mcpAppsCssVariables,
@@ -66,7 +69,7 @@ export function McpThemeDecorator(Story: StoryFn): ReactElement {
                     color: 'var(--color-text-primary)',
                     backgroundColor: 'var(--color-background-primary)',
                     padding: '1.5rem',
-                    maxWidth: 720,
+                    maxWidth: context.parameters.mcpMaxWidth ?? 720,
                     minHeight: 200,
                 } as React.CSSProperties
             }
