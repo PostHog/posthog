@@ -72,7 +72,9 @@ from products.data_modeling.backend.facade.api import (
     IncrementalFilterError,
     WindowSpan,
     WritePlan,
+    check_incremental_eligibility,
     clear_incremental_state,
+    definition_database,
     finish_first_build,
     fits_in_one_window,
     get_incremental_state,
@@ -1433,6 +1435,15 @@ def _shaped_like(key: typing.Any, instant: dt.datetime) -> typing.Any:
     return instant.date()
 
 
+def _could_be_incremental(team_id: int, hogql_query: str) -> bool:
+    try:
+        eligibility = check_incremental_eligibility(hogql_query, None, database=definition_database(team_id))
+    except Exception as error:
+        capture_exception(error)
+        return False
+    return eligibility.eligible and bool(eligibility.key_candidates)
+
+
 def _key_filter_reaches_source(team: Team, view_name: str, hogql_query: str, incremental_key: str) -> bool:
     try:
         return key_filter_reaches_source(
@@ -1867,6 +1878,9 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
             isinstance(error, ClickHouseQueryTimeoutError)
             and plan.config is None
             and await database_sync_to_async_pool(windowed_materialization_enabled)(inputs.team_id)
+            and await database_sync_to_async_pool(_could_be_incremental)(
+                inputs.team_id, typing.cast(dict, objects.saved_query.query)["query"]
+            )
         ):
             raise ApplicationError(TOO_LARGE_FOR_ONE_QUERY_MESSAGE, type=type(error).__name__) from error
         raise
