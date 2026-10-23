@@ -1,3 +1,4 @@
+import json
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -22,6 +23,23 @@ from products.cdp.backend.services.invocation_replay import (
 from products.cdp.backend.tasks.invocation_replay import run_invocation_replay
 
 REPLAY_TEMPLATE = "admin/cdp/hogfunction/replay_failed_invocations.html"
+
+REPLAY_FIELD_GROUPS = (
+    ("What failed", ("window_start", "window_end", "error_message_contains", "error_kinds")),
+    ("Scope", ("team_ids", "template_ids", "exclude_template_ids", "latest_per_person_template_ids")),
+    ("Safety checks", ("require_success_since_window", "skip_already_rerun", "skip_failing_before_window")),
+)
+
+
+def _result_summary(result: dict[str, Any]) -> str:
+    # A successful rerun call answers with the id of the job it queued. Anything
+    # else is an error message, which the operator needs to read in full.
+    if result["status_code"] == 200:
+        try:
+            return f"job {json.loads(result['detail'])['rerun_job_id']}"
+        except (ValueError, KeyError, TypeError):
+            pass
+    return result["detail"]
 
 
 def _split_list(raw: str) -> list[str]:
@@ -210,6 +228,11 @@ class HogFunctionAdmin(admin.ModelAdmin):
 
         def respond(step: str) -> HttpResponse:
             context["step"] = step
+            if step == "form":
+                form = context["form"]
+                context["field_groups"] = [
+                    (title, [form[name] for name in names]) for title, names in REPLAY_FIELD_GROUPS
+                ]
             return render(request, REPLAY_TEMPLATE, context)
 
         if request.method != "POST":
@@ -266,7 +289,7 @@ class HogFunctionAdmin(admin.ModelAdmin):
             "step": "status",
             "fingerprint": fingerprint,
             "state": state,
-            "results": results,
+            "result_rows": [{**r, "failed": r["status_code"] != 200, "summary": _result_summary(r)} for r in results],
             "sent_requests": len(results),
             "failed_requests": sum(1 for r in results if r["status_code"] != 200),
         }
