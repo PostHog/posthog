@@ -15,7 +15,6 @@ import {
     buildDailyChartData,
     maskIncompleteLatencyBox,
     mcpAnalyticsToolQualityLogic,
-    resolveChartViews,
 } from './mcpAnalyticsToolQualityLogic'
 
 jest.mock('lib/api')
@@ -158,28 +157,6 @@ describe('mcpAnalyticsToolQualityLogic', () => {
         })
     })
 
-    describe('resolveChartViews', () => {
-        it.each([
-            { name: 'keeps linear', view: 'linear' as const, rates: [100, 90], expected: 'linear' },
-            {
-                name: 'uses log when every rate is above zero',
-                view: 'log' as const,
-                rates: [100, 0.5],
-                expected: 'log',
-            },
-            { name: 'ignores gaps', view: 'log' as const, rates: [100, NaN], expected: 'log' },
-            {
-                name: 'falls back to linear when a bucket is at zero',
-                view: 'log' as const,
-                rates: [100, 0],
-                expected: 'linear',
-            },
-        ])('$name', ({ view, rates, expected }) => {
-            const views = { ...DEFAULT_CHART_VIEWS, successRate: view }
-            expect(resolveChartViews(views, rates)).toEqual({ ...views, successRate: expected })
-        })
-    })
-
     describe('chart views', () => {
         beforeEach(() => {
             jest.clearAllMocks()
@@ -192,7 +169,7 @@ describe('mcpAnalyticsToolQualityLogic', () => {
 
         it.each<ChartViewChange>([
             { chart: 'calls', view: 'percentage' },
-            { chart: 'successRate', view: 'log' },
+            { chart: 'successRate', view: 'zoom' },
             { chart: 'latency', view: 'boxPlot' },
         ])('switches the $chart chart to $view and reports it', async (change) => {
             const logic = mcpAnalyticsToolQualityLogic()

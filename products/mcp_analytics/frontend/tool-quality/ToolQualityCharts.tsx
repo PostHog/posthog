@@ -28,6 +28,11 @@ function formatCompactPercentage(value: number): string {
     return formatPercentage(value, { compact: true })
 }
 
+// A zoomed axis can span less than one percent, so whole-number ticks would repeat.
+function formatPrecisePercentage(value: number): string {
+    return formatPercentage(value, { precise: true, compact: true })
+}
+
 function buildConfig(
     timezone: string,
     interval: TimeInterval,
@@ -59,7 +64,7 @@ function ChartViewToggle<C extends ChartViewChange>({
 }: {
     chart: C['chart']
     view: C['view']
-    options: { value: C['view']; label: string; disabledReason?: string }[]
+    options: { value: C['view']; label: string }[]
     onChange: (change: C) => void
 }): JSX.Element {
     return (
@@ -73,12 +78,11 @@ function ChartViewToggle<C extends ChartViewChange>({
             }}
             aria-label={CHART_VIEW_ARIA_LABELS[chart]}
         >
-            {options.map(({ value, label, disabledReason }) => (
+            {options.map(({ value, label }) => (
                 <ToggleGroupItem
                     key={value}
                     value={value}
                     size="sm"
-                    disabledReason={disabledReason}
                     data-attr={`mcp-tool-quality-${chart}-chart-view-${value}`}
                 >
                     {label}
@@ -130,7 +134,6 @@ export function ToolQualityCharts({
     interval,
     incompleteTail,
     views,
-    successRateLogBlocked,
     latencyBoxes,
     onViewChange,
 }: {
@@ -144,7 +147,6 @@ export function ToolQualityCharts({
     // than optional: an omitted prop silently renders the partial bucket as settled data.
     incompleteTail: boolean
     views: ChartViews
-    successRateLogBlocked: boolean
     latencyBoxes: (BoxPlotDatum | null)[]
     onViewChange: (change: ChartViewChange) => void
 }): JSX.Element {
@@ -213,7 +215,11 @@ export function ToolQualityCharts({
         [timezone, interval]
     )
     const successRateConfig = useChartConfig(
-        () => buildConfig(timezone, interval, { tickFormatter: formatCompactPercentage, scale: views.successRate }),
+        () =>
+            buildConfig(timezone, interval, {
+                tickFormatter: formatPrecisePercentage,
+                startAtZero: views.successRate !== 'zoom',
+            }),
         [timezone, interval, views.successRate]
     )
     const latencyConfig = useChartConfig(
@@ -265,14 +271,8 @@ export function ToolQualityCharts({
                             chart="successRate"
                             view={views.successRate}
                             options={[
-                                { value: 'linear', label: 'Linear' },
-                                {
-                                    value: 'log',
-                                    label: 'Log',
-                                    disabledReason: successRateLogBlocked
-                                        ? 'A log scale cannot show a day with 0% success'
-                                        : undefined,
-                                },
+                                { value: 'full', label: '0-100%' },
+                                { value: 'zoom', label: 'Zoom' },
                             ]}
                             onChange={onViewChange}
                         />

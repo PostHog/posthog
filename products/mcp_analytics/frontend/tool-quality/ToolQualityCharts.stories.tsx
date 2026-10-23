@@ -83,7 +83,6 @@ export const SettledWindow: Story = {
             interval="day"
             incompleteTail={false}
             views={DEFAULT_CHART_VIEWS}
-            successRateLogBlocked={false}
             latencyBoxes={DAILY.latencyBoxes}
             onViewChange={() => {}}
         />
@@ -100,7 +99,6 @@ export const InProgressBucket: Story = {
             interval="day"
             incompleteTail
             views={DEFAULT_CHART_VIEWS}
-            successRateLogBlocked={false}
             latencyBoxes={maskIncompleteLatencyBox(DAILY_PARTIAL_TAIL.latencyBoxes, true)}
             onViewChange={() => {}}
         />
@@ -116,8 +114,7 @@ export const AlternateViews: Story = {
             timezone="UTC"
             interval="day"
             incompleteTail={false}
-            views={{ calls: 'percentage', successRate: 'log', latency: 'boxPlot' }}
-            successRateLogBlocked={false}
+            views={{ calls: 'percentage', successRate: 'zoom', latency: 'boxPlot' }}
             latencyBoxes={DAILY.latencyBoxes}
             onViewChange={() => {}}
         />
@@ -135,7 +132,6 @@ export const ToggleWrapsBelowTitle: Story = {
                 interval="day"
                 incompleteTail={false}
                 views={DEFAULT_CHART_VIEWS}
-                successRateLogBlocked={false}
                 latencyBoxes={DAILY.latencyBoxes}
                 onViewChange={() => {}}
             />
