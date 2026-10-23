@@ -30,7 +30,7 @@ from products.mcp_analytics.backend.facade.contracts import (
     IntentGenerationUnavailable,
     IntentTopicsRunOutcome as RunOutcome,
 )
-from products.mcp_analytics.backend.intent_topics import clustering, corpus, embedding_sync, labeling, persist
+from products.mcp_analytics.backend.intent_topics import clustering, corpus, embedding_sync, labeling, persist, rollups
 from products.mcp_analytics.backend.intent_topics.assignment_sql import build_assignment_insert
 from products.mcp_analytics.backend.intent_topics.constants import (
     EMBEDDING_DOCUMENT_TYPE,
@@ -42,7 +42,6 @@ from products.mcp_analytics.backend.intent_topics.constants import (
     MIN_INTENTS_FOR_FIT,
 )
 from products.mcp_analytics.backend.intent_topics.topic_registry import match_clusters_to_topics
-from products.mcp_analytics.backend.intent_topics import rollups  # noqa: I001
 from products.mcp_analytics.backend.models import MCPIntentClusteringRun, MCPIntentTopic
 
 logger = structlog.get_logger(__name__)
