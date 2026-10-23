@@ -1,7 +1,5 @@
-//! Real-Postgres fixtures for tests of how the worker shares the job row with operators.
-//!
-//! These tests fail instead of skipping when the database is missing. CI builds `test_posthog`
-//! from the Django models before the Rust tests run, so it always has `posthog_batchimport`.
+//! Real-Postgres fixtures for tests of how the worker shares the job row with operators. They fail
+//! instead of skipping without a database, because CI builds `test_posthog` before the Rust tests.
 
 use std::sync::Arc;
 
@@ -42,9 +40,8 @@ pub struct JobRowFixture {
 pub async fn insert_job(pool: &PgPool, row: &JobRowFixture) -> Uuid {
     let id = Uuid::now_v7();
     let mut conn = pool.acquire().await.expect("connection");
-    // The row references a team that the test database does not have. Replica mode skips the
-    // foreign key trigger for this session only. Worker writes never change team_id, so they
-    // pass the check without the team.
+    // Replica mode skips the foreign key check for this session, because the test database has no
+    // team for the row and worker writes never change team_id.
     sqlx::query("SET session_replication_role = replica")
         .execute(&mut *conn)
         .await
@@ -112,11 +109,14 @@ pub async fn read_job(pool: &PgPool, id: Uuid) -> StoredJob {
     }
 }
 
+pub const OPERATOR_MESSAGE: &str = "set by an operator";
+
 /// Change the row the way an operator does in Django admin or a customer does through the API.
 pub async fn operator_sets(pool: &PgPool, id: Uuid, status: JobStatus) {
-    sqlx::query("UPDATE posthog_batchimport SET status = $2 WHERE id = $1")
+    sqlx::query("UPDATE posthog_batchimport SET status = $2, status_message = $3 WHERE id = $1")
         .bind(id)
         .bind(status.to_string())
+        .bind(OPERATOR_MESSAGE)
         .execute(pool)
         .await
         .expect("operator status change");

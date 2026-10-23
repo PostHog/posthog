@@ -137,6 +137,13 @@ impl<'a> Transaction<'a> for KafkaEmitterTransaction<'a> {
         info!("committed transaction");
         Ok(to_sleep)
     }
+
+    // Records already produced stay in an open transaction until it ends. Leaving it open holds
+    // back read_committed consumers of the topic until the broker times it out.
+    async fn abort(self: Box<Self>) -> Result<(), Error> {
+        self.inner.abort()?;
+        Ok(())
+    }
 }
 
 impl<'a> KafkaEmitterTransaction<'a> {

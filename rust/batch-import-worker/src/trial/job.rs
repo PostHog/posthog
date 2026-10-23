@@ -257,11 +257,16 @@ impl TrialJob {
         self.sink.write_summary(&progress).await?;
 
         let mut model = self.model.lock().await;
-        info!(
-            job_id = %self.job_id,
-            records = progress.records_emitted,
-            "Trial job completed"
-        );
-        model.complete(&self.context.db).await
+        let status = model.complete(&self.context.db).await?;
+        if status == JobStatus::Completed {
+            info!(
+                job_id = %self.job_id,
+                records = progress.records_emitted,
+                "Trial job completed"
+            );
+        } else {
+            info!(job_id = %self.job_id, %status, "Trial job reached its end, but an operator status was kept");
+        }
+        Ok(())
     }
 }

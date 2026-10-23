@@ -792,11 +792,8 @@ impl Job {
         info!(job_id = %self.job_id, "Writing {} events", parsed.data.len());
         self.shutdown_guard()?;
         txn.emit(&parsed.data).await?;
-        // Two-stage commit: save the advanced offset and a pending-commit marker in PG *before*
-        // committing to the sink. If we crash between the two, the next worker to claim the job
-        // finds the marker and pauses it for manual intervention rather than silently skipping
-        // a chunk. The operator confirms whether the sink commit landed via the last event
-        // written or the logs.
+        // Save the advanced offset and a pending-commit marker before the sink commit. After a crash
+        // between the two, the next claim finds the marker and pauses the job for review.
         self.shutdown_guard()?;
         info!(job_id = %self.job_id, "Beginning PG part commit");
         if self
@@ -804,7 +801,9 @@ impl Job {
             .await?
             == CommitOutcome::Stopped
         {
-            // Dropping the uncommitted transaction sends nothing.
+            if let Err(e) = txn.abort().await {
+                warn!(job_id = %self.job_id, "Failed to abort the sink transaction: {e:#}");
+            }
             metric_emit::operator_stop("before_send");
             return Ok(CommitOutcome::Stopped);
         }
@@ -880,25 +879,26 @@ impl Job {
                 .await;
         }
 
-        let result = model.complete(&self.context.db).await;
-        if result.is_ok() {
-            let parts = stored.parts.len();
-            let events = stored.events_emitted;
-            metric_emit::completed_job_size(parts, events);
-            if events == 0 {
-                metric_emit::job_completion("completed_empty");
-                warn!(job_id = %self.job_id, parts, "Batch import job complete, but it emitted no events");
-            } else {
-                metric_emit::job_completion("completed");
-                info!(job_id = %self.job_id, parts, events, "Batch import job complete");
-            }
+        let status = model.complete(&self.context.db).await?;
+        if status != model::JobStatus::Completed {
+            info!(job_id = %self.job_id, %status, "Job reached its end, but an operator status was kept");
+            return Ok(());
         }
-        result
+        let parts = stored.parts.len();
+        let events = stored.events_emitted;
+        metric_emit::completed_job_size(parts, events);
+        if events == 0 {
+            metric_emit::job_completion("completed_empty");
+            warn!(job_id = %self.job_id, parts, "Batch import job complete, but it emitted no events");
+        } else {
+            metric_emit::job_completion("completed");
+            info!(job_id = %self.job_id, parts, events, "Batch import job complete");
+        }
+        Ok(())
     }
 
-    // Writes the new part state and a pending-commit marker to the DB, so that if there's an
-    // issue with the sink commit, the next claim pauses the job for manual intervention. Writes
-    // nothing, and returns `Stopped`, when the job is no longer running.
+    // Saves the advanced offset and a pending-commit marker. Writes nothing and returns `Stopped`
+    // when the row is no longer running.
     async fn begin_part_commit(
         &self,
         key: &str,
@@ -966,7 +966,8 @@ impl Job {
                 status_message,
                 Some("Job paused after a failed commit. Resolve the error and resume.".to_string()),
             )
-            .await
+            .await?;
+        model.release_lease(&self.context.db).await
     }
 
     // Clears the pending-commit marker, and reports the row's current status and send rate
@@ -1601,13 +1602,14 @@ mod tests {
             }
         }
 
-        /// Delivers in `commit_write`, like the capture sink, and records the send rate of each
-        /// delivered chunk. `on_send` runs during a delivery, which is where an operator change
-        /// races the worker.
+        /// Delivers in `commit_write` like the capture sink, recording each send rate and abort.
+        /// `on_send` runs during a delivery, which is where an operator change races the worker.
         struct RecordingEmitter {
             send_rate: u64,
             sends: Arc<std::sync::Mutex<Vec<u64>>>,
+            aborts: Arc<std::sync::atomic::AtomicUsize>,
             on_send: Option<SendHook>,
+            fail_sends: bool,
         }
 
         struct RecordingTransaction<'a> {
@@ -1640,7 +1642,17 @@ mod tests {
                 if let Some(hook) = &self.emitter.on_send {
                     hook(index).await;
                 }
+                if self.emitter.fail_sends {
+                    return Err(Error::msg("sink rejected the chunk"));
+                }
                 Ok(Duration::ZERO)
+            }
+
+            async fn abort(self: Box<Self>) -> Result<(), Error> {
+                self.emitter
+                    .aborts
+                    .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                Ok(())
             }
         }
 
@@ -1666,13 +1678,13 @@ mod tests {
             id: Uuid,
             context: Arc<AppContext>,
             sends: Arc<std::sync::Mutex<Vec<u64>>>,
+            aborts: Arc<std::sync::atomic::AtomicUsize>,
             result: Result<(), Error>,
         }
 
-        /// Run a three-part job to its end on a fresh row. `on_send` builds the delivery hook
-        /// for the new row. `before_process` runs before each `process` call, which is between
-        /// commits.
-        async fn run_job<H, B, BF>(on_send: H, before_process: B) -> Run
+        /// Run a three-part job on a fresh row, calling `before_process` between commits and the
+        /// `on_send` hook during deliveries.
+        async fn run_job<H, B, BF>(on_send: H, before_process: B, fail_sends: bool) -> Run
         where
             H: FnOnce(Uuid, PgPool) -> Option<SendHook>,
             B: Fn(usize, Uuid, Arc<AppContext>) -> BF,
@@ -1701,6 +1713,7 @@ mod tests {
             };
             let id = test_db::insert_job(&context.db, &row).await;
             let sends = Arc::new(std::sync::Mutex::new(Vec::new()));
+            let aborts = Arc::new(std::sync::atomic::AtomicUsize::new(0));
             let mut next = Some(Job {
                 context: context.clone(),
                 handle: make_handle(),
@@ -1713,7 +1726,9 @@ mod tests {
                 sink: Mutex::new(Box::new(RecordingEmitter {
                     send_rate: SEND_RATE,
                     sends: sends.clone(),
+                    aborts: aborts.clone(),
                     on_send: on_send(id, context.db.clone()),
+                    fail_sends,
                 })),
                 checkpoint: Mutex::new(None),
             });
@@ -1732,6 +1747,7 @@ mod tests {
                 id,
                 context,
                 sends,
+                aborts,
                 result,
             }
         }
@@ -1778,6 +1794,7 @@ mod tests {
                     test_db::set_send_rate(&pool, id, 250).await;
                 }),
                 no_op,
+                false,
             )
             .await;
 
@@ -1794,15 +1811,24 @@ mod tests {
         async fn test_operator_change_between_chunks_sends_nothing_more() {
             for operator_status in [JobStatus::Paused, JobStatus::Completed, JobStatus::Failed] {
                 // Step 0 fetches part 1 and step 1 commits it, so this lands before any send.
-                let run = run_job(no_hook, |step, id, context| async move {
-                    if step == 1 {
-                        test_db::operator_sets(&context.db, id, operator_status).await;
-                    }
-                })
+                let run = run_job(
+                    no_hook,
+                    |step, id, context| async move {
+                        if step == 1 {
+                            test_db::operator_sets(&context.db, id, operator_status).await;
+                        }
+                    },
+                    false,
+                )
                 .await;
 
                 run.result.unwrap();
                 assert!(run.sends.lock().unwrap().is_empty(), "{operator_status}");
+                assert_eq!(
+                    run.aborts.load(std::sync::atomic::Ordering::SeqCst),
+                    1,
+                    "the emitted chunk's transaction is aborted, not left open"
+                );
                 let stored = test_db::read_job(&run.context.db, run.id).await;
                 assert_eq!(stored.status, operator_status.to_string());
                 assert_eq!(offsets(&stored), vec![0, 0, 0], "{operator_status}");
@@ -1820,6 +1846,7 @@ mod tests {
                         test_db::operator_sets(&pool, id, operator_status).await;
                     }),
                     no_op,
+                    false,
                 )
                 .await;
 
@@ -1840,11 +1867,15 @@ mod tests {
 
         #[tokio::test]
         async fn test_lost_lease_drops_the_job_without_sending() {
-            let run = run_job(no_hook, |step, id, context| async move {
-                if step == 1 {
-                    test_db::resume_elsewhere(&context.db, id).await;
-                }
-            })
+            let run = run_job(
+                no_hook,
+                |step, id, context| async move {
+                    if step == 1 {
+                        test_db::resume_elsewhere(&context.db, id).await;
+                    }
+                },
+                false,
+            )
             .await;
 
             assert!(run.result.is_err());
@@ -1852,6 +1883,30 @@ mod tests {
             let stored = test_db::read_job(&run.context.db, run.id).await;
             assert_eq!(stored.status, "running");
             assert_eq!(offsets(&stored), vec![0, 0, 0]);
+            test_db::delete_job(&run.context.db, run.id).await;
+        }
+
+        #[tokio::test]
+        async fn test_failed_send_on_an_operator_paused_row_rolls_back_and_releases_the_lease() {
+            let run = run_job(
+                during_first_send(|pool, id| async move {
+                    test_db::operator_sets(&pool, id, JobStatus::Paused).await;
+                }),
+                no_op,
+                true,
+            )
+            .await;
+
+            assert!(run.result.is_err());
+            let stored = test_db::read_job(&run.context.db, run.id).await;
+            assert_eq!(stored.status, "paused");
+            assert_eq!(
+                offsets(&stored),
+                vec![0, 0, 0],
+                "a resume re-sends the chunk"
+            );
+            assert_eq!(stored.pending_commit, None);
+            assert_eq!(stored.lease_id, None);
             test_db::delete_job(&run.context.db, run.id).await;
         }
     }
