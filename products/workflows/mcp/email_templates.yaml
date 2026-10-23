@@ -189,8 +189,9 @@ tools:
             idempotent: false
         title: Send transactional email
         description: >
-            Send one transactional email to one recipient from a template, named by template.key (as uploaded with
-            workflows-upload-email-template) or template.id (a template made in PostHog). Put every value the
+            Send one transactional email to the address in to from a template, named by template.key (as uploaded with
+            workflows-upload-email-template) or template.id (a template made in PostHog). A template.key send can copy
+            more addresses with cc and bcc; a template.id send keeps the template's own recipients. Put every value the
             template needs into message_data, read as {{ variables.* }}; the template can't read person properties.
             Set identifiers.distinct_id to record the email on that person. Pass template.hash, the content_hash of the
             last upload, to check that PostHog holds that content: template_outdated means nothing was sent, so upload
