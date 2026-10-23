@@ -275,6 +275,7 @@ STORED_SUMMARY = ErrorTrackingIssueSummary(
     category=IssueSummaryCategory.OWN_CODE,
     model="test-model",
     generated_at=datetime(2026, 4, 24, 11, 0, tzinfo=UTC),
+    checked_at=datetime(2026, 4, 24, 11, 0, tzinfo=UTC),
 )
 STORED_SUMMARY_PAYLOAD = {
     "what_happened": STORED_SUMMARY.what_happened,
@@ -968,7 +969,7 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
         assert response.json()["summary_status"] == expected_status
         assert response.json().get("summary") == expected_summary
         assert response.json()["impact"]["occurrences"] == 1
-        start_generation.assert_called_once_with(self.team.id, self.issue_id)
+        start_generation.assert_called_once_with(self.team.id, self.issue_id, user=self.user)
         assert wait_for_summary.called == expect_wait
         [read_event] = [
             call.kwargs["properties"]

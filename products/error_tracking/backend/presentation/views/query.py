@@ -95,18 +95,22 @@ class IssueSummaryRead:
     summary: contracts.ErrorTrackingIssueSummary | None
 
 
-def read_issue_summary(team_id: int, issue_id: str) -> IssueSummaryRead:
+def read_issue_summary(team_id: int, issue_id: str, user: User) -> IssueSummaryRead:
     """Return the stored summary, or wait a bounded time for a first one. A summary failure never fails the read."""
     try:
         # A stale stored summary returns at once while a newer one generates in the background.
-        summary = summaries_facade.get_issue_summary(team_id, issue_id)
+        summary = summaries_facade.get_issue_summary(team_id, issue_id, user=user)
         started_at = now()
-        started = summaries_facade.start_issue_summary_generation(team_id, issue_id)
+        started = summaries_facade.start_issue_summary_generation(team_id, issue_id, user=user)
         if summary is None and not started:
             return IssueSummaryRead(status=IssueSummaryStatus.UNAVAILABLE, summary=None)
         if summary is None:
             summary = summaries_facade.wait_for_issue_summary(
-                team_id, issue_id, checked_after=started_at, timeout_seconds=ISSUE_SUMMARY_WAIT_SECONDS
+                team_id,
+                issue_id,
+                user=user,
+                checked_after=started_at,
+                timeout_seconds=ISSUE_SUMMARY_WAIT_SECONDS,
             )
     except Exception as error:
         capture_exception(error, {"team_id": team_id, "issue_id": issue_id})
@@ -317,7 +321,7 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         include_sparkline: bool,
     ) -> Response:
         summary_started_at = time.monotonic()
-        summary_read = read_issue_summary(self.team.id, issue_id)
+        summary_read = read_issue_summary(self.team.id, issue_id, cast(User, request.user))
         summary_finished_at = time.monotonic()
         if summary_read.summary is not None:
             payload["summary"] = summary_payload(summary_read.summary)
