@@ -48,12 +48,6 @@ LIMIT %(limit)s
 """
 
 
-def email_recipient_hash(recipient: str) -> str | None:
-    """The address as the email pipeline hashes it, so a lookup finds its emails without storing the address."""
-    hashes = _recipient_hashes(recipient)
-    return hashes[0] if hashes else None
-
-
 def _recipient_hashes(recipient: str) -> list[str]:
     # The pipeline hashes with the first salt key. An email recorded before a key rotation holds an older key's hash.
     salt_keys = [salt_key.strip() for salt_key in settings.ENCRYPTION_SALT_KEYS]

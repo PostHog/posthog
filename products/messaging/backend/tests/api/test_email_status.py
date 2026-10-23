@@ -5,7 +5,7 @@ from uuid import UUID
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
-from django.test import SimpleTestCase, override_settings
+from django.test import override_settings
 
 from parameterized import parameterized
 from rest_framework import status
@@ -18,11 +18,14 @@ from posthog.models.personal_api_key import hash_key_value
 from posthog.models.utils import generate_random_token_secret
 from posthog.uuidt import UUIDT
 
-from products.messaging.backend.facade.email_status import email_recipient_hash
-
 RANK = {"queued": 0, "sent": 4, "delivered": 5, "bounced": 6}
+SHARED_SALT_KEY = "00beef0000beef0000beef0000beef00"
+# The email pipeline's hash of jane.doe@example.com under SHARED_SALT_KEY, its shared test vector.
+JANE_DOE_HASH = "e7b76d6c58afac8ef397725c6b81a97de6e27926a51b37ee79b281032c3f2aa7"
+SOMEONE_ELSE_HASH = "a1b2"
 
 
+@override_settings(ENCRYPTION_SALT_KEYS=[SHARED_SALT_KEY])
 @patch(
     "products.messaging.backend.presentation.views.transactional_email_api.posthoganalytics.feature_enabled",
     return_value=True,
@@ -51,7 +54,7 @@ class TestEmailStatus(ClickhouseTestMixin, APIBaseTest):
         at: datetime,
         *,
         team_id: int | None = None,
-        recipient: str = "jane@example.com",
+        recipient_hash: str = JANE_DOE_HASH,
         reason: str = "",
     ) -> None:
         created_at = datetime.fromtimestamp(int(message_id.hex[:12], 16) / 1000, UTC)
@@ -67,7 +70,7 @@ class TestEmailStatus(ClickhouseTestMixin, APIBaseTest):
                     created_at,
                     at,
                     reason,
-                    email_recipient_hash(recipient),
+                    recipient_hash,
                 )
             ],
         )
@@ -141,25 +144,25 @@ class TestEmailStatus(ClickhouseTestMixin, APIBaseTest):
     def test_lists_a_recipients_emails_newest_first_a_page_at_a_time(self, _flag):
         first_at = datetime.now(UTC) - timedelta(hours=3)
         first, second, third = (self._sent_at(first_at + timedelta(hours=hour)) for hour in range(3))
-        self._record(first, "queued", first_at, recipient="Lookup@Example.com")
-        self._record(first, "sent", first_at + timedelta(seconds=2), recipient="Lookup@Example.com")
-        self._record(second, "bounced", first_at + timedelta(hours=1), recipient="lookup@example.com", reason="hard")
-        self._record(third, "queued", first_at + timedelta(hours=2), recipient="  lookup@example.com ")
-        self._record(self._sent_at(first_at), "sent", first_at, recipient="someone@example.com")
+        self._record(first, "queued", first_at)
+        self._record(first, "sent", first_at + timedelta(seconds=2))
+        self._record(second, "bounced", first_at + timedelta(hours=1), reason="hard")
+        self._record(third, "queued", first_at + timedelta(hours=2))
+        self._record(self._sent_at(first_at), "sent", first_at, recipient_hash=SOMEONE_ELSE_HASH)
         other_team = Team.objects.create(organization=self.organization)
-        self._record(self._sent_at(first_at), "sent", first_at, team_id=other_team.id, recipient="lookup@example.com")
+        self._record(self._sent_at(first_at), "sent", first_at, team_id=other_team.id)
         older_than_kept = datetime.now(UTC) - timedelta(days=31)
-        self._record(self._sent_at(older_than_kept), "sent", older_than_kept, recipient="lookup@example.com")
+        self._record(self._sent_at(older_than_kept), "sent", older_than_kept)
 
-        first_page = self._list({"to": " LOOKUP@example.com", "limit": 2})
+        first_page = self._list({"to": "  Jane.Doe@Example.COM ", "limit": 2})
 
         assert first_page.status_code == status.HTTP_200_OK, first_page.json()
         assert [(email["id"], email["status"], email.get("reason")) for email in first_page.json()["results"]] == [
             (str(third), "queued", None),
             (str(second), "bounced", "hard"),
         ]
-        assert "lookup" not in first_page.json()["next_cursor"].lower()
-        next_page = self._list({"to": "lookup@example.com", "limit": 2, "cursor": first_page.json()["next_cursor"]})
+        assert "jane" not in first_page.json()["next_cursor"].lower()
+        next_page = self._list({"to": "jane.doe@example.com", "limit": 2, "cursor": first_page.json()["next_cursor"]})
         assert [(email["id"], email["status"]) for email in next_page.json()["results"]] == [(str(first), "sent")]
         assert next_page.json()["next_cursor"] is None
 
@@ -187,13 +190,10 @@ class TestEmailStatus(ClickhouseTestMixin, APIBaseTest):
     def test_lists_a_recipients_emails_recorded_before_a_salt_key_rotation(self, _flag):
         sent_at = datetime.now(UTC) - timedelta(hours=1)
         message_id = self._sent_at(sent_at)
-        with override_settings(ENCRYPTION_SALT_KEYS=["00beef0000beef0000beef0000beef00"]):
-            self._record(message_id, "sent", sent_at)
+        self._record(message_id, "sent", sent_at)
 
-        with override_settings(
-            ENCRYPTION_SALT_KEYS=["11cafe0011cafe0011cafe0011cafe00", "00beef0000beef0000beef0000beef00"]
-        ):
-            response = self._list({"to": "jane@example.com"})
+        with override_settings(ENCRYPTION_SALT_KEYS=["11cafe0011cafe0011cafe0011cafe00", SHARED_SALT_KEY]):
+            response = self._list({"to": "jane.doe@example.com"})
 
         assert [email["id"] for email in response.json()["results"]] == [str(message_id)]
 
@@ -213,12 +213,3 @@ class TestEmailStatus(ClickhouseTestMixin, APIBaseTest):
                 self._list({"to": "jane@example.com"})
 
         assert observed == [(self.team.id, Product.MESSAGING, Feature.QUERY)]
-
-
-class TestEmailRecipientHash(SimpleTestCase):
-    @override_settings(ENCRYPTION_SALT_KEYS=["00beef0000beef0000beef0000beef00"])
-    def test_hashes_a_recipient_as_the_email_pipeline_does(self):
-        expected = "e7b76d6c58afac8ef397725c6b81a97de6e27926a51b37ee79b281032c3f2aa7"
-
-        assert email_recipient_hash("  Jane.Doe@Example.COM ") == expected
-        assert email_recipient_hash("jane.doe@example.com") == expected
