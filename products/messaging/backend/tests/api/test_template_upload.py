@@ -240,46 +240,48 @@ class TestTemplateUpload(APIBaseTest):
         made_in_posthog.refresh_from_db()
         assert made_in_posthog.draft_content is None
 
-    @parameterized.expand(
-        [
-            ("adopted", "adopt", status.HTTP_409_CONFLICT),
-            ("released_and_edited", "release_and_edit", status.HTTP_409_CONFLICT),
-            ("managed_by_code", None, status.HTTP_200_OK),
-        ]
-    )
+    def _adopt_in_posthog(self, template_id: str) -> None:
+        MessageTemplate.objects.filter(id=template_id).update(managed_by=None)
+
+    def _release_and_edit_in_posthog(self, template_id: str) -> None:
+        template_url = f"/api/projects/{self.team.id}/messaging_templates/{template_id}/"
+        released = self.client.patch(template_url, {"managed_by": "gui"}, format="json")
+        assert released.status_code == status.HTTP_200_OK, released.json()
+        edited = self.client.patch(
+            template_url,
+            {"content": {"email": {"subject": "Edited in PostHog", "html": "<p>Edited</p>"}}},
+            format="json",
+        )
+        assert edited.status_code == status.HTTP_200_OK, edited.json()
+
+    @parameterized.expand([("adopted", "_adopt_in_posthog"), ("released_and_edited", "_release_and_edit_in_posthog")])
     def test_an_upload_if_code_managed_never_overwrites_content_edited_in_posthog(
-        self, _post, _flag, _capture, _name, edit_in_posthog, expected_status
+        self, _post, _flag, _capture, _name, edit_in_posthog
     ):
         template_id = self._upload(WELCOME)["id"]
-        template_url = f"/api/projects/{self.team.id}/messaging_templates/{template_id}/"
-        if edit_in_posthog == "adopt":
-            MessageTemplate.objects.filter(id=template_id).update(managed_by=None)
-        elif edit_in_posthog == "release_and_edit":
-            released = self.client.patch(template_url, {"managed_by": "gui"}, format="json")
-            assert released.status_code == status.HTTP_200_OK, released.json()
-            edited = self.client.patch(
-                template_url,
-                {"content": {"email": {"subject": "Edited in PostHog", "html": "<p>Edited</p>"}}},
-                format="json",
-            )
-            assert edited.status_code == status.HTTP_200_OK, edited.json()
+        getattr(self, edit_in_posthog)(template_id)
         before = MessageTemplate.objects.get(id=template_id)
 
         response = self.psak.put(self.url, {**GREETING, "if_code_managed": True}, format="json")
 
-        assert response.status_code == expected_status, response.json()
+        assert response.status_code == status.HTTP_409_CONFLICT, response.json()
+        error = response.json()
+        assert error["code"] == "template_edited_in_posthog"
+        assert error["why"] and error["fix"]
         after = MessageTemplate.objects.get(id=template_id)
-        if expected_status == status.HTTP_409_CONFLICT:
-            error = response.json()
-            assert error["code"] == "template_edited_in_posthog"
-            assert error["why"] and error["fix"]
-            assert (after.content, after.managed_by, after.content_hash) == (
-                before.content,
-                before.managed_by,
-                before.content_hash,
-            )
-        else:
-            assert after.content_hash == GREETING_HASH
+        assert (after.content, after.managed_by, after.content_hash) == (
+            before.content,
+            before.managed_by,
+            before.content_hash,
+        )
+
+    def test_an_upload_if_code_managed_updates_a_template_code_still_manages(self, _post, _flag, _capture):
+        template_id = self._upload(WELCOME)["id"]
+
+        response = self.psak.put(self.url, {**GREETING, "if_code_managed": True}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert MessageTemplate.objects.get(id=template_id).content_hash == GREETING_HASH
 
     def _adopted_template_sending_from(self, sender: Integration) -> MessageTemplate:
         return MessageTemplate.objects.create(

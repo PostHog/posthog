@@ -475,6 +475,12 @@ class TestTransactionalEmail(APIBaseTest):
         reported = capture.call_args.kwargs["properties"]
         assert (reported["outcome"], reported["error_code"]) == ("rejected", code)
 
+    def _send_body(self, addressed_by: str, **fields: Any) -> dict[str, Any]:
+        if addressed_by == "template_key":
+            return self._rendered(**fields)
+        _url, body = self._send_request(addressed_by, self.body)
+        return {**body, **fields}
+
     def _rendered(self, **fields: Any) -> dict[str, Any]:
         return {
             "to": "user@example.com",
@@ -534,6 +540,7 @@ class TestTransactionalEmail(APIBaseTest):
         [
             (
                 "rendered_content",
+                "template_key",
                 {"text": "Hi", "from": "Example <security@example.com>", "reply_to": ["help@example.com"]},
                 {
                     "content": {"subject": "Welcome, Jane", "html": "<p>Hi {{ variables.name }}</p>", "text": "Hi"},
@@ -544,6 +551,7 @@ class TestTransactionalEmail(APIBaseTest):
             ),
             (
                 "rendered_content_without_capture",
+                "template_key",
                 {"capture_engagement": False},
                 {
                     "content": {
@@ -557,6 +565,7 @@ class TestTransactionalEmail(APIBaseTest):
             ),
             (
                 "rendered_text_only",
+                "template_key",
                 {"html": "", "text": "Hi"},
                 {
                     "content": {"subject": "Welcome, Jane", "text": "Hi"},
@@ -566,6 +575,7 @@ class TestTransactionalEmail(APIBaseTest):
             ),
             (
                 "template_by_key",
+                "key",
                 {"from": "hello@example.com", "reply_to": ["help@example.com"]},
                 {
                     "from": {"integrationId": "hello", "email": "hello@example.com"},
@@ -573,23 +583,25 @@ class TestTransactionalEmail(APIBaseTest):
                     "tracking": {"captureEngagement": True},
                 },
             ),
-            ("template_by_id_with_capture", {"capture_engagement": True}, {"tracking": {"captureEngagement": True}}),
-            ("template_by_id", {}, None),
+            (
+                "template_by_id_with_capture",
+                "id",
+                {"capture_engagement": True},
+                {"tracking": {"captureEngagement": True}},
+            ),
+            ("template_by_id", "id", {}, None),
         ]
     )
-    def test_a_send_carries_what_the_caller_set_over_its_workflow(self, mock_post, _flag, _capture, case, fields, sent):
+    def test_a_send_carries_what_the_caller_set_over_its_workflow(
+        self, mock_post, _flag, _capture, _name, addressed_by, fields, sent
+    ):
         self._cdp_accepts(mock_post)
         newer_default = Integration.objects.create(
             team=self.team, kind="email", integration_id="news@example.com", config={"verified": True}
         )
         TeamWorkflowsConfig.objects.filter(team_id=self.team.id).update(default_email_integration_id=newer_default.id)
         sender_ids = {"hello": self.sender.id, "default": newer_default.id}
-        if case.startswith("template_by_key"):
-            body = {**self.body, "template": {"key": "password-reset"}, **fields}
-        elif case.startswith("template_by_id"):
-            body = {**self.body, "template": {"id": str(self.template.id)}, **fields}
-        else:
-            body = self._rendered(**fields)
+        body = self._send_body(addressed_by, **fields)
 
         response = self._psak_client(["hog_flow:write"]).post(self.send_email_url, body, format="json")
 
