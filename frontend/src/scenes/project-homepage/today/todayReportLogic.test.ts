@@ -95,7 +95,7 @@ describe('todayReportLogic', () => {
     ])('sends %s', async (_, path, step, prefetched, reportId, visits, opens) => {
         useMocks({
             get: {
-                '/api/projects/:team_id/signals/reports/for_you/': {
+                '/api/projects/:team_id/signals/reports/': {
                     results: [makeReport({ id: 'a' }), makeReport({ id: 'b' })],
                     count: 2,
                 },
