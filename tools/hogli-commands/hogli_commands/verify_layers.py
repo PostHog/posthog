@@ -1,6 +1,6 @@
 """``hogli verify``: run the cheapest checks that are enough for the current diff.
 
-The ladder and the decision table are the ones in ``.agents/skills/verifying-changes/SKILL.md``.
+The layers and the decision table come from ``.agents/skills/verifying-changes/SKILL.md``.
 Keep the two in sync.
 """
 
@@ -31,7 +31,7 @@ from hogli_commands.ci_preflight import (
 from hogli_commands.test_runner import changed_test_files
 
 
-class Rung(IntEnum):
+class ComplexityLayer(IntEnum):
     STATIC = 1
     UNIT_TEST = 2
     OPENAPI = 3
@@ -59,7 +59,7 @@ class ChangeKind(StrEnum):
 class KindRule:
     kind: ChangeKind
     globs: tuple[str, ...]
-    sufficient: Rung
+    sufficient: ComplexityLayer
 
 
 # First match wins, so a narrow kind sits above a broad one that shares its files.
@@ -67,25 +67,29 @@ KIND_RULES: tuple[KindRule, ...] = (
     KindRule(
         kind=ChangeKind.DOCS_OR_SKILLS,
         globs=("*.md", "*.mdx", "docs/*", ".agents/skills/*", "products/*/skills/*"),
-        sufficient=Rung.STATIC,
+        sufficient=ComplexityLayer.STATIC,
     ),
-    KindRule(kind=ChangeKind.CI_WORKFLOW, globs=(".github/workflows/*", ".github/actions/*"), sufficient=Rung.STATIC),
-    KindRule(kind=ChangeKind.MIGRATION, globs=("*/migrations/*.py",), sufficient=Rung.UNIT_TEST),
-    KindRule(kind=ChangeKind.END_TO_END_TEST, globs=("playwright/*",), sufficient=Rung.END_TO_END),
+    KindRule(
+        kind=ChangeKind.CI_WORKFLOW,
+        globs=(".github/workflows/*", ".github/actions/*"),
+        sufficient=ComplexityLayer.STATIC,
+    ),
+    KindRule(kind=ChangeKind.MIGRATION, globs=("*/migrations/*.py",), sufficient=ComplexityLayer.UNIT_TEST),
+    KindRule(kind=ChangeKind.END_TO_END_TEST, globs=("playwright/*",), sufficient=ComplexityLayer.END_TO_END),
     KindRule(
         kind=ChangeKind.TEST,
         globs=("test_*.py", "*/test_*.py", "*.test.ts", "*.test.tsx", "*/test/*", "*/tests/*", "*/__snapshots__/*"),
-        sufficient=Rung.UNIT_TEST,
+        sufficient=ComplexityLayer.UNIT_TEST,
     ),
-    KindRule(kind=ChangeKind.API_SCHEMA, globs=BUILD_TRIGGERS["build:openapi"], sufficient=Rung.OPENAPI),
+    KindRule(kind=ChangeKind.API_SCHEMA, globs=BUILD_TRIGGERS["build:openapi"], sufficient=ComplexityLayer.OPENAPI),
     KindRule(
         kind=ChangeKind.SQL_OR_HOGQL,
         globs=("*.sql", "posthog/hogql/*", "posthog/hogql_queries/*", "products/*/backend/hogql_queries/*"),
-        sufficient=Rung.UNIT_TEST,
+        sufficient=ComplexityLayer.UNIT_TEST,
     ),
-    KindRule(kind=ChangeKind.KEA_LOGIC, globs=("*Logic.ts", "*Logic.tsx"), sufficient=Rung.UNIT_TEST),
-    KindRule(kind=ChangeKind.CSS, globs=("*.css", "*.scss"), sufficient=Rung.STORYBOOK),
-    KindRule(kind=ChangeKind.REACT_COMPONENT, globs=("*.tsx",), sufficient=Rung.STORYBOOK),
+    KindRule(kind=ChangeKind.KEA_LOGIC, globs=("*Logic.ts", "*Logic.tsx"), sufficient=ComplexityLayer.UNIT_TEST),
+    KindRule(kind=ChangeKind.CSS, globs=("*.css", "*.scss"), sufficient=ComplexityLayer.STORYBOOK),
+    KindRule(kind=ChangeKind.REACT_COMPONENT, globs=("*.tsx",), sufficient=ComplexityLayer.STORYBOOK),
     KindRule(
         kind=ChangeKind.APP_WIRING,
         globs=(
@@ -96,17 +100,17 @@ KIND_RULES: tuple[KindRule, ...] = (
             "posthog/csp_middleware.py",
             "docker-compose*.yml",
         ),
-        sufficient=Rung.STACK,
+        sufficient=ComplexityLayer.STACK,
     ),
 )
 
-FALLBACK_RULE = KindRule(kind=ChangeKind.PURE_LOGIC, globs=("*",), sufficient=Rung.UNIT_TEST)
+FALLBACK_RULE = KindRule(kind=ChangeKind.PURE_LOGIC, globs=("*",), sufficient=ComplexityLayer.UNIT_TEST)
 
-NEXT_RUNG_BY_HAND: dict[Rung, str] = {
-    Rung.OPENAPI: "Run `hogli build:openapi` (needs `hogli up -d`) and commit the generated types.",
-    Rung.STORYBOOK: "Render the affected stories with `pnpm storybook` and compare them before and after.",
-    Rung.STACK: "Start the stack with `hogli up -d` and `hogli wait`, then exercise the change in the app.",
-    Rung.END_TO_END: "Run the changed Playwright specs with `hogli test <spec>` against a running stack.",
+COMPLEXITY_LAYERS: dict[ComplexityLayer, str] = {
+    ComplexityLayer.OPENAPI: "Run `hogli build:openapi` (needs `hogli up -d`) and commit the generated types.",
+    ComplexityLayer.STORYBOOK: "Render the affected stories with `pnpm storybook` and compare them before and after.",
+    ComplexityLayer.STACK: "Start the stack with `hogli up -d` and `hogli wait`, then exercise the change in the app.",
+    ComplexityLayer.END_TO_END: "Run the changed Playwright specs with `hogli test <spec>` against a running stack.",
 }
 
 STATIC_CHECK_KEYS = (
@@ -163,27 +167,27 @@ VERIFY_ONLY_CHECKS: tuple[DiffCheck, ...] = (
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
-class LadderPlan:
+class VerifyPlan:
     files_by_kind: dict[ChangeKind, list[str]]
     runs_unit_tests: bool
-    rungs_by_hand: tuple[Rung, ...]
+    manual_layers: tuple[ComplexityLayer, ...]
 
 
 def classify(path: str) -> KindRule:
     return next((rule for rule in KIND_RULES if matches_globs(path, rule.globs)), FALLBACK_RULE)
 
 
-def plan_ladder(paths: Iterable[str]) -> LadderPlan:
+def plan_verification(paths: Iterable[str]) -> VerifyPlan:
     files_by_kind: dict[ChangeKind, list[str]] = {}
-    sufficient: set[Rung] = set()
+    sufficient: set[ComplexityLayer] = set()
     for path in paths:
         rule = classify(path)
         files_by_kind.setdefault(rule.kind, []).append(path)
         sufficient.add(rule.sufficient)
-    return LadderPlan(
+    return VerifyPlan(
         files_by_kind=files_by_kind,
-        runs_unit_tests=any(rung >= Rung.UNIT_TEST for rung in sufficient),
-        rungs_by_hand=tuple(sorted(rung for rung in sufficient if rung in NEXT_RUNG_BY_HAND)),
+        runs_unit_tests=any(layer >= ComplexityLayer.UNIT_TEST for layer in sufficient),
+        manual_layers=tuple(sorted(layer for layer in sufficient if layer in COMPLEXITY_LAYERS)),
     )
 
 
@@ -197,28 +201,33 @@ def _static_checks(files: list[str]) -> list[DiffCheck]:
     return triggered
 
 
-def _print_plan(plan: LadderPlan) -> None:
+def _print_plan(plan: VerifyPlan) -> None:
     for kind, paths in plan.files_by_kind.items():
         click.echo(f"   {kind}: {len(paths)} file(s)")
     click.echo()
 
 
-def _print_rungs_by_hand(plan: LadderPlan, outstanding: tuple[str, ...] = ()) -> None:
+def _print_manual_layers(plan: VerifyPlan, outstanding: tuple[str, ...] = ()) -> None:
     covered = "Lint, format, typecheck and the nearest tests" if plan.runs_unit_tests else "Lint, format and typecheck"
     if outstanding:
         click.secho("  This diff is not verified yet. Do these, then run `hogli verify --changed` again:", fg="yellow")
         for step in outstanding:
             click.echo(f"   - {step}")
-    if not plan.rungs_by_hand:
+    if not plan.manual_layers:
         if not outstanding:
-            click.secho(f"  {covered} are enough for this diff. Higher rungs add no coverage.", fg="green")
+            click.secho(
+                f"  {covered} are enough for this diff. Slower checks would not find anything more.", fg="green"
+            )
         return
-    click.secho(f"  {covered} are not enough for this diff. Run these next, cheapest first:", bold=True)
-    for rung in plan.rungs_by_hand:
-        click.echo(f"   {rung.value}. {NEXT_RUNG_BY_HAND[rung]}")
+    click.secho(f"  {covered} are not enough for this diff. Run these yourself, cheapest first:", bold=True)
+    for layer in plan.manual_layers:
+        click.echo(f"   {layer.value}. {COMPLEXITY_LAYERS[layer]}")
 
 
-@click.command(name="verify", help="Run the cheapest checks that cover your diff, then name the next rung to run.")
+@click.command(
+    name="verify",
+    help="Run the cheapest checks that cover your diff (lint, typecheck, nearest tests), then name the next potential layer",
+)
 @click.option("--changed", is_flag=True, help="Verify the files changed on this branch, plus uncommitted work.")
 @click.option("--plan", "plan_only", is_flag=True, help="Show how the diff is classified without running checks.")
 def verify(changed: bool, plan_only: bool) -> None:
@@ -228,14 +237,14 @@ def verify(changed: bool, plan_only: bool) -> None:
     if not files:
         click.secho("No changed files on this branch.", fg="yellow")
         return
-    plan = plan_ladder(files)
+    plan = plan_verification(files)
     click.secho(f"\n  hogli verify: {len(files)} changed file(s)\n", bold=True)
     _print_plan(plan)
     if plan_only:
-        _print_rungs_by_hand(plan)
+        _print_manual_layers(plan)
         return
 
-    click.secho("  Rung 1: lint, format, typecheck", bold=True)
+    click.secho("  Layer 1: lint, format, typecheck", bold=True)
     failures = 0
     outstanding: list[str] = []
     for check in _static_checks(files):
@@ -257,11 +266,11 @@ def verify(changed: bool, plan_only: bool) -> None:
             "No tests were found for the changed files. Pick the nearest test and run `hogli test <file>`."
         )
     elif plan.runs_unit_tests:
-        click.secho("  Rung 2: hogli test --changed --skip-playwright", bold=True)
+        click.secho("  Layer 2: hogli test --changed --skip-playwright", bold=True)
         test_command = [sys.executable, "-m", "hogli", "test", "--changed", "--skip-playwright"]
         if subprocess.run(test_command, cwd=REPO_ROOT).returncode != 0:
-            click.secho("\n  Tests failed. Fix them before you climb to a higher rung.", fg="red")
+            click.secho("\n  Tests failed. Fix them before you run slower checks.", fg="red")
             sys.exit(1)
         click.echo()
 
-    _print_rungs_by_hand(plan, tuple(outstanding))
+    _print_manual_layers(plan, tuple(outstanding))

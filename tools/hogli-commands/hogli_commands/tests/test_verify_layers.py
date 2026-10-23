@@ -5,7 +5,14 @@ from unittest.mock import patch
 
 from click.testing import CliRunner
 from hogli_commands.test_runner import ChangedTests
-from hogli_commands.verify_ladder import ChangeKind, Rung, _print_rungs_by_hand, classify, plan_ladder, verify
+from hogli_commands.verify_layers import (
+    ChangeKind,
+    ComplexityLayer,
+    _print_manual_layers,
+    classify,
+    plan_verification,
+    verify,
+)
 
 
 class TestClassify:
@@ -37,23 +44,23 @@ class TestClassify:
         assert classify(path).kind == expected_kind
 
 
-class TestPlanLadder:
+class TestPlanVerification:
     @pytest.mark.parametrize(
-        "paths,runs_unit_tests,rungs_by_hand",
+        "paths,runs_unit_tests,manual_layers",
         [
             (["docs/internal/monorepo-layout.md", ".github/workflows/ci-backend.yml"], False, ()),
             (["posthog/models/team/team.py", "posthog/api/test/test_team.py"], True, ()),
             (
                 ["frontend/src/scenes/insights/Insight.tsx", "posthog/api/insight.py", "posthog/settings/web.py"],
                 True,
-                (Rung.OPENAPI, Rung.STORYBOOK, Rung.STACK),
+                (ComplexityLayer.OPENAPI, ComplexityLayer.STORYBOOK, ComplexityLayer.STACK),
             ),
         ],
     )
-    def test_rungs(self, paths: list[str], runs_unit_tests: bool, rungs_by_hand: tuple[Rung, ...]) -> None:
-        plan = plan_ladder(paths)
+    def test_layers(self, paths: list[str], runs_unit_tests: bool, manual_layers: tuple[ComplexityLayer, ...]) -> None:
+        plan = plan_verification(paths)
         assert plan.runs_unit_tests is runs_unit_tests
-        assert plan.rungs_by_hand == rungs_by_hand
+        assert plan.manual_layers == manual_layers
 
     @pytest.mark.parametrize(
         "outstanding,claims_enough",
@@ -62,7 +69,7 @@ class TestPlanLadder:
     def test_outstanding_check_does_not_claim_enough(
         self, capsys: pytest.CaptureFixture[str], outstanding: tuple[str, ...], claims_enough: bool
     ) -> None:
-        _print_rungs_by_hand(plan_ladder(["docs/internal/monorepo-layout.md"]), outstanding)
+        _print_manual_layers(plan_verification(["docs/internal/monorepo-layout.md"]), outstanding)
         assert ("are enough for this diff" in capsys.readouterr().out) is claims_enough
 
 
@@ -70,10 +77,10 @@ class TestVerifyCommand:
     def test_an_advisory_check_and_no_tests_leave_the_diff_unverified(self) -> None:
         no_tests = ChangedTests(directly_changed=set(), discovered=set(), skipped_playwright_specs=set())
         with (
-            patch("hogli_commands.verify_ladder.changed_files", return_value=["posthog/models/team/team.py"]),
-            patch("hogli_commands.verify_ladder._run_diff_check", return_value=("advisory", "run mypy")),
-            patch("hogli_commands.verify_ladder.changed_test_files", return_value=no_tests),
-            patch("hogli_commands.verify_ladder.subprocess.run") as run,
+            patch("hogli_commands.verify_layers.changed_files", return_value=["posthog/models/team/team.py"]),
+            patch("hogli_commands.verify_layers._run_diff_check", return_value=("advisory", "run mypy")),
+            patch("hogli_commands.verify_layers.changed_test_files", return_value=no_tests),
+            patch("hogli_commands.verify_layers.subprocess.run") as run,
         ):
             result = CliRunner().invoke(verify, ["--changed"])
 

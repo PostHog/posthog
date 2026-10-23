@@ -797,8 +797,8 @@ tests:
         click: hogli_commands.test_runner:test_command
         description: Auto-detect test type (Python, Jest, Playwright, Rust, Go) and run it
     verify:
-        click: hogli_commands.verify_ladder:verify
-        description: Run the cheapest checks that cover your diff (lint, typecheck, nearest tests), then name the next rung to run by hand
+        click: hogli_commands.verify_layers:verify
+        description: Run the cheapest checks that cover your diff (lint, typecheck, nearest tests), then name the next potential layer
     test:python:
         cmd: pytest
         description: Run Python test suite
