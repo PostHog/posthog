@@ -864,6 +864,17 @@ describe('dashboardLogic', () => {
                 await expectLogic(logic, () => logic.actions.cancelDashboardRefresh()).toFinishAllListeners()
             })
 
+            it('settles a filter preview when every insight sits in a closed group', async () => {
+                groupTiles({ target: { collapsed: true }, other: { collapsed: true } })
+                await mountDashboard()
+
+                await expectLogic(logic, () => logic.actions.setDates('-7d', null)).toFinishAllListeners()
+
+                expect(loads(target)).toHaveLength(0)
+                expect(logic.values.previewedDashboardSettings?.filters.date_from).toBe('-7d')
+                expect(logic.values.breakdownValuesIncomplete).toBe(true)
+            })
+
             it.each([
                 {
                     name: 'its first load failed',
@@ -982,19 +993,24 @@ describe('dashboardLogic', () => {
                 await expectLogic(logic, () => logic.actions.cancelDashboardRefresh()).toFinishAllListeners()
             })
 
-            it('stops a widget load when the viewer cancels the refresh', async () => {
+            it.each([
+                { name: 'cancels the refresh', stop: () => logic.actions.cancelDashboardRefresh(), loading: false },
+                { name: 'refreshes again', stop: () => logic.actions.triggerDashboardRefresh(), loading: true },
+            ])('stops a widget load without an error when the viewer $name', async ({ stop, loading }) => {
                 groupTiles({})
                 dashboards[5].tiles.push(WIDGET_TILE)
                 await mountDashboard()
-                fetchRunWidgetsMock.mockImplementationOnce((_projectId, _dashboardId, _tileIds, options) =>
+                fetchRunWidgetsMock.mockImplementation((_projectId, _dashboardId, _tileIds, options) =>
                     hangUntilAborted(options?.signal)
                 )
                 logic.actions.refreshDashboardWidgets({ tileIds: [WIDGET_TILE.id], forceRefresh: true })
                 await expectLogic(logic).toDispatchActions(['setWidgetRefreshStatuses'])
 
-                await expectLogic(logic, () => logic.actions.cancelDashboardRefresh()).toFinishAllListeners()
+                await expectLogic(logic, stop).toDispatchActions(['stopWidgetRefreshes'])
 
-                expect(logic.values.widgetRefreshStatus[WIDGET_TILE.id]?.loading).toBe(false)
+                expect(logic.values.widgetRefreshStatus[WIDGET_TILE.id]).toMatchObject({ loading, error: null })
+                fetchRunWidgetsMock.mockResolvedValue([])
+                await expectLogic(logic, () => logic.actions.cancelDashboardRefresh()).toFinishAllListeners()
             })
 
             it('adds an opened group to the "X out of Y" count of a running refresh', async () => {

@@ -1310,6 +1310,9 @@ export interface dashboardLogicActions {
     stageLayouts: (layouts: ResponsiveLayouts) => {
         layouts: Partial<Record<string, Layout>>
     }
+    stopWidgetRefreshes: (tileIds: number[]) => {
+        tileIds: number[]
+    }
     tilePlacementsSaved: (placements: Record<number, TilePlacement>) => {
         placements: Record<number, TilePlacement>
     }
@@ -1670,7 +1673,11 @@ export interface dashboardLogicMeta {
             getTheme: (themeId: number | string | null | undefined) => DataColorTheme | null // dataThemeLogic
         ) => DataColorTheme | null
         autoBreakdownColorsEnabled: (featureFlags: FeatureFlagsSet) => boolean
-        breakdownValuesIncomplete: (itemsLoading: boolean, insightTiles: DashboardTile[]) => boolean
+        breakdownValuesIncomplete: (
+            itemsLoading: boolean,
+            insightTiles: DashboardTile[],
+            waitingTileRefresh: WaitingTileRefresh | null
+        ) => boolean
         effectiveBreakdownColors: (
             temporaryBreakdownColors: BreakdownColorConfig[],
             dashboard: DashboardType | null,
@@ -1868,6 +1875,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             loading,
             error,
         }),
+        stopWidgetRefreshes: (tileIds: number[]) => ({ tileIds }),
         addWidgetTiles: (payload: {
             dashboardId: number
             widgets: { widgetType: string; config: Record<string, unknown> }[]
@@ -3200,6 +3208,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     }
                     return next
                 },
+                // A stopped load fetched nothing, so the tile keeps its last fetch time.
+                stopWidgetRefreshes: (state, { tileIds }) => ({
+                    ...state,
+                    ...Object.fromEntries(tileIds.map((tileId) => [tileId, { ...state[tileId], loading: false }])),
+                }),
             },
         ],
         refreshEligibilityTick: [0, { recheckRefreshEligibility: (state) => state + 1 }],
@@ -4020,10 +4033,17 @@ export const dashboardLogic = kea<dashboardLogicType>([
         // itemsLoading alone can't stand in for completeness: a refresh that errors or is
         // aborted before the insight ever got results leaves the tile with result: null after
         // loading settles, hiding its breakdown values from the sharing check.
+        // A tile in a closed group still holds results from before the last refresh, so its values can be stale too.
         breakdownValuesIncomplete: [
-            (s) => [s.itemsLoading, s.insightTiles],
-            (itemsLoading: boolean, insightTiles: DashboardTile[] | null): boolean =>
-                itemsLoading || hasUnresolvedBreakdownTiles(insightTiles),
+            (s) => [s.itemsLoading, s.insightTiles, s.waitingTileRefresh],
+            (
+                itemsLoading: boolean,
+                insightTiles: DashboardTile[] | null,
+                waitingTileRefresh: WaitingTileRefresh | null
+            ): boolean =>
+                itemsLoading ||
+                hasUnresolvedBreakdownTiles(insightTiles) ||
+                !!insightTiles?.some((tile) => waitingTileRefresh?.tileIds.includes(tile.id)),
         ],
         // Persisted colors with unsaved edits merged over them, plus auto-assigned colors for
         // breakdown values shared by multiple tiles. This is both what tiles render and what a
@@ -5223,6 +5243,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     refresh_duration_ms: refreshDurationMs,
                     total_tile_count: totalTileCount,
                     tiles_stale_count: tilesStaleCount,
+                    tiles_deferred_count: staleTiles.length - tilesStaleCount,
                     tiles_refreshed_count: tilesRefreshedCount,
                     tiles_errored_count: tilesErroredCount,
                     tiles_aborted_count: tilesAbortedCount,
@@ -5237,15 +5258,16 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 if (filterChangeIsCurrent && allInsightsSucceeded) {
                     cache.pendingFilterChange = undefined
                 }
+            }
 
-                if (
-                    (previewUnsavedFilters || initialUrlOverridesArePreviewed) &&
-                    (tilesErroredCount > 0 || tilesAbortedCount > 0)
-                ) {
-                    actions.previewDashboardChangesFailure()
-                } else if (previewUnsavedFilters || initialUrlOverridesArePreviewed) {
-                    actions.setPreviewedDashboardSettings(settingsToRefresh)
-                }
+            // Also when every insight sits in a closed group, so the preview settles and later refreshes use it.
+            if (
+                (previewUnsavedFilters || initialUrlOverridesArePreviewed) &&
+                (tilesErroredCount > 0 || tilesAbortedCount > 0)
+            ) {
+                actions.previewDashboardChangesFailure()
+            } else if (previewUnsavedFilters || initialUrlOverridesArePreviewed) {
+                actions.setPreviewedDashboardSettings(settingsToRefresh)
             }
 
             if (
@@ -5358,6 +5380,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
             // would show an error rather than its results. Only a cancel or a manual refresh stops widget loads.
             cache.widgetAbortController ??= new AbortController()
             const { signal } = cache.widgetAbortController
+            cache.widgetLoadSignals ??= new Map<number, AbortSignal>()
+            staleTileIds.forEach((tileId) => cache.widgetLoadSignals.set(tileId, signal))
             actions.setWidgetRefreshStatuses(staleTileIds, true)
             await breakpoint()
 
@@ -5377,6 +5401,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         )
                     }
                 } catch {
+                    if (signal.aborted) {
+                        // After a manual refresh a newer load owns the tile, and its status must stay with that load.
+                        actions.stopWidgetRefreshes(
+                            chunk.filter((tileId) => cache.widgetLoadSignals.get(tileId) === signal)
+                        )
+                        return
+                    }
                     actions.setWidgetRefreshStatuses(chunk, false, DASHBOARD_WIDGET_FETCH_ERROR_MESSAGE)
                 }
             })
