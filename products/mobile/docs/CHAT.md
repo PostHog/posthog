@@ -24,6 +24,7 @@ The protocol below follows the web's `taskTrackerSceneLogic.ts`, `runInteraction
 | `src/features/chat/chatRunOptions.ts` | `ChatRunOptions` (model and permission mode), its reducer, the chip label, seeding from a run |
 | `src/features/chat/ChatOptionsSheet.tsx` | The Model and Mode pages in a sheet over the chat |
 | `src/features/chat/contextPrompt.ts` | The leading context blocks, `bareQuestion`, `stripInjectedContext` |
+| `src/features/chat/objectContext.ts` | The issue and recording item types, `objectContextFromParams`, their trusted lines (see [Object context](#object-context)) |
 | `src/features/chat/attachments/` | Files in the composer: the limits and content types (`attachmentRules.ts`), the pickers, the three-step upload (`uploadAttachments.ts`), `useComposerAttachments`, the Attach sheet and the file chip (see [Attachments](#attachments)) |
 | `src/features/chat/chatErrors.ts` | Maps HTTP and network failures to copy, including the PostHog Desktop gate |
 | `src/features/chat/*.tsx` | `Composer`, `ContextChip`, `MentionPopover`, `ChatEmptyState`, `ChatMarkdown`, `ChatErrorBubble`, `ChatProgressLine`, `UserBubble` |
@@ -350,6 +351,14 @@ The web thread strips only leading blocks, so the blocks lead and the question f
 - `defang` escapes context tags and line breaks in every item field; `bareQuestion` escapes context tags in the question.
 - `description` and the bubble get the bare question. `stripInjectedContext` removes leading blocks from echoes and logs.
 - The blocks go with every message while a chip stays attached, because the chip says it is attached.
+
+### Object context
+
+The issue and session screens open the sheet with `entry` (`issue` or `replay`), `objectType`, `objectId` and `objectLabel`.
+`objectContextFromParams` in `objectContext.ts` keeps only the two types the web uses, `error_tracking_issue` and `session_recording`.
+The message carries one untrusted item line, `- {type} {id} ("{label}")`, and one static trusted line that names the investigating skill and the fetch tool (`query-error-tracking-issue`, `session-recording-get`).
+The object shows as a removable chip with the issue or recording icon. While it is attached, @-mentions are off and report chips stay hidden, because a message frames one kind of context.
+New chat drops it.
 
 ## Rendering
 

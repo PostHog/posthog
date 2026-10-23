@@ -92,7 +92,7 @@ A failed background refetch keeps the cached copy.
 It also carries `from`, read from the route's `from` param: `inbox` (a row tap), `push` (a notification), `adjacent` (Prev/Next) or `deep_link` (no param or an unknown one).
 `mobile_report_load_failed` is sent when the screen shows "Couldn't load this report", with `report_id` and `kind` as for the inbox error, or with `kind: invalid_id` and no id for "Couldn't find this report".
 `mobile_report_read` is sent once when the report body unmounts (Back or Prev/Next), with `report_id`, `dwell_s` (whole seconds the screen had focus with the app in the foreground) and `scrolled_to_end` (the deepest scroll came within 160 px of the content end, or the content fit on screen).
-`mobile_report_replay_opened` carries `report_id` and `replay_count` when "Watch a session" opens the recording on the web.
+`mobile_report_replay_opened` carries `report_id` and `replay_count` when "See the moment" opens the session screen (the recording on the web in demo mode).
 
 **Full report.** "Read the full report" under the lede opens `/report/{id}/details` when the report has a summary or at least one signal.
 The screen reads `useReport(id)`, so it shares the report screen's cache and does not poll.

@@ -1,7 +1,7 @@
 import { useLayoutEffect, useMemo, useRef } from 'react'
 import { create } from 'zustand'
 
-export type TabKey = 'inbox' | 'chats' | 'views'
+export type TabKey = 'inbox' | 'chats' | 'views' | 'errors' | 'replay'
 
 export interface TabHeaderSlot {
     /** A short line under the status line, such as why a pull to refresh did nothing. */
@@ -24,7 +24,7 @@ interface TabHeaderState {
 // One slot per tab, so a screen that renders while another tab is focused never overwrites the focused tab's header.
 export const useTabHeaderStore = create<TabHeaderState>()((set) => ({
     focused: 'inbox',
-    slots: { inbox: null, chats: null, views: null },
+    slots: { inbox: null, chats: null, views: null, errors: null, replay: null },
     setFocused: (focused) => set({ focused }),
     setSlot: (tab, slot) => set((state) => ({ slots: { ...state.slots, [tab]: slot } })),
 }))

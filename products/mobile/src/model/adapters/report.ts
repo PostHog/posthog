@@ -238,6 +238,7 @@ function evidenceFromPage(
         blocks.push({
             kind: 'replay',
             sessionId: session_id,
+            ...(typeof seek_seconds === 'number' ? { t: seek_seconds } : {}),
             meta: offset ? `at ${offset} · ${first.headline}` : first.headline,
             count: Math.max(recorded.length, signalSessions.size),
             url: replayUrl(host, projectId, session_id, seek_seconds),

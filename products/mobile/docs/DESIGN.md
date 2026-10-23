@@ -112,6 +112,7 @@ Its 16pt input has an explicit 20pt line height, centered vertically without And
 | `Composer` chips | `features/chat/Composer.tsx` | After `@`: a Model chip ("Default", or the pinned model without its "Claude" prefix and the effort, such as "Opus 5.5 · High") and a Mode chip ("Auto" by default). 32pt bordered pills with a chevron that reach 44pt through the hit slop, shrink and truncate to one line on a narrow phone, and dim while the agent works, the history loads, a send is in flight or a decision waits. On an open chat they start from the run's own model and mode, and the Model page lists only the run's harness |
 | `ChatOptionsSheet` | `features/chat/ChatOptionsSheet.tsx` | `BottomSheet` over the chat that hosts `ModelPage` or `ModePage` for the chat's own options. The back button closes it, and a mode pick closes it. It draws inline, because the chat route is a native modal outside the overlay host |
 | `FloatingCard` | `ui/FloatingCard.tsx` | Radius 28 card, scales from 0.92 and drops 6pt, 220ms emphasized curve |
+| `HeaderMenu` | `features/views/screen/HeaderMenu.tsx` | The More menu of a pushed screen (Sessions and Errors lists, issue, session): a `FloatingCard` under the chrome's More pill with `MenuItem` rows and a trailing glyph |
 | `MetricChart` | `ui/chart/MetricChart.tsx` | Line or bar chart on Skia (victory-native). The y axis floats for lines and starts at zero for bars. Hairline gridlines, 11pt mono ticks. Tap or drag to scrub, with a selection haptic and a tooltip that stays after release. 144pt high by default |
 | `ObservationCard` | `features/report/metrics/ObservationCard.tsx` | White card: "Observation" eyebrow, title, caption, 28pt mono value, chart, then the window and filter count with Open insight |
 | `ImpactMetrics` | `features/report/metrics/ImpactMetrics.tsx` | "Impact" eyebrow over a two-column grid of tiles: 20pt mono value, title, and the window or measured time. A tile with a link opens the insight |
@@ -216,3 +217,49 @@ Its 16pt input has an explicit 20pt line height, centered vertically without And
   Sign in also lands there, and so do Back on Settings or a view and closing the chat when there is no screen to go back to.
   Until the person picks one, the app saves a start page once, on the first launch that knows whether the selected project's organization approved AI data processing: Views if it did not, Inbox if it did.
   While that status is unknown, the app opens the inbox and saves nothing.
+- **Errors list** (`features/errors/ErrorsListScreen.tsx`): one body in two chromes. Pushed from the Views Browse
+  row, it draws the Back chip and More over a 28pt "Errors" title and the "Most users first · updated 5m ago" line; as
+  a pinned tab, the tabs header draws the title and that line. Under them sit the 24h and 7d `SegmentedPill` and the New,
+  Spiking and Mine chips (ink fill when on; tapping the chip that is on clears it). Rows follow the inbox geometry:
+  the exception type on one line with a New (orange outline) or Spiking (orange fill, up arrow) badge, the exception
+  value in secondary text, then the owner's avatar, users and first seen in tertiary text, and a 72 × 32 `Sparkline` on
+  the right, gray unless the issue is new or spiking. Pull to refresh. Loading (row-shaped blocks), "Couldn't load your
+  errors" with Try again, the empty state per filter with its next step ("Show the last 7 days", "Show all active
+  issues"), the Views sign-in state for missing scopes, and a demo state are separate screens. More (pushed only)
+  holds Pin to navigation or Unpin from navigation, with the Views toast and Undo, and Open on web.
+- **Issue** (`features/errors/IssueScreen.tsx`): Back and More on the floating chrome. "Error · project" eyebrow,
+  the status chip (the web's labels and colors: amber Active, green Resolved, red Suppressed) and the New or Spiking
+  badge; the 22pt headline with the exception type in orange; a clock byline with first and last seen; the owner chip
+  (dashed orange "Assign" when nobody owns it). Impact: the 24h and 7d segment, three tiles (users, sessions,
+  occurrences with a mono "last 24h"), and a card with the window's volume line and the trend caption ("Up 45%",
+  orange while rising). Release: version, short commit, branch and library, with "First seen in this release" when the
+  first and latest releases match. Where it breaks: the dark trace card from the report (exception, innermost in-app
+  frame, "In-app frame 1 of 4" and Show all, up to three frames), then path, browser, OS and app version shares as text
+  and a stacked bar. Sessions: up to three rows ("Chrome on macOS", "Error 12m ago") that open the session screen.
+  Inbox report: the report built from the issue, when there is one. The bottom bar is the report's layout: a pill with
+  Resolve and Suppress, or Reopen when the issue is not active, and the round ink Chat button. Resolve and Reopen show
+  the Views toast with Undo; Suppress opens a confirmation sheet first. More holds Assign, Open on web and Copy link.
+  The Assign sheet offers Assign to me (or Unassign me) and Assign a teammate on the web.
+- **Sessions list** (`features/replay/ReplayListScreen.tsx`): one body in two chromes, like the Errors list. Pushed
+  from Views, Back and More over a 28pt "Sessions" title and "Worth watching first · last 7 days" (or "Newest first"
+  without Replay Vision picks); as a pinned tab, the tabs header draws both. Rows: an 80 × 50 frame (the scan's
+  thumbnail, or a muted recording tile), the scan's title, or "Session · 14 clicks · 1 error" in regular weight for
+  an unsummarized one, then person, length, "key moment 2:14" and the time ago (never the raw score), with an
+  orange dot when the recording logged console errors. A row opens the session at its key moment. Pull to refresh.
+  Loading (row-shaped blocks), "Couldn't load your sessions" with Try again, "No recordings yet", the sign-in state and
+  the demo state are separate screens. More (pushed only) holds Pin to navigation or Unpin from navigation, with the
+  Views toast and Undo, and Open on web.
+- **Session** (`features/replay/SessionScreen.tsx`): Back on the left; on the right one pill with "Open full replay"
+  (the only way to the web player) and More (Share link at m:ss, Copy session ID). "Session · project" eyebrow, the 22pt
+  title (the scan's, else one built from the events), the meta line (person · date and time · length · browser on OS),
+  then a "Key moment 2:14" chip in orange (it opens that chapter's frame) or "First error 2:14", and a city chip.
+  The Summary card holds the summary text, the worth-watching bars with "Worth watching" and the reason (no raw score), and "Replay Vision ·
+  scanned …" in mono. Its other states: a spinner while loading, "No summary yet" with Summarize this session and
+  "Uses Replay Vision credits", "Summarizing" with a spinner, "Still working" with Check again, "AI summaries are off for
+  this organization" with a lock, and "Couldn't load the summary" with Try again. Chapters: a 96 × 60 frame, the mono
+  start time and the title per row; the key moment's row has an orange rule and flag. A row opens the frame sheet: the
+  frame at full width, the chapter title, "Chapter 4 of 5 · 2:14", the Key moment chip, Previous and Next, and "Frames
+  can show text that the recording did not mask." What happened: the event count, minute labels, and `TimelineItem`
+  rows with the event name as the chip and the offset as the time; errors and rage clicks draw in orange, and an error
+  with an issue opens it. The round ink Chat button sits bottom right. Loading is a skeleton of the screen; "Couldn't
+  find this recording" (expired or deleted) and "Couldn't load this session" are separate states.

@@ -49,7 +49,7 @@ describe('RefreshQueue', () => {
         now = 1_000_000
         calls = []
         pending = new Map()
-        spendable = { insights: true, dashboards: true, query: true }
+        spendable = { insights: true, dashboards: true, query: true, replay: true }
         queue = new RefreshQueue({ now: () => now, canSpend: (family) => spendable[family] })
     })
 

@@ -25,6 +25,7 @@ file for typechecking, and its type-only import adds nothing to the native bundl
 | Views dashboards | `src/api/dashboards.ts` | `dashboards/`, `dashboards/{id}/?refresh=force_cache` | [VIEWS.md](VIEWS.md) |
 | Views insights | `src/api/insights.ts` | `insights/`, `insights/{id}/`, `insights/viewed/` | [VIEWS.md](VIEWS.md) |
 | Web analytics, people at a point | `src/api/webAnalytics.ts`, `src/api/actors.ts` | `query/` (`WebOverviewQuery`, `ActorsQuery`) | [VIEWS.md](VIEWS.md) |
+| Session replay | `src/api/recordings.ts`, `src/api/replayVision.ts` | `session_recordings/`, `query/` (`HogQLQuery`), `vision/observations/`, `vision/scanners/watch_feed/`, `vision/scanners/inline_scan/` | [Session replay](#session-replay) |
 
 `send()` also keeps the server clock offset from each response's `Date` header (`src/api/serverClock.ts`) and spends a token from the request's budget family (`src/api/budget.ts`); an empty bucket throws `BudgetExceededError` without sending.
 
@@ -33,3 +34,69 @@ time, the request is canceled and the caller gets a timeout error. Reviewer edit
 reviewer assignment is found before sending the replacement list, so GitHub-only reviewers remain assigned.
 
 OAuth scopes the app requests: `OAUTH_SCOPES` in `src/auth/oauth.ts`, listed in [AUTH.md](AUTH.md#scopes).
+
+### Error tracking and replay scopes
+
+The app asks for five more scopes for the Errors and Sessions screens. Views, the inbox and chats never need them.
+
+| Scope | Why |
+| --- | --- |
+| `error_tracking:read` | The issues list, one issue, its events and spikes (`error_tracking/query/...`, `error_tracking/issues/{id}/`). |
+| `error_tracking:write` | Resolve, suppress, reopen and assign an issue. It also covers the read. |
+| `session_recording:read` | The sessions list and one recording's metadata and events (`session_recordings/`). |
+| `replay_scanner:read` | The AI summary and chapters of a recording (`vision/observations/`). |
+| `replay_scanner:write` | Asking for a summary from the phone (`vision/scanners/inline_scan/`). |
+
+`session_recording:write` is never requested: the phone does not change or delete recordings.
+`ERRORS_SCOPES` and `REPLAY_SCOPES` in `src/api/scopeErrors.ts` hold the same lists, and `useFeatureAccess('errors' | 'replay')` reads them.
+A server that drops a scope (the OAuth application's ceiling, see [AUTH.md](AUTH.md#server-side-ceiling)) gets the feature's "isn't available yet" state, not a broken screen.
+
+## Error tracking
+
+`src/api/errorTracking.ts`. Types are written by hand and name the serializers in
+`products/error_tracking/backend/presentation/views/` (`query_serializers.py`, `issues.py`, `spike_events.py`), because
+Mobile CI checks out only the Signals generated schema. The compact `error_tracking/query/` endpoints are the ones the
+MCP tools and agents use: they wrap `ErrorTrackingQuery`, `EventsQuery` and `ErrorTrackingBreakdownsQuery` and answer
+typed, small payloads, so the phone does not post raw HogQL queries to `query/`.
+
+| Call | Endpoint | Scope | Payload the app sends or reads |
+| --- | --- | --- | --- |
+| Issues list | `POST error_tracking/query/issues/` | `error_tracking:read` | `{ dateRange: { date_from: '-24h' \| '-7d' }, status: 'active', orderBy: 'users', orderDirection: 'DESC', limit: 50, volumeResolution: 24 \| 14, assignee?: { type: 'user', id } }`; rows carry `id`, `name`, `description` (300 characters at most), `status`, `first_seen`, `last_seen`, `library`, `assignee { id, type }`, `aggregations { users, occurrences, sessions, volumeRange }` |
+| Spikes | `GET error_tracking/spike_events/?issue_ids=a,b&date_from=<ISO>&limit=100` | `error_tracking:read` | `results[].issue.id`, `detected_at`; the web's issue list uses the same read for its spike marks |
+| One issue | `GET error_tracking/issues/{id}/` | `error_tracking:read` | `id`, `status`, `name`, `description`, `first_seen`, `assignee` |
+| Impact and chart | `POST error_tracking/query/issue/` | `error_tracking:read` | `{ issueId, dateRange, includeSparkline: true, volumeResolution: 24 \| 28 }`; reads `impact`, `sparkline`, `trend.direction`, `trend.change_percent`, `last_seen`, `library`, `latest_release`, `first_release` |
+| Where it breaks | The same endpoint with `includeBreakdown: true` | `error_tracking:read` | `breakdown.occurrences` and `breakdown.top_values` (`path`, `url`, `screen`, `browser`, `os`, `app_version`). Its own request, because the server fails the whole response when the breakdown fails |
+| Frames and sessions | `POST error_tracking/query/issue_events/` | `error_tracking:read` | `{ issueId, dateRange, limit: 10, include: ['exception', 'stacktrace', 'environment', 'correlation'], onlyAppFrames: true }`; reads `$exception_list[].stacktrace.frames` (already symbolicated at ingestion: `resolved_name`, `source`, `line`), `$session_id`, `$browser`, `$os`, `timestamp` |
+| Linked report | `GET signals/reports/?source_product=error_tracking&source_id={id}&limit=1&include_source_metadata=false` | `task:read` | Error tracking signals carry the issue id as `source_id` |
+| Status | `PATCH error_tracking/issues/{id}/` `{ status: 'active' \| 'resolved' \| 'suppressed' }` | `error_tracking:write` | Answers the issue resource |
+| Assign | `PATCH error_tracking/issues/{id}/assign/` `{ assignee: { type: 'user', id } \| null }` | `error_tracking:write` | `id` is the numeric user id from `@me` |
+
+None of these paths is in a `src/api/budget.ts` family, and none returns a `next_allowed_client_refresh` hint, so the
+screens rely on TanStack staleness (60 seconds) and pull to refresh.
+A 403 that names a missing scope goes to `reportScopeError(error, 'errors')`, and the screen shows `ViewsReauthState`.
+`error_tracking/stack_frames/batch_get/` is not called: the frames in `$exception_list` already carry resolved names, and
+the phone shows no code context.
+
+## Session replay
+
+`src/api/recordings.ts` and `src/api/replayVision.ts`. Types are written by hand and name the serializers they mirror:
+`SessionRecordingSerializer` in `posthog/session_recordings/session_recording_api.py`, and `ReplayObservationSerializer`,
+`InlineScanResponseSerializer` and `WatchFeedResponseSerializer` in `products/replay_vision/backend/api/`. The summary's
+`model_output` follows `SummarizerOutput` in `products/replay_vision/backend/temporal/scanners/summarizer.py`.
+
+| Call | Endpoint | Scope | Payload the app sends or reads |
+| --- | --- | --- | --- |
+| Sessions list | `GET session_recordings/?limit=30&date_from=-7d` | `session_recording:read` | Newest first (the server's default `start_time` order). Reads `id`, `distinct_id`, `recording_duration`, `start_time`, `end_time`, `click_count`, `console_error_count`, `start_url`, `person { name, distinct_ids, properties }`, `ongoing`, `activity_score` |
+| Worth watching | `GET vision/scanners/watch_feed/?limit=30&date_from=-7d` | `replay_scanner:read`, `session_recording:read` | `results[].observation` and `results[].reason`. Optional: a failed feed leaves the list in time order |
+| One recording | `GET session_recordings/{id}/` | `session_recording:read` | The same fields. A 404 means the recording expired or never existed |
+| Events timeline | Two `POST query/` with a `HogQLQuery`, on the `replay` budget in `src/api/budget.ts` | `query:read` | One for `$pageview`, `$screen` and `$autocapture` clicks (`LIMIT 300`), one for `$rageclick` and `$exception` (`LIMIT 100`), each where `properties.$session_id = {session_id}`, between the recording's start and end padded by a minute, `ORDER BY timestamp`. The session id and the window are `values`, never query text. Reads the timestamp, the event, `$current_url`, `$pathname`, `$screen_name`, `elements_chain_texts`, `$exception_issue_id`, `$exception_types`, `$exception_values`, `$browser`, `$os`, `$geoip_city_name` |
+| Summary and chapters | `GET vision/observations/?session_id={id}` | `replay_scanner:read`, `session_recording:read` | Every scanner's observations of the session, newest first. The app uses the newest `succeeded` summarizer: `model_output.title`, `summary`, `chapters[] { kind, start_ms, end_ms, title }`, `key_moment_ms`, `notability`, `notability_reason`, plus `media[] { kind, position }` and `completed_at`. A `pending` or `running` summarizer means a summary is on its way |
+| Frame | `GET vision/observations/{id}/thumbnail/?chapter={n}` | `replay_scanner:read`, `session_recording:read` | A 302 to a signed object-storage URL. The app sends `redirect: 'manual'` and reads `Location`, so the bearer token never reaches the storage host; the image loads from the signed URL. Without `chapter` it is the observation's thumbnail |
+| Summarize | `POST vision/scanners/inline_scan/` `{ built_in: 'summarize_recording', session_ids: [id] }` | `replay_scanner:write`, `session_recording:read` | The web's Summarize button sends the same body, so both share one result. Answers 202 with `results[].scan_outcome`: `started`, `already_running`, `already_scanned`, `skipped_limit`, `skipped_quota`, `skipped_scanner_limit` or `failed`. A 400 means the organization has not approved AI data processing |
+
+After `started` or `already_running` the screen reloads the observations every 5 seconds while it is focused and the
+app is in front, for at most 2 minutes. The app never sends `PATCH session_recordings/{id}/` (`viewed`), because that
+needs `session_recording:write`, so opening a session on the phone does not mark it watched on the web.
+A 403 that names a missing scope goes to `reportScopeError(error, 'replay')`, and the screen shows `ViewsReauthState`.
+The timeline's queries spend the `replay` budget family (`runQuery({ budgetFamily: 'replay' })`, the same buckets as
+`query`), not the Views `query` family, so Views refreshes and a session screen never block each other.

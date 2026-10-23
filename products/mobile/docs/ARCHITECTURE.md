@@ -7,15 +7,22 @@ products/mobile/
   app/                    Expo Router routes. Thin: read params, mount a screen.
     _layout.tsx           Providers (gesture handler, safe area, keyboard, TanStack Query), auth gate,
                           push registration, notification routing, analytics, error boundary
-    +native-intent.tsx    Drops the Android OAuth callback deep link so it never opens a screen
+    +native-intent.tsx    Drops the Android OAuth callback deep link so it never opens a screen, and opens a web
+                          link to one issue or recording at /errors/<id> or /replay/<id> (webLinkTarget)
     index.tsx             Redirect to /inbox (demo mode or signed in) or /sign-in
     sign-in.tsx           -> src/auth/SignInScreen
     (tabs)/               Inbox and Chats share one tab navigator, so the bottom bar stays put when the tab changes
       _layout.tsx         -> src/features/tabs/TabsLayout
       inbox.tsx           -> src/features/inbox/InboxScreen
       chats.tsx           -> src/features/chats/ChatsScreen
+      errors.tsx          -> src/features/errors/ErrorsListScreen chrome="tab" (a slot only while pinned)
+      replay.tsx          -> src/features/replay/ReplayListScreen chrome="tab" (a slot only while pinned)
     report/[id]/index.tsx -> src/features/report/ReportScreen (`/report/<id>`, as deep links and notifications open it)
     report/[id]/details.tsx -> src/features/report/details/ReportDetailsScreen (the full report)
+    errors/index.tsx      -> src/features/errors/ErrorsListScreen chrome="stack" (pushed from the Views Browse row)
+    errors/[id].tsx       -> src/features/errors/IssueScreen (`/errors/<id>`, `from` names the source for analytics)
+    replay/index.tsx      -> src/features/replay/ReplayListScreen chrome="stack" (pushed from the Views Browse row)
+    replay/[sessionId].tsx -> src/features/replay/SessionScreen (`/replay/<id>?t=<seconds>&source=<entry>`)
     chat.tsx              -> src/features/chat/ChatSheet (transparent modal, draws its own sheet;
                           no params starts a new chat, `taskId` and `runId` open one, `reportId` attaches a report)
     settings.tsx          -> src/features/settings/SettingsScreen
@@ -25,6 +32,9 @@ products/mobile/
                           module per backend domain: users, reports, today, tasks,
                           pushTokens. Each module declares the response fields it reads and names
                           the serializer it mirrors.
+                          errorTracking.ts holds the error tracking reads and writes ([API.md](API.md#error-tracking)).
+                          recordings.ts and replayVision.ts hold the session replay reads and Summarize
+                          ([API.md](API.md#session-replay)).
     auth/                 oauth.ts (PKCE flow, refresh, revoke), tokens.ts (secure store),
                           account.ts (@me and projects), regions.ts (hosts and client ids),
                           authStore.ts (zustand), useViewer, SignInScreen
@@ -35,7 +45,10 @@ products/mobile/
                           sessionThreads.ts (demo session run logs)
     features/
       tabs/               TabsLayout (Inbox, Chats and Views tab navigator), BottomBar and TabsHeader (each
-                          rendered once), tabHeaderStore (each tab's header state), NavMenu (the More menu)
+                          rendered once), tabHeaderStore (each tab's header state), NavMenu (the More menu),
+                          navPinStore (Errors and Sessions pinned to the nav pill, a device preference),
+                          navPinRoutes (openNavTarget: the tab when pinned, a pushed screen when not),
+                          navPinActions (pin change with toast and Undo), NavPinMenu (the Views row menu)
       inbox/              InboxScreen, InboxRow, InboxListFooter, hooks,
                           prefetchPlan (prefetch window and queue), usePrefetchReports
       report/             ReportScreen, TopChrome, Headline, HeadlineTitle, ReportMeta, ReportByline, TextLinkRow,
@@ -54,10 +67,23 @@ products/mobile/
       priority/           PrioritySheet, hooks
       chat/               ChatSheet, Composer, ContextChip, MentionPopover, ChatEmptyState, ChatOptionsSheet,
                           chatRunOptions (model and mode), ChatMarkdown, ChatErrorBubble, ChatProgressLine,
-                          UserBubble, contextPrompt, chatErrors, webLinks (reply links)
+                          UserBubble, contextPrompt, chatErrors, webLinks (reply links),
+                          objectContext and ObjectContextChip (an issue or recording as chat context)
         session/          useSession (create, follow, send, resume, stop, answer), sessionRun (request bodies
                           and the set_config_option plan), sessionReducer, sessionDisplay, SessionThread and its
                           rows, SessionDecisionPanel
+      errors/             ErrorsListScreen, IssueListRow, IssueScreen, IssueSections, IssueActionBar, IssueAssigneeSheet,
+                          SuppressSheet, IssueBadges, AssigneeAvatar,
+                          hooks (react-query reads, optimistic status and assign), issueModel (pure adapters: rows,
+                          badges, frames, sessions, breakdowns, web links, empty copy), analytics
+      replay/             ReplayListScreen, SessionListRow, SessionScreen, SessionChrome (Back, Open full replay, More),
+                          SummaryCard, ChapterList, FrameSheet, FrameImage (signed frame URLs),
+                          SessionTimelineSection, SessionSkeleton, hooks (recording, timeline, summary flow with
+                          Summarize and polling, frames, list), sessionAdapters (pure: person labels, timeline,
+                          summary, list rows), replayModel (view types), replayLinks (web URLs, `t`), replayAnalytics
+      views/              The Views tab and its screens, see VIEWS.md
+        screen/           Shared screen chrome: ViewChrome, ViewScreenFrame, ViewTitle, HeaderMenu (the More menu
+                          of a pushed screen: a view, an issue, a session), ViewMoreSheet, ViewErrorState, ViewSkeleton
       chats/              ChatsScreen, ChatRow, ChatRowMenu (long-press Archive),
                           chatGroups (day labels, grouping, search), sessionStatus, hooks
       notifications/      pushSupport, pushStore, pushRegistration, usePushRegistration,
@@ -66,6 +92,7 @@ products/mobile/
                           EnvironmentGroup (internal builds), LegalGroup, SettingsLinkRow, SettingsRadioRow,
                           DefaultPageGroup, defaultPageStore (the tab the app opens on)
     lib/                  analytics, posthogClient, dates, errors, haptics, markdownIt (the shared safe parser),
+                          deepLinkKind (link kind for analytics, webLinkTarget for issue and recording links),
                           richText, useAsyncAction, useNow,
                           environment (build variant, host kind, update id), appVariants (+ .json), legalLinks
     ui/                   tokens.ts, primitives (SearchField, StateView, ...), icons/
@@ -178,6 +205,7 @@ Details per domain: [DATA.md](DATA.md), [HANDOFF.md](HANDOFF.md), [CHAT.md](CHAT
   and helpers in `src/lib`, and nothing from `features`.
 - `src/api` imports nothing from `features`, `demo` or `auth` (the auth provider is injected).
 - `src/features/*` may import `src/model`, `src/ui`, `src/lib`, `src/api` and other features'
-  hooks. Fixtures reach screens only through hooks. Screens import the `useDemoMode` store
+  hooks. The app's shared screen chrome is the exception: `src/features/views/screen/*`, `ViewsToast` and
+  `ViewsReauthState` may be imported by other features. Fixtures reach screens only through hooks. Screens import the `useDemoMode` store
   directly only to turn demo mode on or off.
 - `src/demo` imports `src/model` and nothing from `features`.

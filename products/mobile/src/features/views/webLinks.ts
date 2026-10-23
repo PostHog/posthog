@@ -10,14 +10,8 @@ export function viewWebUrl(scope: ProjectScope | null, href: string | null): str
     return `${scope.host}/project/${scope.projectId}${href.startsWith('/') ? href : `/${href}`}`
 }
 
-/** Browse's Recordings row. */
-export function recordingsWebUrl(scope: ProjectScope | null): string | undefined {
-    return scope ? `${scope.host}/project/${scope.projectId}/replay/home` : undefined
-}
-
-/** "Watch recordings" on one session. */
-export function recordingWebUrl(scope: ProjectScope | null, sessionId: string): string | undefined {
-    return scope ? `${scope.host}/project/${scope.projectId}/replay/${encodeURIComponent(sessionId)}` : undefined
+export function navListWebUrl(scope: ProjectScope | null, list: 'errors' | 'replay'): string | undefined {
+    return viewWebUrl(scope, list === 'errors' ? '/error_tracking' : '/replay/home')
 }
 
 /** A person at a chart point, by the person's UUID, as the web's `urls.personByUUID` builds it. */

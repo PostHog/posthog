@@ -24,6 +24,11 @@ export const OAUTH_SCOPES = [
     'dashboard:read',
     'insight:read',
     'file_system_shortcut:write',
+    'error_tracking:read',
+    'error_tracking:write',
+    'session_recording:read',
+    'replay_scanner:read',
+    'replay_scanner:write',
 ] as const
 
 const REQUEST_TIMEOUT_MS = 20_000

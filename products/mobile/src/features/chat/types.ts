@@ -1,3 +1,5 @@
+import type { ChatObjectContext } from './objectContext'
+
 export interface ChatReportContext {
     reportId: string
     title: string
@@ -13,6 +15,7 @@ export interface ChatInboxContextItem {
 export type ChatContext =
     | { kind: 'reports'; reports: ChatReportContext[] }
     | { kind: 'inbox'; items: ChatInboxContextItem[] }
+    | { kind: 'object'; item: ChatObjectContext }
     | { kind: 'none' }
 
 export interface ChatError {

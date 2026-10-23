@@ -5,6 +5,7 @@ import { Text, View } from 'react-native'
 import { setAnalyticsClient } from '@/lib/analytics'
 import { OverlayPortal } from '@/ui/OverlayPortal'
 
+import { setNavPinned } from './navPinStore'
 import { TabsLayout } from './TabsLayout'
 import { type TabHeaderSlot, useTabHeader } from './tabHeaderStore'
 
@@ -30,6 +31,17 @@ function ChatsStub(): ReactElement {
 function ViewsStub(): ReactElement {
     return <View testID="views-screen" />
 }
+
+function ErrorsStub(): ReactElement {
+    return <View testID="errors-screen" />
+}
+
+function ReplayStub(): ReactElement {
+    return <View testID="replay-screen" />
+}
+
+// The layout always registers the pinnable lists' tabs.
+const LIST_TABS = { '(tabs)/errors': ErrorsStub, '(tabs)/replay': ReplayStub }
 
 const LIST_SLOT: TabHeaderSlot = {
     hint: null,
@@ -82,6 +94,7 @@ describe('TabsLayout', () => {
                 '(tabs)/inbox': InboxStub,
                 '(tabs)/chats': ChatsStub,
                 '(tabs)/views': ViewsStub,
+                ...LIST_TABS,
             },
             { initialUrl: '/inbox' }
         )
@@ -118,6 +131,7 @@ describe('TabsLayout', () => {
                 '(tabs)/inbox': PublishingInboxStub,
                 '(tabs)/chats': PublishingChatsStub,
                 '(tabs)/views': PublishingViewsStub,
+                ...LIST_TABS,
             },
             { initialUrl: '/inbox' }
         )
@@ -154,6 +168,43 @@ describe('TabsLayout', () => {
         expect(screen.queryByTestId('inbox-filter')).toBeNull()
     })
 
+    test('gives a pinned list a slot after Views, keeps it while unpinned from the tab menu, and leaves its open event to the screen', () => {
+        const capture = jest.fn()
+        setAnalyticsClient({ capture, identify: jest.fn(), reset: jest.fn() })
+        const router = renderRouter(
+            {
+                '(tabs)/_layout': TabsLayout,
+                '(tabs)/inbox': InboxStub,
+                '(tabs)/chats': ChatsStub,
+                '(tabs)/views': ViewsStub,
+                ...LIST_TABS,
+            },
+            { initialUrl: '/inbox' }
+        )
+        expect(screen.queryByTestId('nav-pin-errors')).toBeNull()
+
+        act(() => setNavPinned('errors', true))
+        fireEvent.press(screen.getByTestId('nav-pin-errors'))
+
+        expect(router.getSegments()).toEqual(['(tabs)', 'errors'])
+        expect(screen.getByTestId('tabs-title').props.children).toBe('Errors')
+        expect(screen.getByTestId('nav-pin-errors').props.accessibilityState).toEqual({ selected: true })
+
+        fireEvent.press(screen.getByTestId('tabs-more'))
+        fireEvent.press(screen.getByTestId('nav-list-unpin'))
+
+        expect(screen.getByTestId('views-toast')).toBeTruthy()
+        expect(screen.getByTestId('nav-pin-errors')).toBeTruthy()
+
+        fireEvent.press(screen.getByTestId('inbox-nav-views'))
+
+        expect(screen.queryByTestId('nav-pin-errors')).toBeNull()
+        expect(capture.mock.calls).toEqual([
+            ['mobile_inbox_opened', undefined],
+            ['mobile_nav_pin_changed', { pin: 'errors', pinned: false, source: 'list_menu', replaced: false }],
+        ])
+    })
+
     test('draws a screen overlay outside the tab scene, so it covers the bar', () => {
         renderRouter(
             {
@@ -161,6 +212,7 @@ describe('TabsLayout', () => {
                 '(tabs)/inbox': InboxWithMenuStub,
                 '(tabs)/chats': ChatsStub,
                 '(tabs)/views': ViewsStub,
+                ...LIST_TABS,
             },
             { initialUrl: '/inbox' }
         )

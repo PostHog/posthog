@@ -1,6 +1,9 @@
+import { useRouter } from 'expo-router'
 import type { ReactElement } from 'react'
 import { Text, View } from 'react-native'
 
+import { useDataMode } from '@/demo/demoMode'
+import { track } from '@/lib/analytics'
 import { formatActivityTime } from '@/lib/dates'
 import { sourceInfo } from '@/model/sources'
 import type { ReportSignalView } from '@/model/types'
@@ -20,6 +23,8 @@ interface SignalCardProps {
 export function SignalCard({ signal, reportId, now }: SignalCardProps): ReactElement {
     const styles = useStyles()
     const colors = useColors()
+    const router = useRouter()
+    const demo = useDataMode() === 'demo'
     const { Icon } = sourceInfo(signal.sourceProduct)
     const meta = [
         signal.sourceLabel,
@@ -28,7 +33,18 @@ export function SignalCard({ signal, reportId, now }: SignalCardProps): ReactEle
     ]
         .filter(Boolean)
         .join(' · ')
-    const { replayUrl } = signal
+    const { replayUrl, sessionId } = signal
+    const watch = (): void => {
+        if (demo || !sessionId) {
+            // Demo sessions exist in no project, so the session screen would have nothing to load.
+            if (replayUrl) {
+                openDetailsLink(replayUrl, reportId, 'replay')
+            }
+            return
+        }
+        track('mobile_report_details_link_opened', { report_id: reportId, target: 'replay' })
+        router.push({ pathname: '/replay/[sessionId]', params: { sessionId, source: 'report' } })
+    }
     return (
         <View style={styles.card} testID="report-details-signal">
             <View style={styles.header} accessible accessibilityLabel={meta}>
@@ -42,8 +58,8 @@ export function SignalCard({ signal, reportId, now }: SignalCardProps): ReactEle
                 <View style={styles.replay}>
                     <TextLinkRow
                         label="Watch session"
-                        external
-                        onPress={() => openDetailsLink(replayUrl, reportId, 'replay')}
+                        external={demo}
+                        onPress={watch}
                         testID="report-details-watch-session"
                     />
                 </View>

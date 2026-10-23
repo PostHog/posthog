@@ -1,5 +1,6 @@
 import type { InboxItem, ReportView } from '@/model/types'
 
+import { objectInstructions } from './objectContext'
 import type { ChatContext, ChatInboxContextItem, ChatReportContext } from './types'
 
 // The instruction constants and the one-report framing mirror `discussReportInstructions` in
@@ -131,7 +132,7 @@ export function bareQuestion(question: string): string {
 
 /**
  * The task runtime's message shape: a leading trusted block with the instructions, a leading untrusted block that
- * names the attached reports, then the question. The agent reads report details through the inbox MCP tools.
+ * names the attached reports or object, then the question. The agent reads the details through its MCP tools.
  */
 export function chatPrompt(question: string, context: ChatContext): string {
     const text = bareQuestion(question)
@@ -142,6 +143,9 @@ export function chatPrompt(question: string, context: ChatContext): string {
         items = context.reports.map((report) => reportItem(report.reportId, report.title))
     } else if (context.kind === 'inbox') {
         items = context.items.slice(0, INBOX_ITEM_LIMIT).map((item) => reportItem(item.reportId, item.title))
+    } else if (context.kind === 'object') {
+        instructions = [objectInstructions(context.item)]
+        items = [context.item]
     }
     if (instructions.length === 0 && items.length === 0) {
         return text

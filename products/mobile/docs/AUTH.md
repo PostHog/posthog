@@ -63,7 +63,7 @@ A store build rejects `http://localhost`.
 
 The app requests exactly these scopes (`OAUTH_SCOPES` in `src/auth/oauth.ts`):
 
-`openid profile email user:read user:write organization:read project:read task:read task:write conversation:write today:read query:read dashboard:read insight:read file_system_shortcut:write`
+`openid profile email user:read user:write organization:read project:read task:read task:write conversation:write today:read query:read dashboard:read insight:read file_system_shortcut:write error_tracking:read error_tracking:write session_recording:read replay_scanner:read replay_scanner:write`
 
 | Scope | Used by |
 | --- | --- |
@@ -78,6 +78,8 @@ The app requests exactly these scopes (`OAUTH_SCOPES` in `src/auth/oauth.ts`):
 | `dashboard:read` | Views: dashboard detail, the dashboard list, search, and the dashboards in Recent |
 | `insight:read` | Views: insight reads in every `refresh` mode, the insight list, search, and `POST insights/viewed/`. Chat: cached insight names and descriptions in insight cards. Without it the chat card keeps its browser link and shows that the summary could not load. |
 | `file_system_shortcut:write` | Views: pins, which are the web's starred items. It also grants `file_system_shortcut:read` for the pin list. |
+| `error_tracking:read`, `error_tracking:write` | Errors: the issues list and issue screen, and resolve, suppress, reopen and assign. See [API.md](API.md#error-tracking-and-replay-scopes). |
+| `session_recording:read`, `replay_scanner:read`, `replay_scanner:write` | Sessions: the sessions list, one recording, and its AI summary. |
 
 ### Granted scopes and signing in again
 
@@ -96,6 +98,9 @@ Nothing signs that user out: the inbox and chats keep working.
 - `ok` otherwise. A `:write` scope counts as its `:read`.
 
 `missingScope(error)` in `src/api/scopeErrors.ts` reads the scope name from that 403, so a 403 for a dashboard the user cannot view stays a row error.
+
+Errors and Sessions use the same states through `useFeatureAccess('errors' | 'replay')` and `<ViewsReauthState feature=…>`.
+A 403 is reported per feature (`reportScopeError(error, feature)`), so a refused issue read does not lock Views.
 
 ### Server-side ceiling
 
@@ -199,7 +204,7 @@ The sign-in, session and settings events never carry the host, the error text or
   The dev app is not first-party, so the consent screen shows and access tokens last 1 hour, which exercises refresh often.
   - iOS simulator: `localhost` reaches the Mac.
   - Android emulator: run `adb reverse tcp:8010 tcp:8010` first, so `localhost` on the emulator reaches the Mac.
-- **Personal API key** (dev builds only, `__DEV__`). Tap "Use a personal API key", pick the region or a custom host, paste a key with `user:read`, `organization:read`, `project:read` and the scopes of the screens you test (`task:read`, `task:write`, `user:write`, `conversation:write`, `today:read`, `query:read`, and for Views `dashboard:read`, `insight:read`, `file_system_shortcut:write`).
+- **Personal API key** (dev builds only, `__DEV__`). Tap "Use a personal API key", pick the region or a custom host, paste a key with `user:read`, `organization:read`, `project:read` and the scopes of the screens you test (`task:read`, `task:write`, `user:write`, `conversation:write`, `today:read`, `query:read`, and for Views `dashboard:read`, `insight:read`, `file_system_shortcut:write`; for Errors `error_tracking:read`, `error_tracking:write`; for Sessions `session_recording:read`, `replay_scanner:read`, `replay_scanner:write`).
   The key never refreshes; a 401 ends the session.
 - **Demo** (every build). "Try the demo" needs no account. "Exit demo" in Settings returns to the sign-in screen.
 

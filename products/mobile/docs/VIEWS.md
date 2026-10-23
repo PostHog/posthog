@@ -135,7 +135,7 @@ Pin and unpin stay with the session and project that started them; changing eith
 ### Search and Browse
 
 Search shows local matches first (pins as their cards, Recent rows), then dashboards and insights from the server, without the views already shown.
-Browse has Dashboards, Insights, Web analytics and Recordings. Recordings opens the project's replay list on the web and shows an external-link icon on its row.
+Browse has Dashboards, Insights, Web analytics, Sessions and Errors. Sessions and Errors open the app's own lists, as a pushed screen or, when pinned, as a slot in the nav pill. A long press on either row offers "Pin to navigation" or "Unpin from navigation" (see [DECISIONS.md](DECISIONS.md#navigation-pins)).
 The Dashboards and Insights lists (`app/views/browse/*.tsx`, `src/features/views/browse/BrowseListScreen.tsx`) load 30 rows at a time and search on the server with `useBrowseSearch`.
 Their Browse rows send `mobile_browse_list_opened` (`section`: `dashboards` or `insights`; `from`: `browse` or `search`). Each next page that loads sends `mobile_browse_list_paged` (`section`, `pages_loaded`), and a failed first page sends `mobile_views_error_shown` (`screen: browse`).
 `mobile_views_searched` (`section`: `views`, `dashboards` or `insights`; `query_length`, `result_count`) goes once per settled query, from the Views list and from each Browse list.
