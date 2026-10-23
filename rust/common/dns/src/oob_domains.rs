@@ -30,6 +30,8 @@ pub const OOB_DOMAINS: &[&str] = &[
     "rbndr.us",
 ];
 
+const MAX_DNS_NAME_LEN: usize = 253;
+
 /// The listed domain this host belongs to, or None.
 ///
 /// Pass a host that `url` parsed, never a raw url. The `url` crate applies IDNA, so an
@@ -37,6 +39,10 @@ pub const OOB_DOMAINS: &[&str] = &[
 pub fn matched_oob_domain(host: &str) -> Option<&'static str> {
     if host.is_empty() || host.contains('@') || host.contains('/') {
         // A match on a raw url or a credential would put that string in the log line.
+        return None;
+    }
+    if host.strip_suffix('.').unwrap_or(host).len() > MAX_DNS_NAME_LEN {
+        // The url crate parses a name of any length, and a match keeps the host in the dedupe map.
         return None;
     }
     // The resolver treats the absolute form ("oast.live.") as the same name.
@@ -201,6 +207,19 @@ mod tests {
         ] {
             assert_eq!(matched_oob_domain(host), expected, "host: {host}");
         }
+    }
+
+    #[test]
+    fn a_host_longer_than_a_dns_name_never_matches() {
+        let longest = format!("{}.oast.me", "a".repeat(245));
+        assert_eq!(longest.len(), 253);
+        assert_eq!(matched_oob_domain(&longest), Some("oast.me"));
+        assert_eq!(matched_oob_domain(&format!("{longest}.")), Some("oast.me"));
+        assert_eq!(matched_oob_domain(&format!("a{longest}")), None);
+        assert_eq!(
+            matched_oob_domain(&format!("x.oast.me{}", ".".repeat(300))),
+            None
+        );
     }
 
     #[test]
