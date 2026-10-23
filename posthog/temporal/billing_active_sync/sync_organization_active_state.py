@@ -47,6 +47,21 @@ def sync_organization_active_state(organization_id: str) -> None:
     )
 
 
+def deactivate_deleted_organization_in_billing(organization_id: str) -> None:
+    """Flag a deleted organization in billing; the reconciliation sweep skips ids this instance does not know."""
+    from posthog.cloud_utils import get_cached_instance_license, is_cloud
+
+    from ee.billing.billing_manager import BillingManager
+
+    if not is_cloud():
+        return
+    license = get_cached_instance_license()
+    if license is None:
+        return
+
+    BillingManager(license, None).set_organizations_deactivated([organization_id], deactivated=True)
+
+
 def reconcile_organization_active_state() -> None:
     """Nightly sweep: realign billing's deactivated flags with Organization.is_active.
 
