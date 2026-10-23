@@ -15,6 +15,7 @@ from posthog.models.user_integration import UserIntegration
 from products.signals.backend.models import SignalTeamConfig
 from products.skills.backend.models.skills import LLMSkill
 from products.tasks.backend.constants import (
+    AGENT_SERVER_SHADOW_FEATURE_FLAG,
     BENJAMIN_FEATURE_FLAG,
     CLAUDE_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG,
     CODEX_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG,
@@ -39,6 +40,7 @@ from products.tasks.backend.temporal.process_task.activities.get_task_processing
     TaskProcessingContext,
     VmSandboxDecision,
     _ensure_subscription_allowed,
+    _is_agent_shadow_enabled,
     _is_benjamin_enabled,
     _is_burstable_sandbox_resources_enabled,
     _is_desktop_workspace_warm_enabled,
@@ -150,6 +152,31 @@ def test_desktop_workspace_warm_flag_fails_closed():
         )
 
 
+def test_agent_shadow_flag_uses_server_side_organization_targeting():
+    with patch(FEATURE_ENABLED_TARGET, return_value=True) as feature_enabled_mock:
+        assert (
+            _is_agent_shadow_enabled(distinct_id="distinct-id", organization_id="organization-id", run_id="run-id")
+            is True
+        )
+
+    feature_enabled_mock.assert_called_once_with(
+        AGENT_SERVER_SHADOW_FEATURE_FLAG,
+        distinct_id="distinct-id",
+        groups={"organization": "organization-id"},
+        group_properties={"organization": {"id": "organization-id"}},
+        only_evaluate_locally=False,
+        send_feature_flag_events=False,
+    )
+
+
+def test_agent_shadow_flag_fails_closed():
+    with patch(FEATURE_ENABLED_TARGET, side_effect=RuntimeError("flag service failed")):
+        assert (
+            _is_agent_shadow_enabled(distinct_id="distinct-id", organization_id="organization-id", run_id="run-id")
+            is False
+        )
+
+
 def _preview_gate(
     *,
     origin_product: str = Task.OriginProduct.USER_CREATED,
@@ -237,10 +264,18 @@ class TestGetTaskProcessingContextActivity:
 
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.parametrize(
-        "subscription,is_trial,resume",
-        [(False, False, False), (True, False, False), (False, True, False), (False, False, True)],
+        "subscription,is_trial,resume,launches_agent",
+        [
+            (False, False, False, True),
+            (True, False, False, True),
+            (False, True, False, True),
+            (False, False, True, True),
+            (False, False, False, False),
+        ],
     )
-    def test_get_task_processing_context_success(self, activity_environment, test_task, subscription, is_trial, resume):
+    def test_get_task_processing_context_success(
+        self, activity_environment, test_task, subscription, is_trial, resume, launches_agent
+    ):
         owner = User.objects.create_user(
             email="subscription-owner@example.com", password=None, first_name="Owner", distinct_id="subscription-owner"
         )
@@ -253,7 +288,7 @@ class TestGetTaskProcessingContextActivity:
         task_run = test_task.create_run(acting_user_id=owner.id, extra_state=extra_state)
         if resume:
             task_run.prepare_for_cloud_resume()
-        input_data = GetTaskProcessingContextInput(run_id=str(task_run.id))
+        input_data = GetTaskProcessingContextInput(run_id=str(task_run.id), launches_agent=launches_agent)
 
         with (
             patch(
@@ -266,9 +301,13 @@ class TestGetTaskProcessingContextActivity:
             ),
         ):
             flag.side_effect = lambda key, distinct_id=None, **kwargs: (
-                key == CLAUDE_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG and distinct_id == owner.distinct_id
+                (key == CLAUDE_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG and distinct_id == owner.distinct_id)
+                or key == AGENT_SERVER_SHADOW_FEATURE_FLAG
             )
             result = async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
+
+        assert result.agent_shadow_enabled is launches_agent
+        assert (AGENT_SERVER_SHADOW_FEATURE_FLAG in [call.args[0] for call in flag.call_args_list]) is launches_agent
 
         assert isinstance(result, TaskProcessingContext)
         assert result.task_id == str(test_task.id)
