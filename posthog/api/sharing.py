@@ -559,11 +559,11 @@ class SharingConfigurationViewSet(
             # org admins have full access, so skip the gate for a faster enable
             and not self.user_access_control.is_organization_admin
         ):
-            blocked_names = denied_resources_in_share(cast(User, request.user), self.team, instance)
-            if blocked_names:
-                blocked = ", ".join(f"`{name}`" for name in blocked_names)
+            denied = denied_resources_in_share(cast(User, request.user), self.team, instance)
+            if denied:
+                denied_names = ", ".join(f"`{name}`" for name in denied)
                 raise ValidationError(
-                    f"Can't enable sharing: you don't have access to {blocked}, "
+                    f"Can't enable sharing: you don't have access to {denied_names}, "
                     "which the shared queries use. Ask an admin for access, or remove those queries first."
                 )
 

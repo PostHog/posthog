@@ -449,13 +449,13 @@ class NotebookSerializer(NotebookMinimalSerializer):
                         and not (self.user_access_control and self.user_access_control.is_organization_admin)
                         and is_publicly_shared(locked_instance)
                     ):
-                        blocked = denied_resources_in_notebook_edit(
+                        denied = denied_resources_in_notebook_edit(
                             self.context["request"].user, locked_instance, validated_data.get("content")
                         )
-                        if blocked:
-                            blocked_list = ", ".join(f"`{name}`" for name in blocked)
+                        if denied:
+                            denied_names = ", ".join(f"`{name}`" for name in denied)
                             raise serializers.ValidationError(
-                                f"Can't save: you don't have access to {blocked_list}, "
+                                f"Can't save: you don't have access to {denied_names}, "
                                 "and this notebook is publicly shared."
                             )
 
@@ -2503,11 +2503,11 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             and not self.user_access_control.is_organization_admin
             and is_publicly_shared(notebook)
         ):
-            blocked = denied_resources_in_notebook_edit(user, notebook, data.get("content"))
-            if blocked:
-                blocked_list = ", ".join(f"`{name}`" for name in blocked)
+            denied = denied_resources_in_notebook_edit(user, notebook, data.get("content"))
+            if denied:
+                denied_names = ", ".join(f"`{name}`" for name in denied)
                 raise serializers.ValidationError(
-                    f"Can't save: you don't have access to {blocked_list}, and this notebook is publicly shared."
+                    f"Can't save: you don't have access to {denied_names}, and this notebook is publicly shared."
                 )
 
         result = submit_steps(
@@ -2605,11 +2605,11 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             and not self.user_access_control.is_organization_admin
             and is_publicly_shared(notebook)
         ):
-            blocked = denied_resources_in_notebook_edit(user, notebook, submitted_content)
-            if blocked:
-                blocked_list = ", ".join(f"`{name}`" for name in blocked)
+            denied = denied_resources_in_notebook_edit(user, notebook, submitted_content)
+            if denied:
+                denied_names = ", ".join(f"`{name}`" for name in denied)
                 raise serializers.ValidationError(
-                    f"Can't save: you don't have access to {blocked_list}, and this notebook is publicly shared."
+                    f"Can't save: you don't have access to {denied_names}, and this notebook is publicly shared."
                 )
 
         notebook_before: Notebook | None = None

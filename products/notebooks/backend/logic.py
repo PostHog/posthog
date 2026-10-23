@@ -43,11 +43,11 @@ def _validate_shared_notebook_edit(user: "User", notebook: Notebook, content: di
         return
     if not is_publicly_shared(notebook):
         return
-    blocked = denied_resources_in_notebook_edit(user, notebook, content)
-    if blocked:
-        blocked_list = ", ".join(f"`{name}`" for name in blocked)
+    denied = denied_resources_in_notebook_edit(user, notebook, content)
+    if denied:
+        denied_names = ", ".join(f"`{name}`" for name in denied)
         raise NotebookContentEditNotAllowed(
-            f"Can't save: you don't have access to {blocked_list}, and this notebook is publicly shared."
+            f"Can't save: you don't have access to {denied_names}, and this notebook is publicly shared."
         )
 
 
