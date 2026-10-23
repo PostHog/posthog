@@ -16,6 +16,7 @@ The rerun worker also re-checks each invocation's latest status before it
 enqueues it.
 """
 
+import json
 import hashlib
 from collections import Counter
 from datetime import UTC, datetime, timedelta
@@ -191,6 +192,19 @@ WHERE function_kind = 'hog_function'
     AND status = 'succeeded'
 """
 
+# The rerun worker writes one lifecycle row per rerun job, keyed by the job ID.
+# attempts holds the number of pages the job processed, so a failed job with
+# 0 attempts queued nothing.
+_RERUN_JOBS_QUERY = """
+SELECT invocation_id, argMax(status, version) AS latest_status, argMax(attempts, version) AS latest_pages
+FROM hog_invocation_results
+WHERE function_kind = 'hog_function_rerun'
+    AND team_id IN %(team_ids)s
+    AND invocation_id IN %(job_ids)s
+    AND scheduled_at >= %(since)s
+GROUP BY invocation_id
+"""
+
 
 @frozen
 class ReplayCriteria:
@@ -341,6 +355,7 @@ class FunctionReplayResult:
     invocation_count: int
     status_code: int
     detail: str
+    rerun_job_id: str = ""
 
 
 @frozen
@@ -578,15 +593,43 @@ def _claim_key(fingerprint: str) -> str:
     return f"cdp:invocation_replay:claim:{fingerprint}"
 
 
+def _accepted_reruns_queued_nothing(fingerprint: str) -> bool:
+    state = get_replay_state(fingerprint)
+    if not state or state.get("status") not in ("done", "failed"):
+        return False
+    accepted = [r for r in state.get("results", []) if r["status_code"] == 200]
+    job_ids = [r.get("rerun_job_id", "") for r in accepted]
+    if not job_ids or not all(job_ids):
+        return False
+    with tags_context(product=Product.PIPELINE_DESTINATIONS, feature=Feature.DEBUG_QUERY):
+        rows = sync_execute(
+            _RERUN_JOBS_QUERY,
+            {
+                "team_ids": sorted({r["team_id"] for r in accepted}),
+                "job_ids": job_ids,
+                "since": datetime.fromisoformat(state["claimed_at"]) - timedelta(hours=1),
+            },
+        )
+    jobs = {job_id: (status, pages) for job_id, status, pages in rows}
+    return all(jobs.get(job_id) == ("failed", 0) for job_id in job_ids)
+
+
 def claim_replay(plan: ReplayPlan, *, actor: str) -> bool:
     """Reserve the plan for one send. Returns False when this exact plan was already claimed."""
     if not cache.add(_claim_key(plan.fingerprint), actor, timeout=REPLAY_STATE_TTL_SECONDS):
-        return False
+        # Every accepted rerun job can still fail before it queues a run. The plan then
+        # stays the same, so the claim must not block a resend.
+        if not _accepted_reruns_queued_nothing(plan.fingerprint):
+            return False
+        _release_claim(plan.fingerprint)
+        if not cache.add(_claim_key(plan.fingerprint), actor, timeout=REPLAY_STATE_TTL_SECONDS):
+            return False
     cache.set(
         _state_key(plan.fingerprint),
         {
             "status": "queued",
             "actor": actor,
+            "claimed_at": datetime.now(UTC).isoformat(),
             "invocation_count": plan.invocation_count,
             "request_count": plan.request_count,
             "results": [],
@@ -619,6 +662,13 @@ def mark_replay_refused(fingerprint: str, reason: str) -> None:
 def mark_replay_failed(fingerprint: str, reason: str) -> None:
     _save_state(fingerprint, status="failed", detail=reason)
     _release_claim(fingerprint)
+
+
+def _rerun_job_id(response_text: str) -> str:
+    try:
+        return str(json.loads(response_text).get("rerun_job_id") or "")
+    except (ValueError, AttributeError):
+        return ""
 
 
 def execute_replay(plan: ReplayPlan, *, actor: str) -> list[FunctionReplayResult]:
@@ -654,17 +704,19 @@ def execute_replay(plan: ReplayPlan, *, actor: str) -> list[FunctionReplayResult
                         },
                     )
                     status_code, detail = response.status_code, response.text[:500]
+                    rerun_job_id = _rerun_job_id(response.text) if status_code == 200 else ""
                 except Exception as error:
                     # One unreachable request must not stop the rest of the plan. The
                     # result records it, so the operator can preview again and send
                     # only what is still failed.
-                    status_code, detail = 0, repr(error)[:500]
+                    status_code, detail, rerun_job_id = 0, repr(error)[:500], ""
                 result = FunctionReplayResult(
                     team_id=function.team_id,
                     function_id=function.function_id,
                     invocation_count=len(chunk),
                     status_code=status_code,
                     detail=detail,
+                    rerun_job_id=rerun_job_id,
                 )
                 results.append(result)
                 _save_state(
@@ -676,6 +728,7 @@ def execute_replay(plan: ReplayPlan, *, actor: str) -> list[FunctionReplayResult
                             "invocation_count": r.invocation_count,
                             "status_code": r.status_code,
                             "detail": r.detail,
+                            "rerun_job_id": r.rerun_job_id,
                         }
                         for r in results
                     ],

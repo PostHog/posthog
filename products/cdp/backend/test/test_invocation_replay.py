@@ -319,6 +319,47 @@ class TestInvocationReplay(ClickhouseTestMixin, APIBaseTest):
 
         assert claim_replay(plan, actor="second")
 
+    @parameterized.expand(
+        [
+            ("job_failed_before_queuing", "failed", 0, True),
+            ("job_failed_after_a_page", "failed", 1, False),
+            ("job_succeeded", "succeeded", 1, False),
+        ]
+    )
+    @patch("products.cdp.backend.services.invocation_replay.rerun_hog_invocations")
+    def test_an_accepted_send_can_be_sent_again_only_when_its_rerun_job_queued_nothing(
+        self, _name: str, job_status: str, pages: int, can_resend: bool, rerun: MagicMock
+    ) -> None:
+        job_id = "018f0000-0000-0000-0000-00000000aaaa"
+        rerun.return_value = MagicMock(status_code=200, text=f'{{"rerun_job_id":"{job_id}","queued_count":0}}')
+        function = _function(self.team, "template-google-ads")
+        _insert(function, [_row("a1", "failed"), _recovered()])
+        plan = plan_replay(_criteria())
+        assert claim_replay(plan, actor="first")
+        execute_replay(plan, actor="first")
+        now = datetime.now(UTC)
+        sync_execute(
+            INSERT_HOG_INVOCATION_RESULT_SQL,
+            {
+                **_row("00", job_status, error="clickhouse down"),
+                "invocation_id": job_id,
+                "scheduled_at": now,
+                "first_scheduled_at": now,
+                "team_id": self.team.pk,
+                "function_kind": "hog_function_rerun",
+                "function_id": str(function.id),
+                "parent_run_id": "",
+                "attempts": pages,
+                "started_at": now,
+                "finished_at": now,
+                "duration_ms": 10,
+                "invocation_globals": "{}",
+                "is_deleted": 0,
+            },
+        )
+
+        assert claim_replay(plan, actor="second") is can_resend
+
 
 class TestReplayAdmin(ClickhouseTestMixin, APIBaseTest):
     def setUp(self) -> None:
