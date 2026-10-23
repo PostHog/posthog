@@ -1,5 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+
 import { DashboardPlacement } from '~/types'
 
 import { WidgetCard } from '../../components/WidgetCard/WidgetCard'
@@ -51,6 +53,7 @@ const meta: Meta<typeof MetricsWidgetTileStory> = {
     parameters: {
         layout: 'padded',
         ...widgetStorybookParameters,
+        featureFlags: [FEATURE_FLAGS.METRICS_INSIGHT_BUILDER],
     },
     decorators: [...widgetTileFrameDecorator],
     args: {

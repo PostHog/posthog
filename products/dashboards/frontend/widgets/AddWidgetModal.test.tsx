@@ -130,13 +130,21 @@ describe('AddWidgetModal', () => {
         expect(topIssuesCard).toHaveAttribute('aria-checked', 'false')
     })
 
-    it('offers metric presets only with the metrics flag, and adds the picked preset as a metrics widget', async () => {
+    it('offers metric presets only with the metrics and insight builder flags, and adds the picked preset as a metrics widget', async () => {
         const onAdd = jest.fn().mockResolvedValue(undefined)
         renderAddWidgetModal({ onAdd })
         expect(screen.queryByLabelText('Single stat')).not.toBeInTheDocument()
         cleanup()
 
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.METRICS]: true })
+        renderAddWidgetModal({ onAdd })
+        expect(screen.queryByLabelText('Single stat')).not.toBeInTheDocument()
+        cleanup()
+
+        featureFlagLogic.actions.setFeatureFlags([], {
+            [FEATURE_FLAGS.METRICS]: true,
+            [FEATURE_FLAGS.METRICS_INSIGHT_BUILDER]: true,
+        })
         renderAddWidgetModal({ onAdd })
         expect(
             ['Time series', 'Single stat', 'Table', 'Heatmap'].map((label) => !!screen.queryByLabelText(label))

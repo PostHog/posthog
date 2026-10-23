@@ -207,9 +207,7 @@ class TestMetricsDashboardWidget(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(result["error"], "You do not have access to metrics.")
 
     @parameterized.expand([("a signed-in viewer", False), ("a personal API key", True)])
-    def test_only_api_key_requests_count_against_the_shared_widget_throttle(
-        self, _name: str, use_api_key: bool
-    ) -> None:
+    def test_every_request_counts_against_the_shared_widget_throttle(self, _name: str, use_api_key: bool) -> None:
         tile_id = self._add_tile(GAUGE_QUERY)
         token: str | None = None
         if use_api_key:
@@ -229,8 +227,8 @@ class TestMetricsDashboardWidget(ClickhouseTestMixin, APIBaseTest):
         ) as throttle:
             result = self._run(tile_id, api_key=token)
 
-        self.assertEqual(throttle.called, use_api_key)
-        self.assertEqual(result["error"], "Rate limit exceeded. Try again later." if use_api_key else None)
+        throttle.assert_called_once()
+        self.assertEqual(result["error"], "Rate limit exceeded. Try again later.")
 
     def test_cannot_add_a_metrics_widget_without_the_metrics_flag(self) -> None:
         self.enabled_flags.discard("metrics")

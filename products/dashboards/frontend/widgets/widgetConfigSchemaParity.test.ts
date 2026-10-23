@@ -148,7 +148,11 @@ function zodPropertyTree(schema: SchemaNode): unknown {
     return { $type: 'unknown' }
 }
 
-function normalizePropertyTree(tree: unknown): unknown {
+// The metrics config embeds a MetricsQuery, whose float fields (quantile, goal lines, axis bounds) OpenAPI types as
+// `number`. This helper reads every Zod number as `integer`, so only that config reads a `number` the same way.
+const WIDGETS_WITH_FLOAT_FIELDS: ReadonlySet<string> = new Set(['metrics'])
+
+function normalizePropertyTree(tree: unknown, readFloatsAsIntegers = false): unknown {
     if (!tree || typeof tree !== 'object' || Array.isArray(tree)) {
         return tree
     }
@@ -158,11 +162,13 @@ function normalizePropertyTree(tree: unknown): unknown {
         return { $types: normalizedTypes }
     }
 
-    if ('$type' in tree && tree.$type === 'number') {
+    if (readFloatsAsIntegers && '$type' in tree && tree.$type === 'number') {
         return { $type: 'integer' }
     }
 
-    return Object.fromEntries(Object.entries(tree).map(([key, value]) => [key, normalizePropertyTree(value)]))
+    return Object.fromEntries(
+        Object.entries(tree).map(([key, value]) => [key, normalizePropertyTree(value, readFloatsAsIntegers)])
+    )
 }
 
 describe('widget config schema parity', () => {
@@ -176,7 +182,10 @@ describe('widget config schema parity', () => {
     it('frontend zod schemas match nested OpenAPI property trees', () => {
         for (const [widgetType, expectedTree] of Object.entries(configPropertyMetadata.configPropertyTrees)) {
             const schema = WIDGET_CONFIG_SCHEMAS[widgetType as keyof typeof WIDGET_CONFIG_SCHEMAS]
-            expect(normalizePropertyTree(zodPropertyTree(schema))).toEqual(normalizePropertyTree(expectedTree))
+            const readFloatsAsIntegers = WIDGETS_WITH_FLOAT_FIELDS.has(widgetType)
+            expect(normalizePropertyTree(zodPropertyTree(schema))).toEqual(
+                normalizePropertyTree(expectedTree, readFloatsAsIntegers)
+            )
         }
     })
 

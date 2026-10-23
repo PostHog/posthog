@@ -167,7 +167,6 @@ from products.dashboards.backend.widget_access import (
     check_widget_tile_product_access,
     get_widget_api_scope_error,
     get_widget_product_access_error,
-    is_api_key_or_oauth_request,
 )
 from products.dashboards.backend.widget_availability import get_widget_feature_enabled
 from products.dashboards.backend.widget_catalog import get_widget_catalog_entries, parse_widget_type_filter
@@ -3904,14 +3903,7 @@ class DashboardsViewSet(
                 continue
 
             spec = get_widget_spec(widget.widget_type)
-            # The query runner's own budget applies to API keys only on /query, so key and OAuth requests keep the
-            # widget throttle whatever the policy.
-            uses_widget_throttle = (
-                spec is None or spec.throttle_policy == "widget" or is_api_key_or_oauth_request(request)
-            )
-            widget_throttle_error = (
-                get_dashboard_widget_query_throttle_error(request, self) if uses_widget_throttle else None
-            )
+            widget_throttle_error = get_dashboard_widget_query_throttle_error(request, self)
             if widget_throttle_error:
                 results_by_id[tile_id] = {
                     "tile_id": tile_id,
