@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Any, cast
 
 import structlog
-from drf_spectacular.utils import OpenApiResponse, extend_schema
+from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_view
 from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -53,7 +53,6 @@ class ReviewerExclusionSerializer(serializers.ModelSerializer):
     class Meta:
         model = SignalReviewerExclusion
         fields = ["id", "repository", "path_prefix", "instruction", "status", "revision", "created_at", "updated_at"]
-        read_only_fields = fields
 
 
 class ReviewerExclusionAreaSerializer(serializers.Serializer):
@@ -83,7 +82,7 @@ class ReviewerExclusionCreateSerializer(ReviewerExclusionAreaSerializer):
     )
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
-        if attrs.get("path_prefix", "").strip() and not attrs.get("repository", "").strip():
+        if attrs.get("path_prefix") and not attrs.get("repository"):
             raise serializers.ValidationError({"path_prefix": "Give a repository for a path."})
         return attrs
 
@@ -121,6 +120,13 @@ def _create_result(
     return Response(ReviewerExclusionCreateResultSerializer(payload).data, status=response_status)
 
 
+@extend_schema_view(
+    list=extend_schema(
+        summary="List your reviewer exclusions",
+        description="List the standing instructions that keep you off automatic reviewer selection, active and revoked.",
+    ),
+    retrieve=extend_schema(summary="Get one of your reviewer exclusions"),
+)
 class SignalReviewerExclusionViewSet(
     TeamAndOrgViewSetMixin,
     mixins.ListModelMixin,
@@ -144,17 +150,6 @@ class SignalReviewerExclusionViewSet(
             .filter(subject_user_uuid=cast(User, self.request.user).uuid)
             .order_by("-created_at", "-id")
         )
-
-    @extend_schema(
-        summary="List your reviewer exclusions",
-        description="List the standing instructions that keep you off automatic reviewer selection, active and revoked.",
-    )
-    def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        return super().list(request, *args, **kwargs)
-
-    @extend_schema(summary="Get one of your reviewer exclusions")
-    def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        return super().retrieve(request, *args, **kwargs)
 
     @extend_schema(
         summary="Stay off automatic reviewer selection in an area",
@@ -190,7 +185,7 @@ class SignalReviewerExclusionViewSet(
             exclusion = create_exclusion(
                 team_id=self.team_id,
                 actor_id=user.id,
-                instruction=data["instruction"].strip(),
+                instruction=data["instruction"],
                 subject_user_uuid=user.uuid,
                 subject_github_login=user.get_github_login(include_team_fallback=False),
                 repository=data.get("repository", ""),
@@ -228,19 +223,16 @@ class SignalReviewerExclusionViewSet(
         payload = ReviewerExclusionUpdateSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
         data = payload.validated_data
-        if exclusion.status == SignalReviewerExclusion.Status.REVOKED:
-            return Response({"detail": "A revoked instruction cannot change."}, status=status.HTTP_400_BAD_REQUEST)
         repository = data.get("repository", exclusion.repository).strip()
         path_prefix = data.get("path_prefix", exclusion.path_prefix).strip()
         if path_prefix and not repository:
             return Response({"detail": "Give a repository for a path."}, status=status.HTTP_400_BAD_REQUEST)
-        instruction = data.get("instruction")
         try:
             revised = revise_exclusion(
                 team_id=self.team_id,
                 exclusion_id=exclusion.id,
                 actor_id=cast(User, request.user).id,
-                instruction=instruction.strip() if instruction is not None else None,
+                instruction=data.get("instruction"),
                 repository=data.get("repository"),
                 path_prefix=data.get("path_prefix"),
             )
