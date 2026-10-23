@@ -50,10 +50,16 @@ def _ms_to_datetime(value):
 
 
 def migrate_desktop_tree(apps, schema_editor):
-    FileSystem = apps.get_model("posthog", "FileSystem")
-    FileSystemShortcut = apps.get_model("posthog", "FileSystemShortcut")
-    FolderInstructions = apps.get_model("posthog", "FileSystemFolderInstructions")
-    FolderContextGeneration = apps.get_model("posthog", "FileSystemFolderContextGeneration")
+    try:
+        FileSystem = apps.get_model("posthog", "FileSystem")
+        FileSystemShortcut = apps.get_model("posthog", "FileSystemShortcut")
+        FolderInstructions = apps.get_model("posthog", "FileSystemFolderInstructions")
+        FolderContextGeneration = apps.get_model("posthog", "FileSystemFolderContextGeneration")
+    except LookupError:
+        # Nothing orders posthog.1285 after this migration. A database that skips
+        # the canvas squash can reach it after 1285 removed these models from state.
+        logger.warning("desktop_tree_migration_skipped: posthog file-system models are no longer in migration state")
+        return
     Channel = apps.get_model("tasks", "Channel")
     ChannelInstructions = apps.get_model("tasks", "ChannelInstructions")
     ChannelContextGeneration = apps.get_model("tasks", "ChannelContextGeneration")
