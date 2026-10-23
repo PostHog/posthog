@@ -303,6 +303,7 @@ _INTERNAL_SOURCE_TYPE = "    `internal_source` LowCardinality(String)"
 
 def KAFKA_LOGS34_AVRO_MV_SELECT(*, internal_source: bool = True):
     db = settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE
+    # The logs consumer removes any incoming `internal-source` header and sets it only on a batch whose signature it verified.
     internal_source_column = (
         ",\n    _headers.value[indexOf(_headers.name, 'internal-source')] AS internal_source" if internal_source else ""
     )
