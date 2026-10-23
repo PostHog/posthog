@@ -8823,6 +8823,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
             message_id=None,
             trace_id=expected_trace_id,
             offer_reply_suggestions=True,
+            offer_feature_tip=True,
         )
 
     @parameterized.expand(
@@ -8878,6 +8879,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
             message_id=None,
             trace_id=None,
             offer_reply_suggestions=True,
+            offer_feature_tip=True,
         )
 
     @patch("products.tasks.backend.temporal.client.execute_posthog_code_agent_relay_workflow")

@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-10-22 20:04:30 UTC
+// Generated at: 2026-10-23 10:05:59 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -125,6 +125,7 @@ export type CanonicalProvider =
     | 'io-net'
     | 'io-net-bf16'
     | 'io-net-fp16'
+    | 'io-net-fp4'
     | 'io-net-fp8'
     | 'io-net-nvfp4'
     | 'ionstream'
@@ -184,10 +185,12 @@ export type CanonicalProvider =
     | 'openai-ultrafast'
     | 'parasail'
     | 'parasail-bf16'
+    | 'parasail-fast'
     | 'parasail-fp16'
     | 'parasail-fp4'
     | 'parasail-fp8'
     | 'parasail-int4'
+    | 'pareto-alpha-us'
     | 'perceptron'
     | 'perplexity'
     | 'perplexity-int8'
@@ -223,6 +226,7 @@ export type CanonicalProvider =
     | 'streamlake'
     | 'streamlake-fp8'
     | 'tencent-fp8'
+    | 'tenstorrent-fp4'
     | 'tenstorrent-fp8'
     | 'thinkingmachines-nvfp4'
     | 'together'

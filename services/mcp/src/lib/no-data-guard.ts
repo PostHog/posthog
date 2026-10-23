@@ -4,6 +4,16 @@ export const MCP_NO_DATA_INSTALL_NOTICE_FLAG = 'mcp-no-data-install-notice'
 export type NoDataNoticeMode = 'warn' | 'block'
 export type NoDataAction = 'warned' | 'blocked'
 
+export class NoDataInstallNoticeError extends Error {
+    constructor(
+        public readonly toolName: string,
+        public readonly text: string
+    ) {
+        super(text)
+        this.name = 'NoDataInstallNoticeError'
+    }
+}
+
 export function noDataNoticeMode(variant: FlagValue): NoDataNoticeMode | undefined {
     return variant === 'warn' || variant === 'block' ? variant : undefined
 }
@@ -66,7 +76,12 @@ export function buildNoDataInstallNotice({
 
 // A separate content block keeps the tool's own text intact, so a `--json` result still parses.
 export function prependNoDataNotice(result: unknown, notice: string): unknown {
-    if (typeof result !== 'object' || result === null || !Array.isArray((result as { content?: unknown }).content)) {
+    if (
+        typeof result !== 'object' ||
+        result === null ||
+        (result as { isError?: unknown }).isError === true ||
+        !Array.isArray((result as { content?: unknown }).content)
+    ) {
         return result
     }
     const withContent = result as { content: unknown[] }

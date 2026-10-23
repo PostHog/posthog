@@ -1367,10 +1367,10 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
                 },
             },
             {
-                // handlePostgresError does not mark this transient replica error as retriable.
-                lookup: 'the hog flow lookup is cancelled on the read replica',
+                // handlePostgresError does not mark a statement timeout as retriable.
+                lookup: 'the hog flow lookup hits a statement timeout',
                 fail: (m: MatcherUnderTest): Error => {
-                    const error = new Error('canceling statement due to conflict with recovery')
+                    const error = new Error('canceling statement due to statement timeout')
                     ;(m as any).hogFlowManager.getHogFlowsForTeam.mockRejectedValueOnce(error)
                     return error
                 },

@@ -342,7 +342,7 @@ export interface SuggestionPayload {
     acceptText?: string
     rejectText?: string
     diffShowRunButton?: boolean
-    source?: 'max_ai' | 'hogql_fixer' | 'query_history' | 'materialization_fix'
+    source?: 'max_ai' | 'hogql_fixer' | 'query_history'
     onAccept: (
         shouldRunQuery: boolean,
         actions: sqlEditorLogicType['actions'],
@@ -686,7 +686,7 @@ export interface sqlEditorLogicValues {
     sourceQuery: DataVisualizationNode
     splitQueryRanges: QueryRange[]
     suggestedQueryInput: string
-    suggestedSource: 'hogql_fixer' | 'materialization_fix' | 'max_ai' | 'query_history' | null
+    suggestedSource: 'hogql_fixer' | 'max_ai' | 'query_history' | null
     suggestionPayload: SuggestionPayload | null
     upstream: {
         edges: DataModelingEdge[]
@@ -1183,7 +1183,7 @@ export interface sqlEditorLogicActions {
         suggestedQueryInput: string,
         source?: SuggestionPayload['source']
     ) => {
-        source: 'hogql_fixer' | 'materialization_fix' | 'max_ai' | 'query_history' | undefined
+        source: 'hogql_fixer' | 'max_ai' | 'query_history' | undefined
         suggestedQueryInput: string
     }
     setUpstreamViewMode: (mode: 'graph' | 'table') => {
@@ -1233,7 +1233,7 @@ export interface sqlEditorLogicMeta {
         placeholderValues: (placeholders: SQLEditorPlaceholder[]) => Record<string, string> | null
         suggestedSource: (
             suggestionPayload: SuggestionPayload | null
-        ) => 'hogql_fixer' | 'materialization_fix' | 'max_ai' | 'query_history' | null
+        ) => 'hogql_fixer' | 'max_ai' | 'query_history' | null
         diffShowRunButton: (suggestionPayload: SuggestionPayload | null) => boolean | undefined
         acceptText: (suggestionPayload: SuggestionPayload | null) => string
         rejectText: (suggestionPayload: SuggestionPayload | null) => string
