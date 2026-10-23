@@ -78,8 +78,7 @@ function ChartViewToggle<C extends ChartViewChange>({
                     key={value}
                     value={value}
                     size="sm"
-                    disabled={!!disabledReason}
-                    title={disabledReason}
+                    disabledReason={disabledReason}
                     data-attr={`mcp-tool-quality-${chart}-chart-view-${value}`}
                 >
                     {label}
