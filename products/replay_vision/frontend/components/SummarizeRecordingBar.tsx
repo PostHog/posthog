@@ -13,9 +13,12 @@ import { useSummarizeBlockedReason } from './useSummarizeBlockedReason'
 
 export function SummarizeRecordingBar({
     extraActions,
+    inline = false,
 }: {
     /** Recording actions the host places beside the summarize button. */
     extraActions?: React.ReactNode
+    /** Just the controls, for a host that places them inside its own row. */
+    inline?: boolean
 }): JSX.Element | null {
     const { sessionRecordingId, logicProps } = useValues(sessionRecordingPlayerLogic)
     const { isNotFound, isRecordingDeleted } = useValues(sessionRecordingDataCoordinatorLogic(logicProps))
@@ -23,15 +26,17 @@ export function SummarizeRecordingBar({
     if (!sessionRecordingId || isNotFound || isRecordingDeleted) {
         return null
     }
-    return <SummarizeRecordingBarContent sessionId={sessionRecordingId} extraActions={extraActions} />
+    return <SummarizeRecordingBarContent sessionId={sessionRecordingId} extraActions={extraActions} inline={inline} />
 }
 
 function SummarizeRecordingBarContent({
     sessionId,
     extraActions,
+    inline,
 }: {
     sessionId: string
     extraActions?: React.ReactNode
+    inline: boolean
 }): JSX.Element {
     const { defaultSummarizer } = useValues(observationsDockLogic({ sessionId }))
     const { sessionPlayerMetaData } = useValues(sessionRecordingPlayerLogic)
@@ -40,7 +45,11 @@ function SummarizeRecordingBarContent({
 
     return (
         <div
-            className="flex items-center gap-2 lg:gap-3 h-11 px-3 shrink-0 border-t bg-surface-primary"
+            className={
+                inline
+                    ? 'flex items-center gap-2 min-w-0'
+                    : 'flex items-center gap-2 lg:gap-3 h-11 px-3 shrink-0 border-t bg-surface-primary'
+            }
             // Frozen: dashboards and selectors still find the bar under its old name.
             data-attr="vision-observations-dock"
         >

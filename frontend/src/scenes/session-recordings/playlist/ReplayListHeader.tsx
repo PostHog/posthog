@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
-import { ReactNode } from 'react'
+import { ReactNode, useEffect } from 'react'
 
-import { IconChevronDown, IconGear } from '@posthog/icons'
+import { IconCheckbox, IconChevronDown, IconGear } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonDivider } from '@posthog/lemon-ui'
 
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu/LemonMenu'
@@ -22,10 +22,23 @@ export function ReplayListHeader({
     setFilters: (filters: Partial<RecordingUniversalFilters>) => void
     collapseButton: ReactNode
 }): JSX.Element {
-    const { selectedRecordingsIds, otherRecordings, listSort } = useValues(sessionRecordingsPlaylistLogic)
-    const { handleSelectUnselectAll } = useActions(sessionRecordingsPlaylistLogic)
+    const { selectedRecordingsIds, otherRecordings, listSort, selectMode } = useValues(sessionRecordingsPlaylistLogic)
+    const { handleSelectUnselectAll, setSelectMode } = useActions(sessionRecordingsPlaylistLogic)
     const viewItems = useWatchViewMenuItems(filters, setFilters)
     const settingsItems = useWatchSettingsMenuItems()
+
+    useEffect(() => {
+        if (!selectMode) {
+            return
+        }
+        const onKeyDown = (event: KeyboardEvent): void => {
+            if (event.key === 'Escape') {
+                setSelectMode(false)
+            }
+        }
+        document.addEventListener('keydown', onKeyDown)
+        return () => document.removeEventListener('keydown', onKeyDown)
+    }, [selectMode, setSelectMode])
 
     const allSelected = otherRecordings.length > 0 && selectedRecordingsIds.length === otherRecordings.length
     const selectAllDisabledReason =
@@ -40,44 +53,77 @@ export function ReplayListHeader({
             className="shrink-0 bg-bg-3000 flex items-center gap-0.5 whitespace-nowrap border-b text-xs"
             data-attr="list-header-bar"
         >
-            <Tooltip title={selectAllDisabledReason ? undefined : 'Select all recordings'}>
-                <span className="flex ml-[7px] mr-1">
-                    <LemonCheckbox
-                        disabledReason={selectAllDisabledReason}
-                        checked={allSelected}
-                        onChange={(checked) => handleSelectUnselectAll(checked, 'filters')}
-                        stopPropagation
-                        data-attr="select-all-recordings"
-                        aria-label="Select all recordings"
-                    />
-                </span>
-            </Tooltip>
-            {selectedRecordingsIds.length > 0 ? (
-                <ReplayBulkBar type="filters" />
-            ) : (
-                <div className="ml-auto flex items-center gap-0.5">
-                    <LemonMenu items={viewItems} placement="bottom-end" buttonSize="xsmall" closeOnClickInside={false}>
-                        <LemonButton size="xsmall" sideIcon={<IconChevronDown />} data-attr="list-view-menu">
-                            {watchSortLabel(listSort.order ?? filters.order)}
-                        </LemonButton>
-                    </LemonMenu>
-                    <LemonMenu
-                        items={settingsItems}
-                        placement="bottom-end"
-                        buttonSize="xsmall"
-                        closeOnClickInside={false}
+            {selectMode ? (
+                <>
+                    <Tooltip title={selectAllDisabledReason ? undefined : 'Select all recordings'}>
+                        <span className="flex ml-[7px] mr-1">
+                            <LemonCheckbox
+                                disabledReason={selectAllDisabledReason}
+                                checked={allSelected}
+                                onChange={(checked) => handleSelectUnselectAll(checked, 'filters')}
+                                stopPropagation
+                                data-attr="select-all-recordings"
+                                aria-label="Select all recordings"
+                            />
+                        </span>
+                    </Tooltip>
+                    {selectedRecordingsIds.length > 0 ? (
+                        <ReplayBulkBar type="filters" />
+                    ) : (
+                        <span className="text-secondary px-1">Select recordings</span>
+                    )}
+                    <LemonButton
+                        size="xsmall"
+                        type="secondary"
+                        className="ml-auto mr-1"
+                        onClick={() => setSelectMode(false)}
+                        tooltip="Done selecting (Esc)"
+                        data-attr="list-select-done"
                     >
-                        <LemonButton
-                            size="xsmall"
-                            icon={<IconGear />}
-                            tooltip="List settings"
-                            aria-label="List settings"
-                            data-attr="list-settings-menu"
-                        />
-                    </LemonMenu>
-                    <LemonDivider vertical className="my-1 mx-0.5" />
-                    {collapseButton}
-                </div>
+                        Done
+                    </LemonButton>
+                </>
+            ) : (
+                <>
+                    <LemonButton
+                        size="xsmall"
+                        icon={<IconCheckbox />}
+                        className="ml-1"
+                        onClick={() => setSelectMode(true)}
+                        disabledReason={otherRecordings.length === 0 ? 'No recordings' : undefined}
+                        data-attr="list-select-mode"
+                    >
+                        Select
+                    </LemonButton>
+                    <div className="ml-auto flex items-center gap-0.5">
+                        <LemonMenu
+                            items={viewItems}
+                            placement="bottom-end"
+                            buttonSize="xsmall"
+                            closeOnClickInside={false}
+                        >
+                            <LemonButton size="xsmall" sideIcon={<IconChevronDown />} data-attr="list-view-menu">
+                                {watchSortLabel(listSort.order ?? filters.order)}
+                            </LemonButton>
+                        </LemonMenu>
+                        <LemonMenu
+                            items={settingsItems}
+                            placement="bottom-end"
+                            buttonSize="xsmall"
+                            closeOnClickInside={false}
+                        >
+                            <LemonButton
+                                size="xsmall"
+                                icon={<IconGear />}
+                                tooltip="List settings"
+                                aria-label="List settings"
+                                data-attr="list-settings-menu"
+                            />
+                        </LemonMenu>
+                        <LemonDivider vertical className="my-1 mx-0.5" />
+                        {collapseButton}
+                    </div>
+                </>
             )}
         </div>
     )

@@ -123,6 +123,7 @@ export function Playlist({
         otherRecordings,
         hasNext,
         selectedRecordingOutsideFilters,
+        selectMode,
     } = useValues(sessionRecordingsPlaylistLogic)
     const { maybeLoadSessionRecordings, setFilters, setSelectedRecordingId } =
         useActions(sessionRecordingsPlaylistLogic)
@@ -155,7 +156,7 @@ export function Playlist({
 
     const renderRow = ({ item, isActive }: { item: SessionRecordingType; isActive: boolean }): JSX.Element =>
         isNewReplayLayout(replayLayout) ? (
-            <SessionRecordingPreviewCompact recording={item} isActive={isActive} selectable />
+            <SessionRecordingPreviewCompact recording={item} isActive={isActive} selectable={selectMode} />
         ) : (
             <SessionRecordingPreview recording={item} isActive={isActive} selectable />
         )
@@ -388,7 +389,11 @@ export function Playlist({
                                 until you close it.
                             </LemonBanner>
                         )}
-                        <div className="overflow-y-auto flex-1 min-h-0" onScroll={handleScroll} ref={setScrollEl}>
+                        <div
+                            className="overflow-y-auto flex-1 min-h-0 [scrollbar-gutter:stable] [scrollbar-width:thin]"
+                            onScroll={handleScroll}
+                            ref={setScrollEl}
+                        >
                             <OngoingRecordingsGroup
                                 count={ongoingRecordings.length}
                                 holdsActive={ongoingRecordings.some((r) => r.id === activeItemId)}

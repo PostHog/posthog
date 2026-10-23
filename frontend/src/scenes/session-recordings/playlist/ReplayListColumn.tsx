@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import { ReactNode } from 'react'
 
 import { IconSparkles } from '@posthog/icons'
@@ -33,6 +33,8 @@ export interface ReplayListColumnProps {
 /** The list column's segment switch: What to watch, All recordings, and the open recording's Moments. */
 export function ReplayListColumn(props: ReplayListColumnProps): JSX.Element {
     const { activeSessionRecording } = useValues(sessionRecordingsPlaylistLogic)
+    // Keeps the chosen segment alive while the branches below mount and unmount around it.
+    useMountedLogic(replayListColumnLogic({ logicKey: props.logicKey }))
     return activeSessionRecording ? (
         <ReplayListColumnForRecording {...props} recording={activeSessionRecording} />
     ) : (

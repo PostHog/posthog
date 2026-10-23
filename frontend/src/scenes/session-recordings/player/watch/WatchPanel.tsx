@@ -6,6 +6,7 @@ import { SummarizeRecordingBar } from 'products/replay_vision/frontend/component
 import { visionSurfaceShown } from 'products/replay_vision/frontend/utils/visionSurface'
 
 import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
+import { DebugModeBanner } from './DebugModeBanner'
 import { MomentTicker } from './MomentTicker'
 import { RecordingCommentsList } from './RecordingCommentsList'
 import { RecordingDebugSection } from './RecordingDebugSection'
@@ -29,10 +30,12 @@ export function WatchPanel({
 
     return (
         <div className="flex flex-col gap-4 px-1 pt-3 pb-6" data-attr="watch-panel">
+            <DebugModeBanner />
             {vision && <MomentTicker sessionId={sessionRecordingId} />}
             <RecordingTitleBlock />
-            {vision && <SummarizeRecordingBar extraActions={summaryActions} />}
-            <RecordingOverviewDisclosure />
+            <RecordingOverviewDisclosure
+                actions={vision ? <SummarizeRecordingBar inline extraActions={summaryActions} /> : summaryActions}
+            />
             <RecordingCommentsList sessionId={sessionRecordingId} />
             {sidebarOpen && watchDebugDock === 'bottom' && <RecordingDebugSection />}
             <RecordingSections />

@@ -64,8 +64,7 @@ export const replayListColumnLogic = kea<replayListColumnLogicType>([
             (s) => [s.segment],
             (segment: ReplayListSegment | null) =>
                 (picksMode: 'picks' | 'recordings' | null, momentsAvailable: boolean): ReplayListSegment => {
-                    // Like the sidebar landing on Observations: the open recording's moments show until a pick is made.
-                    const chosen = segment ?? (momentsAvailable ? 'moments' : (picksMode ?? 'recordings'))
+                    const chosen = segment ?? picksMode ?? 'recordings'
                     if (chosen === 'picks' && picksMode === null) {
                         return 'recordings'
                     }

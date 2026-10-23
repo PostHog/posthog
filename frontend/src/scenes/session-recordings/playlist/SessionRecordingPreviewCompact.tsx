@@ -23,7 +23,6 @@ import { asDisplay } from 'products/persons/frontend/person-utils'
 
 import { gatherIconProperties } from './gatherIconProperties'
 import { ItemCheckbox } from './ItemCheckbox'
-import { SessionRecordingPreviewActivity } from './SessionRecordingPreviewActivity'
 import { sessionRecordingsListPropertiesLogic } from './sessionRecordingsListPropertiesLogic'
 import { DEFAULT_RECORDING_FILTERS_ORDER_BY, sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic'
 import { UnwatchedIndicator } from './UnwatchedIndicator'
@@ -81,7 +80,7 @@ export const SessionRecordingPreviewCompact = memo(
         selectable = false,
     }: SessionRecordingPreviewCompactProps): JSX.Element {
         const { playlistTimestampFormat } = useValues(playerSettingsLogic)
-        const { filters, selectedRecordingsIds } = useValues(sessionRecordingsPlaylistLogic)
+        const { filters } = useValues(sessionRecordingsPlaylistLogic)
         const { recordingPropertiesById, recordingPropertiesLoading } = useValues(sessionRecordingsListPropertiesLogic)
 
         const order = filters.order || DEFAULT_RECORDING_FILTERS_ORDER_BY
@@ -113,10 +112,15 @@ export const SessionRecordingPreviewCompact = memo(
             <DraggableToNotebook href={urls.replaySingle(recording.id)}>
                 <div
                     className={clsx(
-                        'SessionRecordingPreview SessionRecordingPreview--compact group flex items-center gap-x-2 overflow-hidden cursor-pointer py-1.5 px-2 text-xs',
+                        'SessionRecordingPreview SessionRecordingPreview--compact group flex items-center gap-x-2 overflow-hidden cursor-pointer py-1.5 px-2 text-[11px]',
                         isActive && 'SessionRecordingPreview--active'
                     )}
                 >
+                    {selectable && (
+                        <span className="shrink-0 flex items-center [&_label]:min-h-0">
+                            <ItemCheckbox recording={recording} />
+                        </span>
+                    )}
                     {loading ? (
                         <LemonSkeleton className="w-8 h-8 shrink-0 rounded" />
                     ) : (
@@ -133,29 +137,15 @@ export const SessionRecordingPreviewCompact = memo(
                                 </div>
                             }
                         >
-                            <div className="relative w-8 h-8 shrink-0">
-                                <div className="grid grid-cols-2 gap-0.5 p-0.5 w-8 h-8 rounded border bg-surface-secondary ph-no-capture">
-                                    {iconProperties.map(({ property, value }) => (
-                                        <span
-                                            key={property}
-                                            className="flex items-center justify-center rounded-sm bg-surface-primary leading-none text-[11px]"
-                                        >
-                                            <PropertyIcon property={property} value={value} />
-                                        </span>
-                                    ))}
-                                </div>
-                                {selectable && (
-                                    // Takes the tile's place rather than its own column, so rows keep their width.
+                            <div className="grid grid-cols-2 gap-0.5 p-0.5 w-8 h-8 shrink-0 rounded border bg-surface-secondary ph-no-capture">
+                                {iconProperties.map(({ property, value }) => (
                                     <span
-                                        className={clsx(
-                                            'absolute inset-0 flex items-center justify-center rounded bg-surface-primary',
-                                            selectedRecordingsIds.length === 0 &&
-                                                'opacity-0 group-hover:opacity-100 focus-within:opacity-100'
-                                        )}
+                                        key={property}
+                                        className="flex items-center justify-center rounded-sm bg-surface-primary leading-none text-[11px]"
                                     >
-                                        <ItemCheckbox recording={recording} />
+                                        <PropertyIcon property={property} value={value} />
                                     </span>
-                                )}
+                                ))}
                             </div>
                         </Tooltip>
                     )}
@@ -164,7 +154,7 @@ export const SessionRecordingPreviewCompact = memo(
                         <div className="flex items-center gap-x-1.5">
                             <span
                                 className={clsx(
-                                    'truncate grow ph-no-capture',
+                                    'truncate grow text-xs ph-no-capture',
                                     recording.viewed ? 'font-medium' : 'font-semibold'
                                 )}
                             >
@@ -175,15 +165,6 @@ export const SessionRecordingPreviewCompact = memo(
                                     <LemonTag type="warning" size="small" className="shrink-0">
                                         Doesn't match filters
                                     </LemonTag>
-                                </Tooltip>
-                            )}
-                            {errorCount > 0 && (
-                                <Tooltip title={`${errorCount} console error${errorCount === 1 ? '' : 's'}`}>
-                                    <span
-                                        className="w-2 h-2 rounded-full bg-danger shrink-0"
-                                        role="img"
-                                        aria-label="Has console errors"
-                                    />
                                 </Tooltip>
                             )}
                             {playlistTimestampFormat === TimestampFormat.Relative ? (
@@ -213,21 +194,24 @@ export const SessionRecordingPreviewCompact = memo(
                                     {recording.keypress_count}
                                 </span>
                             </Tooltip>
+                            {errorCount > 0 && order !== 'console_error_count' && (
+                                <Tooltip title="Console errors">
+                                    <span className="flex items-center gap-x-0.5 shrink-0 text-danger">
+                                        <IconBug />
+                                        {errorCount}
+                                    </span>
+                                </Tooltip>
+                            )}
                             <span className="grow" />
                             <SortMetric recording={recording} order={order} />
                         </div>
-                        {isActive && (
-                            <>
-                                <SessionRecordingPreviewActivity recording={recording} />
-                                {recording.start_url && (
-                                    <span
-                                        title={`First URL: ${recording.start_url}`}
-                                        className="truncate text-secondary ph-no-capture"
-                                    >
-                                        {recording.start_url.replace(/https?:\/\//g, '').split(/[?|#]/)[0]}
-                                    </span>
-                                )}
-                            </>
+                        {isActive && recording.start_url && (
+                            <span
+                                title={`First URL: ${recording.start_url}`}
+                                className="truncate text-secondary ph-no-capture"
+                            >
+                                {recording.start_url.replace(/https?:\/\//g, '').split(/[?|#]/)[0]}
+                            </span>
                         )}
                     </div>
 
