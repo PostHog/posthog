@@ -9,7 +9,6 @@ import posthog.uuidt
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("posthog", "1411_personalapikey_expires_at"),
         ("signals", "0194_report_monitoring_attempt"),
@@ -166,9 +165,7 @@ class Migration(migrations.Migration):
         ),
         migrations.AddIndex(
             model_name="signalreviewerexclusion",
-            index=models.Index(
-                fields=["team", "status"], name="signals_rev_excl_status_idx"
-            ),
+            index=models.Index(fields=["team", "status"], name="signals_rev_excl_status_idx"),
         ),
         migrations.AddConstraint(
             model_name="signalreviewerexclusion",
@@ -194,8 +191,6 @@ class Migration(migrations.Migration):
         ),
         migrations.AddConstraint(
             model_name="signalreviewerexclusionrevision",
-            constraint=models.UniqueConstraint(
-                fields=("exclusion", "revision"), name="signals_rev_excl_revision_uniq"
-            ),
+            constraint=models.UniqueConstraint(fields=("exclusion", "revision"), name="signals_rev_excl_revision_uniq"),
         ),
     ]
