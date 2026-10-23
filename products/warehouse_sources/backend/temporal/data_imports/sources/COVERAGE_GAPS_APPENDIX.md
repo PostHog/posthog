@@ -7655,14 +7655,14 @@ Note: Mailtrap publishes 10 OpenAPI specs covering five distinct products (email
 
 ## Marketo — gaps
 
-Today (10): `activities`, `activity_types`, `campaigns`, `emails`, `forms`, `landing_pages`, `leads`, `lists`, `programs`, `smart_campaigns`
+Today (14): `activities`, `activity_types`, `campaigns`, `channels`, `emails`, `folders`, `forms`, `landing_pages`, `leads`, `list_members`, `lists`, `program_members`, `programs`, `smart_campaigns`
 
 Diffed against: <https://raw.githubusercontent.com/AdobeDocs/marketo-apis/main/static/swagger-mapi.json>
 
-- [ ] `Folders (GET /rest/asset/v1/folders.json)` — resolve folder IDs on programs, emails, forms, and landing pages (high)
-- [ ] `Channels (GET /rest/asset/v1/channels.json)` — supply program statuses and success flags for conversion analysis (high)
-- [ ] `Program members (GET /rest/v1/programs/{programId}/members.json)` — measure program participation, member status, and marketing success by lead (high)
-- [ ] `List members (GET /rest/v1/lists/{listId}/leads.json)` — materialize static-list membership for audience and campaign analysis (high)
+- [x] `Folders (GET /rest/asset/v1/folders.json)` — resolve folder IDs on programs, emails, forms, and landing pages (high). Added as `folders` (full refresh, browsed 20 levels deep, keyed on `id` + `folderType` because folder and program ids are numbered separately).
+- [x] `Channels (GET /rest/asset/v1/channels.json)` — supply program statuses and success flags for conversion analysis (high). Added as `channels` (full refresh).
+- [x] `Program members (GET /rest/v1/programs/{programId}/members.json)` — measure program participation, member status, and marketing success by lead (high). Added as `program_members` (fan-out over programs in 7-day `updatedAt` windows from the start date, incremental on `updatedAt`).
+- [x] `List members (GET /rest/v1/lists/{listId}/leads.json)` — materialize static-list membership for audience and campaign analysis (high). Added as `list_members` (fan-out over static lists, full refresh).
 - [ ] `Opportunities (GET /rest/v1/opportunities.json)` — connect marketing activity with pipeline and revenue outcomes (high)
 - [ ] `Companies (GET /rest/v1/companies.json)` — resolve company references on leads for account-level marketing analysis (high)
 - [ ] `SalesPersons (GET /rest/v1/salespersons.json)` — resolve sales-owner references for lead routing and performance analysis (high)
