@@ -2,7 +2,7 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
-from drf_spectacular.utils import OpenApiResponse, extend_schema
+from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_serializer
 from rest_framework import serializers, status, viewsets
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
@@ -80,6 +80,8 @@ class EmailLookupSerializer(serializers.Serializer):
         return cursor
 
 
+# drf-spectacular types a `list` action's response as an array unless told it is one page object.
+@extend_schema_serializer(many=False)
 class EmailStatusPageSerializer(serializers.Serializer):
     results = EmailStatusSerializer(many=True, help_text="The recipient's emails, newest first.")
     next_cursor = serializers.UUIDField(
