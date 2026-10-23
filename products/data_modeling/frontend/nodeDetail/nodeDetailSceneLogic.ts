@@ -130,6 +130,9 @@ export interface nodeDetailSceneLogicActions {
         dataWarehouseSavedQueries: DataWarehouseSavedQuerySummary[]
         payload?: string
     } // dataWarehouseViewsLogic
+    materializationChanged: (viewId: string) => {
+        viewId: string
+    } // dataWarehouseViewsLogic
     updateDataWarehouseSavedQuerySuccess: (
         dataWarehouseSavedQueries: DataWarehouseSavedQuerySummary[],
         payload?:
@@ -330,7 +333,7 @@ export const nodeDetailSceneLogic = kea<nodeDetailSceneLogicType>([
         values: [teamLogic, ['currentProjectId']],
         actions: [
             dataWarehouseViewsLogic,
-            ['updateDataWarehouseSavedQuerySuccess', 'deleteDataWarehouseSavedQuerySuccess'],
+            ['updateDataWarehouseSavedQuerySuccess', 'deleteDataWarehouseSavedQuerySuccess', 'materializationChanged'],
         ],
     })),
     actions({
@@ -741,6 +744,13 @@ export const nodeDetailSceneLogic = kea<nodeDetailSceneLogicType>([
             // This page is about the deleted view, so it has nowhere left to stand. The same delete runs
             // from the SQL editor, which keeps its own tab, so the navigation belongs here and not in the
             // shared materialization logic.
+            // Reverting and cancelling only announce themselves here, so without this the scene keeps
+            // is_materialized true and the next update re-materializes a view the user just reverted.
+            materializationChanged: ({ viewId }) => {
+                if (viewId === values.node?.saved_query_id) {
+                    actions.loadSavedQuery()
+                }
+            },
             deleteDataWarehouseSavedQuerySuccess: ({ payload }) => {
                 if (payload && payload === values.node?.saved_query_id) {
                     router.actions.push(urls.models())
