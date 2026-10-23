@@ -18,7 +18,7 @@ from posthog.models.personal_api_key import hash_key_value
 from posthog.models.utils import generate_random_token_secret
 from posthog.uuidt import UUIDT
 
-RANK = {"queued": 0, "sent": 4, "delivered": 5, "bounced": 6}
+RANK = {"queued": 0, "sent": 3, "delivered": 5, "bounced": 6}
 SHARED_SALT_KEY = "00beef0000beef0000beef0000beef00"
 # The email pipeline's hash of jane.doe@example.com under SHARED_SALT_KEY, its shared test vector.
 JANE_DOE_HASH = "e7b76d6c58afac8ef397725c6b81a97de6e27926a51b37ee79b281032c3f2aa7"
