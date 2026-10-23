@@ -84,8 +84,15 @@ fn verify_js_map(map: &str, minified_source: &str, frame: &Value) -> Result<Valu
         .context("lineno is out of range")?;
     let column = generated_column(frame)?;
     let decoded = sourcemap::decode_slice(map.as_bytes()).context("invalid source map")?;
+    let decoded = match decoded {
+        sourcemap::DecodedMap::Index(index) => sourcemap::DecodedMap::Regular(
+            index.flatten().context("flattening indexed source map")?,
+        ),
+        other => other,
+    };
     let token = decoded
         .lookup_token(line, column)
+        .filter(|token| token.get_dst_line() == line)
         .context("no mapping for frame location")?;
     let source = token.get_source().context("mapping has no source")?;
     let source_view = sourcemap::SourceView::new(minified_source.into());
@@ -189,6 +196,64 @@ fn hex(value: &str) -> Result<u64> {
         .with_context(|| format!("invalid address: {value}"))
 }
 
+const MAX_NATIVE_DEBUG_BYTES: u64 = 512 * 1024 * 1024;
+
+fn read_bounded<R: Read>(reader: R, declared_size: u64, limit: u64) -> Result<Vec<u8>> {
+    if declared_size > limit {
+        bail!("DWARF entry exceeds the {limit}-byte limit");
+    }
+    let mut binary = Vec::new();
+    reader
+        .take(limit + 1)
+        .read_to_end(&mut binary)
+        .context("decompressing DWARF entry")?;
+    if binary.len() as u64 > limit {
+        bail!("DWARF entry exceeds the {limit}-byte limit");
+    }
+    Ok(binary)
+}
+
+fn native_bundle(data: &[u8], apple: bool) -> Result<Vec<u8>> {
+    if apple {
+        return read_symbol_data::<AppleDsym>(data)
+            .map(|set| set.data)
+            .context("expected a dSYM symbol set");
+    }
+    let elf_error = match read_symbol_data::<ElfDebugInfo>(data) {
+        Ok(set) => return Ok(set.data),
+        Err(error) => error,
+    };
+    read_symbol_data::<AppleDsym>(data)
+        .map(|set| set.data)
+        .with_context(|| format!("expected an ELF or dSYM symbol set (ELF decode: {elf_error})"))
+}
+
+fn find_native_object<'d>(
+    archive: &Archive<'d>,
+    expected_id: &str,
+) -> Result<symbolic::debuginfo::Object<'d>> {
+    let mut parse_error = None;
+    for candidate in archive.objects() {
+        match candidate {
+            Ok(candidate)
+                if candidate
+                    .debug_id()
+                    .to_string()
+                    .eq_ignore_ascii_case(expected_id) =>
+            {
+                return Ok(candidate);
+            }
+            Ok(_) => {}
+            Err(err) if parse_error.is_none() => parse_error = Some(err),
+            Err(_) => {}
+        }
+    }
+    if let Some(err) = parse_error {
+        return Err(err).context("parsing native object");
+    }
+    bail!("symbol bundle has no object matching the frame's debug ID");
+}
+
 fn verify_native(
     zip_data: &[u8],
     frame: &Value,
@@ -197,7 +262,6 @@ fn verify_native(
 ) -> Result<Value> {
     let mut zip =
         zip::ZipArchive::new(Cursor::new(zip_data)).context("invalid symbol bundle ZIP")?;
-    let mut binary = Vec::new();
     let name = if zip.file_names().any(|name| name == "dwarf") {
         "dwarf".to_string()
     } else {
@@ -206,15 +270,13 @@ fn verify_native(
             .context("no DWARF file in symbol bundle")?
             .to_string()
     };
-    zip.by_name(&name)?.read_to_end(&mut binary)?;
+    let file = zip.by_name(&name).context("opening DWARF entry")?;
+    let declared_size = file.size();
+    let binary = read_bounded(file, declared_size, MAX_NATIVE_DEBUG_BYTES)?;
     let archive = Archive::parse(&binary).context("invalid debug information")?;
     // Prefer the slice identified by the exception's debug image, rather than the first
     // slice in a universal dSYM (which may be for a different architecture).
-    let object = archive
-        .objects()
-        .filter_map(Result::ok)
-        .find(|obj| obj.debug_id().to_string().eq_ignore_ascii_case(expected_id))
-        .context("symbol bundle has no object matching the frame's debug ID")?;
+    let object = find_native_object(&archive, expected_id)?;
     let mut converter = SymCacheConverter::new();
     converter
         .process_object(&object)
@@ -349,15 +411,8 @@ fn resolve_frames(args: &ResolveArgs) -> Result<Value> {
         }
         "apple" | "native" => {
             let image = image.as_ref().context("missing debug image")?;
-            if platform == "apple" {
-                let parsed: AppleDsym =
-                    read_symbol_data(&data).context("expected a dSYM symbol set")?;
-                verify_native(&parsed.data, &frame, image, selected)?
-            } else {
-                let parsed: ElfDebugInfo =
-                    read_symbol_data(&data).context("expected an ELF symbol set")?;
-                verify_native(&parsed.data, &frame, image, selected)?
-            }
+            let bundle = native_bundle(&data, platform == "apple")?;
+            verify_native(&bundle, &frame, image, selected)?
         }
         _ => bail!("unsupported platform: {platform}"),
     };
@@ -546,12 +601,32 @@ mod tests {
         let result = verify_js_map(&parsed.sourcemap, &parsed.minified_source, &frame).unwrap();
         assert_eq!(result["source"], "src/boom.js");
         assert_eq!(result["line"], 1);
+        let missing = verify_js_map(
+            &parsed.sourcemap,
+            &parsed.minified_source,
+            &json!({"lineno":2,"colno":0}),
+        )
+        .unwrap_err();
+        assert!(missing
+            .to_string()
+            .contains("no mapping for frame location"));
         assert!(verify_js_map(
             &parsed.sourcemap,
             &parsed.minified_source,
             &json!({"lineno":0,"colno":0})
         )
         .is_err());
+    }
+
+    #[test]
+    fn indexed_js_map_respects_section_line_offset() {
+        let map = r#"{"version":3,"sections":[{"offset":{"line":1,"column":0},"map":{"version":3,"sources":["src/app.js"],"names":[],"mappings":"AAAA"}}]}"#;
+        let frame = json!({"lineno":2,"colno":0});
+        assert_eq!(
+            verify_js_map(map, "", &frame).unwrap()["source"],
+            "src/app.js"
+        );
+        assert!(verify_js_map(map, "", &json!({"lineno":3,"colno":0})).is_err());
     }
 
     #[test]
@@ -610,6 +685,39 @@ mod tests {
             &frame,
         )
         .is_err());
+    }
+
+    #[test]
+    fn native_accepts_dsym_or_elf_but_apple_requires_dsym() {
+        let dsym = write_symbol_data(AppleDsym {
+            data: vec![1, 2, 3],
+        })
+        .unwrap();
+        let elf = write_symbol_data(ElfDebugInfo { data: vec![4, 5] }).unwrap();
+        assert_eq!(native_bundle(&dsym, false).unwrap(), [1, 2, 3]);
+        assert_eq!(native_bundle(&dsym, true).unwrap(), [1, 2, 3]);
+        assert_eq!(native_bundle(&elf, false).unwrap(), [4, 5]);
+        assert!(native_bundle(&elf, true).is_err());
+    }
+
+    #[test]
+    fn native_debug_entry_is_bounded_even_with_incorrect_size_header() {
+        assert_eq!(
+            read_bounded(Cursor::new([1, 2, 3]), 3, 3).unwrap(),
+            [1, 2, 3]
+        );
+        assert!(read_bounded(Cursor::new([1, 2, 3]), 3, 2).is_err());
+        assert!(read_bounded(Cursor::new([1, 2, 3]), 2, 2).is_err());
+    }
+
+    #[test]
+    fn invalid_native_object_reports_parse_failure_not_debug_id_mismatch() {
+        let mut binary = [0; 16];
+        binary[..4].copy_from_slice(b"\x7fELF");
+        let archive = Archive::parse(&binary).unwrap();
+        assert!(archive.objects().next().unwrap().is_err());
+        let error = find_native_object(&archive, "unknown").unwrap_err();
+        assert!(error.to_string().contains("parsing native object"));
     }
 
     #[test]

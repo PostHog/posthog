@@ -496,7 +496,18 @@ impl Cli {
                     crate::download::extract(&args)?;
                 }
                 SymbolSetsSubcommand::Resolve(args) => {
-                    crate::resolve::resolve(&args)?;
+                    let local_capture = if args.file.is_some() {
+                        set_telemetry_env_id_from_environment();
+                        Some(capture_command_run_without_context())
+                    } else {
+                        context().capture_command_invoked("symbolset_resolve");
+                        None
+                    };
+                    let result = crate::resolve::resolve(&args);
+                    if let Some(handle) = local_capture {
+                        let _ = handle.join();
+                    }
+                    result?;
                 }
             },
             Commands::Release { cmd } => match cmd {
