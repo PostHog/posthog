@@ -4,8 +4,13 @@
 
 use std::sync::Arc;
 
-use arrow_array::{ArrayRef, Int64Array, RecordBatch, StringArray};
-use arrow_schema::{ArrowError, DataType, Field, Schema};
+use arrow_array::builder::{Int32Builder, Int64Builder, ListBuilder, StringBuilder, StructBuilder};
+use arrow_array::{ArrayRef, BooleanArray, Int32Array, Int64Array, RecordBatch, StringArray};
+use arrow_schema::{ArrowError, DataType, Field, Fields, Schema};
+use replay_core_v4::inspect::session::Moment;
+use replay_core_v4::inspect::stats::BlockStats;
+
+use crate::write::Written;
 use parquet::arrow::ArrowWriter;
 use parquet::basic::Compression;
 use parquet::errors::ParquetError;
@@ -34,6 +39,11 @@ pub fn write_parquet(batch: &RecordBatch) -> Result<Vec<u8>, IndexError> {
 /// A count or size as its signed column. Real values fit, and a larger one saturates.
 fn int64(value: u64) -> i64 {
     i64::try_from(value).unwrap_or(i64::MAX)
+}
+
+/// A count as its signed column. Real values fit, and a larger one saturates.
+fn int32(value: u32) -> i32 {
+    i32::try_from(value).unwrap_or(i32::MAX)
 }
 
 /// Where one inline image sits in a pack in `images-v4`.
@@ -84,6 +94,267 @@ pub fn image_index(rows: &[ImageIndexRow]) -> Result<RecordBatch, IndexError> {
         )),
     ];
     Ok(RecordBatch::try_new(Arc::new(schema), columns)?)
+}
+
+/// One block's index row: where it is, what the inspector found, and its sealed URLs.
+pub struct BlockIndexRow<'a> {
+    pub written: &'a Written,
+    pub stats: &'a BlockStats,
+    pub moments: &'a [Moment],
+    pub snapshot_source: Option<&'a str>,
+    pub snapshot_library: Option<&'a str>,
+    /// The block's visited URLs as a v4 JSON envelope under the session key.
+    pub urls: Option<String>,
+}
+
+fn moment_fields() -> Fields {
+    Fields::from(vec![
+        Field::new("kind", DataType::Utf8, false),
+        Field::new("window_id", DataType::Utf8, false),
+        Field::new("ts_ms", DataType::Int64, false),
+        Field::new("event_index", DataType::Int32, false),
+    ])
+}
+
+fn moments_column(rows: &[BlockIndexRow<'_>]) -> ArrayRef {
+    let fields = moment_fields();
+    let mut builder = ListBuilder::new(StructBuilder::from_fields(fields.clone(), rows.len()))
+        .with_field(Field::new("item", DataType::Struct(fields), false));
+    for row in rows {
+        let entries = builder.values();
+        for moment in row.moments {
+            entries
+                .field_builder::<StringBuilder>(0)
+                .expect("kind")
+                .append_value(moment.kind);
+            entries
+                .field_builder::<StringBuilder>(1)
+                .expect("window_id")
+                .append_value(&moment.window_id);
+            entries
+                .field_builder::<Int64Builder>(2)
+                .expect("ts_ms")
+                .append_value(moment.ts_ms);
+            entries
+                .field_builder::<Int32Builder>(3)
+                .expect("event_index")
+                .append_value(int32(moment.event_index));
+            entries.append(true);
+        }
+        builder.append(true);
+    }
+    Arc::new(builder.finish())
+}
+
+/// A list of strings per row, with no null lists or items.
+fn strings_column(rows: &[BlockIndexRow<'_>], values: fn(&BlockStats) -> &[String]) -> ArrayRef {
+    let mut builder = ListBuilder::new(StringBuilder::new()).with_field(Field::new(
+        "item",
+        DataType::Utf8,
+        false,
+    ));
+    for row in rows {
+        for value in values(row.stats) {
+            builder.values().append_value(value);
+        }
+        builder.append(true);
+    }
+    Arc::new(builder.finish())
+}
+
+pub fn block_index(rows: &[BlockIndexRow<'_>]) -> Result<RecordBatch, IndexError> {
+    let mut fields = Vec::new();
+    let mut columns: Vec<ArrayRef> = Vec::new();
+    let mut push = |name: &str, data_type: DataType, nullable: bool, column: ArrayRef| {
+        fields.push(Field::new(name, data_type, nullable));
+        columns.push(column);
+    };
+    macro_rules! utf8 {
+        ($name:literal, $value:expr) => {
+            push(
+                $name,
+                DataType::Utf8,
+                false,
+                Arc::new(StringArray::from_iter_values(rows.iter().map($value))),
+            )
+        };
+    }
+    macro_rules! optional_utf8 {
+        ($name:literal, $value:expr) => {
+            push(
+                $name,
+                DataType::Utf8,
+                true,
+                Arc::new(rows.iter().map($value).collect::<StringArray>()),
+            )
+        };
+    }
+    macro_rules! stat {
+        ($array:ident, $data_type:expr, $convert:expr, $($field:ident),*) => {
+            $( push(stringify!($field), $data_type, false, Arc::new($array::from_iter_values(rows.iter().map(|r| $convert(r.stats.$field))))); )*
+        };
+    }
+    macro_rules! flag {
+        ($($field:ident),*) => {
+            $( push(stringify!($field), DataType::Boolean, false, Arc::new(rows.iter().map(|r| Some(r.stats.$field)).collect::<BooleanArray>())); )*
+        };
+    }
+
+    push(
+        "team_id",
+        DataType::Int64,
+        false,
+        Arc::new(Int64Array::from_iter_values(
+            rows.iter().map(|r| r.written.session.team_id),
+        )),
+    );
+    utf8!("session_id", |r| r.written.session.session_id.clone());
+    utf8!("key_month", |r| r.written.key_month.clone());
+    utf8!("block_s3_key", |r| r.written.object_key.clone());
+    push(
+        "block_byte_start",
+        DataType::Int64,
+        false,
+        Arc::new(Int64Array::from_iter_values(
+            rows.iter().map(|r| int64(r.written.byte_start)),
+        )),
+    );
+    push(
+        "block_byte_end",
+        DataType::Int64,
+        false,
+        Arc::new(Int64Array::from_iter_values(
+            rows.iter().map(|r| int64(r.written.byte_end)),
+        )),
+    );
+    push(
+        "first_ts_ms",
+        DataType::Int64,
+        true,
+        Arc::new(
+            rows.iter()
+                .map(|r| r.stats.first_ts_ms)
+                .collect::<Int64Array>(),
+        ),
+    );
+    push(
+        "last_ts_ms",
+        DataType::Int64,
+        true,
+        Arc::new(
+            rows.iter()
+                .map(|r| r.stats.last_ts_ms)
+                .collect::<Int64Array>(),
+        ),
+    );
+    stat!(Int64Array, DataType::Int64, int64, event_count, byte_size);
+    optional_utf8!("snapshot_source", |r| r.snapshot_source);
+    optional_utf8!("snapshot_library", |r| r.snapshot_library);
+    optional_utf8!("host", |r| r.stats.host.as_deref());
+    stat!(
+        Int32Array,
+        DataType::Int32,
+        int32,
+        full_snapshots,
+        events_before_first_full_snapshot,
+        orphan_mutations,
+        decode_failures,
+        dom_nodes,
+        remote_stylesheets,
+        inline_stylesheets,
+        iframes,
+        canvases,
+        videos,
+        shadow_roots
+    );
+    stat!(
+        Int64Array,
+        DataType::Int64,
+        i64::from,
+        max_gap_ms,
+        active_ms
+    );
+    stat!(Int64Array, DataType::Int64, int64, dom_text_chars);
+    flag!(cold_start, node_cap_reached, moments_truncated, touch_input);
+    stat!(
+        Int32Array,
+        DataType::Int32,
+        int32,
+        clicks,
+        mouse_interactions,
+        rage_clicks,
+        dead_clicks,
+        keypresses,
+        scrolls,
+        mouse_moves,
+        touches,
+        touch_moves,
+        selections,
+        media_events,
+        viewport_resizes,
+        navigations,
+        console_errors,
+        console_warnings,
+        network_requests,
+        network_failures,
+        images_extracted,
+        images_inline,
+        image_urls
+    );
+    stat!(
+        Int64Array,
+        DataType::Int64,
+        int64,
+        image_bytes,
+        written_jsonl_bytes,
+        max_written_event_bytes
+    );
+    push(
+        "viewport_width",
+        DataType::Int32,
+        true,
+        Arc::new(
+            rows.iter()
+                .map(|r| r.stats.viewport_width.map(int32))
+                .collect::<Int32Array>(),
+        ),
+    );
+    push(
+        "viewport_height",
+        DataType::Int32,
+        true,
+        Arc::new(
+            rows.iter()
+                .map(|r| r.stats.viewport_height.map(int32))
+                .collect::<Int32Array>(),
+        ),
+    );
+    push(
+        "viewport_ts_ms",
+        DataType::Int64,
+        true,
+        Arc::new(
+            rows.iter()
+                .map(|r| r.stats.viewport_ts_ms)
+                .collect::<Int64Array>(),
+        ),
+    );
+    let moments = moments_column(rows);
+    push("moments", moments.data_type().clone(), false, moments);
+    let fingerprints = strings_column(rows, |s| &s.url_fingerprints);
+    push(
+        "url_fingerprints",
+        fingerprints.data_type().clone(),
+        false,
+        fingerprints,
+    );
+    let windows = strings_column(rows, |s| &s.window_ids);
+    push("window_ids", windows.data_type().clone(), false, windows);
+    optional_utf8!("urls", |r| r.urls.as_deref());
+    Ok(RecordBatch::try_new(
+        Arc::new(Schema::new(fields)),
+        columns,
+    )?)
 }
 
 #[cfg(test)]
