@@ -19,6 +19,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { ChartDisplayType } from '~/types'
 
 import { SqlChartProps } from './SqlChart'
+import { highlightChartSeries } from './sqlChartHighlighting'
 import {
     type BuildBarConfigArgs,
     type SqlLineSeriesMeta,
@@ -31,6 +32,7 @@ import { resolveSQLReferenceLines } from './sqlReferenceLines'
 
 export interface SqlChartModel<TConfig> {
     series: Series<SqlLineSeriesMeta>[]
+    selectionColors: string[]
     labels: string[]
     theme: ChartTheme
     config: TConfig
@@ -54,6 +56,7 @@ export function useSqlChartModel<
         dashboardId,
         goalLines,
         embedded,
+        isPointSelected,
         directPointClick,
         labelFormatter,
         xAxis,
@@ -171,9 +174,24 @@ export function useSqlChartModel<
         [visualizationType, xData]
     )
 
+    const highlightedSeries = useMemo(
+        () => highlightChartSeries(series, theme.colors, isPointSelected),
+        [series, theme.colors, isPointSelected]
+    )
+    const selectionColors = useMemo(
+        () => series.map((item, index) => item.color || theme.colors[index % theme.colors.length]),
+        [series, theme.colors]
+    )
+
     if (!xData || !ySeriesData || series.length === 0 || !config) {
         return null
     }
 
-    return { series, labels, theme, config }
+    return {
+        series: highlightedSeries,
+        selectionColors,
+        labels,
+        theme,
+        config,
+    }
 }

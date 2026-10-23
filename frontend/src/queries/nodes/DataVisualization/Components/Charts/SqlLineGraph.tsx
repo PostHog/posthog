@@ -8,6 +8,7 @@ import { AnnotationsLayer } from 'lib/components/AnnotationsOverlay/AnnotationsL
 import { makeChartErrorHandler } from 'products/product_analytics/frontend/insights/trends/shared/chartErrorHandler'
 
 import { type SqlChartProps } from './SqlChart'
+import { SqlChartSelection } from './SqlChartSelection'
 import { SqlChartTooltip } from './SqlChartTooltip'
 import { SqlLineSeriesMeta, buildLineChartConfig } from './sqlLineGraphAdapter'
 import { useSqlChartModel } from './useSqlChartModel'
@@ -69,6 +70,7 @@ export const SqlLineGraph = (props: SqlChartProps): JSX.Element => {
                     onPointClick={onPointClickProp ? onPointClick : undefined}
                     onError={handleChartError}
                 >
+                    <SqlChartSelection isSelected={props.isPointSelected} colors={model.selectionColors} />
                     {props.children}
                     {props.showAnnotations && props.insightNumericId && (
                         <AnnotationsLayer insightNumericId={props.insightNumericId} dates={model.labels} />

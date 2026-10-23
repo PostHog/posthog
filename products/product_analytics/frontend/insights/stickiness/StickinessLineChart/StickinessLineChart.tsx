@@ -5,6 +5,8 @@ import { TimeSeriesLineChart } from '@posthog/quill-charts'
 import type { PointClickData, Series, TimeSeriesLineChartConfig, TooltipContext } from '@posthog/quill-charts'
 
 import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
+import { useResultChartPoint } from 'lib/components/ResultMenu/resultChartSelection'
+import { ResultSelectionMarker } from 'lib/components/ResultMenu/ResultSelectionMarker'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -132,13 +134,20 @@ export function StickinessLineChart({ context }: StickinessLineChartProps): JSX.
                 yAxisScaleType,
                 valueLabels: showValuesOnSeries ? { formatter: stickinessPercentFormatter } : false,
                 showCrosshair: true,
-                tooltip: tooltipConfig,
+                tooltip: { ...tooltipConfig, resolveClickToNearestSeries: context?.dashboardResultMenu },
             }),
             curve: chartStyleCurve(stickinessFilter?.chartStyle),
             // Interactive legend is a component concern, kept out of the pure transform.
             legend: legendConfig,
         }),
-        [yAxisScaleType, showValuesOnSeries, legendConfig, tooltipConfig, stickinessFilter?.chartStyle]
+        [
+            context?.dashboardResultMenu,
+            yAxisScaleType,
+            showValuesOnSeries,
+            legendConfig,
+            tooltipConfig,
+            stickinessFilter?.chartStyle,
+        ]
     )
 
     const canHandleClick = !!context?.onDataPointClick || !!hasPersonsModal
@@ -155,11 +164,14 @@ export function StickinessLineChart({ context }: StickinessLineChartProps): JSX.
         [context, hasPersonsModal, interval, querySource, indexedResults]
     )
 
+    const captureResultPoint = useResultChartPoint()
+
     const onPointClick = useCallback(
         (clickData: PointClickData) => {
+            captureResultPoint(clickData)
             handleStickinessChartClick(clickData.series.key, clickData.dataIndex, clickDeps)
         },
-        [clickDeps]
+        [captureResultPoint, clickDeps]
     )
 
     const altTitle = useMemo(() => buildStickinessTooltipTitle(interval), [interval])
@@ -223,6 +235,8 @@ export function StickinessLineChart({ context }: StickinessLineChartProps): JSX.
             className="LineGraph"
             dataAttr="trend-line-graph"
             onError={handleChartError}
-        />
+        >
+            <ResultSelectionMarker />
+        </TimeSeriesLineChart>
     )
 }

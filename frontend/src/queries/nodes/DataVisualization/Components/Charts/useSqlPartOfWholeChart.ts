@@ -9,6 +9,7 @@ import { ChartSettings } from '~/queries/schema/schema-general'
 
 import { AxisSeriesSettings } from '../../dataVisualizationLogic'
 import { SqlChartProps } from './SqlChart'
+import { dimChartColor } from './sqlChartHighlighting'
 import { formatSqlSeriesValue } from './sqlLineGraphAdapter'
 import { buildPieSeries, buildPieSlices, showsLegendByDefault, showsPieTotal } from './sqlPieGraphAdapter'
 
@@ -29,14 +30,22 @@ export function useSqlPartOfWholeChart(
         yData,
         chartSettings,
         labelFormatter,
-    }: Pick<SqlChartProps, 'xData' | 'yData' | 'labelFormatter'> & { chartSettings: ChartSettings },
+        isSliceSelected,
+    }: Pick<SqlChartProps, 'xData' | 'yData' | 'labelFormatter' | 'isSliceSelected'> & { chartSettings: ChartSettings },
     isProportionBar: boolean
 ): SqlPartOfWholeChart {
     const theme = useChartTheme()
     const series = useMemo(() => {
         const raw = buildPieSeries(buildPieSlices(xData, yData))
-        return labelFormatter ? raw.map((series) => ({ ...series, label: labelFormatter(series.label) })) : raw
-    }, [xData, yData, labelFormatter])
+        return raw.map((item, index) => ({
+            ...item,
+            label: labelFormatter ? labelFormatter(item.label) : item.label,
+            color:
+                isSliceSelected && !isSliceSelected(item.key)
+                    ? dimChartColor(item.color || theme.colors[index % theme.colors.length])
+                    : item.color,
+        }))
+    }, [xData, yData, labelFormatter, isSliceSelected, theme.colors])
     const formattingSettings = yData[0]?.settings
 
     // Toggled-off slices aren't persisted (SQL insights have nowhere to save them), but the legend

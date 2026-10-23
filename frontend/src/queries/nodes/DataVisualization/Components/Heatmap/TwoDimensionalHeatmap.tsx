@@ -166,9 +166,11 @@ const getNextSortingTitle = (currentSorting: Sorting | null, columnKey: string, 
 
 export function TwoDimensionalHeatmap({
     allowSorting = true,
+    isSelected,
     onInspect,
 }: {
     allowSorting?: boolean
+    isSelected?: (record: Record<string, unknown>) => boolean
     onInspect?: (record: Record<string, unknown>) => void
 }): JSX.Element {
     const { response, columns, chartSettings, query } = useValues(dataVisualizationLogic)
@@ -449,6 +451,20 @@ export function TwoDimensionalHeatmap({
                                                     size="xsmall"
                                                     className="w-full justify-center !text-inherit"
                                                     tooltip="Explore this result"
+                                                    style={{
+                                                        opacity:
+                                                            isSelected &&
+                                                            !isSelected(
+                                                                Object.fromEntries(
+                                                                    columns.map((column) => [
+                                                                        column.name,
+                                                                        sourceRow[column.dataIndex],
+                                                                    ])
+                                                                )
+                                                            )
+                                                                ? 0.25
+                                                                : 1,
+                                                    }}
                                                     onClick={() =>
                                                         onInspect(
                                                             Object.fromEntries(

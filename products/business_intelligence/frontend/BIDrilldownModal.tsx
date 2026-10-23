@@ -23,7 +23,12 @@ export function BIDrilldownModal({
     const { selection, queries, showRows, hierarchyDrills } = useValues(biDrilldownLogic(props))
     const { close, viewRows } = useActions(biDrilldownLogic(props))
     return (
-        <LemonModal title="Explore this result" isOpen={!!selection} onClose={close} width={showRows ? '90vw' : 520}>
+        <LemonModal
+            title="Explore this result"
+            isOpen={!!selection && (!(props.dashboardMenu || props.onFilterDashboard) || showRows)}
+            onClose={close}
+            width={showRows ? '90vw' : 520}
+        >
             {queries ? (
                 <div className="flex flex-col gap-3">
                     <p className="m-0">

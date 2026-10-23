@@ -28,6 +28,7 @@ interface TableProps {
     context: QueryContext<VisualizationNode> | undefined
     cachedResults: HogQLQueryResponse | undefined
     embedded?: boolean
+    isSelected?: (record: Record<string, unknown>) => boolean
     onInspect?: (record: Record<string, unknown>) => void
 }
 
@@ -319,8 +320,21 @@ export const Table = (props: TableProps): JSX.Element => {
                             <LemonButton
                                 type="tertiary"
                                 size="xsmall"
-                                // The negative margin cancels the button padding, so the value lines up with the header text
                                 className="-mx-1.5 max-w-[calc(100%+0.75rem)] !text-inherit"
+                                style={{
+                                    opacity:
+                                        props.isSelected &&
+                                        !props.isSelected(
+                                            Object.fromEntries(
+                                                sourceColumns.map((column, index) => [
+                                                    column.column.name,
+                                                    sourceRow[index]?.value,
+                                                ])
+                                            )
+                                        )
+                                            ? 0.25
+                                            : 1,
+                                }}
                                 tooltip="Explore this result"
                                 onClick={() =>
                                     props.onInspect?.(

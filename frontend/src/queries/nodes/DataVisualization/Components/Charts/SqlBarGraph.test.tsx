@@ -69,16 +69,24 @@ const renderBar = (
 describe('SqlBarGraph', () => {
     it.each([
         ...[ChartDisplayType.ActionsBar, ChartDisplayType.ActionsStackedBar, ChartDisplayType.ActionsBarValue].map(
-            (chartType) => ({ chartType, dateBucket: 'month' as const, dates: MONTHS })
+            (chartType) => ({ chartType, dateBucket: 'month' as const, dates: MONTHS, dashboardSelection: false })
         ),
         {
             chartType: ChartDisplayType.ActionsBar,
             dateBucket: 'year' as const,
             dates: ['2023-01-01', '2024-01-01', '2025-01-01', '2026-01-01', '2027-01-01', '2028-01-01'],
+            dashboardSelection: false,
+        },
+        {
+            chartType: ChartDisplayType.ActionsBar,
+            dateBucket: 'month' as const,
+            dates: MONTHS,
+            dashboardSelection: true,
         },
     ])(
-        'opens BI drilldown and preserves unaliased $dateBucket formatting in $chartType',
-        async ({ chartType, dateBucket, dates }) => {
+        'handles BI mark clicks and preserves $dateBucket formatting in $chartType (dashboard: $dashboardSelection)',
+        async ({ chartType, dateBucket, dates, dashboardSelection }) => {
+            const onSelectBIMark = jest.fn()
             const config: BIConfig = {
                 source: { table: 'events' },
                 rows: [
@@ -140,6 +148,7 @@ describe('SqlBarGraph', () => {
                     ],
                     results: MONTHS.map((month, index) => [month, (index + 1) * 100, (index + 1) * 10]),
                 },
+                context: dashboardSelection ? { onSelectBIMark } : undefined,
             })
             const canvas = await screen.findByLabelText(/chart with 2 data series/i)
             expect([...getHogChart().xTicks(), ...getHogChart().yTicks()].some((tick) => /^202[56]-/.test(tick))).toBe(
@@ -151,9 +160,16 @@ describe('SqlBarGraph', () => {
                 expect((await sqlChart.hoverTooltip(HOVER, dates.length)).label()).toBe('Dec 1, 00:00')
             }
             await clickAtIndex(canvas.parentElement!, HOVER, dates.length)
-            expect(await screen.findByText('Explore this result')).toBeVisible()
-            expect(screen.getByText('View underlying rows')).toBeVisible()
-            expect(screen.getByText(/month: 202[56]-/)).toBeVisible()
+            if (dashboardSelection) {
+                expect(onSelectBIMark).not.toHaveBeenCalled()
+                fireEvent.click(screen.getByText('Filter dashboard by this result'))
+                expect(onSelectBIMark).toHaveBeenCalledWith({ [dateColumn]: MONTHS[HOVER] })
+                expect(screen.queryByText('Explore this result')).not.toBeInTheDocument()
+            } else {
+                expect(await screen.findByText('Explore this result')).toBeVisible()
+                expect(screen.getByText('View underlying rows')).toBeVisible()
+                expect(screen.getByText(/month: 202[56]-/)).toBeVisible()
+            }
         }
     )
 

@@ -70,6 +70,8 @@ export interface QueryContext<Q extends QuerySchema = QuerySchema> {
     dataTableAllowContentScroll?: boolean
     /** Virtualize rows in an embedded SQL result table with a bounded height. */
     dataVisualizationTableVirtualized?: boolean
+    /** Select another BI mark directly while a dashboard filter is active. */
+    dashboardFilterActive?: boolean
     dataVisualizationTableVirtualizationCellThreshold?: number
     /** Keep the Data Table header row visible while the page scrolls. See `LemonTable`'s `stickyHeader`. */
     dataTableStickyHeader?: boolean
@@ -117,6 +119,10 @@ export interface QueryContext<Q extends QuerySchema = QuerySchema> {
     onDrillBIHierarchy?: (worksheet: BIVisualizationNode) => void
     biHierarchyDrillDisabledReason?: string
     onKeepBISelection?: (records: Record<string, unknown>[]) => void
+    dashboardResultMenu?: boolean
+    isBIMarkSelected?: (record: Record<string, unknown>) => boolean
+    onSelectBIMark?: (record: Record<string, unknown>) => void
+    getBIMarkDashboardUrl?: (record: Record<string, unknown>) => string
     /** Hosts visualization settings in the scene's own panel instead of opening another sidebar. */
     visualizationSettingsPanel?: {
         isOpen: boolean

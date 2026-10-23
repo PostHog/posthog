@@ -2,7 +2,7 @@ import './RetentionHeatmap.scss'
 
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useCallback, useMemo } from 'react'
+import { useCallback, useContext, useMemo } from 'react'
 
 import { IconChevronDown, IconChevronRight } from '@posthog/icons'
 import {
@@ -13,6 +13,7 @@ import {
 } from '@posthog/quill-charts'
 
 import { useChartTheme } from 'lib/charts/hooks'
+import { ResultChartSelectionContext } from 'lib/components/ResultMenu/resultChartSelection'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -54,6 +55,8 @@ export function RetentionHeatmap({
     embedded?: boolean
 }): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
+    const { point, captureCell } = useContext(ResultChartSelectionContext)
+    const selectedCell = point?.seriesKey.startsWith('retention-table:') ? point : undefined
     const {
         tableRowsSplitByBreakdownValue,
         hideSizeColumn,
@@ -167,13 +170,17 @@ export function RetentionHeatmap({
             if (!row || row.isMean || row.percentages[cell.xIndex] === undefined) {
                 return
             }
+            captureCell({
+                seriesKey: `retention-table:${JSON.stringify([row.breakdownValue, row.label])}`,
+                label: String(cell.xIndex),
+            })
             openModal(
                 row.cohortIndex,
                 row.breakdownValue === NO_BREAKDOWN_VALUE ? null : row.breakdownValue,
                 cell.xIndex
             )
         },
-        [rowAt, openModal]
+        [rowAt, openModal, captureCell]
     )
 
     // The chart runs with zero margins, so the cursor height maps straight to a row of the list.
@@ -213,6 +220,19 @@ export function RetentionHeatmap({
         return null
     }
 
+    const selectedRow = selectedCell
+        ? rows.findIndex(
+              (row) =>
+                  !row.isMean &&
+                  selectedCell.seriesKey === `retention-table:${JSON.stringify([row.breakdownValue, row.label])}`
+          )
+        : -1
+    const selectedColumn = selectedCell?.label === 'cohort' ? -1 : Number(selectedCell?.label)
+    const showSelection =
+        selectedRow >= 0 &&
+        (selectedColumn === -1 ||
+            (Number.isInteger(selectedColumn) && selectedColumn >= 0 && selectedColumn < tableHeaders.length))
+
     return (
         <div
             className={clsx('RetentionHeatmap', { 'RetentionHeatmap--small': smallLayout })}
@@ -229,12 +249,19 @@ export function RetentionHeatmap({
                         type="button"
                         data-attr={row.isMean ? 'retention-mean-row' : 'retention-cohort-row'}
                         // eslint-disable-next-line react/forbid-dom-props
-                        style={{ height: rowHeight }}
+                        style={{
+                            height: rowHeight,
+                            opacity: showSelection && rows[selectedRow] !== row ? 0.3 : undefined,
+                        }}
                         className={clsx('RetentionHeatmap__row', { 'RetentionHeatmap__row--indented': row.indented })}
                         onClick={() => {
                             if (row.isMean) {
                                 toggleBreakdown(row.breakdownValue)
                             } else if (canOpenPeople) {
+                                captureCell({
+                                    seriesKey: `retention-table:${JSON.stringify([row.breakdownValue, row.label])}`,
+                                    label: 'cohort',
+                                })
                                 openModal(
                                     row.cohortIndex,
                                     row.breakdownValue === NO_BREAKDOWN_VALUE ? null : row.breakdownValue
@@ -285,7 +312,10 @@ export function RetentionHeatmap({
                     delayMs={1500}
                 >
                     {/* eslint-disable-next-line react/forbid-dom-props */}
-                    <div className="RetentionHeatmap__canvas" style={{ height: rows.length * rowHeight }}>
+                    <div
+                        className="RetentionHeatmap__canvas relative overflow-hidden"
+                        style={{ height: rows.length * rowHeight }}
+                    >
                         <Heatmap
                             xLabels={tableHeaders}
                             yLabels={yLabels}
@@ -295,6 +325,21 @@ export function RetentionHeatmap({
                             tooltip={tooltip}
                             onCellClick={canOpenPeople ? onCellClick : undefined}
                         />
+                        {showSelection && (
+                            <div
+                                data-result-selected="true"
+                                className="absolute pointer-events-none"
+                                style={{
+                                    top: selectedRow * rowHeight,
+                                    left: selectedColumn < 0 ? 0 : `${(selectedColumn * 100) / tableHeaders.length}%`,
+                                    width: selectedColumn < 0 ? '100%' : `${100 / tableHeaders.length}%`,
+                                    height: rowHeight,
+                                    outline: '2px solid var(--primary-3000)',
+                                    outlineOffset: -2,
+                                    boxShadow: `0 0 0 9999px color-mix(in srgb, ${chartTheme.backgroundColor} 70%, transparent)`,
+                                }}
+                            />
+                        )}
                     </div>
                 </Tooltip>
             </div>

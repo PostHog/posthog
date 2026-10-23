@@ -14,6 +14,7 @@ import type { BarChartConfig, PointClickData, TimeSeriesBarChartConfig, TooltipC
 
 import { useChartTheme, useChartConfig, useDateRangeZoom } from 'lib/charts/hooks'
 import { AnnotationsLayer } from 'lib/components/AnnotationsOverlay/AnnotationsLayer'
+import { useResultBarSelection, useResultChartPoint } from 'lib/components/ResultMenu/resultChartSelection'
 import { percentage } from 'lib/utils/numbers'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
@@ -265,7 +266,7 @@ export function TrendsBarChart({
                 yAxisLabel: trendsFilter?.yAxisLabel,
                 goalLines,
                 valueLabels: showValuesOnSeries ? { formatter: valueLabelFormatter } : false,
-                tooltip: INSIGHT_TOOLTIP_CONFIG,
+                tooltip: { ...INSIGHT_TOOLTIP_CONFIG, resolveClickToNearestSeries: context?.dashboardResultMenu },
             }),
             // Interactive legend (toggle callbacks, context menu) is a component concern, kept out
             // of the pure transform so the builder stays free of React state.
@@ -281,6 +282,7 @@ export function TrendsBarChart({
             timezone,
             currentPeriodResult?.days,
             hideAxes,
+            context?.dashboardResultMenu,
             trendsFilter?.xAxisLabel,
             trendsFilter?.yAxisLabel,
             goalLines,
@@ -311,7 +313,7 @@ export function TrendsBarChart({
         }
         return {
             showGrid: true,
-            tooltip: AGGREGATED_TOOLTIP_CONFIG,
+            tooltip: { ...AGGREGATED_TOOLTIP_CONFIG, resolveClickToNearestSeries: context?.dashboardResultMenu },
             yScaleType: yAxisScaleType === 'log10' ? 'log' : 'linear',
             axisOrientation: 'horizontal',
             barLayout: 'stacked',
@@ -332,6 +334,7 @@ export function TrendsBarChart({
             bars: { fitToHeight: embedded, divergingStack: true },
         }
     }, [
+        context?.dashboardResultMenu,
         hideAxes,
         yAxisScaleType,
         aggregatedYTickFormatter,
@@ -379,15 +382,19 @@ export function TrendsBarChart({
         [series]
     )
 
+    const captureResultPoint = useResultChartPoint()
+    const selectedSeries = useResultBarSelection(series, labels, theme.colors)
+
     const onPointClick = useCallback(
         (clickData: PointClickData) => {
+            captureResultPoint(clickData)
             if (isAggregated) {
                 handleTrendsBarAggregatedChartClick(clickData.dataIndex, clickDeps)
             } else {
                 handleTrendsChartClick(clickData.series.key, clickData.dataIndex, clickDeps)
             }
         },
-        [isAggregated, clickDeps]
+        [captureResultPoint, isAggregated, clickDeps]
     )
 
     // Time-series layouts only — the aggregated bar-value layout has categorical labels, not dates.
@@ -461,7 +468,7 @@ export function TrendsBarChart({
     if (isAggregated) {
         return (
             <BarChart<TrendsSeriesMeta>
-                series={series}
+                series={selectedSeries}
                 labels={labels}
                 config={aggregatedConfig}
                 theme={theme}
@@ -503,7 +510,7 @@ export function TrendsBarChart({
 
     return (
         <TimeSeriesBarChart<TrendsSeriesMeta>
-            series={series}
+            series={selectedSeries}
             labels={labels}
             config={timeSeriesConfig}
             theme={theme}

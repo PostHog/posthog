@@ -13,6 +13,8 @@ import type {
 import { useChartConfig, useChartTheme, useDateRangeZoom } from 'lib/charts/hooks'
 import { AnnotationsLayer } from 'lib/components/AnnotationsOverlay/AnnotationsLayer'
 import { useChartLegendSeriesMenu } from 'lib/components/ChartLegendSeriesMenu/useChartLegendSeriesMenu'
+import { useResultChartPoint } from 'lib/components/ResultMenu/resultChartSelection'
+import { ResultSelectionMarker } from 'lib/components/ResultMenu/ResultSelectionMarker'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { formatBreakdownLabel } from 'scenes/insights/utils'
 import { teamLogic } from 'scenes/teamLogic'
@@ -148,12 +150,13 @@ export function FunnelLineChart({
                 showTrendLines: funnelsFilter?.showTrendLines ?? false,
                 valueLabels: showValuesOnSeries ? { formatter: (value) => `${value}%` } : false,
                 showCrosshair: true,
-                tooltip: INSIGHT_TOOLTIP_CONFIG,
+                tooltip: { ...INSIGHT_TOOLTIP_CONFIG, resolveClickToNearestSeries: context?.dashboardResultMenu },
             }),
             curve: chartStyleCurve(funnelsFilter?.chartStyle),
             legend: legendConfig,
         }),
         [
+            context?.dashboardResultMenu,
             steps,
             interval,
             timezone,
@@ -203,13 +206,16 @@ export function FunnelLineChart({
         ]
     )
 
+    const captureResultPoint = useResultChartPoint()
+
     const onPointClick = useCallback(
         (clickData: PointClickData<FunnelSeriesMeta>): void => {
+            captureResultPoint(clickData)
             if (clickData.series.meta) {
                 handleFunnelLineChartClick(clickData.series.meta, clickData.dataIndex, clickDeps)
             }
         },
-        [clickDeps]
+        [captureResultPoint, clickDeps]
     )
 
     const onDateRangeZoom = useDateRangeZoom(annotationDates, context?.onDateRangeZoom)
@@ -268,6 +274,7 @@ export function FunnelLineChart({
             dataAttr="trend-line-graph-funnel"
             onError={handleChartError}
         >
+            <ResultSelectionMarker />
             {showAnnotations && <AnnotationsLayer insightNumericId={insight.id || 'new'} dates={annotationDates} />}
         </TimeSeriesLineChart>
     )

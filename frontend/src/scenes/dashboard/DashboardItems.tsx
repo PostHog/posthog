@@ -1,7 +1,7 @@
 import './DashboardItems.scss'
 
 import clsx from 'clsx'
-import { useActions, useAsyncActions, useValues } from 'kea'
+import { useActions, useAsyncActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
 import { RefObject, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Responsive as ReactGridLayout } from 'react-grid-layout'
@@ -36,10 +36,15 @@ import { urls } from 'scenes/urls'
 import { getCurrentExporterData, isSharedView } from '~/exporter/exporterViewLogic'
 import { DashboardLayoutSize, DashboardPlacement, DashboardType } from '~/types'
 
+import { biDashboardCrossFilterLogic } from 'products/business_intelligence/frontend/biDashboardCrossFilterLogic'
+import { isCrossFilterWorksheet } from 'products/business_intelligence/frontend/biDashboardCrossFilters'
+import { BIDashboardTile } from 'products/business_intelligence/frontend/BIDashboardTile'
 import { DashboardGridBackground } from 'products/dashboards/frontend/components/DashboardGridBackground'
 import { DashboardInsightTile } from 'products/dashboards/frontend/components/DashboardInsightTile'
+import { DashboardResultFilteredInsight } from 'products/dashboards/frontend/components/DashboardResultFilteredInsight'
 import { DashboardTextItem } from 'products/dashboards/frontend/components/DashboardTextItem/DashboardTextItem'
 import { getDashboardTileSpacingGap } from 'products/dashboards/frontend/dashboardCustomization'
+import { dashboardResultFilterLogic } from 'products/dashboards/frontend/dashboardResultFilterLogic'
 import { getGroupTitlesByTileId, hasTileDecorations } from 'products/dashboards/frontend/dashboardTileGroups'
 import { useDashboardContainerWidth } from 'products/dashboards/frontend/useDashboardContainerWidth'
 
@@ -106,6 +111,12 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         scrollToBottomSignal,
         sizeKey,
     } = useValues(dashboardLogic)
+    const crossFilterLogic = biDashboardCrossFilterLogic({ dashboardId: dashboard?.id ?? 0, tiles: tiles ?? [] })
+    useMountedLogic(crossFilterLogic)
+    const { selection: biSelection, targets: biTargets } = useValues(crossFilterLogic)
+    const resultFilterLogic = dashboardResultFilterLogic({ dashboardId: dashboard?.id ?? 0, tiles: tiles ?? [] })
+    const { selection: resultSelection, targets: resultTargets } = useValues(resultFilterLogic)
+    const canCrossFilter = placement === DashboardPlacement.Dashboard && !isSharedView() && !layoutEditMode
     const { layoutZoom = 1 } = useValues(dashboardLogic)
     const {
         stageLayouts,
@@ -630,6 +641,35 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                                         key={tile.id}
                                         tile={tile}
                                         insight={insight}
+                                        dimmedByBIFilter={
+                                            canCrossFilter &&
+                                            ((!!biSelection && biSelection.tileId !== tile.id && !biTargets[tile.id]) ||
+                                                (!!resultSelection &&
+                                                    resultSelection.tileId !== tile.id &&
+                                                    !resultTargets[tile.id]))
+                                        }
+                                        resultMenuEnabled={canCrossFilter && !isCrossFilterWorksheet(insight.query)}
+                                        visualization={
+                                            canCrossFilter && dashboard && isCrossFilterWorksheet(insight.query) ? (
+                                                <BIDashboardTile
+                                                    dashboardId={dashboard.id}
+                                                    tileId={tile.id}
+                                                    insight={insight}
+                                                    query={insight.query}
+                                                    variablesOverride={currentDashboardVariables}
+                                                    loadPriority={smLayout ? smLayout.y * 1000 + smLayout.x : undefined}
+                                                />
+                                            ) : canCrossFilter && dashboard && resultTargets[tile.id] ? (
+                                                <DashboardResultFilteredInsight
+                                                    dashboardId={dashboard.id}
+                                                    tileId={tile.id}
+                                                    query={resultTargets[tile.id]}
+                                                    filtersOverride={effectiveEditBarFilters}
+                                                    variablesOverride={currentDashboardVariables}
+                                                    loadPriority={smLayout ? smLayout.y * 1000 + smLayout.x : undefined}
+                                                />
+                                            ) : undefined
+                                        }
                                         loadingQueued={loadingQueued}
                                         loading={loading}
                                         apiErrored={apiErrored}
@@ -705,6 +745,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
 
                                 return (
                                     <MemoizedDashboardWidgetItem
+                                        resultFilterActive={canCrossFilter && !!(biSelection || resultSelection)}
                                         key={tile.id}
                                         tile={tile}
                                         placement={placement}

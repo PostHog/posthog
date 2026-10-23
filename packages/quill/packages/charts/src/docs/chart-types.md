@@ -60,7 +60,7 @@ Part of whole, one value per series (`data[0]`).
 - On-slice labels via `showLabelOnSlice` and `showValueOnSlice`, positioned with `labelRadiusRatio` (0 is the center, 1 the rim) and gated by `minSlicePercentForLabel`.
 - `sliceValueDisplay` picks what the numeric line holds: `'value'`, `'percent'`, or `'both'` for `352 (18.4%)`. Defaults to `'percent'` when `isPercent` is set, else `'value'`.
 - `config.legend` renders the built-in legend; a toggled-off slice is removed and the rest rescale to the full circle.
-- `theme.backgroundColor` is required for the hover pop-out mask; without it the pop-out is skipped. `disableHoverOffset` turns the pop-out off.
+- Hover grows and brightens the hovered slice and dims the others toward `theme.backgroundColor` (white if omitted). `dimUnhoveredSlices: false` keeps other slices unchanged while preserving hover growth and highlighting, for hosts that already style a persistent selection. `disableHoverOffset` disables the entire hover effect.
 - Children read `useRadialLayout()` for `layout.slices`, `innerRadius`, `outerRadius`, `cx`, `cy`, and `centroidAngle`.
 
 ## ProportionBar

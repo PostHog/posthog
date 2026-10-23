@@ -18,6 +18,7 @@ export function BIPaneCharts({
     columns,
     rows,
     goalLines,
+    isSelected,
     onInspect,
 }: {
     config: BIConfig
@@ -25,6 +26,7 @@ export function BIPaneCharts({
     columns: Column[]
     rows: unknown[][]
     goalLines: GoalLine[]
+    isSelected?: (record: Record<string, unknown>) => boolean
     onInspect?: (record: Record<string, unknown>) => void
 }): JSX.Element {
     const { getTheme } = useValues(dataThemeLogic)
@@ -70,6 +72,14 @@ export function BIPaneCharts({
                                         : { tickFormatter: (label) => model.labels.get(label) ?? label }
                                 }
                                 embedded
+                                isPointSelected={
+                                    isSelected
+                                        ? (key, index) => {
+                                              const record = pane.records.get(JSON.stringify([key, index]))
+                                              return !!record && isSelected(record)
+                                          }
+                                        : undefined
+                                }
                                 directPointClick={!!onInspect}
                                 pointClickHint={onInspect ? 'Click to explore this result' : undefined}
                                 onPointClick={

@@ -158,12 +158,15 @@ export function RetentionBarChart({ inSharedMode = false }: RetentionBarChartPro
                 isPercentage,
                 goalLines,
                 series,
-                tooltip: INSIGHT_TOOLTIP_CONFIG,
+                tooltip: {
+                    ...INSIGHT_TOOLTIP_CONFIG,
+                    resolveClickToNearestSeries: !!insightProps.dashboardId && !inSharedMode,
+                },
                 isIntervalView,
                 period,
                 timezone,
             }),
-        [isPercentage, goalLines, series, isIntervalView, period, timezone]
+        [insightProps.dashboardId, inSharedMode, isPercentage, goalLines, series, isIntervalView, period, timezone]
     )
 
     if (filteredTrendSeries.length === 0 && hasValidBreakdown) {

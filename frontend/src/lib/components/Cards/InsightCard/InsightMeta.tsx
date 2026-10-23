@@ -20,6 +20,7 @@ import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
+import { ResultFilterUnavailableTag } from 'lib/components/ResultMenu/ResultFilterUnavailableTag'
 import { captureImageLogic } from 'lib/components/Scenes/InsightOrDashboard/captureImageLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
@@ -124,6 +125,7 @@ interface InsightMetaProps extends Pick<
     | 'showCreateAnomalyAlertButton'
     | 'projectId'
     | 'contextHeading'
+    | 'dimmedByBIFilter'
 > {
     /** Called when the user mousedowns on the card meta (drag handle) in view mode to enter edit mode. */
     onDragHandleMouseDown?: React.MouseEventHandler<HTMLDivElement>
@@ -140,6 +142,7 @@ interface InsightMetaProps extends Pick<
 }
 
 export function InsightMeta({
+    dimmedByBIFilter,
     tile,
     insight,
     ribbonColor,
@@ -507,6 +510,13 @@ export function InsightMeta({
                 content={
                     <InsightMetaContent
                         link={insightViewUrl}
+                        filterUnavailableReason={
+                            dimmedByBIFilter
+                                ? tile?.filters_overrides?.ignoreDashboardFilters
+                                    ? 'This insight is configured to ignore dashboard filters. Its results are unchanged.'
+                                    : 'This insight cannot apply the selected result’s fields or user/group population to its query. Its results are unchanged. Clear the result filter to restore its appearance.'
+                                : undefined
+                        }
                         title={name}
                         fallbackTitle={summary}
                         description={insight.description}
@@ -878,6 +888,7 @@ function InsightMetaExtraControls({
 }
 
 export function InsightMetaContent({
+    filterUnavailableReason,
     title,
     fallbackTitle,
     description,
@@ -893,6 +904,7 @@ export function InsightMetaContent({
     queryScanActionable,
     warehouseSyncTooltip,
 }: {
+    filterUnavailableReason?: string
     title: string
     fallbackTitle?: string
     description?: string
@@ -967,6 +979,7 @@ export function InsightMetaContent({
             {queryScanIndicator}
             {warehouseSyncIndicator}
             {infoPopover}
+            {filterUnavailableReason && <ResultFilterUnavailableTag reason={filterUnavailableReason} />}
         </h4>
     )
 

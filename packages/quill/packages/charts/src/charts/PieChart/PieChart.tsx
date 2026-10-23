@@ -44,6 +44,9 @@ export interface PieChartConfig<Meta = unknown> {
     /** Disable the hover grow effect — useful for snapshot stability or constrained layouts.
      *  Legacy name: this gates the whole hover effect (grow + brighten + dim), not just an offset. */
     disableHoverOffset?: boolean
+    /** Dim the other slices on hover. Default true. Set false when the host already
+     *  dims a selection; the hovered slice still grows and brightens. */
+    dimUnhoveredSlices?: boolean
     /** Hide on-slice labels for slices smaller than this fraction of the total. Default 0.05. */
     minSlicePercentForLabel?: number
     /** Where on-slice labels sit along the radius: 0 = center, 1 = outer edge. Default 0.5 (mid-slice).
@@ -155,6 +158,7 @@ function PieChartInner<Meta = unknown>({
         hoverGrowth = DEFAULT_HOVER_GROWTH,
         hoverAnimationMs = DEFAULT_HOVER_ANIMATION_MS,
         disableHoverOffset = false,
+        dimUnhoveredSlices = true,
         minSlicePercentForLabel = DEFAULT_MIN_SLICE_PERCENT,
         labelRadiusRatio = DEFAULT_LABEL_RADIUS_RATIO,
         padAngle = 0,
@@ -221,7 +225,7 @@ function PieChartInner<Meta = unknown>({
             // beneath the overlay and not dim at all.
             const dimTarget = args.theme.backgroundColor || HOVER_DIM_TARGET_FALLBACK
             for (let i = 0; i < layout.slices.length; i++) {
-                if (i === args.hoverIndex) {
+                if (i === args.hoverIndex || !dimUnhoveredSlices) {
                     continue
                 }
                 const other = layout.slices[i]
@@ -234,7 +238,7 @@ function PieChartInner<Meta = unknown>({
             drawSliceShape(args.ctx, slice, layout, { outerRadiusBoost, fillStyle })
             return true
         },
-        [effectiveHoverGrowth]
+        [effectiveHoverGrowth, dimUnhoveredSlices]
     )
 
     const renderTooltip = useMemo(

@@ -35,6 +35,21 @@ export const PieDefault: Story = {
     },
 }
 
+export const PersistentSelection: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        const series = BROWSERS.map((item, index) => ({
+            ...item,
+            color: index === 0 ? theme.colors[index] : `color-mix(in srgb, ${theme.colors[index]} 25%, transparent)`,
+        }))
+        return (
+            <Stage>
+                <PieChart series={series} theme={theme} config={{ dimUnhoveredSlices: false }} />
+            </Stage>
+        )
+    },
+}
+
 export const Donut: Story = {
     render: () => {
         const theme = useReactiveTheme()

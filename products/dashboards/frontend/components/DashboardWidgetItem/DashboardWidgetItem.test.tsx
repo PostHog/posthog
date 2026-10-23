@@ -117,6 +117,26 @@ const tileWithoutDescription = {
 } as DashboardTile
 
 describe('DashboardWidgetItem', () => {
+    it('dims unchanged widget content and explains the result filter next to its title', () => {
+        const widgetItem = (active: boolean): JSX.Element => (
+            <DashboardWidgetItem
+                tile={tile}
+                placement={DashboardPlacement.Dashboard}
+                dashboardId={99}
+                result={null}
+                loading={false}
+                onRefresh={jest.fn()}
+                resultFilterActive={active}
+            />
+        )
+        const { container, rerender } = render(widgetItem(true))
+        expect(container.querySelector('[data-result-filter-unaffected]')).toHaveStyle({ opacity: '0.3' })
+        expect(container.querySelector('[data-attr="widget-card-title"]')).toHaveTextContent("Can't filter")
+        expect(screen.getByText('Widget body')).toBeInTheDocument()
+        rerender(widgetItem(false))
+        expect(container.querySelector('[data-result-filter-unaffected]')).not.toBeInTheDocument()
+        expect(screen.queryByText("Can't filter")).not.toBeInTheDocument()
+    })
     beforeEach(() => {
         mockInView = true
         jest.mocked(userHasDashboardWidgetProductAccess).mockReturnValue(true)

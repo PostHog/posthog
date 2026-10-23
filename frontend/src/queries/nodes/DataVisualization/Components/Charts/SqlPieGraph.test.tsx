@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 import { setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
@@ -79,6 +79,46 @@ async function waitForSlices(): Promise<void> {
 }
 
 describe('SqlPieGraph', () => {
+    it.each([false, true])('selects raw worksheet members with aliases=%s', async (aliases) => {
+        const onSelectBIMark = jest.fn()
+        const region: BIField = {
+            id: 'region',
+            name: 'Region',
+            expression: 'region',
+            type: 'string',
+            source: { table: 'events' },
+        }
+        const config = {
+            ...DEFAULT_BI_CONFIG,
+            source: region.source,
+            chartType: ChartDisplayType.ActionsPie,
+            rows: [region],
+            memberAliases: aliases ? [{ field: region, aliases: [{ value: 'US', label: 'United States' }] }] : [],
+        }
+        renderDataVisualization({
+            query: { ...buildBIQuery(config)!.node, kind: NodeKind.BIVisualizationNode, config },
+            context: { onSelectBIMark },
+            response: {
+                columns: ['region', 'count'],
+                types: [
+                    ['region', 'String'],
+                    ['count', 'Int64'],
+                ],
+                results: [
+                    ['US', 50],
+                    ['GB', 50],
+                ],
+            },
+        })
+        await waitForSlices()
+        const canvas = screen.getByLabelText('Pie chart with 2 slices')
+        fireEvent.mouseMove(canvas.parentElement!, { clientX: 450, clientY: 200 })
+        await waitFor(() => expect(screen.getByText(aliases ? 'United States' : 'US')).toBeVisible())
+        fireEvent.click(canvas.parentElement!)
+        expect(onSelectBIMark).not.toHaveBeenCalled()
+        fireEvent.click(screen.getByText('Filter dashboard by this result'))
+        expect(onSelectBIMark).toHaveBeenCalledWith({ region: 'US' })
+    })
     it('keeps aliased slices distinct and reuses their data when settings open', async () => {
         let aliasReads = 0
         const field = (name: string): BIField => ({
