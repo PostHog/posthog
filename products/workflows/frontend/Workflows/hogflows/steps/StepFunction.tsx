@@ -5,8 +5,10 @@ import { AddToStaticCohortConfiguration } from './components/AddToStaticCohortCo
 import { AiTaskInstructionsCompare } from './components/AiTaskInstructionsCompare'
 import { HogFlowFunctionConfiguration } from './components/HogFlowFunctionConfiguration'
 import { OptOutOfMessagesConfiguration } from './components/OptOutOfMessagesConfiguration'
+import { SlackRecipientModeConfiguration } from './components/SlackRecipientModeConfiguration'
 import { StepSchemaErrors } from './components/StepSchemaErrors'
 import { StepFunctionNode } from './hogFunctionStepLogic'
+import { slackRecipientMode, switchSlackRecipientMode } from './slackRecipientMode'
 
 export function StepFunctionConfiguration({ node }: { node: StepFunctionNode }): JSX.Element {
     const { actionValidationErrorsById } = useValues(workflowLogic)
@@ -16,11 +18,21 @@ export function StepFunctionConfiguration({ node }: { node: StepFunctionNode }):
     const validationResult = actionValidationErrorsById[node.id]
     const inputs = node.data.config.inputs
     const mappings = 'mappings' in node.data.config ? node.data.config.mappings : undefined
+    const slackMode = slackRecipientMode(templateId)
 
     return (
         <>
             <StepSchemaErrors />
             {templateId === 'template-posthog-create-task' && <AiTaskInstructionsCompare actionId={node.id} />}
+            {slackMode && (
+                <SlackRecipientModeConfiguration
+                    mode={slackMode}
+                    onChange={(mode) =>
+                        mode !== slackMode &&
+                        partialSetWorkflowActionConfig(node.id, switchSlackRecipientMode(inputs, mode))
+                    }
+                />
+            )}
             {templateId === 'template-posthog-opt-out-of-messages' && (
                 <OptOutOfMessagesConfiguration
                     inputs={inputs}
@@ -36,9 +48,9 @@ export function StepFunctionConfiguration({ node }: { node: StepFunctionNode }):
                 />
             ) : (
                 <HogFlowFunctionConfiguration
-                    // Remount per node: the input renderer snapshots its values on mount, so switching to
-                    // another step of the same template must remount to show the newly selected node's inputs.
-                    key={node.id}
+                    // Remount per node and template: the input renderer snapshots its values on mount, so
+                    // switching to another step, or a Slack step to another recipient mode, must remount it.
+                    key={`${node.id}:${templateId}`}
                     templateId={templateId}
                     inputs={inputs}
                     setInputs={(inputs) => partialSetWorkflowActionConfig(node.id, { inputs })}

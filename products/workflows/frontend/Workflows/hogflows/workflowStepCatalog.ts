@@ -184,9 +184,10 @@ const POSTHOG_NODES_TO_SHOW: CreateActionType[] = [
     },
 ]
 
-const SLACK_DM_TEAM_MEMBER_ACTION_NODE: CreateActionType = {
+// Not in the step picker: a Slack step switches to this template when it sends to a team member, so it keeps the Slack name.
+const SLACK_TEAM_MEMBER_STEP: CreateActionType = {
     type: 'function',
-    name: 'Message team member on Slack',
+    name: 'Slack',
     description: 'Send a Slack direct message to a member of your PostHog team.',
     config: { template_id: 'template-posthog-slack-dm-team-member', inputs: {} },
 }
@@ -230,7 +231,6 @@ function dispatchSteps({ featureFlags }: StepCatalogContext): CreateActionType[]
     return [
         ...ACTION_NODES_TO_SHOW,
         ...(featureFlags[FEATURE_FLAGS.WORKFLOWS_PUSH_NOTIFICATIONS] ? [PUSH_NOTIFICATION_ACTION_NODE] : []),
-        ...(featureFlags[FEATURE_FLAGS.WORKFLOW_SLACK_DM_TEAM_MEMBER_ACTION] ? [SLACK_DM_TEAM_MEMBER_ACTION_NODE] : []),
     ]
 }
 
@@ -298,6 +298,7 @@ const ALL_CATALOG_STEPS: CreateActionType[] = [
     RUN_SCOUT_ACTION_NODE,
     CLASSIFY_ACTION_NODE,
     REPLAY_VISION_ACTION_NODE,
+    SLACK_TEAM_MEMBER_STEP,
 ]
 
 /** Destinations already offered as their own step stay out of the destination list. */

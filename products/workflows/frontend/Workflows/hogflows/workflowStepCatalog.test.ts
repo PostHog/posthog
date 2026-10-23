@@ -63,12 +63,6 @@ describe('workflowStepCatalog', () => {
         expect(listed(context).AI).toEqual(ai)
     })
 
-    it('adds the Slack team member step to Dispatch behind its flag', () => {
-        expect(
-            listed({ featureFlags: { [FEATURE_FLAGS.WORKFLOW_SLACK_DM_TEAM_MEMBER_ACTION]: true } }).Dispatch
-        ).toEqual(['Email', 'SMS', 'Slack', 'Webhook', 'Message team member on Slack'])
-    })
-
     it('offers no step that needs a person to a workflow that runs on warehouse rows', () => {
         const sections = listed({ isRowScopedTrigger: true })
 
@@ -91,6 +85,11 @@ describe('workflowStepCatalog', () => {
         ['a conditional branch', { type: 'conditional_branch', config: {} }, 'Conditional branch'],
         ['a wait for a condition', { type: 'wait_until_condition', config: {} }, 'Wait until'],
         ['a Slack step', { type: 'function', config: { template_id: 'template-slack' } }, 'Slack'],
+        [
+            'a Slack step that messages a team member',
+            { type: 'function', config: { template_id: 'template-posthog-slack-dm-team-member' } },
+            'Slack',
+        ],
         [
             'a ticket reply',
             { type: 'function', config: { template_id: 'template-posthog-send-ticket-message' } },
