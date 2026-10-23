@@ -7,7 +7,20 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export interface AEOPromptEngineCheckApi {
+    /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. */
+    engine: string
+    /** Whether the answer cited a URL on one of the target domains. */
+    cited: boolean
+    /** The engine did not answer. When true, 'cited' is false and says nothing about citations. */
+    check_failed: boolean
+    /** When the check ran. */
+    checked_at: string
+}
+
 export interface AEOPromptApi {
+    /** The most recent check for each answer engine that ran the prompt. Empty when the prompt never ran. */
+    latest_checks: AEOPromptEngineCheckApi[]
     /** Prompt id. */
     id: string
     /** The question asked to the answer engines, as a user would phrase it. */
@@ -89,6 +102,13 @@ export interface AEOPromptImportResultApi {
     updated: number
     /** Prompts that were empty or too long for the answer engines. */
     skipped: number
+}
+
+export interface AEOPromptTopicApi {
+    /** Topic name. Empty for prompts that have no topic. */
+    topic: string
+    /** How many prompts in the set have this topic. */
+    prompts: number
 }
 
 export interface HeatmapCapturePageApi {
@@ -1450,6 +1470,8 @@ export interface ContentAutopilotProposalListApi {
     validation_report: ContentAutopilotValidationReportApi
     /** Repository-relative export path. */
     readonly file_path: string
+    /** Existing or intended public URL. */
+    readonly target_url: string
     readonly created_at: string
     readonly updated_at: string
 }
@@ -1725,6 +1747,11 @@ export interface GeneratePathCleaningSuggestionResponseApi {
 
 export type AeoPromptsListParams = {
     /**
+     * Only list prompts that are on (true) or off (false). Omit to list both.
+     * @nullable
+     */
+    active?: boolean | null
+    /**
      * Number of results to return per page.
      */
     limit?: number
@@ -1732,6 +1759,11 @@ export type AeoPromptsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+    /**
+     * Only list prompts with this topic. An empty value lists the prompts that have no topic.
+     * @maxLength 200
+     */
+    topic?: string
 }
 
 export type HeatmapScreenshotsContentRetrieveParams = {

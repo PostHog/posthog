@@ -3540,6 +3540,10 @@ export interface WebOverviewQueryResponse extends AnalyticsQueryResponseBase {
     preComputeStrategy?: WebAnalyticsPreComputeStrategy
     /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
     preComputeIneligibleReason?: string
+    /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
+    preComputeStale?: boolean
+    /** When the oldest precomputed window this response used was computed. Unset for live responses. */
+    preComputedAt?: string
 }
 
 export type CachedWebOverviewQueryResponse = CachedQueryResponse<WebOverviewQueryResponse>
@@ -4173,6 +4177,8 @@ export interface WebStatsTableQueryResponse extends AnalyticsQueryResponseBase {
     preComputeStale?: boolean
     /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
     preComputeIneligibleReason?: string
+    /** When the oldest precomputed window this response used was computed. Unset for live responses. */
+    preComputedAt?: string
 }
 export type CachedWebStatsTableQueryResponse = CachedQueryResponse<WebStatsTableQueryResponse>
 
@@ -4276,6 +4282,10 @@ export interface WebGoalsQueryResponse extends AnalyticsQueryResponseBase {
     preComputeStrategy?: WebAnalyticsPreComputeStrategy
     /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
     preComputeIneligibleReason?: string
+    /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
+    preComputeStale?: boolean
+    /** When the oldest precomputed window this response used was computed. Unset for live responses. */
+    preComputedAt?: string
 }
 export type CachedWebGoalsQueryResponse = CachedQueryResponse<WebGoalsQueryResponse>
 
@@ -4327,6 +4337,10 @@ export interface WebVitalsPathBreakdownQueryResponse extends AnalyticsQueryRespo
     preComputeStrategy?: WebAnalyticsPreComputeStrategy
     /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
     preComputeIneligibleReason?: string
+    /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
+    preComputeStale?: boolean
+    /** When the oldest precomputed window this response used was computed. Unset for live responses. */
+    preComputedAt?: string
 }
 export type CachedWebVitalsPathBreakdownQueryResponse = CachedQueryResponse<WebVitalsPathBreakdownQueryResponse>
 
@@ -6858,7 +6872,7 @@ export interface DashboardFilter {
     filterTestAccounts?: boolean | null
     /** Period comparison forced onto every insight that supports one. Absent/null = inherit. */
     compareFilter?: CompareFilter | null
-    /** Metric label matchers ANDed into every metrics tile. Other tiles ignore them. */
+    /** @deprecated Ignored. Kept so that dashboards saved with label filters still load. */
     metricFilters?: MetricsQueryFilter[] | null
     /** Variables that metrics tiles refer to as `$name`. Other tiles ignore them. */
     metricVariables?: MetricsDashboardVariable[] | null
@@ -7157,19 +7171,6 @@ export interface LLMDetectorConfig {
      * @maxLength 2000
      */
     instructions?: string
-    /**
-     * Minimum confidence [0-1] the model must report before the alert fires (default: 0.7)
-     * @minimum 0
-     * @maximum 1
-     */
-    threshold?: number
-    /**
-     * How many recent points the model is shown (default: 90)
-     * @asType integer
-     * @minimum 5
-     * @maximum 400
-     */
-    window?: number
 }
 
 export enum EnsembleOperator {
@@ -9111,7 +9112,7 @@ export interface EndpointsUsageTrendsQuery extends EndpointsUsageQueryBase<Endpo
 }
 
 export interface CustomerAnalyticsPinnedProperty {
-    kind: 'custom_property' | 'relationship'
+    kind: 'custom_property' | 'relationship' | 'account_field'
     id: string
 }
 

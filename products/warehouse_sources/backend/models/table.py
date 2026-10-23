@@ -582,13 +582,14 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         self.options = {key: value for key, value in (self.options or {}).items() if key != "csv_allow_double_quotes"}
         return ["external_data_source", "credential", "options"]
 
-    def soft_delete(self):
+    def soft_delete(self, *, delete_joins: bool = True):
         from products.data_tools.backend.models.join import DataWarehouseJoin
 
-        for join in DataWarehouseJoin.objects.filter(
-            Q(team_id=self.team.pk) & (Q(source_table_name=self.name) | Q(joining_table_name=self.name))
-        ).exclude(deleted=True):
-            join.soft_delete()
+        if delete_joins:
+            for join in DataWarehouseJoin.objects.filter(
+                Q(team_id=self.team.pk) & (Q(source_table_name=self.name) | Q(joining_table_name=self.name))
+            ).exclude(deleted=True):
+                join.soft_delete()
 
         self.deleted = True
         self.deleted_at = timezone.now()

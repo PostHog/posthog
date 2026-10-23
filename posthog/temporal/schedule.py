@@ -79,7 +79,10 @@ from posthog.temporal.warehouse_sources_queue_partition_management.schedule impo
 )
 from posthog.temporal.weekly_digest.types import WeeklyDigestInput
 
-from products.alerts_platform.backend.facade.temporal import create_alerts_platform_tick_schedule
+from products.alerts_platform.backend.facade.temporal import (
+    create_alerts_platform_inventory_schedule,
+    create_alerts_platform_tick_schedule,
+)
 from products.autoresearch.backend.facade.temporal import create_autoresearch_daily_schedule
 from products.billing_alerts.backend.temporal.schedule import create_schedule_due_billing_alert_checks_schedule
 from products.business_knowledge.backend.temporal.schedule import (
@@ -135,6 +138,7 @@ from products.replay_vision.backend.temporal.vision_alerts.schedule import creat
 from products.review_hog.backend.facade.temporal import create_review_hog_finding_outcomes_schedule
 from products.security.backend.facade.temporal import create_sync_access_rules_schedule
 from products.signals.backend.activity_summary.schedule import create_activity_summary_tick_schedule
+from products.signals.backend.anomaly_scores.schedule import create_anomaly_scoring_tick_schedule
 from products.signals.backend.emission.conversations_schedule import create_conversations_signals_coordinator_schedule
 from products.signals.backend.ranking.schedule import create_inbox_ranking_scoring_schedule
 from products.signals.backend.temporal.agentic.schedule import (
@@ -990,6 +994,7 @@ schedules = [
     create_heatmap_page_history_schedule,
     create_data_catalog_weekly_digest_schedule,
     create_alerts_platform_tick_schedule,
+    create_alerts_platform_inventory_schedule,
     create_logs_alert_check_schedule,
     disable_logs_volume_tick_schedule,
     create_schedule_due_alert_checks_schedule,
@@ -1000,6 +1005,7 @@ schedules = [
     create_signals_scout_coordinator_schedule,
     create_inbox_ranking_scoring_schedule,
     create_activity_summary_tick_schedule,
+    create_anomaly_scoring_tick_schedule,
     create_scout_suggestions_coordinator_schedule,
     create_support_reply_coordinator_schedule,
     create_channel_summary_coordinator_schedule,

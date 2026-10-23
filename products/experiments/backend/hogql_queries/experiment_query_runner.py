@@ -1,3 +1,4 @@
+import json
 import uuid
 from datetime import UTC, datetime, timedelta
 from functools import cached_property
@@ -36,6 +37,7 @@ from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.extensions import get_or_create_team_extension
 
+from products.ai_observability.backend.facade.api import mentions_evaluation_pass_markers
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import LazyComputationResult
 from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY, get_baseline_variant_key
 from products.experiments.backend.hogql_queries.base_query_utils import experiment_window, experiment_window_end
@@ -438,15 +440,17 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         ):
             modifiers.sessionIdPushdown = True
 
-        experiment_query_debug = get_experiment_query_debug(
-            experiment_query_ast,
-            self.team,
-            user=self.user,
-            bypass_warehouse_access_control=self.bypass_warehouse_access_control,
-            modifiers=modifiers,
-        )
-        self.hogql = experiment_query_debug[0]
-        self.clickhouse_sql = experiment_query_debug[1]
+        # The debug SQL would expose the evaluation rules that the markers keep out of the browser.
+        if not self._uses_evaluation_pass_markers():
+            experiment_query_debug = get_experiment_query_debug(
+                experiment_query_ast,
+                self.team,
+                user=self.user,
+                bypass_warehouse_access_control=self.bypass_warehouse_access_control,
+                modifiers=modifiers,
+            )
+            self.hogql = experiment_query_debug[0]
+            self.clickhouse_sql = experiment_query_debug[1]
 
         settings = HogQLGlobalSettings(
             max_execution_time=self.max_execution_time,
@@ -619,7 +623,17 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         return variants + variants_missing
 
     def to_actors_query(self) -> ast.SelectQuery:
+        # The actors response returns its generated SQL, which would expose the evaluation rules.
+        if self._uses_evaluation_pass_markers():
+            raise ValidationError("Persons are not available for evaluation pass rate metrics.")
         return build_experiment_actors_query(self)
+
+    def _uses_evaluation_pass_markers(self) -> bool:
+        return mentions_evaluation_pass_markers(
+            self.metric.model_dump_json()
+            + json.dumps(self.experiment.exposure_criteria or {})
+            + (self.actors_query.model_dump_json() if self.actors_query else "")
+        )
 
     def to_query(self) -> ast.SelectQuery:
         raise ValidationError(f"Cannot convert source query of type {self.query.metric.kind} to query")

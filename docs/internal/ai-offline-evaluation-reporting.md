@@ -77,6 +77,13 @@ Each scorer chart displays the loaded versions with results in the selected date
 while the summary defaults to the latest matching version. The version arrows change only the summary.
 Opening a scorer's history preserves the author and date filters and selects the version shown in the summary.
 The scorer list shows each scorer's creator and last editor, and can be filtered by creator.
+By default, scorers are sorted by last updated, newest first.
+Creating and editing scorers stays under Evaluations → Scorers, with a detail heading and a back link to the list.
+Successful creation and edits return to the scorer list; failed saves keep the form open with your changes.
+
+Scorers have an optional **Short name** (up to 40 characters) for experiment table headers and other compact views.
+These views use the full name when the short name is blank. Editing or clearing a short name updates existing
+experiment displays without creating a scorer version or changing scoring rules. Versions appear in a separate badge.
 
 The SQL suite uses these existing scorers:
 
