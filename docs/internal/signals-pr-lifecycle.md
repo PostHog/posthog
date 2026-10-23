@@ -173,7 +173,11 @@ They cannot replace it with an ownership-first or commit-count selection.
 Research first reads recent human corrections from the project profile, which is available on every plan.
 It also reads relevant notes, older activity logs when available, and `reviewer:` scratchpad entries.
 Corrections apply only to the affected area. Research does not save its own choices as reviewer memory.
-The existing limit remains three reviewers.
+Research and scouts check each candidate against the affected behavior or entity.
+For code reports, they inspect specific ownership rules and substantive implementation or review work.
+Broad directory activity, commit counts, mechanical changes, and team roster order alone do not establish responsibility.
+Each reason names the affected behavior and cites its source. Responsibility and review expertise are distinct reasons to include someone.
+Recipients are ordered by relevance, with at most three. Agents can return fewer recipients or none when evidence is insufficient.
 
 A missing, malformed, or entirely ineligible decision retains valid existing recipients and records a failed selection.
 An explicit empty decision clears automatic recipients while preserving pins and confirmed lists.
@@ -224,8 +228,13 @@ There is no separate assignment table, operation ledger, or writer service.
 
 The product goal is for human feedback to improve the next relevant assignment, including when another research or scout producer makes it.
 The shared write rules protect corrections on the current report. Existing notes, activity, and reviewer memory provide evidence for later selections.
-Research already reads recent corrections, and eligible reviewer edits can send notes to relevant scouts.
-Forwarding is best effort; permissions, identity coverage, retrieval, and agent judgment can each limit its effect.
+Research reads recent corrections. Eligible reviewer edits also send notes to the scouts that touched the report or hold the affected routing memory.
+The notes include members without GitHub accounts, identified by their PostHog user UUID.
+Repeat delivery is suppressed only for the same report and the latest action for that identity.
+A correction on another report, or a reversal, remains separate evidence.
+Scouts search relevant notes across producers before selection, through `scout-notes-list` without a `skill_name` filter.
+Research uses the same searchable notes. Both can inspect the source report and use the shared `reviewer:` memory.
+Forwarding is best effort; permissions, retrieval, and agent judgment can each limit its effect.
 Saving feedback alone does not establish that the next selection uses it.
 
 The first milestone is to correct an assignment, explain the intended ownership, and run selection on a new, related report through another producer.
@@ -237,6 +246,13 @@ Selection guidance and scoped memory should remain inspectable and tunable; acce
 A current-report correction is binding. On another report, it is scoped evidence with its source, date, and reason where available.
 Self-removal alone does not establish an ownership change or a global exclusion.
 Agents must not turn their own repeated selections into ownership evidence.
+
+Compare selection before and after prompt changes with the same saved inputs and model.
+The invented cases in `products/signals/backend/report_generation/fixtures/reviewer_selection_cases.json` cover specific ownership, team members, weak evidence, multiple roles, and scoped corrections.
+The cases with and without feedback differ only in the available correction. An unrelated correction must not change the selection.
+Check both the selected people and the sources cited in their reasons. Do not expose expected results to the model.
+A comparison with supplied evidence tests selection judgment, not whether an agent can find that evidence through tools.
+Live report samples must check retrieval and recipient suitability separately.
 
 The complete-loop trial remains pending. Measure feedback availability before selection, retrieval, use, the applied result, and repeated assignment errors.
 Distinguish unavailable feedback from feedback the agent considered but did not apply. Recipient review supplies the suitability judgment.
