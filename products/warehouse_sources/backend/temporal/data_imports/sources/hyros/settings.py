@@ -122,6 +122,21 @@ HYROS_ENDPOINTS: dict[str, HyrosEndpointConfig] = {
         path="/api/v1.0/products",
         primary_keys=["id"],
     ),
+    "Carts": HyrosEndpointConfig(
+        name="Carts",
+        path="/api/v1.0/carts",
+        primary_keys=["id"],
+        # Full refresh only: `fromDate` filters on the creation date, but a cart gains its `orderId`
+        # when it is purchased later.
+        partition_key="creationDate",
+    ),
+    "CustomCosts": HyrosEndpointConfig(
+        name="CustomCosts",
+        path="/api/v1.0/custom-costs",
+        primary_keys=["id"],
+        # `fromDate` matches costs whose active range overlaps the window, not a change date, so it
+        # can't serve as an incremental cursor.
+    ),
     **{
         name: HyrosEndpointConfig(
             name=name,

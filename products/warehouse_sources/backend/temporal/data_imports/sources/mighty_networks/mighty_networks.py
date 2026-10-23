@@ -1,21 +1,30 @@
 import dataclasses
 from collections.abc import Callable
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
     rest_api_resource,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    build_dependent_resource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     PageNumberPaginator,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ClientConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    ClientConfig,
+    Endpoint,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.mighty_networks.settings import (
     BASE_URL,
+    ENDPOINT_CONFIGS,
+    FANOUTS,
     PARTITION_FIELDS,
     PATHS,
     PER_PAGE,
@@ -31,6 +40,8 @@ USER_AGENT = "PostHog-DataWarehouse/1.0 (+https://posthog.com)"
 class MightyNetworksResumeConfig:
     # Next 1-indexed page to fetch. None means "start from page 1".
     next_page: Optional[int] = None
+    # `build_dependent_resource` checkpoint for the per-parent walk of a fan-out endpoint.
+    fanout_state: Optional[dict[str, Any]] = None
 
 
 def _network_url(network_id: str, path: str = "") -> str:
@@ -63,6 +74,16 @@ _ROW_FIXUPS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
 }
 
 
+# The docs show two different placeholder envelopes for list responses ("data"/meta and
+# "items"/links); "data" is the one paired with the concrete meta fields
+# (current_page/total_pages/total_count) the paginator relies on, so it's the more likely real
+# field name. Fail loud if that's wrong rather than silently syncing zero rows.
+_DATA_SELECTOR: Endpoint = {"data_selector": "data", "data_selector_required": True}
+
+
+_UNBOUNDED_FANOUT_PARENTS = frozenset({"Members", "Events"})
+
+
 def _client_config(api_key: str, network_id: str) -> ClientConfig:
     return {
         "base_url": _network_url(network_id),
@@ -72,14 +93,55 @@ def _client_config(api_key: str, network_id: str) -> ClientConfig:
     }
 
 
-def mighty_networks_source(
+def _fanout_resource(
     api_key: str,
     network_id: str,
     endpoint: str,
     team_id: int,
     job_id: str,
     resumable_source_manager: ResumableSourceManager[MightyNetworksResumeConfig],
-) -> SourceResponse:
+) -> Resource:
+    fanout = FANOUTS[endpoint]
+    resume_hook: Optional[Callable[[Optional[dict[str, Any]]], None]] = None
+    resume: Optional[MightyNetworksResumeConfig] = None
+    # The fan-out checkpoint lists every completed parent, so it grows without bound when the
+    # parent is a network-wide list like Members or Events. Those children are short, so a restart
+    # costs little. Spaces and Plans are few, and their member lists are long.
+    if fanout.parent_name not in _UNBOUNDED_FANOUT_PARENTS:
+        resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+
+        def resume_hook(state: Optional[dict[str, Any]]) -> None:
+            if state:
+                resumable_source_manager.save_state(MightyNetworksResumeConfig(fanout_state=state))
+
+    return cast(
+        Resource,
+        build_dependent_resource(
+            endpoint_configs=ENDPOINT_CONFIGS,
+            child_endpoint=endpoint,
+            fanout=fanout,
+            client_config=_client_config(api_key, network_id),
+            path_format_values={},
+            team_id=team_id,
+            job_id=job_id,
+            db_incremental_field_last_value=None,
+            parent_endpoint_extra=_DATA_SELECTOR,
+            child_endpoint_extra=_DATA_SELECTOR,
+            page_size_param="per_page",
+            resume_hook=resume_hook,
+            initial_paginator_state=resume.fanout_state if resume else None,
+        ),
+    )
+
+
+def _list_resource(
+    api_key: str,
+    network_id: str,
+    endpoint: str,
+    team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[MightyNetworksResumeConfig],
+) -> Resource:
     rest_config: RESTAPIConfig = {
         "client": _client_config(api_key, network_id),
         "resource_defaults": {"write_disposition": "replace"},
@@ -90,13 +152,7 @@ def mighty_networks_source(
                 "endpoint": {
                     "path": PATHS[endpoint],
                     "params": {"per_page": PER_PAGE},
-                    # The docs show two different placeholder envelopes for list responses
-                    # ("data"/meta and "items"/links); "data" is the one paired with the concrete
-                    # meta fields (current_page/total_pages/total_count) this paginator relies on,
-                    # so it's the more likely real field name. Fail loud if that's wrong rather
-                    # than silently syncing zero rows.
-                    "data_selector": "data",
-                    "data_selector_required": True,
+                    **_DATA_SELECTOR,
                 },
                 "table_format": "delta",
             }
@@ -127,6 +183,19 @@ def mighty_networks_source(
     fixup = _ROW_FIXUPS.get(endpoint)
     if fixup is not None:
         resource = resource.add_map(fixup)
+    return resource
+
+
+def mighty_networks_source(
+    api_key: str,
+    network_id: str,
+    endpoint: str,
+    team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[MightyNetworksResumeConfig],
+) -> SourceResponse:
+    build = _fanout_resource if endpoint in FANOUTS else _list_resource
+    resource = build(api_key, network_id, endpoint, team_id, job_id, resumable_source_manager)
 
     partition_key = PARTITION_FIELDS.get(endpoint)
 
@@ -155,6 +224,12 @@ def validate_credentials(api_key: str, network_id: str) -> tuple[bool, int | Non
     )
 
 
+def _probe_path(endpoint: str) -> str:
+    # A fan-out child has no list path without a parent id, so probe the parent list it walks.
+    fanout = FANOUTS.get(endpoint)
+    return PATHS[fanout.parent_name] if fanout else PATHS[endpoint]
+
+
 def check_endpoint_access(api_key: str, network_id: str, endpoint: str) -> Optional[str]:
     """Probe a single list endpoint and report why it's inaccessible, or ``None`` if it's fine.
 
@@ -163,7 +238,7 @@ def check_endpoint_access(api_key: str, network_id: str, endpoint: str) -> Optio
     """
     try:
         response = make_tracked_session(redact_values=(api_key,)).get(
-            _network_url(network_id, PATHS[endpoint]),
+            _network_url(network_id, _probe_path(endpoint)),
             headers={"Authorization": f"Bearer {api_key}", "User-Agent": USER_AGENT, "Accept": "application/json"},
             params={"per_page": 1},
             timeout=10,

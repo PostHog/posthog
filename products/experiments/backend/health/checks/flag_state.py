@@ -27,15 +27,15 @@ from products.experiments.backend.health.context import (
     FlagState,
     HealthContext,
     PauseHistory,
-    SplitChange,
 )
-from products.experiments.backend.health.skips import NO_FLAG, CheckSkip, not_applicable
+from products.experiments.backend.health.skips import NO_FLAG, CheckOutcome, not_applicable
 from products.experiments.backend.health.split_changes import (
     SplitChangeShape,
     describe_split,
     format_change_time,
     net_effect,
 )
+from products.feature_flags.backend.facade.edits import SplitChange
 
 # pinned: the page's warning keys. The page sends them as `finding_variant` and
 # `warning_key` on its events, and picks the banner text by them.
@@ -67,14 +67,10 @@ _OUTSIDE_ASSIGNMENT_SETTLED_AFTER = timedelta(days=1)
 _NOT_RUNNING_BUT_EXPOSED_TITLE = "The experiment is not running, but users are exposed to multiple variants"
 
 
-def flag_state_skip(ctx: HealthContext) -> CheckSkip | None:
-    return not_applicable(NO_FLAG) if ctx.flag is None else None
-
-
-def flag_state(ctx: HealthContext) -> ExperimentHealthFinding | None:
+def flag_state(ctx: HealthContext) -> CheckOutcome:
     flag = ctx.flag
     if flag is None:
-        return None
+        return not_applicable(NO_FLAG)
 
     if flag.deleted:
         # A deleted flag distributes no traffic, so the other flag-state findings don't apply. This branch
