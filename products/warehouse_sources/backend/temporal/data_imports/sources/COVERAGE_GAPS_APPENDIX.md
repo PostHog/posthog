@@ -6965,10 +6965,10 @@ Today (4): `clusters`, `jobs`, `monitors`, `services`
 
 Diffed against: <https://api.komodor.com/api/docs/doc.json>
 
-- [ ] `Cost allocation (GET /api/v2/cost/allocation)` — measure Kubernetes spending by cluster, workspace, and workload (high)
-- [ ] `Service issues (POST /api/v2/services/issues/search)` — measure service incidents, resolution times, and recurring failures (high)
-- [ ] `Cluster issues (POST /api/v2/clusters/issues/search)` — track infrastructure incidents that service inventory cannot show (high)
-- [ ] `Kubernetes events (POST /api/v2/services/k8s-events/search; POST /api/v2/clusters/k8s-events/search)` — connect deployments and Kubernetes changes to service and cluster incidents (high)
+- [x] `Cost allocation (GET /api/v2/cost/allocation)` — measure Kubernetes spending by cluster, workspace, and workload (high). Added as `cost_allocation`: per-service cost over the past 30 days, refreshed each sync.
+- [ ] `Service issues (POST /api/v2/services/issues/search)` — measure service incidents, resolution times, and recurring failures (high); skipped: the search needs one request per service, issue type and 2-day window, and `cluster_issues` returns the same issue types for every namespace in a cluster
+- [x] `Cluster issues (POST /api/v2/clusters/issues/search)` — track infrastructure incidents that service inventory cannot show (high). Added as `cluster_issues` (fan-out over `clusters`, incremental on `startTime`).
+- [x] `Kubernetes events (POST /api/v2/services/k8s-events/search; POST /api/v2/clusters/k8s-events/search)` — connect deployments and Kubernetes changes to service and cluster incidents (high). Added as `k8s_events` from the cluster-scoped search (fan-out over `clusters`, incremental on `startTime`); the service-scoped search returns a subset of the same events.
 - [ ] `Health risks (GET /api/v2/health/risks)` — track workload reliability risks and their severity (medium)
 - [ ] `Audit logs (GET /api/v2/audit-log)` — analyze account activity and operational changes over time (medium)
 - [ ] `Service right-sizing recommendations (GET /api/v2/cost/right-sizing/service)` — compare requested resources with recommendations to identify potential savings (medium)
