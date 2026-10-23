@@ -175,6 +175,23 @@ class TestScoreEvents(SimpleTestCase):
             ("new", start.isoformat()) for start in starts
         ]
 
+    def test_a_bucket_repeated_at_a_dst_fall_back_is_emitted_once(self) -> None:
+        # Trends returns the 01:00 bucket twice on the fall-back night, and both parse to the same instant.
+        starts = [datetime(2026, 11, 1, 0, tzinfo=NEW_YORK), datetime(2026, 11, 1, 1, tzinfo=NEW_YORK)]
+        starts.append(starts[-1])
+
+        events = score_events(
+            team_id=1,
+            insight_id=7,
+            scores=_scores(_series("hourly", starts)),
+            scored_through={},
+            scored_at=datetime(2026, 11, 2, tzinfo=UTC),
+        )
+
+        assert [event["properties"]["$anomaly_bucket_start"] for event in events] == [
+            start.isoformat() for start in starts[:2]
+        ]
+
     def test_the_event_carries_the_bucket_start_and_null_score_and_flag_during_warm_up(self) -> None:
         start = datetime(2026, 10, 19, tzinfo=NEW_YORK)
         series = ScoredSeries(
