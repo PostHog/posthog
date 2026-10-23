@@ -602,25 +602,25 @@ describe('dashboardLogic', () => {
                     name: 'two quick moves both save',
                     firstSaves: true,
                     secondMove: { tile: 'other', target: 'group-ops', inEditMode: false },
-                    expected: { first: 'ops', second: 'ops', unsaved: false, captures: 2 },
+                    expected: { first: 'ops', firstAtSavedCell: true, second: 'ops', unsaved: false, captures: 2 },
                 },
                 {
                     name: 'a failed first move puts back only its own tile',
                     firstSaves: false,
                     secondMove: { tile: 'other', target: 'group-ops', inEditMode: false },
-                    expected: { first: 'plans', second: 'ops', unsaved: false, captures: 1 },
+                    expected: { first: 'plans', firstAtSavedCell: true, second: 'ops', unsaved: false, captures: 1 },
                 },
                 {
                     name: 'a failed move keeps an edit-mode move of another tile',
                     firstSaves: false,
                     secondMove: { tile: 'other', target: 'group-ops', inEditMode: true },
-                    expected: { first: 'plans', second: 'ops', unsaved: true, captures: 1 },
+                    expected: { first: 'plans', firstAtSavedCell: true, second: 'ops', unsaved: true, captures: 1 },
                 },
                 {
                     name: 'a failed move keeps a later edit-mode move of the same tile',
                     firstSaves: false,
                     secondMove: { tile: 'same', target: null, inEditMode: true },
-                    expected: { first: null, second: null, unsaved: true, captures: 1 },
+                    expected: { first: null, firstAtSavedCell: false, second: null, unsaved: true, captures: 1 },
                 },
             ])('in view mode, $name', async ({ firstSaves, secondMove, expected }) => {
                 const first = tileIds[0]
@@ -643,11 +643,14 @@ describe('dashboardLogic', () => {
                 }
                 await settleSaves()
 
+                const firstCell = logic.values.layouts.sm?.find((item) => item.i === String(first))
+                const savedFirstCell = logic.values.savedTilePlacements[first]?.layouts?.sm
                 expect(pendingSaves.map((save) => save.tileIds)).toEqual(
                     secondMove.inEditMode ? [[first]] : [[first], [second]]
                 )
                 expect({
                     first: groupOf(first),
+                    firstAtSavedCell: firstCell?.y === savedFirstCell?.y,
                     second: groupOf(second),
                     unsaved: logic.values.hasUnsavedLayoutChanges,
                     captures: capture.mock.calls.filter(([event]) => event === 'dashboard tile moved between groups')
@@ -675,21 +678,52 @@ describe('dashboardLogic', () => {
                 })
             })
 
-            it('shows a view-mode move that saves after a discard put the tile back', async () => {
-                const plansTile = tileIds[0]
-                logic.actions.moveTileToSection(plansTile, 'group-ops', null, 'menu')
-                await waitFor(() => expect(pendingSaves).toHaveLength(1))
-                enterEditMode()
-                logic.actions.setDashboardEditing(null, DashboardEventSource.DashboardHeaderDiscardChanges)
-                expect(groupOf(plansTile)).toBe('plans')
+            it.each([
+                { name: 'shows the move', afterDiscard: 'nothing', expectedGroup: 'ops', groupSaves: 1 },
+                {
+                    name: 'shows the move in a new edit session',
+                    afterDiscard: 'edit',
+                    expectedGroup: 'ops',
+                    groupSaves: 1,
+                },
+                {
+                    name: 'keeps a newer saved drag of the tile',
+                    afterDiscard: 'drag and save',
+                    expectedGroup: 'plans',
+                    groupSaves: 2,
+                },
+            ])(
+                'when a view-mode move saves after a discard put the tile back, $name',
+                async ({ afterDiscard, expectedGroup, groupSaves }) => {
+                    const plansTile = tileIds[0]
+                    logic.actions.moveTileToSection(plansTile, 'group-ops', null, 'menu')
+                    await waitFor(() => expect(pendingSaves).toHaveLength(1))
+                    enterEditMode()
+                    logic.actions.setDashboardEditing(null, DashboardEventSource.DashboardHeaderDiscardChanges)
+                    expect(groupOf(plansTile)).toBe('plans')
 
-                await settleSaves()
+                    if (afterDiscard !== 'nothing') {
+                        enterEditMode()
+                    }
+                    if (afterDiscard === 'drag and save') {
+                        logic.actions.stageLayouts({
+                            sm: (logic.values.layouts.sm ?? []).map((item) =>
+                                item.i === String(plansTile) ? { ...item, y: 1 } : item
+                            ),
+                        })
+                        logic.actions.saveLayoutChanges()
+                        pendingSaves[0].resolve()
+                        await waitFor(() => expect(pendingSaves).toHaveLength(2))
+                    }
+                    await settleSaves()
 
-                expect({ group: groupOf(plansTile), unsaved: logic.values.hasUnsavedLayoutChanges }).toEqual({
-                    group: 'ops',
-                    unsaved: false,
-                })
-            })
+                    expect({
+                        group: groupOf(plansTile),
+                        unsaved: logic.values.hasUnsavedLayoutChanges,
+                        groupSaves: pendingSaves.filter((save) => save.tileIds.includes(plansTile)).length,
+                    }).toEqual({ group: expectedGroup, unsaved: false, groupSaves })
+                }
+            )
 
             it('runs a layout save queued behind a newer one without an error', async () => {
                 const [, opsTile, looseTile] = tileIds

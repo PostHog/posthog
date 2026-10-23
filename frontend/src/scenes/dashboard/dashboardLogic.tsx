@@ -325,6 +325,25 @@ const tilePlacement = (tile: DashboardTile): TilePlacement => ({
     group_key: tile.group_key ?? null,
 })
 
+type GridCell = Pick<Layout[number], 'x' | 'y' | 'w' | 'h'>
+
+const sameGridCell = (a: GridCell, b: GridCell): boolean => a.x === b.x && a.y === b.y && a.w === b.w && a.h === b.h
+
+const withStagedCellReverted = (
+    layout: Layout,
+    tileId: number,
+    moved: GridCell,
+    saved: GridCell | undefined
+): Layout => {
+    const staged = layout.find((item) => item.i === String(tileId))
+    if (!staged || !sameGridCell(staged, moved)) {
+        return layout
+    }
+    return saved
+        ? layout.map((item) => (item === staged ? { ...item, x: saved.x, y: saved.y, w: saved.w, h: saved.h } : item))
+        : layout.filter((item) => item !== staged)
+}
+
 const tilePlacementsFromDashboard = (dashboard: DashboardType | null | undefined): Record<number, TilePlacement> =>
     Object.fromEntries((dashboard?.tiles ?? []).map((tile) => [tile.id, tilePlacement(tile)]))
 
@@ -4152,8 +4171,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         tiles: [{ id: tileId, ...placement }],
                     })
                     actions.tilePlacementsSaved({ [tileId]: placement })
-                    // A discard while the request was out put the tile back where it was saved before this move.
-                    if (!values.layoutEditMode && equal(currentPlacement(), savedBefore)) {
+                    // A discard while the request was out put the tile back, but an edit staged since then is newer.
+                    if (values.draftLayouts === null && equal(currentPlacement(), savedBefore)) {
                         actions.setTileProperty(tileId, placement)
                     }
                     capture(move)
@@ -4162,7 +4181,16 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     lemonToast.error('Could not move the tile, so it is back where it was. Try again.')
                     // A move of this tile in edit mode is newer than this one, so it stays.
                     if (equal(currentPlacement(), placement)) {
-                        actions.setTileProperty(tileId, values.savedTilePlacements[tileId] ?? NO_SAVED_PLACEMENT)
+                        const saved = values.savedTilePlacements[tileId] ?? NO_SAVED_PLACEMENT
+                        actions.setTileProperty(tileId, saved)
+                        // A layout staged in edit mode since the move holds the moved cell, so it goes back too.
+                        const draft = values.draftLayouts
+                        if (draft?.sm && sm) {
+                            const draftSm = withStagedCellReverted(draft.sm, tileId, sm, saved.layouts?.sm)
+                            if (draftSm !== draft.sm) {
+                                actions.stageLayouts({ ...draft, sm: draftSm })
+                            }
+                        }
                     }
                 }
             })
