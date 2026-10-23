@@ -8,6 +8,12 @@ describe('deriveHeadline', () => {
             )
         ).toBe('Account: Example workspace | 12 active users need review.')
     })
+
+    it('does not parse markdown links beyond the headline input limit', () => {
+        const oversizedLabel = 'a'.repeat(1_000)
+
+        expect(deriveHeadline(`[${oversizedLabel}](https://example.com)`)).toBe(`${'[' + 'a'.repeat(139)}…`)
+    })
 })
 
 describe('parsePrUrlParts', () => {
