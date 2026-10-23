@@ -573,6 +573,7 @@ The fetcher keeps a crawl history per URL reference, so per team and month, in i
 - A later job before the v3 refetch time does not contact the origin. When the stored copy is more than 7 days old, the fetcher copies it onto itself. Otherwise it drops the job.
 - A job after the v3 refetch time sends a conditional request with the stored `ETag` or `Last-Modified`. A `304` refreshes the stored copy by a copy onto itself, and a `200` replaces it.
 - The history item expires with the key row of its month.
+- The history holds no URL in plaintext. It binds the stored validators to an HMAC of the response URL under the team month URL key, and sends them only when the job's URL has the same HMAC.
 
 A URL is therefore fetched from its origin about once per team and month, as v3 fetches it about once in 30 days.
 Unlike v3, the history is per team: a sealed image is readable only with its team's key, so two teams that refer to one URL each fetch it.
