@@ -150,17 +150,12 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                 maxToolProps={readDataMaxToolProps}
                 actions={
                     todayRailNav ? (
-                        <>
-                            {insightMode !== ItemMode.Edit && isPersistedInsight && (
-                                <InsightShareMenu insight={insight} />
-                            )}
-                            <QuillInsightPageHeaderActions
-                                insightLogicProps={insightLogicProps}
-                                isPersistedInsight={isPersistedInsight}
-                                canCreateAlertForInsight={canCreateAlertForInsight}
-                                saveInsightToFolder={saveInsightToFolder}
-                            />
-                        </>
+                        <QuillInsightPageHeaderActions
+                            insightLogicProps={insightLogicProps}
+                            isPersistedInsight={isPersistedInsight}
+                            canCreateAlertForInsight={canCreateAlertForInsight}
+                            saveInsightToFolder={saveInsightToFolder}
+                        />
                     ) : (
                         <>
                             {insightMode === ItemMode.Edit && isSavedInsight && (

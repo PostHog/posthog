@@ -254,6 +254,24 @@ if [[ "$prepare" -eq 0 ]]; then
         protected_environment_names+=(CODEX_SANDBOX_NETWORK_DISABLED)
     fi
     runtime_env+=("PYTEST_ADDOPTS=${PYTEST_ADDOPTS:--p no:xdist}")
+    # Read runtime credentials at invocation time, never from the toolchain cache.
+    for name in \
+        ANTHROPIC_API_KEY \
+        BRAINTRUST_API_KEY \
+        GH_TOKEN \
+        LLM_GATEWAY_ANTHROPIC_API_KEY \
+        LLM_GATEWAY_OPENAI_API_KEY \
+        MODAL_TOKEN_ID \
+        MODAL_TOKEN_SECRET \
+        OPENAI_API_KEY \
+        POSTHOG_OFFLINE_EVAL_API_KEY \
+        POSTHOG_OFFLINE_EVAL_HOST \
+        POSTHOG_OFFLINE_EVAL_LOCAL_CONFIG \
+        SANDBOX_JWT_PRIVATE_KEY; do
+        if [[ "${!name+x}" ]]; then
+            runtime_env+=("$name=${!name}")
+        fi
+    done
     if [[ -n "${TERM:-}" ]]; then
         runtime_env+=("TERM=$TERM")
         protected_environment_names+=(TERM)

@@ -12,6 +12,7 @@ import { asReportMetricSeriesQuery, formatReportMetricValue } from '../../utils/
 import { ReportCheckMetricChart } from './ReportCheckMetricChart'
 import { ReportCheckMetricSuggestionModal } from './ReportCheckMetricSuggestionModal'
 import { buildReportCheckRows, latestCheckExplanations, monitoringPeriodLabel } from './reportCheckPresentation'
+import { ReportCheckTiming } from './ReportCheckTiming'
 import { ReportMonitoringDetails } from './ReportMonitoringDetails'
 
 const MAX_VISIBLE_MEASUREMENTS = 6
@@ -84,8 +85,8 @@ export function ReportExpectedImpact({ report, reportUrl }: { report: SignalRepo
                                     <span>{` per ${monitoringPeriodLabel(config.monitoring.reference_period_minutes)}`}</span>
                                 )}
                             </p>
-                            <p className="m-0 text-secondary text-sm">
-                                {cancellable ? (
+                            <div className="m-0 flex flex-wrap items-center gap-x-1 text-secondary text-sm">
+                                {cancellable && !check.monitoring_timing ? (
                                     <span>{check.approved_at ? 'Approved measurement' : 'Proposed measurement'}</span>
                                 ) : (
                                     <LemonTag type={tag.type}>{tag.label}</LemonTag>
@@ -95,7 +96,7 @@ export function ReportExpectedImpact({ report, reportUrl }: { report: SignalRepo
                                         ? ' · Monitoring definition'
                                         : ' · Goal for the full query window'}
                                 </span>
-                            </p>
+                            </div>
                             {query ? (
                                 <ReportCheckMetricChart
                                     reportId={report.id}
@@ -124,12 +125,17 @@ export function ReportExpectedImpact({ report, reportUrl }: { report: SignalRepo
                                     config={config}
                                     monitoring={config.monitoring}
                                     metric={metric}
-                                    waitDescription={
-                                        cancellable && check.soak_minutes != null
-                                            ? `Minimum wait after implementation: ${monitoringPeriodLabel(check.soak_minutes)}.`
-                                            : cancellable
-                                              ? 'The soak and run schedule are separate from this definition.'
-                                              : detail
+                                    timingDescription={
+                                        <ReportCheckTiming
+                                            check={check}
+                                            detail={
+                                                check.monitoring_timing || !cancellable
+                                                    ? detail
+                                                    : check.soak_minutes != null && report.status !== 'resolved'
+                                                      ? `Check observation window after implementation: ${monitoringPeriodLabel(check.soak_minutes)}.`
+                                                      : detail
+                                            }
+                                        />
                                     }
                                 />
                             ) : (

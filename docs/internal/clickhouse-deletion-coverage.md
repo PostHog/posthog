@@ -238,7 +238,7 @@ A flag row whose event the predicate does not name keeps its events copy and sta
 A row with no events copy needs the predicate itself.
 An org on `flag_evaluations_mode` 2 stores its flag calls only in `flag_evaluations`, and a deletion that skipped the table can leave a flag row whose event is gone.
 `DeletionTarget.uncopied_rows_hogql_table` names the HogQL table that compiles the predicate for those rows, `posthog.flag_evaluations` here.
-The compile adds that table even when the org flag hides it from queries.
+The compile adds that table even when the org's mode hides it from queries.
 The queue fill reads the uuids of the rows with no copy in `sharded_events` that the compiled predicate matches, shard-locally and in 7-day windows, and queues them with the rest.
 A row read this way already existed when its uuid was queued, so the drain's `inserted_at` bound cannot skip it.
 The check for an events copy reads `sharded_events` only.
@@ -332,7 +332,9 @@ Staff set the retention in Django admin, on the team and organization pages:
 - `cleanup_old_events_by_partition` deletes each planned month for the teams due in that month only. A team with 13 months and a team with 18 months share the older months, and the 13-month team also has months of its own.
 
 A manual run can narrow the plan with `team_ids` and `partitions`. A listed team with no retention is ignored.
-`monthly_old_events_cleanup_schedule` starts one run on the 1st of each month, in every region, and skips when no retention is set. It is stopped by default. The job shares the `deletes_job` run queue, so it does not mutate the same partitions at the same time.
+`monthly_old_events_cleanup_schedule` starts one run on the 1st of each month, in every region, and skips when no retention is set. It is stopped by default.
+The job runs `ensure_no_concurrent_deletes_run` before it plans, and that guard also runs in `deletes_job`. Each job fails at the start while a `deletes_job`, cleanup or squash run is executing, so the two never mutate the events tables at the same time.
+Both jobs carry the `deletes_job_concurrency` tag, so with a run-queue limit of 1 on that tag in the Dagster deployment settings, a second run queues instead of failing the guard.
 `sharded_events_json` keeps events dated before 2020, because it stores them in its 202001 partition and the delete addresses the event's own month.
 
 ## Adding a table

@@ -330,7 +330,14 @@ class TestFiltersSchema(SimpleTestCase):
 
     def test_log_only_mode_preserves_non_legacy_unknown_keys_at_every_level(self) -> None:
         filters = {
-            "groups": [{"properties": [{**VALID_PROPERTY, "property_extra": {"a": 1}}], "group_extra": "g"}],
+            "groups": [
+                {
+                    "properties": [
+                        {**VALID_PROPERTY, "property_extra": {"a": 1}, "cohort_deleted": True, "cohort_missing": True}
+                    ],
+                    "group_extra": "g",
+                }
+            ],
             "multivariate": {
                 "variants": [{"key": "a", "rollout_percentage": 100, "variant_extra": [1]}],
                 "multivariate_extra": True,
@@ -349,6 +356,8 @@ class TestFiltersSchema(SimpleTestCase):
         assert validated["filters_extra"] == "f"
         assert validated["groups"][0]["group_extra"] == "g"
         assert validated["groups"][0]["properties"][0]["property_extra"] == {"a": 1}
+        assert "cohort_deleted" not in validated["groups"][0]["properties"][0]
+        assert "cohort_missing" not in validated["groups"][0]["properties"][0]
         assert validated["multivariate"]["multivariate_extra"] is True
         assert validated["multivariate"]["variants"][0]["variant_extra"] == [1]
         assert validated["holdout"]["holdout_extra"] == "h"

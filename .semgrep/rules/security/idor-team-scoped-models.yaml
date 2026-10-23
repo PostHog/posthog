@@ -194,6 +194,7 @@ rules:
                               |ErrorTrackingIssue
                               |ErrorTrackingIssueChange
                               |ErrorTrackingIssueFingerprintV2
+                              |ErrorTrackingIssueSummary
                               |ErrorTrackingRelease
                               |ErrorTrackingRecommendation
                               |ErrorTrackingSettings
@@ -386,6 +387,7 @@ rules:
                               |SignalReportAction
                               |SignalReportArtefact
                               |SignalReportCheck
+                              |SignalReportMonitoringAttempt
                               |SignalReportGithubComment
                               |SignalReportPullRequest
                               |SignalReportAssignment
@@ -409,6 +411,7 @@ rules:
                               |SignalProjectProfile
                               |SingleSessionSummary
                               |SlackThreadTaskMapping
+                              |SlackThreadJoin
                               |SourceBatch
                               |SourceGroupLease
                               |StreamlitApp
@@ -419,6 +422,7 @@ rules:
                               |PlatformAlertConfiguration
                               |PlatformAlertDeliveryPath
                               |PlatformAlertThread
+                              |AlertDestination
                               |Survey
                               |SurveyResponseArchive
                               |TableCertification
@@ -458,7 +462,10 @@ rules:
                               |TracesRetentionRule
                               |TracingView
                               |UploadedMedia
+                              |UptimeMonitor
                               |UserInterview
+                              |UserActivitySummaryQueueState
+                              |UserActivitySummaryVersion
                               |UserInterviewTopic
                               |UserRepoPreference
                               |VisionAlertConfiguration
@@ -669,6 +676,7 @@ rules:
                         |ErrorTrackingIssue
                         |ErrorTrackingIssueChange
                         |ErrorTrackingIssueFingerprintV2
+                        |ErrorTrackingIssueSummary
                         |ErrorTrackingRelease
                         |ErrorTrackingRecommendation
                         |ErrorTrackingSettings
@@ -851,6 +859,7 @@ rules:
                         |SignalReportAction
                         |SignalReportArtefact
                         |SignalReportCheck
+                        |SignalReportMonitoringAttempt
                         |SignalReportGithubComment
                         |SignalReportPullRequest
                         |SignalReportAssignment
@@ -874,6 +883,7 @@ rules:
                         |SignalProjectProfile
                         |SingleSessionSummary
                         |SlackThreadTaskMapping
+                        |SlackThreadJoin
                         |SourceBatch
                         |SourceGroupLease
                         |StreamlitApp
@@ -884,6 +894,7 @@ rules:
                         |PlatformAlertConfiguration
                         |PlatformAlertDeliveryPath
                         |PlatformAlertThread
+                        |AlertDestination
                         |Survey
                         |SurveyResponseArchive
                         |TableCertification
@@ -922,7 +933,10 @@ rules:
                         |TracesRetentionRule
                         |TracingView
                         |UploadedMedia
+                        |UptimeMonitor
                         |UserInterview
+                        |UserActivitySummaryQueueState
+                        |UserActivitySummaryVersion
                         |UserInterviewTopic
                         |UserRepoPreference
                         |VisionAlertConfiguration
@@ -1189,6 +1203,7 @@ rules:
                         |SignalReport
                         |SignalReportArtefact
                         |SignalReportCheck
+                        |SignalReportMonitoringAttempt
                         |SignalReportSlackThread
                         |SignalReportTask
                         |SignalSourceConfig
@@ -1649,6 +1664,7 @@ rules:
                       regex: |
                           (?x)(
                               AgentMemory
+                              |DevGatewayToken
                               |FileSystemHomeFolder
                               |FileSystemShortcut
                               |FileSystemViewLog
@@ -1724,6 +1740,7 @@ rules:
                 regex: |
                     (?x)(
                         AgentMemory
+                        |DevGatewayToken
                         |FileSystemHomeFolder
                         |FileSystemShortcut
                         |FileSystemViewLog

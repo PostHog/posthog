@@ -339,28 +339,6 @@ export const FIXTURE_EVALS: EvalResult[] = [
         isBackfill: false,
         target: null,
     },
-    {
-        id: 'e-tone',
-        name: 'Tone',
-        href: '/evaluations/tone',
-        outcome: 'error',
-        label: 'Error',
-        reasoning: 'The judge model returned an empty response.',
-        timestamp: EVAL_TIMESTAMP,
-        isBackfill: false,
-        target: null,
-    },
-    {
-        id: 'e-policy',
-        name: 'Follows billing policy',
-        href: '/evaluations/follows-billing-policy',
-        outcome: 'pending',
-        label: 'Running',
-        reasoning: null,
-        timestamp: EVAL_TIMESTAMP,
-        isBackfill: false,
-        target: null,
-    },
 ]
 
 export const FIXTURE_TRACE_EVALS: EvalResult[] = FIXTURE_EVALS.map((result) => ({

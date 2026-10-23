@@ -1,8 +1,8 @@
+from dataclasses import replace
 from datetime import UTC, date, datetime, time, timedelta
 from uuid import uuid4
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin
-from unittest.mock import patch
 
 from parameterized import parameterized
 
@@ -12,10 +12,11 @@ from products.warehouse_suggestions.backend.facade.enums import (
     WarehouseSuggestionKind,
     WarehouseSuggestionStatus,
 )
-from products.warehouse_suggestions.backend.logic.job import TeamRunStatus, run_team
+from products.warehouse_suggestions.backend.logic.job import TeamRunStatus, build_context, run_team
 from products.warehouse_suggestions.backend.logic.reads import RollupDays
 from products.warehouse_suggestions.backend.logic.rules import RULES
 from products.warehouse_suggestions.backend.models import WarehouseSuggestion, WarehouseSuggestionTeamConfig
+from products.warehouse_suggestions.backend.tests.factories import team_reads
 from products.warehouse_suggestions.backend.tests.rollup import RollupRead, seed_reads
 from products.warehouse_suggestions.backend.tests.test_suggestions import ingest_one, make_draft
 
@@ -23,7 +24,6 @@ TODAY = date.today()
 NOW = datetime.combine(TODAY, time(hour=9), tzinfo=UTC)
 BEFORE_THE_WINDOW = NOW - timedelta(days=2 * RULES.window_days)
 SCENES = ("SQLEditor", "Dashboard")
-INCREMENTAL_FLAG = "products.warehouse_suggestions.backend.logic.candidates.materialize.incremental_enabled"
 DAILY_COUNTS = "SELECT toStartOfDay(timestamp) AS day, count() AS c FROM events GROUP BY day"
 DAILY_COUNT_COLUMNS = {
     "day": {"hogql": "DateTimeDatabaseField", "clickhouse": "DateTime64(6, 'UTC')"},
@@ -82,8 +82,7 @@ class TestRunTeam(ClickhouseTestMixin, BaseTest):
             ],
         )
 
-        with patch(INCREMENTAL_FLAG, return_value=True):
-            result = run_team(self.team.pk, run_id="run-1", today=TODAY, rollup_days=FULL_ROLLUP, now=NOW)
+        result = run_team(self.team.pk, run_id="run-1", today=TODAY, rollup_days=FULL_ROLLUP, now=NOW)
 
         assert result.status == TeamRunStatus.PROCESSED
         assert sorted(
@@ -152,3 +151,23 @@ class TestRunTeam(ClickhouseTestMixin, BaseTest):
             about_a_deleted_view.status,
             about_a_deleted_view.asset_outcome,
         ) == (TeamRunStatus.NOT_ELIGIBLE, False, True, expected_status, expected_asset_outcome)
+
+
+class TestFlipCooldown(BaseTest):
+    def test_only_accepts_inside_the_cooldown_hold_off_the_opposite_kind(self) -> None:
+        recent, old = uuid4(), uuid4()
+        for subject_id, days_ago in [(recent, 10), (old, 40)]:
+            row = ingest_one(
+                self.team.pk,
+                replace(
+                    make_draft(fingerprint=f"materialize:{subject_id}", subject_id=subject_id),
+                    kind=WarehouseSuggestionKind.MATERIALIZE,
+                ),
+            )
+            WarehouseSuggestion.objects.for_team(self.team.pk).filter(id=row.id).update(
+                status=WarehouseSuggestionStatus.ACCEPTED, reviewed_at=NOW - timedelta(days=days_ago)
+            )
+
+        candidate_context = build_context(self.team, team_reads({}), run_id="run-1", rules=RULES, now=NOW)
+
+        assert candidate_context.recent_accepts == {WarehouseSuggestionKind.MATERIALIZE: frozenset({recent})}

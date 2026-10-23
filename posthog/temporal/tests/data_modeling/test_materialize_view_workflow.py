@@ -200,6 +200,22 @@ class TestQualityGateBranching:
         assert started.count("create_data_modeling_job_activity") == 1
         assert "check_managed_warehouse_shadow_eligibility_activity" not in started
 
+    @pytest.mark.parametrize("recorded_run_mode,expected", [("incremental", "incremental"), (None, "unknown")])
+    async def test_clickhouse_failure_reports_the_jobs_run_mode(self, recorded_run_mode, expected) -> None:
+        async def execute_activity(activity, *args, **kwargs):
+            if activity.__name__ == "materialize_view_activity":
+                raise RuntimeError("Code: 241. Memory limit exceeded")
+            if activity.__name__ == "fail_materialization_activity":
+                return recorded_run_mode
+            return {"create_data_modeling_job_activity": "job-1"}.get(activity.__name__)
+
+        with pytest.raises(RuntimeError):
+            await self._run([], {}, execute_activity=AsyncMock(side_effect=execute_activity))
+
+        finished = self.metrics["get_node_finished_metric"]
+        assert finished.call_args.args == ("failed", "clickhouse")
+        assert finished.call_args.kwargs["run_mode"] == expected
+
     async def test_blocking_failures_stop_the_publish(self):
         activity_results = [
             "job-1",  # create job

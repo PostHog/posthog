@@ -122,6 +122,7 @@ export type InboxReportOpenMethod = 'click' | 'deeplink' | 'triage' | 'unknown'
  * `ReportLinkSource` in `products/signals/backend/report_urls.py`.
  */
 export const INBOX_REPORT_LINK_SOURCES = [
+    'first_report_email',
     'mcp',
     'slack',
     'slack_scout',
@@ -181,6 +182,8 @@ export type InboxReportActionType =
     | 'collapse_section'
     | 'add_suggested_reviewer'
     | 'remove_suggested_reviewer'
+    | 'claim'
+    | 'unclaim'
 
 /**
  * Where the text of an "Ask AI" question came from. `suggested` is a scout-authored question sent as

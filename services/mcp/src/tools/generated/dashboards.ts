@@ -568,7 +568,12 @@ const DashboardUpdateSchema = () => {
     return DashboardsPartialUpdateParams.omit({ project_id: true })
         .extend(DashboardsPartialUpdateQueryParams.omit({ format: true }).shape)
         .extend(DashboardsPartialUpdateBody.shape)
-        .extend({ id: z.preprocess(castStringToInt, DashboardsPartialUpdateParams.shape['id']) })
+        .extend({
+            id: z.preprocess(castStringToInt, DashboardsPartialUpdateParams.shape['id']),
+            tiles: DashboardsPartialUpdateBody.shape['tiles'].describe(
+                "Dashboard tiles to update, each identified by its tile id. Any tile type accepts `layouts` to set its grid position and size. To change a widget tile's config, name, or description, use dashboard-widgets-batch-update."
+            ),
+        })
 }
 
 const dashboardUpdate = (): ToolBase<
@@ -746,7 +751,10 @@ const dashboardUpdateTextTile = (): ToolBase<
     },
 })
 
-const DashboardWidgetCatalogListSchema = () => z.object({})
+const DashboardWidgetCatalogListSchema = () => {
+    const DashboardsWidgetCatalogRetrieveQueryParams = orvalSchemas.DashboardsWidgetCatalogRetrieveQueryParams()
+    return DashboardsWidgetCatalogRetrieveQueryParams.omit({ format: true })
+}
 
 const dashboardWidgetCatalogList = (): ToolBase<
     ReturnType<typeof DashboardWidgetCatalogListSchema>,
@@ -754,11 +762,16 @@ const dashboardWidgetCatalogList = (): ToolBase<
 > => ({
     name: 'dashboard-widget-catalog-list',
     schema: DashboardWidgetCatalogListSchema(),
-    handler: async (context: Context, _params: z.infer<ReturnType<typeof DashboardWidgetCatalogListSchema>>) => {
+    handler: async (context: Context, params: z.infer<ReturnType<typeof DashboardWidgetCatalogListSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.WidgetCatalogResponse>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/dashboards/widget_catalog/`,
+            query: {
+                widget_type: Array.isArray(params.widget_type)
+                    ? params.widget_type.join(',') || undefined
+                    : params.widget_type,
+            },
         })
         return result
     },

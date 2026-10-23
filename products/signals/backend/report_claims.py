@@ -119,3 +119,23 @@ def actor_owns_claim(claim: ReportClaim, actor: ArtefactAttribution) -> bool:
         and (str(claim.actor_task_id) if claim.actor_task_id else None) == actor.task_id
         and claim.actor_agent == actor.agent_name
     )
+
+
+def is_user_claim_of(claim: ReportClaim, user_id: int | None) -> bool:
+    """Whether a person holds the claim directly, not through an agent or an internal task."""
+    return claim.actor_kind == "user" and user_id is not None and claim.actor_user_id == user_id
+
+
+def is_user_claim_of_task_creator(claim: ReportClaim, task_id: str) -> bool:
+    """Whether the person holding the claim started the task, so the task works under their claim."""
+    if claim.actor_kind != "user":
+        return False
+    tasks = tasks_facade.get_tasks_by_ids([task_id], [claim.team_id])
+    return bool(tasks) and is_user_claim_of(claim, tasks[0].created_by_id)
+
+
+def actor_works_under_claim(claim: ReportClaim, actor: ArtefactAttribution) -> bool:
+    """Whether the actor can resume the claim and add work to it. Only the owner can release it."""
+    return actor_owns_claim(claim, actor) or (
+        actor.task_id is not None and is_user_claim_of_task_creator(claim, actor.task_id)
+    )

@@ -985,7 +985,10 @@ class TestCallMemberServerTool(BaseTest):
         self._installation(user=other_user, url="https://mcp.example.com.evil.test/mcp")
         self._tool(shared)
 
-        assert self._call().status == "ok"
+        # The owner's approval does not carry over, so the teammate approves the call first.
+        pending = self._call()
+        assert pending.status == "needs_approval"
+        assert self._call(approval_token=pending.approval_token).status == "ok"
         assert mock_call.call_args.args[0].id == shared.id
 
     @patch("products.mcp_store.backend.facade.api.call_upstream_tool")

@@ -3,11 +3,11 @@ import uuid
 from collections import defaultdict
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from functools import partial
 
 from django.conf import settings
-from django.db.models import Q
+from django.db.models import Count, Min, Q
 from django.utils import timezone
 
 import dagster
@@ -29,6 +29,7 @@ from posthog.clickhouse.cluster import (
 )
 from posthog.clickhouse.plugin_log_entries import PLUGIN_LOG_ENTRIES_TABLE
 from posthog.dags.common import EXECUTING_RUN_STATUSES, JobOwners, describe_runs
+from posthog.dags.common.deletion_run_log import record_run, record_run_failed, record_run_succeeded
 from posthog.dags.common.dictionaries import Dictionary
 from posthog.dags.common.staged_dictionary import (
     StagedDictionary,
@@ -37,7 +38,7 @@ from posthog.dags.common.staged_dictionary import (
 )
 from posthog.dags.person_overrides import squash_person_overrides
 from posthog.dataclasses import frozen
-from posthog.models.async_deletion import AsyncDeletion, DeletionType
+from posthog.models.async_deletion import AsyncDeletion, DeletionRunJob, DeletionType
 from posthog.models.deletion_targets import (
     COVERAGE_DOC,
     DEFAULT_DELETION_TARGETS,
@@ -394,11 +395,13 @@ class AdhocEventDeletesDictionary(Dictionary):
 
 @dagster.op(out=dagster.Out(dagster.Nothing))
 def ensure_no_concurrent_deletes_run(context: dagster.OpExecutionContext) -> None:
-    """Fail this run when another run of the same job, or any squash run, is executing.
+    """Fail this run when a deletes run, an old events cleanup run, or a squash run is executing.
 
     Concurrent deletes runs share their dictionary names, so each run's delete mutations read
     whichever contents the other run loaded last, and mark_deletions_verified then claims
-    deletions the sweep may not have performed. Any other executing run blocks, deliberately
+    deletions the sweep may not have performed. The old events cleanup mutates the same events
+    tables, which reject new mutations while others are unfinished, so a cleanup run and a
+    deletes run must not overlap either. Any other executing run blocks, deliberately
     without an election: ranking by creation time lets a run that was queued early and started
     late outrank a run already past this guard, and two runs then proceed together. Two racing
     starts can both fail here, which is safe and visible; the run-queue limit named on the job's
@@ -412,14 +415,19 @@ def ensure_no_concurrent_deletes_run(context: dagster.OpExecutionContext) -> Non
     # A queued run has done nothing yet. Its own guard sees this run once it starts.
     blockers = describe_runs(
         context.instance,
-        (context.job_name, squash_person_overrides.name),
+        (deletes_job.name, monthly_old_events_cleanup_job.name, squash_person_overrides.name),
         statuses=EXECUTING_RUN_STATUSES,
         exclude_run_id=context.run_id,
     )
     if blockers:
+        restart = (
+            "start a new run through manual_deletes_job"
+            if context.job_name == deletes_job.name
+            else f"start a new {context.job_name} run"
+        )
         raise dagster.Failure(
             description="This run yields to: " + "; ".join(blockers) + ". "
-            "Wait for them to finish or cancel them, then start a new run through manual_deletes_job."
+            f"Wait for them to finish or cancel them, then {restart}."
         )
 
 
@@ -469,8 +477,37 @@ def _targets_named(data_tables: Sequence[str]) -> tuple[DeletionTarget, ...]:
     return tuple(target for target in PERSONAL_DATA_TARGETS if target.data_table in wanted)
 
 
+# How long a person deletion waits for squash when nothing is wrong: squash runs weekly with a
+# cutoff two days before it starts.
+EXPECTED_PERSON_DELETION_DELAY = timedelta(days=9)
+WATERMARK_HOLDERS_LIMIT = 20
+
+
+def _as_utc(moment: datetime) -> datetime:
+    return moment if moment.tzinfo else moment.replace(tzinfo=UTC)
+
+
+def _watermark_holders(cluster: ClickhouseCluster, older_than: datetime) -> list[dict[str, str | int]]:
+    query = Query(
+        f"""
+        SELECT team_id, count() AS rows, min(_timestamp) AS oldest
+        FROM {PERSON_DISTINCT_ID_OVERRIDES_TABLE}
+        WHERE _timestamp < %(older_than)s
+        GROUP BY team_id
+        ORDER BY oldest
+        LIMIT {WATERMARK_HOLDERS_LIMIT}
+        """,
+        {"older_than": older_than.astimezone(UTC).replace(tzinfo=None)},
+    )
+    return [
+        {"team_id": team_id, "rows": rows, "oldest": _as_utc(oldest).isoformat()}
+        for team_id, rows, oldest in cluster.any_host_by_role(query, NodeRole.DATA).result()
+    ]
+
+
 @dagster.op(ins={"start_after": dagster.In(dagster.Nothing)})
 def get_oldest_person_override_timestamp(
+    context: dagster.OpExecutionContext,
     cluster: dagster.ResourceParam[ClickhouseCluster],
 ) -> datetime:
     """Get the oldest person override timestamp from the person_distinct_id_overrides table."""
@@ -479,6 +516,14 @@ def get_oldest_person_override_timestamp(
     SELECT min(_timestamp) FROM {PERSON_DISTINCT_ID_OVERRIDES_TABLE}
     """
     [[result]] = cluster.any_host_by_role(lambda client: client.execute(query), NodeRole.DATA).result()
+
+    # The holders only explain the watermark to staff, so a failed lookup must not stop the deletes.
+    try:
+        holders = _watermark_holders(cluster, timezone.now() - EXPECTED_PERSON_DELETION_DELAY)
+    except Exception as error:
+        context.log.warning(f"Could not list the teams that hold the watermark back: {error}")
+        holders = []
+    record_run(context, DeletionRunJob.DELETES, watermark=_as_utc(result), watermark_holders=holders)
     return result
 
 
@@ -518,6 +563,7 @@ def load_pending_deletions(
     )
     if create_pending_deletions_table.team_id:
         pending_deletions = pending_deletions.filter(team_id=create_pending_deletions_table.team_id)
+    _record_loaded_and_skipped(context, create_pending_deletions_table)
 
     # Process and insert in chunks
     total_rows = 0
@@ -550,6 +596,30 @@ def load_pending_deletions(
         }
     )
     return create_pending_deletions_table
+
+
+def _record_loaded_and_skipped(context: dagster.OpExecutionContext, table: PendingDeletesTable) -> None:
+    unverified = AsyncDeletion.objects.filter(delete_verified_at__isnull=True)
+    if table.team_id:
+        unverified = unverified.filter(team_id=table.team_id)
+    loaded = unverified.filter(
+        Q(deletion_type=DeletionType.Person, created_at__lte=table.timestamp)
+        | Q(deletion_type__in=[DeletionType.Team, DeletionType.Event])
+    )
+    skipped = unverified.filter(deletion_type=DeletionType.Person, created_at__gt=table.timestamp).aggregate(
+        count=Count("id"), oldest=Min("created_at")
+    )
+    record_run(
+        context,
+        DeletionRunJob.DELETES,
+        limited_to_team_id=table.team_id,
+        loaded_counts={
+            DeletionType(row["deletion_type"]).label: row["count"]
+            for row in loaded.values("deletion_type").annotate(count=Count("id")).order_by()
+        },
+        skipped_person_deletions=skipped["count"],
+        oldest_skipped_created_at=skipped["oldest"],
+    )
 
 
 @dagster.op
@@ -1158,14 +1228,25 @@ def cleanup_delete_assets(
     return True
 
 
+@dagster.op
+def record_deletes_run_succeeded(context: dagster.OpExecutionContext, cleaned_up: bool) -> None:
+    record_run_succeeded(context, DeletionRunJob.DELETES)
+
+
+@dagster.failure_hook
+def record_deletes_run_failure(context: dagster.HookContext) -> None:
+    record_run_failed(context, DeletionRunJob.DELETES)
+
+
 @dagster.job(
+    hooks={record_deletes_run_failure},
     tags={
         "owner": JobOwners.TEAM_CLICKHOUSE.value,
         # For a run-queue limit of 1 in Dagster deployment settings, so a second run queues
         # instead of racing the guard; clickhouse_deletion_sweep_concurrency is the matched
         # example. ensure_no_concurrent_deletes_run enforces mutual exclusion regardless.
         "deletes_job_concurrency": "v1",
-    }
+    },
 )
 def deletes_job():
     """Job that handles deletion of events."""
@@ -1207,7 +1288,7 @@ def deletes_job():
     )
 
     # Clean up
-    cleanup_delete_assets(swept_targets, verified_deletion_resources)
+    record_deletes_run_succeeded(cleanup_delete_assets(swept_targets, verified_deletion_resources))
 
 
 # What every sensor-launched deletes_job run carries. retry_max_attempts is raised because
@@ -1235,13 +1316,14 @@ def ensure_deletes_job_can_start(context: dagster.OpExecutionContext) -> None:
     A concurrent deletes_job run is the collision the in-job guard exists for; failing here
     reports it before a run is even launched. A squash run means the weekly chain is already in
     motion and will launch deletes_job itself on success, so starting one by hand now would race
-    it. Another manual trigger means someone else already asked for a run.
+    it. An old events cleanup run would make the launched run fail its in-job guard. Another
+    manual trigger means someone else already asked for a run.
     """
     # Unlike the in-job guard, queued and not-started runs count here. This check asks whether
     # launching another run would collide, not which of two started runs came first.
     blockers = describe_runs(
         context.instance,
-        (deletes_job.name, squash_person_overrides.name, context.job_name),
+        (deletes_job.name, monthly_old_events_cleanup_job.name, squash_person_overrides.name, context.job_name),
         exclude_run_id=context.run_id,
     )
     if blockers:
@@ -1256,8 +1338,8 @@ def ensure_deletes_job_can_start(context: dagster.OpExecutionContext) -> None:
 def manual_deletes_job():
     """Start a deletes_job run the way the weekly chain does.
 
-    Launch this instead of deletes_job itself. It checks that no deletes_job or squash run is in
-    flight, and its success makes run_deletes_after_manual_trigger request a real deletes_job run
+    Launch this instead of deletes_job itself. It checks that no deletes_job, old events cleanup
+    or squash run is in flight, and its success makes run_deletes_after_manual_trigger request a real deletes_job run
     with DELETES_RUN_CONFIG. Launching deletes_job directly skips both: the launchpad defaults
     carry none of that config, and nothing checks the weekly chain before the in-job guard fails
     the run mid-flight.
@@ -1279,7 +1361,7 @@ def run_deletes_after_manual_trigger(context: dagster.RunStatusSensorContext) ->
     return dagster.RunRequest(run_key=context.dagster_run.run_id, run_config=DELETES_RUN_CONFIG)
 
 
-@dagster.op
+@dagster.op(ins={"start_after": dagster.In(dagster.Nothing)})
 def plan_old_events_cleanup(
     context: dagster.OpExecutionContext,
     config: MonthlyCleanupConfig,
@@ -1420,7 +1502,7 @@ def cleanup_old_events_by_partition(
 )
 def monthly_old_events_cleanup_job():
     """Delete events past each team's events retention set in Django admin, a whole month at a time."""
-    cleanup_old_events_by_partition(plan_old_events_cleanup())
+    cleanup_old_events_by_partition(plan_old_events_cleanup(start_after=ensure_no_concurrent_deletes_run()))
 
 
 @dagster.schedule(

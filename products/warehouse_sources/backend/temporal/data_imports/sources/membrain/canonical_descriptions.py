@@ -153,4 +153,42 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "Cost": "Product cost.",
         },
     },
+    "currencies": {
+        "description": "Currencies available in the Membrain instance, with exchange rates relative to the primary currency.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "Id": "Unique identifier (GUID).",
+            "Name": "Currency name.",
+            "CurrencyCode": "Currency code (for example USD, EUR, or SEK).",
+            "ExchangeRate": "Exchange rate for this currency. Always 1 for the primary currency. Divide an amount by this rate to convert it to the primary currency.",
+        },
+    },
+    "activity_types": {
+        "description": "Activity types used to categorize activities.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "Id": "Unique identifier (GUID). Matches ActivityTypeId on activities.",
+            "Name": "Activity type name.",
+        },
+    },
+    "ticket_processes": {
+        "description": "Active ticket process definitions, including their stages, steps and custom fields.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "Id": "Unique identifier (GUID) of the ticket process.",
+            "Name": "Name of the ticket process.",
+            "Stages": "Stages in the process, as a list of {Id, Name, Steps} objects. Each Steps entry is a list of {Id, Name} objects.",
+            "CustomFields": "Custom fields referenced in the process, with the same properties as the custom_fields table.",
+        },
+    },
+    "account_growth_processes": {
+        "description": "Active Account Growth process definitions, including their stages, steps and custom fields.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "Id": "Unique identifier (GUID) of the Account Growth process.",
+            "Name": "Name of the Account Growth process.",
+            "Stages": "Stages in the process, as a list of {Id, Name, Steps} objects. Each Steps entry is a list of {Id, Name} objects.",
+            "CustomFields": "Custom fields referenced in the process, with the same properties as the custom_fields table.",
+        },
+    },
 }
