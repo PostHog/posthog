@@ -12,6 +12,7 @@ import { template as setVariableTemplate } from '~/cdp/templates/_destinations/p
 import { compileHog } from '~/cdp/templates/compiler'
 import { convertToHogFunctionFilterGlobal } from '~/cdp/utils/hog-function-filtering'
 import { createHub } from '~/common/utils/db/hub'
+import { PostgresUse } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
 import { FetchResponse, fetch, internalFetch } from '~/common/utils/request'
@@ -3374,5 +3375,38 @@ describe('Hogflow Executor', () => {
             const emailSentMetrics = emailResult.metrics.filter((m) => m.metric_name === 'email_sent')
             expect(emailSentMetrics).toHaveLength(1)
         })
+
+        // The email service reads a code send's capture choice from the function it runs, so the
+        // choice has to survive the hand-off from the workflow worker to the email queue.
+        it.each([
+            { captureEngagement: true, teamCaptures: false, captured: ['$workflows_email_sent'] },
+            { captureEngagement: false, teamCaptures: true, captured: [] },
+        ])(
+            "captures the email's events by the code send's choice $captureEngagement over the team switch $teamCaptures",
+            async ({ captureEngagement, teamCaptures, captured }) => {
+                await hub.postgres.query(
+                    PostgresUse.COMMON_WRITE,
+                    `INSERT INTO workflows_teamworkflowsconfig
+                        (team_id, capture_workflows_engagement_events, email_tracking_consent_mode,
+                         email_sending_suspension_reason, ses_tenant_sending_status, email_sending_tier)
+                     VALUES ($1, $2, 'off', '', '', 0)`,
+                    [team.id, teamCaptures],
+                    'test-team-engagement-capture'
+                )
+                const invocation = flowInvocation(emailFlow(storedStep()))
+                invocation.state.send = { tracking: { captureEngagement } }
+
+                let result = await executor.execute(invocation)
+                const events = [...result.capturedPostHogEvents]
+                while (!result.finished) {
+                    result = await executor.execute(result.invocation)
+                    events.push(...result.capturedPostHogEvents)
+                }
+
+                expect(
+                    events.map((event) => event.event).filter((event) => event.startsWith('$workflows_email_'))
+                ).toEqual(captured)
+            }
+        )
     })
 })
