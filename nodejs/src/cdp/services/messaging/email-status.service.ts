@@ -4,7 +4,6 @@ import { EMAIL_STATUS_OUTPUT, EmailStatusOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { logger } from '~/common/utils/logger'
 
-import type { CdpOutput } from '../../cdp-services'
 import { TRANSACTIONAL_EMAIL_EVENT } from '../hogflows/hogflow-sensitivity'
 
 const emailStatusRowsProduced = new Counter({
@@ -117,7 +116,7 @@ export async function recordSkippedTransactionalEmail(
 }
 
 export class EmailStatusService implements EmailStatusWriter {
-    constructor(private outputs: IngestionOutputs<EmailStatusOutput | CdpOutput>) {}
+    constructor(private outputs: IngestionOutputs<EmailStatusOutput>) {}
 
     async record(change: StatusChange): Promise<void> {
         const row = this.rowFor(change)

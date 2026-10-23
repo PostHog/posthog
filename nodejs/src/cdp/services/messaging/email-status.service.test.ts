@@ -1,14 +1,13 @@
-import { EMAIL_STATUS_OUTPUT } from '~/common/outputs'
+import { EMAIL_STATUS_OUTPUT, EmailStatusOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { parseJSON } from '~/common/utils/json-parse'
 import { UUIDT } from '~/common/utils/utils'
 
-import { CdpOutput } from '../../cdp-services'
 import { EmailStatusService } from './email-status.service'
 
 describe('EmailStatusService', () => {
     const messageId = new UUIDT(Date.parse('2026-10-22T07:00:00.123Z')).toString()
-    let outputs: jest.Mocked<IngestionOutputs<CdpOutput>>
+    let outputs: jest.Mocked<IngestionOutputs<EmailStatusOutput>>
     let service: EmailStatusService
 
     const producedRows = (): Record<string, unknown>[] =>
@@ -16,7 +15,7 @@ describe('EmailStatusService', () => {
 
     beforeEach(() => {
         outputs = { produce: jest.fn().mockResolvedValue(undefined) } as unknown as jest.Mocked<
-            IngestionOutputs<CdpOutput>
+            IngestionOutputs<EmailStatusOutput>
         >
         service = new EmailStatusService(outputs)
     })
