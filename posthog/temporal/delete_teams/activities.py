@@ -208,18 +208,16 @@ async def delete_organization_record_activity(inputs: OrganizationRecordInputs) 
         await database_sync_to_async_pool(_delete_organization_record)(inputs.organization_id, inputs.user_id)
 
 
-def _deactivate_deleted_organization_in_billing(organization_id: str) -> None:
-    from posthog.temporal.billing_active_sync.sync_organization_active_state import (
-        deactivate_deleted_organization_in_billing,
-    )
-
-    deactivate_deleted_organization_in_billing(organization_id)
-
-
 @temporalio.activity.defn
 async def deactivate_deleted_organization_in_billing_activity(inputs: OrganizationRecordInputs) -> None:
+    # Goes through the per-org sync workflow, so a stale in-flight sync for this org cannot land after the flag.
+    from posthog.cloud_utils import is_cloud
+    from posthog.models.organization import start_billing_active_sync_workflow
+
+    if not is_cloud():
+        return
     async with Heartbeater():
-        await database_sync_to_async_pool(_deactivate_deleted_organization_in_billing)(inputs.organization_id)
+        await start_billing_active_sync_workflow(inputs.organization_id)
 
 
 def _send_project_deleted_email(user_id: int, project_name: str) -> None:

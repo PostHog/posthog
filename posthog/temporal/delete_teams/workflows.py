@@ -282,7 +282,7 @@ class DeleteOrganizationWorkflow(PostHogWorkflow):
             retry_policy=DELETE_RETRY_POLICY,
         )
 
-        # The billing sweep skips deleted orgs, so flag this one here; best-effort, the org is already gone.
+        # The billing sweep skips deleted orgs, so resync this one now that its row is gone; best-effort.
         if temporalio.workflow.patched("deactivate-deleted-organization-in-billing"):
             try:
                 await temporalio.workflow.execute_activity(
