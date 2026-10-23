@@ -3,7 +3,6 @@ import { z } from 'zod'
 
 import { BareEmailAddressSchema } from '~/cdp/schema/emailFields'
 import { HogFlow } from '~/cdp/schema/hogflow'
-import { AcceptedSend } from '~/cdp/types'
 
 import { IntegrationManagerService } from '../managers/integration-manager.service'
 import { PolicyCode, SendCandidate } from '../messaging/email-send-policy'
