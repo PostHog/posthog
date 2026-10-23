@@ -2,6 +2,7 @@ import json
 from datetime import timedelta
 from uuid import UUID, uuid4
 
+import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from time_machine import travel
 from unittest.mock import patch
@@ -30,6 +31,7 @@ from products.customer_analytics.backend.models.membership_cleanup import (
 )
 
 
+@pytest.mark.usefixtures("membership_cleanup_tables")
 class TestMembershipCleanup(ClickhouseTestMixin, APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
@@ -147,7 +149,10 @@ class TestMembershipCleanup(ClickhouseTestMixin, APIBaseTest):
         with travel(self.now, tick=False):
             self.run_cleanup()
         before = list(MembershipCleanupCandidate.objects.for_team(self.team.pk).values())
-        with patch.object(self.store, "get_existence", side_effect=RuntimeError("lookup unavailable")):
+        with patch(
+            "products.customer_analytics.backend.logic.membership_cleanup.get_membership_existence",
+            side_effect=RuntimeError("lookup unavailable"),
+        ):
             with self.assertRaisesRegex(RuntimeError, "lookup unavailable"):
                 self.run_cleanup()
         assert list(MembershipCleanupCandidate.objects.for_team(self.team.pk).values()) == before

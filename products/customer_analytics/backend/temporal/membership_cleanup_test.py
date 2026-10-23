@@ -57,7 +57,7 @@ def test_cleanup_lock_excludes_another_connection() -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.django_db(transaction=True)
-@pytest.mark.usefixtures("clickhouse_database")
+@pytest.mark.usefixtures("membership_cleanup_tables")
 async def test_temporal_cleanup_erases_membership_after_grace_period(
     team: Team, caplog: pytest.LogCaptureFixture
 ) -> None:

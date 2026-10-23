@@ -6,13 +6,19 @@ from hashlib import sha256
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.workload import Workload
 from posthog.dataclasses import frozen
+from posthog.models.person_group_membership.sql import PERSON_GROUP_MEMBERSHIP_MAX_GROUP_TYPE_INDEX
 
+QUERY_TIMEOUT_SECONDS = 30
+DEFAULT_MEMBERSHIP_PAGE_SIZE = 100
+MAX_MEMBERSHIP_PAGE_SIZE = 500
+
+# These budgets cap each lookup. Exceeding a budget must fail the batch, never report a missing identity.
 QUERY_SETTINGS = {
-    "max_execution_time": "30",
-    "max_memory_usage": "268435456",
-    "max_bytes_to_read": "1073741824",
+    "max_execution_time": str(QUERY_TIMEOUT_SECONDS),
+    "max_memory_usage": str(256 * 1024**2),
+    "max_bytes_to_read": str(1024**3),
     "max_threads": "2",
-    "max_result_bytes": "4194304",
+    "max_result_bytes": str(4 * 1024**2),
     "result_overflow_mode": "throw",
     "skip_unavailable_shards": "0",
     "timeout_overflow_mode": "throw",
@@ -85,11 +91,23 @@ def get_membership_existence(team_id: int, keys: Sequence[MembershipKey]) -> Mem
 
 
 def list_membership_persons(
-    *, team_id: int, group_type_index: int, group_key: str, limit: int = 100, offset: int = 0
+    *,
+    team_id: int,
+    group_type_index: int,
+    group_key: str,
+    limit: int = DEFAULT_MEMBERSHIP_PAGE_SIZE,
+    offset: int = 0,
 ) -> list[MembershipPerson]:
     """Callers must check account access, person access, and restricted properties before exposing these rows."""
-    if group_type_index not in range(5) or not 1 <= limit <= 500 or offset < 0:
-        raise ValueError("Use a group index from 0 to 4 and a limit from 1 to 500. Use a nonnegative offset.")
+    if (
+        not 0 <= group_type_index <= PERSON_GROUP_MEMBERSHIP_MAX_GROUP_TYPE_INDEX
+        or not 1 <= limit <= MAX_MEMBERSHIP_PAGE_SIZE
+        or offset < 0
+    ):
+        raise ValueError(
+            f"Use a group index from 0 to {PERSON_GROUP_MEMBERSHIP_MAX_GROUP_TYPE_INDEX}. "
+            f"Use a limit from 1 to {MAX_MEMBERSHIP_PAGE_SIZE} and a nonnegative offset."
+        )
     rows = sync_execute(
         """
         WITH membership AS (
