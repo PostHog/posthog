@@ -1,4 +1,6 @@
 import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
+import { useInView } from 'react-intersection-observer'
 
 import { IconSearch } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonSkeleton } from '@posthog/lemon-ui'
@@ -40,6 +42,43 @@ function FeedSkeleton(): JSX.Element {
             ))}
         </div>
     )
+}
+
+/** Loads the next page as the reader nears the end, and closes the feed once the ranking runs out. */
+function FeedEnd({ itemCount }: { itemCount: number }): JSX.Element | null {
+    const { feedHasMore, feedItemsLoading, feedMoreFailed } = useValues(watchFeedLogic)
+    const { loadMoreFeed } = useActions(watchFeedLogic)
+    // Starts the request a little before the end is on screen, so a steady scroll rarely waits.
+    const { ref, inView } = useInView({ rootMargin: '600px 0px' })
+
+    useEffect(() => {
+        if (inView && feedHasMore && !feedItemsLoading && !feedMoreFailed) {
+            loadMoreFeed()
+        }
+    }, [inView, feedHasMore, feedItemsLoading, feedMoreFailed, loadMoreFeed])
+
+    if (feedMoreFailed) {
+        return (
+            <div className="flex items-center gap-2 text-sm text-secondary border rounded p-4">
+                <span>Couldn't load more sessions.</span>
+                <LemonButton size="small" type="secondary" onClick={() => loadMoreFeed()}>
+                    Try again
+                </LemonButton>
+            </div>
+        )
+    }
+    if (feedHasMore) {
+        return (
+            <div ref={ref} aria-busy>
+                <LemonSkeleton className="h-32 rounded" />
+            </div>
+        )
+    }
+    return itemCount > 3 ? (
+        <p className="text-sm text-secondary text-center m-0 py-4" data-attr="vision-watch-feed-end">
+            You're caught up. New sessions show up here as your scanners find them.
+        </p>
+    ) : null
 }
 
 export function WatchFeedTab(): JSX.Element {
@@ -88,9 +127,7 @@ export function WatchFeedTab(): JSX.Element {
         <div className="@container flex flex-col gap-4">
             <div className="flex flex-wrap items-end justify-between gap-2">
                 <div className="flex flex-col gap-1 flex-1 min-w-[16rem]">
-                    <h2 className="text-xl font-semibold m-0">
-                        {items.length === 0 ? 'What to watch' : `Top ${pluralize(items.length, 'session')}`}
-                    </h2>
+                    <h2 className="text-xl font-semibold m-0">What to watch</h2>
                     <p className="text-muted text-sm m-0">
                         {narrowedToScanners > 0
                             ? `Following ${pluralize(narrowedToScanners, 'scanner')} of ${allScanners.length}. `
@@ -183,13 +220,16 @@ export function WatchFeedTab(): JSX.Element {
                         </p>
                     )}
                     {items.length > 0 ? (
-                        items.map((item, index) => (
-                            <WatchFeedRow
-                                key={`${feedLoad?.feedLoadId}-${item.observation.id}`}
-                                item={item}
-                                position={index}
-                            />
-                        ))
+                        <>
+                            {items.map((item, index) => (
+                                <WatchFeedRow
+                                    key={`${feedLoad?.feedLoadId}-${item.observation.id}`}
+                                    item={item}
+                                    position={index}
+                                />
+                            ))}
+                            <FeedEnd itemCount={items.length} />
+                        </>
                     ) : feedFailed ? null : emptyReason ? (
                         <WatchFeedEmptyState reason={emptyReason} />
                     ) : (

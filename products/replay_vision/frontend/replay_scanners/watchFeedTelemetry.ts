@@ -1,10 +1,15 @@
 import posthog from 'lib/posthog-typed'
 import { uuid } from 'lib/utils/dom'
+import { getCurrentTeamIdOrNone } from 'lib/utils/getAppContext'
 
+import { visionScannersWatchFeedImpressionsCreate } from '../generated/api'
 import type { WatchFeedItemApi } from '../generated/api.schemas'
 
 // A second on screen, enough to read the title, so a card scrolled past at speed does not count as shown.
 export const CARD_SEEN_DWELL_MS = 1000
+
+// The impressions endpoint takes at most this many ids per request.
+const IMPRESSIONS_BATCH_SIZE = 100
 
 /** One feed fetch. Every card event carries its id, so a click, dismissal, or impression joins back to the ranked list it came from. */
 export interface WatchFeedLoad {
@@ -14,12 +19,27 @@ export interface WatchFeedLoad {
     positions: Record<string, number>
 }
 
-export function newWatchFeedLoad(ranker: string | null | undefined, items: WatchFeedItemApi[]): WatchFeedLoad {
+export function newWatchFeedLoad(
+    ranker: string | null | undefined,
+    items: WatchFeedItemApi[],
+    feedLoadId: string = uuid()
+): WatchFeedLoad {
     return {
-        feedLoadId: uuid(),
+        feedLoadId,
         ranker: ranker ?? 'weighted-score',
         positions: Object.fromEntries(items.map((item, index) => [item.observation.id, index])),
     }
+}
+
+/** The same load with a later page appended, each new card placed after every card served so far. */
+export function withNextPage(load: WatchFeedLoad, items: WatchFeedItemApi[]): WatchFeedLoad {
+    const positions = { ...load.positions }
+    for (const item of items) {
+        if (!(item.observation.id in positions)) {
+            positions[item.observation.id] = Object.keys(positions).length
+        }
+    }
+    return { ...load, positions }
 }
 
 function servedPosition(load: WatchFeedLoad | null, item: WatchFeedItemApi, position: number): number {
@@ -72,6 +92,11 @@ export class WatchFeedImpressions {
         this.load = load
     }
 
+    /** Takes a later page of the same load without reporting its cards again. */
+    extend(load: WatchFeedLoad): void {
+        this.load = load
+    }
+
     add(item: WatchFeedItemApi, position: number): void {
         if (!this.seen.has(item.observation.id) && !this.reported.has(item.observation.id)) {
             this.seen.set(item.observation.id, {
@@ -92,6 +117,18 @@ export class WatchFeedImpressions {
             count: this.seen.size,
             impressions: Array.from(this.seen, ([observation_id, card]) => ({ observation_id, ...card })),
         })
+        const teamId = getCurrentTeamIdOrNone()
+        if (teamId && this.load) {
+            // The server counts impressions so the feed ranks a card lower each time it is shown. Best effort:
+            // a lost batch only means one card ranks a little higher next time.
+            const ids = Array.from(this.seen.keys())
+            for (let start = 0; start < ids.length; start += IMPRESSIONS_BATCH_SIZE) {
+                void visionScannersWatchFeedImpressionsCreate(String(teamId), {
+                    feed_load_id: this.load.feedLoadId,
+                    observation_ids: ids.slice(start, start + IMPRESSIONS_BATCH_SIZE),
+                }).catch(() => {})
+            }
+        }
         for (const observationId of this.seen.keys()) {
             this.reported.add(observationId)
         }

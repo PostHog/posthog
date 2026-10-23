@@ -188,6 +188,7 @@ from products.replay_vision.backend.temporal.constants import VISION_SIGNALS_SOU
 from products.replay_vision.backend.temporal.metrics import record_estimate_outcome, record_scanner_limit_reached
 from products.replay_vision.backend.temporal.read_meter_types import current_sweep_throttle_factor
 from products.replay_vision.backend.watch_feed import rank_watch_feed_candidates
+from products.replay_vision.backend.watch_feed_impressions import feed_impression_counts, record_feed_impressions
 from products.replay_vision.backend.watch_rank import rank_watch_feed_by_embedding
 from products.signals.backend.facade.api import get_outcomes_for_signal_source_slice
 
@@ -1643,6 +1644,7 @@ WATCH_FEED_PER_SCANNER_CAP = 100
 # Ids per query when the jev feed fetches cached watchable rows the recency slice cut off. Keeps
 # each id__in list bounded while the walk stops as soon as the page is covered.
 WATCH_FEED_BYPASS_CHUNK = 200
+WATCH_FEED_IMPRESSIONS_MAX_IDS = 100
 
 
 class WatchFeedRanker(models.TextChoices):
@@ -1725,9 +1727,29 @@ class WatchFeedQuerySerializer(serializers.Serializer):
         min_value=1,
         max_value=WATCH_FEED_MAX_LIMIT,
         help_text=(
-            f"Ceiling on feed items to return, at most {WATCH_FEED_MAX_LIMIT}. The feed is bounded, not "
-            "paginated, and routinely returns far fewer: a window is not padded to this number with "
-            "clips that carry no finding."
+            f"Ceiling on feed items to return per page, at most {WATCH_FEED_MAX_LIMIT}. A page routinely "
+            "returns fewer: a window is not padded to this number with clips that carry no finding."
+        ),
+    )
+    offset = serializers.IntegerField(
+        required=False,
+        default=0,
+        min_value=0,
+        max_value=WATCH_FEED_CANDIDATE_CAP,
+        help_text="How many ranked items to skip. Send `as_of` and `feed_load_id` with every page after the first.",
+    )
+    as_of = serializers.DateTimeField(
+        required=False,
+        help_text=(
+            "The time the first page loaded. Later pages rank as of that time: observations, views and "
+            "dismissals after it are ignored, so pages do not shift under a reader who scrolls."
+        ),
+    )
+    feed_load_id = serializers.UUIDField(
+        required=False,
+        help_text=(
+            "The client's id for this feed load, the same one sent to `watch_feed_impressions`. Impressions "
+            "recorded under it do not lower ranks within the same load."
         ),
     )
 
@@ -1884,6 +1906,12 @@ class WatchFeedResponseSerializer(serializers.Serializer):
             "so a quiet window answers with a handful of rows rather than a full page of newest clips."
         ),
     )
+    has_more = serializers.BooleanField(
+        help_text="Whether a later page holds more ranked items. Request it with `offset` set past this page.",
+    )
+    as_of = serializers.DateTimeField(
+        help_text="The time this feed ranks as of. Send it back with later pages.",
+    )
     ranker = serializers.ChoiceField(
         choices=WatchFeedRanker.choices,
         help_text=(
@@ -1900,6 +1928,23 @@ class WatchFeedResponseSerializer(serializers.Serializer):
             "`jev`, `embedding`), or null when the team takes no part. Unlike `ranker`, it tells the shadow arm from "
             "control. Clients report it on the feed-viewed event as `$feature/vision-watch-feed-ranker`, "
             "which is the exposure the experiment counts."
+        ),
+    )
+
+
+class WatchFeedImpressionsSerializer(serializers.Serializer):
+    """Body of POST /vision/scanners/watch_feed_impressions/."""
+
+    feed_load_id = serializers.UUIDField(
+        help_text="The client's id for the feed load that showed these cards. One load counts each card once.",
+    )
+    observation_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        min_length=1,
+        max_length=WATCH_FEED_IMPRESSIONS_MAX_IDS,
+        help_text=(
+            f"Observations the calling user saw in What to watch, at most {WATCH_FEED_IMPRESSIONS_MAX_IDS}. "
+            "Ids the user cannot read are ignored."
         ),
     )
 
@@ -2572,7 +2617,8 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             )
         except ValueError as e:
             raise ValidationError(str(e))
-        window_end = date_to if date_to is not None else timezone.now()
+        as_of = params.get("as_of") or timezone.now()
+        window_end = min(date_to, as_of) if date_to is not None else as_of
         if window_end - date_from > timedelta(days=WATCH_FEED_MAX_WINDOW_DAYS):
             raise ValidationError(
                 f"The window between date_from and date_to may span at most {WATCH_FEED_MAX_WINDOW_DAYS} days."
@@ -2606,9 +2652,8 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             scanner_id__in=allowed_ids,
             status=ObservationStatus.SUCCEEDED,
             created_at__gte=date_from,
+            created_at__lte=window_end,
         )
-        if date_to is not None:
-            candidates = candidates.filter(created_at__lte=date_to)
         if params.get("scanner_type"):
             candidates = candidates.filter(scanner_snapshot__scanner_type=params["scanner_type"])
         if params.get("search"):
@@ -2627,10 +2672,19 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         candidates = accessible_observations(self.user_access_control, self.team_id, candidates)
         viewer_id = cast(User, request.user).id
         # Before ranking, so a row the viewer marked not useful neither takes a slot nor shifts the window baselines.
+        # Views and dismissals after `as_of` wait for the next load, so later pages of this one do not shift.
         candidates = candidates.exclude(
-            Exists(ReplayObservationFeedDismissal.objects.filter(observation_id=OuterRef("id"), user_id=viewer_id))
+            Exists(
+                ReplayObservationFeedDismissal.objects.filter(
+                    observation_id=OuterRef("id"), user_id=viewer_id, created_at__lte=as_of
+                )
+            )
         )
-        viewed = Exists(ReplayObservationView.objects.filter(observation_id=OuterRef("id"), user_id=viewer_id))
+        viewed = Exists(
+            ReplayObservationView.objects.filter(
+                observation_id=OuterRef("id"), user_id=viewer_id, created_at__lte=as_of
+            )
+        )
         candidate_rows = list(
             candidates.annotate(
                 feed_viewed=viewed,
@@ -2652,8 +2706,17 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         variant = watch_feed_ranker_variant(self.team_id, self.team.uuid)
         mode = ranker_mode(variant)
         ranker = mode if mode in ("jev", "embedding") else "weighted-score"
+        page_end = params["offset"] + params["limit"]
         if ranker == "embedding":
-            ranked = rank_watch_feed_by_embedding(candidate_rows)[: params["limit"]]
+            impressions = feed_impression_counts(
+                team_id=self.team_id,
+                user_id=viewer_id,
+                observation_ids=[row["id"] for row in candidate_rows],
+                feed_load_id=params.get("feed_load_id"),
+            )
+            for row in candidate_rows:
+                row["feed_impressions"] = impressions.get(row["id"], 0)
+            ranked = rank_watch_feed_by_embedding(candidate_rows)
         elif ranker == "jev":
             ranks = load_watch_ranks(self.team_id, allowed_ids)
             probabilities = ranks.probabilities
@@ -2677,7 +2740,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             )
             loaded_ids = {row["id"] for row in jev_rows}
             missing = [observation_id for observation_id in watchable_missing if observation_id not in loaded_ids]
-            needed = params["limit"]
+            needed = page_end
             for start in range(0, len(missing), WATCH_FEED_BYPASS_CHUNK):
                 if needed <= 0:
                     break
@@ -2688,9 +2751,11 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                 )
                 jev_rows += fetched
                 needed -= len(fetched)
-            ranked = rank_watch_feed_by_jev(jev_rows, probabilities, ranks.reasons)[: params["limit"]]
+            ranked = rank_watch_feed_by_jev(jev_rows, probabilities, ranks.reasons)
         else:
-            ranked = rank_watch_feed_candidates(candidate_rows)[: params["limit"]]
+            ranked = rank_watch_feed_candidates(candidate_rows)
+        has_more = len(ranked) > page_end
+        ranked = ranked[params["offset"] : page_end]
         reasons_by_id = {entry.observation_id: entry.reason for entry in ranked}
         rows = {
             row.id: row
@@ -2711,7 +2776,47 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             for entry in ranked
             if entry.observation_id in rows
         ]
-        return Response({"results": results, "ranker": ranker, "ranker_variant": variant})
+        return Response(
+            {
+                "results": results,
+                "has_more": has_more,
+                "as_of": as_of,
+                "ranker": ranker,
+                "ranker_variant": variant,
+            }
+        )
+
+    @extend_schema(request=WatchFeedImpressionsSerializer, responses={204: None})
+    @action(
+        detail=False,
+        methods=["post"],
+        pagination_class=None,
+        # Per-user state, like an observation's `viewed`, so read scope is enough.
+        required_scopes=["replay_scanner:read", "session_recording:read"],
+        throttle_classes=[ReplayVisionWatchFeedBurstRateThrottle, ReplayVisionWatchFeedSustainedRateThrottle],
+    )
+    def watch_feed_impressions(self, request: Request, **kwargs: Any) -> Response:
+        """Record that the calling user saw these cards in What to watch, so the feed ranks them lower next time."""
+        body = WatchFeedImpressionsSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
+        if not self.user_access_control.check_access_level_for_resource("session_recording", required_level="viewer"):
+            raise PermissionDenied("Reading replay observations requires session_recording read access.")
+        readable = accessible_observations(
+            self.user_access_control,
+            self.team_id,
+            ReplayObservation.objects.filter(
+                team_id=self.team_id,
+                scanner_id__in=readable_observation_scanner_ids(self.user_access_control, self.team_id),
+                id__in=body.validated_data["observation_ids"],
+            ),
+        )
+        record_feed_impressions(
+            team_id=self.team_id,
+            user_id=cast(User, request.user).id,
+            observation_ids=list(readable.values_list("id", flat=True)),
+            feed_load_id=body.validated_data["feed_load_id"],
+        )
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
     @extend_schema(
         request=ObserveRequestSerializer,
