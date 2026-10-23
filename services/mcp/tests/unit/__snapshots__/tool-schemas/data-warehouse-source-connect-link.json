@@ -1,6 +1,10 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "migration_item_id": {
+            "description": "Optional warehouse migration item. The connect page then shows the item's non-secret settings from the vendor, so the user only enters the secret.",
+            "type": "string"
+        },
         "source_type": {
             "description": "The source type name (e.g. \"Postgres\", \"MySQL\", \"Stripe\"). Use external-data-sources-wizard to see available types and their required fields.",
             "type": "string"

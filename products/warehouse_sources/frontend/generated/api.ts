@@ -11,6 +11,8 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     AddSourcesRequestApi,
     AddSourcesResponseApi,
+    ApplyMigrationItemApi,
+    ApplyMigrationItemResponseApi,
     CdcEnableResponseApi,
     CdcPrerequisitesResponseApi,
     CdcStatusApi,
@@ -1095,6 +1097,26 @@ export const externalDataSourcesWebhookInfoRetrieve = async (
     return apiMutator<WebhookInfoResponseApi>(getExternalDataSourcesWebhookInfoRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getExternalDataSourcesApplyMigrationItemCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/external_data_sources/apply_migration_item/`
+}
+
+/**
+ * Create the planned PostHog source for one migration item, then set its sync schedule.
+ */
+export const externalDataSourcesApplyMigrationItemCreate = async (
+    projectId: string,
+    applyMigrationItemApi: ApplyMigrationItemApi,
+    options?: RequestInit
+): Promise<ApplyMigrationItemResponseApi> => {
+    return apiMutator<ApplyMigrationItemResponseApi>(getExternalDataSourcesApplyMigrationItemCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(applyMigrationItemApi),
     })
 }
 

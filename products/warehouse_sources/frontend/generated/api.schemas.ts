@@ -5614,6 +5614,32 @@ export interface WebhookInfoResponseApi {
     missing_inputs?: string[]
 }
 
+export interface ApplyMigrationItemApi {
+    /** The migration item to create a PostHog source for. */
+    item_id: string
+    /** Stored credential from the source connect page, for the item's PostHog source type. */
+    credential_id: string
+    /** Table name prefix to use instead of the planned one, for example when the planned one is taken. */
+    prefix?: string
+    /** Destinations to write the new source to. Omit to write to the PostHog warehouse. */
+    destination_ids?: string[]
+    /** Where the request came from.
+     *
+     * * `web` - web
+     * * `api` - api
+     * * `mcp` - mcp
+     * * `wizard` - wizard
+     * * `self_driving` - self_driving */
+    created_via?: ExternalDataSourceCreatedViaEnumApi
+}
+
+export interface ApplyMigrationItemResponseApi {
+    /** The PostHog source created for the item. */
+    source_id: string
+    /** Every difference from the Fivetran connection, including new ones. */
+    caveats: string[]
+}
+
 export interface CdcPrerequisitesResponseApi {
     /** Whether the source satisfies every CDC prerequisite. */
     valid: boolean
@@ -16445,6 +16471,10 @@ export type ExternalDataSourcesResumeCdcCreate200 = {
 }
 
 export type ExternalDataSourcesConnectLinkRetrieveParams = {
+    /**
+     * Optional warehouse migration item. The connect page then shows the item's non-secret settings from the vendor, so the user only enters the secret.
+     */
+    migration_item_id?: string
     /**
      * The source type to generate a connect link for (e.g. 'Stripe', 'Postgres', 'Hubspot').
      */
