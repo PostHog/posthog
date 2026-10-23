@@ -20,6 +20,7 @@ from products.messaging.backend.facade.contracts import TEMPLATE_KEY_MAX_LENGTH,
 from products.messaging.backend.facade.templates import MessageTemplateRow
 from products.messaging.backend.facade.transactional_email import (
     EmailSendCommand,
+    EmailSendOutcome,
     Queued,
     Rejected,
     Unavailable,
@@ -193,7 +194,7 @@ TRANSACTIONAL_EMAIL_THROTTLES = [
 ]
 
 
-def _usage(outcome: Queued | Rejected | Unavailable) -> dict[str, str]:
+def _usage(outcome: EmailSendOutcome) -> dict[str, str]:
     match outcome:
         case Queued(replayed=replayed):
             return {"outcome": "replayed" if replayed else "queued"}
