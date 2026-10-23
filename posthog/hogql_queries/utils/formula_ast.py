@@ -15,18 +15,26 @@ class FormulaAST:
         ast.Pow: operator.pow,
     }
     zipped_data: list[tuple[float]]
+    # Parallel to the last ``call`` result: True where the row divided by zero. Charts show those
+    # rows as 0, but alerts must not compare them as a measured value.
+    undefined_rows: list[bool]
 
     def __init__(self, data: list[list[float]]):
         self.zipped_data = list(zip(*data))
+        self.undefined_rows = []
+        self._row_divided_by_zero = False
 
     def call(self, node: str):
         res = []
+        self.undefined_rows = []
         for consts in self.zipped_data:
             map = {}
             for index, value in enumerate(consts):
                 map[chr(ord("`") + index + 1)] = value
+            self._row_divided_by_zero = False
             result = self._evaluate(node.strip().lower(), map)
             res.append(result)
+            self.undefined_rows.append(self._row_divided_by_zero)
         return res
 
     def _evaluate(self, node, const_map: dict[str, Any]):
@@ -59,6 +67,7 @@ class FormulaAST:
                 try:
                     return self.op_map[type(op)](left, right)
                 except ZeroDivisionError:
+                    self._row_divided_by_zero = True
                     return 0
                 except KeyError:
                     raise ExposedHogQLError(
