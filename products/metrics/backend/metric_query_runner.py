@@ -175,11 +175,13 @@ _INTERVAL_LADDER: list[tuple[str, dt.timedelta, ast.Call]] = [
 ]
 
 
-def _pick_interval(date_from: dt.datetime, date_to: dt.datetime) -> str:
+def _pick_interval(
+    date_from: dt.datetime, date_to: dt.datetime, target_bucket_count: int = _TARGET_BUCKET_COUNT
+) -> str:
     """Pick the finest interval that keeps bucket count at or below the target."""
     span = date_to - date_from
     for name, step, _ in _INTERVAL_LADDER:
-        if span / step <= _TARGET_BUCKET_COUNT:
+        if span / step <= target_bucket_count:
             return name
     return _INTERVAL_LADDER[-1][0]
 
