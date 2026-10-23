@@ -5,6 +5,10 @@
             "description": "Filter by archived state.",
             "type": "boolean"
         },
+        "created_by": {
+            "description": "Filter by the creator's user ID.",
+            "type": "number"
+        },
         "kind": {
             "description": "Filter by scorer kind.",
             "type": "string"
@@ -22,7 +26,7 @@
             "type": "string"
         },
         "search": {
-            "description": "Search scorers by name or description.",
+            "description": "Search scorers by name, short name, or description.",
             "type": "string"
         },
         "tag_match": {

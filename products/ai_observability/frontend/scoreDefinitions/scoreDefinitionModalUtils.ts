@@ -16,6 +16,7 @@ export type CategoricalSelectionMode = 'single' | 'multiple'
 
 export interface ScoreDefinitionDraft {
     name: string
+    shortName: string
     description: string
     kind: ScoreDefinitionKind
     options: ScoreDefinitionOption[]
@@ -156,6 +157,7 @@ export function createDraft(
 
     return {
         name: mode === 'duplicate' ? duplicatedName : baseDefinition?.name || '',
+        shortName: baseDefinition?.short_name || '',
         description: baseDefinition?.description || '',
         kind,
         options: defaultOptions,

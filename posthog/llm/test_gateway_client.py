@@ -19,6 +19,7 @@ from posthog.llm.gateway_client import (
     GatewayNotConfiguredError,
     Product,
     build_ai_gateway_anthropic_client,
+    build_ai_gateway_openai_client,
     build_anthropic_client,
     build_async_anthropic_client,
     build_async_openai_client,
@@ -75,7 +76,7 @@ class TestGetLlmClient:
         mock_settings.LLM_GATEWAY_URL = "http://gateway:8080"
         mock_settings.LLM_GATEWAY_API_KEY = "shared-key"
 
-        client = get_llm_client(product="custom_image_scans", team_id=1, api_key="server-minted-token")
+        client = get_llm_client(product="django", team_id=1, api_key="server-minted-token")
 
         assert client.api_key == "server-minted-token"
 
@@ -565,6 +566,44 @@ class TestBuildAIGatewayAnthropicClient:
             with pytest.raises(ValueError, match="AI_GATEWAY_URL and AI_GATEWAY_API_KEY must be configured"):
                 build_ai_gateway_anthropic_client(ai_product="aio_stamphog")
         mock_get_anthropic.assert_not_called()
+
+
+class TestBuildAIGatewayOpenAIClient:
+    @override_settings(AI_GATEWAY_URL=AI_GATEWAY_URL, AI_GATEWAY_API_KEY=AI_GATEWAY_KEY)
+    @patch("posthog.llm.gateway_client.httpx.Client")
+    @patch("posthog.llm.gateway_client.OpenAI")
+    def test_uses_the_callers_credential_instead_of_the_shared_key(self, mock_openai, mock_httpx):
+        result = build_ai_gateway_openai_client(
+            api_key="pha_user_token",
+            ai_product="custom_image_scans",
+            properties={"team_id": "42"},
+            distinct_id="team-42",
+        )
+
+        kwargs = mock_openai.call_args.kwargs
+        assert kwargs["api_key"] == "pha_user_token"
+        assert kwargs["base_url"] == AI_GATEWAY_URL
+        assert kwargs["http_client"] is mock_httpx.return_value
+        headers = kwargs["default_headers"]
+        assert headers["X-PostHog-Product"] == "custom_image_scans"
+        assert headers["X-PostHog-Distinct-Id"] == "team-42"
+        assert json.loads(headers["X-PostHog-Properties"]) == {"ai_product": "custom_image_scans", "team_id": "42"}
+        assert result is mock_openai.return_value
+
+    @pytest.mark.parametrize(
+        ("url", "api_key", "message"),
+        [
+            ("", "pha_user_token", "AI_GATEWAY_URL is not set"),
+            ("https://ai-gateway.example", "pha_user_token", "AI_GATEWAY_URL must end with /v1"),
+            (AI_GATEWAY_URL, "", "api_key is required"),
+        ],
+    )
+    @patch("posthog.llm.gateway_client.get_llm_client")
+    def test_raises_instead_of_using_the_python_gateway(self, mock_get_llm_client, url, api_key, message):
+        with override_settings(AI_GATEWAY_URL=url):
+            with pytest.raises(GatewayNotConfiguredError, match=message):
+                build_ai_gateway_openai_client(api_key=api_key, ai_product="custom_image_scans")
+        mock_get_llm_client.assert_not_called()
 
 
 class TestBuildGeminiClient:

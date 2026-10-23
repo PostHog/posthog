@@ -7,6 +7,8 @@ on:
             - .github/workflows/**
             - .github/actions/**
             - services/**
+            # WF013 reads its staticDirs, so a new entry has to run the lint.
+            - common/storybook/.storybook/main.ts
             - tools/hogli-commands/hogli_commands/workflow_lint/**
             - tools/workflow-plan/**
             - hogli.yaml

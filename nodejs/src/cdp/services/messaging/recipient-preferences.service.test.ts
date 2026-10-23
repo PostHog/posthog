@@ -168,6 +168,22 @@ describe('RecipientPreferencesService', () => {
                 )
             })
 
+            it.each([
+                ['the same category', '123e4567-e89b-12d3-a456-426614174000', 'opted_out'],
+                ['all marketing', '$all', 'opted_out'],
+                ['another category', '00000000-0000-4000-8000-000000000000', null],
+            ])('uses an opt-out this run made for %s before the cache', async (_name, categoryId, expected) => {
+                const action = createEmailAction('test@example.com', '123e4567-e89b-12d3-a456-426614174000')
+                const invocation = createFunctionStepInvocation(action)
+                mockRecipientsManagerGet.mockResolvedValue(null)
+
+                const result = await service.shouldSkipAction(invocation, action, [
+                    { identifier: 'test@example.com', categoryId },
+                ])
+
+                expect(result).toBe(expected)
+            })
+
             it('should return false if recipient is opted in', async () => {
                 const action = createEmailAction('test@example.com', '123e4567-e89b-12d3-a456-426614174000')
                 const invocation = createFunctionStepInvocation(action)
@@ -609,30 +625,43 @@ describe('RecipientPreferencesService', () => {
                 expect(mockRecipientsManagerGet).not.toHaveBeenCalled()
             })
 
-            it('keys the opt-out on the delivered-to person, not the triggering event', async () => {
-                // Delivery reads the device token from globals.person, so the opt-out must check that same
-                // person even when the triggering event distinct_id differs (e.g. a configured inputs.distinctId).
-                const action = createPushAction('123e4567-e89b-12d3-a456-426614174000', 'marketing')
-                const invocation = createFunctionStepInvocation(action)
-                invocation.state.globals.person!.distinct_id = 'delivered-person'
-                invocation.state.globals.event!.distinct_id = 'trigger-person'
+            it.each([
+                ['no Distinct ID input', undefined, 'delivered-person', 'function_push'],
+                ['the run event distinct_id', 'trigger-person', 'delivered-person', 'function_push'],
+                ['another person', ' named-user ', 'named-user', 'function_push'],
+                [
+                    'another person, from a generic function step on the push template',
+                    'named-user',
+                    'named-user',
+                    'function',
+                ],
+            ] as const)(
+                'keys the opt-out on the person the push is delivered to, for %s',
+                async (_, distinctIdInput, expected, stepType) => {
+                    const pushAction = createPushAction('123e4567-e89b-12d3-a456-426614174000', 'marketing')
+                    const action = (stepType === 'function' ? { ...pushAction, type: 'function' } : pushAction) as any
+                    const invocation = createFunctionStepInvocation(action)
+                    invocation.state.globals.person!.distinct_id = 'delivered-person'
+                    invocation.state.globals.event!.distinct_id = 'trigger-person'
+                    invocation.state.globals.inputs.distinctId = distinctIdInput
 
-                mockRecipientsManagerGet.mockResolvedValue(
-                    createRecipient('delivered-person', {
-                        '123e4567-e89b-12d3-a456-426614174000': 'OPTED_OUT',
+                    mockRecipientsManagerGet.mockResolvedValue(
+                        createRecipient(expected, {
+                            '123e4567-e89b-12d3-a456-426614174000': 'OPTED_OUT',
+                        })
+                    )
+                    mockRecipientsManagerGetPreference.mockReturnValue('OPTED_OUT')
+                    mockRecipientsManagerGetAllMarketingMessagingPreference.mockReturnValue('NO_PREFERENCE')
+
+                    const result = await service.shouldSkipAction(invocation, action)
+
+                    expect(result).toBe('opted_out')
+                    expect(mockRecipientsManagerGet).toHaveBeenCalledWith({
+                        teamId: team.id,
+                        identifier: expected,
                     })
-                )
-                mockRecipientsManagerGetPreference.mockReturnValue('OPTED_OUT')
-                mockRecipientsManagerGetAllMarketingMessagingPreference.mockReturnValue('NO_PREFERENCE')
-
-                const result = await service.shouldSkipAction(invocation, action)
-
-                expect(result).toBe('opted_out')
-                expect(mockRecipientsManagerGet).toHaveBeenCalledWith({
-                    teamId: team.id,
-                    identifier: 'delivered-person',
-                })
-            })
+                }
+            )
         })
 
         describe('for other action types', () => {
@@ -665,6 +694,7 @@ describe('RecipientPreferencesService', () => {
         let frequencyCap: { max_messages: number | null; window_days: number | null }
         let teamWorkflowsConfig: TeamWorkflowsConfigService
         let cappedService: RecipientPreferencesService
+        let persons: { getCyclotronPerson: jest.Mock }
 
         const emailAction = (
             categoryType?: 'marketing' | 'transactional'
@@ -693,9 +723,11 @@ describe('RecipientPreferencesService', () => {
             frequencyCap = { max_messages: 2, window_days: 7 }
             teamWorkflowsConfig = new TeamWorkflowsConfigService(hub.postgres, hub.pubSub)
             jest.spyOn(teamWorkflowsConfig, 'getFrequencyCap').mockImplementation(() => Promise.resolve(frequencyCap))
+            persons = { getCyclotronPerson: jest.fn().mockResolvedValue(null) }
             cappedService = new RecipientPreferencesService(mockRecipientsManager, mockEmailSuppressionService, {
                 teamWorkflowsConfig,
                 valkey,
+                persons,
             })
         })
 
@@ -733,6 +765,26 @@ describe('RecipientPreferencesService', () => {
 
             invocation.state.actionStepCount = 3
             expect(await checkAt(start + 25 * hour)).toBe(true)
+        })
+
+        it('counts a push to a named person against that person, not the run person', async () => {
+            frequencyCap = { max_messages: 1, window_days: 7 }
+            persons.getCyclotronPerson.mockResolvedValue({ id: 'named-person-id' })
+            const pushToNamed: Extract<HogFlowAction, { type: 'function_push' }> = {
+                id: 'push',
+                name: 'Send push',
+                description: '',
+                type: 'function_push',
+                filters: null,
+                config: { template_id: 'template-native-push', inputs: { distinctId: { value: 'named-user' } } },
+                created_at: Date.now(),
+                updated_at: Date.now(),
+            }
+
+            expect(await sendAt(pushToNamed, 1_800_000_000_000)).toBe(false)
+            expect(await sendAt(pushToNamed, 1_800_000_000_001)).toBe(true)
+            expect(persons.getCyclotronPerson).toHaveBeenCalledWith(team.id, 'named-user', 'distinct_id')
+            expect(await sendAt(emailAction(), 1_800_000_000_002)).toBe(false)
         })
 
         it.each([
