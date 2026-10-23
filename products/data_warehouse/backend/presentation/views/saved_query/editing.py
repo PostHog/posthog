@@ -538,6 +538,7 @@ class DataWarehouseSavedQuerySerializer(
                 validated_data["sync_frequency_interval"] = None
 
             view: DataWarehouseSavedQuery = super().update(locked_instance, validated_data)
+            name_changed = before_update.name != view.name
 
             if frequency_changed:
                 previous_target = modeling_api.declared_targets_by_saved_query(view.team_id, [view.pk]).get(
@@ -592,7 +593,7 @@ class DataWarehouseSavedQuerySerializer(
 
             # Best effort sync to the data modeling DAG representation. The savepoint keeps a
             # failed sync best effort without poisoning the update's own transaction.
-            if "query" in validated_data:
+            if "query" in validated_data or name_changed:
                 try:
                     with transaction.atomic():
                         modeling_api.sync_saved_query_to_dag(view)

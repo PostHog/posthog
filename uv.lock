@@ -1027,17 +1027,17 @@ wheels = [
 
 [[package]]
 name = "chdb-core"
-version = "26.7.0"
+version = "26.9.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "pandas" },
     { name = "pyarrow" },
 ]
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/71/00/307d0ed8bbf14f3e42b018c589b84d2b4bb99222c2ce54ba26c7a71b057a/chdb_core-26.7.0-cp39-abi3-macosx_10_15_x86_64.whl", hash = "sha256:7134aa30087a54b1bc45b7893d34d1719b976f22dc7624f783ffec926d40db1d", size = 120845633, upload-time = "2026-08-13T04:22:50.054Z" },
-    { url = "https://files.pythonhosted.org/packages/41/4e/06524356d7bda9257a12a11860a4713f706d388330249d74a8e542e53953/chdb_core-26.7.0-cp39-abi3-macosx_11_0_arm64.whl", hash = "sha256:191124104076e21581de6a4d1335eb0c87c41e2521243f84600fa9205fbc94d1", size = 103982428, upload-time = "2026-08-12T23:34:33.474Z" },
-    { url = "https://files.pythonhosted.org/packages/54/ee/1f3bfcf04b8d5ec265236412f95d3a27a7c586a12363775e7cc34ff962da/chdb_core-26.7.0-cp39-abi3-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:3afa4b054ab815197149378d947e0409b0e4017baf87a5dc8d9b7c6571f99893", size = 136524494, upload-time = "2026-08-12T23:16:10.072Z" },
-    { url = "https://files.pythonhosted.org/packages/dd/79/8dbea41ea83f486e5824d081232892c69cfd8522539f578a620e082a7810/chdb_core-26.7.0-cp39-abi3-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:659c36f2f2fe910c3f2b0bcc230c84242cb97d9588aed1359bf7e84566d01f32", size = 175224786, upload-time = "2026-08-12T22:28:28.183Z" },
+    { url = "https://files.pythonhosted.org/packages/9b/1d/66071789c0b550ec32ba493f28ef43398ecb52931874d92c040d4ab70788/chdb_core-26.9.0-cp39-abi3-macosx_10_15_x86_64.whl", hash = "sha256:0d24d78969f7ab41d5303c148b7cf64880fa017507bbed9c9b8799b29c26723f", size = 133441224, upload-time = "2026-09-28T14:49:56.5Z" },
+    { url = "https://files.pythonhosted.org/packages/68/c4/b68a3c3dd2de33a7cbe64b718af5c1143e9ed127550dac180495b1174a20/chdb_core-26.9.0-cp39-abi3-macosx_11_0_arm64.whl", hash = "sha256:bc2d2baedc038ba04be59d97d9ded4f87a3fbe05c3820f93d90e508b1e541ad0", size = 115400237, upload-time = "2026-09-29T06:25:14.87Z" },
+    { url = "https://files.pythonhosted.org/packages/9c/43/3f1b4e3c0eb9e5960b2273ba35d1a8291ead5bb109af79523ac5b950c65b/chdb_core-26.9.0-cp39-abi3-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:46148d3fc1edd6d6f701922be0f18e2aa6e60349e418b430e69bbb87ab6b95a9", size = 161109244, upload-time = "2026-09-28T13:21:13.918Z" },
+    { url = "https://files.pythonhosted.org/packages/e2/60/543811d41d856a8a42b665d0e966d6ee518bc0b3cb487345acf812131ff0/chdb_core-26.9.0-cp39-abi3-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:707e2ec3fe0f7953bac97942eaeb7a1ed1d66b1e56ecef3f0aa2130f61f6e735", size = 181534334, upload-time = "2026-09-28T12:24:50.563Z" },
 ]
 
 [[package]]
@@ -5907,6 +5907,7 @@ dependencies = [
     { name = "celery-redbeat" },
     { name = "certifi" },
     { name = "chdb" },
+    { name = "chdb-core" },
     { name = "circular-dict" },
     { name = "click" },
     { name = "clickhouse-connect" },
@@ -6206,6 +6207,7 @@ requires-dist = [
     { name = "celery-redbeat", specifier = "==2.3.3" },
     { name = "certifi", specifier = "==2026.10.19" },
     { name = "chdb", specifier = "==4.3.0" },
+    { name = "chdb-core", specifier = "==26.9.0" },
     { name = "circular-dict", specifier = "==1.9" },
     { name = "click", specifier = "~=8.0" },
     { name = "clickhouse-connect", specifier = "==0.10.0" },
@@ -6327,7 +6329,7 @@ requires-dist = [
     { name = "playwright", specifier = "~=1.60.0" },
     { name = "polars", specifier = "==1.37.1" },
     { name = "posthog-hogland", specifier = "==0.4.1" },
-    { name = "posthoganalytics", specifier = "==7.75.6" },
+    { name = "posthoganalytics", specifier = "==7.75.11" },
     { name = "protobuf", specifier = "~=6.31.1" },
     { name = "psycopg", extras = ["binary"], specifier = "==3.2.10" },
     { name = "psycopg2-binary", specifier = "==2.9.11" },
@@ -6494,7 +6496,7 @@ wheels = [
 
 [[package]]
 name = "posthoganalytics"
-version = "7.75.6"
+version = "7.75.11"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "backoff" },
@@ -6502,9 +6504,9 @@ dependencies = [
     { name = "requests" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/01/4a/c2337776fe0dfdb54a42ce506d21f94ac89c2bfc682216d6f8ba27e034ac/posthoganalytics-7.75.6.tar.gz", hash = "sha256:91d7276c7736454ecb314a00442eac7776fe49cf946fb3d9aba2620fb67a92a9", size = 787455, upload-time = "2026-10-22T18:13:40.148Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/69/92/df593753bd8d9599fede0ed9b5a61fd6db2543f53b3a0c88af01e8b6afb5/posthoganalytics-7.75.11.tar.gz", hash = "sha256:bb98529eae8c6be34bef14bd9ec53b3bbbd8286f08df0d6971f395faa1a56bb1", size = 819852, upload-time = "2026-10-23T15:27:53.543Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/cf/87/d9a656effa0768b9c5d666e4d944cbd9314a3b15621ec7c848c271153a0b/posthoganalytics-7.75.6-py3-none-any.whl", hash = "sha256:b2bbabd9bf151148ff01c7cc5234ee867840207cca375184c370e4b5f21f6718", size = 928305, upload-time = "2026-10-22T18:13:38.078Z" },
+    { url = "https://files.pythonhosted.org/packages/da/76/0532e4db9c08f41ca6008948f8b5fef65a090a9411b58d73b27ded6d2ec1/posthoganalytics-7.75.11-py3-none-any.whl", hash = "sha256:4c5f750cebe3f52d4bb2fb603ccb2220a04a4afa125d7fe9a70ee5fc7abbc248", size = 963793, upload-time = "2026-10-23T15:27:51.413Z" },
 ]
 
 [[package]]

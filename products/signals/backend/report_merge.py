@@ -34,7 +34,7 @@ from products.signals.backend.artefact_schemas import (
     NoteArtefact,
     ReportLink,
 )
-from products.signals.backend.enums import ReportLinkKind
+from products.signals.backend.enums import ReportLinkKind, ReportLinkWritePath
 from products.signals.backend.models import (
     SignalReport,
     SignalReportArtefact,
@@ -290,6 +290,7 @@ def _merge_source_into(
         report_id=str(source.id),
         content=ReportLink(kind=ReportLinkKind.DUPLICATE_OF, report_id=str(survivor.id), reason=reason),
         attribution=attribution,
+        write_path=ReportLinkWritePath.MERGE,
     )
 
     _dismiss_as_merged(source, survivor=survivor, attribution=attribution, reason=reason)
