@@ -6,9 +6,20 @@ Native changes still need a new build, see [RELEASING.md](RELEASING.md).
 ## How a device gets an update
 
 - `expo-updates` checks `https://u.expo.dev/4eb57b2f-79f6-4ab0-ae2c-bbd82af2cef9` each time the app starts.
-- A new update downloads in the background. The app runs it on the next cold start.
-- So a tester sees an update after two launches: the first downloads it, the second runs it.
+- The app also checks on return to the foreground and approximately every 15 minutes while open. Checks are at least 15 minutes apart,
+  including the native startup check, and cannot overlap. Failed checks or downloads retry at a later check.
+- Available updates download silently without blocking startup. Downloads wait for the native startup procedure to finish.
+- A downloaded update applies automatically when the app returns after at least five minutes in the background, provided
+  it is on an Inbox, Chats or Views tab, the keyboard is closed, and no API request, notification navigation or TanStack
+  mutation is pending. A one-second grace period lets navigation settle before checking these conditions. There is a brief reload;
+  the user does not need to force-close the app.
+- Returning to an open chat, report, settings page or other form defers the reload until a later eligible return.
+  This keeps active chat sessions and unsaved input intact. Saved chat drafts remain on the device across reloads.
+- Downloads that finish during a session wait for that later return, or the next cold start, before applying.
 - Development builds load JavaScript from Metro and ignore updates.
+
+This behavior uses the existing native update library and can itself ship as an OTA. Builds that have not received it
+still use the previous startup-only flow: one cold start downloads it and a later cold start runs it.
 
 ## Channels
 
@@ -48,12 +59,18 @@ If you are not sure, check whether `npx expo prebuild --clean` produces a differ
 ## Ship a JavaScript-only fix
 
 1. Commit the fix. `--auto` uses the last commit message as the update message.
-2. Publish to preview and test it on a preview build (open the app, close it, open it again):
+2. Publish to preview and test it on a preview build:
 
    ```sh
    cd products/mobile
    pnpm update:preview
    ```
+
+   Open the app on an Inbox, Chats or Views tab with no keyboard open. Once a check has downloaded the update,
+   background the app for at least five minutes and return. Settings in an internal build shows the new update id.
+   Checks are throttled to once per 15 minutes, so a return immediately after publishing may not fetch it yet.
+   Also verify that returning to an open chat preserves the draft and defers the reload, and that an offline launch
+   opens normally. To test the first OTA that adds this behavior, use the previous two-cold-start flow once.
 
 3. Publish the same commit to production:
 
@@ -80,7 +97,7 @@ eas update:republish --group <update group id>
 To send devices back to the JavaScript inside their build, use `eas update:roll-back-to-embedded --branch production`.
 `eas update:rollback` asks which of the two you want.
 
-A rollback reaches each device on its next two launches, the same as an update.
+A rollback follows the same download and safe-return policy as an update. A cold start can also apply a staged rollback.
 
 ## See what a device runs
 

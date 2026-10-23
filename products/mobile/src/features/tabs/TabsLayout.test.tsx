@@ -3,9 +3,10 @@ import type { ReactElement } from 'react'
 import { Text, View } from 'react-native'
 
 import { setAnalyticsClient } from '@/lib/analytics'
+import { FEATURE_FLAGS, setFeatureFlags } from '@/lib/featureFlags'
 import { OverlayPortal } from '@/ui/OverlayPortal'
 
-import { setNavPinned } from './navPinStore'
+import { restoreNavPins, setNavPinned, useNavPinStore } from './navPinStore'
 import { TabsLayout } from './TabsLayout'
 import { type TabHeaderSlot, useTabHeader } from './tabHeaderStore'
 
@@ -81,8 +82,38 @@ function InboxWithMenuStub(): ReactElement {
 }
 
 describe('TabsLayout', () => {
+    beforeEach(() => {
+        restoreNavPins([])
+        setFeatureFlags({ [FEATURE_FLAGS.errorTracking]: true, [FEATURE_FLAGS.sessionReplay]: true })
+    })
+
     afterEach(() => {
         setAnalyticsClient(null)
+        setFeatureFlags({})
+    })
+
+    test.each(['errors', 'replay'] as const)('hides a saved %s pin while its release flag is off', (pin) => {
+        setNavPinned(pin, true)
+        setFeatureFlags({})
+        renderRouter(
+            {
+                '(tabs)/_layout': TabsLayout,
+                '(tabs)/inbox': InboxStub,
+                '(tabs)/chats': ChatsStub,
+                '(tabs)/views': ViewsStub,
+                ...LIST_TABS,
+            },
+            { initialUrl: '/inbox' }
+        )
+        expect(screen.queryByTestId(`nav-pin-${pin}`)).toBeNull()
+
+        const flag = pin === 'errors' ? FEATURE_FLAGS.errorTracking : FEATURE_FLAGS.sessionReplay
+        act(() => setFeatureFlags({ [flag]: true }))
+        expect(screen.getByTestId(`nav-pin-${pin}`)).toBeTruthy()
+
+        act(() => setFeatureFlags({}))
+        expect(screen.queryByTestId(`nav-pin-${pin}`)).toBeNull()
+        expect(useNavPinStore.getState().pins).toEqual([pin])
     })
 
     test('switches between Inbox, Chats and Views under one bar that keeps the /inbox, /chats and /views URLs', () => {

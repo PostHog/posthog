@@ -1,5 +1,6 @@
 import { fetch as streamingFetch } from 'expo/fetch'
 
+import { withAppReloadBlocked } from '@/lib/appReload'
 import { isRecord } from '@/lib/records'
 
 import { BudgetExceededError, type BudgetFamily, budgetFamilyFor, trySpend } from './budget'
@@ -194,16 +195,18 @@ async function parseBody(response: Response): Promise<unknown> {
 
 /** Sends a request and returns the raw response. Refreshes the token once on a 401. */
 export async function apiFetch(path: string, init: ApiInit = {}): Promise<Response> {
-    return send((url, options) => fetch(url, options), path, init, 'application/json')
+    return withAppReloadBlocked(() => send((url, options) => fetch(url, options), path, init, 'application/json'))
 }
 
 export async function apiJson<T>(path: string, init: ApiInit = {}): Promise<T> {
-    const response = await apiFetch(path, init)
-    const body = await parseBody(response)
-    if (!response.ok) {
-        throw new ApiError(response.status, body, response.headers)
-    }
-    return body as T
+    return withAppReloadBlocked(async () => {
+        const response = await apiFetch(path, init)
+        const body = await parseBody(response)
+        if (!response.ok) {
+            throw new ApiError(response.status, body, response.headers)
+        }
+        return body as T
+    })
 }
 
 /** Uses expo's fetch, which exposes `response.body` as a readable stream on native. */

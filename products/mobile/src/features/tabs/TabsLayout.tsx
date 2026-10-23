@@ -10,6 +10,7 @@ import { useViewsOpenedEvent } from '@/features/views/list/useViewsOpenedEvent'
 import { useToasts, ViewsToast } from '@/features/views/ViewsToast'
 import { navListWebUrl } from '@/features/views/webLinks'
 import { track } from '@/lib/analytics'
+import { useMobileProductFlags } from '@/lib/featureFlags'
 import { safeHttpsUrl } from '@/lib/urls'
 import { OverlayHost } from '@/ui/OverlayPortal'
 import { useColors } from '@/ui/theme'
@@ -48,7 +49,11 @@ function TabBar({ state, navigation }: BottomTabBarProps): ReactElement {
     // A layout effect, so the header shows the new tab's title in the same frame as the new scene.
     const tab = tabFor(focused)
     const pins = useNavPins()
-    const shownPins = useMemo(() => visiblePins(pins, tab), [pins, tab])
+    const { errors, replay } = useMobileProductFlags()
+    const shownPins = useMemo(
+        () => visiblePins(pins, tab).filter((pin) => (pin === 'errors' ? errors : replay)),
+        [pins, tab, errors, replay]
+    )
     useLayoutEffect(() => {
         useTabHeaderStore.getState().setFocused(tab)
     }, [tab])
@@ -112,8 +117,9 @@ function TabsChrome(): ReactElement {
     }
     const editPins = slot?.editPins ?? null
     const pins = useNavPins()
+    const productFlags = useMobileProductFlags()
     // A list unpinned from its own tab keeps its slot until the person leaves, but no longer offers Unpin.
-    const list = (tab === 'errors' || tab === 'replay') && pins.includes(tab) ? tab : null
+    const list = (tab === 'errors' || tab === 'replay') && productFlags[tab] && pins.includes(tab) ? tab : null
     const listUrl = list ? navListWebUrl(scope, list) : undefined
     const webUrl = listUrl ? safeHttpsUrl(listUrl) : undefined
     const navList = list && {

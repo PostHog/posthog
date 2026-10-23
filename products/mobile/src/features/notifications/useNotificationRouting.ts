@@ -5,6 +5,7 @@ import { useEffect } from 'react'
 import { useAuthStore } from '@/auth/authStore'
 import { useDemoMode } from '@/demo/demoMode'
 import { track } from '@/lib/analytics'
+import { withAppReloadBlocked } from '@/lib/appReload'
 
 import { isViewedNotificationTask, setViewedNotificationReport } from './foregroundNotifications'
 import { notificationKind, notificationTarget, resolveNotificationRoute } from './notificationRouting'
@@ -111,7 +112,9 @@ export function useNotificationRouting(): void {
             return
         }
         const open = (response: Notifications.NotificationResponse): void => {
-            openFromNotification(response, () => navigation.getCurrentRoute()?.name === 'chat').catch(() => undefined)
+            void withAppReloadBlocked(() =>
+                openFromNotification(response, () => navigation.getCurrentRoute()?.name === 'chat')
+            ).catch(() => undefined)
         }
         const last = Notifications.getLastNotificationResponse()
         if (last) {

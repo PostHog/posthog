@@ -3,6 +3,7 @@ import { type ReactElement, useCallback, useEffect, useMemo, useRef, useState } 
 import { Linking, Platform, RefreshControl, SectionList, Text, View, type ViewToken } from 'react-native'
 
 import type { RowAnchor } from '@/features/inbox/contextMenuPlacement'
+import { useMobileProductFlags } from '@/lib/featureFlags'
 import { useNow } from '@/lib/useNow'
 import type { BrowseRow, InsightSnapshot, PinDisplayMode, PinView, RecentView, ViewEntry } from '@/model/views'
 import { ChartCanvasBudget, useCanvasBudgetViewport } from '@/ui/chart/budget/ChartCanvasBudget'
@@ -162,6 +163,11 @@ function ViewsBody(): ReactElement {
     const { hideToast: hidePinToast } = flows
     const { show: showToast } = navToasts
     const navPins = useNavPinStore((state) => state.pins)
+    const { errors, replay } = useMobileProductFlags()
+    const browseEntries = useMemo(
+        () => BROWSE_ENTRIES.filter((entry) => (entry === 'errors' ? errors : entry === 'replay' ? replay : true)),
+        [errors, replay]
+    )
     const [text, setText] = useState('')
     const [menu, setMenu] = useState<MenuState | null>(null)
     const [chooseTile, setChooseTile] = useState<ChooseTileTarget | null>(null)
@@ -388,7 +394,7 @@ function ViewsBody(): ReactElement {
                       : null
                 add(key, title, note ? [note] : viewItems(rows, 'search', key))
             }
-            const browse = BROWSE_ENTRIES.filter((entry) =>
+            const browse = browseEntries.filter((entry) =>
                 browseEntryLabel(entry).toLowerCase().includes(search.query.toLowerCase())
             )
             add(
@@ -439,17 +445,17 @@ function ViewsBody(): ReactElement {
             title: 'Browse',
             first: false,
             editable: false,
-            data: BROWSE_ENTRIES.map(
+            data: browseEntries.map(
                 (entry, position): ListItem => ({
                     type: 'browse',
                     key: `browse:${entry}`,
                     entry,
-                    position: groupPosition(position, BROWSE_ENTRIES.length),
+                    position: groupPosition(position, browseEntries.length),
                 })
             ),
         })
         return result
-    }, [search, pins, recent, list.pinsTruncated, now, hintTargetId])
+    }, [search, pins, recent, list.pinsTruncated, now, hintTargetId, browseEntries])
 
     const renderItem = useCallback(
         ({ item }: { item: ListItem }): ReactElement | null => {

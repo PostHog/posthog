@@ -279,6 +279,20 @@ The tab makes no backend change. [`VIEWS_BACKEND_FOLLOWUPS.md`](VIEWS_BACKEND_FO
 - Insights viewed on the web in Recent, and phone views in the web's "Recently viewed".
 - Compare on dashboards: `DASHBOARD_COMPARE_SUPPORTED` stays false until US and EU run a build that accepts `compareFilter` in a dashboard override (the deploy check at the end of that file).
 
+## Sessions and Errors release controls
+
+The `mobile-session-replay` and `mobile-error-tracking` feature flags control Sessions and Errors independently.
+Both are hidden until the app receives an enabled flag for the signed-in account. The app sends the account's
+normalized email and selected project as person-property overrides for flag evaluation, and refreshes flags on
+account changes and foreground returns. An earlier account's pending flag response cannot replace the current flags.
+
+An off flag hides the corresponding Browse and search entry and navigation pin. Saved pin preferences remain on
+the device, so enabling the flag restores the slot. Both tab and pushed list/detail routes also check the flag;
+a disabled route returns to the person's start page before mounting the feature screen.
+
+For local UI checks, development bundles accept comma-separated keys in `EXPO_PUBLIC_FEATURE_FLAGS`.
+Release bundles ignore that override and use the remote release conditions.
+
 ## Smoke flow
 
 `.argent/flows/views-smoke.yaml` starts on sign-in with demo mode off and:

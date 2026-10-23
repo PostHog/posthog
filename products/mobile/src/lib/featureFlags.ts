@@ -1,6 +1,10 @@
 import { create } from 'zustand'
 
-export const FEATURE_FLAGS = { modelScoreSort: 'mobile-inbox-model-score-sort' } as const
+export const FEATURE_FLAGS = {
+    modelScoreSort: 'mobile-inbox-model-score-sort',
+    sessionReplay: 'mobile-session-replay',
+    errorTracking: 'mobile-error-tracking',
+} as const
 
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 
@@ -30,4 +34,11 @@ export function setFeatureFlags(flags: Record<string, boolean | string>): void {
 export function useFeatureFlag(key: FeatureFlagKey): boolean {
     const value = useFeatureFlagsStore((state) => state.flags[key])
     return FORCED_FLAGS.has(key) || (value !== undefined && value !== false)
+}
+
+export function useMobileProductFlags(): { errors: boolean; replay: boolean } {
+    return {
+        errors: useFeatureFlag(FEATURE_FLAGS.errorTracking),
+        replay: useFeatureFlag(FEATURE_FLAGS.sessionReplay),
+    }
 }

@@ -18,6 +18,7 @@ import { useHedgehogWidgetSync } from '@/features/hedgehog/useHedgehogWidgetSync
 import { configureNotifications } from '@/features/notifications/pushRegistration'
 import { useNotificationRouting } from '@/features/notifications/useNotificationRouting'
 import { usePushRegistration } from '@/features/notifications/usePushRegistration'
+import { useAutomaticUpdates } from '@/features/updates/useAutomaticUpdates'
 import { track } from '@/lib/analytics'
 import { initAnalytics } from '@/lib/posthogClient'
 import { useScreenTracking } from '@/lib/useScreenTracking'
@@ -78,6 +79,7 @@ export default function RootLayout(): ReactElement {
     usePushRegistration()
     useHedgehogWidgetSync()
     useNotificationRouting()
+    useAutomaticUpdates(ready && segments[0] === '(tabs)')
 
     return (
         <GestureHandlerRootView style={styles.root}>
