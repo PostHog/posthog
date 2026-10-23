@@ -10,7 +10,10 @@ from posthog.clickhouse.kafka_engine import (
 from posthog.clickhouse.table_engines import Distributed, ReplacingMergeTree, ReplicationScheme
 from posthog.kafka_client.topics import KAFKA_EMAIL_STATUS
 
-EMAIL_STATUS_TTL_DAYS = 30
+EMAIL_STATUS_RETENTION_DAYS = 30
+# Parts drop by whole day of `created_at`, so one more day keeps an email created late in a day
+# for its full retention.
+EMAIL_STATUS_TTL_DAYS = EMAIL_STATUS_RETENTION_DAYS + 1
 
 # AUX-resident table family modelled on `hog_invocation_results`. Each status change of a
 # transactional email is one row. A message's rows replace each other by `version`, which puts the
