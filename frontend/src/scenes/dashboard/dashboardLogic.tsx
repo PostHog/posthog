@@ -298,6 +298,11 @@ function abortWidgetLoads(cache: Record<string, any>): void {
     cache.widgetAbortController = undefined
 }
 
+function abortGroupLoads(cache: Record<string, any>): void {
+    cache.groupAbortController?.abort()
+    cache.groupAbortController = undefined
+}
+
 /** Tiles in closed groups that a refresh skipped, and how that refresh would have loaded them. */
 interface WaitingTileRefresh {
     tileIds: number[]
@@ -4272,6 +4277,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             cache.pendingFilterChange = undefined
             cache.widgetTileRefreshScheduler?.cancelAll()
             abortWidgetLoads(cache)
+            abortGroupLoads(cache)
             actions.abortAnyRunningQuery()
         },
     })),
@@ -5137,6 +5143,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
         },
         refreshDashboardItems: async ({ action, forceRefresh, previewUnsavedFilters }, breakpoint) => {
+            abortGroupLoads(cache)
+            const groupSignal = (cache.groupAbortController = new AbortController()).signal
             const dashboardRefreshStartTime = performance.now()
             const settingsToRefresh = previewUnsavedFilters
                 ? values.currentDashboardSettings
@@ -5210,11 +5218,20 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 )
 
                 await breakpoint()
+
+                actions.abortAnyRunningQuery()
+                cache.abortController = new AbortController()
             }
 
-            // Also with no visible insight to load, so a group load with older settings ends as aborted.
-            actions.abortAnyRunningQuery()
-            cache.abortController = new AbortController()
+            const openGroupsWaiting = (): Set<string> =>
+                openTileGroupsWaiting(values.tiles, values.collapsedTileIds, values.waitingTileRefresh)
+            if (openGroupsWaiting().size > 0) {
+                // The aborted group load clears its queued status a few microtasks later, and that status blocks a reload.
+                await breakpoint(0)
+                if (!groupSignal.aborted) {
+                    openGroupsWaiting().forEach((groupKey) => actions.refreshTileGroup(groupKey))
+                }
+            }
 
             if (sortedTilesToRefresh.length > 0) {
                 // Cache values used during and after the long-running fetch, since the logic
@@ -5336,14 +5353,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
             if (openWidgetTileIds.length > 0) {
                 actions.refreshDashboardWidgets({ tileIds: openWidgetTileIds, forceRefresh: !!forceRefresh })
             }
-
-            const openGroupsWaiting = (): Set<string> =>
-                openTileGroupsWaiting(values.tiles, values.collapsedTileIds, values.waitingTileRefresh)
-            if (openGroupsWaiting().size > 0) {
-                // The aborted group load clears its queued status a few microtasks later, and that status blocks a reload.
-                await breakpoint(0)
-                openGroupsWaiting().forEach((groupKey) => actions.refreshTileGroup(groupKey))
-            }
         },
         toggleTileGroup: ({ groupKey }) => {
             const collapse = !values.collapsedTileGroupKeys.includes(groupKey)
@@ -5390,7 +5399,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             )
             insightTiles.forEach((tile) => actions.setRefreshStatus(tile.insight.short_id, false, true))
 
-            cache.abortController ??= new AbortController()
+            cache.groupAbortController ??= new AbortController()
             const tileRefresh: InsightTileRefresh = {
                 actions,
                 dashboardId: props.id,
@@ -5402,7 +5411,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 variables: waiting.settings.variables,
                 urlFilters: values.urlFilters,
                 forceRefresh: waiting.forceRefresh,
-                signal: cache.abortController.signal,
+                signal: cache.groupAbortController.signal,
             }
             await runWithLimit(
                 insightTiles.map((tile) => async () => {
@@ -5869,6 +5878,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         cancelDashboardRefresh: () => {
             actions.abortAnyRunningQuery()
             abortWidgetLoads(cache)
+            abortGroupLoads(cache)
         },
         abortQuery: async ({ queryId, queryStartTime }) => {
             const { currentTeamId, dashboardLoadData } = values
