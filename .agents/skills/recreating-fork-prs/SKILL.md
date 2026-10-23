@@ -83,11 +83,13 @@ A push to this repository cannot be taken back, so check the branch first.
 Run this before you add your own commits:
 
 ```sh
-git diff --name-only --no-renames -z "$(git merge-base origin/master <sha>)" <sha> |
-  xargs -0 git diff <sha> HEAD --
+{
+  git diff --name-only --no-renames -z "$(git merge-base origin/master <sha>)" <sha>
+  git diff --name-only --no-renames -z origin/master HEAD
+} | xargs -0 git diff <sha> HEAD --
 ```
 
-No output means the branch matches the reviewed code in every file the PR touches.
+No output means the branch matches the reviewed code in every file that the fork PR or the new branch changes.
 Each remaining hunk is a master change made after the fork branched, or a conflict resolution, or a fix the contributor made inside a merge commit that `--no-merges` dropped.
 Read each hunk and know which kind it is.
 

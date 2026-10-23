@@ -52,11 +52,12 @@ test.describe('thank-fork-contributor', () => {
             'Contributed by @Indira-kumar in [select slack workspace](https://github.com/PostHog/posthog/pull/106575), which cannot merge.',
             { login: 'Indira-kumar', forkPrNumber: 106575 },
         ],
+        ['Contributed by @Indira-kumar in [sdk fix](https://github.com/PostHog/posthog-js/pull/106575).', null],
         ['Fixes the bug reported in #106575.', null],
         [null, null],
     ]) {
         test(`parseContribution(${JSON.stringify(body)})`, () => {
-            assert.deepEqual(parseContribution(body), expected)
+            assert.deepEqual(parseContribution(body, 'PostHog/posthog'), expected)
         })
     }
 

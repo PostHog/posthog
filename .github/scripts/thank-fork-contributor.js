@@ -4,12 +4,15 @@
 // where their change landed, then closes that PR.
 
 const MARKER = '<!-- fork-contribution-landed -->'
-// Accepts "#123" and a markdown link to ".../pull/123".
-const CONTRIBUTION_PATTERN = /Contributed by @([A-Za-z0-9-]+) in (?:#|\[[^\]]*\]\([^)\s]*\/pull\/)(\d+)/
 const HANDBOOK_URL = 'https://posthog.com/handbook/engineering/fork-pull-requests'
 
-function parseContribution(body) {
-    const match = CONTRIBUTION_PATTERN.exec(body || '')
+// Accepts "#123" and a markdown link to a pull request in this repository.
+function parseContribution(body, repoFullName) {
+    const repoPath = repoFullName.replace(/\./g, '\\.')
+    const pattern = new RegExp(
+        `Contributed by @([A-Za-z0-9-]+) in (?:#|\\[[^\\]]*\\]\\(https://github\\.com/${repoPath}/pull/)(\\d+)`
+    )
+    const match = pattern.exec(body || '')
     return match ? { login: match[1], forkPrNumber: Number(match[2]) } : null
 }
 
@@ -79,7 +82,7 @@ module.exports = async ({ github, context, core }) => {
     const mergedPrNumber = context.payload.pull_request.number
 
     const mergedPr = await fetchPullRequest(github, MERGED_PR_QUERY, { owner, name: repo, number: mergedPrNumber })
-    const contribution = parseContribution(mergedPr.body)
+    const contribution = parseContribution(mergedPr.body, `${owner}/${repo}`)
     if (!contribution) {
         core.info(`#${mergedPrNumber} has no "Contributed by" line`)
         return
