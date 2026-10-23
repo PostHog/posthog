@@ -794,6 +794,14 @@ class SemanticMetadataQueried(Scorer):
         )
 
 
+def _is_negated(text: str, start: int) -> bool:
+    # A minus sign directly before the number flips its meaning, so "-437.50" does not state 437.50. A digit before
+    # the sign makes it a range such as "400-437.50", which still states the value.
+    if start == 0 or text[start - 1] not in "-\u2212":
+        return False
+    return start < 2 or not text[start - 2].isdigit()
+
+
 class AnswerValueStated(Scorer):
     """Binary: does the final answer state the seeded value? Commas and currency signs are ignored."""
 
@@ -819,7 +827,7 @@ class AnswerValueStated(Scorer):
         fraction = fraction.rstrip("0")
         decimals = rf"\.{re.escape(fraction)}0*" if fraction else r"(?:\.0*)?"
         pattern = rf"(?<![\d.]){re.escape(whole)}{decimals}(?!\d)"
-        found = re.search(pattern, normalized) is not None
+        found = any(not _is_negated(normalized, match.start()) for match in re.finditer(pattern, normalized))
         return Score(name=self._name(), score=1.0 if found else 0.0, metadata={"value": value})
 
 

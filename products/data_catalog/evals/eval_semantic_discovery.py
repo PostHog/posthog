@@ -251,7 +251,13 @@ async def eval_semantic_discovery(ctx: EvalContext) -> None:
         experiment_name="sandboxed-semantic-discovery-cli",
         offline_suite=offline_suite(
             "data_catalog/eval_semantic_discovery::eval_semantic_discovery",
-            metrics=["semantic_metadata_queried", "semantic_trust_decision_correctness", "deprecation_proposed"],
+            metrics=[
+                "semantic_metadata_queried",
+                "semantic_trust_decision_correctness",
+                "deprecation_proposed",
+                "answer_value_stated",
+                "answer_table_queried",
+            ],
         ),
         cases=cases,
         scorers=[

@@ -466,6 +466,9 @@ def test_deprecation_proposed(
         ("different_cents", "437.50", "Revenue was $437.55.", 0.0),
         ("integer_inside_a_larger_integer", "10", "There are 100 refunded lines.", 0.0),
         ("integer", "10", "10 lines were refunded.", 1.0),
+        ("negative_amount", "437.50", "We collected -$437.50 in paid revenue.", 0.0),
+        ("unicode_minus", "437.50", "Net change: \u2212437.50.", 0.0),
+        ("range_with_a_hyphen", "437.50", "Line totals ran 400-437.50.", 1.0),
         ("round_value_without_decimals", "800.00", "Paid invoices total $800.", 1.0),
         ("round_value_inside_a_larger_integer", "800.00", "Paid invoices total 8000.", 0.0),
     ]
