@@ -14,7 +14,9 @@ import { MOCK_DEFAULT_BASIC_USER, MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock
 import { Meta, StoryObj } from '@storybook/react'
 import { useActions } from 'kea'
 import { HttpResponse } from 'msw'
-import { type ReactNode, useEffect } from 'react'
+import { type ReactNode, useEffect, useState } from 'react'
+
+import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 
 import { mswDecorator } from '~/mocks/browser'
 
@@ -114,16 +116,19 @@ function Column({
     caption,
     gaps,
     skin,
+    width,
     children,
 }: {
     title: string
     caption: string
     gaps?: string[]
     skin: ThreadSkin
+    width: number
     children: ReactNode
 }): JSX.Element {
     return (
-        <section className="flex w-[600px] shrink-0 flex-col gap-2">
+        // eslint-disable-next-line react/forbid-dom-props
+        <section className="flex shrink-0 flex-col gap-2" style={{ width }}>
             <header className="flex flex-col gap-1 px-1">
                 <h2 className="m-0 text-base font-semibold">{title}</h2>
                 <p className="m-0 text-xs text-secondary">{caption}</p>
@@ -162,32 +167,58 @@ function SandboxChat(): JSX.Element {
     )
 }
 
-export const SideBySide: Story = {
-    render: () => (
-        <div className="flex items-start gap-6 overflow-x-auto p-6">
-            <Column
-                title="PostHog AI now"
-                caption="Flag off, the majority today: the LangGraph conversation in LemonUI."
-                skin="lemon"
-            >
-                <LegacyChat />
-            </Column>
-            <Column
-                title="PostHog AI quill"
-                caption="today-rail-nav on: the same LangGraph conversation in the quill skin."
-                gaps={LEGACY_QUILL_GAPS}
-                skin="quill"
-            >
-                <LegacyChat />
-            </Column>
-            <Column
-                title="PostHog AI 2.0 quill"
-                caption="phai-sandbox-mode and today-rail-nav on: the sandbox runner in the quill skin."
-                gaps={SANDBOX_QUILL_GAPS}
-                skin="quill"
-            >
-                <SandboxChat />
-            </Column>
+// Down to 320px, narrower than the side panel, so the narrow layouts can be checked here.
+const MIN_COLUMN_WIDTH = 320
+const MAX_COLUMN_WIDTH = 800
+
+function SideBySideComparison(): JSX.Element {
+    const [width, setWidth] = useState(600)
+    return (
+        <div className="flex flex-col gap-4 p-6">
+            <div className="flex w-[480px] items-center gap-3 text-xs">
+                <span className="shrink-0 font-semibold">Column width</span>
+                <LemonSlider
+                    value={width}
+                    onChange={setWidth}
+                    min={MIN_COLUMN_WIDTH}
+                    max={MAX_COLUMN_WIDTH}
+                    step={10}
+                    className="flex-1"
+                />
+                <span className="w-12 shrink-0 text-right tabular-nums">{width}px</span>
+            </div>
+            <div className="flex items-start gap-6 overflow-x-auto">
+                <Column
+                    title="PostHog AI now"
+                    caption="Flag off, the majority today: the LangGraph conversation in LemonUI."
+                    skin="lemon"
+                    width={width}
+                >
+                    <LegacyChat />
+                </Column>
+                <Column
+                    title="PostHog AI quill"
+                    caption="today-rail-nav on: the same LangGraph conversation in the quill skin."
+                    gaps={LEGACY_QUILL_GAPS}
+                    skin="quill"
+                    width={width}
+                >
+                    <LegacyChat />
+                </Column>
+                <Column
+                    title="PostHog AI 2.0 quill"
+                    caption="phai-sandbox-mode and today-rail-nav on: the sandbox runner in the quill skin."
+                    gaps={SANDBOX_QUILL_GAPS}
+                    skin="quill"
+                    width={width}
+                >
+                    <SandboxChat />
+                </Column>
+            </div>
         </div>
-    ),
+    )
+}
+
+export const SideBySide: Story = {
+    render: () => <SideBySideComparison />,
 }

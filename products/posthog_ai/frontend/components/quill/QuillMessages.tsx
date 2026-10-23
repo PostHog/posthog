@@ -17,24 +17,11 @@ import { userMessageDisplayText } from '../../utils/userMessageDisplay'
 import { HumanMessageText } from '../HumanMessageText'
 import { ThreadAttachments } from '../ThreadAttachments'
 import { TurnRevealContext } from '../TurnRevealContext'
-import { footerRevealClass } from './footerReveal'
+import { footerRevealProps } from './footerReveal'
+import { renderQuillCodeBlock } from './QuillCodeBlock'
 import { QuillCopyButton } from './QuillFooterButton'
 import { QuillFooterTimestamp } from './QuillFooterTimestamp'
-
-// A wide table scrolls sideways under a frozen first column. Cells keep a readable width and break between words.
-const ASSISTANT_TABLE_CLASS = cn(
-    '[&_table]:block [&_table]:w-fit [&_table]:max-w-full [&_table]:overflow-x-auto',
-    '[&_:is(th,td)]:min-w-32 [&_:is(th,td)]:[overflow-wrap:normal]',
-    '[&_:is(th,td):first-child]:sticky [&_:is(th,td):first-child]:left-0 [&_:is(th,td):first-child]:z-1 [&_:is(th,td):first-child]:bg-(--background)'
-)
-
-// The copy button sits in a header bar above the code, so it never covers the first line.
-const ASSISTANT_CODE_CLASS = cn(
-    '[&_.CodeSnippet_pre]:!pt-10',
-    '[&_.CodeSnippet_pre]:![background:linear-gradient(var(--border),var(--border))_0_2rem/100%_1px_no-repeat,linear-gradient(var(--muted),var(--muted))_0_0/100%_2rem_no-repeat,var(--card)]',
-    '[&_.CodeSnippet>div:first-child]:!top-1.5 [&_.CodeSnippet>div:first-child]:!right-1.5 [&_.CodeSnippet>div:first-child]:!bg-transparent',
-    '[&_.CodeSnippet>div:first-child_svg]:!text-(--muted-foreground)'
-)
+import { QUILL_MARKDOWN_COMPONENTS } from './quillMarkdownComponents'
 
 // A checklist starts at the text edge like a paragraph, and its read-only boxes draw at full strength. Inside quill the checkbox's lemon accent resolves to nothing, so a ticked box takes quill's primary colour.
 const ASSISTANT_TASK_LIST_CLASS = cn(
@@ -43,7 +30,7 @@ const ASSISTANT_TASK_LIST_CLASS = cn(
 )
 
 /** The prose rules every assistant markdown block in the quill thread shares. */
-export const QUILL_ASSISTANT_PROSE_CLASS = cn(ASSISTANT_TABLE_CLASS, ASSISTANT_CODE_CLASS, ASSISTANT_TASK_LIST_CLASS)
+export const QUILL_ASSISTANT_PROSE_CLASS = ASSISTANT_TASK_LIST_CLASS
 
 /**
  * Clamps a user bubble to five lines with a Show more toggle. Overflow depends on wrapping width, so it
@@ -123,16 +110,18 @@ export function QuillHumanBubble({
                         <ClampedContent>{children}</ClampedContent>
                     </ChatBubbleContent>
                 </ChatBubble>
-                <ChatMessageFooter className={cn('min-h-5 items-center gap-1', footerRevealClass(revealed))}>
-                    {startedAt !== undefined && <QuillFooterTimestamp time={startedAt} />}
-                    {copyText && (
-                        <QuillCopyButton
-                            value={copyText}
-                            label="Copy message"
-                            dataAttr="posthog-ai-human-message-copy"
-                        />
-                    )}
-                </ChatMessageFooter>
+                {(startedAt !== undefined || copyText) && (
+                    <ChatMessageFooter {...footerRevealProps(revealed, 'items-center gap-1')}>
+                        {startedAt !== undefined && <QuillFooterTimestamp time={startedAt} />}
+                        {copyText && (
+                            <QuillCopyButton
+                                value={copyText}
+                                label="Copy message"
+                                dataAttr="posthog-ai-human-message-copy"
+                            />
+                        )}
+                    </ChatMessageFooter>
+                )}
             </ChatMessageContent>
         </ChatMessage>
     )
@@ -156,9 +145,17 @@ export function QuillAssistantBubble({ className, children }: QuillAssistantBubb
     )
 }
 
-/** Assistant markdown with the quill prose rules for tables, code blocks and checklists. */
+// Sets the chat message text size itself, so it reads the same inside a 13px quill card as in a bubble.
 export function QuillAssistantMarkdown({ content, id }: { content: string; id: string }): JSX.Element {
-    return <MarkdownMessage content={content} id={id} className={QUILL_ASSISTANT_PROSE_CLASS} />
+    return (
+        <MarkdownMessage
+            content={content}
+            id={id}
+            className={cn('text-[length:var(--text-sm,0.875rem)] leading-[1.625]', QUILL_ASSISTANT_PROSE_CLASS)}
+            components={QUILL_MARKDOWN_COMPONENTS}
+            renderCodeBlock={renderQuillCodeBlock}
+        />
+    )
 }
 
 export const QuillHumanMessage = memo(function QuillHumanMessage({ item }: { item: ThreadItem }): JSX.Element {

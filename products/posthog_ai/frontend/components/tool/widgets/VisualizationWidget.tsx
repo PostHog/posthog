@@ -1,4 +1,3 @@
-import clsx from 'clsx'
 import { useActions } from 'kea'
 import React, { useMemo, useState } from 'react'
 
@@ -26,8 +25,8 @@ import { QueryContext } from '~/queries/types'
 import { isFunnelsQuery, isHogQLQuery, isInsightVizNode } from '~/queries/utils'
 import { InsightShortId } from '~/types'
 
-import { MessageTemplate } from '../../../messages/MessageTemplate'
 import { visualizationTypeToQuery } from '../../../utils/visualizationQuery'
+import { WidgetCard } from '../../WidgetCard'
 
 const QUERY_CONTEXT_POSTHOG_AI: QueryContext = { limitContext: 'posthog_ai' } as const
 
@@ -42,8 +41,6 @@ export interface VisualizationWidgetProps {
     onCollapsedChange?: (isCollapsed: boolean) => void
     /** Extra buttons rendered in the actions row before the CTA. */
     extraActions?: React.ReactNode
-    /** Render only the widget body, for use inside an existing activity/message shell. */
-    embedded?: boolean
 }
 
 /** Fallback CTA for ephemeral visualizations: open the rendered query as a new unsaved insight. */
@@ -77,7 +74,6 @@ export const VisualizationWidget = React.memo(function VisualizationWidget({
     isCollapsed: controlledCollapsed,
     onCollapsedChange,
     extraActions,
-    embedded = false,
 }: VisualizationWidgetProps): JSX.Element {
     const { loadCohortsByIds } = useActions(cohortsModel)
     const [isSummaryShown, setIsSummaryShown] = useState(false)
@@ -96,19 +92,19 @@ export const VisualizationWidget = React.memo(function VisualizationWidget({
     // Get the raw query for height calculation
     const rawQuery = content.query
 
-    const renderedContent = !query ? (
+    const chart =
+        query && !isCollapsed ? <Query query={query} readOnly embedded context={QUERY_CONTEXT_POSTHOG_AI} /> : null
+    // A funnel sizes itself, so it only gets a cap; a chart drawn on a canvas needs a fixed height.
+    const chartHeightClassName = isFunnelsQuery(rawQuery) ? 'max-h-[580px]' : 'h-96'
+
+    const footer = !query ? (
         <div className="flex items-center gap-1.5">
             <IconWarning className="text-xl text-danger" />
             <span>Failed to load visualization</span>
         </div>
     ) : (
-        <div className="flex flex-col w-full">
-            {!isCollapsed && (
-                <div className={clsx('flex flex-col overflow-auto', isFunnelsQuery(rawQuery) ? 'h-[580px]' : 'h-96')}>
-                    <Query query={query} readOnly embedded context={QUERY_CONTEXT_POSTHOG_AI} />
-                </div>
-            )}
-            <div className={clsx('flex items-center justify-between', !isCollapsed && 'mt-2')}>
+        <>
+            <div className="flex items-center justify-between">
                 {isInsightVizNode(query) ? (
                     <div className="flex items-center gap-1.5">
                         <LemonButton
@@ -164,29 +160,8 @@ export const VisualizationWidget = React.memo(function VisualizationWidget({
                     )}
                 </>
             )}
-        </div>
+        </>
     )
 
-    if (embedded) {
-        return renderedContent
-    }
-
-    if (!query) {
-        return (
-            <MessageTemplate
-                type="ai"
-                className="w-full"
-                wrapperClassName="w-full"
-                boxClassName="flex flex-col w-full border-danger"
-            >
-                {renderedContent}
-            </MessageTemplate>
-        )
-    }
-
-    return (
-        <MessageTemplate type="ai" className="w-full" wrapperClassName="w-full" boxClassName="flex flex-col w-full">
-            {renderedContent}
-        </MessageTemplate>
-    )
+    return <WidgetCard body={chart} bodyHeightClassName={chartHeightClassName} footer={footer} danger={!query} />
 })

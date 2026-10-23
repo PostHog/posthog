@@ -1,100 +1,36 @@
 import clsx from 'clsx'
-import { BindLogic, useActions, useValues } from 'kea'
-import posthog from 'posthog-js'
-import React, { useCallback, useLayoutEffect, useMemo, useState } from 'react'
+import { BindLogic, useValues } from 'kea'
+import React, { useCallback, useMemo, useState } from 'react'
 
+import { IconChevronRight, IconWarning, IconWrench } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonDivider, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 import {
-    IconChevronRight,
-    IconCollapse,
-    IconCopy,
-    IconExpand,
-    IconEye,
-    IconHide,
-    IconNotebook,
-    IconRefresh,
-    IconThumbsDown,
-    IconThumbsDownFilled,
-    IconThumbsUp,
-    IconThumbsUpFilled,
-    IconWarning,
-    IconWrench,
-    IconX,
-} from '@posthog/icons'
-import {
-    LemonBanner,
-    LemonButton,
-    LemonButtonPropsBase,
-    LemonCheckbox,
-    LemonDialog,
-    LemonDivider,
-    LemonInput,
-    LemonSkeleton,
-    Tooltip,
-} from '@posthog/lemon-ui'
-import {
-    Button,
-    Card,
-    CardContent,
-    CardHeader,
-    CardTitle,
     ChatBubble,
     ChatBubbleContent,
     ChatMarker,
     ChatMarkerContent,
     ChatMessage,
     ChatMessageContent,
-    ChatMessageFooter,
-    ChatTask,
-    ChatTaskList,
-    ChatTaskListContent,
-    ChatTaskListCount,
-    ChatTaskListLabel,
-    ChatTaskListProgress,
-    ChatTaskListTrigger,
-    Input,
     Skeleton,
-    Text,
 } from '@posthog/quill'
 
-import {
-    InsightBreakdownSummary,
-    PropertiesSummary,
-    SeriesSummary,
-} from 'lib/components/Cards/InsightCard/InsightDetails'
-import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
 import { NotFound } from 'lib/components/NotFound'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { cn } from 'lib/utils/css-classes'
-import { pluralize } from 'lib/utils/strings'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
-import { urls } from 'scenes/urls'
-import { userLogic } from 'scenes/userLogic'
 
-import { copyToClipboard } from '~/lib/utils/copyToClipboard'
-import { stripMarkdown } from '~/lib/utils/markdown'
-import { Query } from '~/queries/Query/Query'
 import {
-    AssistantForm,
     AssistantMessage,
     AssistantToolCallMessage,
     TaskExecutionStatus as ExecutionStatus,
     FailureMessage,
     MultiQuestionForm,
-    MultiVisualizationMessage,
-    PlanningStep,
-    PlanningStepStatus,
 } from '~/queries/schema/schema-assistant-messages'
-import { DataVisualizationNode, InsightVizNode } from '~/queries/schema/schema-general'
-import { isDataVisualizationNode, isHogQLQuery } from '~/queries/utils'
-import { PendingApproval, RecordingUniversalFilters, Region } from '~/types'
+import { PendingApproval, RecordingUniversalFilters } from '~/types'
 
 import {
     AGENT_TOOL_APPLY_BACK_CONTEXT_ITEM,
     getThinkingMessageFromResponse,
-    type MessageRatingOrNull,
-    messageRatingsLogic,
     runStreamLogic,
     useAttachedContext,
     useForegroundStream,
@@ -106,8 +42,8 @@ import {
     MessageTemplate,
     QuillAssistantBubble,
     QuillAssistantMarkdown,
-    QuillCopyButton,
-    QuillFooterButton,
+    MessageReveal,
+    NotQuill,
     QuillHumanBubble,
     QuillThreadSkin,
     ReasoningAnswer,
@@ -122,7 +58,7 @@ import { LogEntry } from 'products/posthog_ai/frontend/lib/parse-logs'
 import { isPiTaskRuntime } from 'products/posthog_ai/frontend/types/taskTypes'
 import { ReplayVisionScanWidget } from 'products/replay_vision/frontend/posthogAi/ReplayVisionScanWidget'
 
-import { LangGraphActivity, ShimmeringContent } from './components/Activity'
+import { LangGraphActivity } from './components/Activity'
 import { FeedbackDisplay } from './components/FeedbackDisplay'
 import { ContextSummary } from './Context'
 import { DangerousOperationApprovalCard } from './DangerousOperationApprovalCard'
@@ -131,15 +67,20 @@ import { EnhancedToolCall, ToolRegistration, getToolDefinitionFromToolCall } fro
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { SIDE_PANEL_PANEL_ID, ThreadMessage, maxLogic } from './maxLogic'
 import { maxThreadLogic } from './maxThreadLogic'
+import { AssistantMessageForm } from './messages/AssistantMessageForm'
 import { MultiQuestionFormRecap } from './messages/MultiQuestionForm'
+import { MultiVisualizationAnswer } from './messages/MultiVisualizationAnswer'
 import { NotebookArtifactAnswer } from './messages/NotebookArtifactAnswer'
+import { PlanningAnswer } from './messages/PlanningAnswer'
+import { RetriableFailureActions } from './messages/RetriableFailureActions'
+import { SuccessActions } from './messages/SuccessActions'
 import { isRenderableUIPayloadTool } from './messages/UIPayloadAnswer'
 import { VisualizationArtifact } from './messages/VisualizationArtifact'
 import { MAX_SLASH_COMMANDS, SlashCommandName } from './slash-commands'
 import { TicketPrompt } from './TicketPrompt'
 import { getTicketPromptData, getTicketSummaryData, isTicketConfirmationMessage } from './ticketUtils'
 import { ToolCallWidgetDef, getToolCallDescriptionAndWidgetDef } from './toolCallDisplay'
-import { TraceIdProvider, useTraceId } from './TraceIdContext'
+import { TraceIdProvider } from './TraceIdContext'
 import { useFeedback } from './useFeedback'
 import {
     isArtifactMessage,
@@ -151,28 +92,11 @@ import {
     isMultiVisualizationMessage,
     isNotebookArtifactContent,
     isVisualizationArtifactContent,
-    visualizationTypeToQuery,
 } from './utils'
 
 // Helper function to check if a message is an error or failure
 function isErrorMessage(message: ThreadMessage): boolean {
     return message.type !== 'human' && (message.status === 'error' || message.type === 'ai/failure')
-}
-
-/**
- * Fences a lemon component that has no quill skin yet, so PostHog's own colours survive inside the quill
- * thread. Renders the children bare in the lemon thread.
- */
-function NotQuill({ children, className }: { children: React.ReactNode; className?: string }): JSX.Element {
-    const quill = useQuillThread()
-    if (!quill) {
-        return <>{children}</>
-    }
-    return (
-        <div data-not-quill className={cn('min-w-0 max-w-full', className)}>
-            {children}
-        </div>
-    )
 }
 
 /** A short assistant-side note (a feedback nudge, a retry notice): a lemon bubble, or quill ghost prose. */
@@ -195,7 +119,7 @@ function AssistantNote({
     )
 }
 
-export function Thread({ className }: { className?: string }): JSX.Element | null {
+export function Thread({ compact = false }: { compact?: boolean }): JSX.Element | null {
     const { conversation, sandboxConversationKey, isConvertedConversation } = useValues(maxThreadLogic)
     const { panelId } = useValues(maxLogic)
     const threadSkin = useThreadSkin()
@@ -215,11 +139,12 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
         active: panelId === SIDE_PANEL_PANEL_ID && rendersSandboxThread,
     })
 
-    // The quill thread spaces its rows like PostHog Desktop; the lemon thread keeps its tighter rhythm.
+    // The quill thread spaces its rows like PostHog Desktop, with the 2.0 thread's side gutter; the lemon
+    // thread keeps its tighter rhythm.
     const containerClassName = cn(
         '@container/thread flex flex-col items-stretch w-full max-w-180 self-center grow mx-auto',
-        quill ? 'gap-4' : 'gap-1.5',
-        className
+        quill ? 'gap-4 px-4' : 'gap-1.5',
+        quill ? (compact ? 'py-1' : 'py-3') : compact ? 'p-1' : 'p-3'
     )
 
     // Feedback identity: always the task, matching `$ai_session_id` on other surfaces.
@@ -718,18 +643,19 @@ const Message = React.memo(function Message({
 
                         if (quill) {
                             return (
-                                <QuillHumanBubble
-                                    key={key}
-                                    copyText={message.content || undefined}
-                                    before={contextSummary || undefined}
-                                    className={cn(
-                                        'w-full',
-                                        message.status === 'error' &&
-                                            '[&_[data-slot=bubble-content]]:border-destructive-foreground'
-                                    )}
-                                >
-                                    {humanContent}
-                                </QuillHumanBubble>
+                                <MessageReveal key={key}>
+                                    <QuillHumanBubble
+                                        copyText={message.content || undefined}
+                                        before={contextSummary || undefined}
+                                        className={cn(
+                                            'w-full',
+                                            message.status === 'error' &&
+                                                '[&_[data-slot=bubble-content]]:border-destructive-foreground'
+                                        )}
+                                    >
+                                        {humanContent}
+                                    </QuillHumanBubble>
+                                </MessageReveal>
                             )
                         }
 
@@ -1072,186 +998,6 @@ const TextAnswer = React.forwardRef<HTMLDivElement, TextAnswerProps>(function Te
     )
 })
 
-interface AssistantMessageFormProps {
-    form: AssistantForm
-    linksOnly?: boolean
-}
-
-function AssistantMessageForm({ form, linksOnly }: AssistantMessageFormProps): JSX.Element {
-    const { askMax } = useActions(maxThreadLogic)
-    const quill = useQuillThread()
-
-    const options = linksOnly ? form.options.filter((option) => option.href) : form.options
-
-    if (quill) {
-        return (
-            <div className="flex flex-wrap gap-1.5">
-                {options.map((option) => (
-                    <Button
-                        key={option.value}
-                        size="sm"
-                        variant={option.variant === 'primary' ? 'primary' : 'outline'}
-                        onClick={!option.href ? () => askMax(option.value) : undefined}
-                        render={option.href ? <LinkPrimitive to={option.href} target="_blank" /> : undefined}
-                    >
-                        {option.value}
-                    </Button>
-                ))}
-            </div>
-        )
-    }
-
-    return (
-        // ml-1 is because buttons have radius of 0.375rem, while messages of 0.65rem, where diff = 0.25rem
-        // Also makes it clear the form is subservient to the message. *Harmony*
-        <div className="flex flex-wrap gap-1.5 ml-1 mt-1">
-            {options.map((option) => (
-                <LemonButton
-                    key={option.value}
-                    onClick={!option.href ? () => askMax(option.value) : undefined}
-                    to={option.href}
-                    size="small"
-                    targetBlank={!!option.href}
-                    type={
-                        option.variant && ['primary', 'secondary', 'tertiary'].includes(option.variant)
-                            ? (option.variant as LemonButtonPropsBase['type'])
-                            : 'secondary'
-                    }
-                >
-                    {option.value}
-                </LemonButton>
-            ))}
-        </div>
-    )
-}
-
-interface PlanningAnswerProps {
-    toolCall: EnhancedToolCall
-    isLastPlanningMessage?: boolean
-}
-
-const PLAN_STEP_STATUS: Record<string, 'pending' | 'active' | 'done' | 'failed'> = {
-    completed: 'done',
-    in_progress: 'active',
-    failed: 'failed',
-}
-
-function PlanningAnswer({ toolCall, isLastPlanningMessage = true }: PlanningAnswerProps): JSX.Element {
-    const [isExpanded, setIsExpanded] = useState(isLastPlanningMessage)
-    const quill = useQuillThread()
-
-    useLayoutEffect(() => {
-        setIsExpanded(isLastPlanningMessage)
-    }, [isLastPlanningMessage])
-
-    // Extract planning steps from tool call args
-    // Assuming args has a 'todos' field with array of {content: string, status: string, activeForm: string}
-    const steps: PlanningStep[] = Array.isArray(toolCall.args.todos)
-        ? (
-              toolCall.args.todos as Array<{
-                  content: string
-                  status: string
-                  activeForm: string
-              }>
-          ).map((todo) => ({
-              description: todo.content,
-              status: todo.status as PlanningStepStatus,
-          }))
-        : []
-
-    const completedCount = steps.filter((step) => step.status === 'completed').length
-    const totalCount = steps.length
-    const hasMultipleSteps = steps.length > 1
-
-    if (quill) {
-        return (
-            <ChatTaskList
-                value={completedCount}
-                total={totalCount}
-                open={isExpanded}
-                onOpenChange={setIsExpanded}
-                className="opacity-80"
-            >
-                <ChatTaskListTrigger
-                    disabled={!hasMultipleSteps}
-                    aria-label={isExpanded ? 'Collapse plan' : 'Expand plan'}
-                >
-                    <ChatTaskListProgress />
-                    <ChatTaskListLabel>Planning</ChatTaskListLabel>
-                    <ChatTaskListCount />
-                </ChatTaskListTrigger>
-                <ChatTaskListContent>
-                    {steps.map((step, index) => (
-                        <ChatTask key={index} status={PLAN_STEP_STATUS[step.status] ?? 'pending'}>
-                            {step.description}
-                        </ChatTask>
-                    ))}
-                </ChatTaskListContent>
-            </ChatTaskList>
-        )
-    }
-
-    return (
-        <div className="flex flex-col text-xs">
-            <div
-                className={clsx(
-                    'flex items-center select-none',
-                    !hasMultipleSteps ? 'cursor-default' : 'cursor-pointer'
-                )}
-                onClick={!hasMultipleSteps ? undefined : () => setIsExpanded(!isExpanded)}
-                aria-label={!hasMultipleSteps ? undefined : isExpanded ? 'Collapse plan' : 'Expand plan'}
-            >
-                <div className="flex items-center justify-center size-5">
-                    <IconNotebook />
-                </div>
-                <div className="flex items-center gap-1.5 flex-1 min-w-0">
-                    <span>Planning</span>
-                    <span className="text-muted">
-                        ({completedCount}/{totalCount})
-                    </span>
-                    {hasMultipleSteps && (
-                        <button className="cursor-pointer inline-flex items-center hover:opacity-70 transition-opacity flex-shrink-0">
-                            <span className={`transform transition-transform ${isExpanded ? 'rotate-90' : ''}`}>
-                                <IconChevronRight />
-                            </span>
-                        </button>
-                    )}
-                </div>
-            </div>
-            {isExpanded && (
-                <div className="mt-1.5 space-y-1.5 border-l-2 border-border-secondary pl-3.5 ml-2">
-                    {steps.map((step, index) => {
-                        const isCompleted = step.status === 'completed'
-                        const isInProgress = step.status === 'in_progress'
-
-                        return (
-                            <div key={index} className="flex items-start gap-2 animate-fade-in">
-                                <span className="flex-shrink-0">
-                                    <LemonCheckbox checked={isCompleted} disabled size="xsmall" />
-                                </span>
-                                <span
-                                    className={clsx(
-                                        'leading-relaxed',
-                                        isCompleted && 'text-muted line-through',
-                                        isInProgress && 'font-medium'
-                                    )}
-                                >
-                                    {step.description}
-                                    {isInProgress && (
-                                        <ShimmeringContent>
-                                            <span className="text-muted ml-1">(in progress)</span>
-                                        </ShimmeringContent>
-                                    )}
-                                </span>
-                            </div>
-                        )
-                    })}
-                </div>
-            )}
-        </div>
-    )
-}
-
 interface ToolCallsAnswerProps {
     toolCalls: EnhancedToolCall[]
     registeredToolMap: Record<string, ToolRegistration>
@@ -1301,534 +1047,6 @@ function ToolCallsAnswer({ toolCalls, registeredToolMap }: ToolCallsAnswerProps)
                         )
                     })}
                 </div>
-            )}
-        </>
-    )
-}
-
-const Visualization = React.memo(function Visualization({
-    query,
-    collapsed,
-    editingChildren,
-}: {
-    query: InsightVizNode | DataVisualizationNode
-    collapsed?: boolean
-    editingChildren?: React.ReactNode
-}): JSX.Element | null {
-    const [isSummaryShown, setIsSummaryShown] = useState(false)
-    const [isCollapsed, setIsCollapsed] = useState(collapsed ?? false)
-
-    if (!query) {
-        return null
-    }
-
-    return (
-        <>
-            {!isCollapsed && <Query query={query} readOnly embedded />}
-            <div className={clsx('flex items-center justify-between', !isCollapsed && 'mt-2')}>
-                <div className="flex items-center gap-1.5">
-                    <LemonButton
-                        sideIcon={isSummaryShown ? <IconCollapse /> : <IconExpand />}
-                        onClick={() => setIsSummaryShown(!isSummaryShown)}
-                        size="xsmall"
-                        className="-m-1 shrink"
-                        tooltip={isSummaryShown ? 'Hide definition' : 'Show definition'}
-                    >
-                        <h5 className="m-0 leading-none">
-                            <TopHeading query={query} />
-                        </h5>
-                    </LemonButton>
-                </div>
-                <div className="flex items-center gap-1.5">
-                    {editingChildren}
-                    <LemonButton
-                        icon={isCollapsed ? <IconEye /> : <IconHide />}
-                        onClick={() => setIsCollapsed(!isCollapsed)}
-                        size="xsmall"
-                        className="-m-1 shrink"
-                        tooltip={isCollapsed ? 'Show visualization' : 'Hide visualization'}
-                    />
-                </div>
-            </div>
-            {isSummaryShown && !isDataVisualizationNode(query) && (
-                <>
-                    <SeriesSummary query={query.source} heading={null} />
-                    {!isHogQLQuery(query.source) && (
-                        <div className="flex flex-wrap gap-4 mt-1 *:grow">
-                            <PropertiesSummary properties={query.source.properties} />
-                            <InsightBreakdownSummary query={query.source} />
-                        </div>
-                    )}
-                </>
-            )}
-        </>
-    )
-})
-
-interface MultiVisualizationAnswerProps {
-    message: MultiVisualizationMessage
-    className?: string
-}
-
-export function MultiVisualizationAnswer({ message, className }: MultiVisualizationAnswerProps): JSX.Element | null {
-    const { visualizations } = message
-    const quill = useQuillThread()
-    const insights = useMemo(() => {
-        return visualizations
-            .map((visualization, index) => {
-                const query = visualizationTypeToQuery(visualization)
-                if (query) {
-                    return {
-                        query,
-                        title: visualization.plan || `Insight #${index + 1}`,
-                    }
-                }
-                return null
-            })
-            .filter(Boolean) as Array<{
-            query: InsightVizNode | DataVisualizationNode
-            title: string
-        }>
-    }, [visualizations])
-
-    const openModal = (): void => {
-        LemonDialog.open({
-            title: 'Insights',
-            content: <MultiVisualizationModal insights={insights} />,
-            primaryButton: null,
-            width: '90%',
-            maxWidth: 1400,
-        })
-    }
-
-    if (visualizations.length === 0) {
-        return null
-    }
-
-    // Render insights in a mosaic layout
-    const renderMosaic = (): JSX.Element => {
-        if (visualizations.length === 1) {
-            // Single insight takes full width
-            return (
-                <div className="w-full relative">
-                    <Visualization query={insights[0].query} />
-                </div>
-            )
-        }
-        // Two or more insights, show in a grid layout
-        // Currently, let's show a maximum of 4 insights inline with the following mapping
-        // 2 insights: 50/50 split
-        // 3 insights: 33/33/33 split
-        // 4 insights: 25/25/25/25 split, sso basically 2x2 grid
-        const insightsToShow = insights.slice(0, 4)
-        const gridCols =
-            insightsToShow.length === 2 ? 'grid-cols-2' : insightsToShow.length === 3 ? 'grid-cols-3' : 'grid-cols-2'
-
-        return (
-            <div className={`grid ${gridCols} gap-2`}>
-                {insightsToShow.map((insight, index) => (
-                    <div key={index} className="relative min-h-[200px]">
-                        <Query query={insight.query} readOnly embedded />
-                    </div>
-                ))}
-            </div>
-        )
-    }
-
-    if (quill) {
-        return (
-            <Card size="sm" className={cn('w-full max-w-full', className)}>
-                <CardHeader className="flex flex-row items-center justify-between gap-2">
-                    <CardTitle>{pluralize(visualizations.length, 'insight')} analyzed</CardTitle>
-                    {visualizations.length > 1 && (
-                        <Button variant="outline" size="sm" onClick={openModal} tooltip="View all insights in detail">
-                            <IconExpand />
-                            Expand
-                        </Button>
-                    )}
-                </CardHeader>
-                <CardContent className="flex flex-col gap-2">
-                    {/* The charts keep PostHog's own colours inside the quill card. */}
-                    <div data-not-quill className="min-w-0">
-                        {renderMosaic()}
-                    </div>
-                    {message.commentary && (
-                        <QuillAssistantMarkdown content={message.commentary} id="multi-viz-commentary" />
-                    )}
-                </CardContent>
-            </Card>
-        )
-    }
-
-    return (
-        <div className={clsx('flex flex-col gap-px w-full break-words', className)}>
-            {/* Everything wrapped in a message bubble */}
-            <div className="max-w-full border py-3 px-4 rounded-lg bg-surface-primary">
-                <div className="space-y-2">
-                    <div className="w-full flex justify-between items-center">
-                        <h2 className="text-sm font-semibold text-secondary">
-                            {pluralize(visualizations.length, 'insight')} analyzed
-                        </h2>
-
-                        {visualizations.length > 1 && (
-                            <LemonButton
-                                icon={<IconExpand />}
-                                size="xsmall"
-                                type="tertiary"
-                                onClick={openModal}
-                                tooltip="View all insights in detail"
-                            >
-                                Expand
-                            </LemonButton>
-                        )}
-                    </div>
-
-                    {renderMosaic()}
-
-                    {message.commentary && <MarkdownMessage content={message.commentary} id="multi-viz-commentary" />}
-                </div>
-            </div>
-        </div>
-    )
-}
-
-// Modal for detailed view
-interface MultiVisualizationModalProps {
-    insights: Array<{
-        query: InsightVizNode | DataVisualizationNode
-        title: string
-    }>
-}
-
-function MultiVisualizationModal({ insights: messages }: MultiVisualizationModalProps): JSX.Element {
-    const [selectedIndex, setSelectedIndex] = React.useState(0)
-
-    return (
-        <div className="flex">
-            {/* Sidebar with visualization list */}
-            <div className="w-64 border-r pr-4 overflow-y-auto">
-                <h5 className="text-xs font-semibold text-muted mb-3">VISUALIZATIONS</h5>
-                <div className="space-y-1">
-                    {messages.map((item, index) => (
-                        <button
-                            key={index}
-                            onClick={() => setSelectedIndex(index)}
-                            className={clsx(
-                                'w-full text-left p-2 rounded transition-colors text-sm',
-                                selectedIndex === index
-                                    ? 'bg-primary text-primary-inverted font-semibold'
-                                    : 'hover:bg-surface-secondary'
-                            )}
-                        >
-                            {item.title}
-                        </button>
-                    ))}
-                </div>
-            </div>
-
-            {/* Main content area */}
-            <div className="flex-1 pl-4 overflow-auto">
-                {messages[selectedIndex] && (
-                    <>
-                        <h4 className="text-base font-semibold mb-3">
-                            <TopHeading query={messages[selectedIndex].query} />
-                        </h4>
-                        <div className="min-h-80">
-                            <Query query={messages[selectedIndex].query} readOnly embedded />
-                        </div>
-                    </>
-                )}
-            </div>
-        </div>
-    )
-}
-
-function RetriableFailureActions(): JSX.Element {
-    const { retryLastMessage } = useActions(maxThreadLogic)
-    const quill = useQuillThread()
-
-    if (quill) {
-        return (
-            <div>
-                <Button variant="outline" size="sm" onClick={() => retryLastMessage()}>
-                    <IconRefresh />
-                    Try again
-                </Button>
-            </div>
-        )
-    }
-
-    return (
-        <LemonButton
-            icon={<IconRefresh />}
-            type="tertiary"
-            size="xsmall"
-            tooltip="Try again"
-            onClick={() => retryLastMessage()}
-            className="ml-1"
-        >
-            Try again
-        </LemonButton>
-    )
-}
-
-interface SuccessActionsProps {
-    retriable: boolean
-    hideRatingAndRetry?: boolean
-    content?: string | null
-}
-
-/**
- * The rating and free-text feedback of one LangGraph answer, keyed by its trace. Both skins of
- * `SuccessActions` read it, so the `$ai_metric` and `$ai_feedback` events stay the same whichever is on.
- */
-function useAnswerRating(): {
-    traceId: string | null
-    rating: MessageRatingOrNull
-    submitRating: (newRating: 'good' | 'bad') => void
-    feedback: string
-    setFeedback: (feedback: string) => void
-    feedbackInputStatus: 'hidden' | 'pending' | 'submitted'
-    closeFeedback: () => void
-    submitFeedback: () => void
-    traceUrl: string | null
-} {
-    const { traceId: logicTraceId } = useValues(maxThreadLogic)
-    const { ratingForKey } = useValues(messageRatingsLogic)
-    const { setRating } = useActions(messageRatingsLogic)
-    const { user } = useValues(userLogic)
-    const { isDev, preflight } = useValues(preflightLogic)
-    const contextTraceId = useTraceId()
-
-    // Use the context trace_id if available (for reloaded conversations), otherwise fall back to logic's traceId
-    const traceId = contextTraceId || logicTraceId
-
-    const rating = ratingForKey(traceId)
-    const [feedback, setFeedback] = useState<string>('')
-    const [feedbackInputStatus, setFeedbackInputStatus] = useState<'hidden' | 'pending' | 'submitted'>('hidden')
-
-    function submitRating(newRating: 'good' | 'bad'): void {
-        if (rating || !traceId) {
-            return // Already rated
-        }
-        setRating({ key: traceId, rating: newRating })
-        posthog.captureTraceMetric(traceId, 'quality', newRating)
-        if (newRating === 'bad') {
-            setFeedbackInputStatus('pending')
-        }
-    }
-
-    function submitFeedback(): void {
-        if (!feedback || !traceId) {
-            return // Input is empty
-        }
-        posthog.captureTraceFeedback(traceId, feedback)
-        setFeedbackInputStatus('submitted')
-    }
-
-    const traceUrl =
-        (user?.is_staff || isDev) && traceId
-            ? `${preflight?.region === Region.EU ? 'https://us.posthog.com/project/2' : ''}${urls.aiObservabilityTrace(traceId)}`
-            : null
-
-    return {
-        traceId,
-        rating,
-        submitRating,
-        feedback,
-        setFeedback,
-        feedbackInputStatus,
-        closeFeedback: () => setFeedbackInputStatus('hidden'),
-        submitFeedback,
-        traceUrl,
-    }
-}
-
-function SuccessActions(props: SuccessActionsProps): JSX.Element {
-    return useQuillThread() ? <QuillSuccessActions {...props} /> : <LemonSuccessActions {...props} />
-}
-
-/** The quill answer footer: the same affordances as the lemon row, drawn like a sandbox turn's footer. */
-function QuillSuccessActions({ retriable, hideRatingAndRetry, content }: SuccessActionsProps): JSX.Element {
-    const { retryLastMessage } = useActions(maxThreadLogic)
-    const {
-        rating,
-        submitRating,
-        feedback,
-        setFeedback,
-        feedbackInputStatus,
-        closeFeedback,
-        submitFeedback,
-        traceUrl,
-    } = useAnswerRating()
-
-    return (
-        <div className="flex flex-col gap-2">
-            <ChatMessageFooter className="min-h-5 items-center gap-1 ps-0">
-                {content && <QuillCopyButton value={stripMarkdown(content)} label="Copy answer" />}
-                {!hideRatingAndRetry && rating !== 'bad' && (
-                    <QuillFooterButton label="Good answer" onClick={() => submitRating('good')}>
-                        {rating === 'good' ? <IconThumbsUpFilled /> : <IconThumbsUp />}
-                    </QuillFooterButton>
-                )}
-                {!hideRatingAndRetry && rating !== 'good' && (
-                    <QuillFooterButton label="Bad answer" onClick={() => submitRating('bad')}>
-                        {rating === 'bad' ? <IconThumbsDownFilled /> : <IconThumbsDown />}
-                    </QuillFooterButton>
-                )}
-                {!hideRatingAndRetry && retriable && (
-                    <QuillFooterButton label="Try again" onClick={() => retryLastMessage()}>
-                        <IconRefresh />
-                    </QuillFooterButton>
-                )}
-                {traceUrl && (
-                    <Button
-                        variant="default"
-                        size="icon-xs"
-                        aria-label="View trace in AI observability"
-                        tooltip="View trace in AI observability"
-                        className="text-muted-foreground hover:text-foreground"
-                        render={<LinkPrimitive to={traceUrl} />}
-                    >
-                        <IconEye />
-                    </Button>
-                )}
-            </ChatMessageFooter>
-            {!hideRatingAndRetry && feedbackInputStatus !== 'hidden' && (
-                <div className="flex max-w-4/5 flex-col gap-2 rounded-lg border border-border p-3">
-                    <div className="flex items-center gap-1">
-                        <Text size="sm" weight="medium" className="grow">
-                            {feedbackInputStatus === 'pending'
-                                ? 'What disappointed you about the answer?'
-                                : 'Thank you for your feedback!'}
-                        </Text>
-                        <QuillFooterButton label="Close" onClick={closeFeedback}>
-                            <IconX />
-                        </QuillFooterButton>
-                    </div>
-                    {feedbackInputStatus === 'pending' && (
-                        <form
-                            className="flex items-center gap-1.5"
-                            onSubmit={(event) => {
-                                event.preventDefault()
-                                submitFeedback()
-                            }}
-                        >
-                            <Input
-                                aria-label="What disappointed you about the answer?"
-                                placeholder="Help us improve PostHog AI…"
-                                value={feedback}
-                                onChange={(event) => setFeedback(event.target.value)}
-                                autoFocus
-                            />
-                            <Button
-                                type="submit"
-                                variant="primary"
-                                disabledReason={!feedback ? 'Please type a few words!' : undefined}
-                            >
-                                Submit
-                            </Button>
-                        </form>
-                    )}
-                </div>
-            )}
-        </div>
-    )
-}
-
-function LemonSuccessActions({ retriable, hideRatingAndRetry, content }: SuccessActionsProps): JSX.Element {
-    const { retryLastMessage } = useActions(maxThreadLogic)
-    const {
-        traceId,
-        rating,
-        submitRating,
-        feedback,
-        setFeedback,
-        feedbackInputStatus,
-        closeFeedback,
-        submitFeedback,
-        traceUrl,
-    } = useAnswerRating()
-
-    return (
-        <>
-            <div className="flex items-center ml-1">
-                {content && (
-                    <LemonButton
-                        icon={<IconCopy />}
-                        type="tertiary"
-                        size="xsmall"
-                        tooltip="Copy answer"
-                        onClick={() => copyToClipboard(stripMarkdown(content))}
-                    />
-                )}
-                {!hideRatingAndRetry && rating !== 'bad' && (
-                    <LemonButton
-                        icon={rating === 'good' ? <IconThumbsUpFilled /> : <IconThumbsUp />}
-                        type="tertiary"
-                        size="xsmall"
-                        tooltip="Good answer"
-                        onClick={() => submitRating('good')}
-                    />
-                )}
-                {!hideRatingAndRetry && rating !== 'good' && (
-                    <LemonButton
-                        icon={rating === 'bad' ? <IconThumbsDownFilled /> : <IconThumbsDown />}
-                        type="tertiary"
-                        size="xsmall"
-                        tooltip="Bad answer"
-                        onClick={() => submitRating('bad')}
-                    />
-                )}
-                {!hideRatingAndRetry && retriable && (
-                    <LemonButton
-                        icon={<IconRefresh />}
-                        type="tertiary"
-                        size="xsmall"
-                        tooltip="Try again"
-                        onClick={() => retryLastMessage()}
-                    />
-                )}
-                {traceUrl && traceId && (
-                    <LemonButton
-                        to={traceUrl}
-                        icon={<IconEye />}
-                        type="tertiary"
-                        size="xsmall"
-                        tooltip="View trace in AI observability"
-                    />
-                )}
-            </div>
-            {!hideRatingAndRetry && feedbackInputStatus !== 'hidden' && (
-                <MessageTemplate type="ai">
-                    <div className="flex items-center gap-1">
-                        <h4 className="m-0 text-sm grow">
-                            {feedbackInputStatus === 'pending'
-                                ? 'What disappointed you about the answer?'
-                                : 'Thank you for your feedback!'}
-                        </h4>
-                        <LemonButton icon={<IconX />} type="tertiary" size="xsmall" onClick={closeFeedback} />
-                    </div>
-                    {feedbackInputStatus === 'pending' && (
-                        <div className="flex w-full gap-1.5 items-center mt-1.5">
-                            <LemonInput
-                                placeholder="Help us improve PostHog AI…"
-                                fullWidth
-                                value={feedback}
-                                onChange={(newValue) => setFeedback(newValue)}
-                                onPressEnter={() => submitFeedback()}
-                                autoFocus
-                            />
-                            <LemonButton
-                                type="primary"
-                                onClick={() => submitFeedback()}
-                                disabledReason={!feedback ? 'Please type a few words!' : undefined}
-                            >
-                                Submit
-                            </LemonButton>
-                        </div>
-                    )}
-                </MessageTemplate>
             )}
         </>
     )

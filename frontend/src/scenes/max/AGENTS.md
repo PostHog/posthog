@@ -26,9 +26,10 @@ Per-concern mapping, `langgraph` (LEGACY, frozen) → `sandbox` (NEW, build here
 New behavior — new tools, new context types, new UI affordances — goes on the **sandbox** path. The LangGraph runtime is slated for removal once sandbox reaches parity; keeping its surface from growing makes the eventual deletion a clean removal rather than an untangling.
 
 - ✅ Bugfixes that keep existing LangGraph conversations working.
-- ✅ The quill skin of the LangGraph thread and composer behind `today-rail-nav`: `Thread.tsx`, `QuillQuestionInput.tsx`
-  and the `Quill*` siblings in `components/` fork only the view, and share behavior through `useQuestionInput`,
-  `useModeSelector` and the surface's shared presenters.
+- ✅ The quill skin of the LangGraph thread and composer behind `today-rail-nav`: `Thread.tsx`, `QuillQuestionInput.tsx`,
+  the `Quill*` siblings in `components/` and `messages/quill/` fork only the view, and share behavior through `useQuestionInput`,
+  `useModeSelector`, `useAnswerRating` and the surface's shared presenters.
+  A message presenter that has both skins switches on `useQuillThread()` at its top, like `PlanningAnswer`, and keeps its quill body in `messages/quill/`.
 - ❌ Net-new capability on the LangGraph path.
 - ❌ New fields on `MaxUIContext` for a sandbox feature — use `AttachedContext` instead.
 - ❌ No new MaxTools.

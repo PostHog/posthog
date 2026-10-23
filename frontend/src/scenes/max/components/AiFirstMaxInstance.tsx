@@ -270,7 +270,7 @@ function ChatArea({ threadVisible, conversation, onStartNewConversation }: ChatA
                             </LemonBanner>
                         </div>
                     )}
-                    <Thread className="p-3" />
+                    <Thread />
                 </ThreadAutoScroller>
             )}
 

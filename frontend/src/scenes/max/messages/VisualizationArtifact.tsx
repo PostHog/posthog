@@ -3,7 +3,6 @@ import React, { useLayoutEffect, useState } from 'react'
 
 import { IconCollapse, IconExpand } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
-import { Card, CardContent } from '@posthog/quill'
 
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
@@ -11,7 +10,7 @@ import { Scene } from 'scenes/sceneTypes'
 
 import { ArtifactMessage, VisualizationArtifactContent } from '~/queries/schema/schema-assistant-messages'
 
-import { VisualizationWidget, getArtifactOpenTarget, useQuillThread } from 'products/posthog_ai/frontend/api/primitives'
+import { VisualizationWidget, getArtifactOpenTarget } from 'products/posthog_ai/frontend/api/primitives'
 
 import { MessageStatus } from '../maxLogic'
 
@@ -63,7 +62,6 @@ export const VisualizationArtifact = React.memo(function VisualizationArtifact({
 }: VisualizationArtifactProps): JSX.Element | null {
     // Controlled collapse synced to edit mode — a key-remount would refetch the query instead.
     const [isCollapsed, setIsCollapsed] = useState(isEditingInsight)
-    const quill = useQuillThread()
 
     useLayoutEffect(() => {
         setIsCollapsed(isEditingInsight)
@@ -75,25 +73,6 @@ export const VisualizationArtifact = React.memo(function VisualizationArtifact({
 
     const target = getArtifactOpenTarget(message, content)
     const showSuggestionButton = isEditingInsight && activeSceneId === Scene.Insight
-
-    if (quill) {
-        // The quill thread frames the chart in a card; the chart and its lemon controls keep PostHog's colours.
-        return (
-            <Card size="sm" className="w-full max-w-full">
-                <CardContent data-not-quill className="min-w-0">
-                    <VisualizationWidget
-                        content={content}
-                        openUrl={isEditingInsight ? null : target.url}
-                        openTooltip={target.tooltip}
-                        isCollapsed={isCollapsed}
-                        onCollapsedChange={setIsCollapsed}
-                        extraActions={showSuggestionButton ? <InsightSuggestionButton /> : null}
-                        embedded
-                    />
-                </CardContent>
-            </Card>
-        )
-    }
 
     return (
         <VisualizationWidget
