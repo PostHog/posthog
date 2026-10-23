@@ -14,8 +14,10 @@ from django.db import connections
 
 import httpx
 import structlog
+import posthoganalytics
 
 from posthog.dataclasses import frozen
+from posthog.event_usage import groups
 from posthog.helpers.trigram_search import MAX_SEARCH_LENGTH, normalize_search_term
 from posthog.llm.system_one import NoulAnswer, NoulQuestion
 from posthog.llm.system_one_client import build_system_one_client
@@ -322,16 +324,43 @@ class ContextSelector:
         return scored
 
     def select(self, deadline: float) -> PreparedContext:
-        if self.gate(deadline) <= 0.3:
+        gate = self.gate(deadline)
+        if gate <= 0.3:
+            self.capture_outcome("gate_skipped", gate, [])
             return PreparedContext(selection_id=self.selection_id, mode=self.mode, reason="gate_skipped")
         remaining = time_remaining(deadline)
         candidates = self.retrieve(deadline - remaining / 2)
-        context = self.render(self.rerank(candidates, deadline))
+        scored = self.rerank(candidates, deadline)
+        context = self.render(scored)
+        reason = "selected" if context else "empty"
+        self.capture_outcome(reason, gate, scored)
         return PreparedContext(
             selection_id=self.selection_id,
             mode=self.mode,
             context=context if self.mode == "treatment" else "",
-            reason="selected" if context else "empty",
+            reason=reason,
+        )
+
+    def capture_outcome(self, reason: str, gate: float, scored: list[tuple[Candidate, float]]) -> None:
+        # The gateway drops System One inputs and answers from its events, so this is the only record of decisions.
+        posthoganalytics.capture(
+            distinct_id=str(self.actor.distinct_id),
+            event="context selection outcome",
+            properties={
+                **self.properties,
+                "selection_id": self.selection_id,
+                "mode": self.mode,
+                "config_version": CONFIG_VERSION,
+                "runtime_version": self.selection.runtime_version,
+                "reason": reason,
+                "gate_probability": round(gate, 4),
+                "candidate_count": len(scored),
+                "candidates": [
+                    {"kind": candidate.kind, "id": candidate.id, "title": candidate.title, "score": round(score, 4)}
+                    for candidate, score in sorted(scored, key=lambda pair: -pair[1])
+                ],
+            },
+            groups=groups(self.run.team.organization, self.run.team),
         )
 
     def render(self, scored: list[tuple[Candidate, float]]) -> str:
