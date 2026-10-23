@@ -25,7 +25,10 @@ export function updatePushMessage(event: Record<string, unknown>, previous: stri
     ) {
         return JSON.stringify({ ...message, finished: true })
     }
-    if (['user_message', 'user_message_chunk', 'tool_call', 'tool_call_started'].includes(String(kind))) {
+    if (
+        notification['method'] === '_posthog/user_message' ||
+        ['user_message', 'user_message_chunk', 'tool_call', 'tool_call_started'].includes(String(kind))
+    ) {
         return JSON.stringify({ text: '', message_id: null, finished: false })
     }
     if (!['agent_message', 'agent_message_chunk', 'assistant_message_chunk'].includes(String(kind))) {
@@ -40,6 +43,7 @@ export function updatePushMessage(event: Record<string, unknown>, previous: stri
         kind === 'agent_message' || message.finished || (messageId !== null && messageId !== message.message_id)
     let text = (replace ? '' : message.text) + content['text']
     const encoded = Buffer.from(text, 'utf8')
+    text = encoded.toString('utf8')
     if (encoded.length > 1000) {
         text = new TextDecoder('utf-8', { fatal: false }).decode(encoded.subarray(0, 997), { stream: true }) + '…'
     }

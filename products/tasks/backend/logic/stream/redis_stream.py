@@ -427,20 +427,32 @@ class TaskRunRedisStream:
             self._watched_cached_until = now + TASK_RUN_STREAM_WATCHED_CACHE_SECONDS
         return watched
 
-    async def _record_push_message(self, event: dict[str, object]) -> None:
+    async def _write_event_with_push_message(self, event: dict[str, object], *, ttl: int | None) -> str | None:
         key = f"{self._stream_key}:push-message"
         generation_key = f"{self._stream_key}:generation"
+        watched_key = get_task_run_stream_watched_key(self._stream_key)
         while True:
             async with self._redis_client.pipeline(transaction=True) as pipe:
                 try:
                     await pipe.watch(key, generation_key)
-                    self._check_generation(await pipe.get(generation_key))
-                    updated = PushMessage.from_json(await pipe.get(key)).update(event)
+                    generation, previous, watched = await pipe.mget(generation_key, key, watched_key)
+                    self._check_generation(generation)
+                    updated = PushMessage.from_json(previous).update(event)
+                    mirror = not self._presence_gated or bool(watched)
                     pipe.multi()
+                    if mirror:
+                        pipe.xadd(
+                            self._stream_key,
+                            {DATA_KEY: json.dumps(event)},
+                            maxlen=self._maxlen_for_event(event),
+                            approximate=True,
+                        )
+                        pipe.expire(self._stream_key, self._timeout if ttl is None else ttl)
+                        pipe.expire(generation_key, self._sequence_timeout)
                     if updated is not None:
                         pipe.set(key, updated.to_json(), ex=self._timeout)
-                    await pipe.execute()
-                    return
+                    results = await pipe.execute()
+                    return _normalize_stream_id(results[0]) if mirror else None
                 except redis_exceptions.WatchError:
                     continue
 
@@ -456,7 +468,10 @@ class TaskRunRedisStream:
         Terminal sentinels bypass this gate.
         """
         if PushMessage().update(event) is not None:
-            await self._record_push_message(event)
+            stream_id = await self._write_event_with_push_message(event, ttl=ttl)
+            if stream_id is None:
+                observe_stream_write_skipped("relay", self._origin_product)
+            return stream_id
         if self._presence_gated and not await self._is_watched():
             self._check_generation(await self._redis_client.get(f"{self._stream_key}:generation"))
             observe_stream_write_skipped("relay", self._origin_product)
@@ -591,14 +606,18 @@ class TaskRunRedisStream:
                 try:
                     await pipe.watch(*watch_keys)
                     self._check_generation(await pipe.get(generation_key))
-                    last_sequence = _normalize_redis_int(await pipe.get(sequence_key))
+                    if tracks_message:
+                        last_sequence_raw, previous = await pipe.mget(sequence_key, push_message_key)
+                    else:
+                        last_sequence_raw, previous = await pipe.get(sequence_key), None
+                    last_sequence = _normalize_redis_int(last_sequence_raw)
                     completed = bool(await pipe.exists(completed_key))
                     if not _check_next_sequence(sequence, last_sequence, completed=completed):
                         return TASK_RUN_STREAM_WRITE_DUPLICATE
 
                     mirror = not self._presence_gated or bool(await pipe.exists(watched_key))
 
-                    message = PushMessage.from_json(await pipe.get(push_message_key)) if tracks_message else None
+                    message = PushMessage.from_json(previous) if tracks_message else None
                     updated = message.update(event) if message is not None else None
                     pipe.multi()
                     self._queue_sequenced_write(

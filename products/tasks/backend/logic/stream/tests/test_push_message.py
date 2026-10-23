@@ -37,6 +37,23 @@ def pi(kind: str, text: str = "", message_id: str = "message-1") -> dict[str, ob
         ([pi("assistant_message_chunk", "Checking"), pi("assistant_message_chunk", "Fixed", "message-2")], "Fixed"),
         ([pi("assistant_message_chunk", "Old"), pi("turn_completed"), pi("assistant_message_chunk", "New")], "New"),
         ([acp("agent_message", "Old"), acp("user_message", "Next"), acp("agent_thought_chunk", "Private")], ""),
+        (
+            [
+                acp("agent_message", "Old"),
+                {"notification": {"method": "_posthog/turn_complete"}},
+                {
+                    "notification": {
+                        "method": "_posthog/user_message",
+                        "params": {"content": [{"type": "text", "text": "Next"}], "messageId": "user-2"},
+                    }
+                },
+                acp("agent_thought_chunk", "Private"),
+                {"notification": {"method": "_posthog/turn_complete"}},
+            ],
+            "",
+        ),
+        ([acp("agent_message_chunk", "a\ud800b\udfffc")], "a�b�c"),
+        ([acp("agent_message_chunk", "a" * 996 + "\ud800extra")], "a" * 996 + "…"),
         ([acp("agent_message_chunk", "🦔" * 400)], "🦔" * 249 + "…"),
     ],
 )

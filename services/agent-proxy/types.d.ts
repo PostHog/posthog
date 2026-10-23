@@ -21,6 +21,7 @@ declare module 'ioredis' {
         once(event: string, listener: (...args: any[]) => void): this
         on(event: string, listener: (...args: any[]) => void): this
         get(key: string): Promise<string | null>
+        mget(...keys: string[]): Promise<(string | null)[]>
         set(key: string, value: string | number, ...args: any[]): Promise<any>
         exists(...keys: string[]): Promise<number>
         expire(key: string, seconds: number): Promise<number>

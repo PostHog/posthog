@@ -86,16 +86,15 @@ async def test_stream_generation_check_is_atomic(
     client = redis_stream._redis_client
     generation_key = f"{redis_stream._stream_key}:generation"
     await client.set(generation_key, "original" if reset_during_write else "replacement")
-    get = Pipeline.get
+    execute = Pipeline.execute
 
-    async def reset_after_read(pipe: Pipeline, key: str) -> bytes | str | None:
-        value = await get(pipe, key)
-        if key == generation_key and value == b"original":
+    async def reset_before_execute(pipe: Pipeline, raise_on_error: bool = True) -> list[object]:
+        if reset_during_write:
             await client.set(generation_key, "replacement")
-        return value
+        return await execute(pipe, raise_on_error=raise_on_error)
 
     try:
-        with patch("django.conf.settings.TEST", False), patch.object(Pipeline, "get", reset_after_read):
+        with patch("django.conf.settings.TEST", False), patch.object(Pipeline, "execute", reset_before_execute):
             with pytest.raises(TaskRunStreamGenerationMismatch):
                 await write(redis_stream)
         assert await _read_stream_events(redis_stream) == []
@@ -155,17 +154,20 @@ async def test_write_event_with_sequence_mirrors_only_when_presence_allows(
             await redis_stream.mark_watched()
 
         event = _reply_event("Final reply.")
-        write = await redis_stream.write_event_with_sequence(event, 1)
-        duplicate = await redis_stream.write_event_with_sequence(event, 1)
+        following = _reply_event(" Done\ud800.")
+        with patch("django.conf.settings.TEST", False):
+            write = await redis_stream.write_event_with_sequence(event, 1)
+            duplicate = await redis_stream.write_event_with_sequence(event, 1)
+            await redis_stream.write_event_with_sequence(following, 2)
         assert duplicate.accepted is False
         preview = await redis_stream._redis_client.get(f"{redis_stream._stream_key}:push-message")
-        assert PushMessage.from_json(preview).text == "Final reply."
+        assert PushMessage.from_json(preview).text == "Final reply. Done�."
 
         assert write.accepted is True
         assert write.skipped is not expect_mirrored
         assert (write.stream_id is not None) is expect_mirrored
-        assert await redis_stream.get_last_sequence() == 1
-        assert await _read_stream_events(redis_stream) == ([event] if expect_mirrored else [])
+        assert await redis_stream.get_last_sequence() == 2
+        assert await _read_stream_events(redis_stream) == ([event, following] if expect_mirrored else [])
     finally:
         await redis_stream.delete_stream()
 
@@ -281,10 +283,17 @@ async def test_write_event_mirrors_only_when_presence_allows(
         if watched:
             await redis_stream.mark_watched()
 
-        stream_id = await redis_stream.write_event({"type": "relayed"})
+        event = _reply_event("Final reply.")
+        following = _reply_event(" Done\ud800.")
+        stream_id = await redis_stream.write_event(event)
+        await redis_stream.write_event(following)
+        untracked = {"type": "relayed"}
+        await redis_stream.write_event(untracked)
 
         assert (stream_id is not None) is expect_mirrored
-        assert await _read_stream_events(redis_stream) == ([{"type": "relayed"}] if expect_mirrored else [])
+        assert await _read_stream_events(redis_stream) == ([event, following, untracked] if expect_mirrored else [])
+        preview = await redis_stream._redis_client.get(f"{redis_stream._stream_key}:push-message")
+        assert PushMessage.from_json(preview).text == "Final reply. Done�."
     finally:
         await redis_stream.delete_stream()
 

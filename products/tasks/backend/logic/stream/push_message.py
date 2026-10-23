@@ -1,3 +1,4 @@
+import re
 import json
 from typing import Self
 
@@ -7,6 +8,7 @@ MAX_PUSH_MESSAGE_BYTES = 1000
 
 
 def truncate_push_message(text: str) -> str:
+    text = re.sub(r"[\ud800-\udfff]", "�", text)
     encoded = text.encode("utf-8")
     if len(encoded) <= MAX_PUSH_MESSAGE_BYTES:
         return text
@@ -51,7 +53,12 @@ class PushMessage:
             or result.get("stopReason") == "end_turn"
         ):
             return type(self)(text=self.text, message_id=self.message_id, finished=True)
-        if kind in {"user_message", "user_message_chunk", "tool_call", "tool_call_started"}:
+        if notification.get("method") == "_posthog/user_message" or kind in {
+            "user_message",
+            "user_message_chunk",
+            "tool_call",
+            "tool_call_started",
+        }:
             return type(self)()
         if kind not in {"agent_message", "agent_message_chunk", "assistant_message_chunk"}:
             return None

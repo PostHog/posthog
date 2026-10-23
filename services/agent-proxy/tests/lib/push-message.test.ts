@@ -42,6 +42,23 @@ describe('push message preview', () => {
             expected: '',
         },
         { events: [acp('agent_message_chunk', '🦔'.repeat(400))], expected: '🦔'.repeat(249) + '…' },
+        {
+            events: [
+                acp('agent_message', 'Old'),
+                { notification: { method: '_posthog/turn_complete' } },
+                {
+                    notification: {
+                        method: '_posthog/user_message',
+                        params: { content: [{ type: 'text', text: 'Next' }], messageId: 'user-2' },
+                    },
+                },
+                acp('agent_thought_chunk', 'Private'),
+                { notification: { method: '_posthog/turn_complete' } },
+            ],
+            expected: '',
+        },
+        { events: [acp('agent_message_chunk', 'a\ud800b\udfffc')], expected: 'a�b�c' },
+        { events: [acp('agent_message_chunk', 'a'.repeat(996) + '\ud800extra')], expected: 'a'.repeat(996) + '…' },
     ])('keeps only the latest reply: $expected', ({ events, expected }) => {
         let message: string | null = null
         for (const event of events) {

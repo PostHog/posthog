@@ -564,19 +564,21 @@ export class TaskRunRedisStream {
         const generationKey = `${this.streamKey}:generation`
         const pushMessageKey = `${this.streamKey}:push-message`
         const tracksMessage = updatePushMessage(event) !== null
+        const watchKeys = [sequenceKey, completedKey, generationKey]
+        if (this.presenceGated) {
+            watchKeys.push(watchedKey)
+        }
+        if (tracksMessage) {
+            watchKeys.push(pushMessageKey)
+        }
 
         for (let attempt = 0; attempt < MAX_WATCH_RETRIES; attempt++) {
-            if (this.presenceGated) {
-                await client.watch(sequenceKey, completedKey, watchedKey, generationKey)
-            } else {
-                await client.watch(sequenceKey, completedKey, generationKey)
-            }
-            if (tracksMessage) {
-                await client.watch(pushMessageKey)
-            }
+            await client.watch(...watchKeys)
             await this.checkGeneration(client, generationKey)
 
-            const lastSeqRaw = await client.get(sequenceKey)
+            const [lastSeqRaw, previousMessage] = tracksMessage
+                ? await client.mget(sequenceKey, pushMessageKey)
+                : [await client.get(sequenceKey), null]
             const lastSequence = normalizeRedisInt(lastSeqRaw)
             const completedExists = (await client.exists(completedKey)) > 0
 
@@ -597,7 +599,7 @@ export class TaskRunRedisStream {
 
             const mirror = !this.presenceGated || (await client.exists(watchedKey)) > 0
 
-            const updatedMessage = tracksMessage ? updatePushMessage(event, await client.get(pushMessageKey)) : null
+            const updatedMessage = tracksMessage ? updatePushMessage(event, previousMessage ?? null) : null
             const pipeline = client.multi()
             if (mirror) {
                 pipeline.xadd(
