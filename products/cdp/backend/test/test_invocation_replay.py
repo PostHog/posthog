@@ -359,6 +359,27 @@ class TestInvocationReplay(ClickhouseTestMixin, APIBaseTest):
         )
 
         assert claim_replay(plan, actor="second") is can_resend
+        assert not claim_replay(plan, actor="third")
+
+    @patch("products.cdp.backend.services.invocation_replay.rerun_hog_invocations")
+    def test_concurrent_resends_of_a_released_plan_claim_it_once(self, rerun: MagicMock) -> None:
+        rerun.side_effect = ConnectionError("cdp api down")
+        _insert(_function(self.team, "template-google-ads"), [_row("a1", "failed"), _recovered()])
+        plan = plan_replay(_criteria())
+        cache.set(f"cdp:invocation_replay:claim:{plan.fingerprint}", "first")
+        racer: list[bool] = []
+
+        def check_while_another_send_races(fingerprint: str) -> bool:
+            racer.append(claim_replay(plan, actor="racer"))
+            return True
+
+        with patch(
+            "products.cdp.backend.services.invocation_replay._accepted_reruns_queued_nothing",
+            side_effect=check_while_another_send_races,
+        ):
+            claimed = claim_replay(plan, actor="second")
+
+        assert [claimed, *racer] == [True, False]
 
 
 class TestReplayAdmin(ClickhouseTestMixin, APIBaseTest):

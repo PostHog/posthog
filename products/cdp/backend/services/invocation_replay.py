@@ -616,14 +616,27 @@ def _accepted_reruns_queued_nothing(fingerprint: str) -> bool:
 
 def claim_replay(plan: ReplayPlan, *, actor: str) -> bool:
     """Reserve the plan for one send. Returns False when this exact plan was already claimed."""
-    if not cache.add(_claim_key(plan.fingerprint), actor, timeout=REPLAY_STATE_TTL_SECONDS):
-        # Every accepted rerun job can still fail before it queues a run. The plan then
-        # stays the same, so the claim must not block a resend.
+    if cache.add(_claim_key(plan.fingerprint), actor, timeout=REPLAY_STATE_TTL_SECONDS):
+        _save_queued_state(plan, actor)
+        return True
+    # Every accepted rerun job can still fail before it queues a run. The plan then
+    # stays the same, so the claim must not block a resend. The lock lets only one
+    # concurrent resend take the claim over, and it holds until the new state says
+    # "queued", which makes every later check refuse.
+    reclaim_lock = f"{_claim_key(plan.fingerprint)}:reclaim"
+    if not cache.add(reclaim_lock, actor, timeout=60):
+        return False
+    try:
         if not _accepted_reruns_queued_nothing(plan.fingerprint):
             return False
-        _release_claim(plan.fingerprint)
-        if not cache.add(_claim_key(plan.fingerprint), actor, timeout=REPLAY_STATE_TTL_SECONDS):
-            return False
+        cache.set(_claim_key(plan.fingerprint), actor, timeout=REPLAY_STATE_TTL_SECONDS)
+        _save_queued_state(plan, actor)
+        return True
+    finally:
+        cache.delete(reclaim_lock)
+
+
+def _save_queued_state(plan: ReplayPlan, actor: str) -> None:
     cache.set(
         _state_key(plan.fingerprint),
         {
@@ -636,7 +649,6 @@ def claim_replay(plan: ReplayPlan, *, actor: str) -> bool:
         },
         timeout=REPLAY_STATE_TTL_SECONDS,
     )
-    return True
 
 
 def _release_claim(fingerprint: str) -> None:
