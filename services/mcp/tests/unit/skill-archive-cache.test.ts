@@ -448,12 +448,9 @@ describe('SkillCatalogService', () => {
                     warmupTimeoutMs: 50,
                     warmupRetryMs: 10,
                 })
-                const warmup = service.warmup()
-                const outcome = recovers
-                    ? await expect(warmup).resolves.toBeUndefined()
-                    : await expect(warmup).rejects.toThrow('offline')
+                const outcome = service.warmup().catch((error: unknown) => error)
                 await vi.runAllTimersAsync()
-                await outcome
+                expect(await outcome).toEqual(recovers ? undefined : new Error('offline'))
                 expect(fetchArchive.mock.calls.length).toBeGreaterThan(1)
                 expect(service.getCatalog()?.size).toBe(recovers ? 1 : undefined)
             } finally {
