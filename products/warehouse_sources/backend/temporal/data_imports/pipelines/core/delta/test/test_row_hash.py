@@ -1,9 +1,12 @@
 from datetime import UTC, date, datetime
 from decimal import Decimal
 
+from unittest.mock import patch
+
 import pyarrow as pa
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta import row_hash
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.row_hash import compute_row_hashes
 
 _TS = datetime(2026, 1, 1, 12, 30, tzinfo=UTC)
@@ -101,11 +104,16 @@ class TestComputeRowHashes:
     def test_hashes_each_row_of_a_chunked_table_on_its_own(self) -> None:
         one = pa.table({"a": pa.array([1, 2]), "b": pa.array(["x", None])})
         chunked = pa.concat_tables([one, pa.table({"a": pa.array([1]), "b": pa.array(["x"])})])
+        whole = compute_row_hashes(chunked).to_pylist()
 
-        first, second, third = compute_row_hashes(chunked).to_pylist()
+        # Slices of two rows put the third row in its own slice, apart from the chunk boundary.
+        with patch.object(row_hash, "_HASH_SLICE_ROWS", 2):
+            sliced = compute_row_hashes(chunked).to_pylist()
 
+        first, second, third = whole
         assert first == third
         assert first != second
+        assert sliced == whole
 
     def test_digest_of_a_known_row_does_not_change(self) -> None:
         # Stored hashes outlive this code. A change to the normalization or the digest that keeps

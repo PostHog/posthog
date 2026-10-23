@@ -1,10 +1,13 @@
 import json
 import decimal
 from collections.abc import Collection
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 import pyarrow as pa
 import pyarrow.compute as pc
+
+if TYPE_CHECKING:
+    import duckdb
 
 # Raise this when the normalization or the digest below changes. The writer stores it next to each
 # hash, so a reader can tell an old hash apart from a current one and recompute it instead of
@@ -16,6 +19,8 @@ _FIELD_SEPARATOR = b"\x1f"
 _BINARY = pa.large_binary()
 # Wider than the 76 digits of the widest Arrow decimal, so normalizing never rounds a value.
 _DECIMAL_CONTEXT = decimal.Context(prec=100)
+# Rows encoded and hashed at a time, so the encoded copy stays bounded on a wide batch.
+_HASH_SLICE_ROWS = 65_536
 
 
 def compute_row_hashes(table: pa.Table, exclude_columns: Collection[str] = ()) -> pa.Array:
@@ -29,9 +34,23 @@ def compute_row_hashes(table: pa.Table, exclude_columns: Collection[str] = ()) -
     MD5 is a fixed algorithm, so a stored hash stays comparable after a library upgrade. It is not
     used for security here.
     """
-    pieces = [
-        _named_values(name, table.column(name)) for name in sorted(table.column_names) if name not in exclude_columns
-    ]
+    import duckdb  # noqa: PLC0415 — keeps duckdb off the import path of every pipeline that loads the writer
+
+    hashed_columns = [name for name in sorted(table.column_names) if name not in exclude_columns]
+    # duckdb hashes a whole column in native code, which a Python loop over the rows cannot match.
+    connection = duckdb.connect(config={"threads": 1})
+    try:
+        digests = [
+            _slice_digests(connection, table.slice(offset, _HASH_SLICE_ROWS), hashed_columns)
+            for offset in range(0, table.num_rows, _HASH_SLICE_ROWS)
+        ]
+    finally:
+        connection.close()
+    return pa.concat_arrays(digests) if digests else pa.array([], type=ROW_HASH_TYPE)
+
+
+def _slice_digests(connection: "duckdb.DuckDBPyConnection", rows: pa.Table, hashed_columns: list[str]) -> pa.Array:
+    pieces = [_named_values(name, rows.column(name)) for name in hashed_columns]
     if pieces:
         empty = pa.scalar(b"", _BINARY)
         # pyarrow's stubs do not accept a mix of arrays and a scalar separator.
@@ -39,17 +58,13 @@ def compute_row_hashes(table: pa.Table, exclude_columns: Collection[str] = ()) -
             *pieces, empty, null_handling="replace", null_replacement=""
         )
     else:
-        payloads = pa.array([b""] * table.num_rows, type=_BINARY)
+        payloads = pa.array([b""] * rows.num_rows, type=_BINARY)
 
-    import duckdb  # noqa: PLC0415 — keeps duckdb off the import path of every pipeline that loads the writer
-
-    # duckdb hashes the whole column in native code, which a Python loop over the rows cannot match.
-    connection = duckdb.connect(config={"threads": 1})
+    connection.register("payloads", pa.table({"payload": payloads}))
     try:
-        connection.register("payloads", pa.table({"payload": payloads}))
         digests = connection.sql("SELECT unhex(md5(payload)) AS digest FROM payloads").to_arrow_table()
     finally:
-        connection.close()
+        connection.unregister("payloads")
     return digests.column("digest").combine_chunks().cast(ROW_HASH_TYPE)
 
 
