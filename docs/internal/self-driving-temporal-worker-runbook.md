@@ -183,3 +183,5 @@ The local worker runs the sweep with all other workflows.
 ## GitHub-blocked Self-Driving work
 
 GitHub unsuspension schedules installation revalidation. The unavailable marker is cleared only after a successful token mint. Stale empty repository snapshots can be refreshed.
+
+Research and implementation blockers each have a timestamp for the first blocked attempt. Recovery uses a seven-day window from that timestamp; subsequent readiness checks must not extend it.

@@ -375,7 +375,9 @@ class SignalReport(UUIDModel):
     researching_signal_count = models.IntegerField(null=True, blank=True)
     status = models.CharField(max_length=20, choices=Status, default=Status.POTENTIAL)
     research_blocked_reason = models.CharField(max_length=32, null=True, blank=True)
+    research_blocked_at = models.DateTimeField(null=True, blank=True)
     implementation_blocked_reason = models.CharField(max_length=32, null=True, blank=True)
+    implementation_blocked_at = models.DateTimeField(null=True, blank=True)
     # System billing exemption: non-null means this report's implementation PRs must never be
     # charged (PostHog-system origins, e.g. health-check scout findings). Prospective-only —
     # set via `billing.mark_report_billing_exempt` while no billable PR run exists, and never
