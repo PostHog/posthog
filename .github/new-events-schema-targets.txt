@@ -46,6 +46,7 @@ products/mcp_analytics/backend/tests/test_tool_tables.py
 products/product_analytics/backend/hogql_queries
 products/product_analytics/backend/tests/test_insight_data_checks.py
 products/replay_vision/backend/tests/test_session_identity.py
+products/signals/backend/test/test_anomaly_search.py
 products/signals/backend/test/test_anomaly_scoring_tick.py
 products/web_analytics/backend/hogql_queries
 
