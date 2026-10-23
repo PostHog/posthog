@@ -3,6 +3,8 @@
 
 /// Fingerprints a block or session row keeps. A session row with this many has visited this many pages or more.
 pub const MAX_URL_FINGERPRINTS: usize = 10;
+/// Window IDs a block or session row keeps. A session row with this many has this many windows or more.
+pub const MAX_WINDOW_IDS: usize = 32;
 
 /// The block index columns from `replay-data.md`, apart from the location columns the writer adds.
 /// The order is only a tie-break that makes [`fold_session`] independent of the order of its input.
@@ -59,6 +61,9 @@ pub struct BlockStats {
     /// The distinct pages the block saw, at most [`MAX_URL_FINGERPRINTS`] in the order it first saw them. Each is a
     /// [`crate::refs::url_fingerprint`] under the session's fingerprint key, so it compares only within the session.
     pub url_fingerprints: Vec<String>,
+    /// The distinct `$window_id` values of the block's messages, at most [`MAX_WINDOW_IDS`] in the order it first saw
+    /// them. A window spans blocks, so a session's window count is the length of its folded list.
+    pub window_ids: Vec<String>,
     pub console_errors: u32,
     pub console_warnings: u32,
     pub network_requests: u32,
@@ -112,14 +117,12 @@ impl BlockStats {
         self.max_written_event_bytes = self
             .max_written_event_bytes
             .max(later.max_written_event_bytes);
-        for fingerprint in &later.url_fingerprints {
-            if self.url_fingerprints.len() >= MAX_URL_FINGERPRINTS {
-                break;
-            }
-            if !self.url_fingerprints.contains(fingerprint) {
-                self.url_fingerprints.push(fingerprint.clone());
-            }
-        }
+        union(
+            &mut self.url_fingerprints,
+            &later.url_fingerprints,
+            MAX_URL_FINGERPRINTS,
+        );
+        union(&mut self.window_ids, &later.window_ids, MAX_WINDOW_IDS);
         self.touch_input |= later.touch_input;
         self.set_viewport(
             later.viewport_ts_ms,
@@ -182,6 +185,18 @@ pub fn fold_session(mut blocks: Vec<BlockStats>) -> BlockStats {
     session
 }
 
+/// Appends the values of `later` that `values` does not hold, up to `cap` values in all.
+fn union(values: &mut Vec<String>, later: &[String], cap: usize) {
+    for value in later {
+        if values.len() >= cap {
+            break;
+        }
+        if !values.contains(value) {
+            values.push(value.clone());
+        }
+    }
+}
+
 fn min_option(a: Option<i64>, b: Option<i64>) -> Option<i64> {
     match (a, b) {
         (Some(a), Some(b)) => Some(a.min(b)),
@@ -210,6 +225,9 @@ mod tests {
             mouse_interactions: 2,
             touch_moves: 3,
             url_fingerprints: pages.collect(),
+            window_ids: (first / 1_000..first / 1_000 + 20)
+                .map(|w| format!("w{w}"))
+                .collect(),
             written_jsonl_bytes: 500,
             max_written_event_bytes: first as u64 / 10,
             ..BlockStats::default()
@@ -253,6 +271,9 @@ mod tests {
             .map(|page| format!("{page:016x}"))
             .collect();
         assert_eq!(session.url_fingerprints, pages);
+        // Windows 1 to 20, 3 to 22 and 64 to 83: the first 32 distinct, in the order the session first saw them.
+        let windows: Vec<String> = (1..=22).chain(64..=73).map(|w| format!("w{w}")).collect();
+        assert_eq!(session.window_ids, windows);
         assert_eq!(
             (session.first_ts_ms, session.last_ts_ms),
             (Some(1_000), Some(65_000))
