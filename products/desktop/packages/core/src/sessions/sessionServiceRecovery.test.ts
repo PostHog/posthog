@@ -299,6 +299,7 @@ describe("SessionService run-less local task recovery", () => {
       error_type: "reconnect_failed",
       failure_reason: "startup_timeout",
       startup_step: "resumption",
+      error_message: "Session resumption timed out after 30000ms",
     });
   });
 

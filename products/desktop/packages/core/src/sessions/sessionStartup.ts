@@ -59,3 +59,28 @@ export function classifySessionStartError(
     startup_step: match[1],
   };
 }
+
+const MAX_TRACKED_ERROR_MESSAGE_LENGTH = 500;
+
+export function describeSessionStartError(
+  message: string,
+  requestedModel: string | undefined,
+): Pick<
+  AgentSessionErrorProperties,
+  "failure_reason" | "startup_step" | "requested_model" | "error_message"
+> {
+  return {
+    ...classifySessionStartError(message),
+    error_message: message.slice(0, MAX_TRACKED_ERROR_MESSAGE_LENGTH),
+    ...(requestedModel ? { requested_model: requestedModel } : {}),
+  };
+}
+
+export function isModelSwitchStartupError(
+  message: string | undefined,
+): boolean {
+  return (
+    message !== undefined &&
+    classifySessionStartError(message).startup_step === "model switch"
+  );
+}

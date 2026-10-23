@@ -1136,7 +1136,11 @@ describe("SessionService", () => {
         await vi.advanceTimersByTimeAsync(10_000);
         await promise;
 
-        expect(clearSpy).toHaveBeenCalledWith("task-123", "/repo");
+        expect(clearSpy).toHaveBeenCalledWith(
+          "task-123",
+          "/repo",
+          "Authentication is still restoring. Please wait.",
+        );
       } finally {
         vi.useRealTimers();
       }
@@ -1178,7 +1182,11 @@ describe("SessionService", () => {
           await promise;
 
           expect(clearSpy).toHaveBeenCalledTimes(1);
-          expect(clearSpy).toHaveBeenCalledWith("task-123", "/repo");
+          expect(clearSpy).toHaveBeenCalledWith(
+            "task-123",
+            "/repo",
+            "Internal error",
+          );
           expect(mockSessionStoreSetters.setSession).not.toHaveBeenCalledWith(
             expect.objectContaining({ status: "error" }),
           );
