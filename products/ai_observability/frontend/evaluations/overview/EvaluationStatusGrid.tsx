@@ -1,5 +1,5 @@
 import { useValues } from 'kea'
-import { type MouseEvent, useMemo, useRef, useState } from 'react'
+import { type MouseEvent, useEffect, useMemo, useRef, useState } from 'react'
 
 import { Link, Tooltip } from '@posthog/lemon-ui'
 
@@ -45,6 +45,25 @@ export function EvaluationStatusGrid(): JSX.Element {
     const [hovered, setHovered] = useState<HoveredCell | null>(null)
     const gridRef = useRef<HTMLDivElement>(null)
     const labels = useMemo(() => buckets.map((bucket) => formatBucket(bucket, interval)), [buckets, interval])
+
+    // A tooltip held open with `visible` loses its own Escape and scroll dismissal, so the grid restores both.
+    useEffect(() => {
+        if (!hovered) {
+            return
+        }
+        const dismiss = (): void => setHovered(null)
+        const onKeyDown = (event: KeyboardEvent): void => {
+            if (event.key === 'Escape') {
+                dismiss()
+            }
+        }
+        window.addEventListener('keydown', onKeyDown)
+        window.addEventListener('scroll', dismiss, true)
+        return () => {
+            window.removeEventListener('keydown', onKeyDown)
+            window.removeEventListener('scroll', dismiss, true)
+        }
+    }, [hovered])
 
     // Memoized so that moving the pointer renders only the tooltip, not every cell.
     const rows = useMemo(

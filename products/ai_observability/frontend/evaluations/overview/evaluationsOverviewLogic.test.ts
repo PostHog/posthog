@@ -11,7 +11,11 @@ import { initKeaTests } from '~/test/init'
 import type { EvaluationApi, EvaluationResultApi } from '../../generated/api.schemas'
 import { llmEvaluationsLogic } from '../llmEvaluationsLogic'
 import { evaluationResultDrawerLogic } from './evaluationResultDrawerLogic'
-import { evaluationsOverviewLogic, markEvaluationsOverviewStale } from './evaluationsOverviewLogic'
+import {
+    evaluationsOverviewLogic,
+    markEvaluationsOverviewStale,
+    resetEvaluationsOverviewStale,
+} from './evaluationsOverviewLogic'
 
 const EMPTY_OVERVIEW = {
     start: '2026-10-01T00:00:00+00:00',
@@ -138,6 +142,7 @@ describe('evaluationsOverviewLogic', () => {
     let logic: ReturnType<typeof evaluationsOverviewLogic.build>
 
     beforeEach(async () => {
+        resetEvaluationsOverviewStale()
         jest.useFakeTimers({
             now: new Date(NOW),
             doNotFake: [
@@ -312,6 +317,21 @@ describe('evaluationsOverviewLogic', () => {
                 logic.mount()
             },
             expected: [`${PERIOD}&refresh=true`],
+        },
+        {
+            name: 'after a save in a directory, leaving the directory skips the cache too',
+            act: () => {
+                llmEvaluationsLogic.actions.selectDirectory('dir-1')
+                logic.unmount()
+                markEvaluationsOverviewStale()
+                logic.mount()
+                llmEvaluationsLogic.actions.selectDirectory(null)
+            },
+            expected: [
+                `${PERIOD}&evaluation_ids=eval-b,eval-c`,
+                `${PERIOD}&evaluation_ids=eval-b,eval-c&refresh=true`,
+                `${PERIOD}&refresh=true`,
+            ],
         },
         {
             name: 'browser back from a directory drops the picks made in it',

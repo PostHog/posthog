@@ -68,15 +68,37 @@ export const OVERVIEW_DATE_OPTIONS: DateMappingOption[] = dateMapping.filter((op
     return value !== 'all' && !(days && Number(days) > OVERVIEW_MAX_DAYS)
 })
 
+/** How long the backend caches an overview response. */
+const BACKEND_CACHE_MS = 5 * 60 * 1000
+
 /**
- * Set when an evaluation changes outside the overview, such as a save in the editor. The backend caches overview
- * results for a few minutes and its cache key does not change with an edit, so the next read skips that cache.
+ * When an evaluation last changed outside the overview, such as a save in the editor. The backend caches each scope's
+ * results and an edit does not change their cache keys, so every scope read within the cache lifetime skips that
+ * cache once.
  */
-let changedElsewhere = false
+let changedElsewhereAt: number | null = null
+const refreshedSinceChange = new Set<string>()
 
 export function markEvaluationsOverviewStale(): void {
-    changedElsewhere = true
+    changedElsewhereAt = Date.now()
+    refreshedSinceChange.clear()
     evaluationsOverviewLogic.findMounted()?.actions.reloadOverview()
+}
+
+export function resetEvaluationsOverviewStale(): void {
+    changedElsewhereAt = null
+    refreshedSinceChange.clear()
+}
+
+function needsRefreshAfterChange(requestKey: string): boolean {
+    if (changedElsewhereAt === null || Date.now() - changedElsewhereAt > BACKEND_CACHE_MS) {
+        return false
+    }
+    if (refreshedSinceChange.has(requestKey)) {
+        return false
+    }
+    refreshedSinceChange.add(requestKey)
+    return true
 }
 
 export interface OverviewPeriod {
@@ -594,10 +616,8 @@ export const evaluationsOverviewLogic = kea<evaluationsOverviewLogicType>([
                         return values.request.notice ? null : values.overview
                     }
                     cache.requestKey = JSON.stringify(values.request)
-                    // An edit changes results the backend has cached for a few minutes, so the read after it skips that cache.
-                    const refresh = cache.forceRefresh === true || changedElsewhere
+                    const refresh = needsRefreshAfterChange(cache.requestKey) || cache.forceRefresh === true
                     cache.forceRefresh = false
-                    changedElsewhere = false
                     const requestedAt = performance.now()
                     let overview: EvaluationsOverviewApi
                     try {
