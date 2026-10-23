@@ -35,10 +35,15 @@ from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.llm.gateway_client import build_openai_client, resolve_ai_gateway_config, team_distinct_id
 from posthog.llm.semantic_enrichment import extract_json_object
-from posthog.models import Team
+from posthog.models import Team, User
 from posthog.redis import get_client
 from posthog.token_bucket import BucketDecision, BucketUnavailable, consume, peek, refund
 
+from products.access_control.backend.facade.api import (
+    get_restricted_properties_with_group_type_index_for_team,
+    split_restricted_property_names,
+)
+from products.access_control.backend.facade.contracts import UserNotOrganizationMemberError
 from products.error_tracking.backend.facade.contracts import IssueSummaryCategory
 from products.error_tracking.backend.facade.queries import run_error_tracking_query
 from products.error_tracking.backend.facade.query_utils import (
@@ -64,6 +69,7 @@ from products.error_tracking.backend.logic.issue_summary_config import (
     ISSUE_SUMMARY_MAX_OUTPUT_TOKENS,
     ISSUE_SUMMARY_MIN_REGENERATE_INTERVAL,
     ISSUE_SUMMARY_MODEL,
+    ISSUE_SUMMARY_PUBLISH_TIMEOUT_SECONDS,
     ISSUE_SUMMARY_QUEUED_TTL_SECONDS,
     ISSUE_SUMMARY_RECENT_EVENT_LOOKBACK_DAYS,
     ISSUE_SUMMARY_STACKTRACE_MAX_TOKENS,
@@ -173,6 +179,18 @@ def issue_summaries_enabled(team_id: int) -> bool:
     return team_flag_enabled(ISSUE_SUMMARY_FLAG, team_id)
 
 
+def summary_sources_readable(team_id: int, user: User) -> bool:
+    """False when the user may not read an event property the summary is written from.
+
+    One summary serves the whole team, so a user with a property restriction could otherwise read it through the summary.
+    """
+    try:
+        restrictions = get_restricted_properties_with_group_type_index_for_team(user=user, team_id=team_id)
+    except UserNotOrganizationMemberError:
+        return False
+    return ISSUE_SUMMARY_SOURCE_PROPERTIES.isdisjoint(split_restricted_property_names(restrictions).event)
+
+
 def is_ai_data_processing_approved(team_id: int) -> bool:
     """Fail closed when the team or its organization is missing."""
     return bool(
@@ -221,7 +239,7 @@ def start_issue_summary_generation(team_id: int, issue_id: UUID | str) -> bool:
 
 def _queue_generation(team_id: int, issue_id: UUID | str) -> bool:
     try:
-        generate_error_tracking_issue_summary.delay(team_id, str(issue_id))
+        _publish_generation(team_id, issue_id)
     except Exception as error:
         capture_exception(error, {"team_id": team_id, "issue_id": str(issue_id)})
         # Without a task, the queued marker would keep reads waiting until it expires.
@@ -231,6 +249,21 @@ def _queue_generation(team_id: int, issue_id: UUID | str) -> bool:
             logger.warning("error_tracking_issue_summary_lock_unavailable", team_id=team_id, exc_info=True)
         return False
     return True
+
+
+def _publish_generation(team_id: int, issue_id: UUID | str) -> None:
+    """Queue the task on a connection with short timeouts and no publish retries.
+
+    The shared producer pool has no socket timeout and retries the publish, so an unresponsive broker blocks the read.
+    """
+    timeout = ISSUE_SUMMARY_PUBLISH_TIMEOUT_SECONDS
+    with generate_error_tracking_issue_summary.app.connection_for_write(
+        connect_timeout=timeout,
+        transport_options={"socket_timeout": timeout, "socket_connect_timeout": timeout},
+    ) as connection:
+        generate_error_tracking_issue_summary.apply_async(
+            args=(team_id, str(issue_id)), connection=connection, retry=False
+        )
 
 
 def wait_for_issue_summary(
@@ -417,6 +450,12 @@ def compute_input_hash(*, fingerprints: list[str], latest_release: str | None, o
         "occurrence_bucket": max(occurrences, 0).bit_length(),
     }
     return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
+
+
+# Every event property whose value reaches the prompt. Add a property here when `build_issue_summary_inputs` reads it.
+ISSUE_SUMMARY_SOURCE_PROPERTIES = frozenset(
+    {"$exception_list", "$exception_level", "$lib", "$current_url", "$exception_release"}
+)
 
 
 def build_issue_summary_inputs(team: Team, issue_id: UUID | str) -> IssueSummaryInputs | IssueSummaryOutcome:

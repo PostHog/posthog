@@ -1,4 +1,6 @@
 import json
+import signal
+import socket
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -12,9 +14,13 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 from redis.exceptions import RedisError
 
+from posthog.constants import AvailableFeature
+from posthog.models import PropertyDefinition, User
 from posthog.redis import TEST_clear_clients
 from posthog.token_bucket import BucketUnavailable, Budget, TEST_reset_scripts, consume, refund
 
+from products.access_control.backend.facade.api import upsert_property_access_control
+from products.access_control.backend.facade.contracts import PropertyAccessLevel, UpsertPropertyAccessControlInput
 from products.error_tracking.backend.facade import summaries as summaries_facade
 from products.error_tracking.backend.facade.contracts import IssueSummaryCategory
 from products.error_tracking.backend.logic import issue_summaries, team_flags
@@ -110,6 +116,15 @@ FAILURE_CASES: list[tuple[str, Any, IssueSummaryOutcome]] = [
 ]
 
 
+class StartBlocked(BaseException):
+    pass
+
+
+def _reset_producer_pool(app: Any) -> None:
+    app._pool = None
+    app.amqp._producer_pool = None
+
+
 class TestIssueSummaryGeneration(BaseTest):
     def setUp(self) -> None:
         super().setUp()
@@ -165,7 +180,7 @@ class TestIssueSummaryGeneration(BaseTest):
         result = get_or_generate_issue_summary(self.team.id, self.issue.id)
 
         assert result.outcome == IssueSummaryOutcome.GENERATED
-        summary = summaries_facade.get_issue_summary(self.team.id, self.issue.id)
+        summary = summaries_facade.get_issue_summary(self.team.id, self.issue.id, user=self.user)
         assert summary is not None
         assert summary.what_happened == SUMMARY_REPLY["what_happened"]
         assert summary.category == expected_category
@@ -298,17 +313,17 @@ class TestIssueSummaryGeneration(BaseTest):
 
         with (
             time_machine.travel(NOW + later, tick=False),
-            patch.object(issue_summaries.generate_error_tracking_issue_summary, "delay") as delay,
+            patch.object(issue_summaries.generate_error_tracking_issue_summary, "apply_async") as delay,
         ):
             result = get_or_generate_issue_summary(self.team.id, self.issue.id)
-            assert summaries_facade.start_issue_summary_generation(self.team.id, self.issue.id) is False
+            assert summaries_facade.start_issue_summary_generation(self.team.id, self.issue.id, user=self.user) is False
         delay.assert_not_called()
 
         assert result.outcome == expected
         assert result.summary is not None
         assert self.llm_calls == (2 if expected == IssueSummaryOutcome.GENERATED else 1)
         assert result.summary.input_hash == (new_hash if expected == IssueSummaryOutcome.GENERATED else "hash-1")
-        shown = summaries_facade.get_issue_summary(self.team.id, self.issue.id)
+        shown = summaries_facade.get_issue_summary(self.team.id, self.issue.id, user=self.user)
         assert shown is not None
         assert (shown.generated_at, shown.checked_at) == (result.summary.generated_at, result.summary.checked_at)
 
@@ -326,8 +341,8 @@ class TestIssueSummaryGeneration(BaseTest):
         assert stored_issue_ids == {self.issue.id}
 
     def _start(self) -> tuple[bool, bool]:
-        with patch.object(issue_summaries.generate_error_tracking_issue_summary, "delay") as delay:
-            started = summaries_facade.start_issue_summary_generation(self.team.id, self.issue.id)
+        with patch.object(issue_summaries.generate_error_tracking_issue_summary, "apply_async") as delay:
+            started = summaries_facade.start_issue_summary_generation(self.team.id, self.issue.id, user=self.user)
         return started, delay.called
 
     @parameterized.expand(
@@ -365,9 +380,9 @@ class TestIssueSummaryGeneration(BaseTest):
     def test_start_returns_false_when_the_broker_is_down(self) -> None:
         capture = self.enterContext(patch.object(issue_summaries, "capture_exception"))
         with patch.object(
-            issue_summaries.generate_error_tracking_issue_summary, "delay", side_effect=OSError("broker down")
+            issue_summaries.generate_error_tracking_issue_summary, "apply_async", side_effect=OSError("broker down")
         ):
-            assert summaries_facade.start_issue_summary_generation(self.team.id, self.issue.id) is False
+            assert summaries_facade.start_issue_summary_generation(self.team.id, self.issue.id, user=self.user) is False
 
         capture.assert_called_once()
         assert self._start() == (True, True)
@@ -405,25 +420,85 @@ class TestIssueSummaryGeneration(BaseTest):
 
     @parameterized.expand(
         [
-            ("get", lambda test: summaries_facade.get_issue_summary(test.team.id, test.issue.id)),
+            ("get", lambda test: summaries_facade.get_issue_summary(test.team.id, test.issue.id, user=test.user)),
             (
                 "wait",
                 lambda test: summaries_facade.wait_for_issue_summary(
-                    test.team.id, test.issue.id, checked_after=None, timeout_seconds=0
+                    test.team.id, test.issue.id, user=test.user, checked_after=None, timeout_seconds=0
                 ),
             ),
             (
                 "get_or_generate",
-                lambda test: summaries_facade.get_or_generate_issue_summary(test.team.id, test.issue.id),
+                lambda test: summaries_facade.get_or_generate_issue_summary(
+                    test.team.id, test.issue.id, user=test.user
+                ),
             ),
         ]
     )
-    def test_flag_off_hides_stored_summary(self, _name: str, read: Any) -> None:
+    def test_flag_off_or_restricted_source_hides_stored_summary(self, _name: str, read: Any) -> None:
         get_or_generate_issue_summary(self.team.id, self.issue.id)
         assert read(self) is not None
 
         with patch.object(team_flags, "feature_enabled_or_false", return_value=False):
             assert read(self) is None
+
+        self._restrict_event_property("$current_url", self.user)
+        assert read(self) is None
+
+    def _restrict_event_property(self, name: str, user: User) -> None:
+        self.organization.available_product_features = [
+            {"name": AvailableFeature.PROPERTY_ACCESS_CONTROL, "key": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        definition = PropertyDefinition.objects.create(team=self.team, name=name, type=PropertyDefinition.Type.EVENT)
+        upsert_property_access_control(
+            team_id=self.team.id,
+            created_by_id=self.user.id,
+            input=UpsertPropertyAccessControlInput(
+                property_definition_id=str(definition.id),
+                access_level=PropertyAccessLevel.NONE,
+                organization_member_id=user.organization_memberships.get().id,
+            ),
+        )
+
+    def test_restricted_member_cannot_start_and_other_members_still_read(self) -> None:
+        other = User.objects.create_and_join(self.organization, "other@example.com", "password")
+        self._restrict_event_property("$exception_list", self.user)
+
+        assert self._start() == (False, False)
+
+        get_or_generate_issue_summary(self.team.id, self.issue.id)
+        assert summaries_facade.get_issue_summary(self.team.id, self.issue.id, user=other) is not None
+
+    def test_start_gives_up_quickly_when_the_broker_does_not_answer(self) -> None:
+        silent_broker = socket.socket()
+        silent_broker.bind(("127.0.0.1", 0))
+        silent_broker.listen()
+        self.addCleanup(silent_broker.close)
+        app = issue_summaries.generate_error_tracking_issue_summary.app
+        silent_url = f"redis://127.0.0.1:{silent_broker.getsockname()[1]}/0"
+        # Settings name the broker with the old CELERY_ key, which wins over `broker_url`.
+        saved = {key: app.conf[key] for key in ("task_always_eager", "CELERY_BROKER_URL")}
+        # The producer pool keeps the broker it first connected to, so drop it on both sides of the swap.
+        self.addCleanup(_reset_producer_pool, app)
+        self.addCleanup(app.conf.update, saved)
+        app.conf.update(task_always_eager=False, CELERY_BROKER_URL=silent_url)
+        _reset_producer_pool(app)
+        assert app.connection_for_write().as_uri() == silent_url
+        self.enterContext(patch.object(issue_summaries, "capture_exception"))
+
+        def hung(*_args: Any) -> None:
+            raise StartBlocked
+
+        previous = signal.signal(signal.SIGALRM, hung)
+        self.addCleanup(signal.signal, signal.SIGALRM, previous)
+        signal.alarm(10)
+        try:
+            started = summaries_facade.start_issue_summary_generation(self.team.id, self.issue.id, user=self.user)
+        finally:
+            signal.alarm(0)
+
+        assert started is False
 
     @parameterized.expand(
         [
@@ -439,7 +514,7 @@ class TestIssueSummaryGeneration(BaseTest):
             get_or_generate_issue_summary(self.team.id, self.issue.id)
 
         summary = summaries_facade.wait_for_issue_summary(
-            self.team.id, self.issue.id, checked_after=checked_after, timeout_seconds=0
+            self.team.id, self.issue.id, user=self.user, checked_after=checked_after, timeout_seconds=0
         )
 
         assert (summary is not None) == found
