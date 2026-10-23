@@ -1102,8 +1102,8 @@ class TaskMentionsAPITestCase(ChannelTaskAPITestCase):
         calls_by_user_id = {call.args[0]: call.args for call in mock_delay.call_args_list}
         self.assertEqual(set(calls_by_user_id), {self.author.id, mentioned.id})
         self.assertEqual(calls_by_user_id[self.author.id][3]["messageId"], message["id"])
-        self.assertIn("replied", calls_by_user_id[self.author.id][2])
-        self.assertIn("mentioned you", calls_by_user_id[mentioned.id][2])
+        self.assertEqual(calls_by_user_id[self.author.id][1:3], (self.task.title, message["content"]))
+        self.assertEqual(calls_by_user_id[mentioned.id][1:3], (self.task.title, message["content"]))
 
     @patch("products.tasks.backend.push_dispatcher._enqueue_user")
     def test_thread_message_recipient_failures_are_isolated(self, mock_enqueue):

@@ -74,6 +74,10 @@ class FakeRedis {
         return entry.value
     }
 
+    async mget(...keys: string[]): Promise<(string | null)[]> {
+        return Promise.all(keys.map((key) => this.get(key)))
+    }
+
     async set(key: string, value: string, ...args: (string | number)[]): Promise<string | null> {
         const previous = await this.get(key)
         let ttl: number | null = null

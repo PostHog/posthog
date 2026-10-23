@@ -27,9 +27,11 @@ from posthog.models.user import User
 from posthog.models.user_push_token import UserPushToken
 from posthog.tasks.push_notifications import send_user_push
 
+from products.tasks.backend.logic.stream.push_message import PushMessage, truncate_push_message
+from products.tasks.backend.logic.stream.redis_stream import get_task_run_stream_key
 from products.tasks.backend.metrics import PUSH_DISPATCHER_FAILURES_TOTAL, PUSH_DISPATCHER_OUTCOMES_TOTAL
 from products.tasks.backend.models import Task, TaskPresence
-from products.tasks.backend.redis import get_tasks_cache
+from products.tasks.backend.redis import get_tasks_cache, get_tasks_stream_redis_sync, run_uses_dedicated_stream
 from products.tasks.backend.visibility import task_visibility_q
 
 if TYPE_CHECKING:
@@ -39,7 +41,6 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 
-PUSH_TITLE = "PostHog"
 AWAITING_INPUT_COOLDOWN_SECONDS = 30
 
 # Cooldown windows per push kind. Terminal pushes get a longer window because
@@ -157,7 +158,7 @@ def _notify_task_thread_message(message: TaskThreadMessage, mentioned_user_ids: 
                 task=message.task,
                 kind="thread_message",
                 cooldown_subject=f"{message.id}:{user.id}",
-                body=f'{author_name} {action} in "{task_title}"',
+                body=message.content.strip() or f'{author_name} {action} in "{task_title}"',
                 data=data,
             )
         except Exception as exc:
@@ -243,7 +244,12 @@ def _enqueue_inner(
         PUSH_DISPATCHER_OUTCOMES_TOTAL.labels(kind=kind, outcome="no_recipient").inc()
         return False
 
-    if not user.teams.filter(id=task_run.team_id).exists():
+    if (
+        not user.teams.filter(id=task_run.team_id).exists()
+        or not Task.objects.filter(id=task_run.task_id, team_id=task_run.team_id, deleted=False)
+        .filter(task_visibility_q(user.id))
+        .exists()
+    ):
         PUSH_DISPATCHER_OUTCOMES_TOTAL.labels(kind=kind, outcome="access_denied").inc()
         logger.debug(
             "push_dispatcher.recipient_lost_access",
@@ -252,6 +258,21 @@ def _enqueue_inner(
             team_id=task_run.team_id,
         )
         return False
+
+    if kind in {"completed", "turn_completed", "awaiting"}:
+        try:
+            client = get_tasks_stream_redis_sync(run_uses_dedicated_stream(task_run.state))
+            preview = client.get(f"{get_task_run_stream_key(str(task_run.id))}:push-message")
+            if preview is not None:
+                message = PushMessage.from_json(preview)
+                if kind != "awaiting" or not message.finished:
+                    body = message.text.strip() or body
+            else:
+                final_message = (task_run.output or {}).get("final_message")
+                if isinstance(final_message, str) and final_message.strip():
+                    body = final_message.strip()
+        except Exception:
+            logger.warning("push_dispatcher.message_preview_failed", run_id=str(task_run.id), exc_info=True)
 
     return _enqueue_user(
         user,
@@ -294,7 +315,10 @@ def _enqueue_user(
     def dispatch() -> None:
         nonlocal accepted
         try:
-            send_user_push.delay(user.id, PUSH_TITLE, body, data, suppressed)
+            title = Task.objects.filter(id=task.id, team_id=task.team_id).values_list("title", flat=True).get()
+            send_user_push.delay(
+                user.id, (title or "").strip() or "Untitled task", truncate_push_message(body), data, suppressed
+            )
         except Exception as exc:
             accepted = False
             PUSH_DISPATCHER_FAILURES_TOTAL.labels(kind=kind, reason=_failure_reason(exc)).inc()

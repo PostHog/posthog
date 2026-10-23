@@ -51,8 +51,9 @@ The mobile app does not show space names in the drawer, search, composer, or Act
 ## Push notifications
 
 Task completion from Desktop or mobile uses the same server-side owner notification path. Delivery requires a signed-in account, permission to show notifications, an Expo push token registered with the server, and working iOS push credentials for the app's EAS project.
+The recipient must still have project and conversation access when the server schedules a task-run notification. Removing private-channel membership prevents subsequent reply previews and status notifications.
 The app registers after sign-in and retries when it becomes active. Notification permissions stay in iOS settings. Expo push delivery can be tested on a supported iOS simulator or a physical device; it needs a push-enabled native build.
-To check cross-device delivery, start a cloud task from Desktop, put the mobile app in the background, and confirm that the completion alert arrives and opens that task. Server delivery metrics count Expo acceptance, not confirmed device delivery.
+To check cross-device delivery, start a cloud task from Desktop, put the mobile app in the background, and confirm that the completion alert uses the chat title as its title, shows a preview of the final reply as its body, and opens that task. If no reply is available, it shows the task status instead. Thread replies show the chat title and message text. Blank chat titles fall back to "Untitled task". Server delivery metrics count Expo acceptance, not confirmed device delivery.
 
 Self-driving pushes use the same `posthog-code-mobile-push` flag as task pushes. A report first appearing sends "New report for you" to its suggested reviewers. A PR becoming open sends "PR ready to review" to the linked reports' active claimant and suggested reviewers, with one push per person when reports share the PR. Recipients must still have project access, and tapping either alert opens the report. Importing historical legacy assignments, including `backfill_report_pull_requests`, sends no PR-ready push.
 
