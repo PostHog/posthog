@@ -1,23 +1,17 @@
 import type { App } from '@modelcontextprotocol/ext-apps'
-import { type ReactElement, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { type ReactElement, useEffect, useMemo } from 'react'
 
-import { Button, Card, CardContent, Text } from '@posthog/quill'
+import { Card, CardContent } from '@posthog/quill'
 import { buildYTickFormatter } from '@posthog/quill-charts'
 
 import { trendsFilterToYFormatterConfig } from 'products/product_analytics/frontend/insights/trends/shared/trendsAxisFormat'
 import type { ExplainChartData } from 'products/product_analytics/mcp/apps/explainChart/explainChartTypes'
-import {
-    ExplainChartView,
-    type StoryEvidenceCharts,
-} from 'products/product_analytics/mcp/apps/explainChart/ExplainChartView'
-import { isSeriesNamedIn } from 'products/product_analytics/mcp/apps/explainChart/storyNamedSeries'
+import { ExplainChartView } from 'products/product_analytics/mcp/apps/explainChart/ExplainChartView'
 
 import { capture } from '../analytics/posthog'
-import { loadRenderUiData } from '../apps/render-ui-data'
-import { AppLoadingState } from './AppLoadingState'
+import { useEvidenceCharts } from '../hooks/useEvidenceCharts'
 import { TrendsVisualizer } from './TrendsVisualizer'
-import type { TrendsQuery, TrendsResult, TrendsResultItem } from './types'
-import { getSeriesLabel } from './utils'
+import type { TrendsQuery, TrendsResult } from './types'
 
 // The render-ui dispatch imports the data type from this module.
 export type { ExplainChartData }
@@ -31,124 +25,9 @@ export interface ExplainChartProps {
     app?: App | null
 }
 
-function seriesNames(item: TrendsResultItem, index: number): string[] {
-    return [getSeriesLabel(item, index), ...[item.breakdown_value ?? []].flat().map(String)]
-}
-
-type EvidenceChart =
-    | { status: 'loading' }
-    | { status: 'error' }
-    | { status: 'ready'; query: TrendsQuery; results: TrendsResult }
-
-function isTrendsQuery(query: Record<string, unknown>): boolean {
-    return query.kind === 'TrendsQuery' || (query.kind === undefined && Array.isArray(query.series))
-}
-
-function useEvidenceCharts(app: App | null): StoryEvidenceCharts | undefined {
-    const [charts, setCharts] = useState<Record<string, EvidenceChart>>({})
-    const requested = useRef(new Set<string>())
-
-    const load = useCallback(
-        (query: Record<string, unknown>): void => {
-            const key = JSON.stringify(query)
-            if (!app || requested.current.has(key)) {
-                return
-            }
-            requested.current.add(key)
-            setCharts((current) => ({ ...current, [key]: { status: 'loading' } }))
-            const settle = (chart: EvidenceChart): void => {
-                if (chart.status === 'error') {
-                    // A later click on "Show chart" tries again.
-                    requested.current.delete(key)
-                }
-                setCharts((current) => ({ ...current, [key]: chart }))
-            }
-            loadRenderUiData(app, 'query-trends', query, 'query-results').then(
-                (result) => {
-                    const payload = result.structuredContent as
-                        | { query?: TrendsQuery; results?: TrendsResult }
-                        | undefined
-                    settle(
-                        !result.isError && payload?.results?.length
-                            ? {
-                                  status: 'ready',
-                                  query: payload.query ?? (query as unknown as TrendsQuery),
-                                  results: payload.results,
-                              }
-                            : { status: 'error' }
-                    )
-                },
-                () => settle({ status: 'error' })
-            )
-        },
-        [app]
-    )
-
-    const prefetch = useCallback(
-        (queries: Record<string, unknown>[]): void => queries.filter(isTrendsQuery).forEach(load),
-        [load]
-    )
-
-    return useMemo(() => {
-        if (!app) {
-            return undefined
-        }
-        return {
-            canShow: isTrendsQuery,
-            prefetch,
-            onShow: (query) => {
-                capture('mcp_ui_app_explain_chart_evidence_chart_shown', {
-                    was_loaded: charts[JSON.stringify(query)]?.status === 'ready',
-                })
-                load(query)
-            },
-            render: (query, text) => {
-                const chart = charts[JSON.stringify(query)]
-                if (chart?.status === 'ready') {
-                    return (
-                        <TrendsVisualizer
-                            key={JSON.stringify(query)}
-                            query={chart.query}
-                            results={chart.results}
-                            highlightedSeries={chart.results.flatMap((item, index) =>
-                                isSeriesNamedIn(seriesNames(item, index), text) ? [index] : []
-                            )}
-                            showControls={false}
-                            showTitle={false}
-                            showLegend={chart.results.length > 1}
-                            chartClassName={CHART_CLASS_NAME}
-                        />
-                    )
-                }
-                return (
-                    <div className={`flex items-center justify-center ${CHART_CLASS_NAME}`}>
-                        {chart?.status === 'error' ? (
-                            <div className="flex max-w-xs flex-col items-center gap-2 text-center">
-                                <Text size="sm" variant="muted">
-                                    Couldn't load this chart. Try again, or use Open in PostHog.
-                                </Text>
-                                <Button
-                                    variant="outline"
-                                    size="xs"
-                                    onClick={() => load(query)}
-                                    data-attr="explain-chart-evidence-retry"
-                                >
-                                    Try again
-                                </Button>
-                            </div>
-                        ) : (
-                            <AppLoadingState />
-                        )}
-                    </div>
-                )
-            },
-        }
-    }, [app, charts, load, prefetch])
-}
-
 export function ExplainChart({ data, openLink, app = null }: ExplainChartProps): ReactElement {
     const query = data.query as unknown as TrendsQuery
-    const evidenceCharts = useEvidenceCharts(app)
+    const evidenceCharts = useEvidenceCharts(app, CHART_CLASS_NAME)
 
     useEffect(() => {
         capture('mcp_ui_app_explain_chart_viewed', {
