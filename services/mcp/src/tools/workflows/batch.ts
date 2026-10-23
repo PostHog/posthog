@@ -1,5 +1,6 @@
 import { z } from 'zod'
 
+import { buildMCPAnalyticsGroups } from '@/lib/posthog/analytics'
 import { isFeatureFlagEnabled } from '@/lib/posthog/flags'
 import type { Context, ToolBase } from '@/tools/types'
 
@@ -57,6 +58,17 @@ async function sizeAudience(
  * the per-team `limit` the blast-radius endpoint returns (HOGFLOW_BATCH_TRIGGER_LIMIT), which the batch
  * consumer also enforces — so the run is rejected here rather than silently truncated downstream.
  */
+// Evaluate with the same workspace groups tool discovery uses, so a flag that targets projects or
+// organizations agrees with whether workflows-reputation-get is listed.
+async function sendingTierRequestsEnabled(context: Context): Promise<boolean> {
+    const analyticsContext = await context.stateManager.getAnalyticsContext().catch(() => undefined)
+    return await isFeatureFlagEnabled(
+        SENDING_TIER_REQUESTS_FLAG,
+        await context.getDistinctId(),
+        analyticsContext ? buildMCPAnalyticsGroups(analyticsContext) : undefined
+    )
+}
+
 async function assertAcknowledged(
     context: Context,
     affected: number,
@@ -72,8 +84,7 @@ async function assertAcknowledged(
     }
     if (affected > limit) {
         // The flag is read only here, so runs within the cap never wait on flag evaluation.
-        const pointAtTier =
-            sendsEmail && (await isFeatureFlagEnabled(SENDING_TIER_REQUESTS_FLAG, await context.getDistinctId()))
+        const pointAtTier = sendsEmail && (await sendingTierRequestsEnabled(context))
         throw new Error(
             `Audience of ${affected} users exceeds the ${limit}-user cap for this project. Narrow the ` +
                 `workflow's batch trigger filters to reduce the audience, then try again.` +
