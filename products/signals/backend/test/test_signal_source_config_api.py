@@ -1,9 +1,14 @@
+from datetime import UTC, datetime
+
 from posthog.test.base import APIBaseTest
+from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
 from rest_framework import status
+
+from posthog.hogql.errors import TableAccessDeniedError
 
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
@@ -11,6 +16,7 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.signals.backend.models import SignalSourceConfig
 from products.signals.backend.serializers import SignalSourceConfigSerializer
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema, ExternalDataSource
 
 
 class TestSignalSourceConfigAPI(APIBaseTest):
@@ -549,6 +555,92 @@ class TestSignalSourceConfigSerializerValidation(SimpleTestCase):
         assert serializer.is_valid() is expected_valid, serializer.errors
         if not expected_valid:
             assert "admission_rules" in str(serializer.errors["config"])
+
+
+PREVIEW_QUERY_PATH = "products.signals.backend.emission.admission_preview.execute_hogql_query"
+
+
+class TestAdmissionPreviewAPI(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.linear = SignalSourceConfig.objects.create(
+            team=self.team,
+            source_product="linear",
+            source_type="issue",
+            config={"linear_team_ids": ["team-a"], "steering": "skip chores"},
+        )
+        source = ExternalDataSource.objects.create(team=self.team, source_type="Linear", status="Completed", prefix="")
+        table = DataWarehouseTable.objects.create(
+            team=self.team, name="linear_issues", format="Parquet", url_pattern="", external_data_source=source
+        )
+        ExternalDataSchema.objects.create(team=self.team, source=source, name="issues", table=table)
+
+    def _preview(self, config_id: str, rules: object) -> tuple[int, dict]:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/signals/source_configs/{config_id}/admission_preview/",
+            data={"admission_rules": rules},
+            format="json",
+        )
+        return response.status_code, response.json()
+
+    def test_preview_runs_draft_rules_with_stored_scope_as_the_user(self) -> None:
+        rules = {"operator": "OR", "rules": [{"field": "labels", "operator": "any", "value": ["customer"]}]}
+        created = datetime(2026, 10, 20, tzinfo=UTC)
+        result = MagicMock(results=[(f"Issue {i}", f"https://linear.app/{i}", created) for i in range(21)])
+        with patch(PREVIEW_QUERY_PATH, return_value=result) as mock_query:
+            status_code, data = self._preview(str(self.linear.id), rules)
+
+        assert status_code == status.HTTP_200_OK, data
+        kwargs = mock_query.call_args.kwargs
+        assert kwargs["user"] == self.user
+        assert not kwargs.get("bypass_warehouse_access_control")
+        query = kwargs["query"].to_hogql()
+        assert "hasAny(" in query and "'customer'" in query
+        assert "'team-a'" in query
+        assert "'completed'" in query
+        assert len(data["issues"]) == 20
+        assert data["truncated"] is True
+        assert data["issues"][0]["url"] == "https://linear.app/0"
+        self.linear.refresh_from_db()
+        assert "admission_rules" not in self.linear.config
+
+    @parameterized.expand(
+        [
+            (
+                "invalid_rules",
+                "linear",
+                {"operator": "AND", "rules": [{"field": "team", "operator": "eq", "value": "x"}]},
+            ),
+            ("source_without_rules", "zendesk", None),
+        ]
+    )
+    def test_preview_rejects(self, _name: str, source_product: str, rules: object) -> None:
+        config = (
+            self.linear
+            if source_product == "linear"
+            else SignalSourceConfig.objects.create(team=self.team, source_product=source_product, source_type="ticket")
+        )
+        with patch(PREVIEW_QUERY_PATH) as mock_query:
+            status_code, data = self._preview(str(config.id), rules)
+
+        assert status_code == status.HTTP_400_BAD_REQUEST, data
+        mock_query.assert_not_called()
+
+    def test_preview_reports_denied_warehouse_access(self) -> None:
+        with patch(PREVIEW_QUERY_PATH, side_effect=TableAccessDeniedError("denied")):
+            status_code, _ = self._preview(str(self.linear.id), None)
+
+        assert status_code == status.HTTP_403_FORBIDDEN
+
+    def test_source_config_lists_its_admission_fields(self) -> None:
+        response = self.client.get(f"/api/projects/{self.team.id}/signals/source_configs/{self.linear.id}/")
+
+        assert {f["field"]: f["kind"] for f in response.json()["admission_rule_fields"]} == {
+            "labels": "string_list",
+            "priority": "number",
+            "state_name": "string",
+            "state_type": "string",
+        }
 
 
 class TestScoutSourceCanonicalization(APIBaseTest):

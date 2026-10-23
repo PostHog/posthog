@@ -152,6 +152,8 @@ LINEAR_ISSUES_CONFIG = SignalSourceTableConfig(
         "state_name": "JSONExtractString(ifNull(state, ''), 'name')",
         "state_type": "JSONExtractString(ifNull(state, ''), 'type')",
     },
+    admission_preview_title_field="title",
+    admission_preview_url_field="url",
     max_records=1000,
     first_sync_lookback_days=1,  # 24 hours
     actionability_prompt=LINEAR_ACTIONABILITY_PROMPT,

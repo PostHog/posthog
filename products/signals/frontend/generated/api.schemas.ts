@@ -9019,6 +9019,31 @@ export const SignalSourceSyncStatusEnumApi = {
 } as const
 
 /**
+ * * `string_list` - List of strings
+ * * `string` - String
+ * * `number` - Number
+ */
+export type AdmissionRuleFieldKindEnumApi =
+    (typeof AdmissionRuleFieldKindEnumApi)[keyof typeof AdmissionRuleFieldKindEnumApi]
+
+export const AdmissionRuleFieldKindEnumApi = {
+    StringList: 'string_list',
+    String: 'string',
+    Number: 'number',
+} as const
+
+export interface AdmissionRuleFieldApi {
+    /** Field name an admission rule may use in its `field` key. */
+    field: string
+    /** `string_list` takes the operators `any`, `all` and `none` with a list of strings. `string` and `number` take `eq`, `neq` with one value and `in`, `not_in` with a list.
+     *
+     * * `string_list` - List of strings
+     * * `string` - String
+     * * `number` - Number */
+    kind: AdmissionRuleFieldKindEnumApi
+}
+
+/**
  * Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. The Linear issue source also reads `admission_rules`: a group `{operator: AND|OR, rules: [...]}` where each rule is a nested group (max 3 levels) or `{field, operator, value}` (max 20 rules). Fields: `labels` with operators `any`, `all`, `none` and a list of label names; `priority` (0 none, 1 urgent, 2 high, 3 normal, 4 low), `state_name` and `state_type` with operators `eq`, `neq` (one value) or `in`, `not_in` (a list). Only issues that match become signals, and they are dropped before any AI call. Pass null or an empty group to admit every issue.
  */
 export type SignalSourceConfigApiConfig = { [key: string]: unknown }
@@ -9034,6 +9059,8 @@ export interface SignalSourceConfigApi {
     readonly updated_at: string
     /** Sync state of the warehouse import behind this source: `running`, `failed`, or `completed`. Null for a source that imports nothing from the warehouse, for an import that has never synced, and when the sync state could not be read. */
     readonly status: SignalSourceSyncStatusEnumApi | null
+    /** Fields that `config.admission_rules` may filter on for this source, with their kinds. Empty for a source that does not support admission rules. */
+    readonly admission_rule_fields: readonly AdmissionRuleFieldApi[]
 }
 
 export interface PaginatedSignalSourceConfigListApi {
@@ -9061,6 +9088,52 @@ export interface PatchedSignalSourceConfigApi {
     readonly updated_at?: string
     /** Sync state of the warehouse import behind this source: `running`, `failed`, or `completed`. Null for a source that imports nothing from the warehouse, for an import that has never synced, and when the sync state could not be read. */
     readonly status?: SignalSourceSyncStatusEnumApi | null
+    /** Fields that `config.admission_rules` may filter on for this source, with their kinds. Empty for a source that does not support admission rules. */
+    readonly admission_rule_fields?: readonly AdmissionRuleFieldApi[]
+}
+
+/**
+ * Draft admission rule tree to preview, in the same shape as `config.admission_rules`. Null or an empty group previews every issue the source reads today. The stored rules are not read or changed.
+ * @nullable
+ */
+export type SignalSourceAdmissionPreviewRequestApiAdmissionRules = { [key: string]: unknown } | null
+
+export interface SignalSourceAdmissionPreviewRequestApi {
+    /**
+     * Draft admission rule tree to preview, in the same shape as `config.admission_rules`. Null or an empty group previews every issue the source reads today. The stored rules are not read or changed.
+     * @nullable
+     */
+    admission_rules: SignalSourceAdmissionPreviewRequestApiAdmissionRules
+}
+
+export interface SignalSourceAdmissionPreviewIssueApi {
+    /** Issue title. */
+    title: string
+    /**
+     * Link to the issue in its source tool, when synced.
+     * @nullable
+     */
+    url: string | null
+    /**
+     * When the issue was created in its source.
+     * @nullable
+     */
+    created_at: string | null
+}
+
+export interface SignalSourceAdmissionPreviewApi {
+    /** The most recent synced issues that the next sync would admit, newest first. Uses the source's fixed exclusions, its scope allowlist (for example `linear_team_ids`) and the draft rules. */
+    issues: SignalSourceAdmissionPreviewIssueApi[]
+    /** True when more issues match than `limit`. */
+    truncated: boolean
+    /** The most issues one preview returns. */
+    limit: number
+    /** How many days of synced issues the preview reads. */
+    lookback_days: number
+    /** How many synced warehouse tables the preview read. */
+    tables_checked: number
+    /** Synced warehouse tables over the per-preview cap. The preview did not read them. */
+    tables_skipped: number
 }
 
 export interface SignalUserAutonomyConfigApi {

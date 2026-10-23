@@ -129,6 +129,8 @@ import type {
     SignalScoutPrecheckTestRequestApi,
     SignalScoutRunDetailApi,
     SignalScoutRunSummaryApi,
+    SignalSourceAdmissionPreviewApi,
+    SignalSourceAdmissionPreviewRequestApi,
     SignalSourceConfigApi,
     SignalTeamConfigApi,
     SignalUserAutonomyConfigApi,
@@ -3059,6 +3061,31 @@ export const signalsSourceConfigsDestroy = async (
         ...options,
         method: 'DELETE',
     })
+}
+
+export const getSignalsSourceConfigsAdmissionPreviewCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/source_configs/${id}/admission_preview/`
+}
+
+/**
+ * Run draft admission rules against the source's recently synced issues and return the most recent matches (at most 20, from the last 30 days). It uses the source's fixed exclusions and its stored scope, such as `linear_team_ids`. The query runs with your warehouse access. It makes no AI call, emits no signal and saves nothing.
+ * @summary Preview which synced issues admission rules let through
+ */
+export const signalsSourceConfigsAdmissionPreviewCreate = async (
+    projectId: string,
+    id: string,
+    signalSourceAdmissionPreviewRequestApi: SignalSourceAdmissionPreviewRequestApi,
+    options?: RequestInit
+): Promise<SignalSourceAdmissionPreviewApi> => {
+    return apiMutator<SignalSourceAdmissionPreviewApi>(
+        getSignalsSourceConfigsAdmissionPreviewCreateUrl(projectId, id),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(signalSourceAdmissionPreviewRequestApi),
+        }
+    )
 }
 
 export const getUsersSignalAutonomyRetrieveUrl = (userId: string) => {

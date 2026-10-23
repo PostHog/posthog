@@ -4201,6 +4201,19 @@ export const SignalsSourceConfigsPartialUpdateBody = /* @__PURE__ */ zod.object(
 })
 
 /**
+ * Run draft admission rules against the source's recently synced issues and return the most recent matches (at most 20, from the last 30 days). It uses the source's fixed exclusions and its stored scope, such as `linear_team_ids`. The query runs with your warehouse access. It makes no AI call, emits no signal and saves nothing.
+ * @summary Preview which synced issues admission rules let through
+ */
+export const SignalsSourceConfigsAdmissionPreviewCreateBody = /* @__PURE__ */ zod.object({
+    admission_rules: zod
+        .record(zod.string(), zod.unknown())
+        .nullable()
+        .describe(
+            'Draft admission rule tree to preview, in the same shape as `config.admission_rules`. Null or an empty group previews every issue the source reads today. The stored rules are not read or changed.'
+        ),
+})
+
+/**
  * Per-user signal autonomy config (singleton keyed by user).
  *
  * GET    /api/users/<id>/signal_autonomy/ → current config (or 404)
