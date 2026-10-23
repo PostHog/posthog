@@ -1,7 +1,15 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useRef, useState } from 'react'
 
-import { IconCamera, IconPause, IconPlay, IconRewindPlay } from '@posthog/icons'
+import {
+    IconCamera,
+    IconChevronLeft,
+    IconChevronRight,
+    IconPause,
+    IconPlay,
+    IconRewindPlay,
+    IconWarning,
+} from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
@@ -15,6 +23,7 @@ import {
     CommentOnRecordingButton,
     EmojiCommentOnRecordingButton,
 } from 'scenes/session-recordings/player/commenting/CommentOnRecordingButton'
+import { playerInspectorLogic } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 import {
     ModesWithInteractions,
     SessionRecordingPlayerMode,
@@ -180,6 +189,49 @@ function SkipToNext(): JSX.Element | null {
     )
 }
 
+function SeekToError({ size }: { size: 'small' | 'normal' }): JSX.Element | null {
+    const { logicProps } = useValues(sessionRecordingPlayerLogic)
+    const { errorItems, previousErrorItem, nextErrorItem } = useValues(playerInspectorLogic(logicProps))
+    const { seekToError } = useActions(playerInspectorLogic(logicProps))
+
+    if (!errorItems.length) {
+        return null
+    }
+
+    const errorCountLabel = `${errorItems.length} ${errorItems.length === 1 ? 'error' : 'errors'}`
+
+    return (
+        <div className="flex items-center text-danger" data-attr="recording-seek-to-error">
+            <LemonButton
+                size="xsmall"
+                noPadding={true}
+                status="danger"
+                onClick={() => seekToError('previous')}
+                disabledReason={!previousErrorItem ? 'No earlier error in this recording' : undefined}
+                tooltip="Go to the previous error"
+                icon={<IconChevronLeft />}
+                data-attr="recording-seek-to-previous-error"
+            />
+            <Tooltip title={`This recording has ${errorCountLabel}`}>
+                <span className="flex items-center gap-0.5 text-xs font-semibold px-0.5">
+                    <IconWarning className="text-base" />
+                    {size === 'normal' ? errorCountLabel : errorItems.length}
+                </span>
+            </Tooltip>
+            <LemonButton
+                size="xsmall"
+                noPadding={true}
+                status="danger"
+                onClick={() => seekToError('next')}
+                disabledReason={!nextErrorItem ? 'No later error in this recording' : undefined}
+                tooltip="Go to the next error"
+                icon={<IconChevronRight />}
+                data-attr="recording-seek-to-next-error"
+            />
+        </div>
+    )
+}
+
 export function Screenshot({
     className,
     'data-attr': dataAttr,
@@ -243,6 +295,7 @@ export function PlayerController(): JSX.Element {
                     <Timestamp size={size} />
                 </div>
                 <div className="flex gap-0.5 justify-end items-center">
+                    <SeekToError size={size} />
                     {ModesWithInteractions.includes(playerMode) && (
                         <>
                             <CommentOnRecordingButton />
