@@ -1,4 +1,6 @@
 import datetime as dt
+import threading
+from typing import NoReturn
 
 import pytest
 
@@ -7,6 +9,7 @@ from django.utils import timezone
 from posthog.models.organization import Organization
 from posthog.models.team import Team
 
+from products.aeo.backend import runner
 from products.aeo.backend.engines import CitationCheck
 from products.aeo.backend.models import AEOCitationCheck, AEOPrompt
 from products.aeo.backend.runner import run_citation_checks, select_prompts
@@ -117,21 +120,40 @@ def test_a_prompt_every_engine_failed_on_stays_unchecked(team: Team, settings) -
     assert last_checked["q1?"] is None
 
 
-class _InterruptingEngine(_StubEngine):
-    def __init__(self) -> None:
+class _BlockingEngine(_StubEngine):
+    """Holds every check until the test releases it, so the test decides which prompts are in flight."""
+
+    def __init__(self, workers: int) -> None:
         self.prompts: list[str] = []
+        self.threads: set[threading.Thread] = set()
+        self.all_workers_busy = threading.Barrier(workers + 1)
+        self.release = threading.Event()
 
     def run(self, prompt: str, *, trace_id: str, custom_properties: dict[str, str]) -> CitationCheck:
         self.prompts.append(prompt)
+        self.threads.add(threading.current_thread())
+        self.all_workers_busy.wait(timeout=5)
+        self.release.wait(timeout=5)
+        return super().run(prompt, trace_id=trace_id, custom_properties=custom_properties)
+
+
+def test_an_interrupted_run_does_not_start_the_queued_prompts(team: Team, settings, monkeypatch) -> None:
+    settings.AEO_RUN_CONCURRENCY = 2
+    upsert_prompts(team, [PromptCandidate(text=f"q{i}?", source="imported", topic="t") for i in range(5)])
+    engine = _BlockingEngine(workers=2)
+
+    def interrupt_once_every_worker_is_busy(futures: object) -> NoReturn:
+        # Stands in for a Celery soft time limit landing while the run waits on its workers.
+        engine.all_workers_busy.wait(timeout=5)
         raise KeyboardInterrupt
 
-
-def test_an_interrupted_run_does_not_start_the_queued_prompts(team: Team, settings) -> None:
-    settings.AEO_RUN_CONCURRENCY = 1
-    upsert_prompts(team, [PromptCandidate(text=f"q{i}?", source="imported", topic="t") for i in range(5)])
-    engine = _InterruptingEngine()
+    monkeypatch.setattr(runner, "as_completed", interrupt_once_every_worker_is_busy)
 
     with pytest.raises(KeyboardInterrupt):
         run_citation_checks(team, engines=[engine])
+    engine.release.set()
+    for thread in engine.threads:
+        thread.join(timeout=5)
 
-    assert len(engine.prompts) == 1
+    assert len(engine.prompts) == 2
+    assert len(set(engine.prompts)) == 2
