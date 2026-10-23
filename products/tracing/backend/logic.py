@@ -359,21 +359,17 @@ class TraceSpansQueryRunnerMixin(QueryRunner):
 
     @cached_property
     def query_date_range(self) -> QueryDateRange:
+        now = dt.datetime.now()
         qdr = QueryDateRange(
             date_range=self.query.dateRange,
             team=self.team,
             interval=IntervalType.MINUTE,
             interval_count=2,
-            now=dt.datetime.now(),
+            now=now,
+            timezone_info=ZoneInfo("UTC"),
         )
 
-        date_range = self.query.dateRange
-        date_from, date_to = qdr.date_from(), qdr.date_to()
-        if date_to < date_from:
-            date_range = DateRange(date_from=date_from.isoformat(), date_to=date_from.isoformat())
-            date_to = date_from
-
-        _step = (date_to - date_from) / 50
+        _step = (qdr.date_to() - qdr.date_from()) / 50
         interval_type = IntervalType.SECOND
 
         def find_closest(target: float, arr: list[int]) -> int:
@@ -395,15 +391,22 @@ class TraceSpansQueryRunnerMixin(QueryRunner):
             interval_type = IntervalType.MINUTE
             interval_count //= 60
 
-        return QueryDateRange(
-            date_range=date_range,
-            team=self.team,
-            interval=interval_type,
-            interval_count=int(interval_count),
-            now=dt.datetime.now(),
-            timezone_info=ZoneInfo("UTC"),
-            exact_timerange=True,
-        )
+        def exact_range(date_range: DateRange | None) -> QueryDateRange:
+            return QueryDateRange(
+                date_range=date_range,
+                team=self.team,
+                interval=interval_type,
+                interval_count=int(interval_count),
+                now=now,
+                timezone_info=ZoneInfo("UTC"),
+                exact_timerange=True,
+            )
+
+        date_range = exact_range(self.query.dateRange)
+        date_from = date_range.date_from()
+        if date_range.date_to() < date_from:
+            return exact_range(DateRange(date_from=date_from.isoformat(), date_to=date_from.isoformat()))
+        return date_range
 
     @cached_property
     def settings(self) -> HogQLGlobalSettings:

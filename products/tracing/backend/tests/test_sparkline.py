@@ -1,5 +1,7 @@
 import datetime as dt
 
+from parameterized import parameterized
+
 from posthog.clickhouse.client import sync_execute
 
 from products.tracing.backend.tests.test_keyset_pagination import DATE_FROM, DATE_TO, _b64, _TraceSpansTestBase
@@ -66,16 +68,31 @@ class TestTraceSpansSparkline(_TraceSpansTestBase):
         self.assertEqual(response.status_code, 200, response.content)
         return response.json()["results"]
 
-    def test_window_that_ends_before_it_starts_is_empty_not_an_error(self):
-        stale_date_to = (dt.datetime.now(dt.UTC) - dt.timedelta(hours=3)).isoformat()
+    @parameterized.expand(
+        [
+            ("sparkline", "UTC", True),
+            ("sparkline", "America/Los_Angeles", False),
+            ("latency-heatmap", "America/Los_Angeles", False),
+        ]
+    )
+    def test_window_that_ends_before_it_starts_is_empty_not_an_error(
+        self, endpoint: str, team_timezone: str, date_to_has_offset: bool
+    ):
+        self.team.timezone = team_timezone
+        self.team.save()
+        stale_date_to = dt.datetime.now(dt.UTC) - dt.timedelta(minutes=30)
+        if not date_to_has_offset:
+            stale_date_to = stale_date_to.replace(tzinfo=None)
         response = self.client.post(
-            f"/api/projects/{self.team.id}/tracing/spans/sparkline/",
-            {"query": {"dateRange": {"date_from": "-1h", "date_to": stale_date_to}}},
+            f"/api/projects/{self.team.id}/tracing/spans/{endpoint}/",
+            {"query": {"dateRange": {"date_from": "-5m", "date_to": stale_date_to.isoformat()}}},
             format="json",
         )
 
         self.assertEqual(response.status_code, 200, response.content)
-        self.assertEqual(sum(row["count"] for row in response.json()["results"]), 0)
+        results = response.json()["results"]
+        self.assertIsInstance(results, list)
+        self.assertEqual(sum(row["count"] for row in results), 0)
 
     def test_returns_zero_filled_time_series_of_span_counts(self):
         rows = self._sparkline()
