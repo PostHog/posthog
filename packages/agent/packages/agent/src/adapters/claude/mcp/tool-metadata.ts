@@ -160,21 +160,6 @@ export function setMcpToolApprovalStates(approvals: McpToolApprovals): void {
   }
 }
 
-const APPROVAL_STATES: ReadonlySet<unknown> = new Set([
-  "approved",
-  "needs_approval",
-  "do_not_use",
-]);
-
-export function isMcpToolApprovals(value: unknown): value is McpToolApprovals {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    !Array.isArray(value) &&
-    Object.values(value).every((state) => APPROVAL_STATES.has(state))
-  );
-}
-
 export function replaceMcpToolApprovalStates(
   approvals: McpToolApprovals,
 ): void {

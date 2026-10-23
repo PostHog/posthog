@@ -612,8 +612,7 @@ async function handleMcpApprovalFlow(
     },
   });
 
-  // A cancel carrying a message (no approver available, approval not saved)
-  // reaches the model as a denial so it can tell the user what to do.
+  // A cancel carrying a message reaches the model as a denial, like a parked question.
   const cancelMessage = (response._meta as Record<string, unknown> | undefined)
     ?.message;
   if (

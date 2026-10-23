@@ -3210,7 +3210,30 @@ describe("AgentServer HTTP Mode", () => {
       };
     }
 
-    it("keys loaded approvals by the sanitized names the SDK reports", async () => {
+    function policyFor(serverName: string, installationId: string) {
+      return {
+        serverName,
+        toolName: "get.metrics",
+        installationId,
+        approvalState: "needs_approval",
+      };
+    }
+
+    it.each([
+      {
+        label: "keys loaded approvals by the sanitized names the SDK reports",
+        policies: [policyFor("Datadog (EU)", "installation-1")],
+        expected: { mcp__Datadog__EU___get_metrics: "needs_approval" },
+      },
+      {
+        label: "skips a key that two installations sanitize to",
+        policies: [
+          policyFor("metrics one", "installation-1"),
+          policyFor("metrics_one", "installation-2"),
+        ],
+        expected: {},
+      },
+    ])("$label", async ({ policies, expected }) => {
       const testServer = createServer() as unknown as {
         posthogAPI: { getMcpRuntimeConfiguration: unknown };
         loadMcpToolApprovals: (
@@ -3219,27 +3242,18 @@ describe("AgentServer HTTP Mode", () => {
       };
       testServer.posthogAPI.getMcpRuntimeConfiguration = vi.fn(async () => ({
         servers: [],
-        policies: [
-          {
-            serverName: "Datadog (EU)",
-            toolName: "get.metrics",
-            installationId: "installation-1",
-            approvalState: "needs_approval",
-          },
-        ],
+        policies,
         failedServers: [],
       }));
 
-      expect(await testServer.loadMcpToolApprovals([])).toEqual({
-        mcp__Datadog__EU___get_metrics: "needs_approval",
-      });
+      expect(await testServer.loadMcpToolApprovals([])).toEqual(expected);
     });
 
     it.each([
-      { optionId: "allow_always", saved: true },
+      { optionId: "allow", saved: true },
       { optionId: "reject", saved: false },
     ])(
-      "relays without allow_once and saves the approval only for $optionId",
+      "relays one labeled allow and saves the approval only for $optionId",
       async ({ optionId, saved }) => {
         const testServer = exposeCloudClient(createServer());
         const approveMcpTool = withNeedsApprovalTool(
@@ -3254,11 +3268,22 @@ describe("AgentServer HTTP Mode", () => {
         await requestPermission(approvalRequestFor("mcp__metrics__get_stats"));
 
         expect({
-          relayedKinds: (
-            relaySpy.mock.calls[0][0] as { options: Array<{ kind: string }> }
-          ).options.map((option) => option.kind),
+          relayed: (
+            relaySpy.mock.calls[0][0] as {
+              options: Array<{ kind: string; name?: string }>;
+            }
+          ).options.map(({ kind, name }) => ({ kind, name })),
           saved: approveMcpTool.mock.calls.length > 0,
-        }).toEqual({ relayedKinds: ["allow_always", "reject_once"], saved });
+        }).toEqual({
+          relayed: [
+            {
+              kind: "allow_once",
+              name: "Yes, and approve this tool in PostHog",
+            },
+            { kind: "reject_once", name: undefined },
+          ],
+          saved,
+        });
       },
     );
 
@@ -3269,7 +3294,7 @@ describe("AgentServer HTTP Mode", () => {
       ).mockRejectedValue(new Error("403"));
       testServer.session = { hasDesktopConnected: true };
       vi.spyOn(testServer, "relayPermissionToClient").mockResolvedValue({
-        outcome: { outcome: "selected", optionId: "allow_always" },
+        outcome: { outcome: "selected", optionId: "allow" },
       });
 
       const { requestPermission } = testServer.createCloudClient(basePayload);

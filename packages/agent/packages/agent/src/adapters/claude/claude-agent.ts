@@ -118,7 +118,7 @@ import {
   getCachedMcpTools,
   getConnectedMcpServerNames,
   getMcpToolApprovalStates,
-  isMcpToolApprovals,
+  type McpToolApprovals,
   replaceMcpToolApprovalStates,
   setMcpToolApprovalStates,
 } from "./mcp/tool-metadata";
@@ -2186,8 +2186,8 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     await this.refreshSession(mcpServers);
     // A refresh can swap the acting user's connections, so states reloaded for
     // the new server list replace the ones the metadata refresh carried over.
-    if (isMcpToolApprovals(params.mcpToolApprovals)) {
-      replaceMcpToolApprovalStates(params.mcpToolApprovals);
+    if (params.mcpToolApprovals) {
+      replaceMcpToolApprovalStates(params.mcpToolApprovals as McpToolApprovals);
     }
     return { refreshed: true };
   }

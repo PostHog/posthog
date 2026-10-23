@@ -676,15 +676,24 @@ export class AgentServer {
         servers: failedServers,
       });
     }
-    this.mcpToolPolicies = new Map(
-      policies.map((policy) => [
-        mcpToolKey({
-          server: sanitizeMcpServerName(policy.serverName),
-          tool: sanitizeMcpServerName(policy.toolName),
-        }),
-        policy,
-      ]),
-    );
+    // Two installations whose names sanitize alike are indistinguishable to the
+    // SDK, so leave them ungated rather than approve the wrong one.
+    const ambiguousKeys = new Set<string>();
+    this.mcpToolPolicies = new Map();
+    for (const policy of policies) {
+      const key = mcpToolKey({
+        server: sanitizeMcpServerName(policy.serverName),
+        tool: sanitizeMcpServerName(policy.toolName),
+      });
+      if (this.mcpToolPolicies.has(key)) ambiguousKeys.add(key);
+      this.mcpToolPolicies.set(key, policy);
+    }
+    for (const key of ambiguousKeys) this.mcpToolPolicies.delete(key);
+    if (ambiguousKeys.size > 0) {
+      this.logger.warn("Skipping ambiguous MCP tool approval keys", {
+        keys: [...ambiguousKeys],
+      });
+    }
     return Object.fromEntries(
       [...this.mcpToolPolicies].map(([key, policy]) => [
         key,
@@ -5896,20 +5905,28 @@ export class AgentServer {
   /**
    * Ask the user about a needs_approval MCP tool and, when they allow it,
    * record the approval in PostHog first so the gateway proxy accepts the call.
-   * The proxy has no per-call approval, so "allow once" approves the tool too.
+   * The proxy has no per-call approval, so the one allow option says it saves the approval.
    */
   private async relayMcpToolApproval(
     params: RequestPermissionRequest,
     policy: McpToolPolicy,
   ): Promise<RequestPermissionResponse> {
+    // Clients hide "always" options by default, so offer a plain allow whose
+    // label carries the permanent effect.
     const response = await this.relayPermissionToClient({
       ...params,
-      options: params.options.filter((option) => option.kind !== "allow_once"),
+      options: params.options.flatMap((option) => {
+        if (option.kind === "allow_always") return [];
+        if (option.kind === "allow_once") {
+          return [{ ...option, name: "Yes, and approve this tool in PostHog" }];
+        }
+        return [option];
+      }),
     });
     const selected = params.options.find(
       (option) => option.optionId === response.outcome.optionId,
     );
-    if (selected?.kind !== "allow_always") {
+    if (selected?.kind !== "allow_once") {
       return response;
     }
     try {
