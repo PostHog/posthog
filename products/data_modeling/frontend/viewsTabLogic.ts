@@ -67,6 +67,7 @@ export interface viewsTabLogicActions {
         fullRefresh: boolean | undefined
         viewId: string
     } // dataWarehouseViewsLogic
+    loadDataWarehouseSavedQueries: () => any // dataWarehouseViewsLogic
     loadDataWarehouseSavedQueriesSuccess: (
         dataWarehouseSavedQueries: DataWarehouseSavedQuerySummary[],
         payload?: any
@@ -114,6 +115,9 @@ export interface viewsTabLogicActions {
     }
     openAccessControlModal: (view: DataWarehouseSavedQuerySummary) => {
         view: DataWarehouseSavedQuerySummary
+    }
+    reloadViews: () => {
+        value: true
     }
     runMaterialization: (viewId: string) => {
         viewId: string
@@ -172,7 +176,12 @@ export const viewsTabLogic = kea<viewsTabLogicType>([
         ],
         actions: [
             dataWarehouseViewsLogic,
-            ['deleteDataWarehouseSavedQuery', 'runDataWarehouseSavedQuery', 'loadDataWarehouseSavedQueriesSuccess'],
+            [
+                'deleteDataWarehouseSavedQuery',
+                'runDataWarehouseSavedQuery',
+                'loadDataWarehouseSavedQueries',
+                'loadDataWarehouseSavedQueriesSuccess',
+            ],
             databaseTableListLogic,
             ['loadDatabase'],
         ],
@@ -185,6 +194,7 @@ export const viewsTabLogic = kea<viewsTabLogicType>([
         runMaterialization: (viewId: string) => ({ viewId }),
         loadRunHistory: (viewIds: string[]) => ({ viewIds }),
         loadVisibleData: true,
+        reloadViews: true,
         openAccessControlModal: (view: DataWarehouseSavedQuerySummary) => ({ view }),
         closeAccessControlModal: true,
     }),
@@ -348,6 +358,9 @@ export const viewsTabLogic = kea<viewsTabLogicType>([
         },
         runMaterialization: ({ viewId }) => {
             actions.runDataWarehouseSavedQuery(viewId)
+        },
+        reloadViews: () => {
+            actions.loadDataWarehouseSavedQueries()
         },
         loadDataWarehouseSavedQueriesSuccess: () => {
             actions.loadVisibleData()

@@ -80,6 +80,26 @@ describe('viewsTabLogic', () => {
         expect(logic.values.filteredViews.map((view) => view.id)).toEqual(['mat-10'])
     })
 
+    it.each([
+        ['a materialize', 'plain-a', true],
+        ['an unmaterialize', 'mat-0', false],
+    ])('shows the new materialization after %s suggestion is accepted', async (_kind, viewId, isMaterialized) => {
+        useMocks({
+            get: {
+                '/api/projects/:team_id/warehouse_saved_queries/': {
+                    count: 1,
+                    results: [buildView(viewId, isMaterialized, isMaterialized ? 'Completed' : undefined)],
+                },
+            },
+        })
+
+        logic.actions.reloadViews()
+        await expectLogic(dataWarehouseViewsLogic).toFinishAllListeners()
+        logic.actions.setTypeFilter(isMaterialized ? 'materialized' : 'view')
+
+        expect(logic.values.filteredViews.map((view) => view.id)).toEqual([viewId])
+    })
+
     it('keeps name matches visible while lineage data reloads', () => {
         lineageDataLogic.actions.loadNodes()
         logic.actions.setSearchTerm('+mat-1')

@@ -152,7 +152,7 @@ export function ViewsTab({ getViewUrl, suspensionByViewId }: ViewsTabProps = {})
         runMaterialization,
         openAccessControlModal,
         closeAccessControlModal,
-        loadVisibleData,
+        reloadViews,
     } = useActions(viewsTabLogic)
 
     const warehouseAccessControlEnabled = !!featureFlags[FEATURE_FLAGS.HOGQL_WAREHOUSE_ACCESS_CONTROL]
@@ -307,7 +307,7 @@ export function ViewsTab({ getViewUrl, suspensionByViewId }: ViewsTabProps = {})
                 />
             ) : null}
             {featureFlags[FEATURE_FLAGS.WAREHOUSE_SUGGESTIONS] && (
-                <SuggestedModelsStrip onAccepted={() => loadVisibleData()} />
+                <SuggestedModelsStrip onAccepted={() => reloadViews()} />
             )}
             <div className="flex flex-wrap gap-2 items-center">
                 <LemonInput
