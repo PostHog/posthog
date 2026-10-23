@@ -88,6 +88,8 @@ The offline setup preview compares prompt and model combinations with multiple s
 numeric, boolean, and categorical definitions are shared by offline experiments and
 [manual trace reviews](https://posthog.com/docs/ai-observability/trace-reviews). Archived scorers remain accessible
 from the setup screen; filtered lists keep their filters and results table.
+Dataset setup appears only when there are no active or archived datasets, so projects with only archived
+datasets can still browse and restore them from the list.
 
 Scorers have an optional **Short name** (up to 40 characters) for experiment table headers and other compact views.
 These views use the full name when the short name is blank. Editing or clearing a short name updates existing
