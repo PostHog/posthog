@@ -7,7 +7,7 @@ use std::borrow::Cow;
 
 use replay_core_v4::gate::in_sample;
 use replay_core_v4::payload::{decompress_payload, is_web_replay};
-use replay_core_v4::scan::message::{read_message, Message};
+use replay_core_v4::scan::message::{read_message_within, Message, ReadError};
 use replay_core_v4::session::{drop_reason, DropReason};
 
 use crate::teams::Team;
@@ -29,6 +29,8 @@ pub enum Skip {
     Unreadable,
     SessionMismatch,
     NotWeb,
+    /// The flush has no room left for the message's events.
+    OverBudget,
 }
 
 impl Skip {
@@ -48,6 +50,7 @@ impl Skip {
             Skip::Unreadable => "unreadable",
             Skip::SessionMismatch => "session_mismatch",
             Skip::NotWeb => "not_web",
+            Skip::OverBudget => "over_budget",
         }
     }
 }
@@ -145,8 +148,21 @@ pub fn admit(
 
 /// Decompresses and reads an admitted message.
 pub fn read(payload: Vec<u8>, content_encoding: Option<&str>) -> Result<Message, Skip> {
+    read_within(payload, content_encoding, usize::MAX)
+}
+
+/// As [`read`], with at most `max_events` events, so that a message of many tiny events stops before its event list
+/// outgrows the flush's budget.
+pub fn read_within(
+    payload: Vec<u8>,
+    content_encoding: Option<&str>,
+    max_events: usize,
+) -> Result<Message, Skip> {
     let raw = decompress_payload(payload, content_encoding).map_err(|_| Skip::Undecompressable)?;
-    read_message(raw).map_err(|_| Skip::Unreadable)
+    read_message_within(raw, max_events).map_err(|error| match error {
+        ReadError::TooManyEvents => Skip::OverBudget,
+        _ => Skip::Unreadable,
+    })
 }
 
 /// The rules that need the payload: the session the headers named, and a web replay.
@@ -213,6 +229,12 @@ mod tests {
             read(b"not json".to_vec(), None).unwrap_err(),
             Skip::Unreadable
         );
+        // The flush's event budget stops the reader before the event list grows past it.
+        assert_eq!(
+            read_within(plain.clone(), None, 0).unwrap_err(),
+            Skip::OverBudget
+        );
+        assert!(read_within(plain, None, 1).is_ok());
     }
 
     #[test]

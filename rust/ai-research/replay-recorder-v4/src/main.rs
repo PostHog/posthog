@@ -160,6 +160,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         flush_retries: config.flush_retries,
         shutdown_flush: Duration::from_secs(config.shutdown_flush_secs),
         session_idle: Duration::from_secs(config.session_idle_secs),
+        session_state_max_bytes: config.session_state_max_bytes,
         redirecting_topic: (config.ingestion_overflow_mode == "redirect")
             .then(|| config.kafka_topic.clone()),
     };

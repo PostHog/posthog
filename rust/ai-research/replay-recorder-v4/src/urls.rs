@@ -162,7 +162,7 @@ mod tests {
     use replay_core_v4::keys::batch::SessionKey as Key;
 
     use super::*;
-    use crate::batch::SessionKey;
+    use crate::batch::{Origin, SessionKey, Tp};
 
     #[test]
     fn a_full_sent_cache_still_keeps_new_marks() {
@@ -191,6 +191,15 @@ mod tests {
             session: SessionKey {
                 team_id: 7,
                 session_id: "s".to_owned(),
+            },
+            origin: Origin {
+                tp: Tp {
+                    topic: "main",
+                    partition: 0,
+                },
+                start_offset: 0,
+                end_offset: 0,
+                flush_end_offset: 0,
             },
             messages: Vec::new(),
             stats: BlockStats::default(),

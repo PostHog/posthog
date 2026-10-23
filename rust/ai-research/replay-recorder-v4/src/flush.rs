@@ -1,5 +1,5 @@
-//! One attempt to store a flush's blocks. It writes nothing that a retry cannot write again: object names are
-//! unique.
+//! One attempt to store a flush's blocks. It writes nothing that a retry cannot write again: object names are unique,
+//! and the block index rows name their attempt.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
@@ -24,7 +24,7 @@ use crate::store::BlobStore;
 use crate::urls::{fetch_jobs, records};
 use crate::write::{
     compress_block, new_images, object_key, seal_blocking, seal_compressed, session_keyed_frames,
-    write_block_index, write_blocks, write_images, CompressedBlock, WriteError,
+    write_block_index, write_blocks, write_images, CompressedBlock, FlushAttempt, WriteError,
 };
 
 /// How long a fetch job may wait for room in the producer queue.
@@ -127,6 +127,7 @@ pub async fn write_flush(
     };
     drop(resolved);
     let month = key_month(&day);
+    let attempt = FlushAttempt::new(now);
 
     let object_key = object_key(&day, now);
     let seals: Vec<_> = blocks
@@ -139,12 +140,17 @@ pub async fn write_flush(
             };
             let key = keys.sessions.get(&id)?.clone();
             let team_key = *keys.team_months.get(&block.session.team_id)?;
-            let (block, month, work) = (block.clone(), month.to_owned(), work.clone());
+            let (block, object_key, month, work) = (
+                block.clone(),
+                object_key.clone(),
+                month.to_owned(),
+                work.clone(),
+            );
             Some(seal_blocking(&writer.seal_permits, move || {
                 let compressed = work.compressed(Arc::as_ptr(&block) as usize, || {
                     compress_block(&block, &key, &team_key, &month)
                 })?;
-                seal_compressed(&compressed).map(|sealed| (index, sealed))
+                seal_compressed(&compressed, &object_key).map(|sealed| (index, sealed))
             }))
         })
         .collect();
@@ -243,6 +249,7 @@ pub async fn write_flush(
     write_block_index(
         &entries,
         &keys,
+        &attempt,
         &writer.rrweb_bucket,
         writer.store.as_ref(),
         now,
