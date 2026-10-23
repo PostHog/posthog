@@ -12,6 +12,7 @@ from django.utils import timezone
 
 import structlog
 
+from posthog.cache_utils import cache_for
 from posthog.credentials_service.callers import CredentialsCaller
 from posthog.credentials_service.errors import CredentialsServiceFailure
 from posthog.credentials_service.settings_fallback import get_or_settings
@@ -36,6 +37,23 @@ STRIPE_POSTHOG_SECRET_NAMES = (
     "posthog_project_id",
     "posthog_oauth_client_id",
 )
+
+
+@cache_for(timedelta(minutes=5))
+def stripe_signing_secret() -> str:
+    """The Stripe app signing secret. Cached, because it verifies every install and provisioning request."""
+    return get_or_settings("STRIPE_SIGNING_SECRET", CredentialsCaller.INTEGRATIONS)
+
+
+def _local_oauth_client_id(key: str) -> str:
+    """One of PostHog's own Stripe OAuth application ids, for finding and deleting local tokens.
+
+    Falling back during an outage (or recovery) cannot expose a credential and must not block revocation.
+    """
+    try:
+        return get_or_settings(key, CredentialsCaller.INTEGRATIONS)
+    except CredentialsServiceFailure:
+        return getattr(settings, key, "")
 
 
 @frozen
@@ -263,7 +281,7 @@ class StripeIntegration:
 
         Returns None when the setting is unset or names the orchestrator, rather than minting there.
         """
-        client_id = settings.STRIPE_MARKETPLACE_OAUTH_CLIENT_ID
+        client_id = get_or_settings("STRIPE_MARKETPLACE_OAUTH_CLIENT_ID", CredentialsCaller.INTEGRATIONS)
         if not client_id or client_id == get_or_settings(
             "STRIPE_POSTHOG_OAUTH_CLIENT_ID", CredentialsCaller.INTEGRATIONS
         ):
@@ -287,14 +305,14 @@ class StripeIntegration:
 
         Revocation has to span both or tokens issued before the application split survive it.
         """
-        try:
-            orchestrator_client_id = get_or_settings("STRIPE_POSTHOG_OAUTH_CLIENT_ID", CredentialsCaller.INTEGRATIONS)
-        except CredentialsServiceFailure:
-            # This value is only used to find and delete local tokens. Falling back during an
-            # outage (or recovery) cannot expose the credential and must not block revocation.
-            orchestrator_client_id = settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID
-
-        client_ids = [cid for cid in (settings.STRIPE_MARKETPLACE_OAUTH_CLIENT_ID, orchestrator_client_id) if cid]
+        client_ids = [
+            cid
+            for cid in (
+                _local_oauth_client_id("STRIPE_MARKETPLACE_OAUTH_CLIENT_ID"),
+                _local_oauth_client_id("STRIPE_POSTHOG_OAUTH_CLIENT_ID"),
+            )
+            if cid
+        ]
         if not client_ids:
             return []
         return list(OAuthApplication.objects.filter(client_id__in=client_ids))
