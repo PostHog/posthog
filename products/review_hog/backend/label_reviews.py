@@ -10,7 +10,7 @@ review again, and the workflow removes the label when the run ends.
   ReviewHog this way. Another bot's label gets an explaining comment and is removed.
 - The review runs in the owning project.
 - The Deep label runs a Deep review only when the labeler's GitHub login maps to an active member of
-  the project's organization. Anyone else who can label the pull request gets the Standard label's review.
+  the owning project. Anyone else who can label the pull request gets the Standard label's review.
 - It runs as the pull request owner (`pr_owner.py`). Without an owner it runs as the person who
   connected the installation, with default settings and no resolution.
 """
@@ -24,8 +24,10 @@ from posthog.dataclasses import frozen
 from posthog.egress.limiter.policies import Priority
 from posthog.models.integration import GitHubIntegration, Integration
 from posthog.models.team import Team
+from posthog.models.user import User
 from posthog.otel_metrics import OtelInstrumentFactory
 from posthog.permissions import posthog_feature_flag_enabled
+from posthog.user_permissions import UserPermissions
 
 from products.review_hog.backend.automatic_reviews import connector_user_id
 from products.review_hog.backend.ownership import RepositoryOwnership, RepositoryRef
@@ -66,6 +68,18 @@ def comment_commands_enabled(team_id: int) -> bool:
     return posthog_feature_flag_enabled(
         COMMENT_COMMANDS_FLAG, f"review-hog-team-{team_id}", organization_id=organization_id, team_id=team_id
     )
+
+
+def is_project_member(*, team_id: int, user_id: int) -> bool:
+    """Whether the user may access the project, as the `@posthog` comment path checks it."""
+    team = Team.objects.select_related("parent_team").get(id=team_id)
+    permissions = UserPermissions(User.objects.get(id=user_id))
+    if permissions.team(team).effective_membership_level is None:
+        return False
+    # A child environment without its own access rows defaults open while the parent project
+    # denies the user, so the parent decides too.
+    parent = team.parent_team
+    return parent is None or permissions.team(parent).effective_membership_level is not None
 
 
 def label_commands_hint(review_mode: str) -> str:
@@ -136,9 +150,12 @@ class LabelReview:
         return not self.labeled_by_bot or self.labeler_login.lower() == STAMPHOG_BOT_LOGIN
 
     def _deep_allowed(self, team_id: int) -> bool:
-        # Deep costs several times a Standard review, and the project pays for it, so a collaborator
-        # outside the organization may not pick it.
-        return self.deep and PullRequestOwnerResolver.active_author_id(team_id, self.labeler_login) is not None
+        # Deep costs several times a Standard review, and the project pays for it, so only a member
+        # of that project may pick it.
+        if not self.deep:
+            return False
+        labeler_user_id = PullRequestOwnerResolver.active_author_id(team_id, self.labeler_login)
+        return labeler_user_id is not None and is_project_member(team_id=team_id, user_id=labeler_user_id)
 
     def _github(self, integration: Integration) -> GitHubIntegration:
         return GitHubIntegration(integration, source="review_hog", priority=Priority.NORMAL)

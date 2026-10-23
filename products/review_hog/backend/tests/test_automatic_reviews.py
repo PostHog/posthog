@@ -13,6 +13,7 @@ from parameterized import parameterized
 from prometheus_client import REGISTRY
 from social_django.models import UserSocialAuth
 
+from posthog.constants import AvailableFeature
 from posthog.ingress.dispatch.dedup import INGRESS_DEDUP_CACHE_ALIAS
 from posthog.ingress.dispatch.dispatcher import WebhookDispatcher
 from posthog.ingress.dispatch.loading import reset_consumer_registry
@@ -24,6 +25,7 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
 from posthog.models.user import User
 
+from products.access_control.backend.facade.testing import create_access_control
 from products.review_hog.backend.label_reviews import BOT_LABEL_COMMENT
 from products.review_hog.backend.models import (
     ReviewInstallationClaim,
@@ -522,14 +524,29 @@ class TestLabelReviewTask(BaseTest):
     @parameterized.expand(
         [
             # A Standard request after a published Deep review is dropped, so the label would do nothing.
-            ("standard_label_after_a_published_deep_review", "posthog-review-standard", "OctoCat", True, "full"),
-            ("deep_label", "posthog-review-deep", "OctoCat", False, "full"),
-            ("deep_label_from_outside_the_organization", "posthog-review-deep", "stranger", False, "flash"),
+            ("standard_label_after_a_published_deep_review", "posthog-review-standard", "OctoCat", True, "full", False),
+            ("deep_label", "posthog-review-deep", "OctoCat", False, "full", False),
+            ("deep_label_from_outside_the_organization", "posthog-review-deep", "stranger", False, "flash", False),
+            ("deep_label_from_outside_the_project", "posthog-review-deep", "OctoCat", False, "flash", True),
         ]
     )
     def test_a_label_picks_the_review_mode(
-        self, _name: str, label: str, sender: str, deep_published: bool, expected_mode: str
+        self,
+        _name: str,
+        label: str,
+        sender: str,
+        deep_published: bool,
+        expected_mode: str,
+        project_denied: bool,
     ) -> None:
+        if project_denied:
+            self.organization.available_product_features = [
+                {"name": AvailableFeature.ACCESS_CONTROL, "key": AvailableFeature.ACCESS_CONTROL}
+            ]
+            self.organization.save()
+            create_access_control(
+                team_id=self.team.id, resource="project", resource_id=str(self.team.id), access_level="none"
+            )
         if deep_published:
             ReviewReport.objects.for_team(self.team.id).create(
                 team=self.team,
