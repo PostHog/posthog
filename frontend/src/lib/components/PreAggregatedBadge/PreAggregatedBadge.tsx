@@ -58,7 +58,7 @@ function PrecomputedTooltip({
                     </span>
                 </span>
             )}
-            {stale && <span>Newer data is being computed. Reload in a few minutes to see it.</span>}
+            {stale && <span>This pre-computed data has expired and may not include recent events.</span>}
             <span>
                 <Link to={QUERY_ENGINE_DOCS_URL}>Learn more</Link>
                 {onDisable && (
