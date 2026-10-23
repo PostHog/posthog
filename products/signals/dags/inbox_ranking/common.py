@@ -45,6 +45,7 @@ NOT_FIXED_RESOLUTION_REASONS = (
     "wontfix_intentional",
     "wontfix_irrelevant",
     "report_unclear",
+    "wrong_assignee",
     "wrong_repo",
 )
 # A dismissal that says the problem was real and is fixed somewhere.

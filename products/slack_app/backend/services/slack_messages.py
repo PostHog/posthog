@@ -1007,7 +1007,7 @@ def context_block(text: str) -> dict[str, Any]:
     return {"type": "context", "elements": [{"type": "mrkdwn", "text": text}]}
 
 
-def app_home_url(integration: Integration) -> str | None:
+def app_home_url(integration: Integration, *, tab: str = "home") -> str | None:
     """Deep link to this install's Home tab, where the model picker lives.
 
     The native `slack://` form rather than the https `app_redirect` one: the reader is
@@ -1021,7 +1021,7 @@ def app_home_url(integration: Integration) -> str | None:
     app_id = (integration.config or {}).get("app_id")
     if not app_id or not integration.integration_id:
         return None
-    return f"slack://app?team={integration.integration_id}&id={app_id}&tab=home"
+    return f"slack://app?team={integration.integration_id}&id={app_id}&tab={tab}"
 
 
 def personal_integrations_url(team_id: int) -> str:

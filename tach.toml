@@ -979,6 +979,9 @@ depends_on = [
     "products.exports",
     # Mention workflows check billing quota limits before they start a task.
     "ee",
+    # Feature tips skip MCP tools and Slack subscriptions that the reader already uses.
+    "products.mcp_store",
+    "products.subscriptions",
 ]
 layer = "modules"
 
