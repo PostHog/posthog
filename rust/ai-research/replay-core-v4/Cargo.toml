@@ -8,9 +8,16 @@ description = "Core of the v4 AI research replay dataset: the AISR03 envelope, t
 [lints]
 workspace = true
 
+[features]
+default = ["store"]
+# The key table and KMS clients. A reader that only opens frames turns default features off and skips the AWS SDK.
+store = ["dep:aws-sdk-dynamodb", "dep:chrono"]
+
 [dependencies]
 aes-gcm = "0.10"
+aws-sdk-dynamodb = { workspace = true, optional = true }
 base64 = { workspace = true }
+chrono = { workspace = true, optional = true }
 hkdf = "0.12"
 hmac = { workspace = true }
 md5 = "0.8"
