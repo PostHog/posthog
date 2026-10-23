@@ -974,11 +974,10 @@ describe('dashboardLogic', () => {
                 expect(logic.values.widgetRefreshStatus[WIDGET_TILE.id]?.error).toBeNull()
             })
 
-            it('a filter preview does not abort the widget load of an opened group', async () => {
+            it('a filter preview neither aborts nor repeats the widget load of an opened group', async () => {
                 groupTiles({ target: { collapsed: true } })
                 dashboards[5].tiles.push({ ...WIDGET_TILE, group_key: 'target' })
                 await mountDashboard()
-                refreshInsight.mockImplementation((...args) => hangUntilAborted(args[5]?.signal))
                 let finishWidgetLoad: () => void = () => {}
                 fetchRunWidgetsMock.mockImplementationOnce(
                     (_projectId, _dashboardId, _tileIds, options) =>
@@ -1001,13 +1000,13 @@ describe('dashboardLogic', () => {
                 await expectLogic(logic).toDispatchActions(['setWidgetRefreshStatuses'])
 
                 logic.actions.setDates('-7d', null)
-                await expectLogic(logic).toDispatchActions(['abortAnyRunningQuery'])
+                await expectLogic(logic).toDispatchActions(['abortAnyRunningQuery', 'setPreviewedDashboardSettings'])
                 finishWidgetLoad()
-                await expectLogic(logic).toDispatchActions(['setWidgetRunResults'])
+                await expectLogic(logic).toFinishAllListeners()
 
+                expect(fetchRunWidgetsMock).toHaveBeenCalledTimes(1)
                 expect(logic.values.widgetResultsByTileId[WIDGET_TILE.id]?.result).toEqual({})
                 expect(logic.values.widgetRefreshStatus[WIDGET_TILE.id]?.error).toBeNull()
-                await expectLogic(logic, () => logic.actions.cancelDashboardRefresh()).toFinishAllListeners()
             })
 
             it.each([
@@ -1061,6 +1060,25 @@ describe('dashboardLogic', () => {
                 await toggle()
 
                 expect(loads(target)).toHaveLength(2)
+                expect(logic.values.waitingTileRefresh).toBeNull()
+            })
+
+            it('keeps an opened group waiting when the viewer cancels a filter preview that took over its load', async () => {
+                groupTiles({ target: { collapsed: true } })
+                await mountDashboard()
+                refreshInsight.mockImplementation((...args) => hangUntilAborted(args[5]?.signal))
+                logic.actions.toggleTileGroup('target')
+                await expectLogic(logic).toDispatchActions(['setRefreshStatus'])
+                logic.actions.setDates('-7d', null)
+                await expectLogic(logic).toDispatchActions(['abortAnyRunningQuery'])
+
+                await expectLogic(logic, () => logic.actions.cancelDashboardRefresh()).toFinishAllListeners()
+                expect(logic.values.waitingTileRefresh?.tileIds).toEqual([dashboards[5].tiles[0].id])
+                refreshInsight.mockImplementation((_teamId, insight) => Promise.resolve(insight))
+                await toggle()
+                await toggle()
+
+                expect(loads(target)).toHaveLength(3)
                 expect(logic.values.waitingTileRefresh).toBeNull()
             })
 

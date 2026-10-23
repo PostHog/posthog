@@ -316,7 +316,6 @@ function nextWaitingTileRefresh({
     tiles,
     collapsedTileIds,
     candidateTileIds,
-    loadedHere,
     forceRefresh,
     settings,
 }: {
@@ -324,14 +323,13 @@ function nextWaitingTileRefresh({
     tiles: DashboardTile[]
     collapsedTileIds: Set<number>
     candidateTileIds: number[]
-    loadedHere: number[]
     forceRefresh: boolean
     settings: DashboardSettings
 }): WaitingTileRefresh {
-    const loaded = new Set(loadedHere)
     const groupedTileIds = new Set(tiles.filter((tile) => tile.group_key).map((tile) => tile.id))
-    // This refresh aborts a running group load, so a tile it does not load itself must keep waiting.
-    const previouslyWaiting = previous?.tileIds.filter((id) => groupedTileIds.has(id) && !loaded.has(id)) ?? []
+    // This refresh aborts a running group load, and a viewer can cancel this refresh too,
+    // so a tile keeps waiting until a load of it succeeds.
+    const previouslyWaiting = previous?.tileIds.filter((id) => groupedTileIds.has(id)) ?? []
     return {
         tileIds: [...new Set([...previouslyWaiting, ...candidateTileIds.filter((id) => collapsedTileIds.has(id))])],
         // A refresh of only stale tiles must not let a group that a manual refresh skipped show older data.
@@ -5194,7 +5192,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     tiles: values.tiles,
                     collapsedTileIds,
                     candidateTileIds: [...staleTiles.map((tile) => tile.id), ...widgetTileIds],
-                    loadedHere: [...sortedTilesToRefresh.map((tile) => tile.id), ...openWidgetTileIds],
                     forceRefresh: !!forceRefresh,
                     settings: settingsToRefresh,
                 })
@@ -5257,9 +5254,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     forceRefresh: !!forceRefresh,
                     signal: cache.abortController.signal,
                 }
+                const loadingHere = (cache.refreshingTileIds = new Set(sortedTilesToRefresh.map((tile) => tile.id)))
                 const fetchSyncInsightFunctions = sortedTilesToRefresh.map((tile) => async () => {
                     const outcome = await refreshInsightTile(tile, tileRefresh)
+                    loadingHere.delete(tile.id)
                     if (outcome === 'refreshed' || outcome === 'cached') {
+                        actions.clearWaitingTileRefresh([tile.id])
                         tilesRefreshedCount++
                         tilesRefreshedCachedCount += outcome === 'cached' ? 1 : 0
                         filterChange?.remainingInsightIds.delete(tile.insight.short_id)
@@ -5378,6 +5378,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 (tile) =>
                     tile.group_key === groupKey &&
                     waiting?.tileIds.includes(tile.id) &&
+                    !cache.refreshingTileIds?.has(tile.id) &&
                     !(tile.insight
                         ? refreshStatus[tile.insight.short_id]?.queued
                         : widgetRefreshStatus[tile.id]?.loading)
@@ -5433,19 +5434,25 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 return
             }
 
+            const loadingTileIds = forceRefresh
+                ? []
+                : tileIds.filter((tileId) => values.widgetRefreshStatus[tileId]?.loading)
             const staleTileIds = tileIds.filter((tileId) => {
                 if (forceRefresh) {
                     return true
                 }
                 const fetchedAt = values.widgetRefreshStatus[tileId]?.fetchedAt
                 return (
-                    !!values.widgetRefreshStatus[tileId]?.error ||
-                    !fetchedAt ||
-                    Date.now() - fetchedAt >= WIDGET_CLIENT_TTL_MS
+                    !loadingTileIds.includes(tileId) &&
+                    (!!values.widgetRefreshStatus[tileId]?.error ||
+                        !fetchedAt ||
+                        Date.now() - fetchedAt >= WIDGET_CLIENT_TTL_MS)
                 )
             })
 
-            actions.clearWaitingTileRefresh(tileIds.filter((tileId) => !staleTileIds.includes(tileId)))
+            actions.clearWaitingTileRefresh(
+                tileIds.filter((tileId) => !staleTileIds.includes(tileId) && !loadingTileIds.includes(tileId))
+            )
             if (staleTileIds.length === 0) {
                 return
             }
