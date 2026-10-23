@@ -136,7 +136,8 @@ class ThreadFollowupTip(TipFeature):
     text = "In threads you start with me, you can reply without tagging me. I ask before I pick up the reply, or I can always pick it up."
     choice_criteria = (
         "Replying in a thread without tagging the assistant. Fits a message that continues a conversation "
-        "or asks a follow-up question about an earlier answer."
+        'or asks a follow-up question about an earlier answer, such as one that starts with "and" or asks '
+        'about "the same numbers", "that chart" or "those users".'
     )
 
     def is_eligible(self, ctx: TipContext) -> bool:
@@ -185,8 +186,8 @@ class CodeChangePrTip(TipFeature):
     title = "I can change code too"
     text = "Ask me to fix a bug or add an event, and I open a pull request for you to review."
     choice_criteria = (
-        "Code changes and pull requests. Fits a message about a bug, an error, an exception, missing tracking, "
-        "or anything in the product's source code."
+        "The person asks to change their product's code: fix a bug or an error, add or change an event or "
+        "tracking, or open a pull request."
     )
 
     def is_eligible(self, ctx: TipContext) -> bool:
@@ -328,8 +329,9 @@ class ProjectInMentionTip(TipFeature):
     title = "Pick a project in your message"
     text = "Name a project in your message, and I use it for that request. For example: _@PostHog in the website project, why did signups drop?_"
     choice_criteria = (
-        "Choosing a PostHog project for one request by naming it. Fits a message about a specific app, site, "
-        "environment, or product area that could be a separate project."
+        "Naming a PostHog project in one request. Fits a message that names which of several apps, sites or "
+        'environments to look in, such as "in the mobile app" or "on staging". A platform used as a filter '
+        'or breakdown, such as "for mobile", or a mention of "the app", names no project.'
     )
 
     def is_eligible(self, ctx: TipContext) -> bool:
@@ -343,8 +345,8 @@ class AppHomeProjectTip(TipFeature):
     title = "Choose your default project"
     text = "You can choose your default project in the Home tab of the PostHog app."
     choice_criteria = (
-        "Setting a default PostHog project. Fits a message that names a project or asks about data that "
-        "could be in another project."
+        "Changing the default PostHog project. Fits a message that asks to switch projects, or says the "
+        "person usually works in a project other than the one the assistant used."
     )
 
     def is_eligible(self, ctx: TipContext) -> bool:

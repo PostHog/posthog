@@ -108,6 +108,19 @@ NO_MATCH_CASES = [
         "bug_without_pr_candidate", "fix the null error in the signup form", "none", ["subscription", "direct_message"]
     ),
     _case("recurring_without_subscription", "send me signups every Monday", "none", ["code_change_pr", "mcp_tool"]),
+    # Near misses: the message mentions an app or an error but names no project and asks for no code change.
+    _case(
+        "app_without_project_name",
+        "how many people opened the app yesterday?",
+        "none",
+        ["project_in_mention", "file_outputs"],
+    ),
+    _case(
+        "error_count_without_fix",
+        "how many users hit the TypeError on checkout this week?",
+        "none",
+        ["code_change_pr", "direct_message"],
+    ),
 ]
 
 
