@@ -114,8 +114,8 @@ class ExecuteSQLMCPTool(HogQLOutputParserMixin, MCPTool[ExecuteSQLMCPToolArgs]):
                 prompt_template="{{{results}}}", truncate_results=args.truncate, include_prompt_framing=False
             )
         except MaxToolRetryableError as e:
-            # A connection query defers validation to the runner, so the compatibility rejections
-            # the local validator would have enriched above surface here instead.
+            # ClickHouse rejections, and the validation a connection query defers to the runner,
+            # surface here rather than through the local validator above.
             hint = build_compatibility_hint(str(e))
             if not hint:
                 raise

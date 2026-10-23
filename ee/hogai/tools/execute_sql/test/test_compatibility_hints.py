@@ -81,6 +81,70 @@ class TestBuildCompatibilityHint:
         assert "Boolean" in hint
         assert "CAST(x AS" not in hint
 
+    @parameterized.expand(
+        [
+            (
+                "nested_aggregate",
+                "Code: 184. DB::Exception: Aggregate function count() is found inside another aggregate function in query. (ILLEGAL_AGGREGATION)",
+                "`count()` is nested inside another aggregate",
+            ),
+            (
+                "aggregate_in_where",
+                "Code: 184. DB::Exception: Aggregate function sum(amount) is found in WHERE in query. (ILLEGAL_AGGREGATION)",
+                "`sum(amount)` is an aggregate, so it cannot filter rows in WHERE",
+            ),
+            (
+                "not_an_aggregate",
+                "Code: 215. DB::Exception: Column `events.distinct_id` is not under aggregate function and not in GROUP BY. (NOT_AN_AGGREGATE)",
+                "`events.distinct_id` is selected without an aggregate",
+            ),
+            (
+                "illegal_argument_type",
+                "Code: 43. DB::Exception: Illegal types String and UInt8 of arguments of function greater. (ILLEGAL_TYPE_OF_ARGUMENT)",
+                "`greater` does not accept String and UInt8",
+            ),
+            (
+                "illegal_first_argument_type",
+                "Code: 43. DB::Exception: Illegal type Nullable(String) of first argument of function toStartOfDay. (ILLEGAL_TYPE_OF_ARGUMENT)",
+                "`toStartOfDay` does not accept Nullable(String)",
+            ),
+            (
+                "illegal_numbered_argument_type",
+                "Code: 43. DB::Exception: Illegal type String of argument #1 'datetime' of function toStartOfDay, expected DateTime or DateTime64. (ILLEGAL_TYPE_OF_ARGUMENT)",
+                "`toStartOfDay` does not accept String",
+            ),
+        ]
+    )
+    def test_clickhouse_rejection_names_the_accepted_shape(self, _name: str, message: str, expected_start: str) -> None:
+        hint = build_compatibility_hint(message)
+        assert hint is not None
+        assert expected_start in hint
+
+    def test_non_string_argument_type_gets_no_property_cast_advice(self) -> None:
+        hint = build_compatibility_hint(
+            "Code: 43. DB::Exception: Illegal type Array(String) of first argument of function lower. (ILLEGAL_TYPE_OF_ARGUMENT)"
+        )
+        assert hint is not None
+        assert "`lower` does not accept Array(String)" in hint
+        assert "toFloat" not in hint
+
+    @parameterized.expand(
+        [
+            (
+                "printed_expression",
+                "replaceRegexpAll(nullIf(JSONExtractRaw(events.properties, 'plan'), ''), '^\"|\"$', '')",
+            ),
+            ("resolved_name", "events__person.properties___email"),
+        ]
+    )
+    def test_not_an_aggregate_on_a_non_hogql_name_gives_the_generic_rewrite(self, _name: str, column: str) -> None:
+        hint = build_compatibility_hint(
+            f"Code: 215. DB::Exception: Column {column} is not under aggregate function and not in GROUP BY. (NOT_AN_AGGREGATE)"
+        )
+        assert hint is not None
+        assert "A selected expression is not aggregated" in hint
+        assert f"any({column})" not in hint
+
     def test_hint_is_delimited(self) -> None:
         hint = build_compatibility_hint("Function 'greatest' expects 2 arguments, found 3")
         assert hint is not None
