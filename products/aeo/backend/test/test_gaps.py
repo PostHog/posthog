@@ -132,3 +132,20 @@ class TestListCitationGaps(BaseTest):
 
         assert (gap.prompt_hash, gap.prompt_text, gap.checks) == (first_key, "Best session replay tool?", 1)
         assert gap.competitor_urls == ("https://rival.example/new",)
+
+    def test_reimporting_an_edited_prompts_old_text_keeps_gap_keys_unique(self) -> None:
+        import_prompts(self.team.id, [PromptImport(prompt="Best replay tool?")])
+        edited = AEOPrompt.objects.for_team(self.team.id).get()
+        update_prompt(self.team.id, str(edited.id), PromptUpdate(prompt="Best session replay tool?"), user_id=None)
+        import_prompts(self.team.id, [PromptImport(prompt="Best replay tool?")])
+        edited.refresh_from_db()
+        reimported = AEOPrompt.objects.for_team(self.team.id).exclude(id=edited.id).get()
+        self._check(edited, "claude-web-search", cited_urls=["https://rival.example/a"], version=2)
+        self._check(reimported, "claude-web-search", cited_urls=["https://rival.example/b"])
+
+        gaps = list_citation_gaps(self.team.id, since=timezone.now() - dt.timedelta(days=14))
+
+        assert {gap.prompt_id: gap.prompt_hash for gap in gaps} == {
+            str(edited.id): edited.prompt_hash,
+            str(reimported.id): reimported.prompt_hash,
+        }
