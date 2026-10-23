@@ -354,9 +354,6 @@ module "raw_sessions_mv" {
         argMinState(JSONExtractString(properties, 'mc_cid'), timestamp) AS initial_mc_cid,
         argMinState(JSONExtractString(properties, 'igshid'), timestamp) AS initial_igshid,
         argMinState(JSONExtractString(properties, 'ttclid'), timestamp) AS initial_ttclid,
-        argMinState(JSONExtractString(properties, 'epik'), timestamp) AS initial_epik,
-        argMinState(JSONExtractString(properties, 'qclid'), timestamp) AS initial_qclid,
-        argMinState(JSONExtractString(properties, 'sccid'), timestamp) AS initial_sccid,
         argMinState(JSONExtractString(properties, '_kx'), timestamp) AS initial__kx,
         argMinState(JSONExtractString(properties, 'irclid'), timestamp) AS initial_irclid,
         sumIf(1, event = '$pageview') AS pageview_count,
@@ -669,7 +666,6 @@ module "raw_sessions_v3_recordings_mv" {
     SELECT
         team_id,
         toUInt128(accurateCast(session_id, 'UUID')) AS session_id_v7,
-        fromUnixTimestamp64Milli(toUInt64(bitShiftRight(session_id_v7, 80))) AS session_timestamp,
         initializeAggregation('argMaxState', source_table.distinct_id, min_ts_64) AS distinct_id,
         initializeAggregation('groupUniqArrayState', source_table.distinct_id) AS distinct_ids,
         timestamp AS min_timestamp,
