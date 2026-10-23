@@ -7,6 +7,7 @@ below. Every call site wraps these in `safe_record`: a metric must never fail a 
 
 import datetime as dt
 from collections.abc import Callable
+from functools import cache
 from typing import Literal
 
 from prometheus_client import Counter, Histogram
@@ -203,17 +204,24 @@ DeliveryOutcomeLabel = Literal["sent", "failed", "already_delivered", "busy", "n
 _DELIVERIES_DESCRIPTION = "Transitions a delivery handled, by provider, delivery path and outcome"
 _DELIVERY_LAG_DESCRIPTION = "Delay between the check that decided a transition and the send that announced it"
 
+
 # A web process sends inline, outside any worker, when Temporal is unreachable or a deleted alert's
 # resolve cannot wait. It has no Temporal meter, so it records the same series in its own registry.
-_INLINE_DELIVERIES = Counter(
-    "alerts_platform_deliveries", _DELIVERIES_DESCRIPTION, ["source", "provider", "path", "outcome"]
-)
-_INLINE_DELIVERY_LAG = Histogram(
-    "alerts_platform_delivery_lag_ms",
-    _DELIVERY_LAG_DESCRIPTION,
-    ["source", "provider"],
-    buckets=ALERTS_PLATFORM_LATENCY_HISTOGRAM_BUCKETS,
-)
+# Created on first use, never at import: a worker exports this registry beside Temporal's meter, and
+# the same family declared twice makes Prometheus reject the worker's whole scrape.
+@cache
+def _inline_deliveries() -> Counter:
+    return Counter("alerts_platform_deliveries", _DELIVERIES_DESCRIPTION, ["source", "provider", "path", "outcome"])
+
+
+@cache
+def _inline_delivery_lag() -> Histogram:
+    return Histogram(
+        "alerts_platform_delivery_lag_ms",
+        _DELIVERY_LAG_DESCRIPTION,
+        ["source", "provider"],
+        buckets=ALERTS_PLATFORM_LATENCY_HISTOGRAM_BUCKETS,
+    )
 
 
 def increment_deliveries(source: str, provider: str, path: str, outcome: DeliveryOutcomeLabel, count: int = 1) -> None:
@@ -227,7 +235,7 @@ def increment_deliveries(source: str, provider: str, path: str, outcome: Deliver
     try:
         meter = get_metric_meter(labels)
     except RuntimeError:
-        _INLINE_DELIVERIES.labels(**labels).inc(count)
+        _inline_deliveries().labels(**labels).inc(count)
         return
     meter.create_counter("alerts_platform_deliveries_total", _DELIVERIES_DESCRIPTION).add(count)
 
@@ -239,7 +247,7 @@ def record_delivery_lag(source: str, provider: str, lag_ms: int) -> None:
     try:
         meter = get_metric_meter(labels)
     except RuntimeError:
-        _INLINE_DELIVERY_LAG.labels(**labels).observe(lag_ms)
+        _inline_delivery_lag().labels(**labels).observe(lag_ms)
         return
     meter.create_histogram_timedelta(
         name="alerts_platform_delivery_lag_ms", description=_DELIVERY_LAG_DESCRIPTION, unit="ms"
