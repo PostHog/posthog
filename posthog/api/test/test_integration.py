@@ -2,6 +2,7 @@ import hmac
 import json
 import time
 import hashlib
+from collections.abc import Callable
 from contextlib import nullcontext
 from datetime import timedelta
 from typing import Any, cast
@@ -5803,6 +5804,13 @@ class TestOauthIntegrationRevokeOnDisconnect:
         mock_post.assert_not_called()
 
 
+def _stripe_app_ids(orchestrator: str, settings_mock: MagicMock) -> Callable[[str, object], str]:
+    def resolve(key: str, _caller: object) -> str:
+        return orchestrator if key == "STRIPE_POSTHOG_OAUTH_CLIENT_ID" else getattr(settings_mock, key)
+
+    return resolve
+
+
 class TestStripeIntegrationOAuthTokens:
     @pytest.fixture(autouse=True)
     def setup(self, db):
@@ -5849,7 +5857,7 @@ class TestStripeIntegrationOAuthTokens:
     def test_destroy_oauth_tokens_deletes_tokens(
         self, mock_settings: MagicMock, mock_get_or_settings: MagicMock
     ) -> None:
-        mock_get_or_settings.return_value = "orchestrator_client_id"
+        mock_get_or_settings.side_effect = _stripe_app_ids("orchestrator_client_id", mock_settings)
         mock_settings.STRIPE_MARKETPLACE_OAUTH_CLIENT_ID = self.oauth_app.client_id
         integration, access_token, refresh_token = self._create_integration_with_tokens()
         unlinked_refresh_token = OAuthRefreshToken.objects.create(
@@ -5874,7 +5882,7 @@ class TestStripeIntegrationOAuthTokens:
     def test_destroy_oauth_tokens_only_affects_same_team(
         self, mock_settings: MagicMock, mock_get_or_settings: MagicMock, other_credential: str
     ) -> None:
-        mock_get_or_settings.return_value = "orchestrator_client_id"
+        mock_get_or_settings.side_effect = _stripe_app_ids("orchestrator_client_id", mock_settings)
         mock_settings.STRIPE_MARKETPLACE_OAUTH_CLIENT_ID = self.oauth_app.client_id
         integration, _, _ = self._create_integration_with_tokens()
 
@@ -5912,7 +5920,7 @@ class TestStripeIntegrationOAuthTokens:
     def test_destroy_oauth_tokens_noop_when_no_oauth_app(
         self, mock_settings: MagicMock, mock_get_or_settings: MagicMock
     ) -> None:
-        mock_get_or_settings.return_value = ""
+        mock_get_or_settings.side_effect = _stripe_app_ids("", mock_settings)
         mock_settings.STRIPE_MARKETPLACE_OAUTH_CLIENT_ID = None
         integration, access_token, refresh_token = self._create_integration_with_tokens()
         stripe_int = StripeIntegration(integration)
@@ -5942,7 +5950,7 @@ class TestStripeIntegrationOAuthTokens:
             redirect_uris="https://example.com/callback",
             algorithm="RS256",
         )
-        mock_get_or_settings.return_value = orchestrator_app.client_id
+        mock_get_or_settings.side_effect = _stripe_app_ids(orchestrator_app.client_id, mock_settings)
         mock_settings.STRIPE_MARKETPLACE_OAUTH_CLIENT_ID = {
             "configured": self.oauth_app.client_id,
             "unset": "",
@@ -5984,7 +5992,7 @@ class TestStripeIntegrationOAuthTokens:
             redirect_uris="https://example.com/callback",
             algorithm="RS256",
         )
-        mock_get_or_settings.return_value = self.oauth_app.client_id
+        mock_get_or_settings.side_effect = _stripe_app_ids(self.oauth_app.client_id, mock_settings)
         mock_settings.STRIPE_MARKETPLACE_OAUTH_CLIENT_ID = marketplace_app.client_id
 
         integration, legacy_access, legacy_refresh = self._create_integration_with_tokens()
@@ -6018,7 +6026,7 @@ class TestStripeIntegrationOAuthTokens:
     def test_write_posthog_secrets_uses_account_scope(
         self, mock_settings: MagicMock, mock_get_or_settings: MagicMock, MockStripeClient: MagicMock
     ) -> None:
-        mock_get_or_settings.return_value = "orchestrator_client_id"
+        mock_get_or_settings.side_effect = _stripe_app_ids("orchestrator_client_id", mock_settings)
         mock_settings.STRIPE_MARKETPLACE_OAUTH_CLIENT_ID = self.oauth_app.client_id
         mock_client = MagicMock()
         MockStripeClient.return_value = mock_client
@@ -6051,7 +6059,7 @@ class TestStripeIntegrationOAuthTokens:
     def test_write_posthog_secrets_mints_read_only_token(
         self, mock_settings: MagicMock, mock_get_or_settings: MagicMock, MockStripeClient: MagicMock
     ) -> None:
-        mock_get_or_settings.return_value = "orchestrator_client_id"
+        mock_get_or_settings.side_effect = _stripe_app_ids("orchestrator_client_id", mock_settings)
         mock_settings.STRIPE_MARKETPLACE_OAUTH_CLIENT_ID = self.oauth_app.client_id
         MockStripeClient.return_value = MagicMock()
 
@@ -6085,7 +6093,7 @@ class TestStripeIntegrationOAuthTokens:
     def test_clear_posthog_secrets_uses_account_scope(
         self, mock_settings: MagicMock, mock_get_or_settings: MagicMock, MockStripeClient: MagicMock
     ) -> None:
-        mock_get_or_settings.return_value = ""
+        mock_get_or_settings.side_effect = _stripe_app_ids("", mock_settings)
         mock_settings.STRIPE_MARKETPLACE_OAUTH_CLIENT_ID = None
         mock_client = MagicMock()
         MockStripeClient.return_value = mock_client
@@ -6125,7 +6133,7 @@ class TestStripeIntegrationOAuthTokens:
         mock_get_or_settings: MagicMock,
         MockStripeClient: MagicMock,
     ) -> None:
-        mock_get_or_settings.return_value = "orchestrator_client_id"
+        mock_get_or_settings.side_effect = _stripe_app_ids("orchestrator_client_id", mock_settings)
         mock_settings.STRIPE_MARKETPLACE_OAUTH_CLIENT_ID = self.oauth_app.client_id
         MockStripeClient.return_value = MagicMock()
 
@@ -6157,7 +6165,7 @@ class TestStripeIntegrationOAuthTokens:
         MockStripeClient: MagicMock,
         mock_capture: MagicMock,
     ) -> None:
-        mock_get_or_settings.return_value = "orchestrator_client_id"
+        mock_get_or_settings.side_effect = _stripe_app_ids("orchestrator_client_id", mock_settings)
         mock_settings.STRIPE_MARKETPLACE_OAUTH_CLIENT_ID = self.oauth_app.client_id
         MockStripeClient.return_value = MagicMock()
 
@@ -6198,7 +6206,7 @@ class TestStripeIntegrationOAuthTokens:
         failing_secrets: tuple[str, ...],
         credential_kept: bool,
     ) -> None:
-        mock_get_or_settings.return_value = "orchestrator_client_id"
+        mock_get_or_settings.side_effect = _stripe_app_ids("orchestrator_client_id", mock_settings)
         mock_settings.STRIPE_MARKETPLACE_OAUTH_CLIENT_ID = self.oauth_app.client_id
 
         def create_secret(params, options):
@@ -6233,7 +6241,7 @@ class TestStripeIntegrationOAuthTokens:
         MockStripeClient: MagicMock,
         mock_capture: MagicMock,
     ) -> None:
-        mock_get_or_settings.return_value = "orchestrator_client_id"
+        mock_get_or_settings.side_effect = _stripe_app_ids("orchestrator_client_id", mock_settings)
         mock_settings.STRIPE_MARKETPLACE_OAUTH_CLIENT_ID = self.oauth_app.client_id
         MockStripeClient.return_value = MagicMock()
 
