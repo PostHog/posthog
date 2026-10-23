@@ -77798,6 +77798,8 @@ export namespace Schemas {
        * * `closed` - Closed
        * * `merged` - Merged */
       readonly implementation_pr_state: SignalReportAssignmentPrStateEnum | null;
+      /** Who or what suppressed the step, with the same values as the report's `suppression_source`. Null unless the step is suppressed. */
+      readonly suppression_source: SignalReportSuppressionSourceEnum | null;
     }
 
     export interface ReportPlan {
@@ -77952,7 +77954,7 @@ export namespace Schemas {
       readonly channel_id: string | null;
       /** The served model's score from the latest ranking score artefact. Null for users who are neither staff nor in the inbox model sort rollout, and null when the report has no score. */
       readonly ranking: ReportRanking | null;
-      /** The plan this report leads or is a step of, with every step in it. A report that other reports link to with `part_of` is a plan. Null when the report is in no plan, and always null in list responses, because finding a plan's steps scans the project's report links. */
+      /** The plan this report leads or is a step of, with every step in it. A report that other reports link to with `part_of` is a plan. Null when the report is in no plan, and always null in list responses, because finding a plan's steps costs several queries per report. */
       readonly plan: ReportPlan | null;
       /**
          * Coarse sort key from the ranker named by the list response's ranker field, for sort=recommended only. Lower keys rank first. It is the score decile of the ranker's head (open, action or fixed), then the priority as a tiebreak. The priority ranker uses the priority only. Reports without a usable score sort after scored ones. Null for every other sort.
@@ -100024,7 +100026,7 @@ export namespace Schemas {
       readonly channel_id: string | null;
       /** The served model's score from the latest ranking score artefact. Null for users who are neither staff nor in the inbox model sort rollout, and null when the report has no score. */
       readonly ranking: ReportRanking | null;
-      /** The plan this report leads or is a step of, with every step in it. A report that other reports link to with `part_of` is a plan. Null when the report is in no plan, and always null in list responses, because finding a plan's steps scans the project's report links. */
+      /** The plan this report leads or is a step of, with every step in it. A report that other reports link to with `part_of` is a plan. Null when the report is in no plan, and always null in list responses, because finding a plan's steps costs several queries per report. */
       readonly plan: ReportPlan | null;
     }
 

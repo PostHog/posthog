@@ -66,7 +66,7 @@ if TYPE_CHECKING:
 
     from products.signals.backend.implementation_pr import ImplementationPr
     from products.signals.backend.report_claims import ReportClaim
-    from products.signals.backend.report_plan import ReportPlan
+    from products.signals.backend.report_plan import ReportPlan, ReportPlanStep
 
 from .artefact_schemas import (
     NON_WRITABLE_ARTEFACT_TYPES,
@@ -1333,6 +1333,13 @@ class ReportPlanStepSerializer(serializers.Serializer):
         allow_null=True,
         help_text="Latest known state of that pull request: unknown, draft, open, closed, or merged.",
     )
+    suppression_source = serializers.SerializerMethodField(
+        help_text="Who or what suppressed the step, with the same values as the report's `suppression_source`. Null unless the step is suppressed.",
+    )
+
+    @extend_schema_field(serializers.ChoiceField(choices=SignalReportSuppressionSource.choices, allow_null=True))
+    def get_suppression_source(self, step: "ReportPlanStep") -> str | None:
+        return self.context.get("step_suppression_sources", {}).get(step.id)
 
 
 class ReportPlanSerializer(serializers.Serializer):
@@ -1556,7 +1563,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
         help_text=(
             "The plan this report leads or is a step of, with every step in it. A report that other reports "
             "link to with `part_of` is a plan. Null when the report is in no plan, and always null in list "
-            "responses, because finding a plan's steps scans the project's report links."
+            "responses, because finding a plan's steps costs several queries per report."
         ),
     )
 
@@ -1654,7 +1661,13 @@ class SignalReportSerializer(serializers.ModelSerializer):
                 dataclasses.replace(step, status=self._display_status(obj, step.status)) for step in plan.steps
             ),
         )
-        return dict(ReportPlanSerializer(plan).data)
+        suppressed_step_ids = [step.id for step in plan.steps if step.status == SignalReport.Status.SUPPRESSED]
+        step_suppression_sources = {
+            str(step_report.id): suppression[0].value
+            for step_report in SignalReport.objects.filter(team_id=obj.team_id, id__in=suppressed_step_ids)
+            if (suppression := self._suppression(step_report)) is not None
+        }
+        return dict(ReportPlanSerializer(plan, context={"step_suppression_sources": step_suppression_sources}).data)
 
     def _get_actionability_artefact_data(self, obj: SignalReport) -> dict | None:
         prefetched = getattr(obj, "prefetched_actionability_artefacts", None)
