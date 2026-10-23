@@ -46,7 +46,8 @@ export function EvaluationStatusGrid(): JSX.Element {
     const gridRef = useRef<HTMLDivElement>(null)
     const labels = useMemo(() => buckets.map((bucket) => formatBucket(bucket, interval)), [buckets, interval])
 
-    // A tooltip held open with `visible` loses its own Escape and scroll dismissal, so the grid restores both.
+    // A tooltip held open with `visible` loses its own Escape and scroll dismissal, so the grid restores both. Both
+    // listen in the capture phase, because Base UI stops Escape before it bubbles to the window.
     useEffect(() => {
         if (!hovered) {
             return
@@ -57,10 +58,10 @@ export function EvaluationStatusGrid(): JSX.Element {
                 dismiss()
             }
         }
-        window.addEventListener('keydown', onKeyDown)
+        window.addEventListener('keydown', onKeyDown, true)
         window.addEventListener('scroll', dismiss, true)
         return () => {
-            window.removeEventListener('keydown', onKeyDown)
+            window.removeEventListener('keydown', onKeyDown, true)
             window.removeEventListener('scroll', dismiss, true)
         }
     }, [hovered])
