@@ -100,6 +100,7 @@ async function loadSnapshotTools(): Promise<Tool<ZodObjectAny>[]> {
         'scout-trials': true,
         'signals-report-checks-replace': true,
         'inbox-report-actions-mcp': true,
+        'signals-reviewer-exclusions-mcp': true,
         'ai-observability-offline-evaluations': true,
         'warehouse-suggestions': true,
         'scouts-tool-access': true,

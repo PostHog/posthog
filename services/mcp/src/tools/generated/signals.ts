@@ -642,6 +642,136 @@ const inboxReportsLeaveReviewers = (): ToolBase<ReturnType<typeof InboxReportsLe
     },
 })
 
+const InboxReviewerExclusionsListSchema = () => z.object({})
+
+const inboxReviewerExclusionsList = (): ToolBase<
+    ReturnType<typeof InboxReviewerExclusionsListSchema>,
+    Schemas.ReviewerExclusion[]
+> => ({
+    name: 'inbox-reviewer-exclusions-list',
+    schema: InboxReviewerExclusionsListSchema(),
+    handler: async (context: Context, _params: z.infer<ReturnType<typeof InboxReviewerExclusionsListSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ReviewerExclusion[]>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reviewer_exclusions/`,
+        })
+        return result
+    },
+})
+
+const InboxReviewerExclusionsGetSchema = () => {
+    const SignalsReviewerExclusionsRetrieveParams = orvalSchemas.SignalsReviewerExclusionsRetrieveParams()
+    return SignalsReviewerExclusionsRetrieveParams.omit({ project_id: true })
+}
+
+const inboxReviewerExclusionsGet = (): ToolBase<
+    ReturnType<typeof InboxReviewerExclusionsGetSchema>,
+    Schemas.ReviewerExclusion
+> => ({
+    name: 'inbox-reviewer-exclusions-get',
+    schema: InboxReviewerExclusionsGetSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof InboxReviewerExclusionsGetSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ReviewerExclusion>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reviewer_exclusions/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
+    },
+})
+
+const InboxReviewerExclusionsCreateSchema = () => {
+    const SignalsReviewerExclusionsCreateBody = orvalSchemas.SignalsReviewerExclusionsCreateBody()
+    return SignalsReviewerExclusionsCreateBody
+}
+
+const inboxReviewerExclusionsCreate = (): ToolBase<
+    ReturnType<typeof InboxReviewerExclusionsCreateSchema>,
+    Schemas.ReviewerExclusionCreateResult
+> => ({
+    name: 'inbox-reviewer-exclusions-create',
+    schema: InboxReviewerExclusionsCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof InboxReviewerExclusionsCreateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.repository !== undefined) {
+            body['repository'] = params.repository
+        }
+        if (params.path_prefix !== undefined) {
+            body['path_prefix'] = params.path_prefix
+        }
+        if (params.instruction !== undefined) {
+            body['instruction'] = params.instruction
+        }
+        if (params.report_id !== undefined) {
+            body['report_id'] = params.report_id
+        }
+        const result = await context.api.request<Schemas.ReviewerExclusionCreateResult>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reviewer_exclusions/`,
+            body,
+        })
+        return result
+    },
+})
+
+const InboxReviewerExclusionsUpdateSchema = () => {
+    const SignalsReviewerExclusionsPartialUpdateBody = orvalSchemas.SignalsReviewerExclusionsPartialUpdateBody()
+    const SignalsReviewerExclusionsPartialUpdateParams = orvalSchemas.SignalsReviewerExclusionsPartialUpdateParams()
+    return SignalsReviewerExclusionsPartialUpdateParams.omit({ project_id: true }).extend(
+        SignalsReviewerExclusionsPartialUpdateBody.shape
+    )
+}
+
+const inboxReviewerExclusionsUpdate = (): ToolBase<
+    ReturnType<typeof InboxReviewerExclusionsUpdateSchema>,
+    Schemas.ReviewerExclusion
+> => ({
+    name: 'inbox-reviewer-exclusions-update',
+    schema: InboxReviewerExclusionsUpdateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof InboxReviewerExclusionsUpdateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.repository !== undefined) {
+            body['repository'] = params.repository
+        }
+        if (params.path_prefix !== undefined) {
+            body['path_prefix'] = params.path_prefix
+        }
+        if (params.instruction !== undefined) {
+            body['instruction'] = params.instruction
+        }
+        const result = await context.api.request<Schemas.ReviewerExclusion>({
+            method: 'PATCH',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reviewer_exclusions/${encodeURIComponent(String(params.id))}/`,
+            body,
+        })
+        return result
+    },
+})
+
+const InboxReviewerExclusionsRevokeSchema = () => {
+    const SignalsReviewerExclusionsRevokeCreateParams = orvalSchemas.SignalsReviewerExclusionsRevokeCreateParams()
+    return SignalsReviewerExclusionsRevokeCreateParams.omit({ project_id: true })
+}
+
+const inboxReviewerExclusionsRevoke = (): ToolBase<
+    ReturnType<typeof InboxReviewerExclusionsRevokeSchema>,
+    Schemas.ReviewerExclusion
+> => ({
+    name: 'inbox-reviewer-exclusions-revoke',
+    schema: InboxReviewerExclusionsRevokeSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof InboxReviewerExclusionsRevokeSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ReviewerExclusion>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reviewer_exclusions/${encodeURIComponent(String(params.id))}/revoke/`,
+        })
+        return result
+    },
+})
+
 const InboxReportsListSchema = () => {
     const SignalsReportsListQueryParams = orvalSchemas.SignalsReportsListQueryParams()
     return SignalsReportsListQueryParams
@@ -3418,6 +3548,11 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'inbox-reports-claim': inboxReportsClaim,
     'inbox-reports-feedback-create': inboxReportsFeedbackCreate,
     'inbox-reports-leave-reviewers': inboxReportsLeaveReviewers,
+    'inbox-reviewer-exclusions-list': inboxReviewerExclusionsList,
+    'inbox-reviewer-exclusions-get': inboxReviewerExclusionsGet,
+    'inbox-reviewer-exclusions-create': inboxReviewerExclusionsCreate,
+    'inbox-reviewer-exclusions-update': inboxReviewerExclusionsUpdate,
+    'inbox-reviewer-exclusions-revoke': inboxReviewerExclusionsRevoke,
     'inbox-reports-list': inboxReportsList,
     'inbox-reports-merge': inboxReportsMerge,
     'inbox-reports-retrieve': inboxReportsRetrieve,
