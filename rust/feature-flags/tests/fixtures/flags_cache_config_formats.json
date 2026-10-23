@@ -287,6 +287,42 @@
       "expect": "unsupported"
     },
     {
+      "key": "malformed-v1-groups-object",
+      "active": true,
+      "filters": { "groups": { "key": "value" } },
+      "expect": "unsupported"
+    },
+    {
+      "key": "malformed-v1-group-not-object",
+      "active": true,
+      "filters": { "groups": [1] },
+      "expect": "unsupported"
+    },
+    {
+      "key": "malformed-v1-properties-string",
+      "active": true,
+      "filters": { "groups": [{ "properties": "x" }] },
+      "expect": "unsupported"
+    },
+    {
+      "key": "malformed-v1-property-not-object",
+      "active": true,
+      "filters": { "groups": [{ "properties": [[]] }] },
+      "expect": "unsupported"
+    },
+    {
+      "key": "malformed-v1-groups-number",
+      "active": true,
+      "filters": { "groups": 5 },
+      "expect": "unsupported"
+    },
+    {
+      "key": "malformed-v1-properties-boolean",
+      "active": true,
+      "filters": { "groups": [{ "properties": true }] },
+      "expect": "unsupported"
+    },
+    {
       "key": "malformed-non-object-document",
       "active": true,
       "filters": ["not", "an", "object"],

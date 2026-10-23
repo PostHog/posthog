@@ -1128,7 +1128,7 @@ class UserCustomerAnalyticsConfigViewSet(TeamAndOrgViewSetMixin, viewsets.Generi
             "Replace the requesting user's ordered account sidebar properties when pinned_properties is provided, "
             "and change the task digest email preferences when task_digest is provided. "
             "Anything omitted keeps its current value. "
-            "At most 50 account custom properties and relationships can be pinned."
+            "At most 50 account custom properties, relationships, and account fields can be pinned."
         ),
     )
     def partial_update(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:

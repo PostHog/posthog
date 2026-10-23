@@ -147,7 +147,7 @@ export interface traceViewLogicMeta {
             opened: Set<string>
         }
         selectedSpan: (spans: Span[], selectedSpanId: string | null, summary: TraceViewSummary) => Span | null
-        missingParentSpanId: (spans: Span[], selectedSpanId: string | null) => string | null
+        missingParentSpanId: (spanTree: TraceViewTree, selectedSpanId: string | null) => string | null
         pinnedSpan: (spans: Span[], pinnedSpanId: string | null) => Span | null
         activeInspectorTab: (
             chosenInspectorTab: SpanInspectorTab | null,
@@ -318,13 +318,9 @@ export const traceViewLogic: LogicWrapper<traceViewLogicType> = kea<traceViewLog
         ],
         // The tree's "<parent span missing>" row selects an id that only appears as a parent id.
         missingParentSpanId: [
-            (s) => [s.spans, s.selectedSpanId],
-            (spans: Span[], selectedSpanId: string | null): string | null =>
-                selectedSpanId &&
-                !spans.some((span) => span.span_id === selectedSpanId) &&
-                spans.some((span) => span.parent_span_id === selectedSpanId)
-                    ? selectedSpanId
-                    : null,
+            (s) => [s.spanTree, s.selectedSpanId],
+            (spanTree: TraceViewTree, selectedSpanId: string | null): string | null =>
+                selectedSpanId && spanTree.nodesById.get(selectedSpanId)?.isMissingParent ? selectedSpanId : null,
         ],
         pinnedSpan: [
             (s) => [s.spans, s.pinnedSpanId],

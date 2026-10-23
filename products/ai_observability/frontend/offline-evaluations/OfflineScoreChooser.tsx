@@ -116,7 +116,9 @@ export function OfflineScoreChooser(props: OfflineExperimentsLogicProps): JSX.El
                             )}
                             {draftScorerIds.map((id, index) => (
                                 <div key={id} className="flex items-center gap-1 min-w-0">
-                                    <span className="flex-1 truncate">{scorersById[id]?.name || id}</span>
+                                    <span className="flex-1 truncate">
+                                        {scorersById[id]?.short_name || scorersById[id]?.name || id}
+                                    </span>
                                     <LemonButton
                                         icon={<IconChevronDown className="rotate-180" />}
                                         aria-label="Move score up"
