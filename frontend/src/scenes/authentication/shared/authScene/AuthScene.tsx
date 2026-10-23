@@ -1,5 +1,6 @@
 import './AuthScene.scss'
 
+import clsx from 'clsx'
 import { useValues } from 'kea'
 import { type ReactNode } from 'react'
 
@@ -11,14 +12,30 @@ import { AuthSceneBackdrop } from './AuthSceneBackdrop'
 import { DevLoginPanel } from './DevLoginPanel'
 import { Typewriter } from './Typewriter'
 
-export function AuthScene({ notes, children }: { notes: string[]; children: ReactNode }): JSX.Element {
+export function AuthScene({
+    notes,
+    wide = false,
+    children,
+}: {
+    notes: string[]
+    /** For a card that holds tables, such as the credential review. */
+    wide?: boolean
+    children: ReactNode
+}): JSX.Element {
     return (
         <AuthSceneBackdrop className="relative h-screen overflow-x-hidden overflow-y-auto">
             <div className="hidden sm:block">
                 <Typewriter lines={notes} />
             </div>
             <div className="relative z-[3] flex flex-col items-center justify-center min-h-full py-18 px-4 sm:px-10">
-                <div className="AuthScene__column flex flex-col items-center w-[27rem] max-w-full">{children}</div>
+                <div
+                    className={clsx(
+                        'AuthScene__column flex flex-col items-center max-w-full',
+                        wide ? 'w-[48rem]' : 'w-[27rem]'
+                    )}
+                >
+                    {children}
+                </div>
             </div>
             <DevLoginPanel />
         </AuthSceneBackdrop>
