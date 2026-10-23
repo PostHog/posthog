@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { type ReactNode, useState } from 'react'
+import { useState } from 'react'
 
 import UniversalFilters from 'lib/components/UniversalFilters/UniversalFilters'
 import { universalFiltersLogic } from 'lib/components/UniversalFilters/universalFiltersLogic'
@@ -18,20 +18,10 @@ export function MetricsClauseFilterBar({
     disabledReason,
     addFilterTitle = 'Filter',
     addFilterType = 'secondary',
-    addFilterDataAttr,
-    addFilterTooltip,
-    addFilterDisabledReason,
-    actionsBeforeAddFilter,
 }: {
     disabledReason: string | null
     addFilterTitle?: string
     addFilterType?: 'secondary' | 'tertiary'
-    addFilterDataAttr?: string
-    addFilterTooltip?: string | null
-    /** Disables only the "Add filter" button. The chips stay editable, so the user can still remove them. */
-    addFilterDisabledReason?: string | null
-    /** Buttons shown after the chips and before the "Add filter" button. */
-    actionsBeforeAddFilter?: ReactNode
 }): JSX.Element {
     const { filterGroup } = useValues(universalFiltersLogic)
     const { replaceGroupValue, removeGroupValue } = useActions(universalFiltersLogic)
@@ -64,14 +54,11 @@ export function MetricsClauseFilterBar({
                     </span>
                 )
             )}
-            {actionsBeforeAddFilter}
             <UniversalFilters.AddFilterButton
                 size="small"
                 type={addFilterType}
                 title={addFilterTitle}
-                disabledReason={disabledReason ?? addFilterDisabledReason}
-                tooltip={addFilterTooltip}
-                data-attr={addFilterDataAttr}
+                disabledReason={disabledReason}
             />
         </div>
     )

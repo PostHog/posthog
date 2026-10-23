@@ -1202,7 +1202,6 @@ describe('dashboardLogic', () => {
             await expectLogic(logic, () => {
                 logic.actions.setInterval('week')
                 logic.actions.setFilterTestAccounts(true)
-                logic.actions.setMetricFilters([{ key: 'service.name', op: 'eq', value: 'checkout' }])
             }).toFinishAllListeners()
 
             expect(logic.values.dashboardSettingsDraft?.filters).toEqual(
@@ -1212,7 +1211,6 @@ describe('dashboardLogic', () => {
                     breakdown_filter: { breakdown: '$browser', breakdown_type: 'event' },
                     interval: 'week',
                     filterTestAccounts: true,
-                    metricFilters: [{ key: 'service.name', op: 'eq', value: 'checkout' }],
                 })
             )
             expect(logic.values.urlFilters).toEqual(
@@ -1222,7 +1220,6 @@ describe('dashboardLogic', () => {
                     breakdown_filter: { breakdown: '$browser', breakdown_type: 'event' },
                     interval: 'week',
                     filterTestAccounts: true,
-                    metricFilters: [{ key: 'service.name', op: 'eq', value: 'checkout' }],
                 })
             )
 

@@ -10,7 +10,7 @@ import { urls } from 'scenes/urls'
 import { DashboardPlacement } from '~/types'
 
 import { DashboardUnsavedChangesIndicator } from 'products/dashboards/frontend/dashboardSettings/DashboardUnsavedChangesIndicator'
-import { DashboardMetricControls } from 'products/metrics/frontend/components/dashboardVariables/DashboardMetricControls'
+import { DashboardMetricVariables } from 'products/metrics/frontend/components/dashboardVariables/DashboardMetricVariables'
 
 import { DashboardEditBar } from './DashboardEditBar'
 import { dashboardLogic } from './dashboardLogic'
@@ -40,7 +40,7 @@ export function DashboardFilterBar({ backTo }: DashboardFilterBarProps): JSX.Ele
                         {placement === DashboardPlacement.Builtin &&
                             controlsEnabled &&
                             !!effectiveEditBarFilters.metricVariables?.length && (
-                                <DashboardMetricControls editable={false} />
+                                <DashboardMetricVariables editable={false} />
                             )}
                         {placement === DashboardPlacement.Dashboard && <DashboardUnsavedChangesIndicator />}
                     </div>

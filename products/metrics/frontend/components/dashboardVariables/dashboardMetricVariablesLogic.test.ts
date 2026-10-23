@@ -46,7 +46,7 @@ describe('dashboardMetricVariablesLogic', () => {
             ...variables,
             { name: 'zone', source: 'sql', query: 'SELECT zone', current: { values: ['eu'] } },
         ]
-        // The dashboard passes each published selection back in as props, as `DashboardMetricControls` does.
+        // The dashboard passes each published selection back in as props, as `DashboardMetricVariables` does.
         const onSelectionsChange = jest.fn((next: MetricsDashboardVariable[]) => {
             dashboardMetricVariablesLogic({ dashboardId: 1, variables: next, onSelectionsChange })
         })

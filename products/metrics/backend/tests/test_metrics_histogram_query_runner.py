@@ -64,7 +64,7 @@ class TestMetricsHistogramQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         return MetricsHistogramQueryRunner(query=query, team=self.team).calculate()
 
-    def test_dashboard_metric_filters_add_to_the_query_filters(self):
+    def test_dashboard_variables_apply_and_saved_metric_filters_do_not(self):
         own_filter = MetricsQueryFilter(key="namespace", op="eq", value="posthog")
         dashboard_filter = MetricsQueryFilter(key="service.name", op="eq", value="checkout")
         runner = MetricsHistogramQueryRunner(
@@ -82,7 +82,7 @@ class TestMetricsHistogramQueryRunner(ClickhouseTestMixin, APIBaseTest):
             )
         )
 
-        self.assertEqual(runner.query.filters, [own_filter, dashboard_filter])
+        self.assertEqual(runner.query.filters, [own_filter])
         assert runner.query.variables is not None and runner.query.variables["window"].values == ["1m"]
 
     @parameterized.expand([("fixed", "minute"), ("variable", "$window")])
