@@ -2912,7 +2912,7 @@ export const LlmAnalyticsScoreDefinitionsListQueryParams = () => zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     order_by: zod.string().optional().describe('Sort by name, kind, created_at, updated_at, or current_version.'),
-    search: zod.string().optional().describe('Search scorers by name or description.'),
+    search: zod.string().optional().describe('Search scorers by name, short name, or description.'),
     tag_match: zod
         .enum(['any', 'all'])
         .default(llmAnalyticsScoreDefinitionsListQueryTagMatchDefault)
@@ -2941,6 +2941,8 @@ export const llmAnalyticsScoreDefinitionsCreateBodyTagsMax = 100
 
 export const llmAnalyticsScoreDefinitionsCreateBodyNameMax = 255
 
+export const llmAnalyticsScoreDefinitionsCreateBodyShortNameMax = 40
+
 export const llmAnalyticsScoreDefinitionsCreateBodyArchivedDefault = false
 export const llmAnalyticsScoreDefinitionsCreateBodyConfigOneOneOptionsItemKeyMax = 128
 
@@ -2955,6 +2957,11 @@ export const LlmAnalyticsScoreDefinitionsCreateBody = () => zod.object({
         .optional()
         .describe('Tag names. Replaces existing tags; send [] to remove all tags. Names are trimmed and lowercased.'),
     name: zod.string().max(llmAnalyticsScoreDefinitionsCreateBodyNameMax).describe('Human-readable scorer name.'),
+    short_name: zod
+        .string()
+        .max(llmAnalyticsScoreDefinitionsCreateBodyShortNameMax)
+        .optional()
+        .describe('Optional compact label. Blank uses the full name.'),
     description: zod.string().nullish().describe('Optional human-readable description.'),
     kind: zod
         .enum(['categorical', 'numeric', 'boolean'])
@@ -3093,6 +3100,8 @@ export const llmAnalyticsScoreDefinitionsPartialUpdateBodyTagsMax = 100
 
 export const llmAnalyticsScoreDefinitionsPartialUpdateBodyNameMax = 255
 
+export const llmAnalyticsScoreDefinitionsPartialUpdateBodyShortNameMax = 40
+
 export const LlmAnalyticsScoreDefinitionsPartialUpdateBody = () => zod.object({
     tags: zod
         .array(zod.string().max(llmAnalyticsScoreDefinitionsPartialUpdateBodyTagsItemMax))
@@ -3104,6 +3113,11 @@ export const LlmAnalyticsScoreDefinitionsPartialUpdateBody = () => zod.object({
         .max(llmAnalyticsScoreDefinitionsPartialUpdateBodyNameMax)
         .optional()
         .describe('Updated scorer name.'),
+    short_name: zod
+        .string()
+        .max(llmAnalyticsScoreDefinitionsPartialUpdateBodyShortNameMax)
+        .optional()
+        .describe('Updated compact label. Blank uses the full name.'),
     description: zod.string().nullish().describe('Updated scorer description.'),
     archived: zod.boolean().optional().describe('Whether the scorer is archived.'),
 })
@@ -3117,6 +3131,8 @@ export const LlmAnalyticsScoreDefinitionsNewVersionCreateParams = () => zod.obje
         ),
 })
 
+export const llmAnalyticsScoreDefinitionsNewVersionCreateBodyShortNameMax = 40
+
 export const llmAnalyticsScoreDefinitionsNewVersionCreateBodyNameMax = 255
 
 export const llmAnalyticsScoreDefinitionsNewVersionCreateBodyConfigOneOneOptionsItemKeyMax = 128
@@ -3126,6 +3142,11 @@ export const llmAnalyticsScoreDefinitionsNewVersionCreateBodyConfigOneOneOptions
 export const llmAnalyticsScoreDefinitionsNewVersionCreateBodyConfigOneOnePassingRuleOneCategoriesItemMax = 128
 
 export const LlmAnalyticsScoreDefinitionsNewVersionCreateBody = () => zod.object({
+    short_name: zod
+        .string()
+        .max(llmAnalyticsScoreDefinitionsNewVersionCreateBodyShortNameMax)
+        .optional()
+        .describe('Updated compact label, saved with this version.'),
     name: zod
         .string()
         .max(llmAnalyticsScoreDefinitionsNewVersionCreateBodyNameMax)

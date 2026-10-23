@@ -65,6 +65,11 @@ class Interval:
     low: float
     high: float
 
+    @property
+    def midpoint(self) -> float:
+        # The results page shows this as the variant's difference (`getDelta` in MetricsView/shared/utils.ts).
+        return (self.low + self.high) / 2
+
 
 @frozen
 class BaselineStats:

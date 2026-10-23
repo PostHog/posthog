@@ -3525,6 +3525,7 @@ export namespace Schemas {
         preComputeStrategy?:
             | (WebAnalyticsPreComputeStrategy | null)
             | undefined;
+        preComputedAt?: (string | null) | undefined;
         query_status?: (QueryStatus | null) | undefined;
         resolved_compare_date_range?:
             | (ResolvedDateRangeResponse | null)
@@ -3608,9 +3609,11 @@ export namespace Schemas {
         hogql?: (string | null) | undefined;
         modifiers?: (HogQLQueryModifiers | null) | undefined;
         preComputeIneligibleReason?: (string | null) | undefined;
+        preComputeStale?: (boolean | null) | undefined;
         preComputeStrategy?:
             | (WebAnalyticsPreComputeStrategy | null)
             | undefined;
+        preComputedAt?: (string | null) | undefined;
         query_status?: (QueryStatus | null) | undefined;
         resolved_compare_date_range?:
             | (ResolvedDateRangeResponse | null)
@@ -6176,9 +6179,30 @@ export namespace Schemas {
      * * `stable` - stable
      */
     export type LayoutCompactionEnum = "vertical" | "horizontal" | "stable";
+    /**
+     * * `blue` - Blue
+     * * `purple` - Purple
+     * * `green` - Green
+     * * `yellow` - Yellow
+     * * `orange` - Orange
+     * * `red` - Red
+     */
+    export type DashboardTileGroupColorEnum =
+        | "blue"
+        | "purple"
+        | "green"
+        | "yellow"
+        | "orange"
+        | "red";
+    export type DashboardTileGroup = Partial<{
+        title: string;
+        collapsed: boolean;
+        color: DashboardTileGroupColorEnum | NullEnum;
+    }>;
     export type DashboardCustomization = Partial<{
         tile_spacing: TileSpacingEnum;
         layout_compaction: LayoutCompactionEnum;
+        groups: Record<string, DashboardTileGroup>;
         group_titles: Record<string, string>;
     }>;
     /**
@@ -6261,6 +6285,10 @@ export namespace Schemas {
          * Serializer mixin that handles tags for objects.
          */
         layout_compaction?: (LayoutCompactionEnum & unknown) | undefined;
+        /**
+         * Serializer mixin that handles tags for objects.
+         */
+        groups?: (Record<string, DashboardTileGroup> | null) | undefined;
         /**
          * Serializer mixin that handles tags for objects.
          */
@@ -6405,6 +6433,7 @@ export namespace Schemas {
      * * `experiment_results` - Experiment Results
      * * `experiments_list` - Experiments List
      * * `logs_list` - Logs List
+     * * `metrics_table` - Metrics Table
      * * `notebook_widget` - Notebook Widget
      * * `session_replay_list` - Session Replay List
      * * `survey_results` - Survey Results
@@ -6417,6 +6446,7 @@ export namespace Schemas {
         | "experiment_results"
         | "experiments_list"
         | "logs_list"
+        | "metrics_table"
         | "notebook_widget"
         | "session_replay_list"
         | "survey_results";
@@ -6555,6 +6585,49 @@ export namespace Schemas {
         savedViewId: string | null;
     }>;
     export type CanvasAppWidgetConfig = Partial<{ canvasId: string | null }>;
+    export type MetricsTableFilter = {
+        /**
+         * Label key to filter on, e.g. `http.response.status_code`.
+         */
+        key: string;
+        op?: ("eq" | "neq" | "regex" | "not_regex") | undefined;
+        /**
+         * Label value, or a regular expression for `regex` and `not_regex`.
+         */
+        value: string;
+    };
+    export type MetricsTableColumn = {
+        /**
+         * Column header, e.g. `Requests/s`.
+         */
+        label: string;
+        /**
+         * Name of the metric this column reads.
+         */
+        metricName: string;
+        /**
+         * How each time bucket of a row is computed. `rate` and `increase` read counters.
+         */
+        aggregation:
+            | "rate"
+            | "increase"
+            | "sum"
+            | "avg"
+            | "min"
+            | "max"
+            | "histogram_quantile";
+        quantile?: (number | null) | undefined;
+        filters?: Array<MetricsTableFilter> | undefined;
+    };
+    export type MetricsTableWidgetConfig = Partial<{
+        dateRange: WidgetDateRange | null;
+        groupBy: string | null;
+        columns: Array<MetricsTableColumn>;
+        interval: ("minute" | "minute_5" | "minute_15" | "hour" | "day") | null;
+        orderByColumn: number;
+        orderDirection: "ASC" | "DESC";
+        limit: number;
+    }>;
     export type DashboardWidgetConfig =
         | NotebookWidgetConfig
         | ActivityEventsListWidgetConfig
@@ -6565,7 +6638,8 @@ export namespace Schemas {
         | SurveyResultsWidgetConfig
         | LogsListWidgetConfig
         | ConversationsRecentTicketsWidgetConfig
-        | CanvasAppWidgetConfig;
+        | CanvasAppWidgetConfig
+        | MetricsTableWidgetConfig;
     export type DashboardPatchWidgetOpenApi = Partial<{
         id: string;
         widget_type: DashboardWidgetTypeEnum;
@@ -6717,9 +6791,11 @@ export namespace Schemas {
         hogql?: (string | null) | undefined;
         modifiers?: (HogQLQueryModifiers | null) | undefined;
         preComputeIneligibleReason?: (string | null) | undefined;
+        preComputeStale?: (boolean | null) | undefined;
         preComputeStrategy?:
             | (WebAnalyticsPreComputeStrategy | null)
             | undefined;
+        preComputedAt?: (string | null) | undefined;
         query_status?: (QueryStatus | null) | undefined;
         resolved_compare_date_range?:
             | (ResolvedDateRangeResponse | null)
@@ -6750,6 +6826,7 @@ export namespace Schemas {
         preComputeStrategy?:
             | (WebAnalyticsPreComputeStrategy | null)
             | undefined;
+        preComputedAt?: (string | null) | undefined;
         query_status?: (QueryStatus | null) | undefined;
         resolved_compare_date_range?:
             | (ResolvedDateRangeResponse | null)
@@ -6828,9 +6905,11 @@ export namespace Schemas {
         modifiers?: (HogQLQueryModifiers | null) | undefined;
         offset?: (number | null) | undefined;
         preComputeIneligibleReason?: (string | null) | undefined;
+        preComputeStale?: (boolean | null) | undefined;
         preComputeStrategy?:
             | (WebAnalyticsPreComputeStrategy | null)
             | undefined;
+        preComputedAt?: (string | null) | undefined;
         query_status?: (QueryStatus | null) | undefined;
         resolved_compare_date_range?:
             | (ResolvedDateRangeResponse | null)
@@ -6863,9 +6942,11 @@ export namespace Schemas {
         hogql?: (string | null) | undefined;
         modifiers?: (HogQLQueryModifiers | null) | undefined;
         preComputeIneligibleReason?: (string | null) | undefined;
+        preComputeStale?: (boolean | null) | undefined;
         preComputeStrategy?:
             | (WebAnalyticsPreComputeStrategy | null)
             | undefined;
+        preComputedAt?: (string | null) | undefined;
         query_status?: (QueryStatus | null) | undefined;
         resolved_compare_date_range?:
             | (ResolvedDateRangeResponse | null)
@@ -7790,9 +7871,11 @@ export namespace Schemas {
         modifiers?: (HogQLQueryModifiers | null) | undefined;
         offset?: (number | null) | undefined;
         preComputeIneligibleReason?: (string | null) | undefined;
+        preComputeStale?: (boolean | null) | undefined;
         preComputeStrategy?:
             | (WebAnalyticsPreComputeStrategy | null)
             | undefined;
+        preComputedAt?: (string | null) | undefined;
         query_status?: (QueryStatus | null) | undefined;
         resolved_compare_date_range?:
             | (ResolvedDateRangeResponse | null)
@@ -7894,9 +7977,11 @@ export namespace Schemas {
         hogql?: (string | null) | undefined;
         modifiers?: (HogQLQueryModifiers | null) | undefined;
         preComputeIneligibleReason?: (string | null) | undefined;
+        preComputeStale?: (boolean | null) | undefined;
         preComputeStrategy?:
             | (WebAnalyticsPreComputeStrategy | null)
             | undefined;
+        preComputedAt?: (string | null) | undefined;
         query_status?: (QueryStatus | null) | undefined;
         resolved_compare_date_range?:
             | (ResolvedDateRangeResponse | null)
@@ -9767,6 +9852,7 @@ export namespace Schemas {
      * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
      * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
      * * `new_flag_no_traffic` - New Flag No Traffic
+     * * `early_significance` - Early Significance
      */
     export type ExperimentHealthFindingCodeEnum =
         | "flag_off_while_running"
@@ -9785,7 +9871,8 @@ export namespace Schemas {
         | "split_changed_mid_run"
         | "bucketing_changed_mid_run"
         | "release_conditions_changed_mid_run"
-        | "new_flag_no_traffic";
+        | "new_flag_no_traffic"
+        | "early_significance";
     /**
      * * `critical` - Critical severity
      * * `warning` - Warning severity
@@ -9835,6 +9922,7 @@ export namespace Schemas {
          * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
          * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
          * * `new_flag_no_traffic` - New Flag No Traffic
+         * * `early_significance` - Early Significance
          */
         code: ExperimentHealthFindingCodeEnum;
         /**
@@ -9882,6 +9970,7 @@ export namespace Schemas {
      * * `no_metric` - No Metric
      * * `metric_event_not_ingested` - Metric Event Not Ingested
      * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
+     * * `early_significance` - Early Significance
      * * `zero_exposures` - Zero Exposures
      * * `srm` - Srm
      * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
@@ -9899,6 +9988,7 @@ export namespace Schemas {
         | "no_metric"
         | "metric_event_not_ingested"
         | "exposure_criteria_cannot_match"
+        | "early_significance"
         | "zero_exposures"
         | "srm"
         | "bias_risk_multiple_excluded"
@@ -9929,6 +10019,7 @@ export namespace Schemas {
          * * `no_metric` - No Metric
          * * `metric_event_not_ingested` - Metric Event Not Ingested
          * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
+         * * `early_significance` - Early Significance
          * * `zero_exposures` - Zero Exposures
          * * `srm` - Srm
          * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
@@ -19435,6 +19526,7 @@ export namespace Schemas {
         quick_filter_ids: Array<string> | null;
         grid_spacing: TileSpacingEnum;
         layout_compaction: LayoutCompactionEnum;
+        groups: Record<string, DashboardTileGroup> | null;
         group_titles: Record<string, string> | null;
         tiles: Array<DashboardPatchTileOpenApi>;
         use_template: string;
@@ -19991,6 +20083,8 @@ export namespace Schemas {
     }>;
     export type TeamFeatureFlagPolicyConfig = Partial<{
         require_tags: boolean;
+        blocked_hosts: Array<string>;
+        blocked_ips: Array<string>;
     }>;
     /**
      * A project and its settings, including the settings that live on its passthrough Team.
@@ -20438,6 +20532,10 @@ export namespace Schemas {
          * Which table this project's feature flag usage data is read from. PostHog sets it for the whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table.
          */
         flag_evaluations_mode: FlagEvaluationsModeEnum & unknown;
+        /**
+         * Host the PostHog SDKs send events to, set as their `api_host` option. It is `https://us.i.posthog.com` on US Cloud, `https://eu.i.posthog.com` on EU Cloud, and the instance URL when self-hosted.
+         */
+        api_host: string;
         /**
          * A project and its settings, including the settings that live on its passthrough Team.
          *

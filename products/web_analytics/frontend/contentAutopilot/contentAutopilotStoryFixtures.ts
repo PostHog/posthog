@@ -1,4 +1,6 @@
 import type {
+    AEOPromptApi,
+    AEOPromptTopicApi,
     ContentAutopilotOpportunityApi,
     ContentAutopilotProposalApi,
     ContentAutopilotProposalListApi,
@@ -231,3 +233,61 @@ export const EXAMPLE_FAILED_DRAFT_OPPORTUNITY: ContentAutopilotOpportunityApi = 
     title: 'How do I track AI crawler traffic on my website?',
     status: 'drafted',
 }
+
+const EXAMPLE_PROMPT: AEOPromptApi = {
+    id: '00000000-0000-4000-8000-000000000301',
+    prompt: 'What is the best open source product analytics tool for a small startup?',
+    topic: 'Product analytics',
+    prompt_source: 'imported',
+    rank: 0,
+    active: true,
+    last_checked_at: '2026-09-29T09:00:00Z',
+    external_visibility: 40,
+    created_at: '2026-09-01T12:00:00Z',
+    updated_at: '2026-09-01T12:00:00Z',
+    latest_checks: [
+        { engine: 'claude-web-search', cited: true, check_failed: false, checked_at: '2026-09-29T09:00:00Z' },
+        { engine: 'openai-web-search', cited: false, check_failed: false, checked_at: '2026-09-29T09:00:00Z' },
+        { engine: 'exa-answer', cited: true, check_failed: false, checked_at: '2026-09-29T09:00:00Z' },
+    ],
+}
+
+export const EXAMPLE_PROMPTS: AEOPromptApi[] = [
+    EXAMPLE_PROMPT,
+    {
+        ...EXAMPLE_PROMPT,
+        id: '00000000-0000-4000-8000-000000000302',
+        prompt: 'How do I track funnels without writing SQL, and can I break the results down by country and browser?',
+        latest_checks: [
+            { engine: 'claude-web-search', cited: false, check_failed: false, checked_at: '2026-09-28T09:00:00Z' },
+            { engine: 'openai-web-search', cited: false, check_failed: true, checked_at: '2026-09-28T09:00:00Z' },
+            { engine: 'gemini-google-search', cited: true, check_failed: false, checked_at: '2026-09-28T09:00:00Z' },
+        ],
+        last_checked_at: '2026-09-28T09:00:00Z',
+    },
+    {
+        ...EXAMPLE_PROMPT,
+        id: '00000000-0000-4000-8000-000000000303',
+        prompt: 'Which session replay tools let me mask sensitive inputs by default?',
+        topic: 'Session replay',
+        active: false,
+        latest_checks: [],
+        last_checked_at: null,
+    },
+    {
+        ...EXAMPLE_PROMPT,
+        id: '00000000-0000-4000-8000-000000000304',
+        prompt: 'Is there a free alternative to paid feature flag services?',
+        topic: '',
+        latest_checks: [
+            { engine: 'exa-answer', cited: false, check_failed: false, checked_at: '2026-09-27T09:00:00Z' },
+        ],
+        last_checked_at: '2026-09-27T09:00:00Z',
+    },
+]
+
+export const EXAMPLE_PROMPT_TOPICS: AEOPromptTopicApi[] = [
+    { topic: '', prompts: 1 },
+    { topic: 'Product analytics', prompts: 2 },
+    { topic: 'Session replay', prompts: 1 },
+]
