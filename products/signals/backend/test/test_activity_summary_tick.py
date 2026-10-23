@@ -34,6 +34,8 @@ from products.signals.backend.activity_summary.queue import (
     daily_usage,
     enrolled_team_ids,
     feed_queue,
+    is_team_enrolled_for_generation,
+    is_team_enrolled_for_read,
     max_update_cost_usd,
     seed_queue,
     select_pairs,
@@ -339,6 +341,32 @@ class TestActivitySummaryQueue(BaseTest):
         self._changes(self.user, 3)
 
         assert self._select() == []
+
+    @parameterized.expand(
+        [
+            ("listed", {}, True, True),
+            ("disabled", {"enabled": False}, True, False),
+            ("not_listed", {"organization_ids": ("00000000-0000-0000-0000-000000000001",)}, True, False),
+            ("invalid_listed_id", {"organization_ids": ("not-a-uuid",)}, True, False),
+            ("team_skipped", {"skip_team_ids": ("own",)}, True, False),
+            ("not_approved", {}, False, False),
+            ("all_approved", {"organization_ids": (), "enroll_all_approved": True}, True, True),
+            ("all_approved_not_approved", {"organization_ids": (), "enroll_all_approved": True}, False, False),
+            ("all_approved_team_skipped", {"enroll_all_approved": True, "skip_team_ids": ("own",)}, True, False),
+        ]
+    )
+    def test_read_and_generation_checks_enroll_the_same_teams(
+        self, _name: str, overrides: dict[str, Any], approved: bool, expected: bool
+    ) -> None:
+        self.organization.is_ai_data_processing_approved = approved
+        self.organization.save()
+        if overrides.get("skip_team_ids") == ("own",):
+            overrides = {**overrides, "skip_team_ids": (self.team.id,)}
+        config = dataclasses.replace(self._config(), **overrides)
+        team = Team.objects.get(id=self.team.id)
+
+        assert is_team_enrolled_for_read(config, team) is expected
+        assert is_team_enrolled_for_generation(config, team) is expected
 
     def test_daily_usage_counts_model_calls_and_prices_a_missing_cost_at_the_bound(self) -> None:
         priced, unpriced, skipped = (self._user(f"{name}@example.com") for name in ("priced", "unpriced", "skipped"))

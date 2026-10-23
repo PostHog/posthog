@@ -16,10 +16,11 @@ import structlog
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
-from posthog.hogql.errors import TableAccessDeniedError
+from posthog.hogql.errors import QueryError, TableAccessDeniedError
 
 from posthog.dataclasses import frozen
 from posthog.exceptions import (
+    ClickHouseAtCapacity,
     ClickHouseClusterMemoryLimitExceeded,
     ClickHouseEstimatedQueryExecutionTimeTooLong,
     ClickHouseQueryMemoryLimitExceeded,
@@ -69,6 +70,10 @@ STATUS_MISSING = "missing"
 STATUS_TOO_EXPENSIVE = "too_expensive"
 # The insight's creator cannot read a table of the query.
 STATUS_ACCESS_DENIED = "access_denied"
+# The saved query is invalid, for example it reads a warehouse table that no longer exists.
+STATUS_BROKEN_QUERY = "broken_query"
+# ClickHouse rejected the query because it is full. The tick starts no more picks.
+STATUS_AT_CAPACITY = "at_capacity"
 # Any other failure. The activity raises it, and the workflow counts it as `errored`.
 STATUS_ERRORED = "errored"
 
@@ -97,6 +102,7 @@ class AnomalyScoringTickPlan:
     candidates: int
     max_concurrency: int
     limits: ScoringLimits = DEFAULT_LIMITS
+    skipped_for_budget: int = 0
 
 
 @frozen
@@ -123,6 +129,10 @@ class AnomalyScoringTickResult:
     duration_ms: int = 0
     # Picks left for a later tick because the tick budget ran out.
     deferred: int = 0
+    # The query cost of the picks that started.
+    queries: int = 0
+    skipped_for_budget: int = 0
+    stopped_at_capacity: bool = False
 
 
 def plan_tick(limit: int | None, now: datetime.datetime) -> AnomalyScoringTickPlan:
@@ -139,13 +149,16 @@ def plan_tick(limit: int | None, now: datetime.datetime) -> AnomalyScoringTickPl
         candidates=selection.candidates,
         max_concurrency=config.max_concurrency,
         limits=config.limits,
+        skipped_for_budget=selection.skipped_for_budget,
     )
 
 
 def failure_status(error: Exception) -> str | None:
-    """The status of a failure that the next tick does not fix, or None for any other failure."""
+    """The status of a known failure, or None for any other failure."""
     if isinstance(error, UnsupportedInsightError):
         return STATUS_UNSUPPORTED
+    if isinstance(error, ClickHouseAtCapacity):
+        return STATUS_AT_CAPACITY
     # The cluster limit is a subclass of the query limit, but it is load from other queries, so a later tick can pass.
     if isinstance(error, ClickHouseClusterMemoryLimitExceeded):
         return None
@@ -154,8 +167,12 @@ def failure_status(error: Exception) -> str | None:
         ClickHouseQueryTimeOut | ClickHouseQueryMemoryLimitExceeded | ClickHouseEstimatedQueryExecutionTimeTooLong,
     ):
         return STATUS_TOO_EXPENSIVE
+    # A subclass of QueryError, so check it first.
     if isinstance(error, TableAccessDeniedError):
         return STATUS_ACCESS_DENIED
+    # Only the exposed invalid-query error, such as an unknown table. ResolutionError is internal to the engine.
+    if isinstance(error, QueryError):
+        return STATUS_BROKEN_QUERY
     return None
 
 
@@ -183,7 +200,9 @@ def run_insight(input: ScoreInsightInput, now: datetime.datetime) -> ScoreInsigh
         record_pick(status=status or STATUS_ERRORED, interval=interval, duration_ms=duration_ms, events=0)
         if status is None:
             raise
-        mark_attempted(pick.insight_id, SKIP_COOLDOWN)
+        # A full cluster is not a fault of the insight, so it keeps the attempt cooldown.
+        if status != STATUS_AT_CAPACITY:
+            mark_attempted(pick.insight_id, SKIP_COOLDOWN)
         return ScoreInsightResult(status=status, events=0)
     duration_ms = round((time.monotonic() - started) * 1000)
     logger.info(
@@ -242,6 +261,9 @@ def capture_tick(result: AnomalyScoringTickResult) -> None:
         events=result.events,
         duration_ms=result.duration_ms,
         deferred=result.deferred,
+        queries=result.queries,
+        skipped_for_budget=result.skipped_for_budget,
+        stopped_at_capacity=result.stopped_at_capacity,
     )
     ph_background_capture()(
         distinct_id=ANOMALY_SCORING_FLAG_DISTINCT_ID,
@@ -255,6 +277,9 @@ def capture_tick(result: AnomalyScoringTickResult) -> None:
             "events": result.events,
             "duration_ms": result.duration_ms,
             "deferred": result.deferred,
+            "queries": result.queries,
+            "skipped_for_budget": result.skipped_for_budget,
+            "stopped_at_capacity": result.stopped_at_capacity,
         },
     )
 
@@ -299,11 +324,14 @@ class AnomalyScoringTickWorkflow:
         errored = 0
         events = 0
         deferred = 0
+        started_picks: list[InsightPick] = []
         concurrency = max(1, plan.max_concurrency)
         for index in range(0, len(plan.picks), concurrency):
             if workflow.now() - started >= TICK_BUDGET:
                 deferred = len(plan.picks) - index
                 break
+            batch = plan.picks[index : index + concurrency]
+            started_picks.extend(batch)
             results = await asyncio.gather(
                 *(
                     workflow.execute_activity(
@@ -314,7 +342,7 @@ class AnomalyScoringTickWorkflow:
                         # A failed insight waits for its cooldown and a later tick, not a retry in this one.
                         retry_policy=RetryPolicy(maximum_attempts=1),
                     )
-                    for pick in plan.picks[index : index + concurrency]
+                    for pick in batch
                 ),
                 return_exceptions=True,
             )
@@ -324,16 +352,22 @@ class AnomalyScoringTickWorkflow:
                     continue
                 statuses[outcome.status] += 1
                 events += outcome.events
+            # More queries add load to a full cluster. The picks in flight finish, and no new pick starts.
+            if statuses[STATUS_AT_CAPACITY]:
+                break
 
         result = AnomalyScoringTickResult(
             enabled=True,
             candidates=plan.candidates,
-            picked=len(plan.picks),
+            picked=len(started_picks),
             statuses=dict(statuses),
             errored=errored,
             events=events,
             duration_ms=round((workflow.now() - started).total_seconds() * 1000),
             deferred=deferred,
+            queries=sum(pick.query_cost for pick in started_picks),
+            skipped_for_budget=plan.skipped_for_budget,
+            stopped_at_capacity=statuses[STATUS_AT_CAPACITY] > 0,
         )
         await workflow.execute_activity(
             capture_anomaly_scoring_tick_activity,

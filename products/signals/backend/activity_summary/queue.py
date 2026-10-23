@@ -170,8 +170,16 @@ def enrolled_team_ids(config: ActivitySummaryConfig) -> list[int]:
     return list(teams.exclude(id__in=config.skip_team_ids).values_list("id", flat=True))
 
 
-def is_team_enrolled(config: ActivitySummaryConfig, team: Team) -> bool:
-    """The single-team form of `enrolled_team_ids`. A disabled config enrolls no team."""
+def is_team_enrolled_for_generation(config: ActivitySummaryConfig, team: Team) -> bool:
+    """The tick may generate summaries for the team. It is the read check for now."""
+    return is_team_enrolled_for_read(config, team)
+
+
+def is_team_enrolled_for_read(config: ActivitySummaryConfig, team: Team) -> bool:
+    """The single-team form of `enrolled_team_ids`. The API and MCP tools read summaries only for these teams.
+
+    A disabled config enrolls no team.
+    """
     if not config.enabled or team.id in config.skip_team_ids:
         return False
     if team.organization.is_ai_data_processing_approved is not True:
