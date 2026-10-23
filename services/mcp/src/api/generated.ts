@@ -107442,6 +107442,8 @@ export namespace Schemas {
          * @nullable
          */
       autostart_enabled?: boolean | null;
+      /** Effective GitHub access for self-driving, including eligible organization-owner connections, based on cached installation and repository state. */
+      readonly github_readiness: GitHubReadinessStatusEnum;
       default_autostart_priority?: AutonomyPriorityEnum;
       /**
          * Default Slack channel for this team's signal inbox notifications, in the same `channel_id|#channel-name` shape PostHog uses elsewhere (only the channel id is required). Null means no team-level default; per-user channels still apply.
