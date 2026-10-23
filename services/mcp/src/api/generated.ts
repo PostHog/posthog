@@ -128324,9 +128324,9 @@ export namespace Schemas {
     /**
      * Materialization engine. All combines ClickHouse and managed warehouse usage.
      *
-     * * `all` - all
-     * * `clickhouse` - clickhouse
-     * * `managed_warehouse` - managed_warehouse
+     * * `all` - All
+     * * `clickhouse` - ClickHouse
+     * * `managed_warehouse` - Managed warehouse
      * @minLength 1
      */
     engine?: DataModelingUsageListEngine;

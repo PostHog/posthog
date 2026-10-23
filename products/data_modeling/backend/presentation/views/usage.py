@@ -1,5 +1,7 @@
 from datetime import UTC, datetime, timedelta
 
+from django.db import models
+
 from drf_spectacular.helpers import forced_singular_serializer
 from drf_spectacular.utils import OpenApiResponse
 from rest_framework import response, serializers, viewsets
@@ -9,6 +11,12 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 
 from products.data_modeling.backend.facade.api import get_model_usage
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
+
+
+class ModelUsageEngine(models.TextChoices):
+    ALL = "all", "All"
+    CLICKHOUSE = "clickhouse", "ClickHouse"
+    MANAGED_WAREHOUSE = "managed_warehouse", "Managed warehouse"
 
 
 class ModelUsageQuerySerializer(serializers.Serializer):
@@ -26,8 +34,8 @@ class ModelUsageQuerySerializer(serializers.Serializer):
         default=20, min_value=1, max_value=100, help_text="Models per page, up to 100."
     )
     engine = serializers.ChoiceField(
-        choices=["all", "clickhouse", "managed_warehouse"],
-        default="clickhouse",
+        choices=ModelUsageEngine.choices,
+        default=ModelUsageEngine.CLICKHOUSE,
         help_text="Materialization engine. All combines ClickHouse and managed warehouse usage.",
     )
     saved_query_id = serializers.UUIDField(
