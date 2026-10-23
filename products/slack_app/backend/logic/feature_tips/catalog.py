@@ -17,8 +17,9 @@ from __future__ import annotations
 from functools import cached_property
 
 from posthog.dataclasses import frozen
-from posthog.models.integration import Integration
+from posthog.models.integration import Integration, SlackIntegration
 from posthog.models.user_integration import UserIntegration
+from posthog.slack.formatting import channel_id_from_target
 
 from products.mcp_store.backend.facade.api import get_active_installations
 from products.slack_app.backend.feature_flags import (
@@ -35,6 +36,7 @@ from products.slack_app.backend.inbox_channel import (
 )
 from products.slack_app.backend.logic.feature_tips.features import SlackFeature
 from products.slack_app.backend.models import SlackSettings, SlackThreadTaskMapping, UntaggedFollowupMode
+from products.slack_app.backend.services.slack_conversations import resolve_conversation_type
 from products.slack_app.backend.services.slack_messages import app_home_url, personal_integrations_url, project_web_url
 from products.slack_app.backend.services.slack_scopes import SLACK_CANVAS_SCOPE, SLACK_FILE_SCOPE, has_scopes
 from products.slack_app.backend.services.slack_settings import (
@@ -80,7 +82,15 @@ class TipContext:
     def inbox_channel_target(self) -> str | None:
         if not has_inbox_scopes(self.integration):
             return None
-        return _get_team_channel(self.team_id)
+        target = _get_team_channel(self.team_id)
+        if target is None:
+            return None
+        # A tip names the channel and invites the reader, so a private or unknown channel would
+        # leak its name or add someone who was not meant to join it.
+        conversation_type = resolve_conversation_type(
+            SlackIntegration(self.integration), {}, channel_id_from_target(target)
+        )
+        return target if conversation_type == SlackThreadTaskMapping.ConversationType.PUBLIC_CHANNEL else None
 
     @cached_property
     def app_home_url(self) -> str | None:

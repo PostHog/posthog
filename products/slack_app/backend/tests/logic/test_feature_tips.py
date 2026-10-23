@@ -143,6 +143,31 @@ class TestCatalog(SimpleTestCase):
         assert all(tip.emoji and tip.title for tip in CATALOG.values())
 
 
+class TestInboxChannelTarget(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (SlackThreadTaskMapping.ConversationType.PUBLIC_CHANNEL, "C1|#posthog-inbox"),
+            (SlackThreadTaskMapping.ConversationType.PRIVATE_CHANNEL, None),
+            (SlackThreadTaskMapping.ConversationType.UNKNOWN, None),
+        ]
+    )
+    def test_only_a_public_inbox_channel_is_named_in_a_tip(self, conversation_type, expected):
+        ctx = catalog.TipContext(
+            integration=MagicMock(team_id=1),
+            slack_user_id=SLACK_USER,
+            posthog_user_id=None,
+            channel="C2",
+            settings=MagicMock(),
+        )
+        with (
+            patch.object(catalog, "has_inbox_scopes", return_value=True),
+            patch.object(catalog, "_get_team_channel", return_value="C1|#posthog-inbox"),
+            patch.object(catalog, "SlackIntegration"),
+            patch.object(catalog, "resolve_conversation_type", return_value=conversation_type),
+        ):
+            assert ctx.inbox_channel_target == expected
+
+
 class TestChooseTip(SimpleTestCase):
     candidates = [CATALOG[SlackFeature.SUBSCRIPTION], CATALOG[SlackFeature.CODE_CHANGE_PR]]
 

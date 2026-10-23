@@ -4555,6 +4555,7 @@ def _handle_untagged_followup_run(payload: dict) -> HttpResponse:
         slack_channel_id=context.get("slack_channel_id"),
         slack_user_id=clicker_slack_user_id,
     )
+    record_feature_used(slack_team_id, clicker_slack_user_id, SlackFeature.THREAD_FOLLOWUP)
     capture_slack_event(
         integration,
         "slack app untagged followup confirmed",

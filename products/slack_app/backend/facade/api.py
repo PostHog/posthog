@@ -22,6 +22,8 @@ from __future__ import annotations
 
 from typing import Any
 
+import structlog
+
 from posthog.models.integration import Integration
 
 from products.slack_app.backend.feature_flags import is_slack_app_chart_links_enabled
@@ -74,6 +76,8 @@ __all__ = [
     "slack_followup_invite",
     "slack_followup_invite_text",
 ]
+
+logger = structlog.get_logger(__name__)
 
 _SLACK_CANVAS_FILE_ADAPTER_SCOPES = frozenset({SLACK_CANVAS_SCOPE, SLACK_FILE_SCOPE})
 
@@ -142,10 +146,14 @@ def slack_followup_invite(integration: Integration | None, *, utm_tags: str, ai_
 
 def record_slack_feature_used(integration_id: int, slack_user_id: str | None, feature: SlackFeature) -> None:
     """Never raises, so a caller can record use from inside the feature's own code path."""
-    slack_workspace_id = (
-        Integration.objects.filter(id=integration_id, kind="slack")  # nosemgrep: idor-lookup-without-team
-        .values_list("integration_id", flat=True)
-        .first()
-    )
+    try:
+        slack_workspace_id = (
+            Integration.objects.filter(id=integration_id, kind="slack")  # nosemgrep: idor-lookup-without-team
+            .values_list("integration_id", flat=True)
+            .first()
+        )
+    except Exception:
+        logger.warning("slack_app_feature_used_lookup_failed", integration_id=integration_id, exc_info=True)
+        return
     if slack_workspace_id:
         record_feature_used(slack_workspace_id, slack_user_id, feature)

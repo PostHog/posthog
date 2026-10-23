@@ -556,8 +556,7 @@ class SlackThreadHandler:
         append_attachments: Callable[[], None] | None = None,
         mention_sent: bool = False,
         reply_suggestions_for: str | None = None,
-        offer_feature_tip: bool = False,
-    ) -> None:
+    ) -> bool:
         """Final flush: mark the last plan-block step complete, stream the answer, then chat.stopStream.
 
         The answer starts with the @-mention, so the one notification lands with it. With no
@@ -568,15 +567,19 @@ class SlackThreadHandler:
 
         With no stream timestamp, the answer goes out as an ordinary thread reply.
         When Slack already closed the stream, the answer also goes out as a plain thread reply,
-        and nothing else is sent to the closed stream."""
+        and nothing else is sent to the closed stream.
+
+        Returns whether the answer reached the thread.
+        """
         if ts is None:
             self.stream_ended = True
+            delivered = False
             if final_markdown:
                 delivered = self._post_answer_outside_stream(final_markdown)
                 if delivered:
                     self.offer_reply_suggestions(reply_suggestions_for)
                 self.capture_reply_posted(ReplyKind.ANSWER, delivered=delivered)
-            return
+            return delivered
         answer_chunks: list[dict[str, Any]] = []
         if plan_title:
             answer_chunks.append(_plan_update_chunk(plan_title))
@@ -602,8 +605,7 @@ class SlackThreadHandler:
         # A turn stopped before it answered still closes its stream, which then holds only status lines.
         if final_markdown or mention_sent:
             self.capture_reply_posted(ReplyKind.ANSWER, delivered=answer_delivered)
-        if answer_delivered and offer_feature_tip:
-            self.offer_feature_tip()
+        return answer_delivered
 
     def _close_stream(
         self,
