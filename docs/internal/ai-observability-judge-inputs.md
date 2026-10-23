@@ -192,6 +192,10 @@ This excludes the calendar day whose AI payloads have expired under the 30-day r
 Ranges ending at or before that boundary are rejected.
 Existing backfills keep their stored windows; **Retry remaining** applies the boundary when it creates a new backfill.
 
+Generation references get up to three lookup attempts.
+A final miss for a backfill reference fails the run without reporting an exception to error tracking.
+Live references marked `awaiting_ingestion` wait 15 seconds between misses and still report the final miss.
+
 A backfill that stops on its own shows as **Interrupted**, with a stop reason.
 A backfill a user stops shows as **Cancelled**.
 Backfills read a page of units (500 by default, bounded between 1 and 1,000) and wait for every outcome before advancing progress.

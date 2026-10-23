@@ -31,6 +31,7 @@ from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.temporal.ai_observability.sentiment.extraction import truncate_to_head_tail
 from posthog.temporal.ai_observability.sentiment.schema import SentimentResult
 from posthog.temporal.common.errors import NonReportableError
+from posthog.temporal.common.posthog_client import is_expected_activity_failure
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.ai_observability.backend.llm.errors import (
@@ -2306,7 +2307,7 @@ class TestRunEvaluationWorkflow:
 
         assert raised.value.type == "generation_not_found"
         assert raised.value.non_retryable is not retryable
-        assert isinstance(raised.value, NonReportableError) is retryable
+        assert is_expected_activity_failure(raised.value) is (retryable or not live)
         expected_delay = GENERATION_NOT_FOUND_RETRY_DELAY if retryable and live else None
         assert raised.value.next_retry_delay == expected_delay
 
