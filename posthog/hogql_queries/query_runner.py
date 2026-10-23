@@ -1184,6 +1184,18 @@ def get_query_runner(
             user=user,
         )
 
+    if kind == "ErrorTrackingIssueEventsQuery":
+        from products.error_tracking.backend.facade.queries import ErrorTrackingIssueEventsQueryRunner
+
+        return ErrorTrackingIssueEventsQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+            user=user,
+        )
+
     if kind == "ErrorTrackingSimilarIssuesQuery":
         from products.error_tracking.backend.facade.queries import ErrorTrackingSimilarIssuesQueryRunner
 
