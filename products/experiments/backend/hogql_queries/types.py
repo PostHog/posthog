@@ -1,10 +1,4 @@
-from enum import Enum, StrEnum
-
-
-class ExperimentMetricType(Enum):
-    COUNT = "count"
-    CONTINUOUS = "continuous"
-    FUNNEL = "funnel"
+from enum import StrEnum
 
 
 class PrecomputeSkipReason(StrEnum):

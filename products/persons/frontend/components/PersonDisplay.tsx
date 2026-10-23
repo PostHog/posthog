@@ -1,18 +1,15 @@
 import './PersonDisplay.scss'
 
 import clsx from 'clsx'
-import { useValues } from 'kea'
 import { router } from 'kea-router'
 import React, { useMemo, useState } from 'react'
 
 import { IconCopy } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { Link } from 'lib/lemon-ui/Link'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { ProfilePicture, ProfilePictureProps } from 'lib/lemon-ui/ProfilePicture'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
 
@@ -97,11 +94,10 @@ export function PersonDisplay({
 }: PersonDisplayProps): JSX.Element {
     const display = displayName || asDisplay(person, maxLength)
     const [visible, setVisible] = useState(false)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const notebookNode = useNotebookNode()
 
-    const showComposeButton = !!withComposeTicketButton && !!featureFlags[FEATURE_FLAGS.PRODUCT_SUPPORT_CREATE_TICKET]
+    const showComposeButton = !!withComposeTicketButton
     const personDistinctId = person?.distinct_id || person?.distinct_ids?.[0]
     const personEmail = typeof person?.properties?.email === 'string' ? person.properties.email : undefined
 

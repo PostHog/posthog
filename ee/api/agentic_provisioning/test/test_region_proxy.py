@@ -1,9 +1,8 @@
-from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
 from django.http import JsonResponse
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 from rest_framework.parsers import JSONParser
@@ -28,7 +27,7 @@ def _make_drf_request(data=None):
     return Request(raw, parsers=[JSONParser()])
 
 
-class TestShouldProxyBodyRegion(BaseTest):
+class TestShouldProxyBodyRegion(SimpleTestCase):
     def test_proxies_on_region_mismatch(self):
         request = _make_drf_request({"configuration": {"region": "EU"}})
         assert _should_proxy_body_region(request, "US") is True
@@ -55,7 +54,7 @@ class TestShouldProxyBodyRegion(BaseTest):
         assert _should_proxy_body_region(request2, "US") is False
 
 
-class TestShouldProxyTokenLookup(BaseTest):
+class TestShouldProxyTokenLookup(SimpleTestCase):
     def setUp(self):
         super().setUp()
         cache.clear()
@@ -89,7 +88,7 @@ class TestShouldProxyTokenLookup(BaseTest):
         assert _should_proxy_token_lookup(request, "US") is False
 
 
-class TestShouldProxyBearerLookup(BaseTest):
+class TestShouldProxyBearerLookup(SimpleTestCase):
     def setUp(self):
         super().setUp()
         cache.clear()
@@ -155,7 +154,7 @@ class TestShouldProxyBearerLookup(BaseTest):
             assert _should_proxy_bearer_lookup(req_unknown, "US") is True
 
 
-class TestProxyHeaderAllowlist(BaseTest):
+class TestProxyHeaderAllowlist(SimpleTestCase):
     @patch("ee.api.agentic_provisioning.region_proxy.requests")
     def test_strips_cookies_and_carries_the_caller_address(self, mock_requests):
         mock_response = MagicMock()
@@ -333,7 +332,7 @@ class TestRegionProxyThrottle(ProvisioningTestBase):
         assert body["error"]["code"] == "rate_limited"
 
 
-class TestRegionProxyCoverageContract(BaseTest):
+class TestRegionProxyCoverageContract(SimpleTestCase):
     """Catches forgotten ``region_proxy_strategy`` on bearer-auth endpoints.
 
     If you add a new endpoint that accepts a bearer access token, either declare
@@ -346,8 +345,6 @@ class TestRegionProxyCoverageContract(BaseTest):
         "ResourceDetailView": "bearer_lookup",
         "RotateCredentialsView": "bearer_lookup",
         "ResourceRemoveView": "bearer_lookup",
-        "GitHubIntegrationView": "bearer_lookup",
-        "WizardRunsView": "bearer_lookup",
         "DeepLinksView": "bearer_lookup",
         "LimitsView": "bearer_lookup",
         "AccountRequestsView": "body_region",

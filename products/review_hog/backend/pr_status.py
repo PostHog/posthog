@@ -8,23 +8,27 @@ running, and a failed probe reads as `unknown`, never `idle`.
 
 from datetime import datetime, timedelta
 
-from django.db import models
-
-from posthog.dataclasses import frozen
-
-from products.review_hog.backend.models import ReviewReport
-from products.review_hog.backend.requested_reviews import RUN_MODE_FLASH, RUN_MODE_RESOLVE_ONLY
-from products.review_hog.backend.reviewer.constants import REVIEW_MODE_FLASH, REVIEW_MODE_FULL, effective_priority
-from products.review_hog.backend.reviewer.models.issues_review import IssuePriority
-from products.review_hog.backend.reviewer.persistence import load_findings_bundle
-from products.review_hog.backend.reviewer.progress import (
+from products.review_hog.backend.facade.contracts import (
     RESOLUTION_COMPLETED,
     RESOLUTION_RESOLVING,
     RESOLUTION_STOPPED,
+    REVIEW_MODE_FLASH,
+    REVIEW_MODE_FULL,
+    RUN_MODE_FLASH,
+    RUN_MODE_RESOLVE_ONLY,
+    PRStatus,
+    PRStatusLatestReview,
+    PRStatusRequestOutcome,
+    ResolutionSummary,
+)
+from products.review_hog.backend.facade.enums import IssuePriority, ReviewPRState, ReviewRequestOutcomeStatus
+from products.review_hog.backend.models import ReviewReport
+from products.review_hog.backend.reviewer.constants import effective_priority
+from products.review_hog.backend.reviewer.persistence import load_findings_bundle
+from products.review_hog.backend.reviewer.progress import (
     RUN_OUTCOME_FAILED,
     RUN_STAGE_RESOLUTION,
     RUN_STAGE_REVIEW,
-    ResolutionSummary,
     RunOutcomeMarker,
     in_progress_report_ids,
     latest_resolution_summaries,
@@ -35,63 +39,12 @@ from products.review_hog.backend.reviewer.progress import (
 from products.review_hog.backend.temporal.client import WorkflowProbe, probe_workflow
 from products.review_hog.backend.temporal.types import resolve_pr_workflow_id, review_pr_workflow_id
 
-
-class ReviewPRState(models.TextChoices):
-    NOT_REVIEWED = "not_reviewed", "Not reviewed"
-    QUEUED = "queued", "Queued"
-    REVIEWING = "reviewing", "Reviewing"
-    RESOLVING = "resolving", "Resolving"
-    IDLE = "idle", "Idle"
-    UNKNOWN = "unknown", "Unknown"
-
-
-class ReviewRequestOutcomeStatus(models.TextChoices):
-    PENDING = "pending", "Pending"
-    COMPLETED = "completed", "Completed"
-    SKIPPED = "skipped", "Skipped"
-    FAILED = "failed", "Failed"
-    UNKNOWN = "unknown", "Unknown"
-
-
 NO_MATCHING_RUN_REASON = "no_matching_run"
 STOPPED_REASON = "stopped"
 
 _RUNNING_STATES = (ReviewPRState.QUEUED, ReviewPRState.REVIEWING, ReviewPRState.RESOLVING)
 # Agents poll this endpoint, so a slow Temporal answer must not hold the request open.
 _PROBE_RPC_TIMEOUT = timedelta(seconds=2)
-
-
-@frozen
-class LatestReview:
-    review_id: str
-    review_mode: str | None
-    head_sha: str | None
-    run_index: int
-    completed_at: datetime | None
-    must_fix_count: int
-    should_fix_count: int
-    consider_count: int
-    turn_published: bool
-    status_comment_url: str | None
-
-
-@frozen
-class RequestOutcome:
-    status: ReviewRequestOutcomeStatus
-    reason: str | None = None
-    review_id: str | None = None
-    run_index: int | None = None
-
-
-@frozen
-class PRStatus:
-    repository: str
-    pr_number: int
-    report_id: str | None
-    state: ReviewPRState
-    latest_review: LatestReview | None
-    latest_resolution: ResolutionSummary | None
-    request_outcome: RequestOutcome | None
 
 
 def _covers(turn_mode: str, requested_mode: str) -> bool:
@@ -161,7 +114,7 @@ class PRStatusLookup:
             return ReviewPRState.NOT_REVIEWED
         return ReviewPRState.IDLE
 
-    def _latest_review(self) -> LatestReview | None:
+    def _latest_review(self) -> PRStatusLatestReview | None:
         report = self.report
         if report is None or self.report_id is None or report.run_count == 0:
             return None
@@ -172,7 +125,7 @@ class PRStatusLookup:
             if verdict is not None and verdict.is_valid:
                 counts[effective_priority(finding.priority, verdict.adjusted_priority)] += 1
         marker = turn_markers(self.team_id, [report_id]).get((report_id, report.run_count))
-        return LatestReview(
+        return PRStatusLatestReview(
             review_id=report_id,
             review_mode=marker.review_mode if marker else None,
             head_sha=report.completed_head_sha or report.head_sha,
@@ -214,13 +167,13 @@ class PRStatusLookup:
                 return run_index
         return None
 
-    def _ended_outcome(self, marker: RunOutcomeMarker, state: ReviewPRState) -> RequestOutcome:
+    def _ended_outcome(self, marker: RunOutcomeMarker, state: ReviewPRState) -> PRStatusRequestOutcome:
         """A failed or skipped run ends the request only when nothing runs, because the queue can retry it."""
         if state in _RUNNING_STATES:
-            return RequestOutcome(status=ReviewRequestOutcomeStatus.PENDING, review_id=self.report_id)
+            return PRStatusRequestOutcome(status=ReviewRequestOutcomeStatus.PENDING, review_id=self.report_id)
         if state == ReviewPRState.UNKNOWN:
-            return RequestOutcome(status=ReviewRequestOutcomeStatus.UNKNOWN, review_id=self.report_id)
-        return RequestOutcome(
+            return PRStatusRequestOutcome(status=ReviewRequestOutcomeStatus.UNKNOWN, review_id=self.report_id)
+        return PRStatusRequestOutcome(
             status=ReviewRequestOutcomeStatus(marker.outcome),
             reason=marker.reason,
             review_id=self.report_id,
@@ -229,7 +182,7 @@ class PRStatusLookup:
 
     def _review_outcome(
         self, requested_at: datetime, requested_mode: str, head_sha: str | None, state: ReviewPRState
-    ) -> RequestOutcome | None:
+    ) -> PRStatusRequestOutcome | None:
         if self.report is None or self.report_id is None:
             return None
         review_markers = [
@@ -248,8 +201,8 @@ class PRStatusLookup:
             if turn_failed:
                 return self._ended_outcome(turn_failed[-1], state)
             if run_index == self.report.run_count and state == ReviewPRState.REVIEWING:
-                return RequestOutcome(status=ReviewRequestOutcomeStatus.PENDING, review_id=self.report_id)
-            return RequestOutcome(
+                return PRStatusRequestOutcome(status=ReviewRequestOutcomeStatus.PENDING, review_id=self.report_id)
+            return PRStatusRequestOutcome(
                 status=ReviewRequestOutcomeStatus.COMPLETED, review_id=self.report_id, run_index=run_index
             )
         ended = [marker for marker in review_markers if marker.review_mode == requested_mode]
@@ -259,22 +212,22 @@ class PRStatusLookup:
 
     def _resolve_outcome(
         self, requested_at: datetime, resolution: ResolutionSummary | None, state: ReviewPRState
-    ) -> RequestOutcome | None:
+    ) -> PRStatusRequestOutcome | None:
         if self.report_id is None:
             return None
         if resolution is not None and _resolution_answers(resolution, requested_at):
             if resolution.status == RESOLUTION_COMPLETED:
-                return RequestOutcome(status=ReviewRequestOutcomeStatus.COMPLETED, review_id=self.report_id)
+                return PRStatusRequestOutcome(status=ReviewRequestOutcomeStatus.COMPLETED, review_id=self.report_id)
             if resolution.status == RESOLUTION_STOPPED:
                 # A run can go quiet in the database while its workflow still works through threads.
                 if state in _RUNNING_STATES:
-                    return RequestOutcome(status=ReviewRequestOutcomeStatus.PENDING, review_id=self.report_id)
+                    return PRStatusRequestOutcome(status=ReviewRequestOutcomeStatus.PENDING, review_id=self.report_id)
                 if state == ReviewPRState.UNKNOWN:
-                    return RequestOutcome(status=ReviewRequestOutcomeStatus.UNKNOWN, review_id=self.report_id)
-                return RequestOutcome(
+                    return PRStatusRequestOutcome(status=ReviewRequestOutcomeStatus.UNKNOWN, review_id=self.report_id)
+                return PRStatusRequestOutcome(
                     status=ReviewRequestOutcomeStatus.FAILED, reason=STOPPED_REASON, review_id=self.report_id
                 )
-            return RequestOutcome(status=ReviewRequestOutcomeStatus.PENDING, review_id=self.report_id)
+            return PRStatusRequestOutcome(status=ReviewRequestOutcomeStatus.PENDING, review_id=self.report_id)
         skipped = [
             marker
             for marker in run_outcome_markers(self.team_id, [self.report_id], since=requested_at)[self.report_id]
@@ -284,13 +237,13 @@ class PRStatusLookup:
             return None
         return self._ended_outcome(skipped[-1], state)
 
-    def _unmatched_outcome(self, state: ReviewPRState) -> RequestOutcome:
+    def _unmatched_outcome(self, state: ReviewPRState) -> PRStatusRequestOutcome:
         """No run answered the request yet: wait while anything runs, else the queue dropped or replaced it."""
         if state in _RUNNING_STATES:
-            return RequestOutcome(status=ReviewRequestOutcomeStatus.PENDING, review_id=self.report_id)
+            return PRStatusRequestOutcome(status=ReviewRequestOutcomeStatus.PENDING, review_id=self.report_id)
         if state == ReviewPRState.UNKNOWN:
-            return RequestOutcome(status=ReviewRequestOutcomeStatus.UNKNOWN, review_id=self.report_id)
-        return RequestOutcome(
+            return PRStatusRequestOutcome(status=ReviewRequestOutcomeStatus.UNKNOWN, review_id=self.report_id)
+        return PRStatusRequestOutcome(
             status=ReviewRequestOutcomeStatus.FAILED, reason=NO_MATCHING_RUN_REASON, review_id=self.report_id
         )
 
@@ -301,7 +254,7 @@ class PRStatusLookup:
             if self.report is not None and self.report_id is not None
             else None
         )
-        request_outcome: RequestOutcome | None = None
+        request_outcome: PRStatusRequestOutcome | None = None
         if requested_at is not None:
             if run_mode == RUN_MODE_RESOLVE_ONLY:
                 request_outcome = self._resolve_outcome(requested_at, resolution, state)

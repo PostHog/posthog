@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -36,6 +37,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class Servicem8Source(ResumableSource[Servicem8SourceConfig, ServiceM8ResumeConfig]):
+    codebase_detection = detect(env=("^SERVICEM8_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://developer.servicem8.com/reference"
 
@@ -121,7 +124,7 @@ class Servicem8Source(ResumableSource[Servicem8SourceConfig, ServiceM8ResumeConf
             caption="Enter an API key from your ServiceM8 account (Settings -> API Keys) to sync jobs, clients, staff, and job activity into the PostHog Data warehouse.",
             docsUrl="https://posthog.com/docs/cdp/sources/servicem8",
             iconPath="/static/services/servicem8.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             keywords=["field service", "jobs", "trades"],
             fields=cast(
                 list[FieldType],

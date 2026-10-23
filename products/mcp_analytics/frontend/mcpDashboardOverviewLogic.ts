@@ -63,13 +63,16 @@ ORDER BY bucket
 // Distinct MCP users for the "Users" tile — how many distinct people made tool calls.
 // Counted over the doubled window like the KPI query, then split into the selected period
 // and its equal-length predecessor with a single conditional uniq so the comparison is a
-// true distinct-person count (summing per-bucket distinct users would over-count anyone
+// true distinct-user count (summing per-bucket distinct users would over-count anyone
 // active on more than one day). `__CUR_START__` is the selected-period boundary, injected
 // as a timezone-aware toDateTime at call time.
+// Users are counted by distinct_id, not person_id. HogQL resolves person_id through a join
+// over every person override of the project, and on large projects that join runs out of
+// memory. A person with several distinct_ids counts once per distinct_id.
 const USERS_QUERY = `
 SELECT
-    uniqIf(person_id, timestamp >= __CUR_START__) AS current_users,
-    uniqIf(person_id, timestamp < __CUR_START__) AS prior_users
+    uniqIf(distinct_id, timestamp >= __CUR_START__) AS current_users,
+    uniqIf(distinct_id, timestamp < __CUR_START__) AS prior_users
 FROM events
 WHERE event = '$mcp_tool_call'
     AND properties.$mcp_tool_name IS NOT NULL

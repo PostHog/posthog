@@ -9,65 +9,12 @@
  */
 import * as zod from 'zod'
 
-export const dataModelingDagsCreateBodyNameMax = 2048
-
-export const DataModelingDagsCreateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(dataModelingDagsCreateBodyNameMax).describe('Human-readable name for this DAG'),
-    description: zod.string().optional().describe("Optional description of the DAG's purpose"),
-    sync_frequency: zod
-        .string()
-        .nullish()
-        .describe(
-            "Legacy DAG-level cadence string (e.g. '24hour', '7day'). Scheduling is driven by each model's own sync frequency, so a PATCH that changes this value is rejected."
-        ),
-})
-
-export const dataModelingDagsPartialUpdateBodyNameMax = 2048
-
-export const DataModelingDagsPartialUpdateBody = /* @__PURE__ */ zod.object({
-    name: zod
-        .string()
-        .max(dataModelingDagsPartialUpdateBodyNameMax)
-        .optional()
-        .describe('Human-readable name for this DAG'),
-    description: zod.string().optional().describe("Optional description of the DAG's purpose"),
-    sync_frequency: zod
-        .string()
-        .nullish()
-        .describe(
-            "Legacy DAG-level cadence string (e.g. '24hour', '7day'). Scheduling is driven by each model's own sync frequency, so a PATCH that changes this value is rejected."
-        ),
-})
-
-export const DataModelingEdgesCreateBody = /* @__PURE__ */ zod.object({
-    dag: zod.uuid(),
-    properties: zod.unknown().optional(),
-})
-
 export const DataModelingEdgesUpdateBody = /* @__PURE__ */ zod.object({
-    dag: zod.uuid(),
     properties: zod.unknown().optional(),
 })
 
 export const DataModelingEdgesPartialUpdateBody = /* @__PURE__ */ zod.object({
-    dag: zod.uuid().optional(),
     properties: zod.unknown().optional(),
-})
-
-export const dataModelingNodesCreateBodyNameMax = 2048
-
-export const dataModelingNodesCreateBodyDescriptionMax = 1024
-
-export const DataModelingNodesCreateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(dataModelingNodesCreateBodyNameMax),
-    type: zod
-        .enum(['table', 'view', 'matview', 'endpoint', 'metric'])
-        .optional()
-        .describe(
-            '\* `table` - Table\n\* `view` - View\n\* `matview` - Mat View\n\* `endpoint` - Endpoint\n\* `metric` - Metric'
-        ),
-    dag: zod.uuid(),
-    description: zod.string().max(dataModelingNodesCreateBodyDescriptionMax).optional(),
 })
 
 export const dataModelingNodesUpdateBodyNameMax = 2048
@@ -82,7 +29,6 @@ export const DataModelingNodesUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             '\* `table` - Table\n\* `view` - View\n\* `matview` - Mat View\n\* `endpoint` - Endpoint\n\* `metric` - Metric'
         ),
-    dag: zod.uuid(),
     description: zod.string().max(dataModelingNodesUpdateBodyDescriptionMax).optional(),
 })
 
@@ -98,7 +44,6 @@ export const DataModelingNodesPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             '\* `table` - Table\n\* `view` - View\n\* `matview` - Mat View\n\* `endpoint` - Endpoint\n\* `metric` - Metric'
         ),
-    dag: zod.uuid().optional(),
     description: zod.string().max(dataModelingNodesPartialUpdateBodyDescriptionMax).optional(),
 })
 
@@ -117,30 +62,17 @@ export const DataModelingNodesMaterializeCreateBody = /* @__PURE__ */ zod.object
         .describe(
             '\* `table` - Table\n\* `view` - View\n\* `matview` - Mat View\n\* `endpoint` - Endpoint\n\* `metric` - Metric'
         ),
-    dag: zod.uuid(),
     description: zod.string().max(dataModelingNodesMaterializeCreateBodyDescriptionMax).optional(),
 })
 
 /**
- * Run this node and its upstream or downstream dependencies.
- *
- * Request body:
- *     direction: "upstream" | "downstream" (required)
- *         - "upstream": Run all ancestors of this node, plus this node
- *         - "downstream": Run this node and all its descendants
+ * Run this node with its upstream dependencies or downstream dependents.
  */
-export const dataModelingNodesRunCreateBodyNameMax = 2048
-
-export const dataModelingNodesRunCreateBodyDescriptionMax = 1024
-
 export const DataModelingNodesRunCreateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(dataModelingNodesRunCreateBodyNameMax),
-    type: zod
-        .enum(['table', 'view', 'matview', 'endpoint', 'metric'])
-        .optional()
+    direction: zod
+        .enum(['upstream', 'downstream'])
+        .describe('\* `upstream` - Upstream\n\* `downstream` - Downstream')
         .describe(
-            '\* `table` - Table\n\* `view` - View\n\* `matview` - Mat View\n\* `endpoint` - Endpoint\n\* `metric` - Metric'
+            'Run this view with all upstream dependencies or all downstream dependents.\n\n\* `upstream` - Upstream\n\* `downstream` - Downstream'
         ),
-    dag: zod.uuid(),
-    description: zod.string().max(dataModelingNodesRunCreateBodyDescriptionMax).optional(),
 })

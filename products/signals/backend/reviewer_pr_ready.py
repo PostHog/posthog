@@ -17,9 +17,11 @@ from django.db import transaction
 
 import structlog
 
+from posthog.egress.limiter.policies import Priority
 from posthog.models import User
 from posthog.models.integration import GitHubIntegration
 
+from products.signals.backend.assignment_flags import assignment_side_effects_allowed
 from products.signals.backend.models import (
     SignalReport,
     SignalReportArtefact,
@@ -68,6 +70,9 @@ def schedule_open_pull_request_ready(
     run on a worker instead of holding up a claim or a webhook. `robust=True` keeps a broker outage
     from failing a write that already committed.
     """
+    if not assignment_side_effects_allowed(team_id=team_id, report_id=report_id):
+        return
+
     if not pr_url or (pr_state or SignalReportAssignment.PrState.UNKNOWN) not in FLIPPABLE_PR_STATES:
         return
 
@@ -96,7 +101,7 @@ def _resolved_reviewer_users(*, team_id: int, report_id: str) -> list[User]:
             report_id=report_id,
             type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
         )
-        .order_by("-created_at")
+        .order_by("-created_at", "-id")
         .first()
     )
     if latest is None:
@@ -166,6 +171,9 @@ def open_pull_request_ready_for_review(*, team_id: int, report_id: str, pr_url: 
     that is already ready, closed, or labelled `no-ci`. A failed call also returns False, and this
     raises nothing.
     """
+    if not assignment_side_effects_allowed(team_id=team_id, report_id=report_id):
+        return False
+
     if not SignalReport.objects.filter(id=report_id, team_id=team_id).exists():
         return False
 
@@ -177,7 +185,9 @@ def open_pull_request_ready_for_review(*, team_id: int, report_id: str, pr_url: 
         return False
 
     try:
-        github = GitHubIntegration.first_for_team_repository(team_id, parsed.repository)
+        github = GitHubIntegration.first_for_team_repository(
+            team_id, parsed.repository, source="signals_reviewers", priority=Priority.BATCH
+        )
     except Exception:
         logger.exception(
             "signals.reviewer_pr_ready.integration_lookup_failed",
@@ -190,6 +200,8 @@ def open_pull_request_ready_for_review(*, team_id: int, report_id: str, pr_url: 
         return False
 
     try:
+        if not assignment_side_effects_allowed(team_id=team_id, report_id=report_id):
+            return False
         result = github.mark_pull_request_ready_for_review(
             parsed.repository, parsed.number, skip_labels=SKIP_READY_LABELS
         )

@@ -147,10 +147,15 @@ class TestGetRowsPagination:
             ("inventory", "inventory"),
             ("store_pages", "storePages"),
             ("profiles", "profiles"),
+            # Unpaginated: the response carries no `pagination` object.
+            ("fulfillment_options", "fulfillmentOptions", False),
         ]
     )
-    def test_yields_rows_using_endpoint_data_key(self, endpoint: str, data_key: str) -> None:
-        result = self._driver().run(endpoint, [_page(data_key, [{"id": "a"}, {"id": "b"}])])
+    def test_yields_rows_using_endpoint_data_key(self, endpoint: str, data_key: str, paginated: bool = True) -> None:
+        rows = [{"id": "a"}, {"id": "b"}]
+        response = _page(data_key, rows) if paginated else ScriptedResponse(json={data_key: rows})
+
+        result = self._driver().run(endpoint, [response])
 
         assert result.items == [[{"id": "a"}, {"id": "b"}]]
 

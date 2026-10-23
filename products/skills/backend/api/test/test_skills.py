@@ -17,6 +17,7 @@ from rest_framework import serializers, status
 
 from posthog.constants import AvailableFeature
 from posthog.models import Team, User
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import OrganizationMembership
 
@@ -30,6 +31,7 @@ from ...api.community_publish_services import (
     CommunitySkillPublishNotConfiguredError,
     CommunitySkillPublishValidationError,
 )
+from ...api.skill_search import SKILL_SEARCH_RESULT_LIMIT
 from ...api.skill_serializers import (
     DEFAULT_BODY_PAGE_LENGTH,
     LLMSkillCreateSerializer,
@@ -48,11 +50,11 @@ from ...api.skill_services import (
     resolve_skill_owners,
     set_skill_owners,
 )
-from ...api.skills import SKILL_SEARCH_RESULT_LIMIT
 from ...marketplace.packaging import SPEC_DESCRIPTION_MAX_LENGTH, parse_skill_md
 from ...models.skills import SCOUT_SKILL_CATEGORY, LLMSkill, LLMSkillFile
 
 COMMUNITY_FLAG = "products.skills.backend.api.community_skills.posthoganalytics.feature_enabled"
+SKILL_ANALYTICS_REPORT = "products.skills.backend.api.skill_analytics.report_user_action"
 
 
 class TestLLMSkillAPI(APIBaseTest):
@@ -93,7 +95,7 @@ class TestLLMSkillAPI(APIBaseTest):
         )
         # The create endpoint seeds the creator as owner, so a fixture built straight from the ORM
         # has to as well. Publishing to the community is owner-only.
-        set_skill_owners(self.team, name, [owner])
+        set_skill_owners(self.team, name, [owner], acting_user=None)
         return skill
 
     # --- Create ---
@@ -489,7 +491,9 @@ class TestLLMSkillAPI(APIBaseTest):
             # skills version alone cannot see it, and the list serializes owners.
             (
                 "owner_change",
-                lambda self: set_skill_owners(self.team, "skill-a", [self._create_user("newowner@example.com")]),
+                lambda self: set_skill_owners(
+                    self.team, "skill-a", [self._create_user("newowner@example.com")], acting_user=None
+                ),
             ),
             ("category", lambda self: LLMSkill.objects.filter(team=self.team, name="skill-a").update(category="scout")),
             ("hard_delete", lambda self: LLMSkill.objects.filter(team=self.team, name="skill-a").delete()),
@@ -508,9 +512,9 @@ class TestLLMSkillAPI(APIBaseTest):
     )
     def test_list_etag_changes_after_a_store_change(self, _label, change):
         self.create_skill(name="skill-a", description="Does A things.")
-        set_skill_owners(self.team, "skill-a", [])
+        set_skill_owners(self.team, "skill-a", [], acting_user=None)
         self.create_skill(name="skill-b", description="Does B things.")
-        set_skill_owners(self.team, "skill-b", [self._create_user("listowner@example.com")])
+        set_skill_owners(self.team, "skill-b", [self._create_user("listowner@example.com")], acting_user=None)
         first = self.client.get(self._url())
 
         change(self)
@@ -880,7 +884,7 @@ class TestLLMSkillAPI(APIBaseTest):
         with (
             patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True),
             patch("posthog.rate_limit.team_is_allowed_to_bypass_throttle", return_value=False),
-            patch(f"products.skills.backend.api.skills.SkillSearch{window}Throttle.rate", new=f"1/{period}"),
+            patch(f"products.skills.backend.api.skill_throttles.SkillSearch{window}Throttle.rate", new=f"1/{period}"),
             patch("rest_framework.throttling.SimpleRateThrottle.timer", return_value=1000) as timer,
         ):
             url = self._url("search?query=throttle")
@@ -1661,7 +1665,7 @@ class TestLLMSkillAPI(APIBaseTest):
         v2 = self.create_skill(name="typoo", version=2)
         LLMSkillFile.objects.create(skill=v2, path="scripts/run.sh", content="#!/bin/bash")
         member = User.objects.create_and_join(self.organization, "rename-owner@example.com", None)
-        set_skill_owners(self.team, "typoo", [member])
+        set_skill_owners(self.team, "typoo", [member], acting_user=None)
         updated_at_before = v2.updated_at
 
         response = self.client.post(
@@ -2088,7 +2092,7 @@ class TestLLMSkillAPI(APIBaseTest):
     # --- Publish to community ---
 
     @patch(COMMUNITY_FLAG, return_value=True)
-    @patch("products.skills.backend.api.skills.publish_skill_to_community")
+    @patch("products.skills.backend.api.skill_view_community.publish_skill_to_community")
     def test_publish_to_community_succeeds(self, mock_publish, _mock_flag):
         mock_publish.return_value = {
             "pr_url": "https://github.com/PostHog/community-skills/pull/7",
@@ -2141,7 +2145,7 @@ class TestLLMSkillAPI(APIBaseTest):
         ]
     )
     @patch(COMMUNITY_FLAG, return_value=True)
-    @patch("products.skills.backend.api.skills.publish_skill_to_community")
+    @patch("products.skills.backend.api.skill_view_community.publish_skill_to_community")
     def test_publish_to_community_tags(
         self, _label: str, payload: dict, metadata_tags: list, expected: list, mock_publish, _mock_flag
     ):
@@ -2164,7 +2168,7 @@ class TestLLMSkillAPI(APIBaseTest):
         ]
     )
     @patch(COMMUNITY_FLAG, return_value=True)
-    @patch("products.skills.backend.api.skills.publish_skill_to_community")
+    @patch("products.skills.backend.api.skill_view_community.publish_skill_to_community")
     def test_publish_scout_rejects_an_invalid_config(self, _label: str, scout_config: dict, mock_publish, _mock_flag):
         skill = self.create_skill(name="signals-scout-feed", category="scout")
 
@@ -2178,7 +2182,7 @@ class TestLLMSkillAPI(APIBaseTest):
         mock_publish.assert_not_called()
 
     @patch(COMMUNITY_FLAG, return_value=True)
-    @patch("products.skills.backend.api.skills.publish_skill_to_community")
+    @patch("products.skills.backend.api.skill_view_community.publish_skill_to_community")
     def test_publish_to_community_unknown_skill_returns_404(self, mock_publish, _mock_flag):
         response = self.client.post(self._url("name/does-not-exist/publish-community"), data={}, format="json")
 
@@ -2186,7 +2190,7 @@ class TestLLMSkillAPI(APIBaseTest):
         mock_publish.assert_not_called()
 
     @patch(COMMUNITY_FLAG, return_value=True)
-    @patch("products.skills.backend.api.skills.publish_skill_to_community")
+    @patch("products.skills.backend.api.skill_view_community.publish_skill_to_community")
     def test_publish_to_community_rejects_a_version_that_the_publisher_did_not_review(self, mock_publish, _mock_flag):
         skill = self.create_skill(name="make-pr")
 
@@ -2203,7 +2207,7 @@ class TestLLMSkillAPI(APIBaseTest):
         mock_publish.assert_not_called()
 
     @patch(COMMUNITY_FLAG, return_value=True)
-    @patch("products.skills.backend.api.skills.publish_skill_to_community")
+    @patch("products.skills.backend.api.skill_view_community.publish_skill_to_community")
     def test_publish_to_community_rejects_a_skill_registered_as_a_scout_after_review(self, mock_publish, _mock_flag):
         # Registering a skill as a scout stamps `category` without raising the version, so version
         # alone would let a skill reviewed as an ordinary one publish as a scout on a schedule.
@@ -2224,7 +2228,7 @@ class TestLLMSkillAPI(APIBaseTest):
         mock_publish.assert_not_called()
 
     @patch(COMMUNITY_FLAG, return_value=True)
-    @patch("products.skills.backend.api.skills.publish_skill_to_community")
+    @patch("products.skills.backend.api.skill_view_community.publish_skill_to_community")
     def test_publish_to_community_accepts_the_category_the_publisher_reviewed(self, mock_publish, _mock_flag):
         mock_publish.return_value = {"pr_url": "https://github.com/PostHog/community-skills/pull/1", "pr_number": 1}
         skill = self.create_skill(name="make-pr")
@@ -2243,7 +2247,7 @@ class TestLLMSkillAPI(APIBaseTest):
         mock_publish.assert_called_once()
 
     @patch(COMMUNITY_FLAG, return_value=True)
-    @patch("products.skills.backend.api.skills.publish_skill_to_community")
+    @patch("products.skills.backend.api.skill_view_community.publish_skill_to_community")
     def test_publish_to_community_rejects_a_recreated_skill_with_the_same_version(self, mock_publish, _mock_flag):
         reviewed_skill = self.create_skill(name="make-pr")
         archive_skill(self.team, "make-pr", acting_user=None)
@@ -2267,7 +2271,7 @@ class TestLLMSkillAPI(APIBaseTest):
         ]
     )
     @patch(COMMUNITY_FLAG, return_value=True)
-    @patch("products.skills.backend.api.skills.publish_skill_to_community")
+    @patch("products.skills.backend.api.skill_view_community.publish_skill_to_community")
     def test_publish_to_community_rejects_display_name(self, _label: str, display_name: str, mock_publish, _mock_flag):
         skill = self.create_skill(name="make-pr")
 
@@ -2281,7 +2285,7 @@ class TestLLMSkillAPI(APIBaseTest):
         mock_publish.assert_not_called()
 
     @patch(COMMUNITY_FLAG, return_value=False)
-    @patch("products.skills.backend.api.skills.publish_skill_to_community")
+    @patch("products.skills.backend.api.skill_view_community.publish_skill_to_community")
     def test_publish_to_community_is_gated_on_the_community_flag(self, mock_publish, _mock_flag):
         skill = self.create_skill(name="make-pr")
 
@@ -2295,7 +2299,7 @@ class TestLLMSkillAPI(APIBaseTest):
         mock_publish.assert_not_called()
 
     @patch(COMMUNITY_FLAG, return_value=True)
-    @patch("products.skills.backend.api.skills.publish_skill_to_community")
+    @patch("products.skills.backend.api.skill_view_community.publish_skill_to_community")
     def test_publish_to_community_not_configured_returns_503(self, mock_publish, _mock_flag):
         mock_publish.side_effect = CommunitySkillPublishNotConfiguredError("nope")
         skill = self.create_skill(name="make-pr")
@@ -2309,7 +2313,7 @@ class TestLLMSkillAPI(APIBaseTest):
         assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
 
     @patch(COMMUNITY_FLAG, return_value=True)
-    @patch("products.skills.backend.api.skills.publish_skill_to_community")
+    @patch("products.skills.backend.api.skill_view_community.publish_skill_to_community")
     def test_publish_to_community_invalid_skill_returns_400(self, mock_publish, _mock_flag):
         # Nothing reached GitHub and republishing the same skill fails the same way, so a 502 would
         # tell the publisher to retry an upstream request that was never the problem.
@@ -2326,7 +2330,7 @@ class TestLLMSkillAPI(APIBaseTest):
         assert response.json()["detail"] == "that slug is reserved"
 
     @patch(COMMUNITY_FLAG, return_value=True)
-    @patch("products.skills.backend.api.skills.publish_skill_to_community")
+    @patch("products.skills.backend.api.skill_view_community.publish_skill_to_community")
     def test_publish_to_community_github_error_returns_502(self, mock_publish, _mock_flag):
         mock_publish.side_effect = CommunitySkillPublishError("github exploded")
         skill = self.create_skill(name="make-pr")
@@ -2343,6 +2347,198 @@ class TestLLMSkillAPI(APIBaseTest):
 # llm_skill is its own access-control resource (see ACCESS_CONTROL_RESOURCES in
 # products/access_control/backend/facade/user_access_control.py) - same as TestSkillMarketplaceRBAC in
 # test_marketplace_endpoints.py covers for the git clone endpoint, this covers the JSON skill API.
+class TestSkillWriteAnalytics(APIBaseTest):
+    # Every skill write reports one product event, and the properties on it power the internal
+    # skills adoption dashboards — a renamed event or a dropped property breaks them silently.
+    def _url(self, path: str = "") -> str:
+        return f"/api/environments/{self.team.id}/llm_skills/{path}"
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.skill = LLMSkill.objects.create(
+            team=self.team,
+            name="tracked-skill",
+            description="A tracked skill.",
+            body="# V1",
+            version=1,
+            is_latest=True,
+            created_by=self.user,
+        )
+        LLMSkillFile.objects.create(skill=self.skill, path="old.md", content="hi")
+        set_skill_owners(self.team, "tracked-skill", [self.user], acting_user=None)
+
+    @parameterized.expand(
+        [
+            (
+                "create",
+                "post",
+                "",
+                {"name": "new-skill", "description": "A new skill.", "body": "# New"},
+                "llma skill created",
+            ),
+            (
+                "publish",
+                "patch",
+                "name/tracked-skill",
+                {"body": "# V2", "base_version": 1},
+                "llma skill version published",
+            ),
+            ("archive", "post", "name/tracked-skill/archive", None, "llma skill archived"),
+            (
+                "duplicate",
+                "post",
+                "name/tracked-skill/duplicate",
+                {"new_name": "copied-skill"},
+                "llma skill duplicated",
+            ),
+            ("rename", "post", "name/tracked-skill/rename", {"new_name": "renamed-skill"}, "llma skill renamed"),
+            (
+                "create file",
+                "post",
+                "name/tracked-skill/files",
+                {"path": "notes.md", "content": "hi"},
+                "llma skill file created",
+            ),
+            (
+                "rename file",
+                "post",
+                "name/tracked-skill/files-rename",
+                {"old_path": "old.md", "new_path": "new.md"},
+                "llma skill file renamed",
+            ),
+        ]
+    )
+    @patch(SKILL_ANALYTICS_REPORT)
+    def test_each_write_reports_its_own_event(self, _label, method, path, data, expected_event, mock_report) -> None:
+        response = getattr(self.client, method)(self._url(path), data=data or {}, format="json")
+
+        assert response.status_code in (status.HTTP_200_OK, status.HTTP_201_CREATED, status.HTTP_204_NO_CONTENT), (
+            response.content
+        )
+        assert mock_report.call_count == 1
+        reported_user, reported_event, reported_props = mock_report.call_args.args
+        assert reported_user == self.user
+        assert reported_event == expected_event
+        assert reported_props["skill_name"]
+
+    @patch(SKILL_ANALYTICS_REPORT)
+    def test_publish_reports_which_parts_of_the_skill_the_caller_changed(self, mock_report) -> None:
+        response = self.client.patch(
+            self._url("name/tracked-skill"),
+            data={"body": "# V2", "description": "Now described.", "base_version": 1},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        props = mock_report.call_args.args[2]
+        assert props["base_version"] == 1
+        assert props["skill_version"] == 2
+        assert props["body_changed"] is True
+        assert props["description_changed"] is True
+        assert props["files_replaced"] is False
+        assert props["owners_changed"] is False
+        assert props["edits_used"] is False
+
+
+class TestSkillActivityLog(APIBaseTest):
+    def _url(self, path: str = "") -> str:
+        return f"/api/environments/{self.team.id}/llm_skills/{path}"
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.skill = LLMSkill.objects.create(
+            team=self.team,
+            name="logged-skill",
+            description="A logged skill.",
+            body="# V1",
+            version=1,
+            is_latest=True,
+            created_by=self.user,
+        )
+        LLMSkillFile.objects.create(skill=self.skill, path="old.md", content="hi")
+        set_skill_owners(self.team, "logged-skill", [self.user], acting_user=None)
+        ActivityLog.objects.filter(team_id=self.team.id).delete()
+
+    def _skill_rows(self) -> list[ActivityLog]:
+        return list(ActivityLog.objects.filter(team_id=self.team.id, scope="LLMSkill"))
+
+    @parameterized.expand(
+        [
+            ("create", "post", "", {"name": "new-skill", "description": "New.", "body": "# New"}, "created", False),
+            ("publish", "patch", "name/logged-skill", {"body": "# V2", "base_version": 1}, "updated", True),
+            ("archive", "post", "name/logged-skill/archive", None, "deleted", True),
+            ("duplicate", "post", "name/logged-skill/duplicate", {"new_name": "copied-skill"}, "created", False),
+            ("rename", "post", "name/logged-skill/rename", {"new_name": "renamed-skill"}, "updated", True),
+            ("create file", "post", "name/logged-skill/files", {"path": "notes.md", "content": "hi"}, "updated", True),
+            (
+                "rename file",
+                "post",
+                "name/logged-skill/files-rename",
+                {"old_path": "old.md", "new_path": "new.md"},
+                "updated",
+                True,
+            ),
+            ("delete file", "delete", "name/logged-skill/files/old.md", None, "updated", True),
+        ]
+    )
+    def test_each_write_logs_one_row_for_the_logical_skill(
+        self, _label, method, path, data, expected_activity, keeps_item_id
+    ) -> None:
+        response = getattr(self.client, method)(self._url(path), data=data or {}, format="json")
+
+        assert response.status_code in (status.HTTP_200_OK, status.HTTP_201_CREATED, status.HTTP_204_NO_CONTENT), (
+            response.content
+        )
+        rows = self._skill_rows()
+        assert [row.activity for row in rows] == [expected_activity]
+        assert rows[0].user == self.user
+        assert (rows[0].item_id == str(self.skill.pk)) is keeps_item_id
+
+    def test_publish_records_the_version_note_and_what_changed(self) -> None:
+        response = self.client.patch(
+            self._url("name/logged-skill"),
+            data={
+                "body": "# V2",
+                "description": "Now described.",
+                "files": [{"path": "added.md", "content": "new"}],
+                "base_version": 1,
+                "version_description": "Tighten the instructions",
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        rows = self._skill_rows()
+        assert len(rows) == 1
+        assert rows[0].detail is not None
+        changes = {change["field"]: change for change in rows[0].detail["changes"]}
+        assert changes["version"]["before"] == 1
+        assert changes["version"]["after"] == 2
+        assert changes["version_description"]["after"] == "Tighten the instructions"
+        assert changes["body"]["before"] is None and changes["body"]["after"] is None
+        assert changes["description"]["after"] == "Now described."
+        assert changes["files"]["after"] == {"added": ["added.md"], "removed": ["old.md"], "edited": []}
+
+    def test_owner_change_logs_the_owner_ids_without_publishing(self) -> None:
+        member = self._create_user("owner2@example.com")
+
+        response = self.client.patch(self._url("name/logged-skill"), data={"owners": [str(member.uuid)]}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        rows = self._skill_rows()
+        assert len(rows) == 1
+        assert rows[0].detail is not None
+        assert rows[0].detail["changes"][0]["field"] == "owners"
+        assert rows[0].detail["changes"][0]["before"] == [self.user.id]
+        assert rows[0].detail["changes"][0]["after"] == [member.id]
+
+    def test_system_archive_logs_a_system_row(self) -> None:
+        archive_skill(self.team, "logged-skill", acting_user=None)
+
+        rows = self._skill_rows()
+        assert [(row.activity, row.is_system, row.item_id) for row in rows] == [("deleted", True, str(self.skill.pk))]
+
+
 class TestSkillAccessControlRBAC(APIBaseTest):
     def setUp(self):
         super().setUp()
@@ -2547,8 +2743,8 @@ class TestSkillAccessControlRBAC(APIBaseTest):
             access_level="editor",
             organization_member=membership,
         )
-        set_skill_owners(self.team, theirs.name, [self.member])
-        set_skill_owners(self.team, self.skill.name, [self.user])
+        set_skill_owners(self.team, theirs.name, [self.member], acting_user=None)
+        set_skill_owners(self.team, self.skill.name, [self.user], acting_user=None)
 
         response = self.client.post(
             self._url(f"name/{self.skill.name}/publish-community"),
@@ -2584,11 +2780,11 @@ class TestSkillAccessControlRBAC(APIBaseTest):
         assert response.status_code == expected_status
 
     @patch(COMMUNITY_FLAG, return_value=True)
-    @patch("products.skills.backend.api.skills.publish_skill_to_community")
+    @patch("products.skills.backend.api.skill_view_community.publish_skill_to_community")
     def test_an_owner_with_editor_access_can_publish(self, mock_publish, _mock_flag):
         mock_publish.return_value = {"pr_url": "https://example.com/pull/1", "pr_number": 1, "branch": "b"}
         self._grant_llm_skill_access("editor")
-        set_skill_owners(self.team, self.skill.name, [self.member])
+        set_skill_owners(self.team, self.skill.name, [self.member], acting_user=None)
 
         response = self.client.post(
             self._url(f"name/{self.skill.name}/publish-community"),
@@ -2838,7 +3034,7 @@ class TestScoutTrialSkillAPI(APIBaseTest):
             self.token.scope = "llm_skill:read signal_scout_internal:write"
             self.token.save(update_fields=["scope"])
         url = f"/api/projects/{self.team.id}/llm_skills/bundle/"
-        with patch("products.skills.backend.api.skills.posthog_feature_flag_value", return_value=True):
+        with patch("products.skills.backend.api.skill_view_transfer.posthog_feature_flag_value", return_value=True):
             full = self.client.get(url, {"content": "full"})
             stub = self.client.get(url)
         assert full.status_code == (status.HTTP_403_FORBIDDEN if is_trial else status.HTTP_200_OK)
@@ -3066,7 +3262,7 @@ class TestLLMSkillOwners(APIBaseTest):
         member = self._member("filterowner@example.com")
         create_skill(self.team, user=self.user, name="theirs", description="d", body="# b")
         create_skill(self.team, user=self.user, name="mine", description="d", body="# b")
-        set_skill_owners(self.team, "theirs", [member])
+        set_skill_owners(self.team, "theirs", [member], acting_user=None)
 
         response = self.client.get(self._url() + f"?owner_id={member.id}")
 
@@ -3078,7 +3274,7 @@ class TestLLMSkillOwners(APIBaseTest):
         # rather than surfacing the skills through a stale row.
         member = self._member("goneowner@example.com")
         create_skill(self.team, user=self.user, name="orphaned", description="d", body="# b")
-        set_skill_owners(self.team, "orphaned", [member])
+        set_skill_owners(self.team, "orphaned", [member], acting_user=None)
 
         url = self._url() + f"?owner_id={member.id}"
         etag = self.client.get(url)["ETag"]
@@ -3094,7 +3290,7 @@ class TestLLMSkillOwners(APIBaseTest):
         # former member's profile must not keep leaking through skill-get.
         member = self._member("leaving@example.com")
         create_skill(self.team, user=self.user, name="leaky", description="d", body="# b")
-        set_skill_owners(self.team, "leaky", [self.user, member])
+        set_skill_owners(self.team, "leaky", [self.user, member], acting_user=None)
 
         member.organization_memberships.filter(organization=self.organization).delete()
 
@@ -3112,8 +3308,8 @@ class TestLLMSkillOwners(APIBaseTest):
         alice = self._member("alice@example.com")
         bob = self._member("bob@example.com")
 
-        set_skill_owners(env_a, "shared-name", [alice])
-        set_skill_owners(env_b, "shared-name", [bob])
+        set_skill_owners(env_a, "shared-name", [alice], acting_user=None)
+        set_skill_owners(env_b, "shared-name", [bob], acting_user=None)
 
         assert [o.email for o in resolve_skill_owners(env_a, "shared-name")] == [alice.email]
         assert [o.email for o in resolve_skill_owners(env_b, "shared-name")] == [bob.email]

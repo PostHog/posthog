@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+from functools import cached_property
 from math import ceil
 from typing import Any, Optional, Union
 
@@ -38,7 +39,6 @@ from posthog.caching.insights_api import (
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import Team
-from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.user import User
 
 from products.actions.backend.models.action import Action

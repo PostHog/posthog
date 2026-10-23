@@ -5,14 +5,23 @@ import * as React from 'react'
 import './icon-stack.css'
 import { cn } from './lib/utils'
 
-function IconStack({ className, children, style, ...props }: React.ComponentProps<'span'>): React.ReactElement {
+const IconStack = React.forwardRef<HTMLSpanElement, React.ComponentProps<'span'>>(function IconStack(
+    { className, children, style, ...props },
+    ref
+) {
     const items = React.Children.toArray(children)
     return (
         <span
+            ref={ref}
             data-quill
             data-slot="icon-stack"
             className={cn('quill-icon-stack', className)}
-            style={{ ...style, '--icon-stack-count': items.length } as React.CSSProperties}
+            style={
+                {
+                    ...style,
+                    '--icon-stack-count': items.length,
+                } as React.CSSProperties
+            }
             {...props}
         >
             {items.map((child, index) => (
@@ -26,23 +35,25 @@ function IconStack({ className, children, style, ...props }: React.ComponentProp
             ))}
         </span>
     )
-}
+})
 
-function IconStackItem({
-    className,
-    color,
-    active = false,
-    style,
-    render,
-    ...props
-}: useRender.ComponentProps<'span'> & { color?: string; active?: boolean }): React.ReactElement {
+const IconStackItem = React.forwardRef<
+    HTMLSpanElement,
+    useRender.ComponentProps<'span'> & { color?: string; active?: boolean }
+>(function IconStackItem({ className, color, active = false, style, render, ...props }, ref) {
     return useRender({
+        ref,
         defaultTagName: 'span',
         props: mergeProps<'span'>(
             {
                 'aria-hidden': render ? undefined : true,
                 className: cn('quill-icon-stack__item', className),
-                style: color ? ({ ...style, '--icon-stack-color': color } as React.CSSProperties) : style,
+                style: color
+                    ? ({
+                          ...style,
+                          '--icon-stack-color': color,
+                      } as React.CSSProperties)
+                    : style,
             },
             props
         ),
@@ -53,6 +64,6 @@ function IconStackItem({
             colored: !!color,
         },
     })
-}
+})
 
 export { IconStack, IconStackItem }

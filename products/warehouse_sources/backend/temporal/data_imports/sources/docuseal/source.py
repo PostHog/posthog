@@ -1,5 +1,6 @@
 from typing import cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -34,6 +35,15 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class DocusealSource(ResumableSource[DocusealSourceConfig, DocusealResumeConfig]):
+    codebase_detection = detect(
+        env=("^DOCUSEAL_",),
+        script_hosts=("cdn.docuseal.com", "cdn.docuseal.co"),
+        npm=("@docuseal/api", "@docuseal/react", "@docuseal/vue", "@docuseal/angular"),
+        pypi=("docuseal",),
+        composer=("docusealco/docuseal-php",),
+        rubygems=("docuseal",),
+    )
+
     api_docs_url = "https://www.docuseal.com/docs/api"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
@@ -54,7 +64,7 @@ class DocusealSource(ResumableSource[DocusealSourceConfig, DocusealResumeConfig]
             name=ExternalDataSourceType.DOCUSEAL,
             category=DataWarehouseSourceCategory.SALES,
             label="DocuSeal",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your DocuSeal API key to sync your templates, submissions, and submitters into the PostHog Data warehouse.
 
 Create an API key under **Settings → API** in your [DocuSeal console](https://console.docuseal.com/api). The key has full account access — DocuSeal does not offer per-resource scopes.

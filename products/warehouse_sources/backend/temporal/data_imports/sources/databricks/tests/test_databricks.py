@@ -6,9 +6,12 @@ from unittest.mock import MagicMock, patch
 import pyarrow as pa
 from databricks.sql.exc import RequestError
 
+from posthog.models.integration.databricks import NOT_A_DATABRICKS_HOST_MESSAGE
+
 from products.warehouse_sources.backend.temporal.data_imports.discover_schemas_workflow import (
     DISCOVER_SCHEMAS_ACTIVITY_TIMEOUT,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import HostNotAllowedError
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.databricks.databricks import (
     DATABRICKS_SCHEMA_DISCOVERY_DEADLINE_SECONDS,
@@ -136,11 +139,23 @@ class TestConnect:
             kwargs = mock_connect.call_args.kwargs
             assert "access_token" not in kwargs
             assert callable(kwargs["credentials_provider"])
+            assert kwargs["enable_telemetry"] is False
 
-    def test_pasted_workspace_url_is_cleaned(self, impl):
+    def test_refuses_a_host_outside_databricks_zones(self, impl):
+        with patch(_CONNECT_PATH) as mock_connect:
+            with pytest.raises(HostNotAllowedError, match="not a Databricks workspace hostname"):
+                with impl.connect(_make_config(host="dbc-abc123.example.com")):
+                    pass
+            mock_connect.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "pasted_host",
+        ["https://dbc-abc123.cloud.databricks.com/", "HTTPS://DBC-abc123.cloud.databricks.com/"],
+    )
+    def test_pasted_workspace_url_is_cleaned(self, impl, pasted_host):
         # A `https://…/` host reaches the connector as a bare hostname, or every request fails.
         with patch(_CONNECT_PATH) as mock_connect:
-            with impl.connect(_make_config(host="https://dbc-abc123.cloud.databricks.com/")):
+            with impl.connect(_make_config(host=pasted_host)):
                 pass
             assert mock_connect.call_args.kwargs["server_hostname"] == "dbc-abc123.cloud.databricks.com"
 
@@ -300,6 +315,7 @@ class TestBuildPipeline:
             # Full refresh rewrites the whole table — the partition probes must be skipped.
             assert response.partition_count is None
             assert response.partition_size is None
+            assert response.sort_mode is None
             # The stream must terminate on the first empty arrow batch — not loop forever.
             assert list(response.items()) == [batch]
 
@@ -327,11 +343,12 @@ class TestBuildPipeline:
             # Table stats feed the shared partition math so incremental merges get md5 partitioning.
             assert response.partition_count is not None
             assert response.partition_size is not None
+            assert response.sort_mode == "asc"
             list(response.items())
 
         sql, params = streaming_cursor.execute.call_args.args
         assert "WHERE `updated_at` > :incremental_value" in sql
-        assert "ORDER BY `updated_at` ASC" in sql
+        assert sql.endswith("ORDER BY `updated_at` ASC")
         assert params == {"incremental_value": "2025-01-01T00:00:00"}
 
 
@@ -415,12 +432,35 @@ class TestDatabricksSource:
         assert message == "Host is not allowed"
         mock_get_schemas.assert_not_called()
 
+    def test_validate_credentials_refuses_a_host_outside_databricks_zones(self, source):
+        with (
+            patch.object(DatabricksSource, "is_database_host_valid") as mock_is_database_host_valid,
+            patch.object(DatabricksSource, "get_schemas") as mock_get_schemas,
+        ):
+            ok, message = source.validate_credentials(_make_config(host="dbc-abc123.example.com"), team_id=1)
+        assert ok is False
+        assert message == NOT_A_DATABRICKS_HOST_MESSAGE
+        mock_is_database_host_valid.assert_not_called()
+        mock_get_schemas.assert_not_called()
+
     def test_get_retryable_errors_matches_stopped_warehouse(self, source):
         # A command in flight when the SQL warehouse auto-suspends fails with this message;
         # Databricks auto-starts the warehouse on the next query, so it must stay retryable
         # rather than disabling the source.
         observed_error = "Command failed because warehouse abc123 was stopped."
         assert any(key in observed_error for key in source.get_retryable_errors())
+
+    def test_get_non_retryable_errors_matches_incompatible_view_schema_change(self, source):
+        # A synced view whose underlying table schema changed fails identically on every retry
+        # until the customer recreates the view — Databricks even echoes the view and column
+        # names plus a CREATE OR REPLACE statement, so the match must key off the stable error
+        # class rather than any of that volatile detail.
+        observed_error = (
+            "[INCOMPATIBLE_VIEW_SCHEMA_CHANGE] The SQL query of view `main`.`posthog`.`alert` has an "
+            "incompatible schema change and column alert_severity cannot be resolved. Expected 1 "
+            "columns named alert_severity but got []."
+        )
+        assert any(key in observed_error for key in source.get_non_retryable_errors())
 
 
 class TestGetSchemasDeadline:

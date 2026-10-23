@@ -30,9 +30,11 @@ tools:
             user.
         exclude_params:
             - content.email.html
+            - draft_content
         response:
             exclude:
                 - content
+                - draft_content
                 - created_by
     workflows-get-email-template:
         operation: messaging_templates_retrieve
@@ -54,6 +56,7 @@ tools:
             exclude:
                 - content.email.html
                 - created_by
+                - draft_content
     workflows-list-email-templates:
         operation: messaging_templates_list
         enabled: true
@@ -73,6 +76,37 @@ tools:
             exclude:
                 - content
                 - created_by
+                - draft_content
+    workflows-make-email-template-transactional:
+        operation: messaging_templates_make_transactional_create
+        enabled: true
+        scopes:
+            - hog_flow:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        enrich_url: '{id}'
+        title: Make email template transactional
+        description: >
+            Make an email template sendable from code with one API call, for emails a person triggers such as password
+            resets, receipts and sign-in codes. This is one-way: the template can't be made non-transactional again.
+            Transactional sends ignore marketing opt-outs, so never use this for marketing email. The template needs a
+            subject and a body, and the project needs a verified email sender (pass from_integration_id to pick one,
+            otherwise the project's default sender is used). Requires human typed confirmation. The response has
+            transactional_hog_flow_id, the workflow that sends the email. Share the template's _posthogUrl so the user
+            can review and publish it.
+        feature_flag: workflows-transactional-email-api
+        response:
+            exclude:
+                - content
+                - draft_content
+                - created_by
+        confirmed_action:
+            message: >
+                About to make email template '{id}' transactional. This can't be undone, and its sends will ignore
+                marketing opt-outs. Reply 'confirm' to proceed.
+            action_label: make email template transactional
     workflows-patch-email-template:
         operation: messaging_templates_design_partial_update
         enabled: true
@@ -100,6 +134,7 @@ tools:
             exclude:
                 - content
                 - created_by
+                - draft_content
     workflows-show-email-template:
         operation: messaging_templates_retrieve
         enabled: true
@@ -120,6 +155,7 @@ tools:
             exclude:
                 - content.email.design
                 - created_by
+                - draft_content
     workflows-update-email-template:
         operation: messaging_templates_partial_update
         enabled: true
@@ -141,7 +177,9 @@ tools:
             the returned _posthogUrl edit link.
         exclude_params:
             - content.email.html
+            - draft_content
         response:
             exclude:
                 - content
+                - draft_content
                 - created_by

@@ -5,6 +5,10 @@
             "description": "Filter by archived state.",
             "type": "boolean"
         },
+        "created_by": {
+            "description": "Filter by the creator's user ID.",
+            "type": "number"
+        },
         "kind": {
             "description": "Filter by scorer kind.",
             "type": "string"
@@ -22,7 +26,17 @@
             "type": "string"
         },
         "search": {
-            "description": "Search scorers by name or description.",
+            "description": "Search scorers by name, short name, or description.",
+            "type": "string"
+        },
+        "tag_match": {
+            "default": "any",
+            "description": "Match any selected tag (OR) or all selected tags (AND). Additional tags are allowed.\n\n* `any` - Any\n* `all` - All",
+            "enum": ["any", "all"],
+            "type": "string"
+        },
+        "tags": {
+            "description": "JSON array of tag names, for example [\"quality\",\"production\"]. Up to 20 tags. An empty array disables tag filtering.",
             "type": "string"
         }
     },

@@ -245,6 +245,14 @@ export const ErrorStates: Story = {
                 }),
             },
             {
+                name: 'Table access denied',
+                error: new ApiError("You don't have access to table `events`.", 400, undefined, {
+                    detail: "You don't have access to table `events`.",
+                    code: 'table_access_denied',
+                    queryId: 'table-access-query-id',
+                }),
+            },
+            {
                 name: 'Temporary server failure',
                 error: new ApiError('The query service is temporarily unavailable.', 503, undefined, {
                     detail: 'The query service is temporarily unavailable.',
@@ -278,6 +286,15 @@ export const ErrorStates: Story = {
                         placement="SavedInsightGrid"
                     />
                 ))}
+                <InsightCardComponent
+                    tile={defaultTile}
+                    insight={{ ...EXAMPLE_TRENDS, name: 'Timed out' } as unknown as InsightModel}
+                    timedOut
+                    refresh={() => {}}
+                    rename={() => {}}
+                    duplicate={() => {}}
+                    placement="SavedInsightGrid"
+                />
             </div>
         )
     },
@@ -511,6 +528,61 @@ export const AccessControlMixedPermissions: Story = {
                     duplicate={() => {}}
                     placement="SavedInsightGrid"
                 />
+            </div>
+        )
+    },
+}
+
+export const WarehouseSyncWarning: Story = {
+    render: () => {
+        const insight = {
+            ...EXAMPLE_TRENDS,
+            name: 'Monthly revenue by plan',
+            warnings: [
+                {
+                    type: 'warehouse_sync',
+                    message:
+                        'Last sync of `invoices` (from Stripe) failed. Results reflect data from 5 days ago. Check the data warehouse source for details.',
+                    schema_name: 'invoices',
+                    source_id: 'source-1',
+                    source_type: 'Stripe',
+                    status: 'Failed',
+                    table_name: 'stripe_invoices',
+                },
+                {
+                    type: 'warehouse_sync',
+                    message:
+                        '`hubspot_deals` (from Hubspot) last synced 3 days ago, more than twice its configured sync interval. Results may be out of date.',
+                    schema_name: 'deals',
+                    source_id: 'source-2',
+                    source_type: 'Hubspot',
+                    status: 'Completed',
+                    table_name: 'hubspot_deals',
+                },
+            ],
+        } as unknown as InsightModel
+
+        return (
+            <div className="flex gap-4 min-w-[50rem]">
+                <div className="w-[32rem]">
+                    <InsightCardComponent
+                        tile={defaultTile}
+                        insight={insight}
+                        rename={() => {}}
+                        duplicate={() => {}}
+                        placement="SavedInsightGrid"
+                    />
+                </div>
+                {/* A narrow tile, so the tag has to share the title row with a truncated name. */}
+                <div className="w-[16rem]">
+                    <InsightCardComponent
+                        tile={defaultTile}
+                        insight={insight}
+                        rename={() => {}}
+                        duplicate={() => {}}
+                        placement="SavedInsightGrid"
+                    />
+                </div>
             </div>
         )
     },

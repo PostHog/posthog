@@ -85,6 +85,7 @@ from posthog.temporal.weekly_digest.types import (
     UserDigestContext,
 )
 
+from products.error_tracking.backend.facade.api import get_new_issues_for_team
 from products.growth.backend.product_push.selection import project_uses_product, resolve_product_path
 
 # Every activity below is a sync body behind `@asyncify`, which runs it on the worker's thread pool.
@@ -226,6 +227,49 @@ def _limit_per_team(rows: QuerySet, limit: int) -> QuerySet:
     ).filter(team_rank__lte=limit)
 
 
+def _resources_by_team(
+    input: GenerateDigestDataBatchInput,
+    logger: FilteringBoundLogger,
+    query_func: Callable[[datetime, datetime], QuerySet],
+    resource_type: DigestResourceType,
+    eligible_team_ids: set[int],
+    per_team_limit: int | None = None,
+) -> dict[int, Any]:
+    rows: QuerySet = query_func(input.digest.period_start, input.digest.period_end)
+    if per_team_limit is not None:
+        rows = _limit_per_team(rows, per_team_limit)
+
+    resources_by_team: dict[int, Any] = {}
+    for team_id, team_rows in _rows_by_team(input, rows, eligible_team_ids).items():
+        try:
+            resources_by_team[team_id] = resource_type.model_validate(team_rows)
+        except ValidationError as e:
+            logger.warning(
+                f"Failed to generate digest data for team {team_id}, skipping...", error=str(e), team_id=team_id
+            )
+    return resources_by_team
+
+
+def _store_resources(
+    input: GenerateDigestDataBatchInput,
+    logger: FilteringBoundLogger,
+    key_kind: TeamDataKey,
+    resources_by_team: dict[int, Any],
+    eligible_team_ids: set[int],
+) -> None:
+    # Teams with nothing new get no key. Aggregation substitutes an empty default for a missing key.
+    payload_by_team = {team_id: resources.model_dump_json() for team_id, resources in resources_by_team.items()}
+    with _digest_redis(input.common) as r:
+        _store_team_data(r, input, key_kind, payload_by_team, eligible_team_ids)
+
+    logger.info(
+        "Finished generating digest data batch",
+        key_kind=key_kind,
+        resource_count=sum(len(resources.root) for resources in resources_by_team.values()),
+        team_count=len(payload_by_team),
+    )
+
+
 def generate_digest_data_lookup(
     input: GenerateDigestDataBatchInput,
     key_kind: TeamDataKey,
@@ -236,34 +280,11 @@ def generate_digest_data_lookup(
     logger = _bind_batch_logger(input)
     logger.info("Generating digest data batch", key_kind=key_kind)
 
-    rows: QuerySet = query_func(input.digest.period_start, input.digest.period_end)
-    if per_team_limit is not None:
-        rows = _limit_per_team(rows, per_team_limit)
-
-    resource_count = 0
     eligible_team_ids = _eligible_team_ids(input)
-    payload_by_team: dict[int, str] = {}
-    # Teams with nothing new get no key. Aggregation substitutes an empty default for a missing key.
-    for team_id, team_rows in _rows_by_team(input, rows, eligible_team_ids).items():
-        try:
-            digest_data = resource_type.model_validate(team_rows)
-        except ValidationError as e:
-            logger.warning(
-                f"Failed to generate digest data for team {team_id}, skipping...", error=str(e), team_id=team_id
-            )
-            continue
-        payload_by_team[team_id] = digest_data.model_dump_json()
-        resource_count += len(digest_data.root)
-
-    with _digest_redis(input.common) as r:
-        _store_team_data(r, input, key_kind, payload_by_team, eligible_team_ids)
-
-    logger.info(
-        "Finished generating digest data batch",
-        key_kind=key_kind,
-        resource_count=resource_count,
-        team_count=len(payload_by_team),
+    resources_by_team = _resources_by_team(
+        input, logger, query_func, resource_type, eligible_team_ids, per_team_limit=per_team_limit
     )
+    _store_resources(input, logger, key_kind, resources_by_team, eligible_team_ids)
 
 
 @activity.defn(name="generate-dashboard-lookup")
@@ -468,19 +489,50 @@ def generate_recording_lookup(input: GenerateDigestDataBatchInput) -> None:
 NEW_ERROR_ISSUES_PER_TEAM_LIMIT = 5
 
 
+_query_new_issues_for_team = _retry_while_clickhouse_busy(get_new_issues_for_team)
+
+
+def _generate_error_issue_lookup(input: GenerateDigestDataBatchInput) -> None:
+    logger = _bind_batch_logger(input)
+    logger.info("Generating digest data batch", key_kind=TeamDataKey.ERROR_ISSUES)
+
+    eligible_team_ids = _eligible_team_ids(input)
+    issues_by_team: dict[int, ErrorIssueList] = _resources_by_team(
+        input,
+        logger,
+        query_new_error_issues,
+        ErrorIssueList,
+        eligible_team_ids,
+        per_team_limit=NEW_ERROR_ISSUES_PER_TEAM_LIMIT,
+    )
+
+    # The Postgres lookup only finds the teams worth a ClickHouse query. Their issues then come from
+    # the error tracking digest, so both emails rank and count new issues the same way. A team whose
+    # query fails keeps the Postgres issues without counts, which the email renders without a chart.
+    # execute_hogql_query reads several team columns, so load the teams in full.
+    for team in Team.objects.filter(id__in=issues_by_team.keys()).order_by("id"):
+        try:
+            counted_issues = ErrorIssueList.model_validate(_query_new_issues_for_team(team))
+        except Exception as e:
+            logger.warning(
+                f"Failed to count error issue occurrences for team {team.id}, skipping counts...",
+                error=str(e),
+                team_id=team.id,
+            )
+            continue
+        if counted_issues.root:
+            issues_by_team[team.id] = counted_issues
+        else:
+            del issues_by_team[team.id]
+
+    _store_resources(input, logger, TeamDataKey.ERROR_ISSUES, issues_by_team, eligible_team_ids)
+
+
 @activity.defn(name="generate-error-issue-lookup")
 @asyncify
 def generate_error_issue_lookup(input: GenerateDigestDataBatchInput) -> None:
-    # New error-tracking issues follow the standard "created within window" lookup,
-    # exactly like dashboards / feature flags.
     with HeartbeaterSync(logger=LOGGER):
-        generate_digest_data_lookup(
-            input,
-            key_kind=TeamDataKey.ERROR_ISSUES,
-            query_func=query_new_error_issues,
-            resource_type=ErrorIssueList,
-            per_team_limit=NEW_ERROR_ISSUES_PER_TEAM_LIMIT,
-        )
+        _generate_error_issue_lookup(input)
 
 
 # Weekly usage snapshot per team. Written in HogQL so it inherits the team's test-account
@@ -489,22 +541,35 @@ def generate_error_issue_lookup(input: GenerateDigestDataBatchInput) -> None:
 # which is the conditional form of the `count(DISTINCT person_id)` those insights print. Counting
 # distinct_ids would overcount (one person, many devices). Two windows are compared in one pass;
 # the query runs on the offline cluster since it scans two weeks of events for every active team.
+# Day slots count seconds from cur_start, because HogQL converts timestamps to the project timezone.
 USAGE_TRENDS_QUERY = """
 SELECT
     countIf(timestamp >= {cur_start} AND timestamp < {cur_end}) AS events_current,
     countIf(timestamp >= {prev_start} AND timestamp < {cur_start}) AS events_previous,
     uniqExactIf(person_id, timestamp >= {cur_start} AND timestamp < {cur_end}) AS users_current,
-    uniqExactIf(person_id, timestamp >= {prev_start} AND timestamp < {cur_start}) AS users_previous
-FROM events
-WHERE timestamp >= {prev_start} AND timestamp < {cur_end} AND {filters}
+    uniqExactIf(person_id, timestamp >= {prev_start} AND timestamp < {cur_start}) AS users_previous,
+    sumForEachIf(
+        arrayMap(slot -> if(slot = day_index, 1, 0), range({day_count})),
+        timestamp >= {cur_start} AND timestamp < {cur_end}
+    ) AS events_daily,
+    countDistinctForEachIf(
+        arrayMap(slot -> if(slot = day_index, person_id, NULL), range({day_count})),
+        timestamp >= {cur_start} AND timestamp < {cur_end}
+    ) AS users_daily
+FROM (
+    SELECT timestamp, person_id, intDiv(dateDiff('second', {cur_start}, timestamp), 86400) AS day_index
+    FROM events
+    WHERE timestamp >= {prev_start} AND timestamp < {cur_end} AND {filters}
+)
 """
 
 
-def _usage_trend_metric(label: str, current: int, previous: int) -> UsageTrendMetric:
+def _usage_trend_metric(label: str, current: int, previous: int, daily: list[int] | None = None) -> UsageTrendMetric:
     has_baseline = previous > 0
+    daily = daily or []
     change = compute_week_over_week_change(current, previous if has_baseline else None, higher_is_better=True)
     if change is None:
-        return UsageTrendMetric(label=label, current=current, previous=previous, has_baseline=has_baseline)
+        return UsageTrendMetric(label=label, current=current, previous=previous, has_baseline=has_baseline, daily=daily)
     return UsageTrendMetric(
         label=label,
         current=current,
@@ -512,6 +577,7 @@ def _usage_trend_metric(label: str, current: int, previous: int) -> UsageTrendMe
         change_pct=change["percent"],
         direction="up" if change["direction"] == "Up" else "down",
         has_baseline=True,
+        daily=daily,
     )
 
 
@@ -553,6 +619,7 @@ def _query_team_usage_trends(team: Team, period_start: datetime, period_end: dat
             "cur_start": ast.Constant(value=period_start),
             "cur_end": ast.Constant(value=period_end),
             "prev_start": ast.Constant(value=period_start - window),
+            "day_count": ast.Constant(value=max(window.days, 1)),
         },
         filters=HogQLFilters(filterTestAccounts=True),
         workload=Workload.OFFLINE,
@@ -561,7 +628,7 @@ def _query_team_usage_trends(team: Team, period_start: datetime, period_end: dat
     if not response.results or not response.results[0]:
         return None
 
-    events_current, events_previous, users_current, users_previous = response.results[0]
+    events_current, events_previous, users_current, users_previous, events_daily, users_daily = response.results[0]
     events_current = int(events_current or 0)
     users_current = int(users_current or 0)
 
@@ -571,8 +638,12 @@ def _query_team_usage_trends(team: Team, period_start: datetime, period_end: dat
 
     return UsageTrends(
         metrics=[
-            _usage_trend_metric("Events", events_current, int(events_previous or 0)),
-            _usage_trend_metric("Active users", users_current, int(users_previous or 0)),
+            _usage_trend_metric(
+                "Events", events_current, int(events_previous or 0), [int(count) for count in events_daily or []]
+            ),
+            _usage_trend_metric(
+                "Active users", users_current, int(users_previous or 0), [int(count) for count in users_daily or []]
+            ),
         ]
     )
 

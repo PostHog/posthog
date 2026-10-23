@@ -51,7 +51,7 @@ class TestEvaluationModel(BaseTest):
     ):
         evaluation = self._create_hog_evaluation()
 
-        with patch("posthog.cdp.filters.compile_filters_bytecode") as mock_compile:
+        with patch("products.cdp.backend.filters.compile_filters_bytecode") as mock_compile:
             mock_compile.return_value = {"bytecode": None, "bytecode_error": "Invalid property filter"}
             if updates is None:
                 evaluation.set_status(EvaluationStatus.ERROR, EvaluationStatusReason.HOG_ERROR)

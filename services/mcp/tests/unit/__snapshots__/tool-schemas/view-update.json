@@ -1,17 +1,6 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
-        "dag_id": {
-            "anyOf": [
-                {
-                    "type": "string"
-                },
-                {
-                    "type": "null"
-                }
-            ],
-            "description": "DAG in this project to place the view into. Null uses the default DAG. Managed DAGs are not allowed."
-        },
         "description": {
             "anyOf": [
                 {

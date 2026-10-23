@@ -30,6 +30,7 @@ import { BreakdownFilter, NodeKind } from '~/queries/schema/schema-general'
 import { InsightLogicProps, IntervalType } from '~/types'
 
 import { DashboardMetricLabelFilter } from 'products/metrics/frontend/components/DashboardMetricLabelFilter'
+import { DashboardMetricVariables } from 'products/metrics/frontend/components/dashboardVariables/DashboardMetricVariables'
 
 interface DashboardEditBarProps {
     showDateFilter?: boolean
@@ -265,6 +266,17 @@ export function DashboardEditBar({ showDateFilter = true, className }: Dashboard
                                 setMetricFilters(metricFilters)
                             }}
                         />
+                    </div>
+                </DashboardControlSlot>
+            )}
+            {controlsEnabled && (
+                <DashboardControlSlot
+                    control="metricVariables"
+                    hasValue={(effectiveEditBarFilters.metricVariables?.length ?? 0) > 0}
+                    className={clsx('content-end', { 'h-[61px]': hasVariables })}
+                >
+                    <div className="flex min-h-[30px] flex-wrap items-end gap-1 border-l border-primary pl-2">
+                        <DashboardMetricVariables />
                     </div>
                 </DashboardControlSlot>
             )}

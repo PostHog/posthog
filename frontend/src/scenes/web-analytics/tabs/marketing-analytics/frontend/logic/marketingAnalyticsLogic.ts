@@ -213,35 +213,46 @@ function getSourceStatus(
             findSchemaByFieldName(nativeSource.schemas, fieldName, nativeSource.source_type)
         )
 
-        // Check for tables not selected for sync (should_sync=false) or missing entirely
+        const tableMessages = requiredFields.flatMap((fieldName, index) => {
+            const schema = schemas[index]
+            if (!schema) {
+                return [`${fieldName}: not found. Check the source configuration.`]
+            }
+            if (!schema.should_sync) {
+                return [`${schema.name}: import disabled. Enable this table in the source's Schemas tab.`]
+            }
+            switch (schema.status) {
+                case ExternalDataSchemaStatus.Completed:
+                    return []
+                case ExternalDataSchemaStatus.Failed:
+                    return [`${schema.name}: sync failed. Review the error in the source's Schemas tab.`]
+                case ExternalDataSchemaStatus.Running:
+                    return [`${schema.name}: syncing. Wait for the sync to finish.`]
+                case ExternalDataSchemaStatus.Paused:
+                    return [`${schema.name}: sync paused. Review the table in the source's Schemas tab.`]
+                case ExternalDataSchemaStatus.Cancelled:
+                    return [`${schema.name}: sync canceled. Review the table in the source's Schemas tab.`]
+                default:
+                    return [`${schema.name}: waiting for a completed sync. Check the source's Schemas tab.`]
+            }
+        })
+        const message = tableMessages.join(' ')
         const disabledTables = schemas.filter((s) => s && !s.should_sync)
         const missingTables = schemas.filter((s) => !s)
         if (disabledTables.length > 0 || missingTables.length > 0) {
-            return {
-                status: MarketingSourceStatus.Warning,
-                message:
-                    'Some required tables are not selected for import. Enable them in the data warehouse source settings.',
-            }
+            return { status: MarketingSourceStatus.Warning, message }
         }
 
         const schemaStatuses = schemas.map((s) => s?.status).filter(Boolean)
 
-        if (schemaStatuses.includes(ExternalDataSchemaStatus.Failed)) {
-            return { status: ExternalDataSchemaStatus.Failed, message: 'One or more required tables failed to sync' }
-        }
-        if (schemaStatuses.includes(ExternalDataSchemaStatus.Running)) {
-            return {
-                status: ExternalDataSchemaStatus.Running,
-                message: 'One or more required tables are still syncing',
-            }
-        }
-        if (schemaStatuses.includes(ExternalDataSchemaStatus.Paused)) {
-            return { status: ExternalDataSchemaStatus.Paused, message: 'One or more required tables sync is paused' }
-        }
-        if (schemaStatuses.includes(ExternalDataSchemaStatus.Cancelled)) {
-            return {
-                status: ExternalDataSchemaStatus.Cancelled,
-                message: 'One or more required tables sync is cancelled',
+        for (const status of [
+            ExternalDataSchemaStatus.Failed,
+            ExternalDataSchemaStatus.Running,
+            ExternalDataSchemaStatus.Paused,
+            ExternalDataSchemaStatus.Cancelled,
+        ]) {
+            if (schemaStatuses.includes(status)) {
+                return { status, message }
             }
         }
         if (validationWarning) {
@@ -256,7 +267,7 @@ function getSourceStatus(
                 message: 'Ready to use! All required fields have synced.',
             }
         }
-        return { status: MarketingSourceStatus.Warning, message: 'Some required tables need to be synced' }
+        return { status: MarketingSourceStatus.Warning, message: message || 'Some required tables need to be synced' }
     }
 
     const externalTable = validExternalTables.find((t) => t.source_map_id === source.id)
@@ -400,16 +411,23 @@ export interface marketingAnalyticsLogicValues {
     integrationFilter: IntegrationFilter
     isAdPerformance: boolean
     loading: boolean
+    marketingChartSourceIds: string[]
+    marketingDataWarehouseSeries: {
+        node: DataWarehouseNode
+        sourceId: string
+    }[]
     nativeSources: ExternalDataSource[]
     nativeSourcesHierarchyStatus: NativeSourceHierarchyStatus[]
     optionsOpen: boolean
     overviewQuery: MarketingAnalyticsAggregatedQuery
+    setupEnabled: boolean
     setupSection: SetupSection
     shouldFilterTestAccounts: boolean
     sourceValidation: SourceValidationApi
     sourceValidationError: string | null
     sourceValidationErrors: SourceValidationApi['errors_by_source']
     sourceValidationLoading: boolean
+    sourcesInitialLoading: boolean
     tileColumnSelection: validColumnsForTiles
     unconfiguredNativeSources: ExternalDataSource[]
     uniqueConversionGoalName: string
@@ -643,6 +661,7 @@ export interface marketingAnalyticsLogicActions {
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface marketingAnalyticsLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
+        setupEnabled: (featureFlags: FeatureFlagsSet) => boolean
         isAdPerformance: (activeTab: MarketingAnalyticsTab, featureFlags: FeatureFlagsSet) => boolean
         includeConversionGoals: (
             isAdPerformance: boolean,
@@ -690,6 +709,10 @@ export interface marketingAnalyticsLogicMeta {
         ) => string
         nativeSourcesHierarchyStatus: (validNativeSources: NativeSource[]) => NativeSourceHierarchyStatus[]
         loading: (dataWarehouseSourcesLoading: boolean) => boolean
+        sourcesInitialLoading: (
+            dataWarehouseSourcesLoading: boolean,
+            dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null
+        ) => boolean
         allAvailableSources: (
             validExternalTables: ExternalTable[],
             validNativeSources: NativeSource[]
@@ -763,13 +786,28 @@ export interface marketingAnalyticsLogicMeta {
             statusMessage: string
             url_pattern: string
         }[]
-        createMarketingDataWarehouseNodes: (
+        marketingDataWarehouseSeries: (
             validExternalTables: ExternalTable[],
             baseCurrency: CurrencyCode,
             validNativeSources: NativeSource[],
             tileColumnSelection: validColumnsForTiles,
             integrationFilter: IntegrationFilter
+        ) => {
+            node: DataWarehouseNode
+            sourceId: string
+        }[]
+        createMarketingDataWarehouseNodes: (
+            marketingDataWarehouseSeries: {
+                node: DataWarehouseNode
+                sourceId: string
+            }[]
         ) => DataWarehouseNode[]
+        marketingChartSourceIds: (
+            marketingDataWarehouseSeries: {
+                node: DataWarehouseNode
+                sourceId: string
+            }[]
+        ) => string[]
         shouldFilterTestAccounts: (filter_test_accounts: boolean) => boolean
         overviewQuery: (
             dateFilter: {
@@ -1109,6 +1147,12 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
         }
     }),
     selectors({
+        setupEnabled: [
+            (s) => [s.featureFlags],
+            (featureFlags: FeatureFlagsSet): boolean =>
+                !!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_SETUP] ||
+                !!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD],
+        ],
         isAdPerformance: [
             (s) => [s.activeTab, s.featureFlags],
             (activeTab: MarketingAnalyticsTab, featureFlags: FeatureFlagsSet): boolean =>
@@ -1342,6 +1386,16 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             (s) => [s.dataWarehouseSourcesLoading],
             (dataWarehouseSourcesLoading: boolean) => dataWarehouseSourcesLoading,
         ],
+        // `loading` is also true while sources refresh in the background (window focus, sync
+        // polling). Views that would unmount their content on `loading` should gate on this
+        // instead, so only the first load shows a placeholder and refreshes keep the data in place.
+        sourcesInitialLoading: [
+            (s) => [s.dataWarehouseSourcesLoading, s.dataWarehouseSources],
+            (
+                dataWarehouseSourcesLoading: boolean,
+                dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null
+            ): boolean => dataWarehouseSourcesLoading && !dataWarehouseSources,
+        ],
         allAvailableSources: [
             (s) => [s.validExternalTables, s.validNativeSources],
             (validExternalTables: ExternalTable[], validNativeSources: NativeSource[]) => {
@@ -1409,7 +1463,11 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
         hasSyncedMarketingSources: [
             (s) => [s.validExternalTables, s.validNativeSources],
             (externalTables: ExternalTable[], nativeSources: NativeSource[]): boolean =>
-                externalTables.length > 0 ||
+                externalTables.some(
+                    (table) =>
+                        table.external_type === DataWarehouseSettingsTab.SelfManaged ||
+                        table.schema_status === ExternalDataSchemaStatus.Completed
+                ) ||
                 nativeSources.some(({ source }) => {
                     const requiredFields =
                         NEEDED_FIELDS_FOR_NATIVE_MARKETING_ANALYTICS[source.source_type as NativeMarketingSource]
@@ -1492,7 +1550,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                 return result
             },
         ],
-        createMarketingDataWarehouseNodes: [
+        marketingDataWarehouseSeries: [
             (s) => [
                 s.validExternalTables,
                 s.baseCurrency,
@@ -1506,7 +1564,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                 validNativeSources: NativeSource[],
                 tileColumnSelection: validColumnsForTiles,
                 integrationFilter: IntegrationFilter
-            ): DataWarehouseNode[] => {
+            ): { sourceId: string; node: DataWarehouseNode }[] => {
                 const selectedIds = integrationFilter.integrationSourceIds || []
                 const hasFilter = selectedIds.length > 0
 
@@ -1518,16 +1576,26 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                     ? validNativeSources.filter((source) => selectedIds.includes(source.source.id))
                     : validNativeSources
 
-                const nonNativeNodeList: DataWarehouseNode[] = filteredExternalTables
-                    .map((table) => externalAdsCostTile(table, baseCurrency, tileColumnSelection))
-                    .filter(Boolean) as DataWarehouseNode[]
-
-                const nativeNodeList: DataWarehouseNode[] = filteredNativeSources
-                    .map((source) => MarketingDashboardMapper(source, tileColumnSelection, baseCurrency))
-                    .filter(Boolean) as DataWarehouseNode[]
-
+                const nonNativeNodeList = filteredExternalTables.flatMap((table) => {
+                    const node = externalAdsCostTile(table, baseCurrency, tileColumnSelection)
+                    return node ? [{ sourceId: table.source_map_id, node }] : []
+                })
+                const nativeNodeList = filteredNativeSources.flatMap((source) => {
+                    const node = MarketingDashboardMapper(source, tileColumnSelection, baseCurrency)
+                    return node ? [{ sourceId: source.source.id, node }] : []
+                })
                 return [...nativeNodeList, ...nonNativeNodeList]
             },
+        ],
+        createMarketingDataWarehouseNodes: [
+            (s) => [s.marketingDataWarehouseSeries],
+            (series: { sourceId: string; node: DataWarehouseNode }[]): DataWarehouseNode[] =>
+                series.map(({ node }) => node),
+        ],
+        marketingChartSourceIds: [
+            (s) => [s.marketingDataWarehouseSeries],
+            (series: { sourceId: string; node: DataWarehouseNode }[]): string[] =>
+                series.map(({ sourceId }) => sourceId),
         ],
         shouldFilterTestAccounts: [
             (s) => [s.filter_test_accounts],
@@ -1819,7 +1887,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                 if (cache.sourceConfigurationKey !== sourceConfigurationKey) {
                     cache.sourceConfigurationKey = sourceConfigurationKey
                     actions.loadDatabase()
-                    actions.reloadAll()
+                    actions.loadSourceValidation()
                 } else if (cache.sourceSyncKey !== sourceSyncKey) {
                     actions.loadDatabase()
                     actions.loadSourceValidation()

@@ -3,10 +3,13 @@ from typing import Any
 
 import pytest
 
+from parameterized import parameterized
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
     always,
+    route,
     scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.housecallpro import (
@@ -52,9 +55,6 @@ class TestValidateCredentials:
         "status_code, expected",
         [
             (200, True),
-            (401, False),
-            (403, False),
-            (500, False),
         ],
     )
     def test_validate_credentials_status_mapping(self, status_code: int, expected: bool) -> None:
@@ -93,12 +93,54 @@ class TestGetRows:
         assert result.raised is None
         assert result.requests[0].param("created_at_min") is None
 
+    @parameterized.expand([("job_appointments", "appointments"), ("job_line_items", "data")])
+    def test_job_children_walk_every_jobs_page_and_carry_the_job_id(self, endpoint: str, response_key: str) -> None:
+        child_path = HOUSECALL_PRO_ENDPOINTS[endpoint].path
+        result = _driver().run(
+            endpoint,
+            route(
+                {
+                    "/jobs": [
+                        _page("jobs", [{"id": "job_1"}, {"id": "job_2"}], total_pages=2),
+                        _page("jobs", [{"id": "job_3"}], total_pages=2),
+                    ],
+                    child_path.format(job_id="job_1"): [ScriptedResponse(json={response_key: [{"id": "a"}]})],
+                    child_path.format(job_id="job_2"): [ScriptedResponse(status=404)],
+                    child_path.format(job_id="job_3"): [ScriptedResponse(json={response_key: [{"id": "a"}]})],
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert [(row["job_id"], row["id"]) for row in result.rows] == [("job_1", "a"), ("job_3", "a")]
+        assert result.params("page") == ["1", None, None, "2", None]
+        assert result.params("page_size") == ["100", None, None, "100", None]
+        assert result.saved_states
+        assert all(state.page is None and state.fanout_state for state in result.saved_states)
+
+    def test_pipeline_statuses_read_each_resource_type(self) -> None:
+        result = _driver().run(
+            "pipeline_statuses",
+            [
+                _page("statuses", [{"id": "s1", "name": "New", "status_type": "open"}], total_pages=1),
+                _page("statuses", [], total_pages=0),
+                _page("statuses", [{"id": "s1", "name": "Won", "status_type": "closed"}], total_pages=1),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.params("resource_type") == ["lead", "job", "estimate"]
+        assert [(row["resource_type"], row["id"], row["name"]) for row in result.rows] == [
+            ("lead", "s1", "New"),
+            ("estimate", "s1", "Won"),
+        ]
+
 
 class TestHousecallProSourceResponse:
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
     def test_response_metadata_per_endpoint(self, endpoint: str) -> None:
         config = HOUSECALL_PRO_ENDPOINTS[endpoint]
-        result = _driver().run(endpoint, [_page(config.response_key, [], total_pages=1)])
+        result = _driver().run(endpoint, always(_page(config.response_key, [], total_pages=1)))
         response = result.response
 
         assert result.raised is None

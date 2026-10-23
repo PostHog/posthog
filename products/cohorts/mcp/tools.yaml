@@ -158,6 +158,11 @@ tools:
             ActorsQuery through its matching 'query-*-actors' tool (e.g. 'query-trends-actors') — and only save one that
             returned successfully. Prefer this over 'cohorts-add-persons-to-static-cohort-partial-update' for anything
             beyond a handful (~20) of people.
+
+
+            An update that sets 'query' returns a 400 while the cohort's 'is_calculating' is true. That includes the
+            first population right after 'cohorts-create' with a query. Before you send the next query, call
+            'cohorts-retrieve' and wait until 'is_calculating' is false.
         exclude_params:
             - groups
             - version

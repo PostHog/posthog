@@ -2,6 +2,7 @@ from typing import cast
 
 from requests.exceptions import HTTPError
 
+from products.warehouse_sources.backend.facade.codebase_detection import NOT_DETECTABLE
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -37,6 +38,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ProductiveSource(ResumableSource[ProductiveSourceConfig, ProductiveResumeConfig]):
+    codebase_detection = NOT_DETECTABLE
+
     lists_tables_without_credentials = True
     supported_versions = ("v2",)
     default_version = "v2"
@@ -115,7 +118,7 @@ class ProductiveSource(ResumableSource[ProductiveSourceConfig, ProductiveResumeC
             label="Productive",
             docsUrl="https://posthog.com/docs/cdp/sources/productive",
             iconPath="/static/services/productive.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="Create a read-only personal access token in Productive's Settings > API integrations. "
             "Only data accessible to the token owner can be imported.",
             fields=cast(

@@ -1,8 +1,8 @@
 import json
 import time
 import logging
-from collections.abc import Callable, Collection, Iterator
-from dataclasses import dataclass, field, replace
+from collections.abc import Callable, Iterator
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from functools import partial
 from typing import TypeVar
@@ -32,6 +32,7 @@ from posthog.clickhouse.client.connection import ClickHouseUser, NodeRole
 from posthog.clickhouse.cluster import (
     ClickhouseCluster,
     LightweightDeleteMutationRunner,
+    Query,
     wait_for_patch_part_replication,
 )
 from posthog.clickhouse.events_json import UNPARSEABLE_PROPERTIES_KEY
@@ -47,17 +48,20 @@ from posthog.models.data_deletion_request import (
     ExecutionMode,
     RequestStatus,
     RequestType,
+    UncopiedRowsPredicate,
     auto_approve_pending_requests,
     compile_hogql_predicate,
     event_match_sql_fragment,
     event_removal_where,
     jsonhas_expr,
     portable_event_removal_where,
+    queued_requests_to_verify,
+    reaches_target_through_event_uuids,
+    uncopied_rows_predicate,
     verify_queued_request,
 )
 from posthog.models.deletion_targets import (
     COVERAGE_DOC,
-    FLAG_EVALUATIONS,
     PERSONAL_DATA_TARGETS,
     DeletionTarget,
     NotCounted,
@@ -66,6 +70,7 @@ from posthog.models.deletion_targets import (
     UnsweptRowsError,
     assert_no_unsweepable_rows,
     assert_sweep_complete,
+    count_surviving_rows,
     placement_for,
     resolve_placements,
     surviving_rows_sql,
@@ -525,12 +530,42 @@ def execute_hogql_event_deletion(
 
 
 _HOGQL_UNSWEEPABLE_REASON = (
-    "the request carries a HogQL predicate, which only compiles against the events schema "
-    "(compile_hogql_predicate resolves every predicate against the events HogQL table, varying only "
-    "legacy vs native-JSON, and nothing checks the result against this table's columns). "
+    "the request carries a HogQL predicate, and this job compiles it against the events schema only, "
+    "so it cannot apply the predicate to this table. "
     "To proceed, re-file the request without the predicate, or narrow its events to ones this "
     f"table never stores. See {COVERAGE_DOC}."
 )
+
+_IMMEDIATE_HOGQL_NO_EVENTS_COPY_REASON = (
+    "the request carries a HogQL predicate and runs immediately, and these rows have no copy in the events "
+    "table. An immediate request with a predicate does not delete rows here. To proceed, re-file the request "
+    f"as deferred, which queues these rows. See {COVERAGE_DOC}."
+)
+
+_IMMEDIATE_HOGQL_RETRY_HINT = (
+    " If an earlier run of this request already deleted events, finish it with Re-execute from failure on "
+    "that Dagster run, which does not run this check again."
+)
+
+
+def _hogql_unchecked_events_copy_reason(target: DeletionTarget, tables: list[str]) -> str:
+    return (
+        f"the request carries a HogQL predicate, and these rows have no copy in {target.copied_from}, but "
+        f"{', '.join(tables)} holds flag calls in the request's window. The deferred queue deletes a queued uuid "
+        "from every table, so queueing these rows could also delete a copy there that the predicate excludes. "
+        "This job cannot check those copies row by row. To proceed, re-file the request without the predicate. "
+        f"See {COVERAGE_DOC}."
+    )
+
+
+def _hogql_no_events_copy_reason(error: str) -> str:
+    return (
+        f"the request carries a HogQL predicate that cannot run on this table ({error}), and these rows have "
+        "no copy in the events table, so the predicate cannot reach them through their events copies either. "
+        "Such rows belong to an org whose flag calls are stored only in this table, or to events an earlier "
+        "deletion removed without these rows. To proceed, re-file the request without the predicate, or as a "
+        f"deferred request with a predicate this table can run. See {COVERAGE_DOC}."
+    )
 
 
 def _refuse_unsweepable(
@@ -556,25 +591,12 @@ def _refuse_unsweepable(
         raise dagster.Failure(description=f"Deletion request {deletion_request.request_id}: {exc}") from exc
 
 
-_STORES_NONE_OF_THE_PROPERTIES = "the request names only person properties, and this table stores none"
+def _same_criteria(criteria: tuple[str, dict]) -> Callable[[DeletionTarget], tuple[str, dict]]:
+    return lambda _target: criteria
 
 
 def _deletion_target(data_table: str) -> DeletionTarget:
     return next(target for target in PERSONAL_DATA_TARGETS if target.data_table == data_table)
-
-
-def _scoped_to(target: DeletionTarget, deletion_request: DeletionRequestContext) -> DeletionRequestContext:
-    """The property-removal request narrowed to the property columns ``target`` stores.
-
-    A target without ``stores_person_properties`` (today only flag_evaluations) drops the
-    request's ``person_properties`` half, since that column cannot be queried or assigned there;
-    see the field's own comment on ``DeletionTarget`` for what that costs.
-    """
-    return deletion_request if target.stores_person_properties else replace(deletion_request, person_properties=[])
-
-
-def _names_any_property(request: DeletionRequestContext) -> bool:
-    return bool(request.properties or request.person_properties)
 
 
 def _hogql_excludes(target: DeletionTarget, deletion_request: DeletionRequestContext) -> bool:
@@ -596,11 +618,10 @@ def _refuse_property_removal_unsweepable(
     which ``_property_rewrite_targets`` leaves out of the sweep.
     """
 
-    def predicate_for(target: DeletionTarget) -> tuple[str, dict] | NotCounted:
-        request = _scoped_to(target, deletion_request)
-        if not _names_any_property(request):
-            return NotCounted(reason=_STORES_NONE_OF_THE_PROPERTIES)
-        return _property_removal_where(request, inserted_at_max=marker_str, json_schema=target.uses_new_events_schema)
+    def predicate_for(target: DeletionTarget) -> tuple[str, dict]:
+        return _property_removal_where(
+            deletion_request, inserted_at_max=marker_str, json_schema=target.uses_new_events_schema
+        )
 
     _refuse_unsweepable(
         cluster,
@@ -638,36 +659,103 @@ def _verify_swept(
         raise dagster.Failure(description=f"Deletion request {deletion_request.request_id}: {exc}") from exc
 
 
-def _event_removal_placements(
+@frozen
+class EventRemovalPlacements:
+    """Where an event-removal request reads or deletes rows, settled before it deletes or queues any."""
+
+    # Targets the request's own criteria run on.
+    swept: list[TargetPlacement]
+    # Targets whose rows with no events copy a deferred request queues, each with its predicate for those rows.
+    uncopied: list[tuple[TargetPlacement, UncopiedRowsPredicate]]
+
+
+def _holds_rows(cluster: ClickhouseCluster, placement: TargetPlacement, predicate: str, params: dict) -> bool:
+    """Whether ``placement``'s target holds rows that match ``predicate``.
+
+    Reads the Distributed proxy, and also the storage table through its own handle when that table sits
+    on another cluster. The proxy reads only the cluster its engine names, so on a deployment whose
+    storage moved it can read an empty table, as ``_count_unswept_rows`` in posthog/dags/deletes.py notes.
+    """
+    if count_surviving_rows(cluster, placement.target, predicate, params):
+        return True
+    if placement.cluster is cluster:
+        return False
+    query = Query(
+        surviving_rows_sql(placement.target.data_table, predicate), params, settings={"max_execution_time": "1800"}
+    )
+    return any(rows and rows[0][0] for rows in placement.cluster.map_one_host_per_shard(query).result().values())
+
+
+def _events_tables_outside_copy_check(
     cluster: ClickhouseCluster,
-    deletion_request: DeletionRequestContext,
-    *,
-    skip_targets: Collection[DeletionTarget] = (),
-) -> list[TargetPlacement]:
-    """Targets this event-removal request can sweep, each with the handle that reaches it."""
+    placements: list[TargetPlacement],
+    target: DeletionTarget,
+    criteria: tuple[str, dict],
+) -> list[str]:
+    """The events tables other than ``target.copied_from`` that hold events ``target`` copies, within ``criteria``.
+
+    The copy check reads only ``target.copied_from``, so a row it finds with no copy can still have one
+    in another events table. That table can sit on another cluster, where a shard-local subquery cannot
+    reach it.
+    """
+    predicate, params = criteria
+    if target.stored_events is not None:
+        predicate += " AND event IN %(copied_events)s"
+        params = {**params, "copied_events": sorted(target.stored_events)}
+    return [
+        p.target.data_table
+        for p in placements
+        if p.target.hogql_schema is not None
+        and p.target.data_table != target.copied_from
+        and _holds_rows(cluster, p, predicate, params)
+    ]
+
+
+def _event_removal_placements(
+    cluster: ClickhouseCluster, deletion_request: DeletionRequestContext
+) -> EventRemovalPlacements:
+    """Where this event-removal request reads or deletes rows, each target with the handle that reaches it."""
     events = [] if deletion_request.delete_all_events else deletion_request.events
     # A target that can't hold any of the named events has nothing to sweep, and mutations serialize
     # per table, so enqueueing a no-op one would queue in front of real work.
-    # Skipped targets are dropped before resolve_placements, which raises for an unreachable target
-    # that still holds rows.
-    targets = [t for t in PERSONAL_DATA_TARGETS if t not in skip_targets]
-    placements = [p for p in resolve_placements(cluster, targets) if p.target.may_hold_any_of(events)]
+    placements = [p for p in resolve_placements(cluster) if p.target.may_hold_any_of(events)]
     if not deletion_request.hogql_predicate:
-        return placements
+        return EventRemovalPlacements(swept=placements, uncopied=[])
 
-    unsweepable = [p.target for p in placements if not p.target.accepts_hogql_predicate]
-    if unsweepable:
-        criteria = portable_event_removal_where(deletion_request)
-        _refuse_unsweepable(
-            cluster, unsweepable, deletion_request, lambda _target: criteria, reason=_HOGQL_UNSWEEPABLE_REASON
-        )
-    return [p for p in placements if p.target.accepts_hogql_predicate]
+    unsweepable = [p for p in placements if not p.target.accepts_hogql_predicate]
+    criteria = portable_event_removal_where(deletion_request)
+    _refuse_unsweepable(
+        cluster,
+        [p.target for p in unsweepable if p.target.copied_from is None],
+        deletion_request,
+        _same_criteria(criteria),
+        reason=_HOGQL_UNSWEEPABLE_REASON,
+    )
 
-
-# Immediate deletion leaves flag_evaluations rows to the table's TTL. A HogQL predicate does not
-# compile against that table, so gating on it refused every such request whose team had matching
-# $feature_flag_called rows. Deferred deletion still queues the table's uuids.
-_IMMEDIATE_SKIP_TARGETS = (FLAG_EVALUATIONS,)
+    uncopied: list[tuple[TargetPlacement, UncopiedRowsPredicate]] = []
+    for placement in [p for p in unsweepable if p.target.copied_from is not None]:
+        target = placement.target
+        uncopied_predicate = uncopied_rows_predicate(deletion_request, target)
+        # The copy check reads the uuid of every matching event, so it runs only when the target holds
+        # matching rows in the request's window. This count also runs the compiled fragment before
+        # anything is queued, so a fragment that ClickHouse rejects fails the request with an empty queue.
+        if not count_surviving_rows(cluster, target, *uncopied_predicate.narrow(criteria)):
+            continue
+        deferred = reaches_target_through_event_uuids(deletion_request, target)
+        if uncopied_predicate.compiled is None:
+            reason = _hogql_no_events_copy_reason(uncopied_predicate.error)
+        elif not deferred:
+            reason = _IMMEDIATE_HOGQL_NO_EVENTS_COPY_REASON
+        elif tables := _events_tables_outside_copy_check(cluster, placements, target, criteria):
+            reason = _hogql_unchecked_events_copy_reason(target, tables)
+        else:
+            uncopied.append((placement, uncopied_predicate))
+            continue
+        if not deferred:
+            reason += _IMMEDIATE_HOGQL_RETRY_HINT
+        for window in uncopied_predicate.windows(deletion_request, target):
+            _refuse_unsweepable(cluster, [target], deletion_request, _same_criteria(window), reason=reason)
+    return EventRemovalPlacements(swept=[p for p in placements if p.target.accepts_hogql_predicate], uncopied=uncopied)
 
 
 @frozen
@@ -725,11 +813,12 @@ def _queue_events_for_deferred_deletion(
     # personal-data table. Flag-evaluation rows still have to be read on their own: they mirror a
     # subset of events, so a uuid there may not be in sharded_events once routing moves those
     # events off it.
-    placements = [p for p in _event_removal_placements(cluster, deletion_request) if p.target.queue_uuid_candidates]
+    placements = _event_removal_placements(cluster, deletion_request)
+    swept = [p for p in placements.swept if p.target.queue_uuid_candidates]
     # Both halves of the INSERT are host-local: the source table and the queue it feeds. A source
     # on another cluster has no host that holds both, and reading it through its Distributed proxy
     # instead would pull every matching uuid across the wire into one shard's queue.
-    stranded = [p.target for p in placements if p.cluster is not cluster]
+    stranded = [p.target for p in [*swept, *(p for p, _ in placements.uncopied)] if p.cluster is not cluster]
     if stranded:
         raise dagster.Failure(
             description=(
@@ -738,25 +827,29 @@ def _queue_events_for_deferred_deletion(
                 f"{cluster.data_cluster_name!r} and those tables are not. See {COVERAGE_DOC}."
             )
         )
-    sources = [p.target for p in placements]
+    events_where = event_removal_where(deletion_request)
+    reads = [(p.target.data_table, *events_where) for p in swept]
+    for placement, uncopied_predicate in placements.uncopied:
+        reads += [
+            (placement.target.data_table, *window)
+            for window in uncopied_predicate.windows(deletion_request, placement.target)
+        ]
     db = django_settings.CLICKHOUSE_DATABASE
     shards = sorted(cluster.shards)
-    predicate, params = event_removal_where(deletion_request)
-    params["data_deletion_request_id"] = deletion_request.request_id
 
     def run_on_shard(client: Client) -> int:
-        for source in sources:
+        for data_table, predicate, params in reads:
             # nosemgrep: clickhouse-fstring-param-audit (all interpolated values are internal constants/settings)
             client.execute(
                 f"INSERT INTO {db}.{ADHOC_EVENTS_DELETION_TABLE} (team_id, uuid, data_deletion_request_id) "
                 f"SELECT team_id, uuid, toUUID(%(data_deletion_request_id)s) "
-                f"FROM {db}.{source.data_table} WHERE {predicate}",
-                params,
+                f"FROM {db}.{data_table} WHERE {predicate}",
+                {**params, "data_deletion_request_id": deletion_request.request_id},
                 settings={"max_execution_time": 1800},
             )
         row = client.execute(
             f"SELECT count() FROM {db}.{ADHOC_EVENTS_DELETION_TABLE} WHERE team_id = %(team_id)s AND is_deleted = 0",
-            {"team_id": params["team_id"]},
+            {"team_id": deletion_request.team_id},
         )
         return row[0][0] if row else 0
 
@@ -776,7 +869,7 @@ def _queue_events_for_deferred_deletion(
         {
             "mode": dagster.MetadataValue.text("deferred"),
             "queued_rows": dagster.MetadataValue.int(total_queued),
-            "queued_from": dagster.MetadataValue.text(", ".join(s.data_table for s in sources)),
+            "queued_from": dagster.MetadataValue.text(", ".join(dict.fromkeys(table for table, *_ in reads))),
         }
     )
 
@@ -794,7 +887,7 @@ def get_event_removal_shards(
     if deletion_request.execution_mode == ExecutionMode.DEFERRED.value:
         return
 
-    placements = _event_removal_placements(cluster, deletion_request, skip_targets=_IMMEDIATE_SKIP_TARGETS)
+    placements = _event_removal_placements(cluster, deletion_request).swept
     # placement.cluster, not the job's handle: shard numbers are per cluster.
     shards = [
         EventRemovalShard(data_table=placement.target.data_table, shard_num=shard_num)
@@ -1164,6 +1257,14 @@ def _with_copied_inserted_at_bound(predicate: _ShardPredicate, copied_inserted_a
     )
 
 
+def _drop_keys_expr(source: str, keys_param: str) -> str:
+    # JSONDropKeysPool fails on an empty string. A legacy events row stores '' in a JSON column its
+    # producer omitted, because those columns have no DEFAULT. An insert can also set '' explicitly.
+    # Such a row has no key to drop, so it keeps its value. ClickHouse can evaluate both branches of
+    # `if`, so the UDF gets '{}' in place of '' and the outer `if` discards that result.
+    return f"if(empty({source}), {source}, JSONDropKeysPool(if(empty({source}), '{{}}', {source}), %({keys_param})s))"
+
+
 @frozen
 class _CleanedSelect:
     """How the copy reads cleaned rows out of the source table."""
@@ -1202,19 +1303,20 @@ def _cleaned_select_list(
     # Bump the ReplacingMergeTree version (ver=_timestamp) past the original's, so a merge that
     # meets a cleaned row and an original with the same sorting key keeps the cleaned row. +1
     # second because _timestamp is second-precision while the marker is microsecond-precision.
-    # A plain MergeTree such as flag_evaluations keeps the original value, because there _timestamp
-    # is the Kafka message time that flag_evaluations_backfill reads as the consumer position.
+    # flag_evaluations_backfill reads max(_timestamp) per Kafka partition as the consumer position. On
+    # flag_evaluations a bumped row can therefore make a stalled partition look current (see
+    # _KAFKA_POSITION_QUERY there).
     if "ReplacingMergeTree" in engine:
         replacements["_timestamp"] = "toDateTime(toDateTime64(%(inserted_at_marker)s, 6, 'UTC')) + 1"
     # On the JSON table the column round-trips through a string: serialize it, drop the keys, and
     # let the cast below turn the cleaned string back into the JSON column type.
     if deletion_request.properties:
         source = "toJSONString(properties)" if target.json_schema else "properties"
-        replacements["properties"] = f"JSONDropKeysPool({source}, %(keys)s)"
+        replacements["properties"] = _drop_keys_expr(source, "keys")
         params["keys"] = deletion_request.properties
     if deletion_request.person_properties:
         source = "toJSONString(person_properties)" if target.json_schema else "person_properties"
-        replacements["person_properties"] = f"JSONDropKeysPool({source}, %(person_keys)s)"
+        replacements["person_properties"] = _drop_keys_expr(source, "person_keys")
         params["person_keys"] = deletion_request.person_properties
     for name, is_nullable in mat_cols:
         replacements[name] = "NULL" if is_nullable else "''"
@@ -1286,9 +1388,6 @@ def _property_rewrite_targets(
             continue
         if not target.may_hold_any_of(events):
             log.info(f"{target.read_table}: not rewritten, because it stores none of the request's events")
-            continue
-        if not _names_any_property(_scoped_to(target, deletion_request)):
-            log.info(f"{target.read_table}: not rewritten, because {_STORES_NONE_OF_THE_PROPERTIES}")
             continue
         swept.append(target)
     return swept
@@ -1422,12 +1521,11 @@ def copy_property_removal_shard(
     """
     marker_str = _marker_str(deletion_request)
     hogql_compiled = _compile_predicate(deletion_request, target.json_schema)
-    request = _scoped_to(target.deletion_target, deletion_request)
     staging = _ShardStaging(request_id=deletion_request.request_id, target=target)
     log = _query_logger(context, target)
 
     def copy(client: Client) -> dict:
-        return _copy_property_removal_target(client, request, target, marker_str, hogql_compiled, staging, log)
+        return _copy_property_removal_target(client, deletion_request, target, marker_str, hogql_compiled, staging, log)
 
     copied = _run_on_shard(_cluster_for(cluster, target), target, copy)
     context.add_output_metadata({"copied": dagster.MetadataValue.int(copied["rows"])})
@@ -1448,7 +1546,6 @@ def delete_property_removal_shard(
     db = django_settings.CLICKHOUSE_DATABASE
     marker_str = _marker_str(deletion_request)
     hogql_compiled = _compile_predicate(deletion_request, target.json_schema)
-    request = _scoped_to(target.deletion_target, deletion_request)
     staging = _ShardStaging(request_id=deletion_request.request_id, target=target)
     log = _query_logger(context, target)
 
@@ -1472,7 +1569,7 @@ def delete_property_removal_shard(
             )
 
         _sync_replica(client, target, log)
-        predicate = _shard_predicate(client, request, target.deletion_target, marker_str, hogql_compiled, log)
+        predicate = _shard_predicate(client, deletion_request, target.deletion_target, marker_str, hogql_compiled, log)
         predicate = _with_copied_inserted_at_bound(predicate, copied["inserted_at_max"])
         count_sql = (
             f"SELECT toString(toYYYYMM(timestamp)) AS month, uniqExact(uuid) "
@@ -1573,7 +1670,7 @@ def reingest_property_removal_shard(
 
         # A failed earlier attempt may have inserted a month on another replica of this shard. Without
         # that part here, the leftover count below misses those rows and the insert adds them a second
-        # time, which a plain MergeTree such as flag_evaluations never merges away.
+        # time.
         _sync_replica(client, target, log)
         for month, expected in sorted(copied["months"].items()):
             if f"{_REINGESTED}_{month}" in steps:
@@ -1648,7 +1745,6 @@ def verify_property_removal_shard(
     db = django_settings.CLICKHOUSE_DATABASE
     marker_str = _marker_str(deletion_request)
     hogql_compiled = _compile_predicate(deletion_request, target.json_schema)
-    request = _scoped_to(target.deletion_target, deletion_request)
     staging = _ShardStaging(request_id=deletion_request.request_id, target=target)
     log = _query_logger(context, target)
 
@@ -1668,7 +1764,7 @@ def verify_property_removal_shard(
             return stats
 
         _sync_replica(client, target, log)
-        predicate = _shard_predicate(client, request, target.deletion_target, marker_str, hogql_compiled, log)
+        predicate = _shard_predicate(client, deletion_request, target.deletion_target, marker_str, hogql_compiled, log)
         predicate = _with_copied_inserted_at_bound(predicate, copied["inserted_at_max"])
         remaining = client.execute(
             f"SELECT count() FROM {db}.{target.table} WHERE {predicate.sql}",
@@ -1684,9 +1780,9 @@ def verify_property_removal_shard(
             "start_time": deletion_request.start_time,
             "end_time": deletion_request.end_time,
             "marker": marker_str,
-            **_presence_params(request),
+            **_presence_params(deletion_request),
         }
-        presence = _target_presence_clause(request, target, predicate.mat_cols)
+        presence = _target_presence_clause(deletion_request, target, predicate.mat_cols)
         unexpired_sql, unexpired_params = _unexpired_rows(client, target.deletion_target)
         expected_months = staging.unexpired_uuids(client, copied["months"], unexpired_sql, unexpired_params)
         cleaned_stats = client.execute(
@@ -1773,8 +1869,7 @@ def verify_property_removal(
     )
 
     def check(client: Client, target: DeletionTarget, hogql_compiled: tuple[str, dict]) -> int:
-        request = _scoped_to(target, deletion_request)
-        predicate = _shard_predicate(client, request, target, marker_str, hogql_compiled)
+        predicate = _shard_predicate(client, deletion_request, target, marker_str, hogql_compiled)
         return client.execute(
             surviving_rows_sql(target.read_table, predicate.sql),
             predicate.params,
@@ -2339,18 +2434,16 @@ def data_deletion_request_pickup_sensor(context: dagster.SensorEvaluationContext
 class VerifyQueuedConfig(dagster.Config):
     lookback_days: int = pydantic.Field(
         default=28,
-        description="Only verify QUEUED requests created within this many days. Bounds the sweep so a "
-        "permanently stuck request isn't re-checked forever.",
+        description="Only verify QUEUED requests created within this many days. A deferred event removal "
+        "with a HogQL predicate is also verified for this many days after its window falls behind the "
+        "flag_evaluations TTL. Bounds the sweep so a permanently stuck request isn't re-checked forever.",
     )
 
 
 @dagster.op(tags=OWNER_TAG)
 def verify_queued_deletion_requests_op(context: dagster.OpExecutionContext, config: VerifyQueuedConfig) -> None:
     """Verify recently-QUEUED deletion requests and promote those whose events are gone."""
-    from django.utils import timezone
-
-    cutoff = timezone.now() - timedelta(days=config.lookback_days)
-    queued = DataDeletionRequest.objects.filter(status=RequestStatus.QUEUED, created_at__gte=cutoff)
+    queued = queued_requests_to_verify(timedelta(days=config.lookback_days))
     promoted = 0
     still_queued = 0
     for request in queued:

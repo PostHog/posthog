@@ -6,8 +6,9 @@ import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
 
 /**
  * Example-data preview for the session replay empty state: a recordings list and
- * the player. Clicking the top recording plays it - the cursor moves through the
- * mini app, the click ripples, and the timeline advances. One hidden checkbox
+ * the player. Clicking the top recording, the screen, or the play button plays it -
+ * the cursor moves through the mini app, the click ripples, and the timeline
+ * advances. One hidden checkbox
  * drives it via `:checked ~` styles; the playback motion is CSS keyframes that
  * only run while checked, per the preview rules in the
  * `building-product-empty-states` skill. Playing/paused pairs are stacked in
@@ -38,19 +39,21 @@ export function SessionReplayPreview(): JSX.Element {
                             <span className="ReplayPreview__now-playing ReplayPreview__when-playing">playing</span>
                         </span>
                     </label>
-                    <div className="ReplayPreview__row">
+                    <div className="ReplayPreview__row ReplayPreview__row--static">
                         <span className="ReplayPreview__person">Anonymous user</span>
                         <span className="ReplayPreview__meta">pricing page · 3 clicks</span>
                         <span className="ReplayPreview__duration">1:03</span>
                     </div>
-                    <div className="ReplayPreview__row">
+                    <div className="ReplayPreview__row ReplayPreview__row--static">
                         <span className="ReplayPreview__person">Sam T.</span>
                         <span className="ReplayPreview__meta">dashboard · 41 clicks</span>
                         <span className="ReplayPreview__duration">12:40</span>
                     </div>
                 </div>
                 <div className="ReplayPreview__hint ReplayPreview__swap">
-                    <span className="ReplayPreview__when-paused">Click a recording to watch the session.</span>
+                    <span className="ReplayPreview__when-paused">
+                        Press play or click the top recording to watch the session.
+                    </span>
                     <span className="ReplayPreview__when-playing">
                         Every click, scroll, and console log, replayed. Click again to pause.
                     </span>
@@ -58,24 +61,29 @@ export function SessionReplayPreview(): JSX.Element {
             </div>
 
             <div className="ReplayPreview__player">
-                <div className="ReplayPreview__screen">
+                {/* A label, so the big play button and the screen behind it toggle playback. */}
+                <label htmlFor="replay-preview-play" className="ReplayPreview__screen">
                     {/* The recorded app: a wireframe page the cursor travels through while playing. */}
-                    <div className="ReplayPreview__wire" aria-hidden="true">
+                    <span className="ReplayPreview__wire" aria-hidden="true">
                         <span className="ReplayPreview__wire-nav" />
                         <span className="ReplayPreview__wire-line" />
                         <span className="ReplayPreview__wire-line ReplayPreview__wire-line--short" />
                         <span className="ReplayPreview__wire-button" />
-                    </div>
+                    </span>
                     <span className="ReplayPreview__cursor" aria-hidden="true" />
-                    <div className="ReplayPreview__overlay ReplayPreview__when-paused" aria-hidden="true">
+                    <span className="ReplayPreview__overlay ReplayPreview__when-paused" aria-hidden="true">
                         <span className="ReplayPreview__overlay-play">▶</span>
-                    </div>
-                </div>
+                    </span>
+                </label>
                 <div className="ReplayPreview__controls">
-                    <span className="ReplayPreview__play-glyph ReplayPreview__swap" aria-hidden="true">
+                    <label
+                        htmlFor="replay-preview-play"
+                        className="ReplayPreview__play-glyph ReplayPreview__swap"
+                        aria-hidden="true"
+                    >
                         <span className="ReplayPreview__when-paused">▶</span>
                         <span className="ReplayPreview__when-playing">❚❚</span>
-                    </span>
+                    </label>
                     <span className="ReplayPreview__timeline" aria-hidden="true">
                         <span className="ReplayPreview__timeline-activity" />
                         <span className="ReplayPreview__timeline-progress" />

@@ -78,7 +78,7 @@ function BillingUpgradeButton({
 }: {
     platformAndSupportProduct: BillingProductV2Type
 }): JSX.Element {
-    const { billing, billingManagedByPartnerDisabledReason } = useValues(billingLogic)
+    const { billing, selfServeBillingDisabledReason } = useValues(billingLogic)
     const { startPaymentEntryFlow } = useActions(paymentEntryLogic)
     const { billingProductLoading } = useValues(billingProductLogic({ product: platformAndSupportProduct }))
     const { reportBillingCTAShown } = useActions(eventUsageLogic)
@@ -90,7 +90,7 @@ function BillingUpgradeButton({
             size="lg"
             data-attr="startup-program-upgrade-cta"
             loading={!!billingProductLoading}
-            disabled={!!billingManagedByPartnerDisabledReason}
+            disabled={!!selfServeBillingDisabledReason}
             onClick={() =>
                 startPaymentEntryFlow(platformAndSupportProduct, window.location.pathname + window.location.search)
             }
@@ -99,11 +99,11 @@ function BillingUpgradeButton({
         </Button>
     )
 
-    if (billingManagedByPartnerDisabledReason) {
+    if (selfServeBillingDisabledReason) {
         return (
             <Tooltip>
                 <TooltipTrigger render={button} />
-                <TooltipContent>{billingManagedByPartnerDisabledReason}</TooltipContent>
+                <TooltipContent>{selfServeBillingDisabledReason}</TooltipContent>
             </Tooltip>
         )
     }

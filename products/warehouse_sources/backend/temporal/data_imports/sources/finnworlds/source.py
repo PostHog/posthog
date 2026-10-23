@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -32,6 +33,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class FinnworldsSource(SimpleSource[FinnworldsSourceConfig]):
+    codebase_detection = detect(env=("^FINNWORLDS_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://finnworlds.com/documentation/"
 
@@ -111,7 +114,7 @@ class FinnworldsSource(SimpleSource[FinnworldsSourceConfig]):
             name=ExternalDataSourceType.FINNWORLDS,
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="Finnworlds",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Finnworlds API key to pull financial market data into the PostHog Data warehouse.
 
 You can find your API key in your [Finnworlds dashboard](https://finnworlds.com/dashboard/).

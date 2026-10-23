@@ -99,6 +99,10 @@ jobs:
                   DOCKER_METADATA_ANNOTATIONS_LEVELS: index
               with:
                   images: ${{ steps.aws-ecr.outputs.registry }}/${{ env.ECR_IMAGE }}
+                  annotations: |
+                      org.opencontainers.image.title=posthog
+                      org.opencontainers.image.url=https://github.com/PostHog/posthog
+                      org.opencontainers.image.source=https://github.com/PostHog/posthog
 
             - name: Add commit annotations
               id: image-annotations
@@ -174,7 +178,7 @@ jobs:
                         },
                         "release": "temporal-worker-llm-analytics",
                         "commit": ${{ toJson(github.event.head_commit) }},
-                        "repository": ${{ toJson(github.repository) }},
+                        "repository": "PostHog/posthog",
                         "labels": ${{ steps.labels.outputs.labels }},
                         "timestamp": "${{ github.event.head_commit.timestamp }}"
                       }

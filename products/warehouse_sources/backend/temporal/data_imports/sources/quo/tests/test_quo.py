@@ -3,7 +3,6 @@ from typing import Any
 
 import pytest
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     DriveResult,
     Script,
@@ -261,8 +260,75 @@ class TestDatedVersion:
         assert result.requests == []
 
 
-class TestQuoSourceResponse:
-    def test_unknown_endpoint_raises_unknown_resource(self):
-        result = _source("not_a_table", [])
+def _notes_state(contacts_cursor: str, contact_id: str, notes_cursor: str | None) -> QuoResumeConfig:
+    return QuoResumeConfig(
+        page_token=contacts_cursor, api_version="2026-03-30", contact_id=contact_id, notes_cursor=notes_cursor
+    )
 
-        assert isinstance(result.raised, UnknownResourceError)
+
+class TestContactNotes:
+    @pytest.mark.parametrize("api_version", [QUO_API_VERSION_V1, QUO_API_VERSION_2026_03_30])
+    def test_fans_out_over_contacts_on_the_dated_wire(self, api_version):
+        result = _source(
+            "contact_notes",
+            [
+                _dated_page([{"id": "CT1"}, {"id": "CT2"}], next_cursor="c2"),
+                _dated_page([{"id": "N1"}], next_cursor="n2"),
+                _dated_page([{"id": "N2"}]),
+                _dated_page([]),
+                _dated_page([{"id": "CT3"}]),
+                # CT3 was deleted after the contacts page was read.
+                ScriptedResponse(status=404, json={"message": "Not Found"}),
+            ],
+            api_version=api_version,
+        )
+
+        assert result.raised is None
+        assert [(row["contactId"], row["id"]) for row in result.rows] == [("CT1", "N1"), ("CT1", "N2")]
+        assert result.paths == [
+            "/contacts",
+            "/contacts/CT1/notes",
+            "/contacts/CT1/notes",
+            "/contacts/CT2/notes",
+            "/contacts",
+            "/contacts/CT3/notes",
+        ]
+        assert result.params("after") == [None, None, "n2", None, "c2", None]
+        assert {request.headers["quo-api-version"] for request in result.requests} == {"2026-03-30"}
+        assert result.saved_states == [_notes_state("", "CT1", "n2"), _notes_state("", "CT1", None)]
+
+    @pytest.mark.parametrize(
+        "resume_state, expected_paths, expected_after",
+        [
+            (
+                _notes_state("c5", "CT2", "n3"),
+                ["/contacts", "/contacts/CT2/notes", "/contacts/CT3/notes"],
+                ["c5", "n3", None],
+            ),
+            (
+                _notes_state("c5", "CT1", None),
+                ["/contacts", "/contacts/CT2/notes", "/contacts/CT3/notes"],
+                ["c5", None, None],
+            ),
+            (
+                _notes_state("c5", "CT0", None),
+                ["/contacts", "/contacts/CT1/notes", "/contacts/CT2/notes", "/contacts/CT3/notes"],
+                ["c5", None, None, None],
+            ),
+            (
+                QuoResumeConfig(page_token="tok5"),
+                ["/contacts", "/contacts/CT1/notes", "/contacts/CT2/notes", "/contacts/CT3/notes"],
+                [None, None, None, None],
+            ),
+        ],
+    )
+    def test_resumes_after_the_last_written_notes_page(self, resume_state, expected_paths, expected_after):
+        result = _source(
+            "contact_notes",
+            [_dated_page([{"id": "CT1"}, {"id": "CT2"}, {"id": "CT3"}]), *[_dated_page([]) for _ in range(3)]],
+            resume_state=resume_state,
+        )
+
+        assert result.raised is None
+        assert result.paths == expected_paths
+        assert result.params("after") == expected_after

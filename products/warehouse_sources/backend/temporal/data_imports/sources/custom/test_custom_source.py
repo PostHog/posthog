@@ -1196,6 +1196,28 @@ class TestCustomSourceValidateCredentials(SimpleTestCase):
         assert "sk_secret_value" not in (err or "")
         assert "***" in (err or "")
 
+    @parameterized.expand(
+        [
+            ("query", "https://api.example.com", "/users?status=active&access_token=inline-secret-123"),
+            ("userinfo", "https://reader:inline-secret-123@api.example.com", "/users"),
+            ("username_only", "https://inline-secret-123@api.example.com", "/users"),
+            ("static_param", "https://api.example.com", "/users", {"api_key": "inline-secret-123"}),
+        ]
+    )
+    def test_auth_rejection_omits_url_credentials(self, _name, base_url, path, params=None):
+        manifest = _minimal_manifest(base_url)
+        manifest["resources"][0]["endpoint"]["path"] = path
+        if params:
+            manifest["resources"][0]["endpoint"]["params"] = params
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(manifest), auth_token="abc")
+        body = b"forbidden: https://api.example.com/users?access_token=inline-secret-123 reader:inline-secret-123"
+        with scripted_network([ScriptedResponse(status=403, body=body)]):
+            ok, err = source.validate_credentials(config, team_id=999)
+        assert not ok
+        assert "from https://api.example.com/users " in (err or "")
+        assert "inline-secret-123" not in (err or "")
+
     @parameterized.expand([401, 403])
     def test_returns_false_on_auth_rejection(self, status_code):
         source = CustomSource()
@@ -1695,7 +1717,7 @@ class TestCustomSourceSourceForPipeline(SimpleTestCase):
         assert client_config["base_url"] == manifest["client"]["base_url"]
 
     @parameterized.expand(
-        [("default_asc", None, "asc"), ("explicit_asc", "asc", "asc"), ("explicit_desc", "desc", "desc")]
+        [("default_unordered", None, None), ("explicit_asc", "asc", "asc"), ("explicit_desc", "desc", "desc")]
     )
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.rest_api_resources")
     def test_sort_mode_threaded_to_source_response(self, _name, declared, expected, mock_resources):
@@ -2295,8 +2317,8 @@ class TestCustomSourceFanoutPipeline(SimpleTestCase):
             # the override that matters: per-batch asc commits on a child would
             # advance the watermark past later parents' older rows and skip them.
             ("child_overrides_declared_asc", "responses", "asc", "desc"),
-            # Top-level resource keeps its declaration (default "asc").
-            ("parent_keeps_declared", "forms", None, "asc"),
+            # Top-level resource keeps its declaration (no order when omitted).
+            ("parent_keeps_declared", "forms", None, None),
         ]
     )
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.rest_api_resources")
@@ -2573,6 +2595,36 @@ class TestCustomSourceIncrementalStartParam(SimpleTestCase):
         ok, err = source.validate_credentials(config, team_id=999)
         assert ok is False
         assert err is not None and "start_param" in err and "'users'" in err
+
+
+class TestCustomSourceIncrementalParamLocation(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("invalid_value", "body", False, '"query" or "json"'),
+            ("json_on_child", "json", True, "child resource"),
+        ]
+    )
+    def test_rejected_at_validation(self, _name, param_location, is_child, expected):
+        manifest = _minimal_manifest()
+        incremental = {"cursor_path": "updated_at", "start_param": "variables.since", "param_location": param_location}
+        if is_child:
+            manifest["resources"].append(
+                {
+                    "name": "posts",
+                    "endpoint": {
+                        "path": "/users/{user_id}/posts",
+                        "params": {"user_id": {"type": "resolve", "resource": "users", "field": "id"}},
+                        "incremental": incremental,
+                    },
+                }
+            )
+        else:
+            manifest["resources"][0]["endpoint"]["incremental"] = incremental
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(manifest), auth_token="abc")
+        ok, err = source.validate_credentials(config, team_id=999)
+        assert ok is False
+        assert err is not None and expected in err
 
 
 class TestCustomSourceIncrementalUnsupportedKeys(SimpleTestCase):

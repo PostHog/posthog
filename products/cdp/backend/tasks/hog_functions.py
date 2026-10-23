@@ -78,9 +78,9 @@ def refresh_affected_hog_functions(
 
     actions_by_id = {action.id: action for action in all_related_actions}
 
-    # posthog.cdp.filters pulls hogql.property and with it the HogQL/schema layer;
+    # products.cdp.backend.filters pulls hogql.property and with it the HogQL/schema layer;
     # posthog.apps ready() imports this module in every process at setup.
-    from posthog.cdp.filters import compile_filters_bytecode  # noqa: PLC0415 — keeps HogQL off the import path
+    from products.cdp.backend.filters import compile_filters_bytecode  # noqa: PLC0415 — keeps HogQL off the import path
 
     successfully_compiled_hog_functions = []
     for hog_function in affected_hog_functions:

@@ -1,5 +1,6 @@
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 
+from posthog.egress.limiter.policies import Priority
 from posthog.models.integration import GitHubIntegration, Integration
 from posthog.models.user_integration import UserGitHubIntegration
 
@@ -25,13 +26,13 @@ def task_review(team_id: int, task_id: str, user_id: int, page: int) -> dict:
     github: GitHubIntegration | UserGitHubIntegration
     user_integration = task.github_user_integration
     if user_integration is not None and user_integration.user_id == user_id:
-        github = UserGitHubIntegration(user_integration)
+        github = UserGitHubIntegration(user_integration, source="tasks", priority=Priority.CRITICAL)
     else:
         integrations = Integration.objects.filter(team_id=team_id, kind="github")
         integration = integrations.filter(id=task.github_integration_id).first() if task.github_integration_id else None
         if integration is None:
             raise ValidationError("Connect GitHub in PostHog to load the review.")
-        github = GitHubIntegration(integration)
+        github = GitHubIntegration(integration, source="tasks", priority=Priority.CRITICAL)
         if github.access_token_expired():
             github.refresh_access_token()
     snapshot = github.get_pull_request_snapshot(url)

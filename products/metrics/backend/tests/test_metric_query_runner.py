@@ -1,10 +1,13 @@
 import datetime as dt
+import threading
 from typing import Any
 from zoneinfo import ZoneInfo
 
+import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
+from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -16,8 +19,9 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import Workload
+from posthog.models import Team
 
-from products.metrics.backend.facade.api import run_metric_query
+from products.metrics.backend.facade.api import _output_unit, run_metric_query
 from products.metrics.backend.facade.contracts import MetricFilter, MetricGroupBy, MetricQueryClause, MetricQueryRequest
 from products.metrics.backend.facade.enums import AttributeScope, FilterOp, MetricAggregation, MetricRangeFunction
 from products.metrics.backend.metric_query_runner import (
@@ -31,7 +35,8 @@ from products.metrics.backend.metrics4_samples import METRICS4_CUTOVER
 from products.metrics.backend.tests._seeder import seed_metric, truncate_metrics_tables
 
 
-class TestAlignToInterval(ClickhouseTestMixin, APIBaseTest):
+@pytest.mark.usefixtures("clickhouse_database")
+class TestAlignToInterval(ClickhouseTestMixin, SimpleTestCase):
     @parameterized.expand(
         [
             (project_timezone, interval)
@@ -392,6 +397,60 @@ class TestMetricsQueryAPI(ClickhouseTestMixin, APIBaseTest):
         self.assertTrue(all(series["points"] == [] for series in response.json()["results"]))
         self.assertIn("metric-names-list", response.json()["hint"])
 
+    @parameterized.expand([("relative", {"dateFrom": "-1h"}), ("max_lookback", {"dateFrom": "-31d"}), ("omitted", {})])
+    def test_query_accepts_relative_or_omitted_date_from(self, _name: str, date_params: dict[str, str]):
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="m1",
+            points=[(timezone.now().replace(microsecond=0) - dt.timedelta(minutes=10), 4.0)],
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/metrics/query",
+            data={"query": {"metricName": "m1", "aggregation": "sum", **date_params}},
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual(sum(point["value"] for point in response.json()["results"][0]["points"]), 4.0)
+
+    def test_omitted_date_from_covers_the_24_hours_before_date_to(self):
+        anchor = timezone.now().replace(microsecond=0)
+        seed_metric(team_id=self.team.id, metric_name="m1", points=[(anchor - dt.timedelta(hours=2), 1.0)])
+        seed_metric(team_id=self.team.id, metric_name="m1", points=[(anchor - dt.timedelta(hours=30), 10.0)])
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/metrics/query",
+            data={
+                "query": {
+                    "metricName": "m1",
+                    "aggregation": "sum",
+                    "dateTo": (anchor - dt.timedelta(hours=1)).isoformat(),
+                }
+            },
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual(sum(point["value"] for point in response.json()["results"][0]["points"]), 1.0)
+
+    @parameterized.expand(
+        [
+            ("days", {"dateFrom": "-1000000000d"}),
+            ("years", {"dateFrom": "-10000y"}),
+            ("non_ascii_digits", {"dateFrom": "-1\u0661h"}),
+            ("default_window_before_year_one", {"dateTo": "0001-01-01T12:00:00Z"}),
+        ]
+    )
+    def test_query_rejects_out_of_range_relative_date(self, _name: str, date_params: dict[str, str]):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/metrics/query",
+            data={"query": {"metricName": "m1", "aggregation": "sum", **date_params}},
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
     def test_query_returns_aggregated_points(self):
         anchor = timezone.now().replace(microsecond=0)
         seed_metric(
@@ -744,6 +803,40 @@ class TestRunMetricQueryFacade(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(series[0].clause, "formula")
         self.assertIsNone(series[0].unit)
 
+    @parameterized.expand(
+        [
+            ("count_counts_series", MetricAggregation.COUNT, None, None),
+            ("rate_is_per_second", MetricAggregation.SUM, MetricRangeFunction.RATE, "ms/s"),
+        ]
+    )
+    def test_series_unit_is_the_unit_of_the_output(self, _name, aggregation, range_function, expected_unit):
+        anchor = timezone.now().replace(second=0, microsecond=0) - dt.timedelta(minutes=30)
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="m1",
+            metric_type="sum",
+            is_monotonic=True,
+            unit="ms",
+            points=[(anchor, 0.0), (anchor + dt.timedelta(seconds=30), 30.0)],
+        )
+
+        series = run_metric_query(
+            team=self.team,
+            request=self._request(
+                clauses=(
+                    MetricQueryClause(
+                        name="a", metric_name="m1", aggregation=aggregation, range_function=range_function
+                    ),
+                ),
+                date_from=anchor - dt.timedelta(minutes=1),
+                date_to=anchor + dt.timedelta(minutes=2),
+                interval="minute",
+            ),
+        )
+
+        self.assertEqual(len(series), 1)
+        self.assertEqual(series[0].unit, expected_unit)
+
     def test_quantile_095_maps_to_p95(self):
         anchor = timezone.now().replace(microsecond=0)
         seed_metric(team_id=self.team.id, metric_name="m1", points=[(anchor - dt.timedelta(minutes=10), 5.0)])
@@ -777,6 +870,74 @@ class TestRunMetricQueryFacade(ClickhouseTestMixin, APIBaseTest):
     def test_not_yet_supported_features_raise_value_error(self, _name, overrides):
         with self.assertRaises(ValueError):
             run_metric_query(team=self.team, request=self._request(**overrides))
+
+
+class TestRunMetricQueryInParallel(SimpleTestCase):
+    def test_the_clause_queries_and_the_unit_lookup_run_at_the_same_time_and_close_their_connections(self) -> None:
+        # Each query waits until all three run, so a serial run breaks the barrier.
+        barrier = threading.Barrier(3, timeout=5)
+        anchor = dt.datetime(2026, 1, 1, 12, tzinfo=dt.UTC)
+
+        class _Runner:
+            def run(self) -> list[dict[str, Any]]:
+                barrier.wait()
+                return [{"time": anchor.isoformat(), "value": 1.0, "labels": {}, "series_fingerprints": [1]}]
+
+        def units(_team: Team, _names: set[str]) -> dict[int, str]:
+            barrier.wait()
+            return {1: "ms"}
+
+        with (
+            override_settings(IN_UNIT_TESTING=False),
+            patch("products.metrics.backend.facade.api.build_metric_query_runner", side_effect=lambda **_: _Runner()),
+            patch("products.metrics.backend.facade.api._units_by_fingerprint", side_effect=units),
+            patch("products.metrics.backend.facade.api.connection") as connection,
+        ):
+            series = run_metric_query(
+                team=Team(id=1),
+                request=MetricQueryRequest(
+                    clauses=(
+                        MetricQueryClause(name="a", metric_name="m1", aggregation=MetricAggregation.SUM),
+                        MetricQueryClause(name="b", metric_name="m2", aggregation=MetricAggregation.SUM),
+                    ),
+                    date_from=anchor - dt.timedelta(hours=1),
+                    date_to=anchor,
+                ),
+            )
+
+        assert [(item.clause, item.unit, [point.value for point in item.points]) for item in series] == [
+            ("a", "ms", [1.0]),
+            ("b", "ms", [1.0]),
+        ]
+        # Each worker closes the Postgres connection that it opened.
+        assert connection.close.call_count == 3
+
+
+class TestOutputUnit(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("sum_keeps_unit", "ms", MetricAggregation.SUM, None, "ms"),
+            ("max_keeps_unit", "By", MetricAggregation.MAX, None, "By"),
+            ("increase_keeps_unit", "ms", MetricAggregation.INCREASE, None, "ms"),
+            ("increase_range_keeps_unit", "ms", MetricAggregation.SUM, MetricRangeFunction.INCREASE, "ms"),
+            ("histogram_quantile_keeps_unit", "s", MetricAggregation.HISTOGRAM_QUANTILE, None, "s"),
+            ("count_drops_unit", "ms", MetricAggregation.COUNT, None, None),
+            ("count_after_rate_drops_unit", "ms", MetricAggregation.COUNT, MetricRangeFunction.RATE, None),
+            ("rate_aggregation_per_second", "ms", MetricAggregation.RATE, None, "ms/s"),
+            ("rate_range_per_second", "By", MetricAggregation.AVG, MetricRangeFunction.RATE, "By/s"),
+            ("rate_of_annotation", "{request}", MetricAggregation.RATE, None, "{request}/s"),
+            ("rate_of_one", "1", MetricAggregation.RATE, None, "1/s"),
+            ("rate_of_unitless", "", MetricAggregation.RATE, None, "1/s"),
+            ("unitless_without_rate", "", MetricAggregation.SUM, None, None),
+            ("rate_of_disagreeing_units", None, MetricAggregation.RATE, None, None),
+        ]
+    )
+    def test_output_unit(self, _name, ingested, aggregation, range_function, expected):
+        quantile = 0.5 if aggregation.needs_quantile else None
+        clause = MetricQueryClause(
+            name="a", metric_name="m1", aggregation=aggregation, range_function=range_function, quantile=quantile
+        )
+        self.assertEqual(_output_unit(ingested, clause), expected)
 
 
 class TestMetricFilters(ClickhouseTestMixin, APIBaseTest):
