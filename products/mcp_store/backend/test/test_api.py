@@ -1598,6 +1598,73 @@ class TestMCPServiceAccountAPI(APIBaseTest):
             is expected_access
         )
 
+    @parameterized.expand(
+        [
+            ("member_with_only_a_teammate_share", "member", "teammate", status.HTTP_403_FORBIDDEN),
+            ("member_whose_access_is_revoked", "member", "revoked", status.HTTP_404_NOT_FOUND),
+            ("member_whose_connection_is_deleted", "member", "deleted_connection", status.HTTP_403_FORBIDDEN),
+            ("admin_without_a_share", "admin", "teammate", status.HTTP_200_OK),
+        ]
+    )
+    def test_agent_tool_policy_write_needs_a_live_share_of_your_own(
+        self, _name: str, role: str, share: str, expected_status: int
+    ) -> None:
+        if role == "admin":
+            self._make_admin()
+        else:
+            self._make_member()
+        account = sync_built_in_agents(self.team)[0]
+        server = MCPGatewayServer.objects.for_team(self.team.id).create(
+            team=self.team,
+            name="Agent share",
+            url="https://mcp.agent-share.example.com/mcp",
+        )
+        sharer = User.objects.create_and_join(self.organization, "sharer@example.com", None)
+        installation = MCPServerInstallation.objects.create(
+            team=self.team,
+            user=sharer if share == "teammate" else self.user,
+            display_name=server.name,
+            url=server.url,
+            auth_type="api_key",
+            sensitive_configuration={"api_key": "secret"},
+            scope="personal",
+            gateway_server=server,
+        )
+        MCPServerInstallationTool.objects.create(
+            installation=installation,
+            tool_name="create_issue",
+            last_seen_at=timezone.now(),
+        )
+        share_owner = sharer if share == "teammate" else self.user
+        MCPServiceAccountServerAccess.objects.for_team(self.team.id).create(
+            team=self.team,
+            user=share_owner,
+            service_account=account,
+            gateway_server=server,
+            installation=None if share == "deleted_connection" else installation,
+            granted_by=share_owner,
+            scope="team",
+        )
+        if share == "revoked":
+            MCPMemberServerRevocation.objects.for_team(self.team.id).create(
+                team=self.team, gateway_server=server, user=self.user, revoked_by=sharer
+            )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/mcp_gateway/servers/{server.id}/policies/",
+            data={
+                "scope_type": "agent",
+                "scope_service_account_id": str(account.id),
+                "policies": [{"tool_name": "create_issue", "policy_state": "approved"}],
+            },
+            format="json",
+        )
+
+        assert response.status_code == expected_status
+        assert MCPToolPolicy.objects.for_team(self.team.id).filter(scope_type="agent").exists() is (
+            expected_status == status.HTTP_200_OK
+        )
+
     def test_restricted_member_cannot_change_existing_agent_access_but_admin_can(self) -> None:
         self._make_member()
         account = sync_built_in_agents(self.team)[0]
