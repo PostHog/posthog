@@ -16,6 +16,25 @@ Direct-connection catalogs contain no authored models and are exempt from the re
 
 This reservation does not add qualified names to existing models or require a namespace on new models.
 
+## Model materialization usage
+
+The Models **Usage** tab shows bytes read, CPU time, and run counts for ClickHouse materializations over 7, 30, or 90 complete UTC days.
+The totals and model breakdown follow saved-query access controls. The breakdown sorts by bytes read and includes soft-deleted models while their saved queries and job history exist.
+Usage includes schema checks, retries, failed runs, and canceled runs, and is attributed to the UTC day each run finished.
+It does not include managed warehouse or legacy Duckgres runs.
+
+A daily partitioned Dagster job, `model_job_usage_job`, collects usage from the regional query log archive at 03:00 UTC for the previous day.
+It stores totals on `DataModelingJob`, keeping usage reads independent of query-log retention and leaving the streaming materialization path unchanged.
+The collector matches team, workflow ID, and workflow run ID, and leaves ambiguous or missing matches unmeasured.
+Re-running a partition replaces totals rather than adding them.
+Runs that start outside the supported 14-day archive backfill window remain unmeasured.
+Runs that cross midnight include queries from the full run.
+
+Unmeasured usage is null, including historical jobs with no archive data, and the tab reports how many runs have measurements.
+The totals cover measured runs only; missing measurements and days without measurements are not shown as zero.
+The current UTC day is excluded because usage is updated daily.
+These measurements describe query work and are not billing amounts.
+
 ## SQL editor drafts
 
 Saving a view infers its column types with LIMIT 0 on the outer SELECT branches and explicit IN subqueries.
