@@ -7,7 +7,7 @@ const srmFinding = (
 ): NonNullable<ExperimentExposureQueryResponse['health_findings']>[number] => ({
     code: 'srm',
     subcode,
-    severity: subcode ? 'info' : 'warning',
+    severity: 'warning',
     title: 'Users are not split as configured',
     detail: `Server detail for ${subcode ?? 'a mismatch'}`,
     evidence: {},
@@ -28,12 +28,12 @@ const MISMATCH = {
 describe('sampleRatioLine', () => {
     it.each([
         {
-            desc: 'a mismatch the server explains with the split change',
+            desc: 'a mismatch after a split change',
             exposures: MISMATCH,
             followsServer: true,
             expected: {
-                tone: 'info',
-                label: 'Sample ratio mismatch from the split change',
+                tone: 'warning',
+                label: 'Sample ratio mismatch after a split change',
                 tooltip: 'Server detail for split_changed',
             },
         },
@@ -45,28 +45,6 @@ describe('sampleRatioLine', () => {
                 tone: 'warning',
                 label: 'Sample ratio mismatch detected',
                 tooltip: 'Server detail for a mismatch',
-            },
-        },
-        {
-            desc: 'a test the server skips after a split change',
-            exposures: {
-                ...MISMATCH,
-                health_findings: [],
-                health_checks: [
-                    {
-                        key: 'srm' as const,
-                        name: 'Split of users across variants',
-                        status: 'not_checked' as const,
-                        reason: 'Too few users after the change',
-                    },
-                ],
-            },
-            followsServer: true,
-            expected: {
-                tone: 'info',
-                label: 'Sample ratio not checked',
-                tooltip: 'Too few users after the change',
-                showsPValue: false,
             },
         },
         {

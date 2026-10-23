@@ -1,4 +1,3 @@
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
@@ -19,8 +18,8 @@ import { teamLogic } from 'scenes/teamLogic'
 import { ExperimentExposureCriteria, ExperimentExposureQueryResponse } from '~/queries/schema/schema-general'
 
 import { EXPERIMENT_VARIANT_MULTIPLE } from 'products/experiments/frontend/constants'
+import { healthFindingReason } from 'products/experiments/frontend/health/experimentHealthFindingEvents'
 import {
-    SampleRatioLine,
     getTotalExposures,
     hasSampleRatioMismatch,
     sampleRatioLine,
@@ -37,12 +36,6 @@ import { VariantTag } from './VariantTag'
 // Below this, a load looks like any other; above it, the user has no way to tell a slow query
 // from a stuck one, so we start showing elapsed time and a way to retry.
 const SLOW_LOAD_THRESHOLD_SECONDS = 20
-
-const SAMPLE_RATIO_TONE_CLASS: Record<SampleRatioLine['tone'], string> = {
-    warning: 'text-warning',
-    info: 'text-secondary',
-    success: 'text-success',
-}
 
 /** Seconds since `active` last became true, ticking every second, reset to 0 when it goes false. */
 function useElapsedSeconds(active: boolean): number {
@@ -183,8 +176,21 @@ export function Exposures(): JSX.Element {
     // The answer holds a series for every configured variant, with zero counts, so only the total tells.
     const hasZeroExposures = !isExperimentDraft && !exposuresLoading && exposures != null && totalExposures === 0
 
+    // With the health panel, its row reports the finding as shown. The card reports the same finding, so that opening
+    // the card's evidence counts against the panel's "shown" event and not a second one.
+    const srmFinding = healthUi === 'panel' ? exposures?.health_findings?.find(({ code }) => code === 'srm') : undefined
     const { reportOpened: reportSrmOpened } = useHealthFindingReporting(
-        hasSRM && !isExperimentDraft && !exposuresLoading ? { code: 'srm' } : null
+        hasSRM && !isExperimentDraft && !exposuresLoading
+            ? srmFinding
+                ? {
+                      code: 'srm',
+                      variant: srmFinding.subcode ?? undefined,
+                      severity: srmFinding.severity,
+                      reason: healthFindingReason(srmFinding.evidence),
+                  }
+                : { code: 'srm' }
+            : null,
+        !srmFinding
     )
     // The collapsed header shows the total only, so the zero-exposure state is on screen in the open panel alone.
     const { reportOpened: reportZeroExposuresOpened, reportActedOn: reportZeroExposuresActedOn } =
@@ -253,13 +259,9 @@ export function Exposures(): JSX.Element {
                                         ))}
                                     </div>
                                 )}
-                                {srmLine && srmLine.tone !== 'success' && (
+                                {srmLine?.tone === 'warning' && (
                                     <Tooltip title={srmLine.tooltip}>
-                                        {srmLine.tone === 'warning' ? (
-                                            <IconWarning className="text-warning text-lg" />
-                                        ) : (
-                                            <IconInfo className="text-secondary text-lg" />
-                                        )}
+                                        <IconWarning className="text-warning text-lg" />
                                     </Tooltip>
                                 )}
                                 {excludedVariants.length > 0 && (
@@ -494,35 +496,30 @@ export function Exposures(): JSX.Element {
                                     />
                                     {srmLine && exposures?.sample_ratio_mismatch != null && (
                                         <div className="flex items-center gap-1 text-xs mt-2">
-                                            <Tooltip title={srmLine.tooltip}>
-                                                <span
-                                                    className={clsx(
-                                                        'flex items-center gap-1 cursor-pointer',
-                                                        SAMPLE_RATIO_TONE_CLASS[srmLine.tone]
-                                                    )}
-                                                >
-                                                    {srmLine.tone === 'warning' ? (
-                                                        <IconWarning className="text-sm" />
-                                                    ) : srmLine.tone === 'info' ? (
-                                                        <IconInfo className="text-sm" />
-                                                    ) : (
-                                                        <IconCheckCircle className="text-sm" />
-                                                    )}
-                                                    <span
-                                                        className={clsx(srmLine.tone === 'warning' && 'font-semibold')}
-                                                    >
-                                                        {srmLine.label}
+                                            {srmLine.tone === 'warning' ? (
+                                                <>
+                                                    <Tooltip title={srmLine.tooltip}>
+                                                        <span className="flex items-center gap-1 text-warning cursor-pointer">
+                                                            <IconWarning className="text-sm" />
+                                                            <span className="font-semibold">{srmLine.label}</span>
+                                                        </span>
+                                                    </Tooltip>
+                                                    <span className="text-muted">
+                                                        (p = {exposures.sample_ratio_mismatch.p_value.toExponential(2)})
                                                     </span>
-                                                </span>
-                                            </Tooltip>
-                                            {srmLine.showsPValue && (
-                                                <span className="text-muted">
-                                                    (p ={' '}
-                                                    {srmLine.tone === 'success'
-                                                        ? exposures.sample_ratio_mismatch.p_value.toFixed(3)
-                                                        : exposures.sample_ratio_mismatch.p_value.toExponential(2)}
-                                                    )
-                                                </span>
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <Tooltip title={srmLine.tooltip}>
+                                                        <span className="flex items-center gap-1 text-success cursor-pointer">
+                                                            <IconCheckCircle className="text-sm" />
+                                                            <span>{srmLine.label}</span>
+                                                        </span>
+                                                    </Tooltip>
+                                                    <span className="text-muted">
+                                                        (p = {exposures.sample_ratio_mismatch.p_value.toFixed(3)})
+                                                    </span>
+                                                </>
                                             )}
                                         </div>
                                     )}

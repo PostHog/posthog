@@ -1,7 +1,7 @@
 from collections.abc import Mapping
 from zoneinfo import ZoneInfo
 
-from scipy.stats import chi2, chisquare
+from scipy.stats import chisquare
 
 from posthog.schema import SampleRatioMismatch
 
@@ -14,8 +14,8 @@ from products.experiments.backend.facade.contracts import (
 )
 from products.experiments.backend.health.checks.split_changed import split_changed_mid_run
 from products.experiments.backend.health.context import ExposureTotals, FlagHistory, HealthContext
-from products.experiments.backend.health.skips import RUNS_AFTER_LAUNCH, CheckOutcome, not_applicable, not_checked
-from products.feature_flags.backend.facade.edits import Split, SplitChange
+from products.experiments.backend.health.skips import RUNS_AFTER_LAUNCH, CheckOutcome, not_applicable
+from products.feature_flags.backend.facade.edits import SplitChange
 
 SAMPLE_RATIO_MISMATCH_P_VALUE = 0.001
 SRM_MINIMUM_SAMPLE_SIZE = 100
@@ -42,10 +42,10 @@ def sample_ratio_test(observed: Mapping[str, int], weights: Mapping[str, float])
     return SampleRatioMismatch(expected=expected, p_value=float(p_value))
 
 
-def reads_flag_history(exposures: ExposureTotals) -> bool:
-    """Whether `srm` reads the flag history on these totals. The exposure query loads the history only then, because
+def reads_flag_history(ctx: HealthContext) -> bool:
+    """Whether `srm` reads the flag history in this context. The exposure query loads the history only then, because
     the load reads the flag's activity log and can query the exposures."""
-    p_value = exposures.sample_ratio_mismatch_p_value
+    p_value = ctx.exposures.sample_ratio_mismatch_p_value if ctx.exposures else None
     return p_value is not None and p_value < SAMPLE_RATIO_MISMATCH_P_VALUE
 
 
@@ -71,48 +71,65 @@ def srm(ctx: HealthContext) -> CheckOutcome:
     history = ctx.flag_history
     if split_change is None or not isinstance(history, FlagHistory):
         return _mismatch(exposures, p_value)
-    changes = history.counted(SplitChange)
-    # A reorder that keeps the share of every variant moves people, but the expected split stays the same.
-    if all(_shares(change.before) == _shares(change.after) for change in changes):
-        return _mismatch(exposures, p_value)
+    # The warning stays a warning: the users exposed after the change are fewer than those the test covers, so a
+    # retest that passes can't rule out a mismatch with another cause. The retest only adds evidence.
     unit = "group" if exposures.counts_groups else "user"
-    events = ctx.exposure_events
-    if events is None:
-        return not_checked("Couldn't check because the exposure criteria can't be read")
-    # The exposure query dates a user by the activation, but the flag call before it assigned the variant, so users
-    # dated after the change can carry a variant from before it.
-    if events.activation is not None:
-        return not_checked(
-            f"Couldn't check because the exposure criteria count {unit}s at an activation after the flag call"
-        )
-    # The test covers the whole run, so it mixes the people exposed under each split. The people first exposed after
-    # the day of the last change got their variants from the current split alone.
-    changed_on = changes[-1].changed_at.astimezone(ZoneInfo(history.team_timezone)).date()
-    exposed_after = {
-        variant: sum(count for day, count in daily.items() if day > changed_on)
-        for variant, daily in exposures.daily_exposures.items()
-    }
-    after_change = sample_ratio_test(exposed_after, exposures.sample_ratio_expected)
-    if after_change is None or not _shows_the_whole_run_skew(exposures, exposed_after):
-        return not_checked(f"Couldn't check because too few {unit}s were exposed after the split change")
-    if after_change.p_value < SAMPLE_RATIO_MISMATCH_P_VALUE:
-        return _mismatch(exposures, p_value)
+    retest, p_value_after_change = _retest_after_change(ctx, exposures, history, unit)
     return ExperimentHealthFinding(
         code=ExperimentHealthFindingCode.SRM,
         subcode=SPLIT_CHANGED,
-        severity=ExperimentHealthFindingSeverity.INFO,
-        title=f"{unit.capitalize()}s are not split as configured because the split changed",
-        detail=(
-            f"The distribution of {unit}s across variants doesn't match your current rollout percentages "
-            f"(p < {SAMPLE_RATIO_MISMATCH_P_VALUE}). The variant split changed after launch while {unit}s were "
-            f"exposed, so some of them got their variants from another split. The {unit}s first exposed after the "
-            f"day of the change match the current split, so the change explains the mismatch. Follow the steps in "
-            f'"{split_change.title}" to fix the results.'
+        severity=ExperimentHealthFindingSeverity.WARNING,
+        title=f"{unit.capitalize()}s are not split as configured after a split change",
+        detail=" ".join(
+            [
+                f"The distribution of {unit}s across variants doesn't match your current rollout percentages "
+                f"(p < {SAMPLE_RATIO_MISMATCH_P_VALUE}).",
+                f"The variant split changed after launch while {unit}s were exposed, and some of them got their "
+                "variants from another split, which can cause this.",
+                *retest,
+                f'Follow the steps in "{split_change.title}" to fix the results.',
+            ]
         ),
-        evidence={"p_value": p_value, "p_value_after_split_change": after_change.p_value},
+        evidence={"p_value": p_value, "p_value_after_split_change": p_value_after_change},
         actions=(),
         diagnostic_ref="A2",
     )
+
+
+def _retest_after_change(
+    ctx: HealthContext, exposures: ExposureTotals, history: FlagHistory, unit: str
+) -> tuple[list[str], float | None]:
+    """The sentence about the test of the users first exposed after the day of the last split change, who got their
+    variants from the current split alone, and its p-value."""
+    events = ctx.exposure_events
+    if events is None:
+        return [], None
+    # With an activation, the exposure query dates a user by the activation, but the flag call before it assigned the
+    # variant. Users dated after the change can then carry a variant from before it.
+    if events.activation is not None:
+        return [
+            f"The exposure criteria count {unit}s at an activation, so the {unit}s exposed after the change can't "
+            "be tested alone."
+        ], None
+    changed_on = history.counted(SplitChange)[-1].changed_at.astimezone(ZoneInfo(history.team_timezone)).date()
+    after_change = sample_ratio_test(
+        {
+            variant: sum(count for day, count in daily.items() if day > changed_on)
+            for variant, daily in exposures.daily_exposures.items()
+        },
+        exposures.sample_ratio_expected,
+    )
+    if after_change is None:
+        return [f"Too few {unit}s were first exposed after the day of the change to test them alone."], None
+    if after_change.p_value < SAMPLE_RATIO_MISMATCH_P_VALUE:
+        return [
+            f"The {unit}s first exposed after the day of the change don't match the current split either "
+            f"(p < {SAMPLE_RATIO_MISMATCH_P_VALUE}), so look for another cause too."
+        ], after_change.p_value
+    return [
+        f"The {unit}s first exposed after the day of the change match the current split "
+        f"(p = {after_change.p_value:.2g})."
+    ], after_change.p_value
 
 
 def _split_change_warning(ctx: HealthContext) -> ExperimentHealthFinding | None:
@@ -125,25 +142,6 @@ def _split_change_warning(ctx: HealthContext) -> ExperimentHealthFinding | None:
     if isinstance(outcome, ExperimentHealthFinding) and outcome.severity == ExperimentHealthFindingSeverity.WARNING:
         return outcome
     return None
-
-
-def _shows_the_whole_run_skew(exposures: ExposureTotals, exposed_after: Mapping[str, int]) -> bool:
-    """Whether the users exposed after the change are enough to show the whole run's skew at the test's threshold. A
-    smaller sample passes the test for lack of data, which proves nothing."""
-    expected = exposures.sample_ratio_expected
-    whole_run = sum(expected.values())
-    after = sum(exposed_after.get(variant, 0) for variant in expected)
-    if whole_run <= 0:
-        return False
-    statistic = sum(
-        (exposures.total_exposures.get(variant, 0) - count) ** 2 / count for variant, count in expected.items()
-    )
-    # For fixed shares the chi-square statistic grows in proportion to the sample.
-    return float(chi2.sf(statistic * after / whole_run, df=len(expected) - 1)) < SAMPLE_RATIO_MISMATCH_P_VALUE
-
-
-def _shares(split: Split) -> dict[str, float]:
-    return {variant.key: variant.rollout_percentage or 0 for variant in split if variant.key}
 
 
 def _mismatch(exposures: ExposureTotals, p_value: float) -> ExperimentHealthFinding:

@@ -18,7 +18,7 @@ from products.experiments.backend.facade.contracts import (
 from products.experiments.backend.health.checks.flag_change_findings import flag_history_not_readable
 from products.experiments.backend.health.checks.flag_state import flag_state
 from products.experiments.backend.health.checks.split_changed import split_changed_mid_run
-from products.experiments.backend.health.checks.srm import srm
+from products.experiments.backend.health.checks.srm import reads_flag_history, srm
 from products.experiments.backend.health.context import (
     ExposureEvents,
     ExposureTotals,
@@ -33,7 +33,6 @@ from products.experiments.backend.health.skips import (
     NOT_ON_ARCHIVED,
     CheckSkip,
     not_applicable,
-    not_checked,
 )
 from products.experiments.backend.health.test.factories import ENDED, RUNNING, RUNNING_CONTEXT, Status, flag_history
 from products.feature_flags.backend.facade.edits import SplitChange, parse_variants
@@ -484,11 +483,9 @@ class TestSplitChangedMidRun(TestCase):
         )
 
 
-def _totals(
-    after_change: dict[str, int], *, before_change: dict[str, int] | None = None, counts_groups: bool = False
-) -> ExposureTotals:
+def _totals(after_change: dict[str, int], *, counts_groups: bool = False) -> ExposureTotals:
     # Exposed under the 50/50 split on the day of the change, then the given ones on the next day under 80/20.
-    before = before_change or {"control": 500, "test": 500}
+    before = {"control": 500, "test": 500}
     total_exposures = {variant: before[variant] + after_change[variant] for variant in before}
     whole_run = sum(total_exposures.values())
     return ExposureTotals(
@@ -509,106 +506,106 @@ MATCHES_THE_NEW_SPLIT = {"control": 400, "test": 100}
 REVERSED_SPLIT = _split(("test", 20), ("control", 80))
 
 
+ACTIVATION_EVENTS = ExposureEvents(
+    custom_event=None,
+    required_flag_key="flag",
+    variant_property="$feature_flag_response",
+    flag_key_filters=(),
+    activation="checkout",
+)
+PLAIN_TITLE = "Users are not split across variants as configured"
+
+
 class TestSrmAfterSplitChange(TestCase):
     @parameterized.expand(
         [
             (
-                "explained_by_the_change",
+                "retest_passes",
                 _context(EVEN, UNEVEN, exposed_units=5),
                 _totals(MATCHES_THE_NEW_SPLIT),
-                ("split_changed", "Users are not split as configured because the split changed"),
+                (
+                    "split_changed",
+                    "The users first exposed after the day of the change match the current split (p = 1).",
+                ),
             ),
             (
-                "explained_for_groups",
-                _context(EVEN, UNEVEN, exposed_units=5),
-                _totals(MATCHES_THE_NEW_SPLIT, counts_groups=True),
-                ("split_changed", "Groups are not split as configured because the split changed"),
-            ),
-            (
-                "persists_after_the_change",
+                "retest_fails",
                 _context(EVEN, UNEVEN, exposed_units=5),
                 _totals({"control": 250, "test": 250}),
-                (None, "Users are not split across variants as configured"),
+                ("split_changed", "don't match the current split either (p < 0.001), so look for another cause too."),
             ),
             (
-                "too_few_exposed_after_the_change",
+                "too_few_for_a_retest",
                 _context(EVEN, UNEVEN, exposed_units=5),
                 _totals({"control": 40, "test": 10}),
-                not_checked("Couldn't check because too few users were exposed after the split change"),
-            ),
-            (
-                "too_few_exposed_after_the_change_to_show_the_skew",
-                _context(EVEN, UNEVEN, exposed_units=5),
-                _totals({"control": 80, "test": 20}, before_change={"control": 7740, "test": 2160}),
-                not_checked("Couldn't check because too few users were exposed after the split change"),
+                ("split_changed", "Too few users were first exposed after the day of the change to test them alone."),
             ),
             (
                 "activation_dates_users_after_their_flag_call",
-                replace(
-                    _context(EVEN, UNEVEN, exposed_units=5),
-                    exposure_events=ExposureEvents(
-                        custom_event=None,
-                        required_flag_key="flag",
-                        variant_property="$feature_flag_response",
-                        flag_key_filters=(),
-                        activation="checkout",
-                    ),
-                ),
+                replace(_context(EVEN, UNEVEN, exposed_units=5), exposure_events=ACTIVATION_EVENTS),
                 _totals(MATCHES_THE_NEW_SPLIT),
-                not_checked(
-                    "Couldn't check because the exposure criteria count users at an activation after the flag call"
-                ),
+                ("split_changed", "so the users exposed after the change can't be tested alone."),
+            ),
+            (
+                "groups",
+                _context(EVEN, UNEVEN, exposed_units=5),
+                _totals(MATCHES_THE_NEW_SPLIT, counts_groups=True),
+                ("split_changed", "Groups are not split as configured after a split change"),
+            ),
+            (
+                "reorder",
+                _context(UNEVEN, REVERSED_SPLIT, exposed_units=5),
+                _totals(MATCHES_THE_NEW_SPLIT),
+                ("split_changed", "which can cause this."),
             ),
             (
                 "change_before_4_people",
                 _context(EVEN, UNEVEN, exposed_units=4),
                 _totals(MATCHES_THE_NEW_SPLIT),
-                (None, "Users are not split across variants as configured"),
-            ),
-            (
-                "reorder_that_keeps_the_shares",
-                _context(UNEVEN, REVERSED_SPLIT, exposed_units=5),
-                _totals(MATCHES_THE_NEW_SPLIT),
-                (None, "Users are not split across variants as configured"),
+                (None, PLAIN_TITLE),
             ),
             (
                 "history_not_checked",
                 _context(EVEN, UNEVEN, not_checked=FlagHistoryNotCheckedReason.EXPOSURE_FILTERS),
                 _totals(MATCHES_THE_NEW_SPLIT),
-                (None, "Users are not split across variants as configured"),
+                (None, PLAIN_TITLE),
             ),
             (
                 "history_not_loaded",
                 replace(_context(EVEN, UNEVEN, exposed_units=5), flag_history=None),
                 _totals(MATCHES_THE_NEW_SPLIT),
-                (None, "Users are not split across variants as configured"),
+                (None, PLAIN_TITLE),
             ),
         ]
     )
-    def test_names_a_split_change_that_explains_the_mismatch(
-        self, _name: str, ctx: HealthContext, totals: ExposureTotals, expected: tuple[str | None, str] | CheckSkip
+    def test_names_a_split_change_as_the_likely_cause(
+        self, _name: str, ctx: HealthContext, totals: ExposureTotals, expected: tuple[str | None, str]
     ) -> None:
         outcome = srm(replace(ctx, exposures=totals))
 
-        if isinstance(expected, CheckSkip):
-            self.assertEqual(outcome, expected)
-            return
         assert isinstance(outcome, ExperimentHealthFinding)
-        self.assertEqual((outcome.subcode, outcome.title), expected)
-        self.assertEqual(
-            outcome.severity,
-            ExperimentHealthFindingSeverity.WARNING if expected[0] is None else ExperimentHealthFindingSeverity.INFO,
+        subcode, text = expected
+        self.assertEqual((outcome.subcode, outcome.severity), (subcode, ExperimentHealthFindingSeverity.WARNING))
+        self.assertIn(text, f"{outcome.title} {outcome.detail}")
+
+    @parameterized.expand([("failing_test", 0.00001, True), ("passing_test", 0.01, False)])
+    def test_reads_the_flag_history_only_for_a_mismatch(self, _name: str, p_value: float, expected: bool) -> None:
+        ctx = replace(
+            RUNNING_CONTEXT,
+            exposures=replace(_totals(MATCHES_THE_NEW_SPLIT), sample_ratio_mismatch_p_value=p_value),
         )
 
-    def test_explanation_names_the_evidence_and_the_next_step(self) -> None:
+        self.assertEqual(reads_flag_history(ctx), expected)
+
+    def test_names_the_cause_the_evidence_and_the_next_step(self) -> None:
         outcome = srm(replace(_context(EVEN, UNEVEN, exposed_units=5), exposures=_totals(MATCHES_THE_NEW_SPLIT)))
 
         assert isinstance(outcome, ExperimentHealthFinding)
+        self.assertEqual(outcome.title, "Users are not split as configured after a split change")
         self.assertEqual(
             outcome.detail,
             "The distribution of users across variants doesn't match your current rollout percentages (p < 0.001). "
-            "The variant split changed after launch while users were exposed, so some of them got their variants from "
-            "another split. The users first exposed after the day of the change match the current split, so the "
-            'change explains the mismatch. Follow the steps in "The variant split changed after launch" to fix the '
-            "results.",
+            "The variant split changed after launch while users were exposed, and some of them got their variants "
+            "from another split, which can cause this. The users first exposed after the day of the change match the "
+            'current split (p = 1). Follow the steps in "The variant split changed after launch" to fix the results.',
         )

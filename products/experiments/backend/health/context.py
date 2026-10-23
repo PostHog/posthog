@@ -220,10 +220,10 @@ class ExposureTotals:
     multiple_variant_handling: MultipleVariantHandling
     # None when the exposure query had too little data for the sample ratio test.
     sample_ratio_mismatch_p_value: float | None
-    # The expected count of each variant that the sample ratio test compares, in the shares of the current split. Empty
-    # without the test.
+    # The expected count of each variant that the sample ratio test compares, in the shares of the current split, and
+    # the persons or groups first exposed on each day of the team's time zone, by variant. Only the exposure query
+    # fills them, for the retest of `srm`, so both are empty elsewhere and without the test.
     sample_ratio_expected: Mapping[str, float]
-    # The persons or groups first exposed on each day of the team's time zone, by variant.
     daily_exposures: Mapping[str, Mapping[date, int]]
     hours_since_launch: float | None
     # Whether the totals count groups rather than persons, by the rule the exposure query uses.

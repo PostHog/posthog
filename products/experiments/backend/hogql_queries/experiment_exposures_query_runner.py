@@ -1,4 +1,5 @@
 import uuid
+from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
 
 import structlog
@@ -76,8 +77,9 @@ QUERY_ROW_LIMIT = 5000  # The result has one row per (day, variant) pair
 
 
 def build_experiment_exposure_query(experiment: Experiment) -> ExperimentExposureQuery:
-    """The exposure query of an experiment over its own window. Backend callers build it here, so they share one
-    cache entry. The page builds its own, with the whole flag, so it caches apart."""
+    """The exposure query of an experiment over its own window. Backend callers build it here, so callers with the same
+    access to the flag's history share one cache entry. The page builds its own, with the whole flag, so it caches
+    apart."""
     feature_flag = experiment.feature_flag
     # The FK gives a model instance, and the query field is a pydantic type with no
     # attribute-based validation, so it must be serialized first.
@@ -304,9 +306,7 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             self._flag_history_access = (self.user.pk, readable)
         return self._flag_history_access[1]
 
-    def _flag_history(self, exposures: ExposureTotals) -> FlagHistory | FlagHistoryNotChecked | None:
-        if not reads_flag_history(exposures):
-            return None
+    def _flag_history(self) -> FlagHistory | FlagHistoryNotChecked | None:
         try:
             restrictions = get_restricted_properties_with_group_type_index_for_team(
                 user=self.user if isinstance(self.user, User) else None, team_id=self.team.pk
@@ -324,10 +324,10 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         return load_split_history(self.experiment, reader_access=reader_access)
 
     def _evaluate_health(self, exposures: ExposureTotals) -> ExperimentHealth:
-        return evaluate_health(
-            load_health_context(self.experiment, exposures, flag_history=self._flag_history(exposures)),
-            EXPOSURE_HEALTH_CHECKS,
-        )
+        context = load_health_context(self.experiment, exposures)
+        if reads_flag_history(context):
+            context = replace(context, flag_history=self._flag_history())
+        return evaluate_health(context, EXPOSURE_HEALTH_CHECKS)
 
     @staticmethod
     def _health_findings(health: ExperimentHealth) -> list[ExperimentExposureHealthFinding]:

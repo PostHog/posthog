@@ -17,16 +17,15 @@ export const SAMPLE_RATIO_MATCH_DESCRIPTION =
 
 /** What the exposures card says about the sample ratio test. */
 export type SampleRatioLine = {
-    tone: 'warning' | 'info' | 'success'
+    tone: 'warning' | 'success'
     label: string
     tooltip: string
-    showsPValue: boolean
 }
 
 /**
- * The exposures card's line about the sample ratio test, or null without a test. With the health panel the card
- * follows the server's check, which can name a split change as the cause or skip the test after one. Without it the
- * card keeps the page's own rule.
+ * The exposures card's line about the sample ratio test, or null without a test. With the health panel the card uses
+ * the server's finding, which can name a split change as the likely cause. Without it the card keeps the page's own
+ * rule and text.
  */
 export function sampleRatioLine(
     exposures: ExperimentExposureQueryResponse | null | undefined,
@@ -35,41 +34,23 @@ export function sampleRatioLine(
     if (exposures?.sample_ratio_mismatch == null) {
         return null
     }
-    // An answer cached before the server ran its checks holds no findings.
-    if (followsServer && exposures.health_findings) {
-        const finding = exposures.health_findings.find(({ code }) => code === 'srm')
-        if (finding) {
-            return finding.subcode === 'split_changed'
-                ? {
-                      tone: 'info',
-                      label: 'Sample ratio mismatch from the split change',
-                      tooltip: finding.detail,
-                      showsPValue: true,
-                  }
-                : {
-                      tone: 'warning',
-                      label: 'Sample ratio mismatch detected',
-                      tooltip: finding.detail,
-                      showsPValue: true,
-                  }
-        }
-        const check = exposures.health_checks?.find(({ key }) => key === 'srm')
-        if (check?.status === 'not_checked') {
-            return { tone: 'info', label: 'Sample ratio not checked', tooltip: check.reason ?? '', showsPValue: false }
+    const finding = followsServer ? exposures.health_findings?.find(({ code }) => code === 'srm') : undefined
+    if (finding) {
+        return {
+            tone: 'warning',
+            label:
+                finding.subcode === 'split_changed'
+                    ? 'Sample ratio mismatch after a split change'
+                    : 'Sample ratio mismatch detected',
+            tooltip: finding.detail,
         }
     }
     return hasSampleRatioMismatch(exposures)
-        ? {
-              tone: 'warning',
-              label: 'Sample ratio mismatch detected',
-              tooltip: SAMPLE_RATIO_MISMATCH_DESCRIPTION,
-              showsPValue: true,
-          }
+        ? { tone: 'warning', label: 'Sample ratio mismatch detected', tooltip: SAMPLE_RATIO_MISMATCH_DESCRIPTION }
         : {
               tone: 'success',
               label: 'Exposure distribution matches rollout percentages',
               tooltip: SAMPLE_RATIO_MATCH_DESCRIPTION,
-              showsPValue: true,
           }
 }
 
