@@ -18582,7 +18582,7 @@
                     "type": "string"
                 },
                 "kind": {
-                    "enum": ["custom_property", "relationship"],
+                    "enum": ["custom_property", "relationship", "account_field"],
                     "type": "string"
                 }
             },
@@ -18677,7 +18677,7 @@
                             "type": "null"
                         }
                     ],
-                    "description": "Metric label matchers ANDed into every metrics tile. Other tiles ignore them."
+                    "deprecated": "Ignored. Kept so that dashboards saved with label filters still load."
                 },
                 "metricVariables": {
                     "anyOf": [
@@ -30809,21 +30809,9 @@
                     "maxLength": 2000,
                     "type": "string"
                 },
-                "threshold": {
-                    "description": "Minimum confidence [0-1] the model must report before the alert fires (default: 0.7)",
-                    "maximum": 1,
-                    "minimum": 0,
-                    "type": "number"
-                },
                 "type": {
                     "const": "llm",
                     "type": "string"
-                },
-                "window": {
-                    "description": "How many recent points the model is shown (default: 90)",
-                    "maximum": 400,
-                    "minimum": 5,
-                    "type": "integer"
                 }
             },
             "required": ["type"],

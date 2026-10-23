@@ -118,6 +118,18 @@ const filterTreeSections = (sections: TreeDataItem[], searchTerm: string): TreeD
     })
 }
 
+export const getQueryDatabaseTreeData = (
+    displayedTreeData: TreeDataItem[],
+    extraTreeSections: TreeDataItem[] | undefined,
+    searchText: string
+): TreeDataItem[] => {
+    if (!extraTreeSections?.length) {
+        return displayedTreeData
+    }
+
+    return [...filterTreeSections(extraTreeSections, searchText), ...displayedTreeData]
+}
+
 export const QueryDatabase = ({
     virtualizationScrollContainerRef,
     extraTreeSections,
@@ -132,7 +144,7 @@ export const QueryDatabase = ({
     extraTreeSections?: TreeDataItem[]
 }): JSX.Element => {
     const {
-        searchTerm,
+        searchText,
         joinsByFieldName,
         editingDraftId,
         displayedTreeData,
@@ -392,24 +404,21 @@ export const QueryDatabase = ({
     }, [treeRef, setTreeRef])
 
     const treeData = useMemo(() => {
-        if (!extraTreeSections?.length) {
-            return displayedTreeData
-        }
         // Filtered here rather than by the caller: the tree swaps in its own filtered data while
         // searching, so an unfiltered section would sit above the results still listing
         // everything — and keeping the search term on this side means an embedder doesn't have to
         // mount this logic just to read it.
-        return [...filterTreeSections(extraTreeSections, searchTerm), ...displayedTreeData]
-    }, [extraTreeSections, displayedTreeData, searchTerm])
+        return getQueryDatabaseTreeData(displayedTreeData, extraTreeSections, searchText)
+    }, [extraTreeSections, displayedTreeData, searchText])
 
     const tree = (
         <LemonTree
             ref={treeRef}
             data={treeData}
-            enableDragAndDrop={!searchTerm}
-            isItemDraggable={(item) => !searchTerm && item.record?.type === 'view' && item.record?.isSavedQuery}
+            enableDragAndDrop={!searchText}
+            isItemDraggable={(item) => !searchText && item.record?.type === 'view' && item.record?.isSavedQuery}
             isItemDroppable={(item) =>
-                !searchTerm &&
+                !searchText &&
                 ((item.record?.type === 'folder' && item.record?.folderType === 'view-folder') ||
                     item.record?.type === 'views')
             }
@@ -428,7 +437,7 @@ export const QueryDatabase = ({
             }}
             expandedItemIds={expandedItemIds}
             onSetExpandedItemIds={
-                searchTerm ? setExpandedSearchFolders : (folderIds) => setExpandedFolders(folderIds, connectionId)
+                searchText ? setExpandedSearchFolders : (folderIds) => setExpandedFolders(folderIds, connectionId)
             }
             onFolderClick={(folder, isExpanded) => {
                 if (folder) {
@@ -509,10 +518,10 @@ export const QueryDatabase = ({
                                     {item.record?.type === 'view' && item.record.isSavedQuery ? (
                                         <MaterializationStatusIcon view={item.record.view} />
                                     ) : null}
-                                    {hasMatches && searchTerm ? (
+                                    {hasMatches && searchText ? (
                                         <SearchHighlightMultiple
                                             string={itemLabel}
-                                            substring={searchTerm}
+                                            substring={searchText}
                                             className={cn(isColumn && 'font-mono text-xs')}
                                         />
                                     ) : (

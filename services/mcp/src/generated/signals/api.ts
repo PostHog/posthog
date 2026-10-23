@@ -470,6 +470,12 @@ export const SignalsReportsClaimBody = () => zod.object({
         .boolean()
         .default(signalsReportsClaimBodyTakeoverDefault)
         .describe("Explicitly end another actor's claim and take ownership."),
+    takeover_claim_id: zod
+        .string()
+        .optional()
+        .describe(
+            'With takeover, the claim the caller expects to replace. The takeover is rejected when a different claim is active, so a takeover based on a stale read cannot replace a newer claim.'
+        ),
     pr_url: zod
         .url()
         .optional()

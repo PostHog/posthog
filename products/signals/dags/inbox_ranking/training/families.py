@@ -16,6 +16,7 @@ from posthog.dataclasses import frozen
 from products.signals.backend.ranking.features import (
     REPORT_EMBEDDINGS_FEATURE_SET,
     REPORT_EMBEDDINGS_PRIORITY_FEATURE_SET,
+    REPORT_EMBEDDINGS_PRIORITY_SOURCES_FEATURE_SET,
     FeatureSet,
 )
 from products.signals.backend.ranking.serving_manifest import DEFAULT_MODEL_KIND, ONNX_MODEL_KIND
@@ -26,6 +27,7 @@ from products.signals.backend.ranking.serving_manifest import DEFAULT_MODEL_KIND
 # servable by key, and their online grades keep their own series.
 NN_MODEL_NAME = "nn_v3"
 NN_WITH_PRIO_MODEL_NAME = "nn_with_prio_v2"
+NN_WITH_PRIO_SOURCES_MODEL_NAME = "nn_with_prio_sources_v1"
 # The Dagster code locations that train a family: `signals` on the main image, and `signals_ml` on
 # the image that carries torch.
 MAIN_LOCATION = "signals"
@@ -65,6 +67,8 @@ class ModelFamily:
 # torch, so the `signals_ml` location trains it. The main location fits no family. `nn` declares
 # the report embeddings set, because that set builds its report input in training and at serving.
 # `nn_with_prio_v2` is the same network with the report's priority levels as extra report inputs.
+# `nn_with_prio_sources_v1` is an experiment: `nn_with_prio_v2` plus the source products of the
+# report's signals as of the moment, graded against `nn_with_prio_v2`.
 MODEL_FAMILIES: tuple[ModelFamily, ...] = (
     ModelFamily(
         name=NN_MODEL_NAME, feature_set=REPORT_EMBEDDINGS_FEATURE_SET, learner=ONNX_MODEL_KIND, location=ML_LOCATION
@@ -74,6 +78,15 @@ MODEL_FAMILIES: tuple[ModelFamily, ...] = (
         feature_set=REPORT_EMBEDDINGS_PRIORITY_FEATURE_SET,
         learner=ONNX_MODEL_KIND,
         location=ML_LOCATION,
+    ),
+    ModelFamily(
+        name=NN_WITH_PRIO_SOURCES_MODEL_NAME,
+        feature_set=REPORT_EMBEDDINGS_PRIORITY_SOURCES_FEATURE_SET,
+        learner=ONNX_MODEL_KIND,
+        location=ML_LOCATION,
+        experiment=True,
+        baseline=NN_WITH_PRIO_MODEL_NAME,
+        expires=datetime.date(2026, 11, 11),
     ),
 )
 NN_FAMILY = next(family for family in MODEL_FAMILIES if family.name == NN_MODEL_NAME)

@@ -10,6 +10,7 @@ from copy import deepcopy
 from typing import Annotated, Any, ClassVar, Literal, NoReturn, Optional, Union, cast
 
 from django.conf import settings
+from django.db import transaction
 from django.db.models import OuterRef, Q, QuerySet, Subquery
 from django.utils import timezone
 
@@ -1834,6 +1835,41 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
     def _user_access_control(self) -> Optional[UserAccessControl]:
         return getattr(self.context.get("view"), "user_access_control", None)
 
+    def _claim_static_population(self, cohort: Cohort, source_field: Literal["query", "csv"]) -> None:
+        # A query population can run on ClickHouse for hours, and each PATCH would otherwise queue another full run.
+        # The claim sets is_calculating, and a query or CSV PATCH gets a 400 until it is cleared. A CSV import takes
+        # the claim too, because it clears is_calculating when it finishes and would release a running population.
+        # The conditional update locks the row, so two concurrent requests cannot both claim it. The task clears
+        # is_calculating when it finishes, and the stuck-cohort sweep clears it if the task dies.
+        from posthog.tasks.calculate_cohort import HAS_STATIC_POPULATION_SOURCE
+
+        claimable = Q(is_calculating=False)
+        if source_field == "csv":
+            # Only a cohort with a query or filters can have a population that a CSV import would release, and the
+            # sourced sweep frees that cohort if this request dies before it enqueues. The sourceless sweep cannot
+            # tell an abandoned claim from a queued upload, so a CSV-only cohort skips the check, and the next upload
+            # recovers it.
+            claimable |= ~HAS_STATIC_POPULATION_SOURCE
+        claimed = Cohort.objects.filter(claimable, pk=cohort.pk, team_id=cohort.team_id).update(is_calculating=True)
+        if not claimed:
+            raise ValidationError({source_field: ["This cohort is still being populated. Try again when it finishes."]})
+        # cohort.save() writes every field, so the in-memory value must match the claim.
+        cohort.is_calculating = True
+
+    def _enqueue_query_population(self, cohort: Cohort) -> None:
+        from posthog.tasks.calculate_cohort import insert_cohort_from_query
+
+        try:
+            insert_cohort_from_query.delay(cohort.pk, self.context["team_id"])
+        except Exception as e:
+            # Without a release, every retry is rejected for a run that was never queued.
+            Cohort.objects.filter(pk=cohort.pk, team_id=cohort.team_id).update(is_calculating=False)
+            cohort.is_calculating = False
+            capture_exception(e, additional_properties={"cohort_id": cohort.pk, "team_id": cohort.team_id})
+            raise ValidationError(
+                {"query": ["Couldn't start populating this cohort. Try again in a few minutes."]}
+            ) from e
+
     def update(self, cohort: Cohort, validated_data: dict, *args: Any, **kwargs: Any) -> Cohort:  # type: ignore
         request = self.context["request"]
         existing_has_criteria = cohort_filters_have_values(cohort.filters)
@@ -2025,16 +2061,33 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         if will_create_loops(cohort):
             raise ValidationError("Cohorts cannot reference other cohorts in a loop.")
 
-        cohort.save()
+        import_from_csv = not deleted_state and cohort.is_static and parsed_csv is not None
+        populate_from_query = (
+            not deleted_state and cohort.is_static and parsed_csv is None and bool(validated_data.get("query"))
+        )
+        with transaction.atomic():
+            if import_from_csv or populate_from_query:
+                self._claim_static_population(cohort, "csv" if import_from_csv else "query")
+                cohort.save()
+            elif cohort.is_static:
+                # A concurrent query PATCH can claim the cohort after this request loaded it. Writing this request's
+                # stale is_calculating would release that claim and let a duplicate population through.
+                cohort.save(
+                    update_fields=[
+                        field.name
+                        for field in Cohort._meta.concrete_fields
+                        if not field.primary_key and field.name != "is_calculating"
+                    ]
+                )
+            else:
+                cohort.save()
 
         if not deleted_state:
-            from posthog.tasks.calculate_cohort import insert_cohort_from_query
-
-            if cohort.is_static and parsed_csv is not None:
+            if import_from_csv:
                 # You can't update a static cohort using the trend/stickiness thing
                 self._enqueue_csv_ids(parsed_csv, cohort)
-            elif cohort.is_static and validated_data.get("query"):
-                insert_cohort_from_query.delay(cohort.pk, self.context["team_id"])
+            elif populate_from_query:
+                self._enqueue_query_population(cohort)
             elif not cohort.is_static:
                 cohort.enqueue_calculation(initiating_user=request.user)
 

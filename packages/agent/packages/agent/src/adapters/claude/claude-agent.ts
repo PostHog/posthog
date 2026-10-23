@@ -78,6 +78,7 @@ import { PostHogAPIClient } from "../../posthog-api";
 import type { PostHogAPIConfig } from "../../types";
 import { text } from "../../utils/acp-content";
 import { unreachable, withAbort, withTimeout } from "../../utils/common";
+import { modelIdForGatewayRoute } from "../../utils/gateway";
 import { Logger } from "../../utils/logger";
 import { Pushable } from "../../utils/streams";
 import { BaseAcpAgent } from "../base-acp-agent";
@@ -2829,13 +2830,17 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
               : [o as { value: string; name?: string; description?: string }],
           )
         : [];
-    let validValue = allValues.find((o) => o.value === params.value);
+    const requestedValue =
+      params.configId === "model"
+        ? this.routedModelId(params.value)
+        : params.value;
+    let validValue = allValues.find((o) => o.value === requestedValue);
 
     // For model options, fall back to alias resolution when exact match fails.
     // This lets callers use human-friendly aliases like "opus" or "sonnet"
     // instead of full model IDs like "claude-opus-4-8".
     if (!validValue && params.configId === "model") {
-      const resolved = resolveModelPreference(params.value, allValues);
+      const resolved = resolveModelPreference(requestedValue, allValues);
       if (resolved) {
         validValue = allValues.find((o) => o.value === resolved);
       }
@@ -3018,6 +3023,13 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     }
   }
 
+  private routedModelId<T extends string | undefined>(model: T): T {
+    return modelIdForGatewayRoute(
+      model,
+      this.options?.gatewayEnv?.isAiGateway ?? false,
+    );
+  }
+
   private startupFailure(
     step:
       | "initialization"
@@ -3143,8 +3155,9 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
 
     // The session's explicit pick outranks the shared claude settings file:
     // that file is cross-session state and must only ever be a fallback.
-    const earlyModelId =
-      meta?.model || settingsManager.getSettings().model || "";
+    const earlyModelId = this.routedModelId(
+      meta?.model || settingsManager.getSettings().model || "",
+    );
 
     // Register the in-process general local-tools MCP server. Tools self-gate
     // via the registry (e.g. signed-commit is cloud-only and needs a GH token),
@@ -3378,8 +3391,9 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     this.session = session;
     this.sessionId = sessionId;
 
-    const requestedModel =
-      meta?.model || settingsManager.getSettings().model || undefined;
+    const requestedModel = this.routedModelId(
+      meta?.model || settingsManager.getSettings().model || undefined,
+    );
 
     if (isResume) {
       const resumeStartedAt = Date.now();
@@ -3539,10 +3553,12 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       }
     }
 
-    const resolvedModelId = resolveInitialModelId(modelOptions, [
-      meta?.model,
-      settingsManager.getSettings().model,
-    ]);
+    const resolvedModelId = resolveInitialModelId(
+      modelOptions,
+      [meta?.model, settingsManager.getSettings().model].map((model) =>
+        this.routedModelId(model),
+      ),
+    );
     modelOptions.currentModelId = resolvedModelId;
     session.modelId = resolvedModelId;
     session.lastContextWindowSize =

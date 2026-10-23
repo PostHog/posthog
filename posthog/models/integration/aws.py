@@ -6,13 +6,14 @@ import secrets
 from collections.abc import Mapping
 from typing import Any, ClassVar, Literal
 
-from django.conf import settings
 from django.db import transaction
 
 import structlog
 from rest_framework.exceptions import ValidationError
 
 from posthog.credentials import AWSKeyPair
+from posthog.credentials_service.callers import CredentialsCaller
+from posthog.credentials_service.settings_fallback import get_or_settings
 from posthog.models.user import User
 from posthog.models.utils import IntegrityError
 from posthog.security.url_validation import is_url_allowed
@@ -295,7 +296,7 @@ class AWSRoleBasedIntegration:
         # TODO: Make our_aws_role_arn external_id configurable.
         validate_aws_role_arn(
             aws_role_arn=aws_role_arn,
-            our_aws_role_arn=settings.BATCH_EXPORT_S3_EXTERNAL_ROLE_ARN,
+            our_aws_role_arn=get_or_settings("BATCH_EXPORT_S3_EXTERNAL_ROLE_ARN", CredentialsCaller.INTEGRATIONS),
             external_id=f"posthog-{organization_id}",
         )
 
