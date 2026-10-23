@@ -13,7 +13,7 @@ import {
 
 import { urls } from 'scenes/urls'
 
-import { SearchChannel } from './searchPerformance'
+import { SearchBreakdown, SearchChannel, SearchMetrics } from './searchPerformance'
 import { SearchPerformanceDetail } from './SearchPerformanceDetail'
 import { searchPerformanceLogic } from './searchPerformanceLogic'
 import { SearchPerformanceTable } from './SearchPerformanceTable'
@@ -47,33 +47,6 @@ export function SearchPerformanceTab({
 
     return (
         <div className="@container flex flex-col gap-4 pb-8" data-attr="marketing-search-performance">
-            <div className="flex flex-wrap gap-2 items-center justify-between">
-                <LemonSegmentedButton
-                    value={breakdown}
-                    onChange={setBreakdown}
-                    options={[
-                        { value: 'keyword', label: 'Keywords and queries' },
-                        { value: 'page', label: 'Landing pages' },
-                    ]}
-                />
-                <LemonSelect<SearchChannel>
-                    value={channel}
-                    onChange={setChannel}
-                    options={[
-                        { value: 'all', label: 'Paid and organic' },
-                        { value: 'paid', label: 'Paid search' },
-                        { value: 'organic', label: 'Organic search' },
-                    ]}
-                />
-            </div>
-            <div>
-                <h2 className="mb-1">{breakdown === 'page' ? 'Landing page performance' : 'Search performance'}</h2>
-                <p className="text-secondary mb-0">
-                    {breakdown === 'page'
-                        ? 'See which pages receive paid and organic search traffic. Click a page to explore its organic queries.'
-                        : 'Compare ad keywords with organic search queries. Click a keyword or query to explore its landing pages.'}
-                </p>
-            </div>
             {loading ? (
                 <LemonSkeleton repeat={5} className="h-10" />
             ) : sourcesError && !dataWarehouseSources ? (
@@ -102,71 +75,102 @@ export function SearchPerformanceTab({
                     )}
                     {readySources.length > 0 && (
                         <>
-                            <div className="flex flex-wrap gap-2 justify-between">
-                                <LemonInput
-                                    type="search"
-                                    placeholder={breakdown === 'page' ? 'Filter pages' : 'Filter keywords and queries'}
-                                    value={search}
-                                    onChange={setSearch}
-                                    data-attr="marketing-search-keyword-filter"
-                                />
-                                <div className="flex flex-wrap items-center gap-3">
-                                    <LemonMenu
-                                        items={[
-                                            {
-                                                custom: true,
-                                                label: (
-                                                    <LemonSwitch
-                                                        label="Wrap text"
-                                                        checked={wrapText}
-                                                        onChange={setWrapText}
-                                                    />
-                                                ),
-                                            },
-                                        ]}
-                                    >
-                                        <LemonButton
-                                            type="secondary"
-                                            size="small"
-                                            data-attr="marketing-search-table-options"
-                                        >
-                                            Table options
-                                        </LemonButton>
-                                    </LemonMenu>
-                                    <LemonSegmentedButton
-                                        value={displayMetrics}
-                                        onChange={setMetrics}
+                            <div className="border rounded bg-surface-primary">
+                                <div className="flex flex-wrap items-center gap-2 px-3 pt-3 pb-2">
+                                    <LemonInput
+                                        type="search"
+                                        size="small"
+                                        className="w-56"
+                                        placeholder={
+                                            breakdown === 'page' ? 'Filter pages' : 'Filter keywords and queries'
+                                        }
+                                        value={search}
+                                        onChange={setSearch}
+                                        data-attr="marketing-search-keyword-filter"
+                                    />
+                                    <LemonSelect<SearchBreakdown>
+                                        size="small"
+                                        value={breakdown}
+                                        onChange={setBreakdown}
                                         options={[
-                                            { value: 'traffic', label: 'Traffic' },
-                                            {
-                                                value: 'conversions',
-                                                label: 'Conversions',
-                                                disabledReason: conversionsDisabledReason ?? undefined,
-                                            },
+                                            { value: 'keyword', label: 'Keywords and queries' },
+                                            { value: 'page', label: 'Landing pages' },
                                         ]}
+                                        data-attr="marketing-search-breakdown"
+                                    />
+                                    <LemonSelect<SearchChannel>
+                                        size="small"
+                                        value={channel}
+                                        onChange={setChannel}
+                                        options={[
+                                            { value: 'all', label: 'Paid and organic' },
+                                            { value: 'paid', label: 'Paid search' },
+                                            { value: 'organic', label: 'Organic search' },
+                                        ]}
+                                    />
+                                    <div className="flex-1" />
+                                    <div className="flex flex-wrap items-center gap-2">
+                                        <LemonSegmentedButton<SearchMetrics>
+                                            size="small"
+                                            value={displayMetrics}
+                                            onChange={setMetrics}
+                                            options={[
+                                                { value: 'traffic', label: 'Traffic' },
+                                                {
+                                                    value: 'conversions',
+                                                    label: 'Conversions',
+                                                    disabledReason: conversionsDisabledReason ?? undefined,
+                                                },
+                                            ]}
+                                            data-attr="marketing-search-column-view"
+                                        />
+                                        <LemonMenu
+                                            items={[
+                                                {
+                                                    custom: true,
+                                                    label: (
+                                                        <LemonSwitch
+                                                            label="Wrap text"
+                                                            checked={wrapText}
+                                                            onChange={setWrapText}
+                                                        />
+                                                    ),
+                                                },
+                                            ]}
+                                        >
+                                            <LemonButton
+                                                type="secondary"
+                                                size="small"
+                                                data-attr="marketing-search-table-options"
+                                            >
+                                                Table options
+                                            </LemonButton>
+                                        </LemonMenu>
+                                    </div>
+                                </div>
+                                <div className="px-3 pb-3">
+                                    <SearchPerformanceTable
+                                        query={query}
+                                        metrics={displayMetrics}
+                                        wrapText={wrapText}
+                                        onSelect={selectRow}
+                                        emptyState={
+                                            <div className="flex flex-col items-center gap-2 py-4">
+                                                <span>
+                                                    {hasActiveFilters
+                                                        ? 'No search data matches your filters. Try clearing them to see more results.'
+                                                        : 'No search data for this period. Try a wider date range or check your source sync status.'}
+                                                </span>
+                                                {hasActiveFilters && (
+                                                    <LemonButton type="secondary" size="small" onClick={clearFilters}>
+                                                        Clear filters
+                                                    </LemonButton>
+                                                )}
+                                            </div>
+                                        }
                                     />
                                 </div>
                             </div>
-                            <SearchPerformanceTable
-                                query={query}
-                                metrics={displayMetrics}
-                                wrapText={wrapText}
-                                onSelect={selectRow}
-                                emptyState={
-                                    <div className="flex flex-col items-center gap-2 py-4">
-                                        <span>
-                                            {hasActiveFilters
-                                                ? 'No search data matches your filters. Try clearing them to see more results.'
-                                                : 'No search data for this period. Try a wider date range or check your source sync status.'}
-                                        </span>
-                                        {hasActiveFilters && (
-                                            <LemonButton type="secondary" size="small" onClick={clearFilters}>
-                                                Clear filters
-                                            </LemonButton>
-                                        )}
-                                    </div>
-                                }
-                            />
                             <p className="text-secondary text-xs mb-0">
                                 Top 100 results by clicks, grouped by platform, match type and currency.{' '}
                                 {breakdown === 'keyword' &&

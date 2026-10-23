@@ -1029,7 +1029,12 @@ export function DataTable({
                     {context?.compactDataTableToolbar ? (
                         <>
                             {compactToolbarLeft.length > 0 || compactToolbarRight.length > 0 ? (
-                                <div className="flex gap-2 items-center flex-wrap">
+                                <div
+                                    className={clsx(
+                                        'flex gap-2 items-center flex-wrap',
+                                        context?.dataTableToolbarClassName
+                                    )}
+                                >
                                     {compactToolbarLeft}
                                     {compactToolbarLeft.length > 0 && compactToolbarRight.length > 0 ? (
                                         <div className="flex-1" />

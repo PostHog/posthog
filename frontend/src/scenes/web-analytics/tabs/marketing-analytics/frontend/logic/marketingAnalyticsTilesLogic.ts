@@ -39,8 +39,14 @@ import {
 
 import { buildAdPerformanceTrendsQuery } from 'products/marketing_analytics/frontend/adPerformanceMetrics'
 
-import { marketingAnalyticsLogic, type NativeSource, type ExternalTable } from './marketingAnalyticsLogic'
+import {
+    marketingAnalyticsLogic,
+    type ExternalTable,
+    type MarketingChartBreakdown,
+    type NativeSource,
+} from './marketingAnalyticsLogic'
 import { marketingAnalyticsTableLogic } from './marketingAnalyticsTableLogic'
+import { columnsForView, marketingTableDimensionColumns } from './marketingTableColumnViews'
 import {
     getOrderBy,
     getSortedColumnsByArray,
@@ -79,6 +85,7 @@ const createInsightProps = (tile: TileId, tab?: string): InsightLogicProps => ({
 export interface marketingAnalyticsTilesLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     baseCurrency: CurrencyCode // marketingAnalyticsLogic
+    chartBreakdown: MarketingChartBreakdown // marketingAnalyticsLogic
     chartDisplayType: ChartDisplayType // marketingAnalyticsLogic
     compareFilter: CompareFilter // marketingAnalyticsLogic
     createMarketingDataWarehouseNodes: DataWarehouseNode[] // marketingAnalyticsLogic
@@ -147,7 +154,8 @@ export interface marketingAnalyticsTilesLogicMeta {
             baseCurrency: CurrencyCode,
             integrationFilter: IntegrationFilter,
             featureFlags: FeatureFlagsSet,
-            marketingChartSourceIds: string[]
+            marketingChartSourceIds: string[],
+            chartBreakdown: MarketingChartBreakdown
         ) => QueryTile
         campaignBreakdownTile: (
             campaignCostsBreakdown: DataTableNode | null,
@@ -198,6 +206,7 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                 'sourcesInitialLoading',
                 'draftConversionGoal',
                 'chartDisplayType',
+                'chartBreakdown',
                 'tileColumnSelection',
                 'integrationFilter',
                 'shouldFilterTestAccounts',
@@ -287,6 +296,7 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                 s.integrationFilter,
                 s.featureFlags,
                 s.marketingChartSourceIds,
+                s.chartBreakdown,
             ],
             (
                 compareFilter: CompareFilter | null,
@@ -297,7 +307,8 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                 baseCurrency: CurrencyCode,
                 integrationFilter: IntegrationFilter,
                 featureFlags: FeatureFlagsSet,
-                marketingChartSourceIds: string[]
+                marketingChartSourceIds: string[],
+                chartBreakdown: MarketingChartBreakdown
             ): QueryTile => {
                 const tileColumnSelectionName = tileColumnSelection?.split('_').join(' ')
                 const hasSources = createMarketingDataWarehouseNodes.length > 0
@@ -339,7 +350,9 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                     kind: NodeKind.DataWarehouseNode,
                     id: 'marketing_costs_precomputed',
                     name: tileColumnSelectionName,
-                    custom_name: tileColumnSelectionName,
+                    custom_name: tileColumnSelectionName
+                        ? tileColumnSelectionName.charAt(0).toUpperCase() + tileColumnSelectionName.slice(1)
+                        : undefined,
                     table_name: 'marketing_costs_precomputed',
                     id_field: 'campaign_id',
                     distinct_id_field: 'campaign_id',
@@ -378,11 +391,18 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                                 ? { series: createMarketingDataWarehouseNodes, sourceIds: marketingChartSourceIds }
                                 : undefined,
                         compareFilter: compareFilter || undefined,
-                        // The precompute path reads a single node, so split by source here; the S3 adapters
-                        // are already per-source series and need no breakdown.
+                        // The precompute path reads a single node, so split it here, by campaign when chosen;
+                        // the S3 adapters are already per-source series and have no campaign column to split on.
                         breakdownFilter:
                             costsPrecomputeEnabled && hasSources
-                                ? { breakdowns: [{ type: 'data_warehouse', property: 'source_name' }] }
+                                ? {
+                                      breakdowns: [
+                                          {
+                                              type: 'data_warehouse',
+                                              property: chartBreakdown === 'campaign' ? 'campaign_name' : 'source_name',
+                                          },
+                                      ],
+                                  }
                                 : undefined,
                         interval: dateFilter.interval,
                         dateRange: { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo },
@@ -407,10 +427,12 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                         colSpanClassName: 'md:col-span-2 2xl:col-span-3',
                         orderWhenLargeClassName: '2xl:order-1',
                     },
-                    title: `Marketing ${tileColumnSelectionName}`,
                     query: chartQuery,
                     showIntervalSelect: true,
-                    insightProps: createInsightProps(TileId.MARKETING, `${chartDisplayType}-${tileColumnSelection}`),
+                    insightProps: createInsightProps(
+                        TileId.MARKETING,
+                        `${chartDisplayType}-${tileColumnSelection}-${costsPrecomputeEnabled ? chartBreakdown : 'platform'}`
+                    ),
                     canOpenInsight: true,
                     canOpenModal: false,
                     docs: {
@@ -437,7 +459,6 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                               colSpanClassName: 'md:col-span-2 2xl:col-span-3',
                               orderWhenLargeClassName: '2xl:order-2',
                           },
-                          title: `${MARKETING_ANALYTICS_DRILL_DOWN_CONFIG[drillDownLevel].columnAlias} breakdown`,
                           query: campaignCostsBreakdown,
                           insightProps: createInsightProps(TileId.MARKETING_CAMPAIGN_BREAKDOWN),
                           canOpenModal: true,
@@ -536,10 +557,10 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                 // levels so we don't request columns the backend won't produce — without this
                 // the table flashes JSON cells while the new response is loading.
                 const previousSelect = drillDownConfig.excludesConversionGoals
-                    ? defaultColumns
+                    ? columnsForView('default', defaultColumns)
                     : marketingQuery?.select?.length
                       ? marketingQuery.select
-                      : defaultColumns
+                      : columnsForView('default', defaultColumns)
 
                 const columnsWithDraftConversionGoal = [
                     ...previousSelect
@@ -567,6 +588,7 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                 return {
                     ...query,
                     kind: NodeKind.DataTableNode,
+                    pinnedColumns: query?.pinnedColumns ?? marketingTableDimensionColumns(orderedColumns),
                     source: {
                         ...marketingQuery,
                         kind: NodeKind.MarketingAnalyticsTableQuery,
@@ -588,6 +610,9 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                     full: true,
                     embedded: false,
                     showOpenEditorButton: false,
+                    // The filter bar's reload covers this table.
+                    showReload: false,
+                    showElapsedTime: false,
                 }
             },
         ],

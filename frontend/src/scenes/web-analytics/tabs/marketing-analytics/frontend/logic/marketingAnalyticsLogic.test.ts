@@ -60,6 +60,7 @@ import {
     MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID,
     marketingAnalyticsTilesLogic,
 } from './marketingAnalyticsTilesLogic'
+import { columnsForView } from './marketingTableColumnViews'
 
 jest.mock('posthog-js')
 
@@ -362,7 +363,10 @@ describe('marketingAnalyticsLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
             expect(tiles.values.campaignCostsBreakdown).toMatchObject({
                 pinnedColumns: [],
-                source: { select: marketingAnalyticsTableLogic.values.defaultColumns, orderBy: [] },
+                source: {
+                    select: columnsForView('default', marketingAnalyticsTableLogic.values.defaultColumns),
+                    orderBy: [],
+                },
             })
         } finally {
             tiles.unmount()
@@ -640,6 +644,14 @@ describe('marketingAnalyticsLogic', () => {
                 )
                 expect(marketingAnalyticsTableLogic.values.query).toEqual(savedQuery)
             }
+            logic.actions.setActiveTab(MarketingAnalyticsTab.DASHBOARD)
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.MARKETING_ANALYTICS_SEARCH_CONVERSIONS]: true,
+            })
+            expect(logic.values.includeConversionGoals).toBe(false)
+            expect((tiles.values.overviewTile.query as MarketingAnalyticsAggregatedQuery).select).toEqual(
+                Object.values(MarketingAnalyticsBaseColumns)
+            )
         } finally {
             search.unmount()
             tiles.unmount()
@@ -655,7 +667,7 @@ describe('marketingAnalyticsLogic', () => {
             [FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD]: true,
         })
         logic.actions.setActiveTab(MarketingAnalyticsTab.AD_PERFORMANCE)
-        expect(logic.values.includeConversionGoals).toBe(false)
+        expect(logic.values.canToggleConversionGoals).toBe(false)
         expect(logic.values.adPerformanceConversionGoals).toBe(true)
         const search = searchPerformanceLogic()
         search.mount()
