@@ -179,6 +179,17 @@ export const MarketingAnalyticsTable = ({
     // Rendered inside the DataTable toolbar, so Export shares one row with the table controls.
     const toolbar = useMemo(
         () => [
+            <WebTileHeader
+                key="title"
+                className="min-h-0 p-0"
+                tileId={TileId.MARKETING_CAMPAIGN_BREAKDOWN}
+                titlePrefix="Performance metrics by"
+                titleDropdown={{
+                    value: drillDownLevel,
+                    options: breakdownOptions.flatMap((group) => group.options),
+                    onChange: (value) => setDrillDownLevel(value as MarketingAnalyticsDrillDownLevel),
+                }}
+            />,
             <LemonInput
                 key="search"
                 type="search"
@@ -217,7 +228,7 @@ export const MarketingAnalyticsTable = ({
                 : []),
         ],
         // eslint-disable-next-line react-hooks/exhaustive-deps -- setColumnView only closes over query and defaultColumns
-        [searchTerm, computedAt, columnView, query, defaultColumns, showColumnConfigModal]
+        [computedAt, columnView, query, defaultColumns, showColumnConfigModal, drillDownLevel, searchTerm]
     )
 
     const marketingAnalyticsContext: QueryContext = useMemo(
@@ -225,7 +236,8 @@ export const MarketingAnalyticsTable = ({
             ...webAnalyticsDataTableQueryContext,
             dataTableStickyHeader: true,
             compactDataTableToolbar: true,
-            dataTableToolbarClassName: 'pt-1',
+            dataTableToolbarClassName: 'pt-3',
+            dataTableExportIconOnly: true,
             customActions: toolbar,
             insightProps,
             columnFeatures: [ColumnFeature.canSort, ColumnFeature.canRemove, ColumnFeature.canPin],
@@ -287,15 +299,6 @@ export const MarketingAnalyticsTable = ({
 
     return (
         <div className="border rounded bg-surface-primary">
-            <WebTileHeader
-                tileId={TileId.MARKETING_CAMPAIGN_BREAKDOWN}
-                titlePrefix="Performance metrics by"
-                titleDropdown={{
-                    value: drillDownLevel,
-                    options: breakdownOptions.flatMap((group) => group.options),
-                    onChange: (value) => setDrillDownLevel(value as MarketingAnalyticsDrillDownLevel),
-                }}
-            />
             {recordings && (
                 <Suspense fallback={<DashboardModalLoading isOpen onClose={() => setConversionRecordings(null)} />}>
                     <ConversionRecordingsModal {...recordings} onClose={() => setConversionRecordings(null)} />

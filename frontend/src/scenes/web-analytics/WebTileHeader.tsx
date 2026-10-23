@@ -3,6 +3,7 @@ import { LemonButton, LemonMenu, LemonMenuItem, LemonSelectOptionLeaf } from '@p
 
 import { useWindowSize } from 'lib/hooks/useWindowSize'
 import { IconOpenInNew, IconTableChart } from 'lib/lemon-ui/icons'
+import { cn } from 'lib/utils/css-classes'
 
 import { TileId, TileVisualizationOption } from './common'
 import { LearnMorePopover, LearnMorePopoverProps } from './WebAnalyticsDashboard'
@@ -21,6 +22,8 @@ export interface WebTileHeaderProps {
     titleDropdown?: DropdownConfig<string>
     /** A second picker after the title, read as "<title> by <breakdown>". */
     breakdownDropdown?: DropdownConfig<string>
+    /** Extra classes for the header row, such as dropping its padding inside another toolbar. */
+    className?: string
     docs?: LearnMorePopoverProps
     intervalSelector?: {
         node: React.ReactNode
@@ -70,6 +73,7 @@ export function WebTileHeader({
     titlePrefix,
     titleDropdown,
     breakdownDropdown,
+    className,
     docs,
     intervalSelector,
     visualizationToggle,
@@ -101,7 +105,12 @@ export function WebTileHeader({
         )
 
     return (
-        <div className="flex flex-row items-center self-stretch gap-1 sm:gap-2 min-h-10 px-3 py-2">
+        <div
+            className={cn(
+                'flex flex-row flex-wrap items-center self-stretch gap-1 sm:gap-2 min-h-10 px-3 py-2',
+                className
+            )}
+        >
             {titleNode}
 
             {intervalSelector && (

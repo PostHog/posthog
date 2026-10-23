@@ -78,6 +78,8 @@ export interface QueryContext<Q extends QuerySchema = QuerySchema> {
     compactDataTableToolbar?: boolean
     /** Extra classes for the compact toolbar row, such as padding when the table sits inside a card. */
     dataTableToolbarClassName?: string
+    /** Show the Export button as an icon to save toolbar space. */
+    dataTableExportIconOnly?: boolean
     hideRecordingButton?: boolean
     /** Custom expandable config for DataTable rows */
     expandable?: ExpandableConfig<DataTableRow>
