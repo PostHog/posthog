@@ -163,6 +163,18 @@ class TestScoreInsight(SimpleTestCase):
         assert filtered["signup"] == original["signup"]
         assert filtered["pageview"] != original["pageview"]
 
+    def test_series_that_differ_only_by_name_get_unique_keys_and_the_first_keeps_its_key(self) -> None:
+        single = self._keys(_insight([EventsNode(event="$pageview")]), [_result(0, "web")])
+        named = self._keys(
+            _insight(
+                [EventsNode(event="$pageview", custom_name="web"), EventsNode(event="$pageview", custom_name="app")]
+            ),
+            [_result(0, "web"), _result(1, "app")],
+        )
+
+        assert named["web"] == single["web"]
+        assert named["app"] != named["web"]
+
 
 class TestTrendsQueryFor(SimpleTestCase):
     @parameterized.expand(
