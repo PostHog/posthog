@@ -13,10 +13,13 @@ import {
 } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
 
 import { dataModelingJobsList } from 'products/data_warehouse/frontend/generated/api'
-import type { PaginatedDataModelingJobListApi } from 'products/data_warehouse/frontend/generated/api.schemas'
+import {
+    DataModelingJobsListEngine,
+    type PaginatedDataModelingJobListApi,
+} from 'products/data_warehouse/frontend/generated/api.schemas'
 
 import * as api from './generated/api'
-import type { ModelUsageApi } from './generated/api.schemas'
+import { DataModelingUsageListEngine, type ModelUsageApi } from './generated/api.schemas'
 
 export const MATERIALIZATION_JOBS_PAGE_SIZE = 20
 
@@ -45,6 +48,7 @@ export interface modelsUsageLogicValues {
     materializedViewOptions: MaterializedViewOption[]
     page: number
     savedQueryNameById: Record<string, string>
+    selectedEngine: DataModelingUsageListEngine
     selectedSavedQueryId: string | null
     usage: ModelUsageApi | null
     usageLoading: boolean
@@ -101,6 +105,9 @@ export interface modelsUsageLogicActions {
     setPage: (page: number) => {
         page: number
     }
+    setSelectedEngine: (engine: DataModelingUsageListEngine) => {
+        engine: DataModelingUsageListEngine
+    }
     setSelectedSavedQueryId: (savedQueryId: string | null) => {
         savedQueryId: string | null
     }
@@ -143,6 +150,7 @@ export const modelsUsageLogic = kea<modelsUsageLogicType>([
         setDays: (days: number) => ({ days }),
         setPage: (page: number) => ({ page }),
         setJobsPage: (page: number) => ({ page }),
+        setSelectedEngine: (engine: DataModelingUsageListEngine) => ({ engine }),
         setSelectedSavedQueryId: (savedQueryId: string | null) => ({ savedQueryId }),
         openModel: true,
         refresh: true,
@@ -150,13 +158,26 @@ export const modelsUsageLogic = kea<modelsUsageLogicType>([
     }),
     reducers({
         days: [30, { setDays: (_, { days }) => days }],
-        page: [1, { setPage: (_, { page }) => page, setDays: () => 1 }],
+        page: [
+            1,
+            {
+                setPage: (_, { page }) => page,
+                setDays: () => 1,
+                setSelectedEngine: () => 1,
+                setSelectedSavedQueryId: () => 1,
+            },
+        ],
         jobsPage: [
             1,
             {
                 setJobsPage: (_, { page }) => page,
+                setSelectedEngine: () => 1,
                 setSelectedSavedQueryId: () => 1,
             },
+        ],
+        selectedEngine: [
+            DataModelingUsageListEngine.All as DataModelingUsageListEngine,
+            { setSelectedEngine: (_, { engine }) => engine },
         ],
         selectedSavedQueryId: [
             null as string | null,
@@ -175,8 +196,12 @@ export const modelsUsageLogic = kea<modelsUsageLogicType>([
                 loadUsage: async (_: void, breakpoint): Promise<ModelUsageApi> => {
                     const result = await api.dataModelingUsageList(String(getCurrentTeamId()), {
                         days: values.days,
+                        engine: values.managedWarehouseEnabled
+                            ? values.selectedEngine
+                            : DataModelingUsageListEngine.Clickhouse,
                         page: values.page,
                         page_size: 20,
+                        saved_query_id: values.selectedSavedQueryId ?? undefined,
                     })
                     breakpoint()
                     return result
@@ -192,6 +217,10 @@ export const modelsUsageLogic = kea<modelsUsageLogicType>([
                         offset: (values.jobsPage - 1) * MATERIALIZATION_JOBS_PAGE_SIZE,
                         saved_query_id: values.selectedSavedQueryId ?? undefined,
                         all_engines: values.managedWarehouseEnabled || undefined,
+                        engine:
+                            values.managedWarehouseEnabled && values.selectedEngine !== DataModelingUsageListEngine.All
+                                ? (values.selectedEngine as DataModelingJobsListEngine)
+                                : undefined,
                     })
                     breakpoint()
                     return result
@@ -202,8 +231,7 @@ export const modelsUsageLogic = kea<modelsUsageLogicType>([
     selectors({
         managedWarehouseEnabled: [
             (s) => [s.featureFlags],
-            (featureFlags: FeatureFlagsSet): boolean =>
-                !!featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_SCENE] || !!featureFlags[FEATURE_FLAGS.MANAGED_TRINO_QUERY],
+            (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.MANAGED_TRINO_QUERY],
         ],
         materializedViewOptions: [
             (s) => [s.dataWarehouseSavedQueries],
@@ -234,9 +262,15 @@ export const modelsUsageLogic = kea<modelsUsageLogicType>([
         ],
         chartSeries: [
             (s) => [s.usage],
-            (usage: ModelUsageApi | null): Series[] => [
-                { key: 'bytes', label: 'Bytes read', data: usage?.trends.map((day) => day.read_bytes ?? NaN) ?? [] },
-            ],
+            (usage: ModelUsageApi | null): Series[] =>
+                (usage?.trends[0]?.engines ?? []).map(({ engine }) => ({
+                    key: engine,
+                    label: engine === 'managed_warehouse' ? 'Managed warehouse' : 'ClickHouse',
+                    data:
+                        usage?.trends.map(
+                            (day) => day.engines.find((item) => item.engine === engine)?.read_bytes ?? NaN
+                        ) ?? [],
+                })),
         ],
     }),
     listeners(({ actions, values }) => ({
@@ -246,7 +280,14 @@ export const modelsUsageLogic = kea<modelsUsageLogicType>([
         },
         setPage: () => actions.loadUsage(),
         setJobsPage: () => actions.loadMaterializationJobs(),
-        setSelectedSavedQueryId: () => actions.loadMaterializationJobs(),
+        setSelectedEngine: () => {
+            actions.loadUsage()
+            actions.loadMaterializationJobs()
+        },
+        setSelectedSavedQueryId: () => {
+            actions.loadUsage()
+            actions.loadMaterializationJobs()
+        },
         refreshJobs: () => {
             actions.loadDataWarehouseSavedQueries()
             actions.loadMaterializationJobs()

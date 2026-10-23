@@ -29,12 +29,17 @@ import { humanFriendlyNumber, humanizeBytes } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
+import { DataModelingUsageListEngine, type ModelUsageRowApi } from './generated/api.schemas'
 import { modelsUsageLogic } from './modelsUsageLogic'
 
 const PAGE_SIZE = 20
 
+function engineBytes(row: ModelUsageRowApi, engine: string): number | null {
+    return row.engines.find((item) => item.engine === engine)?.read_bytes ?? null
+}
+
 export function ModelsUsageByModelTable(): JSX.Element | null {
-    const { usage, usageLoading, page } = useValues(modelsUsageLogic)
+    const { usage, usageLoading, page, managedWarehouseEnabled, selectedEngine } = useValues(modelsUsageLogic)
     const { setPage, openModel } = useActions(modelsUsageLogic)
 
     if (!usage || usage.overview.runs === 0) {
@@ -46,6 +51,7 @@ export function ModelsUsageByModelTable(): JSX.Element | null {
     const pageRange = getPaginationRange(pageCount, pageIndex)
     const firstRow = usage.count === 0 ? 0 : pageIndex * PAGE_SIZE + 1
     const lastRow = Math.min(firstRow + usage.models.length - 1, usage.count)
+    const showEngineColumns = managedWarehouseEnabled && selectedEngine === DataModelingUsageListEngine.All
 
     return (
         <Card size="sm" className="min-w-0 gap-0">
@@ -62,7 +68,14 @@ export function ModelsUsageByModelTable(): JSX.Element | null {
                     <TableHeader>
                         <TableRow>
                             <TableHead expand>Model</TableHead>
-                            <TableHead align="right">Bytes read</TableHead>
+                            {showEngineColumns ? (
+                                <>
+                                    <TableHead align="right">ClickHouse bytes</TableHead>
+                                    <TableHead align="right">Managed warehouse bytes</TableHead>
+                                </>
+                            ) : (
+                                <TableHead align="right">Bytes read</TableHead>
+                            )}
                             <TableHead align="right" className="hidden @min-[48rem]/main-content:table-cell">
                                 CPU time
                             </TableHead>
@@ -88,15 +101,39 @@ export function ModelsUsageByModelTable(): JSX.Element | null {
                                         </LinkPrimitive>
                                     )}
                                 </TableCell>
-                                <TableCell align="right" className="whitespace-nowrap tabular-nums">
-                                    {row.read_bytes === null ? (
-                                        <Text variant="muted" render={<span />}>
-                                            Not measured
-                                        </Text>
-                                    ) : (
-                                        humanizeBytes(row.read_bytes)
-                                    )}
-                                </TableCell>
+                                {showEngineColumns ? (
+                                    [
+                                        DataModelingUsageListEngine.Clickhouse,
+                                        DataModelingUsageListEngine.ManagedWarehouse,
+                                    ].map((engine) => {
+                                        const readBytes = engineBytes(row, engine)
+                                        return (
+                                            <TableCell
+                                                key={engine}
+                                                align="right"
+                                                className="whitespace-nowrap tabular-nums"
+                                            >
+                                                {readBytes === null ? (
+                                                    <Text variant="muted" render={<span />}>
+                                                        Not measured
+                                                    </Text>
+                                                ) : (
+                                                    humanizeBytes(readBytes)
+                                                )}
+                                            </TableCell>
+                                        )
+                                    })
+                                ) : (
+                                    <TableCell align="right" className="whitespace-nowrap tabular-nums">
+                                        {row.read_bytes === null ? (
+                                            <Text variant="muted" render={<span />}>
+                                                Not measured
+                                            </Text>
+                                        ) : (
+                                            humanizeBytes(row.read_bytes)
+                                        )}
+                                    </TableCell>
+                                )}
                                 <TableCell
                                     align="right"
                                     className="hidden whitespace-nowrap tabular-nums @min-[48rem]/main-content:table-cell"

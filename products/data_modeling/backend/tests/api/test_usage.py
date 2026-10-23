@@ -22,6 +22,11 @@ class TestModelUsageValidation(SimpleTestCase):
         self.assertFalse(serializer.is_valid())
         self.assertIn(field, serializer.errors)
 
+    def test_rejects_unknown_engine(self) -> None:
+        serializer = ModelUsageQuerySerializer(data={"engine": "duckgres"})
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("engine", serializer.errors)
+
 
 @time_machine.travel("2026-10-16T12:00:00Z", tick=False)
 class TestModelUsage(WarehouseAccessControlTestMixin):
@@ -43,7 +48,7 @@ class TestModelUsage(WarehouseAccessControlTestMixin):
         DataModelingJob.objects.create(**base, **measured)
         DataModelingJob.objects.create(**{**base, "status": "Failed"})
         DataModelingJob.objects.create(**{**base, "status": "Running"}, **measured)
-        DataModelingJob.objects.create(**{**base, "engine": "managed_warehouse"}, **measured)
+        managed = DataModelingJob.objects.create(**{**base, "engine": "managed_warehouse"}, **measured)
         DataModelingJob.objects.create(**{**base, "last_run_at": finished + timedelta(days=1)}, **measured)
         other_team = Team.objects.create(organization=self.organization)
         DataModelingJob.objects.create(team=other_team, status="Completed", last_run_at=finished, **measured)
@@ -64,8 +69,34 @@ class TestModelUsage(WarehouseAccessControlTestMixin):
         self.assertEqual(len(data["trends"]), 7)
         self.assertIsNone(data["trends"][0]["read_bytes"])
         self.assertEqual(data["trends"][-1]["runs"], 2)
+        self.assertEqual(data["trends"][-1]["engines"][0]["engine"], "clickhouse")
         self.assertEqual(data["models"][0]["name"], "daily_orders")
         self.assertEqual(data["count"], 1)
+
+        combined = self.client.get(
+            f"/api/projects/{self.team.id}/data_modeling_usage/", {"days": 7, "engine": "all"}
+        ).json()
+        self.assertEqual(combined["overview"]["runs"], 3)
+        self.assertEqual(
+            [(item["engine"], item["runs"]) for item in combined["trends"][-1]["engines"]],
+            [("clickhouse", 2), ("managed_warehouse", 1)],
+        )
+        self.assertEqual(
+            [(item["engine"], item["read_bytes"]) for item in combined["models"][0]["engines"]],
+            [("clickhouse", 1024), ("managed_warehouse", managed.read_bytes)],
+        )
+
+        managed_only = self.client.get(
+            f"/api/projects/{self.team.id}/data_modeling_usage/", {"days": 7, "engine": "managed_warehouse"}
+        ).json()
+        self.assertEqual(managed_only["overview"]["runs"], 1)
+        self.assertEqual([item["engine"] for item in managed_only["models"][0]["engines"]], ["managed_warehouse"])
+
+        filtered = self.client.get(
+            f"/api/projects/{self.team.id}/data_modeling_usage/",
+            {"days": 7, "engine": "all", "saved_query_id": model.id},
+        ).json()
+        self.assertEqual(filtered["count"], 1)
         invalid = self.client.get(f"/api/projects/{self.team.id}/data_modeling_usage/", {"days": 91})
         self.assertEqual(invalid.status_code, 400)
 

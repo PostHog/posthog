@@ -14,6 +14,18 @@ from products.data_modeling.backend.facade.models import DataModelingJob, DataMo
 
 
 class DataModelingJobSerializer(serializers.ModelSerializer):
+    saved_query_name = serializers.CharField(
+        source="saved_query.name",
+        read_only=True,
+        allow_null=True,
+        help_text="Model name, or null if permanently deleted.",
+    )
+    saved_query_deleted = serializers.BooleanField(
+        source="saved_query.deleted",
+        read_only=True,
+        allow_null=True,
+        help_text="Whether the model is soft-deleted, or null if permanently deleted.",
+    )
     engine = serializers.CharField(read_only=True, help_text="The engine that ran this materialization job.")
     updated_at = serializers.DateTimeField(
         read_only=True,
@@ -40,6 +52,8 @@ class DataModelingJobSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "saved_query_id",
+            "saved_query_name",
+            "saved_query_deleted",
             "status",
             "engine",
             "run_mode",
@@ -89,7 +103,7 @@ class DataModelingJobViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewS
     pagination_class = DataModelingJobPagination
     queryset = DataModelingJob.objects.all()
     filter_backends = [DjangoFilterBackend]
-    filterset_fields = ["saved_query_id", "status"]
+    filterset_fields = ["saved_query_id", "status", "engine"]
     search_fields = ["saved_query_id"]
     ordering_fields = ["created_at"]
     ordering = "-created_at"
@@ -108,7 +122,7 @@ class DataModelingJobViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewS
             )
             queryset = queryset.filter(saved_query_id__in=accessible_saved_queries.values("id"))
 
-        return queryset.order_by("-created_at")
+        return queryset.select_related("saved_query").order_by("-created_at")
 
     @action(methods=["GET"], detail=False)
     def running(self, request, *args, **kwargs):

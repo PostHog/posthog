@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { useMemo, useRef } from 'react'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LinkPrimitive } from 'lib/lemon-ui/Link/Link'
@@ -12,13 +11,6 @@ import {
     CardFooter,
     CardHeader,
     CardTitle,
-    Combobox,
-    ComboboxContent,
-    ComboboxEmpty,
-    ComboboxInput,
-    ComboboxItem,
-    ComboboxList,
-    ComboboxTrigger,
     Pagination,
     PaginationButton,
     PaginationContent,
@@ -44,9 +36,7 @@ import { urls } from 'scenes/urls'
 
 import type { DataModelingJobApi } from 'products/data_warehouse/frontend/generated/api.schemas'
 
-import { MATERIALIZATION_JOBS_PAGE_SIZE, MaterializedViewOption, modelsUsageLogic } from './modelsUsageLogic'
-
-const ALL_VIEWS: MaterializedViewOption = { id: 'all', name: 'All materialized views' }
+import { MATERIALIZATION_JOBS_PAGE_SIZE, modelsUsageLogic } from './modelsUsageLogic'
 
 const STATUS_VARIANTS: Record<string, 'success' | 'destructive' | 'warning' | 'default'> = {
     Completed: 'success',
@@ -69,25 +59,10 @@ function engineLabel(engine: DataModelingJobApi['engine']): string {
     return engine
 }
 
-// Jobs can belong to models the saved-query list omits, such as endpoint materializations
-// and soft-deleted models, so an unresolved ID is not necessarily a deleted model.
-const UNAVAILABLE_MODEL = 'Unavailable model'
-
 export function MaterializationJobsTable(): JSX.Element {
-    const {
-        materializationJobs,
-        jobsLoading,
-        jobsFailed,
-        jobsPage,
-        selectedSavedQueryId,
-        materializedViewOptions,
-        savedQueryNameById,
-        managedWarehouseEnabled,
-    } = useValues(modelsUsageLogic)
-    const { refreshJobs, setJobsPage, setSelectedSavedQueryId, openModel } = useActions(modelsUsageLogic)
-    const triggerRef = useRef<HTMLButtonElement>(null)
-    const options = useMemo(() => [ALL_VIEWS, ...materializedViewOptions], [materializedViewOptions])
-    const selected = options.find((option) => option.id === (selectedSavedQueryId ?? 'all')) ?? ALL_VIEWS
+    const { materializationJobs, jobsLoading, jobsFailed, jobsPage, savedQueryNameById, managedWarehouseEnabled } =
+        useValues(modelsUsageLogic)
+    const { refreshJobs, setJobsPage, openModel } = useActions(modelsUsageLogic)
     const count = materializationJobs?.count ?? 0
     const jobs = materializationJobs?.results ?? []
     const pageCount = Math.max(Math.ceil(count / MATERIALIZATION_JOBS_PAGE_SIZE), 1)
@@ -98,41 +73,13 @@ export function MaterializationJobsTable(): JSX.Element {
 
     return (
         <Card size="sm" className="min-w-0 gap-0">
-            <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-3 border-b border-border pb-3">
+            <CardHeader className="border-b border-border pb-3">
                 <div className="min-w-0">
                     <CardTitle role="heading" aria-level={3}>
                         Materialization jobs
                     </CardTitle>
                     <CardDescription>Every model refresh, newest first.</CardDescription>
                 </div>
-                <Combobox
-                    items={options}
-                    value={selected}
-                    itemToStringValue={(option: MaterializedViewOption) => option.name}
-                    isItemEqualToValue={(option, value) => option.id === value.id}
-                    onValueChange={(option: MaterializedViewOption | null) =>
-                        setSelectedSavedQueryId(!option || option.id === 'all' ? null : option.id)
-                    }
-                >
-                    <ComboboxTrigger
-                        ref={triggerRef}
-                        render={<Button variant="outline" className="max-w-72 justify-between" />}
-                        data-attr="models-usage-jobs-view-filter"
-                    >
-                        <span className="truncate">{selected.name}</span>
-                    </ComboboxTrigger>
-                    <ComboboxContent anchor={triggerRef} align="end" className="w-80 max-w-[calc(100vw-2rem)]">
-                        <ComboboxInput placeholder="Search materialized views" showTrigger={false} />
-                        <ComboboxEmpty>No materialized views found.</ComboboxEmpty>
-                        <ComboboxList>
-                            {(option: MaterializedViewOption) => (
-                                <ComboboxItem key={option.id} value={option} title={option.name}>
-                                    <span className="truncate">{option.name}</span>
-                                </ComboboxItem>
-                            )}
-                        </ComboboxList>
-                    </ComboboxContent>
-                </Combobox>
             </CardHeader>
             {jobsFailed ? (
                 <CardContent className="flex items-center justify-between gap-3 py-6">
@@ -162,16 +109,21 @@ export function MaterializationJobsTable(): JSX.Element {
                         {jobs.length > 0 ? (
                             <TableBody>
                                 {jobs.map((job) => {
-                                    const modelName = job.saved_query_id
-                                        ? (savedQueryNameById[job.saved_query_id] ?? UNAVAILABLE_MODEL)
-                                        : 'Deleted model'
+                                    const modelName = job.saved_query_name ?? 'Deleted model'
+                                    const canOpenModel = Boolean(
+                                        job.saved_query_id &&
+                                        !job.saved_query_deleted &&
+                                        savedQueryNameById[job.saved_query_id]
+                                    )
                                     return (
                                         <TableRow key={job.id}>
                                             <TableCell expand className="min-w-40 max-w-80">
-                                                {job.saved_query_id && savedQueryNameById[job.saved_query_id] ? (
+                                                {canOpenModel ? (
                                                     <LinkPrimitive
                                                         className="block truncate font-medium text-link-primary hover:underline"
-                                                        to={urls.sqlEditor({ view_id: job.saved_query_id })}
+                                                        to={urls.sqlEditor({
+                                                            view_id: job.saved_query_id ?? undefined,
+                                                        })}
                                                         onClick={openModel}
                                                         title={modelName}
                                                     >
@@ -185,6 +137,7 @@ export function MaterializationJobsTable(): JSX.Element {
                                                         title={modelName}
                                                     >
                                                         {modelName}
+                                                        {job.saved_query_deleted ? ' (deleted)' : ''}
                                                     </Text>
                                                 )}
                                             </TableCell>

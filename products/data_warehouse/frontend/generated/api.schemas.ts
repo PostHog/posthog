@@ -41,6 +41,16 @@ export interface DataModelingJobApi {
     readonly id: string
     /** @nullable */
     readonly saved_query_id: string | null
+    /**
+     * Model name, or null if permanently deleted.
+     * @nullable
+     */
+    readonly saved_query_name: string | null
+    /**
+     * Whether the model is soft-deleted, or null if permanently deleted.
+     * @nullable
+     */
+    readonly saved_query_deleted: boolean | null
     readonly status: DataModelingJobStatusEnumApi
     /** The engine that ran this materialization job. */
     readonly engine: string
@@ -5600,6 +5610,12 @@ export type DataModelingJobsListParams = {
      */
     all_engines?: boolean
     /**
+     * * `clickhouse` - ClickHouse
+     * * `duckgres` - Duckgres
+     * * `managed_warehouse` - Managed warehouse
+     */
+    engine?: DataModelingJobsListEngine
+    /**
      * Number of results to return per page.
      */
     limit?: number
@@ -5617,6 +5633,14 @@ export type DataModelingJobsListParams = {
      */
     status?: DataModelingJobsListStatus
 }
+
+export type DataModelingJobsListEngine = (typeof DataModelingJobsListEngine)[keyof typeof DataModelingJobsListEngine]
+
+export const DataModelingJobsListEngine = {
+    Clickhouse: 'clickhouse',
+    Duckgres: 'duckgres',
+    ManagedWarehouse: 'managed_warehouse',
+} as const
 
 export type DataModelingJobsListStatus = (typeof DataModelingJobsListStatus)[keyof typeof DataModelingJobsListStatus]
 

@@ -12,59 +12,98 @@ from products.data_modeling.backend.models.data_modeling_job import (
 
 
 class ModelUsage:
+    ENGINES = (DataModelingJobEngine.CLICKHOUSE, DataModelingJobEngine.MANAGED_WAREHOUSE)
+    USAGE_FIELDS = ("runs", "measured_runs", "read_bytes", "read_rows", "cpu_microseconds", "query_count")
+
     @staticmethod
-    def jobs(team_id: int, start: datetime, end: datetime) -> QuerySet[DataModelingJob]:
+    def jobs(
+        team_id: int, start: datetime, end: datetime, engines: tuple[DataModelingJobEngine, ...]
+    ) -> QuerySet[DataModelingJob]:
         return DataModelingJob.objects.filter(
             team_id=team_id,
-            engine=DataModelingJobEngine.CLICKHOUSE,
+            engine__in=engines,
             status__in=[DataModelingJobStatus.COMPLETED, DataModelingJobStatus.FAILED, DataModelingJobStatus.CANCELLED],
             last_run_at__gte=start,
             last_run_at__lt=end,
         )
 
     @staticmethod
-    def aggregates() -> dict[str, Count | Sum]:
+    def aggregates(*, prefix: str = "", engine: DataModelingJobEngine | None = None) -> dict[str, Count | Sum]:
+        engine_filter = Q(engine=engine) if engine else Q()
         return {
-            "runs": Count("id"),
-            "measured_runs": Count("id", filter=Q(usage_updated_at__isnull=False)),
-            "read_bytes": Sum("read_bytes"),
-            "read_rows": Sum("read_rows"),
-            "cpu_microseconds": Sum("cpu_microseconds"),
-            "query_count": Sum("query_count"),
+            f"{prefix}runs": Count("id", filter=engine_filter),
+            f"{prefix}measured_runs": Count("id", filter=engine_filter & Q(usage_updated_at__isnull=False)),
+            f"{prefix}read_bytes": Sum("read_bytes", filter=engine_filter),
+            f"{prefix}read_rows": Sum("read_rows", filter=engine_filter),
+            f"{prefix}cpu_microseconds": Sum("cpu_microseconds", filter=engine_filter),
+            f"{prefix}query_count": Sum("query_count", filter=engine_filter),
         }
 
     @classmethod
-    def get(cls, team_id: int, saved_query_ids: list[UUID], days: int, page: int, page_size: int) -> dict[str, object]:
+    def engine_aggregates(cls, engines: tuple[DataModelingJobEngine, ...]) -> dict[str, Count | Sum]:
+        return {
+            key: aggregate
+            for engine in engines
+            for key, aggregate in cls.aggregates(prefix=f"{engine}_", engine=engine).items()
+        }
+
+    @classmethod
+    def engine_usage(cls, row: dict[str, object], engines: tuple[DataModelingJobEngine, ...]) -> list[dict]:
+        return [
+            {
+                "engine": engine,
+                **{field: row[f"{engine}_{field}"] for field in cls.USAGE_FIELDS},
+            }
+            for engine in engines
+        ]
+
+    @classmethod
+    def get(
+        cls,
+        team_id: int,
+        saved_query_ids: list[UUID],
+        days: int,
+        page: int,
+        page_size: int,
+        engine: str,
+    ) -> dict[str, object]:
         end = datetime.combine(datetime.now(UTC).date(), time.min, tzinfo=UTC)
         start = end - timedelta(days=days)
-        jobs = cls.jobs(team_id, start, end).filter(saved_query_id__in=saved_query_ids)
+        engines = cls.ENGINES if engine == "all" else (DataModelingJobEngine(engine),)
+        jobs = cls.jobs(team_id, start, end, engines).filter(saved_query_id__in=saved_query_ids)
         overview = jobs.aggregate(**cls.aggregates())
         usage_updated_at = jobs.aggregate(latest=Max("usage_updated_at"))["latest"]
         daily = {
             row["day"]: row
             for row in jobs.annotate(day=TruncDate("last_run_at", tzinfo=UTC))
             .values("day")
-            .annotate(**cls.aggregates())
+            .annotate(**cls.engine_aggregates(engines), **cls.aggregates())
             .order_by("day")
         }
         trends = []
         for offset in range(days):
             day: date = (start + timedelta(days=offset)).date()
-            trends.append(
-                daily.get(
-                    day,
-                    {
-                        "day": day,
-                        "runs": 0,
-                        "measured_runs": 0,
-                        "read_bytes": None,
-                        "read_rows": None,
-                        "cpu_microseconds": None,
-                        "query_count": None,
+            row = daily.get(
+                day,
+                {
+                    "day": day,
+                    **{field: 0 if field in ("runs", "measured_runs") else None for field in cls.USAGE_FIELDS},
+                    **{
+                        f"{selected_engine}_{field}": 0 if field in ("runs", "measured_runs") else None
+                        for selected_engine in engines
+                        for field in cls.USAGE_FIELDS
                     },
-                )
+                },
             )
-        models = jobs.values("saved_query_id", "saved_query__name", "saved_query__deleted").annotate(**cls.aggregates())
+            trends.append(
+                {
+                    **{field: row[field] for field in ("day", *cls.USAGE_FIELDS)},
+                    "engines": cls.engine_usage(row, engines),
+                }
+            )
+        models = jobs.values("saved_query_id", "saved_query__name", "saved_query__deleted").annotate(
+            **cls.engine_aggregates(engines), **cls.aggregates()
+        )
         count = models.count()
         offset = (page - 1) * page_size
         rows = list(
@@ -80,7 +119,8 @@ class ModelUsage:
                     "saved_query_id": row["saved_query_id"],
                     "name": row["saved_query__name"] or "Deleted model",
                     "deleted": row["saved_query__deleted"] is not False,
-                    **{key: row[key] for key in cls.aggregates()},
+                    **{key: row[key] for key in cls.USAGE_FIELDS},
+                    "engines": cls.engine_usage(row, engines),
                 }
                 for row in rows
             ],
@@ -90,6 +130,6 @@ class ModelUsage:
 
 
 def get_model_usage(
-    team_id: int, saved_query_ids: list[UUID], days: int, page: int, page_size: int
+    team_id: int, saved_query_ids: list[UUID], days: int, page: int, page_size: int, engine: str
 ) -> dict[str, object]:
-    return ModelUsage.get(team_id, saved_query_ids, days, page, page_size)
+    return ModelUsage.get(team_id, saved_query_ids, days, page, page_size, engine)
