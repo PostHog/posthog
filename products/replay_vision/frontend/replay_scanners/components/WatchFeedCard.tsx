@@ -227,11 +227,9 @@ interface WatchFeedRowProps {
 function WatchCardPerson({
     observation,
     person,
-    children,
 }: {
     observation: ReplayObservationApi
     person: string | null | undefined
-    children?: React.ReactNode
 }): JSX.Element {
     return (
         <div className="flex flex-wrap items-center gap-1 text-xs text-muted">
@@ -249,8 +247,6 @@ function WatchCardPerson({
                 ))}
             {person && <span aria-hidden>·</span>}
             <TZLabel time={observation.created_at} className="shrink-0" />
-            {children && <span aria-hidden>·</span>}
-            {children}
         </div>
     )
 }
