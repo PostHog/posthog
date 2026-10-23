@@ -46,7 +46,9 @@ MANAGED_WAREHOUSE_SOURCE_TYPES = frozenset(MANAGED_WAREHOUSE_PORTS_BY_SOURCE_TYP
 # The DNS zone each deployment serves managed warehouses under. It lives here rather than in
 # `presentation.views` because the warehouse-source host guard reads it, and importing a DRF
 # module from a Temporal worker's connect path is how a presentation dependency ends up in a
-# background process.
+# background process. `views.managed_warehouse_domain` keeps its own copy because presentation
+# cannot import a plain backend module without breaking the facade contract, and both assert the
+# same values in tests.
 _MANAGED_WAREHOUSE_DOMAINS = {
     "US": "us.postwh.com",
     "EU": "eu.postwh.com",

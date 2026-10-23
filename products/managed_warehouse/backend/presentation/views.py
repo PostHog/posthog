@@ -36,6 +36,11 @@ logger = structlog.get_logger(__name__)
 # name becomes the SNI subdomain (e.g. my-warehouse.dw.us.postwh.com) and the DNS zone
 # is selected by the deployment.
 MANAGED_WAREHOUSE_DATABASE = "ducklake"
+_MANAGED_WAREHOUSE_DOMAINS = {
+    "US": "us.postwh.com",
+    "EU": "eu.postwh.com",
+    "DEV": "dev.postwh.com",
+}
 
 # A warehouse name becomes a DNS-1123 label (the connection's SNI subdomain), so it must
 # be lowercase alphanumerics and hyphens, starting and ending alphanumeric — no
@@ -101,12 +106,12 @@ DataOpsVariant = Literal["trino", "duckdb"]
 def managed_warehouse_domain() -> str:
     """The zone managed warehouse hostnames are served under in this deployment.
 
-    Delegates to `managed_ingress` so the value has one definition. The warehouse-source host
-    guard reads it too, and that module must stay free of presentation imports.
+    The value is shared with `managed_ingress`, which the warehouse-source host guard reads. It
+    is defined here because a presentation module cannot import a plain backend module without
+    breaking the facade contract.
     """
-    from products.managed_warehouse.backend.managed_ingress import managed_warehouse_domain as _domain  # noqa: PLC0415
-
-    return _domain()
+    deployment = (getattr(settings, "CLOUD_DEPLOYMENT", None) or "").upper()
+    return _MANAGED_WAREHOUSE_DOMAINS.get(deployment, "test.local")
 
 
 def validate_warehouse_name(name: str | None) -> str | None:
