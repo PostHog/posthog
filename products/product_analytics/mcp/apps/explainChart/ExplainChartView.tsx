@@ -25,7 +25,6 @@ export interface StoryPageChange {
 
 export interface StoryEvidenceCharts {
     canShow: (query: Record<string, unknown>) => boolean
-    /** Starts loading these charts in the background, so they are ready by the time someone opens one. */
     prefetch: (queries: Record<string, unknown>[]) => void
     /** Draws the chart, fading every series that the evidence's text does not name. */
     render: (query: Record<string, unknown>, text: string) => ReactNode
@@ -40,7 +39,6 @@ export interface ExplainChartViewProps {
     title?: string | null
     formatValue?: (value: number) => string
     onPageChange?: (change: StoryPageChange) => void
-    /** Lets a piece of evidence draw its own chart in place of the walkthrough's chart. */
     evidenceCharts?: StoryEvidenceCharts
 }
 

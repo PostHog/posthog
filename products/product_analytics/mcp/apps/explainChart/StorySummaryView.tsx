@@ -10,7 +10,6 @@ export interface StorySummaryViewProps {
     pages: StoryPage[]
     /** Which series the story follows, when the chart has more than one. */
     seriesNote: string | null
-    /** Query warnings about the data behind the chart. */
     warnings?: string[]
     onSelect: (index: number) => void
     onPreview: (index: number | null) => void
