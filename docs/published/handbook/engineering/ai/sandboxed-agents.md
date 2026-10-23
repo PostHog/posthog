@@ -504,7 +504,9 @@ that landed since the last bake. The snapshot clones the migrated Postgres datab
 `test_posthog`, so pytest's default `--reuse-db` path also applies only newer migrations.
 The pnpm store and Playwright's Chromium are prewarmed too:
 `pnpm install --frozen-lockfile --prefer-offline` is a fast linking pass and browser installs
-are no-ops. Build outputs (node_modules, Storybook dist, Vite/Turbo caches) are deliberately
+are no-ops. The image also has `ffmpeg`, because the lean VM base ships no codec tooling,
+and the CI-pinned `semgrep`, `actionlint` and `shellcheck`, so agents can run the repo's lint gates before they push.
+Build outputs (node_modules, Storybook dist, Vite/Turbo caches) are deliberately
 not baked — the bake's checkout is deleted before the snapshot — so frontend builds always run
 from the task's own source. The bake must run on the real VM runtime —
 dockerd cannot run inside Modal's gVisor image builder — which is why it is a sandbox filesystem
@@ -742,6 +744,7 @@ or stream echo, and never submits the message again.
 
 The `phai-context-selection` feature flag enables hidden organizational context on human prompts in web and Slack cloud runs using Claude or Codex.
 The `phai-context-selection` flag selects `control`, `shadow`, or `treatment` using the task ID.
+Person-property conditions use the current actor's email and staff status, so an email-targeted rollout applies to that actor's eligible tasks while percentage and variant bucketing remain task-based.
 Other flag values disable selection. Local runs, Pi, and other runtime adapters skip it.
 An explicit disabled response stops further preparation requests for that sandbox session, including after conversation history is cleared.
 Flag changes can enable selection in a new session. Preparation errors do not disable later attempts.
