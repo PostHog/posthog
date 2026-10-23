@@ -103,8 +103,11 @@ def read_issue_summary(team_id: int, issue_id: str, user: User) -> IssueSummaryR
         started_at = now()
         started = summaries_facade.start_issue_summary_generation(team_id, issue_id, user=user)
         if summary is None and not started:
-            return IssueSummaryRead(status=IssueSummaryStatus.UNAVAILABLE, summary=None)
-        if summary is None:
+            # A worker can save the first summary between the read above and the start, which then returns False.
+            summary = summaries_facade.get_issue_summary(team_id, issue_id, user=user)
+            if summary is None:
+                return IssueSummaryRead(status=IssueSummaryStatus.UNAVAILABLE, summary=None)
+        elif summary is None:
             summary = summaries_facade.wait_for_issue_summary(
                 team_id,
                 issue_id,

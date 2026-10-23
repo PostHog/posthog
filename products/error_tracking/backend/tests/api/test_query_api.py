@@ -925,6 +925,16 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
             ("generated_within_the_wait", None, True, STORED_SUMMARY, None, True, "ready", STORED_SUMMARY_PAYLOAD),
             ("wait_times_out", None, True, None, None, True, "generating", None),
             ("gates_off", None, False, None, None, False, "unavailable", None),
+            (
+                "saved_before_the_start",
+                [None, STORED_SUMMARY],
+                False,
+                None,
+                None,
+                False,
+                "ready",
+                STORED_SUMMARY_PAYLOAD,
+            ),
             ("facade_fails", None, None, None, RuntimeError("broker down"), False, "unavailable", None),
         ]
     )
@@ -932,7 +942,7 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
     def test_issue_detail_returns_the_summary(
         self,
         _name: str,
-        stored: ErrorTrackingIssueSummary | None,
+        stored: ErrorTrackingIssueSummary | None | list[ErrorTrackingIssueSummary | None],
         started: bool | None,
         waited: ErrorTrackingIssueSummary | None,
         start_error: Exception | None,
@@ -951,7 +961,10 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
 
         with (
             patch("products.error_tracking.backend.presentation.views.query.time") as view_time,
-            patch(f"{SUMMARIES_FACADE}.get_issue_summary", return_value=stored),
+            patch(
+                f"{SUMMARIES_FACADE}.get_issue_summary",
+                side_effect=stored if isinstance(stored, list) else lambda *_args, **_kwargs: stored,
+            ),
             patch(
                 f"{SUMMARIES_FACADE}.start_issue_summary_generation", return_value=started, side_effect=start_error
             ) as start_generation,
