@@ -18,7 +18,7 @@ export function Card({
     return (
         <QuillCard size="sm" flush={flush} className={className}>
             {title ? (
-                <CardHeader>
+                <CardHeader className={action ? 'flex flex-wrap items-start justify-between gap-2' : undefined}>
                     <CardTitle>{title}</CardTitle>
                     {action ? <CardAction>{action}</CardAction> : null}
                 </CardHeader>

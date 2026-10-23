@@ -251,97 +251,99 @@ export function ToolQualityCharts({
     )
 
     return (
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-            <ChartCard
-                title="Calls and errors"
-                action={
-                    <ChartViewToggle
-                        chart="calls"
-                        view={views.calls}
-                        options={[
-                            { value: 'counts', label: 'Counts' },
-                            { value: 'percentage', label: 'Percent' },
-                        ]}
-                        onChange={onViewChange}
-                    />
-                }
-                loading={loading}
-                isEmpty={isEmpty}
-            >
-                <TimeSeriesLineChart
-                    series={callsSeries}
-                    labels={data.labels}
-                    config={showErrorRate ? errorRateConfig : countsConfig}
-                    theme={theme}
-                    dataAttr="mcp-tool-quality-calls-chart"
-                />
-            </ChartCard>
-            <ChartCard
-                title="Success rate"
-                action={
-                    <ChartViewToggle
-                        chart="successRate"
-                        view={successScale}
-                        options={[
-                            { value: 'linear', label: 'Linear' },
-                            {
-                                value: 'log',
-                                label: 'Log',
-                                disabledReason: logScaleBlocked
-                                    ? 'A log scale cannot show a day with 0% success'
-                                    : undefined,
-                            },
-                        ]}
-                        onChange={onViewChange}
-                    />
-                }
-                loading={loading}
-                isEmpty={isEmpty}
-            >
-                <TimeSeriesLineChart
-                    series={successSeries}
-                    labels={data.labels}
-                    config={successRateConfig}
-                    theme={theme}
-                    dataAttr="mcp-tool-quality-success-rate-chart"
-                />
-            </ChartCard>
-            <ChartCard
-                title={views.latency === 'boxPlot' ? 'Latency' : 'Latency (p50 / p95 / p99)'}
-                action={
-                    <ChartViewToggle
-                        chart="latency"
-                        view={views.latency}
-                        options={[
-                            { value: 'lines', label: 'Trends' },
-                            { value: 'boxPlot', label: 'Box plot' },
-                        ]}
-                        onChange={onViewChange}
-                    />
-                }
-                loading={loading}
-                isEmpty={isEmpty}
-            >
-                {views.latency === 'boxPlot' ? (
-                    <BoxPlot
-                        series={latencyBoxSeries}
-                        labels={data.labels}
-                        config={latencyBoxConfig}
-                        theme={theme}
-                        dataAttr="mcp-tool-quality-latency-box-plot"
-                    />
-                ) : (
-                    <ChartLegend items={legendItemsFromSeries(latencySeries, theme)} position="top" align="end">
-                        <TimeSeriesLineChart
-                            series={latencySeries}
-                            labels={data.labels}
-                            config={latencyConfig}
-                            theme={theme}
-                            dataAttr="mcp-tool-quality-latency-chart"
+        <div className="@container">
+            <div className="grid grid-cols-1 gap-4 @5xl:grid-cols-3">
+                <ChartCard
+                    title="Calls and errors"
+                    action={
+                        <ChartViewToggle
+                            chart="calls"
+                            view={views.calls}
+                            options={[
+                                { value: 'counts', label: 'Counts' },
+                                { value: 'percentage', label: 'Percent' },
+                            ]}
+                            onChange={onViewChange}
                         />
-                    </ChartLegend>
-                )}
-            </ChartCard>
+                    }
+                    loading={loading}
+                    isEmpty={isEmpty}
+                >
+                    <TimeSeriesLineChart
+                        series={callsSeries}
+                        labels={data.labels}
+                        config={showErrorRate ? errorRateConfig : countsConfig}
+                        theme={theme}
+                        dataAttr="mcp-tool-quality-calls-chart"
+                    />
+                </ChartCard>
+                <ChartCard
+                    title="Success rate"
+                    action={
+                        <ChartViewToggle
+                            chart="successRate"
+                            view={successScale}
+                            options={[
+                                { value: 'linear', label: 'Linear' },
+                                {
+                                    value: 'log',
+                                    label: 'Log',
+                                    disabledReason: logScaleBlocked
+                                        ? 'A log scale cannot show a day with 0% success'
+                                        : undefined,
+                                },
+                            ]}
+                            onChange={onViewChange}
+                        />
+                    }
+                    loading={loading}
+                    isEmpty={isEmpty}
+                >
+                    <TimeSeriesLineChart
+                        series={successSeries}
+                        labels={data.labels}
+                        config={successRateConfig}
+                        theme={theme}
+                        dataAttr="mcp-tool-quality-success-rate-chart"
+                    />
+                </ChartCard>
+                <ChartCard
+                    title={views.latency === 'boxPlot' ? 'Latency' : 'Latency (p50 / p95 / p99)'}
+                    action={
+                        <ChartViewToggle
+                            chart="latency"
+                            view={views.latency}
+                            options={[
+                                { value: 'lines', label: 'Trends' },
+                                { value: 'boxPlot', label: 'Box plot' },
+                            ]}
+                            onChange={onViewChange}
+                        />
+                    }
+                    loading={loading}
+                    isEmpty={isEmpty}
+                >
+                    {views.latency === 'boxPlot' ? (
+                        <BoxPlot
+                            series={latencyBoxSeries}
+                            labels={data.labels}
+                            config={latencyBoxConfig}
+                            theme={theme}
+                            dataAttr="mcp-tool-quality-latency-box-plot"
+                        />
+                    ) : (
+                        <ChartLegend items={legendItemsFromSeries(latencySeries, theme)} position="top" align="end">
+                            <TimeSeriesLineChart
+                                series={latencySeries}
+                                labels={data.labels}
+                                config={latencyConfig}
+                                theme={theme}
+                                dataAttr="mcp-tool-quality-latency-chart"
+                            />
+                        </ChartLegend>
+                    )}
+                </ChartCard>
+            </div>
         </div>
     )
 }

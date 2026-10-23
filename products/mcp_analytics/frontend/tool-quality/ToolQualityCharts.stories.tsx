@@ -49,17 +49,22 @@ const DAILY_PARTIAL_TAIL = buildDailyChartData(
 
 const meta: Meta = {
     title: 'Scenes-App/MCP Analytics/Tool Quality Charts',
-    // The tab lays the three charts side by side from `lg` up, so at the default 1280 snapshot
-    // viewport each one is barely 400px wide and the dashed tail is hard to read. Snapshot wide.
+    // The tab lays the three charts side by side once its container is wide enough, and each one
+    // must be wide for the dashed tail to read. Snapshot wide.
     parameters: { layout: 'padded', testOptions: { viewport: { width: 1920, height: 720 } } },
 }
 export default meta
 
 type Story = StoryObj
 
-function withTheme(render: (theme: ChartTheme) => JSX.Element): () => JSX.Element {
+// The box plot has no intrinsic width, so an unsized root would shrink the snapshot to nothing.
+function withTheme(render: (theme: ChartTheme) => JSX.Element, width = 'w-[1600px]'): () => JSX.Element {
     return function Render() {
-        return <div data-quill>{render(buildTheme())}</div>
+        return (
+            <div data-quill className={width}>
+                {render(buildTheme())}
+            </div>
+        )
     }
 }
 
@@ -106,4 +111,22 @@ export const AlternateViews: Story = {
             onViewChange={() => {}}
         />
     )),
+}
+
+export const ToggleWrapsBelowTitle: Story = {
+    render: withTheme(
+        (theme) => (
+            <ToolQualityCharts
+                data={DAILY}
+                loading={false}
+                theme={theme}
+                timezone="UTC"
+                interval="day"
+                incompleteTail={false}
+                views={DEFAULT_CHART_VIEWS}
+                onViewChange={() => {}}
+            />
+        ),
+        'w-[280px]'
+    ),
 }
