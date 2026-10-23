@@ -5,6 +5,8 @@ from django.core.cache import cache
 
 import posthoganalytics
 
+from posthog.exceptions_capture import capture_exception
+
 # A recorded classification meaning "nothing owned this resource". It is distinct from NULL,
 # which means no classification was recorded at all: a request created before the column
 # existed, or an action that does not classify ownership. Those must still apply.
@@ -49,10 +51,19 @@ def scope_by_owner_state(organization) -> Optional[bool]:
         send_feature_flag_events=False,
     )
     if resolved is None:
-        return cache.get(remembered_key)
+        try:
+            return cache.get(remembered_key)
+        except Exception as e:
+            capture_exception(e)
+            return None
     enabled = resolved is True
-    if cache.get(remembered_key) != enabled:
-        cache.set(remembered_key, enabled, timeout=None)
+    # The flag answered, so a cache failure must not fail the write that asked. The remembered
+    # answer only matters to a later read that the flag cannot answer.
+    try:
+        if cache.get(remembered_key) != enabled:
+            cache.set(remembered_key, enabled, timeout=None)
+    except Exception as e:
+        capture_exception(e)
     return enabled
 
 
