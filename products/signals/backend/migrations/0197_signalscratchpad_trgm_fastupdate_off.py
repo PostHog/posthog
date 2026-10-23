@@ -11,12 +11,18 @@ class Migration(migrations.Migration):
         migrations.SeparateDatabaseAndState(
             database_operations=[
                 migrations.RunSQL(
-                    sql='ALTER INDEX IF EXISTS "signal_scratchpad_content_trgm" SET (fastupdate = off);',
-                    reverse_sql='ALTER INDEX IF EXISTS "signal_scratchpad_content_trgm" SET (fastupdate = on);',
-                ),
-                migrations.RunSQL(
-                    sql='ALTER INDEX IF EXISTS "signal_scratchpad_key_trgm" SET (fastupdate = off);',
-                    reverse_sql='ALTER INDEX IF EXISTS "signal_scratchpad_key_trgm" SET (fastupdate = on);',
+                    sql=[
+                        # fastupdate takes ACCESS EXCLUSIVE on the index, and queries that plan against
+                        # the table queue behind a waiting request. Fail fast and let bin/migrate retry.
+                        "SET LOCAL lock_timeout = '5s'",
+                        'ALTER INDEX IF EXISTS "signal_scratchpad_content_trgm" SET (fastupdate = off)',
+                        'ALTER INDEX IF EXISTS "signal_scratchpad_key_trgm" SET (fastupdate = off)',
+                    ],
+                    reverse_sql=[
+                        "SET LOCAL lock_timeout = '5s'",
+                        'ALTER INDEX IF EXISTS "signal_scratchpad_content_trgm" SET (fastupdate = on)',
+                        'ALTER INDEX IF EXISTS "signal_scratchpad_key_trgm" SET (fastupdate = on)',
+                    ],
                 ),
             ],
             state_operations=[
