@@ -197,7 +197,12 @@ _SOURCE_CONFIG_HELP_TEXT = (
     "Fields: `labels` with operators `any`, `all`, `none` and a list of label names; `priority` "
     "(0 none, 1 urgent, 2 high, 3 normal, 4 low), `state_name` and `state_type` with operators `eq`, "
     "`neq` (one value) or `in`, `not_in` (a list). Only issues that match become signals, and they are "
-    "dropped before any AI call. Pass null or an empty group to admit every issue."
+    "dropped before any AI call. Pass null or an empty group to admit every issue. "
+    "The GitHub issue source (`source_product=github`, `source_type=issue`) reads `admission_rules` "
+    "in the same shape, with the fields `labels` (`any`, `all`, `none`), `state` and `author_login` "
+    "(`eq`, `neq`, `in`, `not_in`). Values match exactly and are case sensitive. `neq` and `not_in` "
+    "do not admit an issue with an unknown value. The rules apply from the next sync, to issues "
+    "created since the previous sync. A change does not read older issues again."
 )
 
 

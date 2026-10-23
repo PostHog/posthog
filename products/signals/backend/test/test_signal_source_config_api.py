@@ -539,7 +539,26 @@ class TestSignalSourceConfigSerializerValidation(SimpleTestCase):
                 {"operator": "OR", "rules": [{"field": "priority", "operator": "eq", "value": i} for i in range(21)]},
                 False,
             ),
-            ("unsupported_source", "github", {"operator": "AND", "rules": []}, False),
+            (
+                "github_fields",
+                "github",
+                {
+                    "operator": "OR",
+                    "rules": [
+                        {"field": "labels", "operator": "all", "value": ["bug", "customer"]},
+                        {"field": "state", "operator": "eq", "value": "open"},
+                        {"field": "author_login", "operator": "not_in", "value": ["renovate[bot]"]},
+                    ],
+                },
+                True,
+            ),
+            (
+                "linear_field_on_github",
+                "github",
+                {"operator": "AND", "rules": [{"field": "priority", "operator": "eq", "value": 1}]},
+                False,
+            ),
+            ("unsupported_source", "jira", {"operator": "AND", "rules": []}, False),
         ]
     )
     def test_admission_rules(self, _name, source_product, rules, expected_valid):

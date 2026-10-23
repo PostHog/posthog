@@ -62,6 +62,11 @@ class AdmissionFieldKind(enum.StrEnum):
 
 
 ADMISSION_RULE_FIELDS: Mapping[tuple[str, str], Mapping[str, AdmissionFieldKind]] = {
+    (SignalSourceProduct.GITHUB, SignalSourceType.ISSUE): {
+        "labels": AdmissionFieldKind.STRING_LIST,
+        "state": AdmissionFieldKind.STRING,
+        "author_login": AdmissionFieldKind.STRING,
+    },
     (SignalSourceProduct.LINEAR, SignalSourceType.ISSUE): {
         "labels": AdmissionFieldKind.STRING_LIST,
         "priority": AdmissionFieldKind.NUMBER,

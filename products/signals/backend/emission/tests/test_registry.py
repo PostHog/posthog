@@ -11,7 +11,9 @@ from posthog.hogql import ast
 from posthog.hogql.functions.mapping import find_hogql_aggregation, find_hogql_function, find_hogql_posthog_function
 from posthog.hogql.visitor import TraversingVisitor
 
+from products.signals.backend.contracts import ADMISSION_RULE_FIELDS, ADMISSION_RULES_KEY, AdmissionFieldKind
 from products.signals.backend.emission.fetchers.data_warehouse import data_warehouse_record_fetcher
+from products.signals.backend.emission.github_issues import GITHUB_ISSUES_CONFIG
 from products.signals.backend.emission.google_search_console_opportunities import google_search_console_record_fetcher
 from products.signals.backend.emission.registry import (
     _SIGNAL_TABLE_CONFIGS,
@@ -58,7 +60,25 @@ def _build_fetcher_query(config: SignalSourceTableConfig, last_synced_at: str | 
         return result
 
     # A source with a scope gets an allowlist, so its scope expression is parsed by this sweep too.
-    source_config = {config.scope_config_key: ["scope-1", "scope-2"]} if config.scope_config_key else {}
+    source_config: dict[str, object] = (
+        {config.scope_config_key: ["scope-1", "scope-2"]} if config.scope_config_key else {}
+    )
+    # One rule per admission field, so every field expression is parsed by this sweep too.
+    if config.admission_fields:
+        kinds = ADMISSION_RULE_FIELDS[(config.source_product, config.source_type)]
+        source_config[ADMISSION_RULES_KEY] = {
+            "operator": "AND",
+            "rules": [
+                {"field": field, "operator": "any", "value": ["x"]}
+                if kind == AdmissionFieldKind.STRING_LIST
+                else {
+                    "field": field,
+                    "operator": "not_in",
+                    "value": [1] if kind == AdmissionFieldKind.NUMBER else ["x"],
+                }
+                for field, kind in kinds.items()
+            ],
+        }
     with patch(
         "products.signals.backend.emission.fetchers.data_warehouse.execute_hogql_query", side_effect=fake_execute
     ):
@@ -225,6 +245,18 @@ class TestSignalSourceTableConfigValidation:
     def test_rejects_half_a_scope_pair(self, fields):
         with pytest.raises(ValidationError, match="scope_field and scope_config_key must both be set or both be None"):
             SignalSourceTableConfig(**{**_BASE_FIELDS, **fields})
+
+    def test_rejects_admission_fields_on_an_update_time_partition(self):
+        with pytest.raises(ValidationError, match="admission_fields require partition_field='created_at'"):
+            SignalSourceTableConfig(
+                **{
+                    **_BASE_FIELDS,
+                    "source_product": GITHUB_ISSUES_CONFIG.source_product,
+                    "source_type": GITHUB_ISSUES_CONFIG.source_type,
+                    "partition_field": "updated_at",
+                    "admission_fields": GITHUB_ISSUES_CONFIG.admission_fields,
+                }
+            )
 
 
 # Captured at import, before the _clean_registry fixture can touch it.
