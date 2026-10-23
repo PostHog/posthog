@@ -219,8 +219,8 @@ def invalid_send(errors: Any) -> TemplateRefusal:
     return invalid_request(errors, why=send_field_why(first_field_error(errors).attr), retry="send again")
 
 
-def send_field_why(attr: str) -> str:
-    field = attr.split("__")[0]
+def send_field_why(attr: str | None) -> str:
+    field = attr.split("__")[0] if attr else ""
     if field in SEND_FIELD_WHY:
         return SEND_FIELD_WHY[field]
     if not field:
