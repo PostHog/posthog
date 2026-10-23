@@ -486,6 +486,7 @@ export function captureInboxReportsImpressed(params: {
         sort_direction: params.sortDirection,
         created_window: params.createdWindow,
         ranker_id: params.rankerId,
+        has_pr: params.reports.some((report) => reportPullRequests(report).length > 0),
         impression_count: params.reports.length,
         impressions: params.reports.map((report, index) => ({
             ...baseReportProperties(report),

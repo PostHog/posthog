@@ -272,7 +272,7 @@ export function InboxDetailFrame({
 
     const conventionalTitle = parseConventionalCommitTitle(report.title)
     const displayTitle = displayConventionalCommitTitle(report.title, 'Untitled report')
-    const plainReportTitles = useFeatureFlag('SIGNALS_PLAIN_REPORT_TITLES')
+    const plainReportTitles = useFeatureFlag('SIGNALS_PLAIN_REPORT_TITLES', 'test')
     // Absolute URL to this report – seeded into the Discuss prompt so the agent can open and read
     // the report directly.
     const reportUrl = `${window.location.origin}${addProjectIdIfMissing(urls.inboxReport('reports', report.id))}`

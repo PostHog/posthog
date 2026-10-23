@@ -323,7 +323,7 @@ export const PullRequestCards: Story = {
 }
 
 export const PullRequestCardsPlainTitles: Story = {
-    parameters: { featureFlags: [FEATURE_FLAGS.SIGNALS_PLAIN_REPORT_TITLES] },
+    parameters: { featureFlags: { [FEATURE_FLAGS.SIGNALS_PLAIN_REPORT_TITLES]: 'test' } },
     render: () => (
         <Stack>
             {pullRequestReports.map((r) => (
