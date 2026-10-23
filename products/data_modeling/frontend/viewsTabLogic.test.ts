@@ -93,11 +93,18 @@ describe('viewsTabLogic', () => {
             },
         })
 
-        logic.actions.reloadViews()
+        logic.actions.suggestionAccepted(viewId, isMaterialized)
         await expectLogic(dataWarehouseViewsLogic).toFinishAllListeners()
         logic.actions.setTypeFilter(isMaterialized ? 'materialized' : 'view')
 
         expect(logic.values.filteredViews.map((view) => view.id)).toEqual([viewId])
+    })
+
+    it('keeps polling an accepted materialize until the view reports it is materialized', async () => {
+        logic.actions.suggestionAccepted('plain-a', true)
+        await expectLogic(dataWarehouseViewsLogic).toFinishAllListeners()
+
+        expect(dataWarehouseViewsLogic.values.materializingViewIds).toEqual(['plain-a'])
     })
 
     it('keeps name matches visible while lineage data reloads', () => {

@@ -20,6 +20,7 @@ import { AccessControlLevel, AccessControlResourceType, DataWarehouseSavedQueryR
 
 import { TableCertificationTag } from 'products/data_warehouse/frontend/shared/components/TableCertificationBadge'
 import { SuggestedModelsStrip } from 'products/warehouse_suggestions/frontend/components/SuggestedModelsStrip'
+import { WarehouseSuggestionKindEnumApi } from 'products/warehouse_suggestions/frontend/generated/api.schemas'
 
 import { endpointModelUrl, parseEndpointModelName } from './endpointModelName'
 import { NodeSuspensionApi } from './generated/api.schemas'
@@ -152,7 +153,7 @@ export function ViewsTab({ getViewUrl, suspensionByViewId }: ViewsTabProps = {})
         runMaterialization,
         openAccessControlModal,
         closeAccessControlModal,
-        reloadViews,
+        suggestionAccepted,
     } = useActions(viewsTabLogic)
 
     const warehouseAccessControlEnabled = !!featureFlags[FEATURE_FLAGS.HOGQL_WAREHOUSE_ACCESS_CONTROL]
@@ -307,7 +308,14 @@ export function ViewsTab({ getViewUrl, suspensionByViewId }: ViewsTabProps = {})
                 />
             ) : null}
             {featureFlags[FEATURE_FLAGS.WAREHOUSE_SUGGESTIONS] && (
-                <SuggestedModelsStrip onAccepted={() => reloadViews()} />
+                <SuggestedModelsStrip
+                    onAccepted={(suggestion) =>
+                        suggestionAccepted(
+                            suggestion.subject_id,
+                            suggestion.kind === WarehouseSuggestionKindEnumApi.Materialize
+                        )
+                    }
+                />
             )}
             <div className="flex flex-wrap gap-2 items-center">
                 <LemonInput

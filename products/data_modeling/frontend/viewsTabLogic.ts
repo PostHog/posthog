@@ -68,6 +68,9 @@ export interface viewsTabLogicActions {
         viewId: string
     } // dataWarehouseViewsLogic
     loadDataWarehouseSavedQueries: () => any // dataWarehouseViewsLogic
+    addMaterializingViews: (viewIds: string[]) => {
+        viewIds: string[]
+    } // dataWarehouseViewsLogic
     loadDataWarehouseSavedQueriesSuccess: (
         dataWarehouseSavedQueries: DataWarehouseSavedQuerySummary[],
         payload?: any
@@ -116,9 +119,6 @@ export interface viewsTabLogicActions {
     openAccessControlModal: (view: DataWarehouseSavedQuerySummary) => {
         view: DataWarehouseSavedQuerySummary
     }
-    reloadViews: () => {
-        value: true
-    }
     runMaterialization: (viewId: string) => {
         viewId: string
     }
@@ -130,6 +130,13 @@ export interface viewsTabLogicActions {
     }
     setTypeFilter: (typeFilter: ViewTypeFilter) => {
         typeFilter: ViewTypeFilter
+    }
+    suggestionAccepted: (
+        viewId: string,
+        startsMaterializing: boolean
+    ) => {
+        viewId: string
+        startsMaterializing: boolean
     }
 }
 
@@ -180,6 +187,7 @@ export const viewsTabLogic = kea<viewsTabLogicType>([
                 'deleteDataWarehouseSavedQuery',
                 'runDataWarehouseSavedQuery',
                 'loadDataWarehouseSavedQueries',
+                'addMaterializingViews',
                 'loadDataWarehouseSavedQueriesSuccess',
             ],
             databaseTableListLogic,
@@ -194,7 +202,7 @@ export const viewsTabLogic = kea<viewsTabLogicType>([
         runMaterialization: (viewId: string) => ({ viewId }),
         loadRunHistory: (viewIds: string[]) => ({ viewIds }),
         loadVisibleData: true,
-        reloadViews: true,
+        suggestionAccepted: (viewId: string, startsMaterializing: boolean) => ({ viewId, startsMaterializing }),
         openAccessControlModal: (view: DataWarehouseSavedQuerySummary) => ({ view }),
         closeAccessControlModal: true,
     }),
@@ -359,7 +367,10 @@ export const viewsTabLogic = kea<viewsTabLogicType>([
         runMaterialization: ({ viewId }) => {
             actions.runDataWarehouseSavedQuery(viewId)
         },
-        reloadViews: () => {
+        suggestionAccepted: ({ viewId, startsMaterializing }) => {
+            if (startsMaterializing) {
+                actions.addMaterializingViews([viewId])
+            }
             actions.loadDataWarehouseSavedQueries()
         },
         loadDataWarehouseSavedQueriesSuccess: () => {
