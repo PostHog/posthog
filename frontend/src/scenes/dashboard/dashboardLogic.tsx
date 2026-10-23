@@ -4789,6 +4789,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 } else if (previewUnsavedFilters || initialUrlOverridesArePreviewed) {
                     actions.setPreviewedDashboardSettings(settingsToRefresh)
                 }
+            } else if (previewUnsavedFilters || initialUrlOverridesArePreviewed) {
+                // No insight to refresh, as on a dashboard of metric widgets. Later widget refreshes read these
+                // settings through effectiveRefreshFilters, so they must not fall back to the saved ones.
+                actions.setPreviewedDashboardSettings(settingsToRefresh)
             }
 
             if (
