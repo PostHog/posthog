@@ -116,6 +116,7 @@ FAILURE_CASES: list[tuple[str, Any, IssueSummaryOutcome]] = [
 ]
 
 
+# Not an Exception, because `_queue_generation` catches Exception and would turn a hung publish into a pass.
 class StartBlocked(BaseException):
     pass
 
@@ -313,11 +314,11 @@ class TestIssueSummaryGeneration(BaseTest):
 
         with (
             time_machine.travel(NOW + later, tick=False),
-            patch.object(issue_summaries.generate_error_tracking_issue_summary, "apply_async") as delay,
+            patch.object(issue_summaries.generate_error_tracking_issue_summary, "apply_async") as apply_async,
         ):
             result = get_or_generate_issue_summary(self.team.id, self.issue.id)
             assert summaries_facade.start_issue_summary_generation(self.team.id, self.issue.id, user=self.user) is False
-        delay.assert_not_called()
+        apply_async.assert_not_called()
 
         assert result.outcome == expected
         assert result.summary is not None
@@ -341,9 +342,9 @@ class TestIssueSummaryGeneration(BaseTest):
         assert stored_issue_ids == {self.issue.id}
 
     def _start(self) -> tuple[bool, bool]:
-        with patch.object(issue_summaries.generate_error_tracking_issue_summary, "apply_async") as delay:
+        with patch.object(issue_summaries.generate_error_tracking_issue_summary, "apply_async") as apply_async:
             started = summaries_facade.start_issue_summary_generation(self.team.id, self.issue.id, user=self.user)
-        return started, delay.called
+        return started, apply_async.called
 
     @parameterized.expand(
         [
@@ -453,7 +454,7 @@ class TestIssueSummaryGeneration(BaseTest):
         definition = PropertyDefinition.objects.create(team=self.team, name=name, type=PropertyDefinition.Type.EVENT)
         upsert_property_access_control(
             team_id=self.team.id,
-            created_by_id=self.user.id,
+            created_by_id=user.id,
             input=UpsertPropertyAccessControlInput(
                 property_definition_id=str(definition.id),
                 access_level=PropertyAccessLevel.NONE,
@@ -466,9 +467,13 @@ class TestIssueSummaryGeneration(BaseTest):
         self._restrict_event_property("$exception_list", self.user)
 
         assert self._start() == (False, False)
+        assert summaries_facade.get_or_generate_issue_summary(self.team.id, self.issue.id, user=self.user) is None
+        assert self.llm_calls == 0
 
         get_or_generate_issue_summary(self.team.id, self.issue.id)
         assert summaries_facade.get_issue_summary(self.team.id, self.issue.id, user=other) is not None
+        outsider = User.objects.create(email="outsider@example.com")
+        assert summaries_facade.get_issue_summary(self.team.id, self.issue.id, user=outsider) is None
 
     def test_start_gives_up_quickly_when_the_broker_does_not_answer(self) -> None:
         silent_broker = socket.socket()
@@ -492,7 +497,7 @@ class TestIssueSummaryGeneration(BaseTest):
 
         previous = signal.signal(signal.SIGALRM, hung)
         self.addCleanup(signal.signal, signal.SIGALRM, previous)
-        signal.alarm(10)
+        signal.alarm(3)
         try:
             started = summaries_facade.start_issue_summary_generation(self.team.id, self.issue.id, user=self.user)
         finally:

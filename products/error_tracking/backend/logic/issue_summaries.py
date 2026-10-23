@@ -21,6 +21,7 @@ from openai.types.chat import ChatCompletionMessageParam
 from openai.types.shared_params import ResponseFormatJSONSchema
 from prometheus_client import Counter
 from pydantic import ValidationError
+from redis import Redis
 from redis.exceptions import RedisError
 
 from posthog.schema import DateRange, ErrorTrackingQuery
@@ -226,7 +227,7 @@ def start_issue_summary_generation(team_id: int, issue_id: UUID | str) -> bool:
     if generation_blocked(team_id, get_issue_summary(team_id, issue_id)) is not None:
         return False
     try:
-        client = get_client()
+        client = _start_client()
         key = _lock_key(team_id, issue_id)
         if client.set(key, LOCK_QUEUED, nx=True, ex=ISSUE_SUMMARY_QUEUED_TTL_SECONDS):
             return _queue_generation(team_id, issue_id)
@@ -244,11 +245,22 @@ def _queue_generation(team_id: int, issue_id: UUID | str) -> bool:
         capture_exception(error, {"team_id": team_id, "issue_id": str(issue_id)})
         # Without a task, the queued marker would keep reads waiting until it expires.
         try:
-            get_client().register_script(RELEASE_QUEUED_LUA)(keys=[_lock_key(team_id, issue_id)], args=[LOCK_QUEUED])
+            _start_client().register_script(RELEASE_QUEUED_LUA)(keys=[_lock_key(team_id, issue_id)], args=[LOCK_QUEUED])
         except RedisError:
             logger.warning("error_tracking_issue_summary_lock_unavailable", team_id=team_id, exc_info=True)
         return False
     return True
+
+
+def _start_client() -> Redis:
+    """The lock client for the start, with the publish timeouts.
+
+    The lock and the broker share a Redis, so the default client's longer socket timeout would hold the read first.
+    """
+    return get_client(
+        socket_timeout=ISSUE_SUMMARY_PUBLISH_TIMEOUT_SECONDS,
+        socket_connect_timeout=ISSUE_SUMMARY_PUBLISH_TIMEOUT_SECONDS,
+    )
 
 
 def _publish_generation(team_id: int, issue_id: UUID | str) -> None:
@@ -452,7 +464,8 @@ def compute_input_hash(*, fingerprints: list[str], latest_release: str | None, o
     return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
 
 
-# Every event property whose value reaches the prompt. Add a property here when `build_issue_summary_inputs` reads it.
+# The only event properties the prompt builder sees, and the ones `summary_sources_readable` checks.
+# `_exception_event_properties` drops every other key, so a property left out is missing from the prompt, not leaked.
 ISSUE_SUMMARY_SOURCE_PROPERTIES = frozenset(
     {"$exception_list", "$exception_level", "$lib", "$current_url", "$exception_release"}
 )
@@ -604,7 +617,8 @@ def _exception_event_properties(
         )
     if not response.results:
         return {}
-    return as_record(parse_jsonish(response.results[0][0])) or {}
+    properties = as_record(parse_jsonish(response.results[0][0])) or {}
+    return {key: value for key, value in properties.items() if key in ISSUE_SUMMARY_SOURCE_PROPERTIES}
 
 
 def _aggregated_issue(team: Team, issue_id: UUID | str) -> dict[str, object]:
