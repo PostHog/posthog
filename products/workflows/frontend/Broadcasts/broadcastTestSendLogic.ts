@@ -23,6 +23,8 @@ import {
     BroadcastPushValue,
     BroadcastWizardLogicProps,
     broadcastWizardLogic,
+    findPushInputs,
+    pushInputs,
 } from './broadcastWizardLogic'
 
 // Fixed id for the single email action in the synthetic test flow. The edges below reference it,
@@ -452,12 +454,9 @@ async function sendTestPush(
         config: {
             template_id: 'template-native-push',
             inputs: {
+                ...pushInputs(push, findPushInputs(values.broadcast)),
                 // Not the example event's distinct id, so the worker looks up this person's own devices.
                 distinctId: literalDistinctIdInput(distinctId),
-                channels: { value: push.channels },
-                title: { value: push.title, templating: 'liquid' },
-                body: { value: push.body, templating: 'liquid' },
-                data: { value: push.link ? { url: push.link } : {} },
             },
         },
     } as HogFlowAction

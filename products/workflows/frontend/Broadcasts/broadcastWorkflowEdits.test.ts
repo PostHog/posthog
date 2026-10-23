@@ -219,7 +219,7 @@ describe('broadcast edits to broadcast-shaped workflows', () => {
                 template_id: 'template-native-push',
                 inputs: {
                     distinctId: { value: '{person.properties.device_owner}' },
-                    title: { value: 'Old', templating: 'hog' },
+                    title: { value: 'Old {person.properties.name}' },
                     data: { value: { url: 'myapp://old', campaign: 'spring' } },
                     ios_sound: { value: 'chime' },
                 },

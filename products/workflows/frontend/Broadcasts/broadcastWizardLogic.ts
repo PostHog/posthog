@@ -223,8 +223,17 @@ export interface BroadcastChannelReach {
     reachable: number
 }
 
+interface BroadcastChannelReachCounts extends Omit<BroadcastChannelReach, 'total'> {
+    /** Null for push, whose total is the blast radius count. */
+    total: number | null
+}
+
+export function findPushInputs(broadcast: HogFlowApi | null): Record<string, any> | undefined {
+    return broadcast ? findAction(broadcast, BROADCAST_MESSAGE_ACTION_TYPES.push)?.config?.inputs : undefined
+}
+
 function readPush(broadcast: HogFlowApi): BroadcastPushValue | null {
-    const inputs = findAction(broadcast, BROADCAST_MESSAGE_ACTION_TYPES.push)?.config?.inputs
+    const inputs = findPushInputs(broadcast)
     if (!inputs) {
         return null
     }
@@ -236,17 +245,22 @@ function readPush(broadcast: HogFlowApi): BroadcastPushValue | null {
     }
 }
 
+// A saved input without `templating` renders as Hog in the worker, so only a new input defaults to Liquid.
+function pushTemplating(existing: { templating?: string } | undefined): string {
+    return existing ? (existing.templating ?? 'hog') : 'liquid'
+}
+
 // Inputs the wizard does not show, such as a custom recipient or extra data keys set in the workflow
 // editor, keep their saved values.
-function pushInputs(push: BroadcastPushValue, existing: Record<string, any> = {}): Record<string, any> {
+export function pushInputs(push: BroadcastPushValue, existing: Record<string, any> = {}): Record<string, any> {
     const { url: _url, ...extraData } = (existing.data?.value as Record<string, any> | undefined) ?? {}
     return {
         ...existing,
         // A batch run's person is the recipient, as in the template's default.
         distinctId: existing.distinctId ?? { value: '{event.distinct_id}' },
         channels: { value: push.channels },
-        title: { value: push.title, templating: existing.title?.templating ?? 'liquid' },
-        body: { value: push.body, templating: existing.body?.templating ?? 'liquid' },
+        title: { value: push.title, templating: pushTemplating(existing.title) },
+        body: { value: push.body, templating: pushTemplating(existing.body) },
         data: { value: push.link ? { ...extraData, url: push.link } : extraData },
     }
 }
@@ -355,7 +369,8 @@ export interface broadcastWizardLogicValues {
     canMoveToDraft: boolean
     channel: BroadcastChannel
     channelReach: BroadcastChannelReach | null
-    channelReachLoading: boolean
+    channelReachCounts: BroadcastChannelReachCounts | null
+    channelReachCountsLoading: boolean
     conversion: HogFlowConversionApi
     currentStep: BroadcastWizardStep
     currentStepHasErrors: boolean
@@ -531,14 +546,14 @@ export interface broadcastWizardLogicActions {
         errorObject?: any
     }
     loadChannelReachSuccess: (
-        channelReach: {
+        channelReachCounts: {
             channel: BroadcastChannel
             reachable: number
             total: number
         } | null,
         payload?: any
     ) => {
-        channelReach: {
+        channelReachCounts: {
             channel: BroadcastChannel
             reachable: number
             total: number
@@ -691,6 +706,10 @@ export interface broadcastWizardLogicActions {
 export interface broadcastWizardLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
+        channelReach: (
+            channelReachCounts: BroadcastChannelReachCounts | null,
+            blastRadius: BlastRadiusApi | null
+        ) => BroadcastChannelReach | null
         aiEmailDraftStatus: (
             aiEmailDraftLoading: boolean,
             aiEmailDraftApplied: boolean,
@@ -889,8 +908,8 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 },
             },
         ],
-        channelReach: [
-            null as BroadcastChannelReach | null,
+        channelReachCounts: [
+            null as BroadcastChannelReachCounts | null,
             {
                 loadChannelReach: async (_, breakpoint) => {
                     await breakpoint(500)
@@ -911,18 +930,23 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                                   type: PropertyFilterType.Person,
                                   operator: PropertyOperator.IsSet,
                               }
+                    const channel = values.channel
+                    // The push audience size is the blast radius count already, so only email asks for its total.
+                    const countRequests =
+                        channel === 'push'
+                            ? [[...values.audienceProperties, reachableFilter]]
+                            : [[...values.audienceProperties, reachableFilter], values.audienceProperties]
                     try {
-                        const [all, reachable] = await Promise.all(
-                            [values.audienceProperties, [...values.audienceProperties, reachableFilter]].map(
-                                (properties) =>
-                                    hogFlowsUserBlastRadiusCreate(projectId, {
-                                        filters: { properties },
-                                        sends_email: false,
-                                    })
+                        const [reachable, all] = await Promise.all(
+                            countRequests.map((properties) =>
+                                hogFlowsUserBlastRadiusCreate(projectId, {
+                                    filters: { properties },
+                                    sends_email: false,
+                                })
                             )
                         )
                         breakpoint()
-                        return { channel: values.channel, total: all.affected, reachable: reachable.affected }
+                        return { channel, reachable: reachable.affected, total: all?.affected ?? null }
                     } catch {
                         breakpoint()
                         // Only an estimate, so a failed count drops the line rather than blocking anything.
@@ -1283,6 +1307,16 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
     })),
 
     selectors({
+        channelReach: [
+            (s) => [s.channelReachCounts, s.blastRadius],
+            (
+                counts: BroadcastChannelReachCounts | null,
+                blastRadius: BlastRadiusApi | null
+            ): BroadcastChannelReach | null => {
+                const total = counts?.total ?? blastRadius?.affected
+                return counts && total != null ? { ...counts, total } : null
+            },
+        ],
         aiEmailDraftStatus: [
             (s) => [s.aiEmailDraftLoading, s.aiEmailDraftApplied, s.aiEmailDraft],
             (loading: boolean, applied: boolean, result: AiEmailDraftResult | null): AiEmailDraftStatusProps | null => {
