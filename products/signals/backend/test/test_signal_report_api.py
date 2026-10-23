@@ -375,6 +375,9 @@ class TestSignalReportListAPI(APIBaseTest):
     def test_list_and_retrieve_include_typed_impact_metrics_without_running_them(
         self, _name: str, expression: str | None
     ) -> None:
+        query = trends_metric_query(series=[{"kind": "EventsNode", "event": "$exception", "math": "dau"}])
+        if expression is not None:
+            query["source"]["series"][0]["properties"] = [{"type": "hogql", "key": expression}]
         metric = {
             "metric_id": "affected-users",
             "title": "Affected users",
@@ -385,12 +388,10 @@ class TestSignalReportListAPI(APIBaseTest):
             "series": [3, 5, 9],
             "value_format": "count",
             "unit": "users",
-            "query": trends_metric_query(series=[{"kind": "EventsNode", "event": "$exception", "math": "dau"}]),
+            "query": query,
             "caption": "Unique people in the last 30 days.",
             "comparison": None,
         }
-        if expression is not None:
-            metric["query"]["source"]["series"][0]["properties"] = [{"type": "hogql", "key": expression}]
         report = self._create_report(metrics=[metric])
 
         list_response = self.client.get(self._list_url())
