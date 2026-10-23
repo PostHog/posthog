@@ -122,7 +122,6 @@ module "sharded_events_json_family" {
   storage = {
     engine       = "ReplacingMergeTree"
     engine_args  = ["_timestamp"]
-    replicated   = false
     partition_by = "clamp(toYYYYMM(timestamp), 202001, 203512)"
     primary_key  = "(team_id, toDate(timestamp), event, cityHash64(distinct_id))"
     order_by     = "(team_id, toDate(timestamp), event, cityHash64(distinct_id), timestamp, uuid)"
