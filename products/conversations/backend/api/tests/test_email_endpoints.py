@@ -2764,6 +2764,7 @@ class TestEmailInboundTeamMemberDetection(MailgunWebhookTestMixin, BaseTest):
         ticket = Ticket.objects.get(team=self.team)
         assert ticket.identity_verified is expected_verified
         comment = Comment.objects.get(team=self.team, scope="conversations_ticket")
+        assert isinstance(comment.item_context, dict)
         assert comment.item_context["email_sender_authenticated"] is expected_verified
 
     def test_no_spf_treated_as_customer(self):
