@@ -3,6 +3,7 @@ from typing import Any
 
 import pytest
 
+from products.dashboards.backend.facade.dashboard_creation import MAX_GROUP_REPEATS
 from products.metrics.backend.dashboard_import.display import MappedUnit, map_color, map_thresholds, map_unit
 from products.metrics.backend.dashboard_import.grafana import GrafanaDashboardParser, GrafanaImportError, relative_date
 from products.metrics.backend.dashboard_import.grafana_variables import TemplateVariables
@@ -262,6 +263,16 @@ def test_maps_grafana_repeats_to_repeated_tile_groups(
     assert {panel.key: panel.group_key for panel in spec.panels if panel.group_key} == group_keys
     assert {key: repeat.model_dump() for key, repeat in spec.group_repeats.items()} == group_repeats
     assert [note for panel in spec.panels for note in panel.notes if "repeats" in note] == repeat_notes
+
+
+def test_repeated_groups_stop_at_the_dashboard_limit() -> None:
+    panels = [_timeseries(index, index * 8, repeat="endpoint") for index in range(1, MAX_GROUP_REPEATS + 2)]
+
+    spec = GrafanaDashboardParser({"panels": panels, "templating": {"list": [_ENDPOINT_VARIABLE]}}).parse()
+
+    assert len(spec.group_repeats) == MAX_GROUP_REPEATS
+    assert spec.panels[-1].group_key is None
+    assert "Grafana repeats this panel for each variable value. The import keeps one panel." in spec.panels[-1].notes
 
 
 @pytest.mark.parametrize(

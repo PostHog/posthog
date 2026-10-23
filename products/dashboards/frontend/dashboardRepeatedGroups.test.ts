@@ -67,6 +67,27 @@ describe('dashboardRepeatedGroups', () => {
         expect(new Set(copies.map((copy) => copy.key)).size).toBe(copies.length)
     })
 
+    it.each([
+        { name: 'a tile date override wins over the dashboard date', overrides: { date_from: '-30d' }, date: '-30d' },
+        {
+            name: 'a tile that ignores dashboard filters keeps only its own filters',
+            overrides: { ignoreDashboardFilters: true },
+            date: undefined,
+        },
+    ])('$name', ({ overrides, date }) => {
+        const tile = { ...insightTile(1, 'endpoints'), filters_overrides: overrides }
+        const { copies } = expandRepeatedGroups({
+            tiles: [tile],
+            layouts: { sm: [{ i: '1', x: 0, y: 0, w: 12, h: 3 }] },
+            groupRepeats: { endpoints: { variable: 'endpoint', direction: 'vertical' } },
+            filters: filters(endpoint({ values: ['get'] })),
+            options: OPTIONS,
+        })
+
+        expect(copies[0].filters.date_from).toEqual(date)
+        expect(copies[0].filters.metricVariables).toEqual([endpoint({ values: ['get'] }), region])
+    })
+
     it('stacks vertical copies of a group and moves the tiles below it down', () => {
         const { tiles, copies, layouts } = expandRepeatedGroups({
             tiles: [

@@ -1401,6 +1401,13 @@ class DashboardCustomizationSerializer(serializers.Serializer):
     )
 
 
+class GroupRepeatsField(serializers.DictField):
+    # A dashboard PATCH is partial, and a bound child serializer then skips a missing required key, so an entry
+    # without a variable would replace a working repeat. An unbound field is its own root, so the keys stay required.
+    def to_internal_value(self, data: Any) -> Any:
+        return serializers.DictField(child=DashboardGroupRepeatSerializer()).to_internal_value(data)
+
+
 class BreakdownColorsField(serializers.ListField):
     # The child serializer decides whether an entry is valid, but it does not decide what gets
     # stored or returned. It rewrites an entry rather than describing it: it drops a key it does not
@@ -1469,7 +1476,7 @@ class DashboardMetadataSerializer(DashboardBasicSerializer):
         write_only=True,
         help_text=GROUP_TITLES_HELP_TEXT,
     )
-    group_repeats = serializers.DictField(
+    group_repeats = GroupRepeatsField(
         child=DashboardGroupRepeatSerializer(),
         required=False,
         allow_null=True,

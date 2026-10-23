@@ -825,6 +825,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         [
             ("blank_key", {"   ": {"variable": "endpoint"}}),
             ("blank_variable", {"endpoints": {"variable": " "}}),
+            ("missing_variable", {"endpoints": {}}),
             ("unknown_direction", {"endpoints": {"variable": "endpoint", "direction": "diagonal"}}),
             ("too_many_repeats", {f"group-{index}": {"variable": "endpoint"} for index in range(101)}),
         ]

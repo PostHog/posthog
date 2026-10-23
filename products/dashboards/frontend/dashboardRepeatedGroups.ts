@@ -2,7 +2,7 @@ import type { Layout, LayoutItem } from 'react-grid-layout'
 
 import { BREAKPOINT_COLUMN_COUNTS } from 'scenes/dashboard/dashboardUtils'
 
-import type { DashboardFilter, MetricsDashboardVariable } from '~/queries/schema/schema-general'
+import type { DashboardFilter, MetricsDashboardVariable, TileFilters } from '~/queries/schema/schema-general'
 import type { DashboardLayoutSize, DashboardTile } from '~/types'
 
 import type { DashboardGroupRepeatApi } from './generated/api.schemas'
@@ -11,6 +11,11 @@ import type { DashboardGroupRepeatApi } from './generated/api.schemas'
 export const MAX_REPEATED_COPIES = 30
 
 type Layouts = Partial<Record<DashboardLayoutSize, Layout>>
+
+/** The data node collection of a dashboard's repeated copies, so a dashboard refresh can reload them. */
+export function repeatedCopiesCollectionKey(dashboardId: number | string): string {
+    return `dashboard-repeats-${dashboardId}`
+}
 
 export interface RepeatedTileCopy {
     /** The grid item id of the copy. */
@@ -52,6 +57,15 @@ function repeatValues(variable: MetricsDashboardVariable, options: string[] | un
 
 function copyKey(tile: DashboardTile, index: number): string {
     return `repeat-${tile.id}-${index}`
+}
+
+/** The tile's overrides win over the dashboard filters, as they do for the original tile. */
+function tileFilters(filters: DashboardFilter, overrides: TileFilters | null | undefined): DashboardFilter {
+    const { ignoreDashboardFilters, ...tileOwn } = overrides ?? {}
+    // The query still needs the metric variables to fill in the `$name` references.
+    const base: DashboardFilter = ignoreDashboardFilters ? { metricVariables: filters.metricVariables } : filters
+    const set = Object.fromEntries(Object.entries(tileOwn).filter(([, value]) => value != null))
+    return { ...base, ...set }
 }
 
 function withValue(filters: DashboardFilter, name: string, value: string): DashboardFilter {
@@ -125,7 +139,7 @@ export function expandRepeatedGroups(input: RepeatedGroupsInput): RepeatedGroups
                 key: copyKey(tile, index),
                 tile,
                 value,
-                filters: withValue(filters, active.variable.name, value),
+                filters: withValue(tileFilters(filters, tile.filters_overrides), active.variable.name, value),
             }))
         )
     )

@@ -13,6 +13,7 @@ import { getDashboardWidgetFetchDisplayError } from '@posthog/products-dashboard
 import { ApiError } from 'lib/api'
 import { EditModeEdge, useResizeHandleScrollbarPassThrough } from 'lib/components/Cards/InsightCard/EditModeEdgeOverlay'
 import { TileDecorations } from 'lib/components/TileDecorations/TileDecorations'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { objectsEqual } from 'lib/utils/objects'
@@ -126,8 +127,12 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
     } = useActions(dashboardLogic)
     const { updateWidgetTile } = useAsyncActions(dashboardLogic)
     // Edit mode shows the original tiles of a repeated group. Shared and exported dashboards cannot run new queries.
+    // The copies follow the metric variable bar, which this flag shows.
+    const metricControlsEnabled = useFeatureFlag('METRICS_DASHBOARD_CONTROLS')
     const showRepeatedGroups =
-        !layoutEditMode && [DashboardPlacement.Dashboard, DashboardPlacement.ProjectHomepage].includes(placement)
+        metricControlsEnabled &&
+        !layoutEditMode &&
+        [DashboardPlacement.Dashboard, DashboardPlacement.ProjectHomepage].includes(placement)
     const repeatedGroups = useMemo(
         () =>
             showRepeatedGroups && dashboardTiles
@@ -767,7 +772,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                             }
                         })}
                         {repeatedGroups?.copies.map((copy) => (
-                            <DashboardRepeatedInsightTile key={copy.key} copy={copy} />
+                            <DashboardRepeatedInsightTile key={copy.key} copy={copy} dashboardId={dashboard?.id} />
                         ))}
                     </ReactGridLayout>
                 </div>

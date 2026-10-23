@@ -83,6 +83,7 @@ import { isSharedView } from '~/exporter/exporterViewLogic'
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
+import { DataNodeCollectionProps, dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { variableDataLogic } from '~/queries/nodes/DataVisualization/Components/Variables/variableDataLogic'
 import { Variable } from '~/queries/nodes/DataVisualization/types'
 import {
@@ -122,6 +123,7 @@ import {
 } from '~/types'
 
 import { DashboardGridCompaction } from 'products/dashboards/frontend/dashboardCustomization'
+import { repeatedCopiesCollectionKey } from 'products/dashboards/frontend/dashboardRepeatedGroups'
 import {
     dashboardFiltersEqual,
     dashboardVariableValuesEqual,
@@ -4533,6 +4535,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
         },
         refreshDashboardItems: async ({ action, forceRefresh, previewUnsavedFilters }, breakpoint) => {
+            if (action === RefreshDashboardItemsAction.Refresh && forceRefresh) {
+                // Repeated copies load their own queries, so a refresh of the original tiles does not reach them.
+                dataNodeCollectionLogic
+                    .findMounted({ key: repeatedCopiesCollectionKey(props.id) } as DataNodeCollectionProps)
+                    ?.actions.reloadAll()
+            }
             const dashboardRefreshStartTime = performance.now()
             const settingsToRefresh = previewUnsavedFilters
                 ? values.currentDashboardSettings

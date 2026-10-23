@@ -1,3 +1,4 @@
+from products.dashboards.backend.constants import MAX_GROUP_REPEATS
 from products.dashboards.backend.dashboard_creation import (
     CreatedDashboard,
     DashboardCreationDenied,
@@ -14,6 +15,7 @@ from products.dashboards.backend.dashboard_creation import (
 )
 
 __all__ = [
+    "MAX_GROUP_REPEATS",
     "CreatedDashboard",
     "DashboardCreationDenied",
     "DashboardTileSnapshot",

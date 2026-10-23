@@ -12,6 +12,7 @@ from typing import Any
 
 from posthog.dataclasses import frozen
 
+from products.dashboards.backend.facade.dashboard_creation import MAX_GROUP_REPEATS
 from products.metrics.backend.dashboard_import.display import (
     axis_bound,
     legacy_thresholds,
@@ -49,6 +50,7 @@ from products.metrics.backend.dashboard_import.spec import (
 )
 
 MAX_PANELS = 150
+_REPEAT_DROPPED_NOTE = "Grafana repeats this panel for each variable value. The import keeps one panel."
 MAX_EXPRESSION_LENGTH = 4000
 MAX_TITLE_LENGTH = 200
 MAX_DESCRIPTION_LENGTH = 1000
@@ -275,9 +277,15 @@ class GrafanaDashboardParser:
                     if isinstance(row_id, int) and not isinstance(row_id, bool)
                     else f"r{len(row_keys) + 1}x",
                 )
+                if key not in repeats and len(repeats) >= MAX_GROUP_REPEATS:
+                    grouped.append(panel.model_copy(update={"notes": [*panel.notes, _REPEAT_DROPPED_NOTE]}))
+                    continue
                 repeats[key] = GroupRepeatSpec(variable=variable, direction="vertical")
                 grouped.append(panel.model_copy(update={"group_key": key}))
             elif variable := self._live_repeat(raw):
+                if len(repeats) >= MAX_GROUP_REPEATS:
+                    grouped.append(panel.model_copy(update={"notes": [*panel.notes, _REPEAT_DROPPED_NOTE]}))
+                    continue
                 # Grafana repeats a panel horizontally unless it says otherwise.
                 direction = "vertical" if raw.get("repeatDirection") == "v" else "horizontal"
                 repeats[panel.key] = GroupRepeatSpec(variable=variable, direction=direction)
@@ -404,7 +412,7 @@ class GrafanaDashboardParser:
         if approximation := _APPROXIMATED_TYPES.get(grafana_type):
             notes.append(approximation)
         if panel.get("repeat") and not self._live_repeat(panel):
-            notes.append("Grafana repeats this panel for each variable value. The import keeps one panel.")
+            notes.append(_REPEAT_DROPPED_NOTE)
         if panel.get("transformations"):
             notes.append("Grafana transformations are not imported.")
         display = self._display(panel, kind, grafana_type, notes)
