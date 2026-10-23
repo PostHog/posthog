@@ -31,7 +31,7 @@ class EmailDomainApiTestCase(APIBaseTest):
         cache.clear()
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
-        # A browser session never records a verification through a GET, so polls run as an admin's token.
+        # Polls and verifies run as an admin's token, the way the setup agent calls them.
         PersonalAPIKey.objects.create(
             label="Admin", user=self.user, secure_value=hash_key_value("admin_key"), scopes=["integration:write"]
         )
@@ -63,6 +63,12 @@ class EmailDomainApiTestCase(APIBaseTest):
         if as_browser:
             return self.client.get(url, params)
         return self.client.get(url, params, HTTP_AUTHORIZATION="Bearer admin_key")
+
+    def verify(self, integration_id: int, *, key: str = "admin_key") -> Any:
+        return self.client.post(
+            f"/api/projects/{self.team.id}/integrations/{integration_id}/email/verify",
+            HTTP_AUTHORIZATION=f"Bearer {key}",
+        )
 
     def status_body(self, integration_id: int, *, refresh: bool = True) -> dict[str, Any]:
         response = self.get_status(integration_id, refresh=refresh)

@@ -8484,7 +8484,7 @@
         }
     },
     "integrations-email-status-retrieve": {
-        "description": "Get the setup progress of an email sender's domain by integration ID. Returns the overall status, the three setup steps, and every DNS record to publish with its current status (pending, found, verified). Poll it after adding DNS records until verified is true, waiting at least 10 seconds between calls. Pass refresh=true right after changing DNS to skip the 10 second cache. It does not change DNS or SES.",
+        "description": "Get the setup progress of an email sender's domain by integration ID. Returns the overall status, the three setup steps, and every DNS record to publish with its current status (pending, found, verified). Poll it after adding DNS records until status is verified, waiting at least 10 seconds between calls. Pass refresh=true right after changing DNS to skip the 10 second cache. It does not change DNS or SES, and it does not mark the sender verified: once status is verified, call integrations-email-verify-create.",
         "category": "Integrations",
         "feature": "integrations",
         "summary": "Get email sending domain status",
@@ -8496,6 +8496,22 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
+        },
+        "feature_flag": "workflows-email-domain-agent-setup"
+    },
+    "integrations-email-verify-create": {
+        "description": "Record that an email sender's domain is verified, by integration ID, so its senders can send. Call it once integrations-email-status-retrieve reports status verified. It asks SES to check the domain again and returns status success when SES has verified it. Needs a project admin.",
+        "category": "Integrations",
+        "feature": "integrations",
+        "summary": "Verify email sending domain",
+        "title": "Verify email sending domain",
+        "required_scopes": ["integration:write"],
+        "api_operations": ["POST /api/projects/{project_id}/integrations/{id}/email/verify/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
         },
         "feature_flag": "workflows-email-domain-agent-setup"
     },

@@ -180,8 +180,6 @@ class EmailIntegration:
         self,
         *,
         refresh: bool,
-        record_verification: bool = True,
-        on_domain_verified: Callable[[], None] | None = None,
     ) -> EmailDomainStatusReport:
         from products.workflows.backend.facade.contracts import (
             EmailDomainCheck,  # noqa: PLC0415 — keeps the workflows facade off the model import path
@@ -197,12 +195,8 @@ class EmailIntegration:
             )
 
         check = self._check_domain()
-        # Saving the verification changes senders and the default sender, so only callers who could
-        # verify the domain themselves do it. Everyone else sees the provider's answer without the write.
+        # Reading the status never saves the verification. The caller records it with verify().
         unrecorded_verification = check.is_verified and not self.integration.config.get("verified")
-        if unrecorded_verification and record_verification:
-            self._mark_domain_verified(on_domain_verified)
-            unrecorded_verification = False
 
         report = EmailDomainStatusReport(
             check=check, verified=bool(self.integration.config.get("verified")), checked_at=timezone.now()
