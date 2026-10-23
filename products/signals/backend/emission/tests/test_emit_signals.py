@@ -26,6 +26,7 @@ from products.signals.backend.emission.emit_signals import (
     emit_data_import_signals_activity,
 )
 from products.signals.backend.emission.fetchers.data_warehouse import data_warehouse_record_fetcher
+from products.signals.backend.emission.github_issues import GITHUB_ISSUES_CONFIG
 from products.signals.backend.emission.linear_issues import LINEAR_ISSUES_CONFIG
 from products.signals.backend.emission.pipeline import (
     LLM_MAX_ATTEMPTS,
@@ -198,9 +199,10 @@ class TestQueryNewRecords:
         assert "scope_ids" not in mock_parse.call_args[0][0]
 
     @pytest.mark.parametrize(
-        "source_config,expected_filter",
+        "source,source_config,expected_filter",
         [
             (
+                LINEAR_ISSUES_CONFIG,
                 {
                     "admission_rules": {
                         "operator": "AND",
@@ -209,14 +211,30 @@ class TestQueryNewRecords:
                 },
                 "hasAny(arrayMap(node -> JSONExtractString(node, 'name'), JSONExtractArrayRaw(ifNull(labels, ''), 'nodes')), ['bug'])",
             ),
-            ({"admission_rules": {"operator": "AND", "rules": []}}, None),
-            ({"admission_rules": None}, None),
-            ({}, None),
+            (
+                GITHUB_ISSUES_CONFIG,
+                {
+                    "admission_rules": {
+                        "operator": "AND",
+                        "rules": [
+                            {"field": "labels", "operator": "none", "value": ["internal"]},
+                            {"field": "author_login", "operator": "not_in", "value": ["dependabot[bot]"]},
+                        ],
+                    }
+                },
+                "not(hasAny(arrayMap(label -> JSONExtractString(label, 'name'), JSONExtractArrayRaw(ifNull(labels, ''))), ['internal'])), "
+                "and(notEquals(JSONExtractString(ifNull(user, ''), 'login'), ''), notIn(JSONExtractString(ifNull(user, ''), 'login'), tuple('dependabot[bot]')))",
+            ),
+            (LINEAR_ISSUES_CONFIG, {"admission_rules": {"operator": "AND", "rules": []}}, None),
+            (LINEAR_ISSUES_CONFIG, {"admission_rules": None}, None),
+            (LINEAR_ISSUES_CONFIG, {}, None),
         ],
     )
-    def test_admission_rules_filter_the_query_before_the_limit(self, source_config, expected_filter):
+    def test_admission_rules_filter_the_query_before_the_limit(self, source, source_config, expected_filter):
         config = _make_config(
-            source_product="linear", source_type="issue", admission_fields=LINEAR_ISSUES_CONFIG.admission_fields
+            source_product=source.source_product,
+            source_type=source.source_type,
+            admission_fields=source.admission_fields,
         )
         mock_result = MagicMock()
         mock_result.columns = []

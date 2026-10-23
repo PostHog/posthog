@@ -163,6 +163,13 @@ GITHUB_ISSUES_CONFIG = SignalSourceTableConfig(
     partition_field_is_datetime_string=True,
     fields=REQUIRED_FIELDS + PASSTHROUGH_FIELDS + AUTHOR_FIELDS,
     where_clause=f"state NOT IN ({', '.join(repr(s) for s in GITHUB_IGNORED_STATES)})",
+    # Labels are a JSON array of {name} objects, and the login sits inside the `user` JSON object.
+    # ifNull gives a missing value an empty label list or an empty string rather than a NULL.
+    admission_fields={
+        "labels": "arrayMap(label -> JSONExtractString(label, 'name'), JSONExtractArrayRaw(ifNull(labels, '')))",
+        "state": "ifNull(state, '')",
+        "author_login": "JSONExtractString(ifNull(user, ''), 'login')",
+    },
     max_records=1000,
     first_sync_lookback_days=1,  # 24 hours
     actionability_prompt=GITHUB_ACTIONABILITY_PROMPT,

@@ -30,9 +30,13 @@ def _compile(group: dict[str, Any]) -> str | None:
         (_rule("labels", "all", ["bug", "ux"]), "hasAll(labels, ['bug', 'ux'])"),
         (_rule("labels", "none", ["chore"]), "not(hasAny(labels, ['chore']))"),
         (_rule("priority", "eq", 1), "equals(priority, 1)"),
-        (_rule("state_name", "neq", "Done"), "notEquals(state_name, 'Done')"),
+        (_rule("state_name", "neq", "Done"), "and(notEquals(state_name, ''), notEquals(state_name, 'Done'))"),
+        (_rule("priority", "neq", 0), "notEquals(priority, 0)"),
         (_rule("priority", "in", [1, 2]), "in(priority, tuple(1, 2))"),
-        (_rule("state_name", "not_in", ["Done", "Backlog"]), "notIn(state_name, tuple('Done', 'Backlog'))"),
+        (
+            _rule("state_name", "not_in", ["Done", "Backlog"]),
+            "and(notEquals(state_name, ''), notIn(state_name, tuple('Done', 'Backlog')))",
+        ),
     ],
 )
 def test_compiles_each_operator(rule, expected):

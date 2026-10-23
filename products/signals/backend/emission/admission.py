@@ -65,8 +65,27 @@ def _compile_rule(rule: AdmissionRule, field: ast.Expr) -> ast.Expr:
         case "eq":
             return ast.CompareOperation(op=ast.CompareOperationOp.Eq, left=field, right=constants[0])
         case "neq":
-            return ast.CompareOperation(op=ast.CompareOperationOp.NotEq, left=field, right=constants[0])
+            return _known(
+                field, values, ast.CompareOperation(op=ast.CompareOperationOp.NotEq, left=field, right=constants[0])
+            )
         case "in":
             return ast.CompareOperation(op=ast.CompareOperationOp.In, left=field, right=ast.Tuple(exprs=constants))
         case "not_in":
-            return ast.CompareOperation(op=ast.CompareOperationOp.NotIn, left=field, right=ast.Tuple(exprs=constants))
+            return _known(
+                field,
+                values,
+                ast.CompareOperation(op=ast.CompareOperationOp.NotIn, left=field, right=ast.Tuple(exprs=constants)),
+            )
+
+
+def _known(field: ast.Expr, values: list[str | int], exclusion: ast.Expr) -> ast.Expr:
+    """A string field expression yields "" for a missing value. An exclusion must not admit that
+    record, because an unknown author or state could be one of the excluded values."""
+    if not isinstance(values[0], str):
+        return exclusion
+    return ast.And(
+        exprs=[
+            ast.CompareOperation(op=ast.CompareOperationOp.NotEq, left=field, right=ast.Constant(value="")),
+            exclusion,
+        ]
+    )

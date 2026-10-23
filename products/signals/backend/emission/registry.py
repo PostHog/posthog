@@ -11,6 +11,8 @@ from products.signals.backend.contracts import ADMISSION_RULE_FIELDS
 from products.warehouse_sources.backend.facade.sources import github_split_schema_name
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
+ADMISSION_PARTITION_FIELD = "created_at"
+
 
 class InternalSourceType(str, enum.Enum):
     """Source types for internal PostHog products (not data warehouse imports)."""
@@ -115,6 +117,10 @@ class SignalSourceTableConfig(BaseModel):
         allowed = ADMISSION_RULE_FIELDS.get((self.source_product, self.source_type), {})
         if set(self.admission_fields) != set(allowed):
             raise ValueError("admission_fields must map exactly the fields in contracts.ADMISSION_RULE_FIELDS")
+        # The rules gate new records only. A fetch by update time reads an old record again after an
+        # edit, so the rules would admit a record that they excluded before, or that predates them.
+        if self.partition_field != ADMISSION_PARTITION_FIELD:
+            raise ValueError(f"admission_fields require partition_field={ADMISSION_PARTITION_FIELD!r}")
         return self
 
     @model_validator(mode="after")

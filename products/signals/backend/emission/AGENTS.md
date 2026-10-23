@@ -58,6 +58,9 @@ Each source defines how to fetch records via its `record_fetcher` on the config:
   A source that declares `admission_fields` (field name to HogQL expression) reads the team's `admission_rules` tree, and `admission.py` compiles it into one `WHERE` placeholder next to the time window, `where_clause` and scope filter, so the `LIMIT` counts only admitted records.
   The field names and their kinds live in `contracts.ADMISSION_RULE_FIELDS`, which the serializer validates against, and the two must match exactly.
   Unlike the scope allowlist, invalid stored rules fail closed: the fetcher raises before it queries, so the run admits nothing.
+  The rules gate new records only, so a source with `admission_fields` must partition on `created_at`.
+  A fetch by update time reads an old record again after an edit, and the rules would then admit a record that they excluded before.
+  An exclusion (`neq`, `not_in`) on a string field does not admit a record whose value is missing, because the field expressions turn a missing value into `""`.
 - **Grouped warehouse fetcher** (`fetchers/grouped_warehouse.py`) — for high-volume tables that store one row per occurrence (Datadog error spans and logs).
   The generic fetcher has no `GROUP BY`, so it would emit one signal per row.
   The grouped fetcher reads a fixed trailing window of event time (`GROUPED_WINDOW_DAYS`) and ignores `last_synced_at`.
