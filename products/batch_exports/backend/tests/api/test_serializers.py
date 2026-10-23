@@ -18,7 +18,9 @@ from posthog.models.integration import Integration
 from posthog.models.scoping import team_scope
 
 from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportSource
-from products.batch_exports.backend.presentation.views.batch_export.destinations import BatchExportDestinationSerializer
+from products.batch_exports.backend.presentation.views.batch_export.destinations.serializer import (
+    BatchExportDestinationSerializer,
+)
 from products.batch_exports.backend.presentation.views.batch_export.exports import (
     BatchExportSerializer,
     parse_events_hogql_query,

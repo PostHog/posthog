@@ -748,14 +748,17 @@ ignore_imports = [
     # test helpers still reach in-product internals directly. Thin each one to parse -> facade
     # -> serialize and delete each entry. backend:contract-check stays off until this list is
     # empty. Only delete entries here: a new import from these views goes through the facade.
-    "products.batch_exports.backend.presentation.views.batch_export.destinations -> products.batch_exports.backend.models.batch_export",
-    "products.batch_exports.backend.presentation.views.batch_export.destinations -> products.batch_exports.backend.service",
-    "products.batch_exports.backend.presentation.views.batch_export.destinations -> products.batch_exports.backend.temporal.destinations.constants",
+    "products.batch_exports.backend.presentation.views.batch_export.destinations.azure_blob -> products.batch_exports.backend.temporal.destinations.constants",
+    "products.batch_exports.backend.presentation.views.batch_export.destinations.parquet -> products.batch_exports.backend.models.batch_export",
+    "products.batch_exports.backend.presentation.views.batch_export.destinations.parquet -> products.batch_exports.backend.service",
+    "products.batch_exports.backend.presentation.views.batch_export.destinations.s3 -> products.batch_exports.backend.temporal.destinations.constants",
+    "products.batch_exports.backend.presentation.views.batch_export.destinations.serializer -> products.batch_exports.backend.models.batch_export",
+    "products.batch_exports.backend.presentation.views.batch_export.destinations.serializer -> products.batch_exports.backend.service",
+    "products.batch_exports.backend.presentation.views.batch_export.destinations.validation -> products.batch_exports.backend.models.batch_export",
     "products.batch_exports.backend.presentation.views.batch_export.exports -> products.batch_exports.backend.filters",
     "products.batch_exports.backend.presentation.views.batch_export.exports -> products.batch_exports.backend.hogql_source",
     "products.batch_exports.backend.presentation.views.batch_export.exports -> products.batch_exports.backend.models.batch_export",
     "products.batch_exports.backend.presentation.views.batch_export.exports -> products.batch_exports.backend.service",
-    "products.batch_exports.backend.presentation.views.batch_export.exports -> products.batch_exports.backend.temporal.destinations.constants",
     "products.batch_exports.backend.presentation.views.batch_export.exports -> products.batch_exports.backend.temporal.sql.events",
 ]
 
