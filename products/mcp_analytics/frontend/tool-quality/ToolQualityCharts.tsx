@@ -15,7 +15,7 @@ import {
     createXAxisTickCallback,
     legendItemsFromSeries,
 } from '@posthog/quill-charts'
-import { ToggleGroup, ToggleGroupItem } from '@posthog/quill-primitives'
+import { Button, Toggle, ToggleGroup, ToggleGroupItem } from '@posthog/quill-primitives'
 
 import { useChartConfig } from 'lib/charts/hooks'
 import { formatPercentage } from 'lib/utils/numbers'
@@ -50,13 +50,14 @@ function buildConfig(
     }
 }
 
-const CHART_VIEW_ARIA_LABELS: Record<ChartViewChange['chart'], string> = {
+type ToggleGroupChart = Exclude<ChartViewChange['chart'], 'successRate'>
+
+const CHART_VIEW_ARIA_LABELS: Record<ToggleGroupChart, string> = {
     calls: 'Calls and errors chart view',
-    successRate: 'Success rate chart view',
     latency: 'Latency chart view',
 }
 
-function ChartViewToggle<C extends ChartViewChange>({
+function ChartViewToggle<C extends Extract<ChartViewChange, { chart: ToggleGroupChart }>>({
     chart,
     view,
     options,
@@ -267,15 +268,24 @@ export function ToolQualityCharts({
                 <ChartCard
                     title="Success rate"
                     action={
-                        <ChartViewToggle
-                            chart="successRate"
-                            view={views.successRate}
-                            options={[
-                                { value: 'full', label: '0-100%' },
-                                { value: 'zoom', label: 'Zoom' },
-                            ]}
-                            onChange={onViewChange}
-                        />
+                        <Toggle
+                            size="sm"
+                            pressed={views.successRate === 'zoom'}
+                            onPressedChange={(pressed) =>
+                                onViewChange({ chart: 'successRate', view: pressed ? 'zoom' : 'full' })
+                            }
+                            data-attr="mcp-tool-quality-successRate-chart-view-zoom"
+                            render={(props) => (
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    tooltip="Start the axis just below the lowest value instead of at zero, so small changes are easier to see."
+                                    {...props}
+                                />
+                            )}
+                        >
+                            Zoom in
+                        </Toggle>
                     }
                     loading={loading}
                     isEmpty={isEmpty}
