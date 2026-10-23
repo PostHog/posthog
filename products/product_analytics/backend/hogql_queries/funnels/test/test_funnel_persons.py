@@ -483,6 +483,64 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
+    @time_machine.travel("2021-01-02 00:00:00.000Z", tick=False)
+    def test_funnel_person_recordings_dropoff_at_required_step_after_skipped_optional_steps(self):
+        p1 = _create_person(distinct_ids=["user_1"], team=self.team)
+        _create_event(
+            event="step one",
+            distinct_id="user_1",
+            team=self.team,
+            timestamp=timezone.now().strftime("%Y-%m-%d %H:%M:%S.%f"),
+            properties={"$session_id": "s1", "$window_id": "w1"},
+            event_uuid="11111111-1111-1111-1111-111111111111",
+        )
+        _create_event(
+            event="step four",
+            distinct_id="user_1",
+            team=self.team,
+            timestamp=(timezone.now() + timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S.%f"),
+            properties={"$session_id": "s4", "$window_id": "w4"},
+            event_uuid="41111111-1111-1111-1111-111111111111",
+        )
+        produce_replay_summary(
+            team_id=self.team.pk,
+            session_id="s4",
+            distinct_id="user_1",
+            first_timestamp=timezone.now() + timedelta(days=1),
+        )
+
+        query = FunnelsQuery(
+            series=[
+                EventsNode(event="step one"),
+                EventsNode(event="step two", optionalInFunnel=True),
+                EventsNode(event="step three", optionalInFunnel=True),
+                EventsNode(event="step four"),
+                EventsNode(event="step five"),
+            ],
+            interval="day",
+            dateRange=DateRange(date_from="2021-01-01", date_to="2021-01-08"),
+            funnelsFilter=FunnelsFilter(funnelWindowIntervalUnit="day", funnelWindowInterval=7),
+        )
+
+        # Dropped off before step five, having skipped both optional steps: the recording belongs to step four
+        results = get_actors(query, self.team, funnel_step=-5, include_recordings=True)
+        self.assertEqual(results[0][0], p1.uuid)
+        self.assertEqual(
+            list(results[0][2]),
+            [
+                {
+                    "session_id": "s4",
+                    "events": [
+                        {
+                            "uuid": UUID("41111111-1111-1111-1111-111111111111"),
+                            "timestamp": timezone.now() + timedelta(days=1),
+                            "window_id": "w4",
+                        }
+                    ],
+                }
+            ],
+        )
+
     def test_parses_step_breakdown_correctly(self):
         person1 = _create_person(
             distinct_ids=["person1"],
