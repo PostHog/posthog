@@ -38,9 +38,9 @@ from posthog.kafka_client.topics import (
     KAFKA_WAREHOUSE_PERSON_PROPERTY_UPDATES_DLQ,
 )
 from posthog.models.instance_setting import get_instance_setting
-from posthog.personhog_client.client import get_personhog_client
 from posthog.models.team import Team
 from posthog.settings import CONSTANCE_CONFIG
+from posthog.personhog_client.client import get_personhog_client
 
 from products.warehouse_sources.backend.temporal.data_imports.group_property_writer import (
     GroupPropertyUpdate,
