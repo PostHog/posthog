@@ -292,6 +292,17 @@ class TestTransactionalEmail(APIBaseTest):
         assert error["why"] and error["fix"]
         mock_post.assert_not_called()
 
+    @parameterized.expand([("list", [{"to": "user@example.com"}]), ("string", "user@example.com")])
+    def test_refuses_a_body_that_is_not_an_object(self, mock_post, _flag, _capture, _name, body):
+        response = self.client.post(self.send_email_url, body, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        error = response.json()
+        assert (error["code"], error["attr"]) == ("invalid_request", None)
+        assert error["detail"].startswith("Invalid data.")
+        assert error["fix"] == "Send the body as a JSON object and send again."
+        mock_post.assert_not_called()
+
     @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
     def test_both_send_routes_share_one_rate_limit_per_key(self, _rate_limit, mock_post, _flag, _capture):
         self._cdp_accepts(mock_post)

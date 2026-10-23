@@ -99,7 +99,7 @@ class TemplateRefusal:
 
 @frozen
 class FieldError:
-    attr: str
+    attr: str | None
     message: str
 
 
@@ -117,6 +117,14 @@ def invalid_template_key(key: object, attr: str = "key") -> TemplateRefusal | No
 
 def invalid_request(errors: Any, *, why: str, retry: str) -> TemplateRefusal:
     error = first_field_error(errors)
+    if error.attr is None:
+        return TemplateRefusal(
+            code="invalid_request",
+            detail=error.message,
+            attr=None,
+            why=why,
+            fix=f"Send the body as a JSON object and {retry}.",
+        )
     return TemplateRefusal(
         code="invalid_request",
         detail=f"{error.attr}: {error.message}",
@@ -134,7 +142,7 @@ def first_field_error(errors: Any, path: tuple[str, ...] = ()) -> FieldError:
         return first_field_error(nested, field_path)
     if isinstance(errors, list) and errors and not isinstance(errors[0], str):
         return first_field_error(errors[0], path)
-    return FieldError(attr="__".join(path), message=str(errors[0] if isinstance(errors, list) else errors))
+    return FieldError(attr="__".join(path) or None, message=str(errors[0] if isinstance(errors, list) else errors))
 
 
 class TransactionalEmailRejected(exceptions.APIException):

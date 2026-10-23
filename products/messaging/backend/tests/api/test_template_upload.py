@@ -224,25 +224,41 @@ class TestTemplateUpload(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("invalid_key", "wel!come", WELCOME, "invalid_template_key", "key"),
-            ("missing_subject", "welcome", {"name": "Welcome", "html": "<p>Hi</p>"}, "invalid_request", "subject"),
+            ("invalid_key", "wel!come", WELCOME, "invalid_template_key", "key", "Use a key like `password-reset`."),
+            (
+                "missing_subject",
+                "welcome",
+                {"name": "Welcome", "html": "<p>Hi</p>"},
+                "invalid_request",
+                "subject",
+                "Fix `subject` and upload again.",
+            ),
             (
                 "long_source_path",
                 "welcome",
                 {**WELCOME, "source": {"path": "a" * 401}},
                 "invalid_request",
                 "source__path",
+                "Fix `source__path` and upload again.",
+            ),
+            (
+                "list_body",
+                "welcome",
+                [WELCOME],
+                "invalid_request",
+                None,
+                "Send the body as a JSON object and upload again.",
             ),
         ]
     )
     def test_refuses_an_invalid_upload_with_the_field_to_fix(
-        self, _post, _flag, _capture, _name, key, body, expected_code, expected_attr
+        self, _post, _flag, _capture, _name, key, body, expected_code, expected_attr, expected_fix
     ):
         response = self.psak.put(f"/api/projects/{self.team.id}/messaging_templates/by_key/{key}/", body, format="json")
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert response.json()["code"] == expected_code
-        assert response.json()["attr"] == expected_attr
+        assert (response.json()["attr"], response.json()["fix"]) == (expected_attr, expected_fix)
         assert response.json()["docs_url"].endswith(f"#{expected_code}")
         assert not MessageTemplate.objects.filter(team=self.team).exists()
 
