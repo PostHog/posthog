@@ -7,7 +7,7 @@ from rest_framework import status
 
 from posthog.dataclasses import frozen
 
-from products.managed_warehouse.backend.presentation import views as provisioning_views
+from products.managed_warehouse.backend.presentation.views import control_plane
 
 logger = structlog.get_logger(__name__)
 
@@ -25,7 +25,7 @@ def _nonempty_string(value: object) -> str | None:
 
 
 def _ready_trino_status(organization_id: str) -> dict[str, object] | None:
-    response = provisioning_views._request("GET", organization_id, "/trino", require_enabled=False)
+    response = control_plane._request("GET", organization_id, "/trino", require_enabled=False)
     if not status.is_success(response.status_code) or not isinstance(response.data, dict):
         return None
     if response.data.get("enabled") is not True:

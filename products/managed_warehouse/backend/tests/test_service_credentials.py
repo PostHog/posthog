@@ -48,7 +48,7 @@ def _mint_payload(**overrides: object) -> dict:
 
 class TestMintServiceCredential:
     def test_threads_request_fields_to_cp(self):
-        with mock.patch("products.managed_warehouse.backend.presentation.views._request") as mock_request:
+        with mock.patch("products.managed_warehouse.backend.presentation.views.control_plane._request") as mock_request:
             mock_request.return_value = _ok_response(_mint_payload())
 
             credential = mint_service_credential("org-1", 7, principal="dagster:events-backfill", ttl_seconds=900)
@@ -78,7 +78,7 @@ class TestMintServiceCredential:
         assert "team_id" not in mock_request.call_args.args[2]
 
     def test_ttl_is_clamped_to_cp_policy(self):
-        with mock.patch("products.managed_warehouse.backend.presentation.views._request") as mock_request:
+        with mock.patch("products.managed_warehouse.backend.presentation.views.control_plane._request") as mock_request:
             mock_request.return_value = _ok_response(_mint_payload())
             mint_service_credential("org-1", 7, principal="d", ttl_seconds=1)
             assert mock_request.call_args.kwargs["json_body"]["ttl_seconds"] == MIN_CREDENTIAL_TTL_SECONDS
@@ -92,13 +92,13 @@ class TestMintServiceCredential:
     def test_missing_secret_raises_unavailable(self):
         payload = _mint_payload()
         del payload["credential_secret"]
-        with mock.patch("products.managed_warehouse.backend.presentation.views._request") as mock_request:
+        with mock.patch("products.managed_warehouse.backend.presentation.views.control_plane._request") as mock_request:
             mock_request.return_value = _ok_response(payload)
             with pytest.raises(ServiceCredentialUnavailable, match="credential_secret"):
                 mint_service_credential("org-1", 7, principal="d")
 
     def test_cp_error_raises_unavailable(self):
-        with mock.patch("products.managed_warehouse.backend.presentation.views._request") as mock_request:
+        with mock.patch("products.managed_warehouse.backend.presentation.views.control_plane._request") as mock_request:
             resp = mock.MagicMock()
             resp.status_code = status.HTTP_409_CONFLICT
             resp.data = {"error": "org warehouse is not provisioned"}
@@ -111,14 +111,14 @@ class TestMintServiceCredential:
     def test_missing_credential_id_raises_unavailable(self):
         payload = _mint_payload()
         del payload["credential_id"]
-        with mock.patch("products.managed_warehouse.backend.presentation.views._request") as mock_request:
+        with mock.patch("products.managed_warehouse.backend.presentation.views.control_plane._request") as mock_request:
             mock_request.return_value = _ok_response(payload)
             with pytest.raises(ServiceCredentialUnavailable) as exc_info:
                 mint_service_credential("org-1", 7, principal="d")
             assert "credential_id" in str(exc_info.value)
 
     def test_bad_expires_at_raises_unavailable(self):
-        with mock.patch("products.managed_warehouse.backend.presentation.views._request") as mock_request:
+        with mock.patch("products.managed_warehouse.backend.presentation.views.control_plane._request") as mock_request:
             mock_request.return_value = _ok_response(_mint_payload(expires_at="not-a-timestamp"))
             with pytest.raises(ServiceCredentialUnavailable):
                 mint_service_credential("org-1", 7, principal="d")
@@ -131,7 +131,7 @@ class TestMintServiceCredential:
         # established transitional degradation).
         payload = _mint_payload()
         del payload["connect"]
-        with mock.patch("products.managed_warehouse.backend.presentation.views._request") as mock_request:
+        with mock.patch("products.managed_warehouse.backend.presentation.views.control_plane._request") as mock_request:
             mock_request.return_value = _ok_response(payload)
             with pytest.raises(ServiceCredentialUnavailable) as exc_info:
                 mint_service_credential("org-1", 7, principal="d")
@@ -149,7 +149,7 @@ class TestMintServiceCredential:
         ],
     )
     def test_partial_connect_raises_unavailable(self, connect):
-        with mock.patch("products.managed_warehouse.backend.presentation.views._request") as mock_request:
+        with mock.patch("products.managed_warehouse.backend.presentation.views.control_plane._request") as mock_request:
             mock_request.return_value = _ok_response(_mint_payload(connect=connect))
             with pytest.raises(ServiceCredentialUnavailable) as exc_info:
                 mint_service_credential("org-1", 7, principal="d")
@@ -163,7 +163,7 @@ class TestMintServiceCredential:
         # payload string.
         payload = _mint_payload()
         del payload["connect"]
-        with mock.patch("products.managed_warehouse.backend.presentation.views._request") as mock_request:
+        with mock.patch("products.managed_warehouse.backend.presentation.views.control_plane._request") as mock_request:
             mock_request.return_value = _ok_response(payload)
             with pytest.raises(ServiceCredentialUnavailable) as exc_info:
                 mint_service_credential("org-1", 7, principal="d")
@@ -176,7 +176,7 @@ class TestMintServiceCredential:
         # The backfill's broad fallback logs the exception text — a malformed
         # CP payload that still carries a live `credential_secret` must not
         # surface it there.
-        with mock.patch("products.managed_warehouse.backend.presentation.views._request") as mock_request:
+        with mock.patch("products.managed_warehouse.backend.presentation.views.control_plane._request") as mock_request:
             mock_request.return_value = _ok_response(_mint_payload(credential_id=""))
             with pytest.raises(ServiceCredentialUnavailable) as exc_info:
                 mint_service_credential("org-1", 7, principal="d")
@@ -189,7 +189,7 @@ class TestMintServiceCredential:
             assert "expires_at" in message
 
     def test_error_status_body_is_redacted_too(self):
-        with mock.patch("products.managed_warehouse.backend.presentation.views._request") as mock_request:
+        with mock.patch("products.managed_warehouse.backend.presentation.views.control_plane._request") as mock_request:
             resp = mock.MagicMock()
             resp.status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
             resp.data = {"error": "boom", "credential_secret": _FAKE_SECRET}
@@ -218,7 +218,7 @@ class TestMintServiceCredential:
 
 class TestRefreshServiceCredential:
     def test_threads_request_fields_to_cp(self):
-        with mock.patch("products.managed_warehouse.backend.presentation.views._request") as mock_request:
+        with mock.patch("products.managed_warehouse.backend.presentation.views.control_plane._request") as mock_request:
             mock_request.return_value = _ok_response(_mint_payload())
 
             credential = refresh_service_credential("org-1", "svc_a1b2c3d4e5f60718293a4b5c", ttl_seconds=600)
@@ -242,7 +242,7 @@ class TestRefreshServiceCredential:
         )
 
     def test_ttl_is_clamped_and_defaults(self):
-        with mock.patch("products.managed_warehouse.backend.presentation.views._request") as mock_request:
+        with mock.patch("products.managed_warehouse.backend.presentation.views.control_plane._request") as mock_request:
             mock_request.return_value = _ok_response(_mint_payload())
             refresh_service_credential("org-1", "svc_x", ttl_seconds=1)
             assert mock_request.call_args.kwargs["json_body"]["ttl_seconds"] == MIN_CREDENTIAL_TTL_SECONDS
@@ -254,7 +254,7 @@ class TestRefreshServiceCredential:
             assert mock_request.call_args.kwargs["json_body"]["ttl_seconds"] == DEFAULT_CREDENTIAL_TTL_SECONDS
 
     def test_cp_error_raises_unavailable(self):
-        with mock.patch("products.managed_warehouse.backend.presentation.views._request") as mock_request:
+        with mock.patch("products.managed_warehouse.backend.presentation.views.control_plane._request") as mock_request:
             resp = mock.MagicMock()
             resp.status_code = status.HTTP_404_NOT_FOUND
             resp.data = {"error": "unknown or lapsed credential"}
@@ -269,13 +269,13 @@ class TestRefreshServiceCredential:
     def test_missing_credential_id_raises_unavailable(self):
         payload = _mint_payload()
         del payload["credential_id"]
-        with mock.patch("products.managed_warehouse.backend.presentation.views._request") as mock_request:
+        with mock.patch("products.managed_warehouse.backend.presentation.views.control_plane._request") as mock_request:
             mock_request.return_value = _ok_response(payload)
             with pytest.raises(ServiceCredentialUnavailable):
                 refresh_service_credential("org-1", "svc_x")
 
     def test_bad_expires_at_raises_unavailable(self):
-        with mock.patch("products.managed_warehouse.backend.presentation.views._request") as mock_request:
+        with mock.patch("products.managed_warehouse.backend.presentation.views.control_plane._request") as mock_request:
             mock_request.return_value = _ok_response(_mint_payload(expires_at="not-a-timestamp"))
             with pytest.raises(ServiceCredentialUnavailable):
                 refresh_service_credential("org-1", "svc_x")
@@ -283,14 +283,14 @@ class TestRefreshServiceCredential:
     def test_missing_connect_raises_unavailable(self):
         payload = _mint_payload()
         del payload["connect"]
-        with mock.patch("products.managed_warehouse.backend.presentation.views._request") as mock_request:
+        with mock.patch("products.managed_warehouse.backend.presentation.views.control_plane._request") as mock_request:
             mock_request.return_value = _ok_response(payload)
             with pytest.raises(ServiceCredentialUnavailable) as exc_info:
                 refresh_service_credential("org-1", "svc_x")
             assert "connect" in str(exc_info.value)
 
     def test_error_status_body_is_redacted_too(self):
-        with mock.patch("products.managed_warehouse.backend.presentation.views._request") as mock_request:
+        with mock.patch("products.managed_warehouse.backend.presentation.views.control_plane._request") as mock_request:
             resp = mock.MagicMock()
             resp.status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
             resp.data = {"error": "boom", "credential_secret": _FAKE_SECRET}
@@ -302,7 +302,7 @@ class TestRefreshServiceCredential:
             assert _FAKE_SECRET not in str(exc_info.value)
 
     def test_malformed_response_never_leaks_secret_in_exception(self):
-        with mock.patch("products.managed_warehouse.backend.presentation.views._request") as mock_request:
+        with mock.patch("products.managed_warehouse.backend.presentation.views.control_plane._request") as mock_request:
             mock_request.return_value = _ok_response(_mint_payload(credential_id=""))
             with pytest.raises(ServiceCredentialUnavailable) as exc_info:
                 refresh_service_credential("org-1", "svc_x")

@@ -9,9 +9,13 @@ from django.test import override_settings
 import requests
 
 from products.managed_warehouse.backend import cp_teams
-from products.managed_warehouse.backend.presentation import (
-    hogtower,
-    views as managed_warehouse,
+from products.managed_warehouse.backend.presentation import hogtower
+from products.managed_warehouse.backend.presentation.views import (
+    control_plane,
+    naming,
+    team_rows,
+    teardown,
+    warehouse_state,
 )
 from products.managed_warehouse.backend.service_credentials import (
     mint_service_credential,
@@ -471,12 +475,12 @@ class TestServiceCredentials:
         assert fake.paths == [("DELETE", f"{W}/service-credentials/svc_gone")]
 
 
-@patch("products.managed_warehouse.backend.presentation.views.is_enabled", return_value=True)
+@patch("products.managed_warehouse.backend.presentation.views.control_plane.is_enabled", return_value=True)
 class TestViewsUseHogtower:
     @_routes({("GET", W): _detail(state="deleting")})
     def test_request_never_touches_duckgres(self, _enabled: MagicMock, fake: FakeHogtower) -> None:
-        with patch("products.managed_warehouse.backend.presentation.views.internal_requests") as duckgres:
-            resp = managed_warehouse.delete_org(ORG, triggered_by=PRINCIPAL)
+        with patch("products.managed_warehouse.backend.presentation.views.control_plane.internal_requests") as duckgres:
+            resp = teardown.delete_org(ORG, triggered_by=PRINCIPAL)
 
         duckgres.request.assert_not_called()
         assert resp.status_code == 409
@@ -489,12 +493,12 @@ class TestViewsUseHogtower:
                 side_effect=requests.Timeout,
             ),
         ):
-            resp = managed_warehouse.list_teams(ORG)
+            resp = team_rows.list_teams(ORG)
 
         assert (resp.status_code, resp.data) == (504, {"error": "Provisioning service timed out"})
 
     def test_unmapped_route_is_a_501_response(self, _enabled: MagicMock, fake: FakeHogtower) -> None:
-        resp = managed_warehouse._request("GET", ORG, "/service-grants")
+        resp = control_plane._request("GET", ORG, "/service-grants")
 
         assert (resp.status_code, resp.data) == (
             501,
@@ -504,7 +508,7 @@ class TestViewsUseHogtower:
 
     @_routes({("GET", "/database-names/acme"): (200, {"name": "acme", "available": False, "reason": ""})})
     def test_check_name(self, _enabled: MagicMock, fake: FakeHogtower) -> None:
-        resp = managed_warehouse.check_name(ORG, "acme")
+        resp = naming.check_name(ORG, "acme")
 
         assert (resp.status_code, resp.data) == (200, {"name": "acme", "available": False})
 
@@ -515,13 +519,13 @@ class TestViewsUseHogtower:
         }
     )
     def test_push_earliest_event_date(self, _enabled: MagicMock, fake: FakeHogtower) -> None:
-        assert managed_warehouse.push_team_earliest_event_date(ORG, 7, date(2024, 1, 2)) is True
+        assert team_rows.push_team_earliest_event_date(ORG, 7, date(2024, 1, 2)) is True
         assert fake.calls[-1]["json"] == {"schema_name": "acme_prod", "earliest_event_date": "2024-01-02"}
 
     @override_settings(CLOUD_DEPLOYMENT="US")
     @_routes({("GET", W): _detail(data_store={"kind": "external"})})
     def test_status_for_presents_the_connection(self, _enabled: MagicMock, fake: FakeHogtower) -> None:
-        resp = managed_warehouse.status_for(ORG)
+        resp = warehouse_state.status_for(ORG)
 
         assert resp.status_code == 200
         assert resp.data["connection"]["host"] == "acme.dw.us.postwh.com"

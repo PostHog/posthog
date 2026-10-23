@@ -279,7 +279,7 @@ class TestDataWarehouseViewSetAccessControl(WarehouseAccessControlTestMixin):
         self.client.force_login(self.viewer_user)
 
         with patch(
-            "products.data_warehouse.backend.presentation.views.data_warehouse.managed_warehouse.is_enabled",
+            "products.managed_warehouse.backend.presentation.views.control_plane.is_enabled",
             return_value=True,
         ):
             summary_response = self.client.get(self._path("managed-warehouse-data-status/"))
@@ -327,7 +327,7 @@ class TestDataWarehouseViewSetAccessControl(WarehouseAccessControlTestMixin):
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-    @patch("products.data_warehouse.backend.presentation.views.data_warehouse.managed_warehouse.provision")
+    @patch("products.managed_warehouse.backend.presentation.views.provisioning.provision")
     def test_provision_blocked_for_project_editor_who_is_not_org_admin(self, mock_provision):
         mock_provision.return_value = Response({"status": "provisioning"}, status=status.HTTP_202_ACCEPTED)
         self._create_access_control(self.editor_user, access_level="editor")
@@ -340,7 +340,7 @@ class TestDataWarehouseViewSetAccessControl(WarehouseAccessControlTestMixin):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         mock_provision.assert_not_called()
 
-    @patch("products.data_warehouse.backend.presentation.views.data_warehouse.managed_warehouse.provision")
+    @patch("products.managed_warehouse.backend.presentation.views.provisioning.provision")
     def test_provision_allowed_for_org_admin_with_project_editor_access(self, mock_provision):
         mock_provision.return_value = Response({"status": "provisioning"}, status=status.HTTP_202_ACCEPTED)
         membership = OrganizationMembership.objects.get(user=self.editor_user, organization=self.organization)
@@ -360,7 +360,7 @@ class TestDataWarehouseViewSetAccessControl(WarehouseAccessControlTestMixin):
             self.team.organization_id, "x", self.team.id, "x", triggered_by=f"api:{self.editor_user.email}"
         )
 
-    @patch("products.data_warehouse.backend.presentation.views.data_warehouse.managed_warehouse.check_schema_name")
+    @patch("products.managed_warehouse.backend.presentation.views.team_rows.check_schema_name")
     def test_check_schema_name_blocked_for_project_editor_who_is_not_org_admin(self, mock_check):
         # The check scans every project's schema in the org, so a non-admin could otherwise
         # probe names and learn what inaccessible projects use.
@@ -372,7 +372,7 @@ class TestDataWarehouseViewSetAccessControl(WarehouseAccessControlTestMixin):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         mock_check.assert_not_called()
 
-    @patch("products.data_warehouse.backend.presentation.views.data_warehouse.managed_warehouse.check_schema_name")
+    @patch("products.managed_warehouse.backend.presentation.views.team_rows.check_schema_name")
     def test_check_schema_name_allowed_for_org_admin(self, mock_check):
         mock_check.return_value = Response({"name": "probe", "available": True}, status=status.HTTP_200_OK)
         membership = OrganizationMembership.objects.get(user=self.editor_user, organization=self.organization)
@@ -386,7 +386,7 @@ class TestDataWarehouseViewSetAccessControl(WarehouseAccessControlTestMixin):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         mock_check.assert_called_once_with(self.team.organization_id, "probe")
 
-    @patch("products.data_warehouse.backend.presentation.views.data_warehouse.managed_warehouse.reset_password")
+    @patch("products.managed_warehouse.backend.presentation.views.credentials.reset_password")
     def test_reset_password_blocked_for_project_editor_who_is_not_org_admin(self, mock_reset_password):
         mock_reset_password.return_value = Response({"username": "root", "password": "secret"})
         self._create_access_control(self.editor_user, access_level="editor")
@@ -397,7 +397,7 @@ class TestDataWarehouseViewSetAccessControl(WarehouseAccessControlTestMixin):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         mock_reset_password.assert_not_called()
 
-    @patch("products.data_warehouse.backend.presentation.views.data_warehouse.managed_warehouse.reset_password")
+    @patch("products.managed_warehouse.backend.presentation.views.credentials.reset_password")
     def test_reset_password_allowed_for_org_admin_with_project_editor_access(self, mock_reset_password):
         mock_reset_password.return_value = Response({"username": "root", "password": "secret"})
         membership = OrganizationMembership.objects.get(user=self.editor_user, organization=self.organization)
@@ -413,7 +413,7 @@ class TestDataWarehouseViewSetAccessControl(WarehouseAccessControlTestMixin):
             self.team.organization_id, triggered_by=f"api:{self.editor_user.email}"
         )
 
-    @patch("products.data_warehouse.backend.presentation.views.data_warehouse.managed_warehouse.delete_org")
+    @patch("products.managed_warehouse.backend.presentation.views.teardown.delete_org")
     def test_delete_org_blocked_for_project_editor_who_is_not_org_admin(self, mock_delete_org):
         mock_delete_org.return_value = Response({"status": "deleted"})
         self._create_access_control(self.editor_user, access_level="editor")
@@ -424,7 +424,7 @@ class TestDataWarehouseViewSetAccessControl(WarehouseAccessControlTestMixin):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         mock_delete_org.assert_not_called()
 
-    @patch("products.data_warehouse.backend.presentation.views.data_warehouse.managed_warehouse.delete_org")
+    @patch("products.managed_warehouse.backend.presentation.views.teardown.delete_org")
     def test_delete_org_allowed_for_org_admin_with_project_editor_access(self, mock_delete_org):
         mock_delete_org.return_value = Response({"status": "deleted"})
         membership = OrganizationMembership.objects.get(user=self.editor_user, organization=self.organization)

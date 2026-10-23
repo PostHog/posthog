@@ -17,8 +17,6 @@ from products.data_warehouse.backend.presentation.managed_warehouse_monitoring i
 )
 from products.warehouse_sources.backend.facade.testing import WarehouseAccessControlTestMixin
 
-_VIEWS = "products.data_warehouse.backend.presentation.views.data_warehouse"
-
 
 def _snapshot(organization_id: object) -> dict[str, object]:
     return {
@@ -116,9 +114,16 @@ class TestManagedWarehouseMonitoringAPI(APIBaseTest):
     def test_duckdb_monitoring_returns_404_for_a_trino_organization(self, endpoint: str) -> None:
         url = self._snapshot_url() if endpoint == "snapshot" else self._series_url()
         with (
-            patch(f"{_VIEWS}.managed_warehouse.data_ops_variant", return_value="trino"),
-            patch(f"{_VIEWS}.managed_warehouse.monitoring_snapshot_for") as mock_snapshot,
-            patch(f"{_VIEWS}.managed_warehouse.monitoring_series_for") as mock_series,
+            patch(
+                "products.managed_warehouse.backend.presentation.views.control_plane.data_ops_variant",
+                return_value="trino",
+            ),
+            patch(
+                "products.managed_warehouse.backend.presentation.views.warehouse_state.monitoring_snapshot_for"
+            ) as mock_snapshot,
+            patch(
+                "products.managed_warehouse.backend.presentation.views.warehouse_state.monitoring_series_for"
+            ) as mock_series,
         ):
             response = self.client.get(url)
 
@@ -128,9 +133,7 @@ class TestManagedWarehouseMonitoringAPI(APIBaseTest):
         mock_snapshot.assert_not_called()
         mock_series.assert_not_called()
 
-    @patch(
-        "products.data_warehouse.backend.presentation.views.data_warehouse.managed_warehouse.monitoring_snapshot_for"
-    )
+    @patch("products.managed_warehouse.backend.presentation.views.warehouse_state.monitoring_snapshot_for")
     def test_snapshot_derives_the_organization_and_removes_unknown_fields(self, mock_snapshot: MagicMock) -> None:
         upstream = _snapshot(self.organization.id)
         upstream["bucket"] = "sensitive-bucket"
@@ -173,9 +176,7 @@ class TestManagedWarehouseMonitoringAPI(APIBaseTest):
         ):
             assert forbidden not in serialized
 
-    @patch(
-        "products.data_warehouse.backend.presentation.views.data_warehouse.managed_warehouse.monitoring_snapshot_for"
-    )
+    @patch("products.managed_warehouse.backend.presentation.views.warehouse_state.monitoring_snapshot_for")
     def test_snapshot_rejects_an_upstream_organization_mismatch(self, mock_snapshot: MagicMock) -> None:
         upstream = _snapshot("different-organization")
         upstream["secret"] = "must-not-leak"
@@ -187,9 +188,7 @@ class TestManagedWarehouseMonitoringAPI(APIBaseTest):
         assert "different-organization" not in response.content.decode()
         assert "must-not-leak" not in response.content.decode()
 
-    @patch(
-        "products.data_warehouse.backend.presentation.views.data_warehouse.managed_warehouse.monitoring_snapshot_for"
-    )
+    @patch("products.managed_warehouse.backend.presentation.views.warehouse_state.monitoring_snapshot_for")
     def test_snapshot_accepts_workers_with_unavailable_resource_profiles(self, mock_snapshot: MagicMock) -> None:
         upstream = _snapshot(self.organization.id)
         worker = cast(dict[str, object], cast(list[object], upstream["workers"])[0])
@@ -203,9 +202,7 @@ class TestManagedWarehouseMonitoringAPI(APIBaseTest):
         assert response.json()["workers"][0]["cpu"] == ""
         assert response.json()["workers"][0]["memory"] == ""
 
-    @patch(
-        "products.data_warehouse.backend.presentation.views.data_warehouse.managed_warehouse.monitoring_snapshot_for"
-    )
+    @patch("products.managed_warehouse.backend.presentation.views.warehouse_state.monitoring_snapshot_for")
     def test_snapshot_accepts_unavailable_query_progress(self, mock_snapshot: MagicMock) -> None:
         upstream = _snapshot(self.organization.id)
         worker = cast(dict[str, object], cast(list[object], upstream["workers"])[0])
@@ -218,7 +215,7 @@ class TestManagedWarehouseMonitoringAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["workers"][0]["session"]["percentage"] is None
 
-    @patch("products.data_warehouse.backend.presentation.views.data_warehouse.managed_warehouse.monitoring_series_for")
+    @patch("products.managed_warehouse.backend.presentation.views.warehouse_state.monitoring_series_for")
     def test_timeseries_validates_and_forwards_the_allow_listed_query(self, mock_series: MagicMock) -> None:
         mock_series.return_value = Response(_series(self.organization.id), status=status.HTTP_200_OK)
 
@@ -228,14 +225,14 @@ class TestManagedWarehouseMonitoringAPI(APIBaseTest):
         mock_series.assert_called_once_with(str(self.organization.id), "query_rate", "6h")
         assert response.json()["series"][0]["labels"] == {"status": "success", "reason": "none"}
 
-    @patch("products.data_warehouse.backend.presentation.views.data_warehouse.managed_warehouse.monitoring_series_for")
+    @patch("products.managed_warehouse.backend.presentation.views.warehouse_state.monitoring_series_for")
     def test_timeseries_rejects_invalid_query_before_calling_upstream(self, mock_series: MagicMock) -> None:
         response = self.client.get(self._series_url("metric=worker_states&window=2h"))
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         mock_series.assert_not_called()
 
-    @patch("products.data_warehouse.backend.presentation.views.data_warehouse.managed_warehouse.monitoring_series_for")
+    @patch("products.managed_warehouse.backend.presentation.views.warehouse_state.monitoring_series_for")
     def test_timeseries_rejects_an_unexpected_upstream_label(self, mock_series: MagicMock) -> None:
         upstream = _series(self.organization.id)
         upstream_series = cast(list[object], upstream["series"])
@@ -255,9 +252,7 @@ class TestManagedWarehouseMonitoringAPI(APIBaseTest):
             ("upstream_error", status.HTTP_503_SERVICE_UNAVAILABLE, status.HTTP_502_BAD_GATEWAY),
         ]
     )
-    @patch(
-        "products.data_warehouse.backend.presentation.views.data_warehouse.managed_warehouse.monitoring_snapshot_for"
-    )
+    @patch("products.managed_warehouse.backend.presentation.views.warehouse_state.monitoring_snapshot_for")
     def test_snapshot_maps_upstream_failures_without_forwarding_details(
         self,
         _name: str,
@@ -281,9 +276,7 @@ class TestManagedWarehouseMonitoringAPI(APIBaseTest):
             ("old_control_plane_route", {"error": "404 page not found"}, status.HTTP_502_BAD_GATEWAY),
         ]
     )
-    @patch(
-        "products.data_warehouse.backend.presentation.views.data_warehouse.managed_warehouse.monitoring_snapshot_for"
-    )
+    @patch("products.managed_warehouse.backend.presentation.views.warehouse_state.monitoring_snapshot_for")
     def test_snapshot_distinguishes_missing_warehouse_from_an_old_control_plane_route(
         self,
         _name: str,
@@ -349,9 +342,7 @@ class TestManagedWarehouseMonitoringAccessControl(WarehouseAccessControlTestMixi
         upstream_method: str,
         endpoint: str,
     ) -> None:
-        upstream_path = (
-            f"products.data_warehouse.backend.presentation.views.data_warehouse.managed_warehouse.{upstream_method}"
-        )
+        upstream_path = f"products.managed_warehouse.backend.presentation.views.warehouse_state.{upstream_method}"
         with patch(upstream_path) as mock_upstream:
             upstream_body = (
                 _snapshot(self.organization.id)
@@ -378,9 +369,7 @@ class TestManagedWarehouseMonitoringPersonalAPIKey(APIBaseTest):
             headers={"authorization": f"Bearer {token}"},
         )
 
-    @patch(
-        "products.data_warehouse.backend.presentation.views.data_warehouse.managed_warehouse.monitoring_snapshot_for"
-    )
+    @patch("products.managed_warehouse.backend.presentation.views.warehouse_state.monitoring_snapshot_for")
     def test_snapshot_requires_the_warehouse_view_read_scope(self, mock_snapshot: MagicMock) -> None:
         mock_snapshot.return_value = Response(_snapshot(self.organization.id), status=status.HTTP_200_OK)
         allowed_token = self.create_personal_api_key_with_scopes(["warehouse_view:read"])
@@ -393,9 +382,7 @@ class TestManagedWarehouseMonitoringPersonalAPIKey(APIBaseTest):
         assert denied_response.status_code == status.HTTP_403_FORBIDDEN
         assert mock_snapshot.call_count == 1
 
-    @patch(
-        "products.data_warehouse.backend.presentation.views.data_warehouse.managed_warehouse.trino_monitoring_snapshot_for"
-    )
+    @patch("products.managed_warehouse.backend.presentation.views.warehouse_state.trino_monitoring_snapshot_for")
     def test_trino_snapshot_requires_the_warehouse_view_read_scope(self, mock_snapshot: MagicMock) -> None:
         mock_snapshot.return_value = Response({"error": "unused"}, status=status.HTTP_502_BAD_GATEWAY)
         url = f"/api/projects/{self.team.id}/data_warehouse/managed-warehouse-trino-monitoring/"

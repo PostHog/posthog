@@ -115,7 +115,7 @@ def mint_service_credential(
     # Imported here to avoid an import cycle: presentation.views imports the
     # facade, the facade (via client.py → service-credential-aware conninfo)
     # imports this module.
-    from products.managed_warehouse.backend.presentation.views import _request  # noqa: PLC0415
+    from products.managed_warehouse.backend.presentation.views.control_plane import _request  # noqa: PLC0415
 
     ttl_seconds = max(MIN_CREDENTIAL_TTL_SECONDS, min(ttl_seconds, MAX_CREDENTIAL_TTL_SECONDS))
 
@@ -176,7 +176,7 @@ def refresh_service_credential(
     real reason.
     """
     # See mint_service_credential for the import-cycle note.
-    from products.managed_warehouse.backend.presentation.views import _request  # noqa: PLC0415
+    from products.managed_warehouse.backend.presentation.views.control_plane import _request  # noqa: PLC0415
 
     ttl_seconds = max(MIN_CREDENTIAL_TTL_SECONDS, min(ttl_seconds, MAX_CREDENTIAL_TTL_SECONDS))
 
@@ -222,8 +222,8 @@ def renew_service_credential(
     timeout_seconds: int = 10,
 ) -> ServiceCredential:
     """Extend a Trino grant without changing the gateway's query-owner credential."""
-    from products.managed_warehouse.backend.presentation.views import (
-        _request,  # noqa: PLC0415 -- breaks the provisioning facade import cycle
+    from products.managed_warehouse.backend.presentation.views.control_plane import (  # noqa: PLC0415 -- breaks the provisioning facade import cycle
+        _request,
     )
 
     response = _request(

@@ -85,7 +85,7 @@ class TestReadyTrinoCatalogName:
         }
         with (
             mock.patch(
-                "products.managed_warehouse.backend.presentation.views._request",
+                "products.managed_warehouse.backend.presentation.views.control_plane._request",
                 return_value=Response(body, status=200),
             ) as request,
             capture_logs() as logs,
@@ -190,7 +190,7 @@ class TestReadyTrinoCatalogName:
                 body["status"] = {**body["status"], "connection": {"password": "example-secret"}}
         with (
             mock.patch(
-                "products.managed_warehouse.backend.presentation.views._request",
+                "products.managed_warehouse.backend.presentation.views.control_plane._request",
                 return_value=Response(body, status=status_code),
             ),
             capture_logs() as logs,

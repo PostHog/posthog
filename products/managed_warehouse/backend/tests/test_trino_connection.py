@@ -51,7 +51,7 @@ def _http_response(request: requests.PreparedRequest, **payload: object) -> requ
 
 def test_resolves_a_minted_credential_without_reading_stored_passwords() -> None:
     with mock.patch(
-        "products.managed_warehouse.backend.presentation.views._request", return_value=_mint_response()
+        "products.managed_warehouse.backend.presentation.views.control_plane._request", return_value=_mint_response()
     ) as cp:
         connection = resolve_managed_warehouse_trino_connection("org-1")
     assert connection.username == CREDENTIAL_ID
@@ -74,7 +74,9 @@ def test_resolves_a_minted_credential_without_reading_stored_passwords() -> None
 def test_rejects_unusable_service_credentials(change: dict[str, object]) -> None:
     response = _mint_response()
     response.data.update(change)
-    with mock.patch("products.managed_warehouse.backend.presentation.views._request", return_value=response):
+    with mock.patch(
+        "products.managed_warehouse.backend.presentation.views.control_plane._request", return_value=response
+    ):
         with pytest.raises(ManagedWarehouseTrinoConnectionUnavailable):
             resolve_managed_warehouse_trino_connection("org-1")
 
@@ -93,7 +95,8 @@ def test_rejects_unusable_service_credentials(change: dict[str, object]) -> None
 )
 def test_rejects_invalid_trino_targets(target: dict[str, object]) -> None:
     with mock.patch(
-        "products.managed_warehouse.backend.presentation.views._request", return_value=_mint_response(**target)
+        "products.managed_warehouse.backend.presentation.views.control_plane._request",
+        return_value=_mint_response(**target),
     ):
         with pytest.raises(ManagedWarehouseTrinoConnectionUnavailable):
             resolve_managed_warehouse_trino_connection("org-1")
@@ -139,7 +142,8 @@ def test_polling_renews_the_grant_and_preserves_cancellation_ownership(renewal_t
 
     with (
         mock.patch(
-            "products.managed_warehouse.backend.presentation.views._request", side_effect=[minted, refreshed]
+            "products.managed_warehouse.backend.presentation.views.control_plane._request",
+            side_effect=[minted, refreshed],
         ) as cp,
         mock.patch("products.managed_warehouse.backend.trino_connection._utcnow", return_value=issued_at) as now,
         mock.patch("requests.adapters.HTTPAdapter.send", side_effect=send),
@@ -188,7 +192,10 @@ def test_failed_refresh_does_not_send_a_request(refresh_response: str) -> None:
         response.data["credential_id"] = "svc_111111111111111111111111"
         response.data["trino_connect"]["username"] = response.data["credential_id"]
     with (
-        mock.patch("products.managed_warehouse.backend.presentation.views._request", side_effect=[minted, response]),
+        mock.patch(
+            "products.managed_warehouse.backend.presentation.views.control_plane._request",
+            side_effect=[minted, response],
+        ),
         mock.patch("products.managed_warehouse.backend.trino_connection._utcnow", return_value=issued_at) as now,
         mock.patch("requests.adapters.HTTPAdapter.send") as send,
     ):
@@ -217,7 +224,7 @@ def test_connection_keeps_verified_tls_and_scoped_proxy_bypass(host: str, port: 
     with (
         mock.patch.dict(os.environ, {"HTTPS_PROXY": proxy, "NO_PROXY": ""}, clear=True),
         mock.patch(
-            "products.managed_warehouse.backend.presentation.views._request",
+            "products.managed_warehouse.backend.presentation.views.control_plane._request",
             return_value=_mint_response(host=host, port=port),
         ),
         mock.patch("requests.adapters.HTTPAdapter.send", side_effect=RuntimeError("network boundary")) as send,
@@ -249,7 +256,10 @@ def test_service_secret_is_never_sent_to_a_redirect_or_foreign_poll_target(respo
         return response
 
     with (
-        mock.patch("products.managed_warehouse.backend.presentation.views._request", return_value=_mint_response()),
+        mock.patch(
+            "products.managed_warehouse.backend.presentation.views.control_plane._request",
+            return_value=_mint_response(),
+        ),
         mock.patch("requests.adapters.HTTPAdapter.send", side_effect=send),
     ):
         with connect_managed_warehouse_trino("org-1") as connection:
@@ -272,7 +282,8 @@ def test_a_prepared_request_renews_expiry_at_send_time(verify: bool | str) -> No
     with (
         mock.patch.dict(os.environ, {"HTTPS_PROXY": "http://proxy.example.com:4750", "NO_PROXY": ""}, clear=True),
         mock.patch(
-            "products.managed_warehouse.backend.presentation.views._request", side_effect=[minted, refreshed]
+            "products.managed_warehouse.backend.presentation.views.control_plane._request",
+            side_effect=[minted, refreshed],
         ) as cp,
         mock.patch("products.managed_warehouse.backend.trino_connection._utcnow", return_value=issued_at) as now,
         mock.patch(
@@ -319,7 +330,8 @@ def test_cancellation_does_not_wait_for_a_blocked_poll() -> None:
 
     with (
         mock.patch(
-            "products.managed_warehouse.backend.presentation.views._request", side_effect=[minted, refreshed]
+            "products.managed_warehouse.backend.presentation.views.control_plane._request",
+            side_effect=[minted, refreshed],
         ) as cp,
         mock.patch("products.managed_warehouse.backend.trino_connection._utcnow", return_value=issued_at) as now,
         mock.patch("requests.adapters.HTTPAdapter.send", side_effect=send),

@@ -32,7 +32,7 @@ class TestDataWarehouseAPI(APIBaseTest):
     )
     def test_overview_endpoints_require_a_managed_warehouse_flag(self, _name: str, path: str) -> None:
         with patch(
-            "products.data_warehouse.backend.presentation.views.data_warehouse.managed_warehouse.is_enabled",
+            "products.managed_warehouse.backend.presentation.views.control_plane.is_enabled",
             return_value=False,
         ):
             response = self.client.get(f"/api/projects/{self.team.id}/data_warehouse/{path}")
@@ -50,19 +50,19 @@ class TestDataWarehouseAPI(APIBaseTest):
     ) -> None:
         with (
             patch(
-                "products.data_warehouse.backend.presentation.views.data_warehouse.managed_warehouse.status_for",
+                "products.managed_warehouse.backend.presentation.views.warehouse_state.status_for",
                 return_value=Response({"state": "ready"}, status=200),
             ),
             patch(
-                "products.data_warehouse.backend.presentation.views.data_warehouse.managed_warehouse.team_backfill_state",
+                "products.managed_warehouse.backend.presentation.views.team_rows.team_backfill_state",
                 return_value={"has_backfill": team_onboarded, "table_suffix": "prod" if team_onboarded else None},
             ),
             patch(
-                "products.data_warehouse.backend.presentation.views.data_warehouse.managed_warehouse.team_onboarding_state",
+                "products.managed_warehouse.backend.presentation.views.team_rows.team_onboarding_state",
                 return_value={"team_onboarded": team_onboarded, "schema_name": "prod" if team_onboarded else None},
             ),
             patch(
-                "products.data_warehouse.backend.presentation.views.data_warehouse.managed_warehouse.ensure_direct_connection_tables"
+                "products.managed_warehouse.backend.presentation.views.query_sources.ensure_direct_connection_tables"
             ) as ensure_tables,
         ):
             response = self.client.get(f"/api/projects/{self.team.id}/data_warehouse/warehouse_status/")
@@ -75,7 +75,6 @@ class TestDataWarehouseAPI(APIBaseTest):
 
     @parameterized.expand([("trino", "trino"), ("duckdb", "duckdb")])
     def test_warehouse_status_presents_the_connection_for_the_variant(self, _name: str, variant: str) -> None:
-        views = "products.data_warehouse.backend.presentation.views.data_warehouse.managed_warehouse"
         pgwire = {"host": "my-warehouse.dw.example.com", "port": 5432, "database": "ducklake", "username": "root"}
         trino_status = {
             "state": "ready",
@@ -88,12 +87,29 @@ class TestDataWarehouseAPI(APIBaseTest):
             },
         }
         with (
-            patch(f"{views}.status_for", return_value=Response({"state": "ready", "connection": pgwire}, status=200)),
-            patch(f"{views}.team_backfill_state", return_value={"has_backfill": True, "table_suffix": "prod"}),
-            patch(f"{views}.team_onboarding_state", return_value={"team_onboarded": True, "schema_name": "prod"}),
-            patch(f"{views}.ensure_direct_connection_tables"),
-            patch(f"{views}.data_ops_variant", return_value=variant),
-            patch(f"{views}.trino_status_for", return_value=trino_status) as mock_trino_status,
+            patch(
+                f"products.managed_warehouse.backend.presentation.views.warehouse_state.status_for",
+                return_value=Response({"state": "ready", "connection": pgwire}, status=200),
+            ),
+            patch(
+                f"products.managed_warehouse.backend.presentation.views.team_rows.team_backfill_state",
+                return_value={"has_backfill": True, "table_suffix": "prod"},
+            ),
+            patch(
+                f"products.managed_warehouse.backend.presentation.views.team_rows.team_onboarding_state",
+                return_value={"team_onboarded": True, "schema_name": "prod"},
+            ),
+            patch(
+                f"products.managed_warehouse.backend.presentation.views.query_sources.ensure_direct_connection_tables"
+            ),
+            patch(
+                f"products.managed_warehouse.backend.presentation.views.control_plane.data_ops_variant",
+                return_value=variant,
+            ),
+            patch(
+                f"products.managed_warehouse.backend.presentation.views.warehouse_state.trino_status_for",
+                return_value=trino_status,
+            ) as mock_trino_status,
         ):
             response = self.client.get(f"/api/projects/{self.team.id}/data_warehouse/warehouse_status/")
 
@@ -109,18 +125,30 @@ class TestDataWarehouseAPI(APIBaseTest):
             mock_trino_status.assert_not_called()
 
     def test_warehouse_status_skips_the_trino_read_until_the_warehouse_is_ready(self) -> None:
-        views = "products.data_warehouse.backend.presentation.views.data_warehouse.managed_warehouse"
         pgwire = {"host": "my-warehouse.dw.example.com", "port": 5432, "database": "ducklake", "username": "root"}
         with (
             patch(
-                f"{views}.status_for",
+                f"products.managed_warehouse.backend.presentation.views.warehouse_state.status_for",
                 return_value=Response({"state": "provisioning", "connection": pgwire}, status=200),
             ),
-            patch(f"{views}.team_backfill_state", return_value={"has_backfill": False, "table_suffix": None}),
-            patch(f"{views}.team_onboarding_state", return_value={"team_onboarded": False, "schema_name": None}),
-            patch(f"{views}.ensure_direct_connection_tables"),
-            patch(f"{views}.data_ops_variant", return_value="trino"),
-            patch(f"{views}.trino_status_for") as mock_trino_status,
+            patch(
+                f"products.managed_warehouse.backend.presentation.views.team_rows.team_backfill_state",
+                return_value={"has_backfill": False, "table_suffix": None},
+            ),
+            patch(
+                f"products.managed_warehouse.backend.presentation.views.team_rows.team_onboarding_state",
+                return_value={"team_onboarded": False, "schema_name": None},
+            ),
+            patch(
+                f"products.managed_warehouse.backend.presentation.views.query_sources.ensure_direct_connection_tables"
+            ),
+            patch(
+                f"products.managed_warehouse.backend.presentation.views.control_plane.data_ops_variant",
+                return_value="trino",
+            ),
+            patch(
+                f"products.managed_warehouse.backend.presentation.views.warehouse_state.trino_status_for"
+            ) as mock_trino_status,
         ):
             response = self.client.get(f"/api/projects/{self.team.id}/data_warehouse/warehouse_status/")
 

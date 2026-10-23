@@ -442,7 +442,7 @@ def request(
 ) -> TranslatedResponse:
     """Serve one duckgres-v1-vocabulary control-plane call from hogtower's v2 API.
 
-    ``path`` follows ``presentation.views._request``: "" is the org resource itself,
+    ``path`` follows ``presentation.views.control_plane._request``: "" is the org resource itself,
     "/..." is org-scoped, anything else is a global path.
     """
     method = method.upper()
