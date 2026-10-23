@@ -4,7 +4,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import replace
 
 from temporalio import activity, workflow
-from temporalio.common import Priority, RetryPolicy, SearchAttributeKey
+from temporalio.common import RetryPolicy, SearchAttributeKey
 from temporalio.exceptions import (
     ActivityError,
     ApplicationError,
@@ -22,7 +22,6 @@ from posthog.temporal.common.logger import get_write_only_logger
 from products.alerts_platform.backend.temporal.metrics import (
     increment_deliveries_previewed,
     increment_discovery_omitted,
-    record_source_inventory,
     safe_record,
 )
 from products.alerts_platform.backend.temporal.outcomes import alerts_platform_record_outcomes_activity
@@ -52,6 +51,7 @@ with workflow.unsafe.imports_passed_through():
     )
     from products.alerts_platform.backend.logic.demand import discover_demand
     from products.alerts_platform.backend.logic.inventory import count_inventory
+    from products.alerts_platform.backend.temporal.inventory_metrics import push_inventory
     from products.alerts_platform.backend.temporal.postgres import check_postgres_connection
     from products.alerts_platform.backend.temporal.sources import SOURCE_BINDINGS, discovery_limits
 
@@ -119,8 +119,8 @@ async def alerts_platform_record_inventory_activity() -> None:
     except Exception as error:
         await LOGGER.awarning("alerts_platform_inventory_failed", error=str(error))
         return
-    for inventory in inventories:
-        safe_record(record_source_inventory, inventory, now)
+    # A failed push is logged and captured inside `push_registry`, never raised.
+    await asyncio.to_thread(push_inventory, inventories)
 
 
 @activity.defn
@@ -408,14 +408,10 @@ class AlertsPlatformSourceDispatchWorkflow(PostHogWorkflow):
         )
 
 
-INVENTORY_PATCH = "alerts-platform-record-inventory"
-# Lowest Temporal priority, so the count never takes a slot from a tick or a dispatcher.
-INVENTORY_PRIORITY = Priority(priority_key=5)
-
-
 @workflow.defn(name="alerts-platform-record-inventory")
 class AlertsPlatformRecordInventoryWorkflow(PostHogWorkflow):
     inputs_cls = AlertsPlatformInputs
+    inputs_optional = True
 
     @workflow.run
     async def run(self, inputs: AlertsPlatformInputs) -> None:
@@ -424,26 +420,6 @@ class AlertsPlatformRecordInventoryWorkflow(PostHogWorkflow):
             start_to_close_timeout=dt.timedelta(seconds=20),
             retry_policy=RetryPolicy(maximum_attempts=1),
         )
-
-
-async def _start_inventory(cutoff: str) -> None:
-    """Dashboard telemetry, so the tick never waits on it and a failed start never fails the tick."""
-    try:
-        await workflow.start_child_workflow(
-            AlertsPlatformRecordInventoryWorkflow.run,
-            AlertsPlatformInputs(),
-            # Keyed by cutoff, so a continued run of the same tick cannot start a second one.
-            id=f"alerts-platform-record-inventory-{cutoff}",
-            task_queue=settings.ALERTS_PLATFORM_SHARED_ORCHESTRATION_TASK_QUEUE,
-            parent_close_policy=workflow.ParentClosePolicy.ABANDON,
-            execution_timeout=dt.timedelta(seconds=30),
-            retry_policy=RetryPolicy(maximum_attempts=1),
-            priority=INVENTORY_PRIORITY,
-        )
-    except WorkflowAlreadyStartedError:
-        pass
-    except Exception as error:
-        workflow.logger.warning("Inventory start failed; the next tick tries again: %s", error)
 
 
 def _should_continue_as_new() -> bool:
@@ -490,8 +466,6 @@ class AlertsPlatformOrchestrateWorkflow(PostHogWorkflow):
             )
             demand = discovered.batch_keys_by_source
             inputs = replace(inputs, omitted=sum(discovered.omitted_by_source.values()))
-            if workflow.patched(INVENTORY_PATCH):
-                await _start_inventory(cutoff_iso)
         else:
             demand = inputs.demand
 

@@ -11,8 +11,9 @@ from posthog.models import Team
 
 from products.alerts_platform.backend.facade.contracts import SourceKind
 from products.alerts_platform.backend.facade.enums import PlatformAlertState
-from products.alerts_platform.backend.logic.inventory import count_inventory
+from products.alerts_platform.backend.logic.inventory import AlertCount, SourceInventory, count_inventory
 from products.alerts_platform.backend.models import PlatformAlert, PlatformAlertConfiguration
+from products.alerts_platform.backend.temporal.inventory_metrics import push_inventory
 
 NOW = datetime(2026, 10, 23, 12, tzinfo=UTC)
 LATER = NOW + timedelta(hours=1)
@@ -62,7 +63,7 @@ class TestSourceInventory(BaseTest):
 
         assert set(by_source) == set(SourceKind)
         logs = by_source[SourceKind.LOGS]
-        assert {(c.enabled, c.count) for c in logs.configurations} == {(True, 3), (False, 1)}
+        assert (logs.enabled_configurations, logs.disabled_configurations) == (3, 1)
         assert {(a.state.value, a.muted): a.count for a in logs.alerts if a.count} == {
             ("firing", False): 1,
             ("firing", True): 2,
@@ -71,7 +72,7 @@ class TestSourceInventory(BaseTest):
         }
         assert len(logs.alerts) == len(PlatformAlertState) * 2
         insight = by_source[SourceKind.INSIGHT]
-        assert {(c.enabled, c.count) for c in insight.configurations} == {(True, 1), (False, 0)}
+        assert (insight.enabled_configurations, insight.disabled_configurations) == (1, 0)
         assert {(a.state.value, a.muted): a.count for a in insight.alerts if a.count} == {("firing", False): 1}
 
     def test_a_slow_count_is_canceled_by_the_statement_timeout(self) -> None:
@@ -94,3 +95,24 @@ class TestSourceInventory(BaseTest):
             count_inventory(NOW)
 
         assert getattr(caught.value.__cause__, "sqlstate", None) == "57014"
+
+
+def test_push_replaces_the_group_with_the_dashboard_labels() -> None:
+    inventory = SourceInventory(
+        source=SourceKind.LOGS,
+        enabled_configurations=3,
+        disabled_configurations=1,
+        alerts=(AlertCount(state=PlatformAlertState.FIRING, muted=True, count=2),),
+    )
+
+    with patch("posthog.metrics.push_registry") as push:
+        push_inventory([inventory])
+
+    assert push.call_args.args[0] == "alerts_platform_inventory"
+    assert push.call_args.kwargs == {"replace_group": True}
+    registry = push.call_args.args[1]
+    assert registry.get_sample_value("alerts_platform_configurations", {"source": "logs", "enabled": "true"}) == 3
+    assert registry.get_sample_value("alerts_platform_configurations", {"source": "logs", "enabled": "false"}) == 1
+    assert (
+        registry.get_sample_value("alerts_platform_alerts", {"source": "logs", "state": "firing", "muted": "true"}) == 2
+    )

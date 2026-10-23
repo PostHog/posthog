@@ -21,12 +21,6 @@ INVENTORY_STATEMENT_TIMEOUT_MS = 500
 
 
 @frozen
-class ConfigurationCount:
-    enabled: bool
-    count: int
-
-
-@frozen
 class AlertCount:
     state: PlatformAlertState
     muted: bool
@@ -36,7 +30,8 @@ class AlertCount:
 @frozen
 class SourceInventory:
     source: SourceKind
-    configurations: tuple[ConfigurationCount, ...]
+    enabled_configurations: int
+    disabled_configurations: int
     alerts: tuple[AlertCount, ...]
 
 
@@ -50,13 +45,13 @@ def count_inventory(now: dt.datetime) -> tuple[SourceInventory, ...]:
             .values("source_kind", "enabled")
             .annotate(n=Count("id"))
         }
-        muted = Q(snooze_until__gt=now) | Q(configuration__snooze_until__gt=now)
+        is_muted = Q(snooze_until__gt=now) | Q(configuration__snooze_until__gt=now)
         alert_counts = {
             (row["configuration__source_kind"], row["state"]): (row["total"], row["muted"])
             for row in PlatformAlert.objects.unscoped()
             .filter(configuration__enabled=True)
             .values("configuration__source_kind", "state")
-            .annotate(total=Count("id"), muted=Count("id", filter=muted))
+            .annotate(total=Count("id"), muted=Count("id", filter=is_muted))
         }
 
     inventories: list[SourceInventory] = []
@@ -66,9 +61,12 @@ def count_inventory(now: dt.datetime) -> tuple[SourceInventory, ...]:
             total, muted_count = alert_counts.get((source.value, state.value), (0, 0))
             alerts.append(AlertCount(state=state, muted=True, count=muted_count))
             alerts.append(AlertCount(state=state, muted=False, count=total - muted_count))
-        configurations = tuple(
-            ConfigurationCount(enabled=enabled, count=configuration_counts.get((source.value, enabled), 0))
-            for enabled in (True, False)
+        inventories.append(
+            SourceInventory(
+                source=source,
+                enabled_configurations=configuration_counts.get((source.value, True), 0),
+                disabled_configurations=configuration_counts.get((source.value, False), 0),
+                alerts=tuple(alerts),
+            )
         )
-        inventories.append(SourceInventory(source=source, configurations=configurations, alerts=tuple(alerts)))
     return tuple(inventories)

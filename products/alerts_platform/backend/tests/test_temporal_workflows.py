@@ -633,22 +633,23 @@ class TestDemandDiscovery(APIBaseTest):
 
         assert result.batch_keys_by_source == {}
 
-    async def test_a_failed_inventory_count_is_logged_not_raised(self) -> None:
-        with (
-            patch.object(
-                alert_workflows,
-                "count_inventory",
-                side_effect=OperationalError("canceling statement due to statement timeout"),
-            ),
-            patch.object(alert_workflows, "record_source_inventory") as record,
-        ):
-            await alert_workflows.alerts_platform_record_inventory_activity()
-
-        record.assert_not_called()
-
     def test_discovery_rejects_a_limit_below_one(self) -> None:
         with pytest.raises(ValueError):
             demand.discover_demand(self.tick.isoformat(), limits_by_source={SourceKind.LOGS: 0})
+
+
+async def test_a_failed_inventory_count_does_not_raise() -> None:
+    with (
+        patch.object(
+            alert_workflows,
+            "count_inventory",
+            side_effect=OperationalError("canceling statement due to statement timeout"),
+        ),
+        patch.object(alert_workflows, "push_inventory") as push,
+    ):
+        await alert_workflows.alerts_platform_record_inventory_activity()
+
+    push.assert_not_called()
 
 
 @pytest.mark.parametrize("scheduled", [False, True])
@@ -673,16 +674,14 @@ async def test_discovery_uses_scheduled_cutoff_or_manual_start(scheduled: bool) 
         patch.object(
             workflow, "execute_activity", AsyncMock(return_value=AlertDemand(batch_keys_by_source={}))
         ) as discover,
-        patch.object(workflow, "patched", return_value=True),
-        patch.object(workflow, "start_child_workflow", AsyncMock()) as start_child,
+        patch.object(workflow, "start_child_workflow", AsyncMock()) as dispatch,
     ):
         result = await AlertsPlatformOrchestrateWorkflow().run(OrchestrateInputs())
-    cutoff = (tick_time if scheduled else actual_start).isoformat()
     assert discover.await_args is not None
-    assert discover.await_args.args[1] == DemandDiscoveryInputs(cutoff=cutoff)
-    start_child.assert_awaited_once()
-    assert start_child.await_args is not None
-    assert start_child.await_args.kwargs["id"] == f"alerts-platform-record-inventory-{cutoff}"
+    assert discover.await_args.args[1] == DemandDiscoveryInputs(
+        cutoff=(tick_time if scheduled else actual_start).isoformat()
+    )
+    dispatch.assert_not_awaited()
     assert result == OrchestrateResult(pages=[], remaining=0, deadline_reached=False)
 
 

@@ -7,13 +7,9 @@ below. Every call site wraps these in `safe_record`: a metric must never fail a 
 
 import datetime as dt
 from collections.abc import Callable
-from typing import TYPE_CHECKING
 
 from posthog.temporal.common.logger import get_write_only_logger
 from posthog.temporal.common.metrics import get_metric_meter
-
-if TYPE_CHECKING:
-    from products.alerts_platform.backend.logic.inventory import SourceInventory
 
 logger = get_write_only_logger(__name__)
 
@@ -188,30 +184,6 @@ def increment_outcomes_recorded(count: int) -> None:
         "alerts_platform_outcomes_recorded_total",
         "Check decisions written to the shared alert tables",
     ).add(count)
-
-
-def record_source_inventory(inventory: "SourceInventory", recorded_at: dt.datetime) -> None:
-    """Only the replica that counted a source last holds its current values; the others keep exporting
-    older ones. A reader keeps the counts of the pod with the newest `alerts_platform_inventory_recorded_at`
-    for that source."""
-    source = inventory.source.value
-    for configuration in inventory.configurations:
-        get_metric_meter({"source": source, "enabled": str(configuration.enabled).lower()}).create_gauge(
-            "alerts_platform_configurations",
-            "Platform alert configurations, by source and whether they are enabled",
-        ).set(configuration.count)
-    for alert in inventory.alerts:
-        get_metric_meter(
-            {"source": source, "state": alert.state.value, "muted": str(alert.muted).lower()}
-        ).create_gauge(
-            "alerts_platform_alerts",
-            "Runtime rows of enabled platform alert configurations, by state and whether they are muted",
-        ).set(alert.count)
-    # Set last, so a pod never claims a freshness its counts do not have.
-    get_metric_meter({"source": source}).create_gauge(
-        "alerts_platform_inventory_recorded_at",
-        "Unix seconds when this replica last recorded the source's inventory",
-    ).set(int(recorded_at.timestamp()))
 
 
 def record_batch_duration(source: str, duration_ms: int) -> None:
