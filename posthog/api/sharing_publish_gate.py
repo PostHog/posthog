@@ -75,10 +75,10 @@ def insight_query_access_error(
     exposure = insight_shared_or_subscribed(insight)
     if exposure is None:
         return None
-    denied = denied_query_resources(user, insight.team, [query])
-    if not denied:
+    denied_resources = denied_query_resources(user, insight.team, [query])
+    if not denied_resources:
         return None
-    denied_names = ", ".join(f"`{name}`" for name in denied)
+    denied_names = ", ".join(f"`{name}`" for name in denied_resources)
     return f"Can't save this query: you don't have access to {denied_names}, and this insight is {exposure}."
 
 
@@ -103,9 +103,9 @@ def check_can_add_insight_to_dashboard(
     exposure = dashboard_shared_or_subscribed(dashboard)
     if exposure is None:
         return
-    denied = denied_query_resources(user, dashboard.team, [query])
-    if denied:
-        denied_names = ", ".join(f"`{name}`" for name in denied)
+    denied_resources = denied_query_resources(user, dashboard.team, [query])
+    if denied_resources:
+        denied_names = ", ".join(f"`{name}`" for name in denied_resources)
         raise serializers.ValidationError(
             f"Can't add this insight: you don't have access to {denied_names}, and this dashboard is {exposure}."
         )
@@ -118,16 +118,16 @@ def denied_resources_in_share(user: User, team: Team, config: SharingConfigurati
     the same resolution the read path uses. Non-access compile errors don't gate.
     Empty list = safe to publish.
     """
-    denied = denied_query_resources(user, team, _queries_exposed_by(config))
+    denied_resources = denied_query_resources(user, team, _queries_exposed_by(config))
     # A dashboard's own filters and tile overrides run inside every tile, and they could have
     # been saved before the dashboard was shared, when the save-time check did not apply.
     if config.dashboard is not None:
         leaves = dashboard_filter_leaves(config.dashboard.filters)
         for overrides in config.dashboard.tiles.values_list("filters_overrides", flat=True):
             leaves += dashboard_filter_leaves(overrides)
-        if (table := table_blocking_property_filters(user, team, leaves)) and table not in denied:
-            denied = sorted([*denied, table])
-    return denied
+        if (table := table_blocking_property_filters(user, team, leaves)) and table not in denied_resources:
+            denied_resources = sorted([*denied_resources, table])
+    return denied_resources
 
 
 def dashboard_filter_leaves(filters: Any) -> list[dict[str, Any]]:

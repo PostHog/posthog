@@ -542,15 +542,15 @@ class _SubscriptionWrite:
         requester: object = self.user
         if not isinstance(requester, User):
             return
-        denied = denied_resources_in_subscription(
+        denied_resources = denied_resources_in_subscription(
             user=requester,
             team=self.team,
             user_access_control=self.viewer,
             subscription_id=subscription_id,
             attrs=attrs,
         )
-        if denied:
-            denied_names = ", ".join(f"`{name}`" for name in denied)
+        if denied_resources:
+            denied_names = ", ".join(f"`{name}`" for name in denied_resources)
             raise SubscriptionRequestInvalidError(
                 f"Can't save this subscription: you don't have access to {denied_names}."
             )

@@ -28,7 +28,7 @@ def denied_query_resources(user: User, team: Team, queries: list[dict[str, Any]]
     # query's own modifiers must shape it, because a warehouse events mapping can put an expression
     # into the schema, and the run would compile that expression against the same modifiers.
     contexts: dict[str, HogQLContext] = {}
-    denied: set[str] = set()
+    denied_resources: set[str] = set()
     for query in queries:
         try:
             # get_query_runner unwraps container nodes (DataTableNode, InsightVizNode, ...) itself.
@@ -46,10 +46,10 @@ def denied_query_resources(user: User, team: Team, queries: list[dict[str, Any]]
                 )
             prepare_ast_for_printing(runner.to_query(), context=context, dialect="clickhouse")
         except UserAccessControlError as e:
-            denied.add(e.resource)
+            denied_resources.add(e.resource)
         except TableAccessDeniedError as e:
-            denied.add(e.table_name)
+            denied_resources.add(e.table_name)
         except Exception:
             # Only access denials gate publishing; anything else is the query's own problem.
             continue
-    return sorted(denied)
+    return sorted(denied_resources)

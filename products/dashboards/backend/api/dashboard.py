@@ -2731,8 +2731,8 @@ class DashboardSerializer(DashboardMetadataSerializer):
             .values_list("query", flat=True)
             if isinstance(query, dict)
         ]
-        if denied := denied_query_resources(user, instance.team, queries):
-            denied_names = ", ".join(f"`{name}`" for name in denied)
+        if denied_resources := denied_query_resources(user, instance.team, queries):
+            denied_names = ", ".join(f"`{name}`" for name in denied_resources)
             raise serializers.ValidationError(
                 f"Can't restore this dashboard: you don't have access to {denied_names}, and this dashboard is {exposure}."
             )
