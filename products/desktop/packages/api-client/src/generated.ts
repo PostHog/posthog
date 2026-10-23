@@ -20687,6 +20687,27 @@ export namespace Schemas {
          */
         states: Record<string, boolean>;
     };
+    /**
+     * * `add` - Add
+     * * `remove` - Remove
+     * * `replace` - Replace
+     * * `confirm` - Confirm
+     */
+    export type ReviewerEditActionEnum =
+        | "add"
+        | "remove"
+        | "replace"
+        | "confirm";
+    export type ReviewerState = {
+        /**
+         * Current reviewer artefact ID, or null before the first list.
+         */
+        reviewers_id: string | null;
+        /**
+         * Current corrections artefact ID, or null before corrections are stored.
+         */
+        corrections_id: string | null;
+    };
     export type RowFilterColumn = {
         /**
          * Column name to use as `column` in a row filter.
@@ -20742,6 +20763,28 @@ export namespace Schemas {
          * Number of captured rrweb events in the recording. Only populated when the recording's metadata is loaded, e.g. on retrieve; null in list responses.
          */
         event_count: number | null;
+    };
+    /**
+     * Single entry in a PUT body for a `suggested_reviewers` artefact.
+     *
+     * Each entry must identify a reviewer by at least one of `github_login` or `user_uuid`. A
+     * `user_uuid` only has to name an org member on this team — a member with no linked GitHub
+     * account is stored by uuid and routes like any other reviewer.
+     */
+    export type SuggestedReviewerEntryWrite = Partial<{
+        github_login: string;
+        user_uuid: string;
+        github_name: string;
+        reason: string | null;
+    }>;
+    export type SignalReportArtefactWrite = {
+        action?: (ReviewerEditActionEnum & unknown) | undefined;
+        expected_reviewers?: ReviewerState | undefined;
+        /**
+         * People to add, remove, or keep in a replacement. Send an empty list for confirmation.
+         */
+        content: Array<SuggestedReviewerEntryWrite>;
+        targets?: Array<SuggestedReviewerEntryWrite> | undefined;
     };
     /**
      * Mixin for serializers to add user access control fields
