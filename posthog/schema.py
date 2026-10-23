@@ -5257,6 +5257,7 @@ class BoxPlotDatum(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    count: int | None = None
     day: str
     label: str
     max: float
