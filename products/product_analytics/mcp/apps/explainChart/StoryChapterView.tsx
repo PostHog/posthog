@@ -31,7 +31,7 @@ export function StoryChapterView({
         >
             <div className="flex flex-col gap-4">
                 <div className="flex flex-col gap-1.5">
-                    <Text size="base" weight="medium">
+                    <Text size="base" weight="medium" className="min-w-0 [overflow-wrap:anywhere]">
                         {page.title}
                     </Text>
                     {page.facts && (

@@ -76,7 +76,7 @@ export function StorySummaryView({
                                         <span className="flex size-5 shrink-0 items-center justify-center rounded-full border border-border text-xs font-medium tabular-nums text-muted-foreground">
                                             {index}
                                         </span>
-                                        <Text size="sm" render={<span />}>
+                                        <Text size="sm" className="min-w-0 [overflow-wrap:anywhere]" render={<span />}>
                                             {page.title}
                                         </Text>
                                     </button>

@@ -23,10 +23,11 @@ const referrer = (index: number, name: string, typical: (value: number) => numbe
     data: VALUES.map((value, day) => (day === SPIKE_INDEX ? spike : typical(value))),
     color: DEFAULT_CHART_COLORS[index],
 })
+const REFERRERS = ['news.example.com', '$direct', 'google.com']
 const BY_REFERRER: Series[] = [
-    referrer(0, 'news.example.com', () => 3, 412),
-    referrer(1, '$direct', (value) => Math.round(value * 0.55), 52),
-    referrer(2, 'google.com', (value) => Math.round(value * 0.4), 34),
+    referrer(0, REFERRERS[0]!, () => 3, 412),
+    referrer(1, REFERRERS[1]!, (value) => Math.round(value * 0.55), 52),
+    referrer(2, REFERRERS[2]!, (value) => Math.round(value * 0.4), 34),
 ]
 
 const story: ExplainChartData = {
@@ -104,8 +105,8 @@ const evidenceCharts: StoryEvidenceCharts = {
     prefetch: () => {},
     render: (_, text) => (
         <StoryChart
-            series={BY_REFERRER.map((item) =>
-                isSeriesNamedIn(item.label, text) ? item : { ...item, color: `${item.color}40` }
+            series={BY_REFERRER.map((item, index) =>
+                isSeriesNamedIn([item.label, REFERRERS[index]!], text) ? item : { ...item, color: `${item.color}40` }
             )}
         />
     ),
