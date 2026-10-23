@@ -393,13 +393,19 @@ class SandboxedEvalHarness:
                     self._stack,
                     expected_sha256=saved.skills_sha256,
                     source_sha256=source_sha256,
+                    retain=self.options.keep_sandbox_containers,
                 )
             else:
                 skill_build_dir = Path(
                     self._stack.enter_context(tempfile.TemporaryDirectory(prefix="posthog-eval-build-"))
                 )
                 skills_dir = build_local_skills(set_bind_mount_env=False, output_dir=skill_build_dir)
-                self._skills_snapshot = SkillSnapshot.capture(skills_dir, self._stack, source_sha256=source_sha256)
+                self._skills_snapshot = SkillSnapshot.capture(
+                    skills_dir,
+                    self._stack,
+                    source_sha256=source_sha256,
+                    retain=self.options.keep_sandbox_containers,
+                )
             if (
                 SkillSnapshot.source_fingerprint(
                     Path(settings.BASE_DIR), LocalSkillsCache().source_sha256, excluded_paths=output_paths

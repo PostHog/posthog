@@ -47,8 +47,9 @@ from products.tasks.backend.logic.services.local_skills import (
 from products.tasks.backend.logic.services.skill_manifest import hash_skill_files, verify_skill_files
 
 
+@pytest.mark.parametrize("retain", [False, True])
 def test_skill_snapshot_keeps_branch_files_when_the_build_directory_changes(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, retain: bool
 ) -> None:
     monkeypatch.setattr("products.posthog_ai.eval_harness.harness.skill_snapshot.LOGS_ROOT", tmp_path / "logs")
     source = tmp_path / "built"
@@ -56,12 +57,16 @@ def test_skill_snapshot_keeps_branch_files_when_the_build_directory_changes(
     skill.parent.mkdir(parents=True)
     skill.write_text("branch version")
     with ExitStack() as stack:
-        snapshot = SkillSnapshot.capture(source, stack, source_sha256="source")
+        snapshot = SkillSnapshot.capture(source, stack, source_sha256="source", retain=retain)
         skill.write_text("later version")
         assert (snapshot.directory / "sample" / "SKILL.md").read_text() == "branch version"
         assert json.loads(snapshot.manifest_path.read_text()) == hash_skill_files(snapshot.directory)
         restored = SkillSnapshot.restore(
-            snapshot.archive_path, stack, expected_sha256=snapshot.sha256, source_sha256=snapshot.source_sha256
+            snapshot.archive_path,
+            stack,
+            expected_sha256=snapshot.sha256,
+            source_sha256=snapshot.source_sha256,
+            retain=retain,
         )
         assert restored.sha256 == snapshot.sha256
         assert (restored.directory / "sample" / "SKILL.md").read_text() == "branch version"
@@ -69,6 +74,8 @@ def test_skill_snapshot_keeps_branch_files_when_the_build_directory_changes(
             SkillSnapshot.restore(
                 snapshot.archive_path, stack, expected_sha256="0" * 64, source_sha256=snapshot.source_sha256
             )
+    assert (snapshot.directory / "sample" / "SKILL.md").is_file() is retain
+    assert (restored.directory / "sample" / "SKILL.md").is_file() is retain
 
 
 def test_skill_verification_rejects_stale_native_copies(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

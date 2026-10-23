@@ -69,12 +69,19 @@ class SkillSnapshot:
         return digest.hexdigest()
 
     @classmethod
-    def capture(cls, source: Path, stack: ExitStack, *, source_sha256: str) -> SkillSnapshot:
+    def capture(cls, source: Path, stack: ExitStack, *, source_sha256: str, retain: bool = False) -> SkillSnapshot:
         expected = hash_skill_files(source)
         if not expected:
             raise RuntimeError("Cannot run evals with an empty skill snapshot")
-        temporary = Path(stack.enter_context(tempfile.TemporaryDirectory(prefix="posthog-eval-skills-")))
-        directory = temporary / "skills"
+        manifests = LOGS_ROOT / "skill-snapshots"
+        manifests.mkdir(parents=True, exist_ok=True)
+        snapshot_id = uuid4().hex
+        root = (
+            manifests / snapshot_id
+            if retain
+            else Path(stack.enter_context(tempfile.TemporaryDirectory(prefix="posthog-eval-skills-")))
+        )
+        directory = root / "skills"
         shutil.copytree(source, directory, ignore=shutil.ignore_patterns(".*", "__pycache__"))
         if hash_skill_files(directory) != expected or hash_skill_files(source) != expected:
             raise RuntimeError("Skill files changed while capturing the eval snapshot")
@@ -83,9 +90,7 @@ class SkillSnapshot:
                 path.chmod(0o444)
         manifest = (json.dumps(expected, sort_keys=True, indent=2) + "\n").encode()
         digest = hashlib.sha256(manifest).hexdigest()
-        manifests = LOGS_ROOT / "skill-snapshots"
-        manifests.mkdir(parents=True, exist_ok=True)
-        manifest_path = manifests / f"{uuid4().hex}_{digest}.json"
+        manifest_path = manifests / f"{snapshot_id}_{digest}.json"
         manifest_path.write_bytes(manifest)
         manifest_path.chmod(0o444)
         archive_path = package_local_skills_archive(directory, manifest_path.with_suffix(".zip"))
@@ -99,7 +104,9 @@ class SkillSnapshot:
         )
 
     @classmethod
-    def restore(cls, archive: Path, stack: ExitStack, *, expected_sha256: str, source_sha256: str) -> SkillSnapshot:
+    def restore(
+        cls, archive: Path, stack: ExitStack, *, expected_sha256: str, source_sha256: str, retain: bool = False
+    ) -> SkillSnapshot:
         directory = Path(stack.enter_context(tempfile.TemporaryDirectory(prefix="posthog-eval-restore-")))
         with zipfile.ZipFile(archive) as bundle:
             for entry in bundle.infolist():
@@ -111,7 +118,7 @@ class SkillSnapshot:
                 destination = directory / relative
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 destination.write_bytes(bundle.read(entry))
-        snapshot = cls.capture(directory, stack, source_sha256=source_sha256)
+        snapshot = cls.capture(directory, stack, source_sha256=source_sha256, retain=retain)
         if snapshot.sha256 != expected_sha256:
             raise RuntimeError("Saved eval skill snapshot does not match its recorded hash")
         return snapshot
