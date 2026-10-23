@@ -4362,7 +4362,7 @@ export interface RunningTimeCalculationInputApi {
      */
     baseline_value?: number | null
     /**
-     * Pre-computed variance for ratio/retention metrics. Provide this or baseline_stats when metric_type is ratio/retention and baseline_value is given directly.
+     * Pre-computed variance per user. Provide this or baseline_stats when metric_type is ratio/retention and baseline_value is given directly. When given, it replaces the variance the calculator derives for any metric type, including p(1-p) for funnels.
      * @nullable
      */
     variance?: number | null
