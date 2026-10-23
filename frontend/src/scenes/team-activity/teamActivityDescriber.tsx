@@ -16,7 +16,7 @@ import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/Pr
 import { Link } from 'lib/lemon-ui/Link'
 import { CURRENCY_SYMBOL_TO_EMOJI_MAP, CURRENCY_SYMBOL_TO_NAME_MAP } from 'lib/utils/currency'
 import { isObject } from 'lib/utils/guards'
-import { pluralize } from 'lib/utils/strings'
+import { capitalizeFirstLetter, pluralize } from 'lib/utils/strings'
 import { ExperimentsConfig } from 'scenes/settings/environment/experimentsConfigLogic'
 import { urls } from 'scenes/urls'
 
@@ -828,31 +828,19 @@ function describeWorkflowEmailTierChange(logItem: ActivityLogItem): HumanizedCha
     // A staff-set tier has no decision behind it, so the row says "set" and shows no reason.
     const setByStaff = contextReason === 'staff_set'
     const reason = setByStaff ? undefined : contextReason
-    const pinVerb = pinChange ? (pinChange.after ? 'pinned' : 'unpinned') : null
     const target = shortIdActivityLink(logItem, urls.notebook)
-    const tierMove = tierChange ? `from ${String(tierChange.before)} to ${String(tierChange.after)}` : null
+    const pinVerb = pinChange ? (pinChange.after ? 'pinned' : 'unpinned') : null
+    const verb = tierChange ? (setByStaff ? 'set' : 'moved') : pinVerb
+    const tierMove = tierChange ? ` from ${String(tierChange.before)} to ${String(tierChange.after)}` : ''
+    const pinSuffix = tierChange && pinVerb ? ` and ${pinVerb === 'pinned' ? 'pinned it there' : 'unpinned it'}` : ''
+    const action = `${verb} the workflow email sending tier`
     return {
-        summary: activityLogSummary(
-            logItem,
-            tierMove
-                ? `${setByStaff ? 'Set' : 'Moved'} the workflow email sending tier ${tierMove}`
-                : `${pinVerb === 'pinned' ? 'Pinned' : 'Unpinned'} the workflow email sending tier`,
-            target,
-            reason
-        ),
+        summary: activityLogSummary(logItem, `${capitalizeFirstLetter(action)}${tierMove}${pinSuffix}`, target, reason),
         description: (
             <>
-                <ActivityLogUserName logItem={logItem} />{' '}
-                {tierMove ? (
-                    <>
-                        {setByStaff ? 'set' : 'moved'} the workflow email sending tier on {target} {tierMove}
-                        {pinVerb ? <> and {pinVerb === 'pinned' ? 'pinned it there' : 'unpinned it'}</> : null}
-                    </>
-                ) : (
-                    <>
-                        {pinVerb} the workflow email sending tier on {target}
-                    </>
-                )}
+                <ActivityLogUserName logItem={logItem} /> {action} on {target}
+                {tierMove}
+                {pinSuffix}
                 {reason ? <> (reason: {reason})</> : null}
             </>
         ),

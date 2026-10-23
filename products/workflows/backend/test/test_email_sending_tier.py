@@ -25,6 +25,7 @@ from products.workflows.backend.services.email_sending_tier import (
     recompute_email_sending_tier_for_team,
     recompute_email_sending_tiers,
 )
+from products.workflows.backend.tasks.email_sending_tiers import recompute_workflows_email_sending_tiers
 from products.workflows.backend.utils.email_sending_tiers import get_email_sending_tier_limits
 
 TIER_HOURLY_CAPS = [200, 600, 2000, 6000, 20000, 60000, 200000]
@@ -412,9 +413,9 @@ class TestRecomputeEmailSendingTiers(BaseTest):
             return_value=SendingHistoryWindows(window=histories, recent=histories),
         ):
             if by_staff:
-                recompute_email_sending_tier_for_team(self.team.id, user=self.user)
+                recompute_email_sending_tier_for_team(self.team.id, user_id=self.user.pk)
             else:
-                recompute_email_sending_tiers()
+                recompute_workflows_email_sending_tiers()
 
         config = TeamWorkflowsConfig.objects.get(team=self.team)
         assert config.email_sending_tier == 1

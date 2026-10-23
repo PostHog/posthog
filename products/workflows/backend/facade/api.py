@@ -301,18 +301,12 @@ def team_has_active_workflows_using_cohorts(*, team_id: int) -> bool:
 def recompute_email_sending_tier(
     team_id: int, *, user_id: int | None = None, was_impersonated: bool = False
 ) -> TierDecision | None:
-    from posthog.models.user import User  # noqa: PLC0415 — keeps the user model off the facade import path
-
     # Deferred to keep the ClickHouse metrics client off the facade import path.
     from products.workflows.backend.services.email_sending_tier import (  # noqa: PLC0415
         recompute_email_sending_tier_for_team,
     )
 
-    return recompute_email_sending_tier_for_team(
-        team_id,
-        user=User.objects.filter(pk=user_id).first() if user_id is not None else None,
-        was_impersonated=was_impersonated,
-    )
+    return recompute_email_sending_tier_for_team(team_id, user_id=user_id, was_impersonated=was_impersonated)
 
 
 # The provider helpers look the provider class up on the providers package at call time, which

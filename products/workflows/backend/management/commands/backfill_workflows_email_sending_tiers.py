@@ -16,12 +16,14 @@ from posthog.models.team.extensions import get_or_create_team_extension
 
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
 from products.workflows.backend.services.email_sending_tier import (
-    EMAIL_SENDING_TIER_BACKFILL_JOB_TYPE,
     SesTenantState,
     TeamSendingHistory,
     TierDecision,
     build_sending_histories,
     decide_tier,
+)
+from products.workflows.backend.services.email_sending_tier_audit import (
+    EMAIL_SENDING_TIER_BACKFILL_JOB_TYPE,
     log_email_sending_tier_change,
 )
 from products.workflows.backend.utils.email_sending_tiers import (
@@ -172,9 +174,7 @@ class Command(BaseCommand):
                 reason=decision.reason,
             )
             log_email_sending_tier_change(
-                team_id=decision.team_id,
-                team_name=team.name,
-                organization_id=team.organization_id,
+                team,
                 previous_tier=decision.previous_tier,
                 new_tier=decision.new_tier,
                 reason=decision.reason,

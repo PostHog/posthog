@@ -5,15 +5,17 @@ from django.utils import timezone
 
 from posthog.models.team import Team
 from posthog.models.team.extensions import get_or_create_team_extension
-from posthog.models.user import User
 
 from products.workflows.backend.facade.contracts import EmailSendingState, EmailSendingSuspensionChange
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
+from products.workflows.backend.services.email_sending_tier_audit import log_email_sending_tier_change
 from products.workflows.backend.utils.email_sending_tiers import MIN_EMAIL_SENDING_TIER
 
 
-def ensure_workflows_config(team_id: int) -> None:
-    get_or_create_team_extension(Team.objects.get(pk=team_id), TeamWorkflowsConfig)
+def ensure_workflows_config(team_id: int) -> Team:
+    team = Team.objects.get(pk=team_id)
+    get_or_create_team_extension(team, TeamWorkflowsConfig)
+    return team
 
 
 def get_email_sending_state(team_id: int) -> EmailSendingState | None:
@@ -35,7 +37,7 @@ def suspend_email_sending(
     # Row-lock the config while checking + flipping so two concurrent submits (retried POST,
     # two open admin tabs) can't both pass the idempotency check and both dispatch the
     # customer email + notification. Side effects stay with the caller, outside the atomic block.
-    ensure_workflows_config(team_id)
+    team = ensure_workflows_config(team_id)
     with transaction.atomic():
         config = TeamWorkflowsConfig.objects.select_for_update().get(team_id=team_id)
         if config.email_sending_suspended_at is not None:
@@ -62,14 +64,14 @@ def suspend_email_sending(
                 "email_sending_tier_updated_at",
             ]
         )
-        _log_tier_change(
-            team_id,
-            previous_tier=previous_tier,
-            new_tier=MIN_EMAIL_SENDING_TIER,
-            reason="staff_suspension",
-            user_id=user_id,
-            was_impersonated=was_impersonated,
-        )
+    log_email_sending_tier_change(
+        team,
+        previous_tier=previous_tier,
+        new_tier=MIN_EMAIL_SENDING_TIER,
+        reason="staff_suspension",
+        user_id=user_id,
+        was_impersonated=was_impersonated,
+    )
     return EmailSendingSuspensionChange(changed_at=suspended_at)
 
 
@@ -91,7 +93,7 @@ def set_email_sending_tier(
     team_id: int, *, tier: int, pinned: bool, user_id: int | None = None, was_impersonated: bool = False
 ) -> int:
     """Write a staff-chosen tier and pin state, and return the tier the team had before."""
-    ensure_workflows_config(team_id)
+    team = ensure_workflows_config(team_id)
     with transaction.atomic():
         config = TeamWorkflowsConfig.objects.select_for_update().get(team_id=team_id)
         previous_tier = config.email_sending_tier
@@ -109,44 +111,13 @@ def set_email_sending_tier(
                 "email_sending_tier_updated_at",
             ]
         )
-        _log_tier_change(
-            team_id,
-            previous_tier=previous_tier,
-            new_tier=tier,
-            reason="staff_set",
-            previous_pinned=previous_pinned,
-            pinned=pinned,
-            user_id=user_id,
-            was_impersonated=was_impersonated,
-        )
-    return previous_tier
-
-
-def _log_tier_change(
-    team_id: int,
-    *,
-    previous_tier: int,
-    new_tier: int,
-    reason: str,
-    previous_pinned: bool | None = None,
-    pinned: bool | None = None,
-    user_id: int | None,
-    was_impersonated: bool,
-) -> None:
-    # Deferred because the tier module pulls the ClickHouse metrics client, and this module sits on
-    # the facade import path, which django.setup() walks.
-    from products.workflows.backend.services.email_sending_tier import log_email_sending_tier_change  # noqa: PLC0415
-
-    team = Team.objects.get(pk=team_id)
     log_email_sending_tier_change(
-        team_id=team_id,
-        team_name=team.name,
-        organization_id=team.organization_id,
+        team,
         previous_tier=previous_tier,
-        new_tier=new_tier,
-        reason=reason,
-        previous_pinned=previous_pinned,
-        pinned=pinned,
-        user=User.objects.filter(pk=user_id).first() if user_id is not None else None,
+        new_tier=tier,
+        reason="staff_set",
+        pin_change=(previous_pinned, pinned),
+        user_id=user_id,
         was_impersonated=was_impersonated,
     )
+    return previous_tier

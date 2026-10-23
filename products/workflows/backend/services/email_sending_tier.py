@@ -1,7 +1,5 @@
-import dataclasses
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING, Any, Optional
-from uuid import UUID, uuid4
+from typing import Any, Optional
 
 from django.conf import settings
 from django.utils import timezone
@@ -12,10 +10,11 @@ from posthog.api.app_metrics2 import fetch_app_metric_daily_totals_by_team
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.dataclasses import frozen
-from posthog.models.activity_logging.activity_log import ActivityContextBase, Change, Detail, Trigger, log_activity
+from posthog.models.activity_logging.activity_log import Trigger
 
 from products.workflows.backend.facade.contracts import TierDecision
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
+from products.workflows.backend.services.email_sending_tier_audit import log_email_sending_tier_change
 from products.workflows.backend.utils.email_sending_tiers import (
     MIN_EMAIL_SENDING_TIER,
     get_email_sending_tier_limits,
@@ -23,14 +22,7 @@ from products.workflows.backend.utils.email_sending_tiers import (
     min_days_at_tier,
 )
 
-if TYPE_CHECKING:
-    from posthog.models.user import User
-
 logger = structlog.get_logger(__name__)
-
-EMAIL_SENDING_TIER_CHANGED_ACTIVITY = "email_sending_tier_changed"
-EMAIL_SENDING_TIER_SWEEP_JOB_TYPE = "workflows_email_sending_tier_sweep"
-EMAIL_SENDING_TIER_BACKFILL_JOB_TYPE = "backfill_workflows_email_sending_tiers"
 
 APP_SOURCE = "hog_flow"
 
@@ -374,64 +366,12 @@ def _empty_history(team_id: int) -> TeamSendingHistory:
     return TeamSendingHistory(team_id=team_id, sent=0, hard_bounced=0, complained=0, auto_paused=False, daily_sends={})
 
 
-@dataclasses.dataclass(frozen=True)
-class EmailSendingTierActivityContext(ActivityContextBase):
-    # The decision reason for a computed change, or staff_set for a tier staff set by hand.
-    reason: str
-
-
-def log_email_sending_tier_change(
-    *,
-    team_id: int,
-    team_name: str,
-    organization_id: UUID,
-    previous_tier: int,
-    new_tier: int,
-    reason: str,
-    trigger: Trigger | None = None,
-    previous_pinned: bool | None = None,
-    pinned: bool | None = None,
-    user: Optional["User"] = None,
-    was_impersonated: bool = False,
-) -> None:
-    """Write the audit row for a tier or pin change. Writes nothing when neither value moved."""
-    changes: list[Change] = []
-    if previous_tier != new_tier:
-        changes.append(
-            Change(type="Team", action="changed", field="email_sending_tier", before=previous_tier, after=new_tier)
-        )
-    if previous_pinned is not None and pinned is not None and previous_pinned != pinned:
-        changes.append(
-            Change(
-                type="Team", action="changed", field="email_sending_tier_pinned", before=previous_pinned, after=pinned
-            )
-        )
-    if not changes:
-        return
-
-    log_activity(
-        organization_id=organization_id,
-        team_id=team_id,
-        user=user,
-        was_impersonated=was_impersonated,
-        item_id=team_id,
-        scope="Team",
-        activity=EMAIL_SENDING_TIER_CHANGED_ACTIVITY,
-        detail=Detail(
-            name=team_name,
-            changes=changes,
-            trigger=trigger,
-            context=EmailSendingTierActivityContext(reason=reason),
-        ),
-    )
-
-
 def apply_tier_decision(
     config: TeamWorkflowsConfig,
     decision: TierDecision,
     *,
     trigger: Trigger | None = None,
-    user: Optional["User"] = None,
+    user_id: int | None = None,
     was_impersonated: bool = False,
 ) -> bool:
     """Persist a tier change. Returns whether anything was written."""
@@ -469,14 +409,12 @@ def apply_tier_decision(
         reason=decision.reason,
     )
     log_email_sending_tier_change(
-        team_id=decision.team_id,
-        team_name=config.team.name,
-        organization_id=config.team.organization_id,
+        config.team,
         previous_tier=decision.previous_tier,
         new_tier=decision.new_tier,
         reason=decision.reason,
         trigger=trigger,
-        user=user,
+        user_id=user_id,
         was_impersonated=was_impersonated,
     )
     return True
@@ -485,7 +423,8 @@ def apply_tier_decision(
 def recompute_email_sending_tiers(
     team_ids: Optional[list[int]] = None,
     *,
-    user: Optional["User"] = None,
+    trigger: Trigger | None = None,
+    user_id: int | None = None,
     was_impersonated: bool = False,
 ) -> list[TierDecision]:
     """
@@ -501,13 +440,6 @@ def recompute_email_sending_tiers(
     change nor its reason describes the row anymore.
     """
     now = timezone.now()
-    # A staff recompute carries the acting user. A run without one is the scheduled sweep, so its
-    # rows name that job, and one id groups every row the run writes.
-    trigger = (
-        None
-        if user is not None
-        else Trigger(job_type=EMAIL_SENDING_TIER_SWEEP_JOB_TYPE, job_id=str(uuid4()), payload={})
-    )
     after = now - timedelta(days=settings.WORKFLOWS_EMAIL_TIER_RATE_WINDOW_DAYS)
     recent_after = now - timedelta(days=settings.WORKFLOWS_EMAIL_TIER_DEMOTION_WINDOW_DAYS)
     windows = build_sending_history_windows(after=after, recent_after=recent_after, team_ids=team_ids)
@@ -568,14 +500,14 @@ def recompute_email_sending_tiers(
             last_rate_demotion_at=config.email_sending_tier_demoted_at,
         )
         if not decision.changed or apply_tier_decision(
-            config, decision, trigger=trigger, user=user, was_impersonated=was_impersonated
+            config, decision, trigger=trigger, user_id=user_id, was_impersonated=was_impersonated
         ):
             decisions.append(decision)
     return decisions
 
 
 def recompute_email_sending_tier_for_team(
-    team_id: int, *, user: Optional["User"] = None, was_impersonated: bool = False
+    team_id: int, *, user_id: int | None = None, was_impersonated: bool = False
 ) -> Optional[TierDecision]:
     """
     Recompute one team now, so a staff suspension takes its tier down without waiting for the
@@ -583,5 +515,5 @@ def recompute_email_sending_tier_for_team(
     did not move. None means the team was not evaluated at all: it is pinned, it has no config
     row, or its state changed while recomputing.
     """
-    decisions = recompute_email_sending_tiers(team_ids=[team_id], user=user, was_impersonated=was_impersonated)
+    decisions = recompute_email_sending_tiers(team_ids=[team_id], user_id=user_id, was_impersonated=was_impersonated)
     return decisions[0] if decisions else None
