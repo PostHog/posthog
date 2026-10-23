@@ -19,8 +19,6 @@ from products.slack_app.backend.temporal.attachments import (
     prepare_slack_thread_file_artifacts,
 )
 
-_TYPE_SKIP_SUFFIX = "was skipped because programs, installers, and Office files with macros are not supported."
-
 
 def _slack_file(**overrides: Any) -> SlackFileRef:
     return replace(
@@ -50,6 +48,7 @@ class TestSlackAttachments(SimpleTestCase):
             ("standup.mp3", "audio/mpeg", "mp3", "audio/mpeg"),
             ("deploy.sh", "text/x-sh", "shell", "text/x-sh"),
             ("diagram.svg", "image/svg+xml", "svg", "image/svg+xml"),
+            ("installer.exe", "application/x-msdownload", "", "application/x-msdownload"),
         ]
     )
     def test_prepares_safe_slack_file_as_user_attachment(
@@ -75,39 +74,6 @@ class TestSlackAttachments(SimpleTestCase):
         # Retried preparation must produce the same artifact id so uploads upsert.
         assert artifact["id"]
         assert prepared_again.artifacts == prepared.artifacts
-
-    @parameterized.expand(
-        [
-            ("installer.exe", "application/x-msdownload", ""),
-            ("report.docm", "application/vnd.ms-word.document.macroEnabled.12", ""),
-            ("budget.xlsx", "application/vnd.ms-excel.sheet.macroEnabled.12", ""),
-            # A harmless extension does not hide a blocked mimetype or Slack filetype.
-            ("photo.png", "application/x-msdownload", ""),
-            ("notes.txt", "text/plain", "exe"),
-        ]
-    )
-    def test_rejects_disallowed_attachment_metadata_without_downloading(
-        self, name: str, mimetype: str, filetype: str
-    ) -> None:
-        with patch("products.slack_app.backend.temporal.attachments._download_slack_file") as download:
-            prepared = prepare_slack_file_artifacts(
-                [_slack_file(name=name, mimetype=mimetype, filetype=filetype)],
-                "xoxb-token",
-            )
-
-        download.assert_not_called()
-        assert prepared.artifacts == []
-        assert prepared.skipped_messages == [f"{name} {_TYPE_SKIP_SUFFIX}"]
-
-    def test_blocks_executable_payload_after_download(self) -> None:
-        with patch(
-            "products.slack_app.backend.temporal.attachments._download_slack_file",
-            return_value=b"\x7fELF\x02\x01\x01",
-        ):
-            prepared = prepare_slack_file_artifacts([_slack_file(name="notes.txt")], "xoxb-token")
-
-        assert prepared.artifacts == []
-        assert prepared.skipped_messages == ["notes.txt was skipped because its content looks like a program."]
 
     @parameterized.expand(
         [
@@ -289,11 +255,11 @@ class TestSlackAttachments(SimpleTestCase):
         prompt = build_slack_attachment_prompt_text(
             None,
             uploaded_artifacts=[{"name": "debug.log"}],
-            skipped_messages=[f"deploy.sh {_TYPE_SKIP_SUFFIX}"],
+            skipped_messages=["deploy.sh was skipped because it could not be downloaded from Slack."],
         )
 
         assert prompt == (
             "Slack attachment(s) available to the agent as task files: debug.log.\n\n"
             "Slack attachment(s) skipped:\n"
-            f"- deploy.sh {_TYPE_SKIP_SUFFIX}"
+            "- deploy.sh was skipped because it could not be downloaded from Slack."
         )

@@ -37,59 +37,11 @@ _MAX_ATTACHMENT_NAME_CHARS = 120
 
 _ALLOWED_SLACK_FILE_HOST_SUFFIXES = ("slack.com", "slack-edge.com", "slack-files.com")
 
-# A Slack attachment accepts the same file types as an attachment from PostHog
-# Desktop or PostHog AI, so a file that works on one surface works on all three.
-# The agent reads attachments and does not run them. But a Slack thread can carry
-# files from anybody in the channel, so compiled programs, installers, and Office
-# files with macros stay out. Text scripts are accepted, because the other
-# surfaces accept them and the agent reads them as text.
-_BLOCKED_EXTENSIONS = frozenset(
-    {
-        ".apk",
-        ".app",
-        ".com",
-        ".cpl",
-        ".deb",
-        ".dll",
-        ".dmg",
-        ".docm",
-        ".dotm",
-        ".dylib",
-        ".exe",
-        ".jar",
-        ".msi",
-        ".pkg",
-        ".potm",
-        ".ppam",
-        ".ppsm",
-        ".pptm",
-        ".rpm",
-        ".scr",
-        ".so",
-        ".xlam",
-        ".xlsm",
-        ".xltm",
-    }
-)
-_BLOCKED_MIME_TYPES = frozenset(
-    {
-        "application/java-archive",
-        "application/vnd.android.package-archive",
-        "application/vnd.microsoft.portable-executable",
-        "application/x-apple-diskimage",
-        "application/x-dosexec",
-        "application/x-executable",
-        "application/x-mach-binary",
-        "application/x-msdos-program",
-        "application/x-msdownload",
-        "application/x-msi",
-        "application/x-sharedlib",
-    }
-)
+# Slack applies no file type rule of its own. The task artifact store decides what a
+# user may attach, so Slack, PostHog Desktop, and PostHog AI accept the same files.
+
 _HTML_EXTENSIONS = frozenset({".htm", ".html", ".xhtml"})
 _HTML_MIME_TYPES = frozenset({"application/xhtml+xml", "text/html"})
-
-_ATTACHMENT_TYPE_SKIP_REASON = "programs, installers, and Office files with macros are not supported"
 
 _SLOW_BATCH_SKIP_MESSAGE = (
     "Some Slack attachment(s) were skipped because they took too long to fetch. "
@@ -98,16 +50,6 @@ _SLOW_BATCH_SKIP_MESSAGE = (
 _LARGE_BATCH_SKIP_MESSAGE = (
     "Some Slack attachment(s) were skipped because the thread's files are too large to send together. "
     "Post the one you want the agent to look at."
-)
-
-_EXECUTABLE_MAGIC_PREFIXES = (
-    b"MZ",
-    b"\x7fELF",
-    b"\xcf\xfa\xed\xfe",
-    b"\xce\xfa\xed\xfe",
-    b"\xfe\xed\xfa\xcf",
-    b"\xfe\xed\xfa\xce",
-    b"\xca\xfe\xba\xbe",
 )
 
 
@@ -198,25 +140,9 @@ def _is_allowed_slack_file_url(url: str) -> bool:
     return any(hostname == suffix or hostname.endswith(f".{suffix}") for suffix in _ALLOWED_SLACK_FILE_HOST_SUFFIXES)
 
 
-def _is_blocked_metadata(filename: str, content_type: str, slack_filetype: str) -> bool:
-    """Any one blocked signal blocks the file, so a ``.png`` name does not hide an executable mimetype."""
-    extension = os.path.splitext(filename.lower())[1]
-    filetype = slack_filetype.lower()
-    return (
-        extension in _BLOCKED_EXTENSIONS
-        or content_type in _BLOCKED_MIME_TYPES
-        or "macroenabled" in content_type
-        or (bool(filetype) and f".{filetype}" in _BLOCKED_EXTENSIONS)
-    )
-
-
 def _is_declared_html(filename: str, content_type: str, slack_filetype: str) -> bool:
     extension = os.path.splitext(filename.lower())[1]
     return extension in _HTML_EXTENSIONS or content_type in _HTML_MIME_TYPES or slack_filetype.lower() == "html"
-
-
-def _is_executable_payload(payload: bytes) -> bool:
-    return any(payload.startswith(prefix) for prefix in _EXECUTABLE_MAGIC_PREFIXES)
 
 
 def _source_url(file: SlackFileRef) -> str:
@@ -437,10 +363,6 @@ def _prepare_files(
 
         filename = attachment_display_name(file)
         content_type = _normalize_content_type(file.mimetype) or "application/octet-stream"
-        if _is_blocked_metadata(filename, content_type, file.filetype):
-            skipped_messages.append(f"{filename} was skipped because {_ATTACHMENT_TYPE_SKIP_REASON}.")
-            continue
-
         max_file_bytes = tasks_facade.get_user_attachment_max_size_bytes(filename, content_type)
         if file.size is not None and file.size > max_file_bytes:
             skipped_messages.append(
@@ -477,9 +399,6 @@ def _prepare_files(
             skipped_messages.append(f"{filename} was skipped because it could not be downloaded from Slack.")
             continue
         budget.spend_bytes(len(payload))
-        if _is_executable_payload(payload):
-            skipped_messages.append(f"{filename} was skipped because its content looks like a program.")
-            continue
 
         artifact: dict[str, Any] = {
             "name": filename,
