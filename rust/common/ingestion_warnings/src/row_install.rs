@@ -10,7 +10,7 @@ use crate::row::{KafkaRowWarningEmitter, RowWarningEmitter};
 use crate::throttle::{WarningThrottle, DEFAULT_MAX_TRACKED_KEYS};
 use crate::{observe_delivery, INGESTION_WARNINGS_EMITTER_ENABLED};
 
-pub const DEFAULT_TYPE_BUDGET_PER_SECOND: NonZeroU32 = NonZeroU32::new(60).unwrap();
+pub const DEFAULT_TYPE_BUDGET_PER_MINUTE: NonZeroU32 = NonZeroU32::new(60).unwrap();
 /// Default for `INGESTION_WARNINGS_MAX_TRACKED_SCOPES`. Row scopes can be per
 /// distinct id, so the throttle default (sized for capture's per-token keys)
 /// would fill within the hour a key lives and silence every team on the pod.
@@ -32,7 +32,7 @@ pub struct RowWarningsSettings {
     pub kafka_linger_ms: u32,
     pub kafka_queue_messages: u32,
     pub kafka_message_timeout_ms: u32,
-    pub type_budget_per_second: NonZeroU32,
+    pub type_budget_per_minute: NonZeroU32,
     pub max_tracked_scopes: usize,
 }
 
@@ -70,8 +70,8 @@ impl RowWarningsSettings {
         WarningThrottle::default()
             .with_max_tracked_keys(self.max_tracked_scopes)
             .with_type_budget(
-                Duration::from_secs(1) / self.type_budget_per_second.get(),
-                self.type_budget_per_second,
+                Duration::from_secs(60) / self.type_budget_per_minute.get(),
+                self.type_budget_per_minute,
             )
     }
 }
@@ -180,7 +180,7 @@ mod tests {
             kafka_linger_ms: 100,
             kafka_queue_messages: 10_000,
             kafka_message_timeout_ms: 5_000,
-            type_budget_per_second: DEFAULT_TYPE_BUDGET_PER_SECOND,
+            type_budget_per_minute: DEFAULT_TYPE_BUDGET_PER_MINUTE,
             max_tracked_scopes: DEFAULT_MAX_TRACKED_SCOPES,
         }
     }
@@ -270,7 +270,7 @@ mod tests {
                 other => panic!("scope {n}: {other:?}"),
             }
         }
-        assert!(admitted >= DEFAULT_TYPE_BUDGET_PER_SECOND.get() as usize);
+        assert!(admitted >= DEFAULT_TYPE_BUDGET_PER_MINUTE.get() as usize);
         assert_eq!(
             throttle.tracked_keys(),
             admitted,
@@ -281,7 +281,7 @@ mod tests {
     #[test]
     fn the_throttle_takes_its_budget_and_cap_from_settings() {
         let throttle = RowWarningsSettings {
-            type_budget_per_second: NonZeroU32::new(2).unwrap(),
+            type_budget_per_minute: NonZeroU32::new(2).unwrap(),
             max_tracked_scopes: 3,
             ..settings(true, "broker:9092", "topic")
         }
@@ -299,7 +299,7 @@ mod tests {
             throttle.check(&throttle_key(7, "c"), warning),
             ThrottleDecision::TypeBudgetExhausted
         );
-        let later = Instant::now() + Duration::from_millis(600);
+        let later = Instant::now() + Duration::from_secs(31);
         assert_eq!(
             throttle.check_at(&throttle_key(7, "c"), warning, later),
             ThrottleDecision::Emit
@@ -314,7 +314,7 @@ mod tests {
     fn the_type_budget_refills_at_the_stated_rate() {
         let throttle = settings(true, "broker:9092", "topic").throttle();
         let warning = WarningType::MergeRaceCondition;
-        for n in 0..DEFAULT_TYPE_BUDGET_PER_SECOND.get() {
+        for n in 0..DEFAULT_TYPE_BUDGET_PER_MINUTE.get() {
             assert_eq!(
                 throttle.check(&throttle_key(7, &n.to_string()), warning),
                 ThrottleDecision::Emit,
@@ -325,8 +325,12 @@ mod tests {
             throttle.check(&throttle_key(7, "over"), warning),
             ThrottleDecision::TypeBudgetExhausted
         );
-        // A budget that refilled one permit a second would still refuse.
-        let later = Instant::now() + Duration::from_millis(100);
+        let soon = Instant::now() + Duration::from_millis(500);
+        assert_eq!(
+            throttle.check_at(&throttle_key(7, "soon"), warning, soon),
+            ThrottleDecision::TypeBudgetExhausted
+        );
+        let later = Instant::now() + Duration::from_millis(1100);
         assert_eq!(
             throttle.check_at(&throttle_key(7, "later"), warning, later),
             ThrottleDecision::Emit

@@ -10,7 +10,7 @@ use common_ingestion_warnings::{
 /// Warnings emitted from the leader's admission check, ahead of the write
 /// path proper. `pipeline_step` lands in the v2 table's `pipeline_step`
 /// column via the row's details.
-pub const LEADER_ADMISSION: WarningSource = WarningSource {
+const LEADER_ADMISSION: WarningSource = WarningSource {
     service: "personhog-leader",
     path: "admission",
     pipeline_step: "personhog_admission",
