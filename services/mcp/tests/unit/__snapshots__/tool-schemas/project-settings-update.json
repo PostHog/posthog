@@ -418,6 +418,24 @@
         },
         "feature_flag_policy_config": {
             "properties": {
+                "blocked_hosts": {
+                    "description": "Domains to block from feature flag requests (/flags and /decide), up to 100. A domain also covers its subdomains. It is compared with the Origin header, or with the Referer header when Origin is missing. Entries are stored lowercase without duplicates. A pasted URL is reduced to its domain, and an internationalized domain is stored as punycode.",
+                    "items": {
+                        "maxLength": 2000,
+                        "type": "string"
+                    },
+                    "maxItems": 1000,
+                    "type": "array"
+                },
+                "blocked_ips": {
+                    "description": "IPv4 or IPv6 addresses or CIDR ranges to block from feature flag requests (/flags and /decide), up to 100. Ranges can be /8 or narrower for IPv4 and /16 or narrower for IPv6. Entries are stored in canonical form without duplicates, and an IPv4-mapped IPv6 address is stored as IPv4.",
+                    "items": {
+                        "maxLength": 2000,
+                        "type": "string"
+                    },
+                    "maxItems": 1000,
+                    "type": "array"
+                },
                 "require_tags": {
                     "description": "When enabled, a new feature flag needs at least one tag, and a tagged flag cannot lose its last one. A create that declares it comes from a survey, experiment, early access feature, product tour, or web experiment is exempt, because those forms have no tag input. The caller sets that declaration, so a flag can still be created without a tag.",
                     "type": "boolean"
