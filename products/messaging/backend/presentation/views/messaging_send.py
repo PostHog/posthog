@@ -493,7 +493,10 @@ class MessagingSendViewSet(TransactionalEmailViewSetMixin, viewsets.ViewSet):
             headers=tuple(
                 EmailField(name=name, value=value) for name, value in sorted(data.get("headers", {}).items())
             ),
-            tags=tuple(EmailField(name=tag["name"], value=tag["value"]) for tag in data.get("tags", ())),
+            tags=tuple(
+                EmailField(name=tag["name"], value=tag["value"])
+                for tag in sorted(data.get("tags", ()), key=lambda tag: tag["name"])
+            ),
         )
 
     @staticmethod

@@ -686,12 +686,17 @@ class TestTransactionalEmail(APIBaseTest):
             sent = {**sent, "from": {**sent["from"], "integrationId": sender_ids[sent["from"]["integrationId"]]}}
         assert mock_post.call_args.kwargs["json"].get("send") == sent
 
-    def test_a_send_posts_the_same_headers_whatever_their_order(self, mock_post, _flag, _capture):
+    def test_a_send_posts_the_same_headers_and_tags_whatever_their_order(self, mock_post, _flag, _capture):
         self._cdp_accepts(mock_post)
         client = self._psak_client(["hog_flow:write"])
+        plan, region = {"name": "plan", "value": "pro"}, {"name": "region", "value": "eu"}
 
-        for headers in ({"X-Entity-Ref-ID": "order-123", "X-Ref": "1"}, {"X-Ref": "1", "X-Entity-Ref-ID": "order-123"}):
-            response = client.post(self.send_email_url, self._send_body("template_key", headers=headers), format="json")
+        for headers, tags in (
+            ({"X-Entity-Ref-ID": "order-123", "X-Ref": "1"}, [plan, region]),
+            ({"X-Ref": "1", "X-Entity-Ref-ID": "order-123"}, [region, plan]),
+        ):
+            body = self._send_body("template_key", headers=headers, tags=tags)
+            response = client.post(self.send_email_url, body, format="json")
             assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
 
         first, second = (call.kwargs["json"]["send"] for call in mock_post.call_args_list)
